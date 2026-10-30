@@ -16,7 +16,7 @@
 //! Everything waits on events: the sockets, a command channel, and one-shot sleeps for backoff
 //! (1 s doubling to 60 s), run only while something is pending.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
@@ -797,7 +797,8 @@ async fn session(
     // The reason of the room's own `end`, if it sent one.
     let mut room_end: Option<String> = None;
     let (relay_out, mut relayed) = mpsc::unbounded_channel();
-    let mut guests = Guests { relays: HashMap::new(), next: 0, out: relay_out };
+    let mut guests =
+        Guests { relays: HashMap::new(), clients: HashMap::new(), next: 0, out: relay_out };
     loop {
         let quiet = heard + if pinged { timing.heartbeat * 2 } else { timing.heartbeat };
         let out = tokio::select! {
@@ -906,9 +907,15 @@ fn reconcile(mux: &Mux, share_id: &str) -> Vec<Value> {
     out
 }
 
+/// The client ids kept per guest for its next relay.
+const MAX_GUEST_CLIENTS: usize = 64;
+
 /// The relays of one host socket's guests (dropped with it).
 struct Guests {
     relays: HashMap<String, relay::Relay>,
+    /// Each guest's client ids its page named (newest last, at most 64), handed to its next
+    /// relay so a reconnect's snapshot names those prompts' states.
+    clients: HashMap<String, VecDeque<String>>,
     next: u64,
     out: mpsc::UnboundedSender<relay::Out>,
 }
@@ -918,12 +925,15 @@ impl Guests {
     fn room(&mut self, mux: &Arc<Mux>, share_id: &str, frame: &Value) {
         let guest = frame.get("guest_id").and_then(Value::as_str).unwrap_or_default();
         let ask = match frame.get("t").and_then(Value::as_str).unwrap_or_default() {
-            // `hello` names each connected guest once, not its sockets: their count is unknown.
+            // `hello` names each connected guest once; its socket count when the room gives it
+            // (`sockets`), else unknown.
             "hello" => {
                 self.relays.clear();
                 for guest in frame.get("guests").and_then(Value::as_array).into_iter().flatten() {
+                    let sockets = guest.get("sockets").and_then(Value::as_u64);
+                    let sockets = sockets.and_then(|n| usize::try_from(n).ok()).filter(|n| *n > 0);
                     let guest = guest.get("guest_id").and_then(Value::as_str).unwrap_or_default();
-                    self.open(mux, share_id, guest, None);
+                    self.open(mux, share_id, guest, sockets);
                 }
                 return;
             }
@@ -935,13 +945,12 @@ impl Guests {
                 };
                 return self.open(mux, share_id, guest, sockets);
             }
-            // The relay ends with the guest's last socket. Once the count is unknown (since a
-            // host `hello`) it stays until the guest's kick, the share's end or the next `hello`.
+            // The relay ends with the guest's last socket. With no count (a room whose `hello`
+            // gives none) the first `guest_left` ends it: a relay never outlives its guest's
+            // sockets holding a daemon connection; another open tab of the guest reconnects.
             "guest_left" => {
-                if let Some(relay) = self.relays.get_mut(guest)
-                    && let Some(sockets) = relay.sockets
-                {
-                    let left = sockets.saturating_sub(1);
+                if let Some(relay) = self.relays.get_mut(guest) {
+                    let left = relay.sockets.map_or(0, |n| n.saturating_sub(1));
                     relay.sockets = Some(left);
                     if left == 0 {
                         self.relays.remove(guest);
@@ -949,24 +958,25 @@ impl Guests {
                 }
                 return;
             }
-            "guest_prompt" => relay::Ask::Prompt {
-                client_id: frame
-                    .get("client_id")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned(),
-                text: frame.get("text").and_then(Value::as_str).unwrap_or_default().to_owned(),
-            },
+            "guest_prompt" => {
+                let client_id = frame.get("client_id").and_then(Value::as_str).unwrap_or_default();
+                self.named(guest, [client_id]);
+                let text = frame.get("text").and_then(Value::as_str).unwrap_or_default();
+                relay::Ask::Prompt { client_id: client_id.to_owned(), text: text.to_owned() }
+            }
             "guest_typing" => relay::Ask::Typing(frame.get("on") == Some(&Value::Bool(true))),
             "older" => match frame.get("before_seq").and_then(Value::as_u64) {
                 Some(before) => relay::Ask::Older(before),
                 None => return,
             },
-            "prompt_status" => relay::Ask::Status(
-                (frame.get("client_ids").and_then(Value::as_array).into_iter().flatten())
-                    .filter_map(|id| id.as_str().map(str::to_owned))
-                    .collect(),
-            ),
+            "prompt_status" => {
+                let ids: Vec<String> =
+                    (frame.get("client_ids").and_then(Value::as_array).into_iter().flatten())
+                        .filter_map(|id| id.as_str().map(str::to_owned))
+                        .collect();
+                self.named(guest, ids.iter().map(String::as_str));
+                relay::Ask::Status(ids)
+            }
             _ => return,
         };
         if let Some(relay) = self.relays.get(guest) {
@@ -983,9 +993,27 @@ impl Guests {
         let render = bridge.render.get_or_init(|| Arc::new(RenderService::new())).clone();
         self.next = self.next.wrapping_add(1);
         let ids = (share_id, guest);
-        if let Some(mut relay) = relay::start(mux, render, ids, self.next, self.out.clone()) {
+        let known: Vec<String> =
+            self.clients.get(guest).map(|k| k.iter().cloned().collect()).unwrap_or_default();
+        let out = self.out.clone();
+        if let Some(mut relay) = relay::start(mux, render, ids, self.next, out, &known) {
             relay.sockets = sockets;
             self.relays.insert(guest.to_owned(), relay);
+        }
+    }
+
+    /// Notes client ids `guest`'s page named, for its next relay.
+    fn named<'a>(&mut self, guest: &str, ids: impl IntoIterator<Item = &'a str>) {
+        if !self.relays.contains_key(guest) {
+            return;
+        }
+        let known = self.clients.entry(guest.to_owned()).or_default();
+        for id in ids.into_iter().filter(|id| (1..=128).contains(&id.len())) {
+            known.retain(|k| k != id);
+            if known.len() >= MAX_GUEST_CLIENTS {
+                known.pop_front();
+            }
+            known.push_back(id.to_owned());
         }
     }
 

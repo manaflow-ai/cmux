@@ -1528,8 +1528,8 @@ fn reconnects_get_fresh_snapshots_and_a_kick_ends_the_guests_relay() {
 }
 
 /// A prompt the room sends right after `guest_joined` (before the relay's attachment answers)
-/// still reaches the daemon; after a host reconnect, one socket leaving does not end the relay of
-/// a guest whose socket count `hello` did not say.
+/// still reaches the daemon; after a host reconnect, the relay counts the guest's sockets from
+/// `hello`, so one of two leaving keeps it.
 #[test]
 fn an_early_prompt_waits_for_the_attachment_and_a_hello_guest_outlives_one_left_socket() {
     let room = FakeRoom::start(&[]);
@@ -1548,8 +1548,8 @@ fn an_early_prompt_waits_for_the_attachment_and_a_hello_guest_outlives_one_left_
         }
     }
     assert_eq!(room.next(conn, "prompt_state")["client_id"], "early");
-    // A host reconnect names Ann once, whatever her sockets.
-    room.shared.hello.lock().unwrap().push(json!({"guest_id": ann, "name": "Ann"}));
+    // A host reconnect names Ann with her two open sockets: one leaving keeps her relay.
+    room.shared.hello.lock().unwrap().push(json!({"guest_id": ann, "name": "Ann", "sockets": 2}));
     room.drop_host();
     let (conn, _) = room.host();
     assert_eq!(room.next(conn, "guests")["t"], "guests");
@@ -1580,4 +1580,51 @@ fn a_guest_relay_takes_a_connection_permit() {
     drop(held);
     room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
     assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+}
+
+/// A burst of prompts cannot pass the 16-held cap before their replies come: prompts sent and
+/// not answered count too, and the 17th is refused.
+#[test]
+fn a_burst_of_prompts_stops_at_the_held_cap() {
+    let room = FakeRoom::start(&[]);
+    let (fake, _mux, surface, mut owner) = bridged("relay-burst", &room);
+    let (_share, [ann, _bob], conn) = two_guests(&room, &mut owner, surface);
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    while fake.next_frame(Duration::from_millis(300)).is_some() {}
+    for n in 0..17 {
+        room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann,
+            "client_id": format!("c{n}"), "text": "hello"}));
+    }
+    let deadline = Instant::now() + WAIT;
+    let refused = loop {
+        let state = room.next(conn, "prompt_state");
+        if state["state"] == "refused" {
+            break state;
+        }
+        assert!(Instant::now() < deadline, "the 17th prompt is refused");
+    };
+    assert_eq!(
+        (refused["client_id"].clone(), refused["reason"].clone()),
+        (json!("c16"), json!("share.too_many_held"))
+    );
+}
+
+/// A room whose `hello` gives no socket count: the guest's first `guest_left` ends its relay, so
+/// no relay holds a daemon connection past its guest's sockets.
+#[test]
+fn a_hello_guest_without_a_count_ends_with_its_first_left_socket() {
+    let room = FakeRoom::start(&[]);
+    let (fake, _mux, surface, mut owner) = bridged("relay-uncounted", &room);
+    let (_share, [ann, _bob], _conn) = two_guests(&room, &mut owner, surface);
+    room.shared.hello.lock().unwrap().push(json!({"guest_id": ann, "name": "Ann"}));
+    room.drop_host();
+    let (conn, _) = room.host();
+    assert_eq!(room.next(conn, "guests")["t"], "guests");
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    while fake.next_frame(Duration::from_millis(300)).is_some() {}
+    room.send(json!({"v": 1, "t": "guest_left", "guest_id": ann}));
+    room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann, "client_id": "gone",
+        "text": "nobody relays this"}));
+    fake.no_frame();
 }

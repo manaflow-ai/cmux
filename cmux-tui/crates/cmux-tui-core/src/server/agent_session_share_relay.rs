@@ -73,6 +73,7 @@ pub(super) fn start(
     ids: (&str, &str),
     generation: u64,
     out: mpsc::UnboundedSender<Out>,
+    known: &[String],
 ) -> Option<Relay> {
     let permit = claim_connection(mux.connection_stats())?;
     let (ours, daemons) = std::os::unix::net::UnixStream::pair().ok()?;
@@ -101,6 +102,13 @@ pub(super) fn start(
         attached: false,
         waiting: VecDeque::new(),
     };
+    // The client ids this guest's page named to an earlier relay: a reconnect's snapshot names
+    // their prompts' states.
+    let mut link = link;
+    for client_id in known.iter().filter(|c| (1..=128).contains(&c.len())) {
+        let prompt = guest_prompt_id(&link.share_id, &link.guest_id, client_id);
+        link.remember(&prompt, client_id.clone());
+    }
     tokio::spawn(run(BufReader::new(read), link, receiver));
     Some(Relay { asks, generation, sockets: Some(1) })
 }
@@ -280,10 +288,18 @@ impl Link {
                 }
                 let prompt = guest_prompt_id(&self.share_id, &self.guest_id, &client_id);
                 self.remember(&prompt, client_id);
+                // Held, plus sent and not answered yet: a burst cannot pass the cap before the
+                // replies come. A prompt the daemon already took (any state but refused) is a
+                // retry it dedupes, so it is not counted against the cap again.
                 let held = (self.clients.keys())
+                    .filter(|p| **p != prompt)
                     .filter(|p| self.states.get(*p).is_some_and(|s| s.state == "held"))
                     .count();
-                if !self.states.contains_key(&prompt) && held >= MAX_HELD {
+                let sent = (self.pending.values())
+                    .filter(|p| matches!(p, Pending::Prompt(other) if *other != prompt))
+                    .count();
+                let taken = self.states.get(&prompt).is_some_and(|s| s.state != "refused");
+                if !taken && held.saturating_add(sent) >= MAX_HELD {
                     self.note(&prompt, "refused", Some("share.too_many_held".into()));
                     return true;
                 }
