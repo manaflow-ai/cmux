@@ -39,6 +39,8 @@ impl Hub {
     // ------------------------------------------------------------- export
 
     pub fn export(&self, session: &Arc<Session>, dest: &Path) -> Result<PathBuf> {
+        // What the log holds back goes in first (`store/deferred.rs`).
+        self.store_deferred(session);
         let meta = session.meta();
         let dir = dest.join(&meta.id);
         std::fs::create_dir_all(dir.join("events"))?;

@@ -217,6 +217,8 @@ impl Hub {
             Made::Copy(copy) => (json!({}), Some(copy.clone())),
             Made::ClaudeResume | Made::Fresh => (json!({}), None),
         };
+        // The fork copies the log: what it holds back goes in first (`store/deferred.rs`).
+        self.store_deferred(session);
         let fork_seq = cut.unwrap_or_else(|| session.seq.load(Ordering::SeqCst));
         let name_given = name.is_some();
         let name = name.unwrap_or_else(|| self.unique_name(&format!("{}-fork", parent_meta.name)));

@@ -25,6 +25,11 @@
 //! record that is not the agent's stream, to what it did before. The live stream is not touched:
 //! clients hear every record as the agent sent it. Every increment stays in the log.
 //!
+//! What a held snapshot costs if the daemon dies without its shutdown (`Hub::store_deferred`): a
+//! call that was running then may replay up to [`MAX_AGE_MS`] (or half its output) behind what the
+//! stream showed, if its agent outlives the daemon and ends the call with no content. A snapshot of
+//! more than [`MAX_HELD_BYTES`], or one past [`MAX_HELD_TOTAL`] held in the chat, is stored whole.
+//!
 //! A turn's diff (`codex.turn/diff/updated`) is stored without its `diff` the same way, noted as
 //! `params.acpmuxSupersededDiff`, and the newest whole one is written before any record but the
 //! agent's stream, or before the next turn's first diff.
@@ -36,7 +41,11 @@ use serde_json::Map;
 /// A snapshot this many times the bytes of its call's last stored one is stored whole.
 const GROWTH: usize = 2;
 /// A snapshot this long after its call's last stored one (or its first record) is stored whole.
-pub const MAX_AGE_MS: u64 = 10_000;
+pub const MAX_AGE_MS: u64 = 5_000;
+/// A snapshot or turn diff of more bytes than this is stored whole, never held.
+pub const MAX_HELD_BYTES: usize = 1 << 20;
+/// What one chat holds at most, in snapshot and diff bytes; past it a snapshot is stored whole.
+pub const MAX_HELD_TOTAL: usize = 8 << 20;
 /// Codex's whole-turn diff, as the app server's line is logged (`codex_app_server::tap_kind`).
 const DIFF_KIND: &str = "codex.turn/diff/updated";
 /// The note a turn diff stored without its `diff` carries in its `params`: the diff's bytes.
@@ -47,8 +56,8 @@ const UPDATE_KIND: &str = "tool_call_update";
 #[derive(Default)]
 pub struct Deferral {
     calls: HashMap<String, Call>,
-    /// The newest turn diff, not stored whole yet, and its turn.
-    diff: Option<(Option<String>, Value)>,
+    /// The newest turn diff, not stored whole yet, its turn and its bytes.
+    diff: Option<(Option<String>, Value, usize)>,
 }
 
 struct Call {
@@ -56,8 +65,8 @@ struct Call {
     stored: Option<usize>,
     /// When it was stored, or the call's first record.
     since: u64,
-    /// Its newest snapshot, held back: the message as the agent sent it.
-    held: Option<Value>,
+    /// Its newest snapshot, held back: the message as the agent sent it, and its text bytes.
+    held: Option<(Value, usize)>,
 }
 
 /// What the log keeps for one record.
@@ -92,7 +101,7 @@ impl Deferral {
         }
         let Some((key, plain)) = call_of_msg(msg) else { return keep };
         if kind == "tool_call" {
-            if let Some(held) = self.calls.remove(&key).and_then(|call| call.held) {
+            if let Some((held, _)) = self.calls.remove(&key).and_then(|call| call.held) {
                 keep.before.push((UPDATE_KIND, late(held)));
             }
             self.calls.insert(key, Call { stored: None, since: at, held: None });
@@ -106,6 +115,9 @@ impl Deferral {
         }
         let ends =
             matches!(update.get("status").and_then(Value::as_str), Some("completed" | "failed"));
+        let held_elsewhere = self.held_bytes().saturating_sub(
+            self.calls.get(&key).and_then(|c| c.held.as_ref()).map_or(0, |(_, bytes)| *bytes),
+        );
         let call =
             self.calls.entry(key.clone()).or_insert(Call { stored: None, since: at, held: None });
         let content = update.get("content");
@@ -118,12 +130,15 @@ impl Deferral {
         {
             let grown = call.stored.is_some_and(|last| bytes >= last.saturating_mul(GROWTH).max(1));
             let old = at.saturating_sub(call.since) >= MAX_AGE_MS;
+            let fits =
+                bytes <= MAX_HELD_BYTES && held_elsewhere.saturating_add(bytes) <= MAX_HELD_TOTAL;
             if !grown
                 && !old
+                && fits
                 && let Some(stub) = without_content(msg)
             {
                 keep.stored = Some(stub);
-                call.held = Some(msg.clone());
+                call.held = Some((msg.clone(), bytes));
                 return keep;
             }
         }
@@ -134,7 +149,7 @@ impl Deferral {
                 call.stored = Some(bytes);
                 call.since = at;
             }
-        } else if ends && let Some(held) = call.held.take() {
+        } else if ends && let Some((held, _)) = call.held.take() {
             keep.before.push((UPDATE_KIND, late(held)));
         }
         if ends {
@@ -149,10 +164,42 @@ impl Deferral {
             .calls
             .values_mut()
             .filter_map(|call| call.held.take())
-            .map(|held| (UPDATE_KIND, late(held)))
+            .map(|(held, _)| (UPDATE_KIND, late(held)))
             .collect();
-        out.extend(self.diff.take().map(|(_, diff)| (DIFF_KIND, diff)));
+        out.extend(self.diff.take().map(|(_, diff, _)| (DIFF_KIND, diff)));
         out
+    }
+
+    /// Holds again a record [`Deferral::keep`] or [`Deferral::take_all`] gave to be stored, when
+    /// the store refused it: it is stored at the next point that makes it due. Not when a newer
+    /// one of its call or turn is held (it is moot then). Never for a record a call id's next
+    /// `tool_call` made due: that id names a new call now.
+    pub fn put_back(&mut self, kind: &str, msg: Value) {
+        if kind == DIFF_KIND {
+            if self.diff.is_none() {
+                let turn = msg.pointer("/params/params/turnId").and_then(Value::as_str);
+                let bytes =
+                    msg.pointer("/params/params/diff").and_then(Value::as_str).map_or(0, str::len);
+                self.diff = Some((turn.map(str::to_owned), msg, bytes));
+            }
+            return;
+        }
+        let Some((key, _)) = call_of_msg(&msg) else { return };
+        let bytes = msg
+            .pointer("/params/update/content")
+            .and_then(Value::as_array)
+            .map_or(0, |parts| text_bytes(parts));
+        let call = self.calls.entry(key).or_insert(Call { stored: None, since: 0, held: None });
+        if call.held.is_none() {
+            call.held = Some((msg, bytes));
+        }
+    }
+
+    /// The snapshot and diff bytes held now.
+    fn held_bytes(&self) -> usize {
+        let calls: usize =
+            self.calls.values().filter_map(|c| c.held.as_ref()).map(|(_, bytes)| *bytes).sum();
+        calls.saturating_add(self.diff.as_ref().map_or(0, |(_, _, bytes)| *bytes))
     }
 
     /// A turn diff: the stub to store in its place (it is held), if it is not stored whole. A held
@@ -166,12 +213,15 @@ impl Deferral {
         let inner = msg.pointer("/params/params")?.as_object()?;
         let diff = inner.get("diff")?.as_str()?;
         let turn = inner.get("turnId").and_then(Value::as_str).map(str::to_owned);
-        if let Some((held_turn, held)) = self.diff.take()
+        if let Some((held_turn, held, _)) = self.diff.take()
             && held_turn != turn
         {
             before.push((DIFF_KIND, held));
         }
-        if !may_hold {
+        if !may_hold
+            || diff.len() > MAX_HELD_BYTES
+            || self.held_bytes().saturating_add(diff.len()) > MAX_HELD_TOTAL
+        {
             return None;
         }
         let mut stub = msg.clone();
@@ -180,7 +230,7 @@ impl Deferral {
             inner.remove("diff");
         }
         params.insert(DIFF_NOTE.into(), Value::from(diff.len()));
-        self.diff = Some((turn, msg.clone()));
+        self.diff = Some((turn, msg.clone(), diff.len()));
         Some(stub)
     }
 }

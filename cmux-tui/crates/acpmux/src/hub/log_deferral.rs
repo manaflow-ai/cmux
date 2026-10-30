@@ -26,20 +26,33 @@ impl Hub {
             at.unwrap_or_else(now_ms),
             at.is_none(),
         );
-        for (late_kind, late) in keep.before {
-            self.append_record_locked(session, "in", late_kind, late, None, None, false, None);
-        }
+        // A call id's next start makes its held snapshot due: that one is not held again.
+        self.store_late(session, keep.before, kind != "tool_call");
         self.append_record_locked(session, dir, kind, msg, host_seq, at, stored_only, keep.stored)
     }
 
-    /// Stores every snapshot the session holds back, now: at shutdown, since a hosted agent's
-    /// next daemon resumes after the stubs' `hostSeq` and never hears them again.
+    /// Stores held records made due. One the store refuses is held again when `put_back`.
+    fn store_late(&self, session: &Session, late: Vec<(&'static str, Value)>, put_back: bool) {
+        for (kind, msg) in late {
+            let (record, stored) =
+                self.append_record_locked(session, "in", kind, msg, None, None, true, None);
+            if !stored && put_back {
+                session
+                    .log_deferral
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .put_back(kind, record.msg);
+            }
+        }
+    }
+
+    /// Stores every snapshot the session holds back, now: before a fork or an export copies the
+    /// log, and at shutdown, since a hosted agent's next daemon resumes after the stubs' `hostSeq`
+    /// and never hears them again.
     pub(super) fn store_deferred(&self, session: &Session) {
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let held = session.log_deferral.lock().unwrap_or_else(|e| e.into_inner()).take_all();
-        for (kind, late) in held {
-            self.append_record_locked(session, "in", kind, late, None, None, false, None);
-        }
+        self.store_late(session, held, true);
     }
 }
 

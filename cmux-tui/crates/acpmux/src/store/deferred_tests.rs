@@ -312,3 +312,45 @@ fn deferral_perf() {
         );
     }
 }
+
+#[test]
+fn a_snapshot_past_the_memory_caps_is_stored_whole() {
+    let mut deferral = Deferral::default();
+    let _ = deferral.keep("in", "tool_call", &start("big"), 0, true);
+    let big = "o".repeat(MAX_HELD_BYTES + 1);
+    assert!(
+        deferral.keep("in", "tool_call_update", &snapshot("big", &big), 1, true).stored.is_none()
+    );
+    // Calls running side by side hold at most MAX_HELD_TOTAL between them.
+    let part = "o".repeat(MAX_HELD_BYTES);
+    let mut held = 0;
+    for n in 0..16 {
+        let id = format!("c{n}");
+        let _ = deferral.keep("in", "tool_call", &start(&id), 0, true);
+        held += usize::from(
+            deferral
+                .keep("in", "tool_call_update", &snapshot(&id, &part), 1, true)
+                .stored
+                .is_some(),
+        );
+    }
+    assert_eq!(held, MAX_HELD_TOTAL / MAX_HELD_BYTES);
+}
+
+#[test]
+fn a_snapshot_the_store_refused_is_held_again_unless_a_newer_one_is() {
+    let mut deferral = Deferral::default();
+    let _ = deferral.keep("in", "tool_call", &start("c"), 0, true);
+    let _ = deferral.keep("in", "tool_call_update", &snapshot("c", "a"), 1, true);
+    let due = deferral.take_all();
+    assert_eq!(due.len(), 1);
+    let (kind, msg) = due.into_iter().next().unwrap();
+    deferral.put_back(kind, msg.clone());
+    assert_eq!(deferral.take_all(), vec![(kind, msg.clone())], "stored at the next point");
+    // A newer snapshot held since: the refused one is moot.
+    let _ = deferral.keep("in", "tool_call_update", &snapshot("c", "ab"), 2, true);
+    deferral.put_back(kind, msg);
+    let due = deferral.take_all();
+    assert_eq!(due.len(), 1);
+    assert_eq!(content(&due[0].1), content(&snapshot("c", "ab")));
+}

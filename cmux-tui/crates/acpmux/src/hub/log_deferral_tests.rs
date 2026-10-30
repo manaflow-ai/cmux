@@ -129,3 +129,31 @@ fn a_copied_record_is_stored_whole() {
         hub.store.events("f", 0, usize::MAX).unwrap().into_iter().map(|r| r.msg).collect();
     assert_eq!(logged, chat.into_iter().map(|(_, _, m)| m).collect::<Vec<_>>());
 }
+
+/// An export (a move to another host) mid-command carries the command's newest output.
+#[test]
+fn an_export_mid_command_carries_the_newest_output() {
+    let hub = hub();
+    let s = session(&hub, "x");
+    let chat = codex_chat(1, 8);
+    for (dir, kind, msg) in &chat {
+        hub.append(&s, dir, kind, msg.clone());
+    }
+    let newest = chat
+        .iter()
+        .rev()
+        .find_map(|(_, _, m)| m.pointer("/params/update/content"))
+        .unwrap()
+        .clone();
+    let dest =
+        std::env::temp_dir().join(format!("acpmux-deferral-export-{}", uuid::Uuid::now_v7()));
+    let bundle = hub.export(&s, &dest).unwrap();
+    let text = std::fs::read_to_string(bundle.join("events").join("000001.ndjson")).unwrap();
+    let _ = std::fs::remove_dir_all(&dest);
+    let last = text
+        .lines()
+        .rev()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .find_map(|r| r.pointer("/msg/params/update/content").cloned());
+    assert_eq!(last, Some(newest));
+}
