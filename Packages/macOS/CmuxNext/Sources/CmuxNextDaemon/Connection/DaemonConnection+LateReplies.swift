@@ -114,7 +114,6 @@ extension DaemonConnection {
 
     /// The spacing of late-reply re-sends: full jitter from 1 s, doubling, capped at 30 s.
     static func lateReplyBackoff() -> Backoff { .fullJitter(initial: .seconds(1), maximum: .seconds(30)) }
-    }
 
     /// A pane creation (`split`, `new-pane`, `new-pane-right`, `new-row`) with its client-minted ids: waited
     /// for through a late start where the daemon replays a creation sent again with them (`keys`:
