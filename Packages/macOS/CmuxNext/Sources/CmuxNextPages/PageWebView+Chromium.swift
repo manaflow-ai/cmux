@@ -23,7 +23,7 @@ extension PageWebView {
     /// a hidden Chromium page draws no frame, so the wait would last until its give-up.
     public func setChromiumVisibility(_ requested: Bool) {
         let visible = requested && window != nil && !isHiddenOrHasHiddenAncestor
-            && sequence(first: superview, next: \.superview).allSatisfy { $0.alphaValue > 0.001 }
+            && sequence(first: self as NSView, next: \.superview).dropFirst().allSatisfy { $0.alphaValue > 0.001 }
         chromiumSession?.page.setVisible(visible)
     }
 
