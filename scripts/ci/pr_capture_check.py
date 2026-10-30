@@ -86,23 +86,22 @@ def visible_markdown(body: str) -> str:
     """Remove HTML comments and Markdown code blocks before matching proof lines."""
     text = COMMENT.sub("", body or "")
     visible: list[str] = []
-    fence: str | None = None
+    fence: tuple[str, int] | None = None
     for line in text.splitlines(keepends=True):
         # Normalize any depth of blockquote prefix, so nested quoted examples are
         # handled just like top-level fenced or indented code.
         content = line.rstrip("\n")
         while quote := re.match(r"^ {0,3}>[ \t]?", content):
             content = content[quote.end():]
-        stripped = content.lstrip(" \t")
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", content)
         if fence is not None:
-            if stripped.startswith(fence):
+            if (marker and marker.group(1)[0] == fence[0]
+                    and len(marker.group(1)) >= fence[1]
+                    and not marker.group(2).strip()):
                 fence = None
             continue
-        if stripped.startswith("```"):
-            fence = "```"
-            continue
-        if stripped.startswith("~~~"):
-            fence = "~~~"
+        if marker and not (marker.group(1)[0] == "`" and "`" in marker.group(2)):
+            fence = (marker.group(1)[0], len(marker.group(1)))
             continue
         if content.startswith("    ") or content.startswith("\t"):
             continue
