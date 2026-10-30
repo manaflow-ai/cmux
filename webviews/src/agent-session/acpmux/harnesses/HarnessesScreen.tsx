@@ -25,7 +25,7 @@ const STATUS: Record<HarnessStatus, StringKey> = {
 /// says so if acpmux still cannot run the harness), or a sign-in in a terminal tab the page waits for.
 type Progress =
   | { kind: "installing"; line?: string }
-  | { kind: "failed"; reason: string; retrySignIn?: boolean }
+  | { kind: "failed"; reason: string; retrySignIn?: boolean; login?: string }
   | { kind: "done" }
   | { kind: "waiting" };
 
@@ -215,19 +215,25 @@ export function HarnessesScreen({
     if (row.docsUrl) return { label: t("harnesses.setupGuide"), run: () => openDocs(row) };
     return { label: t("harnesses.checkAgain"), run: () => checkAgain(row) };
   };
+  const retrySignIn = (row: HarnessRow, login: string) => {
+    // Keep the original login command. A health refresh can make the row ready before this button
+    // is clicked; routing through act(row) then starts a chat instead of retrying the login.
+    mark(row.harness, { kind: "waiting" });
+    void callNative("tab.open", { kind: "terminal", text: login, ...inFolder, run: true, keep: true }).catch(
+      (error) =>
+        mark(row.harness, {
+          kind: "failed",
+          reason: error instanceof Error ? error.message : String(error),
+          retrySignIn: true,
+          login,
+        }),
+    );
+  };
   const act = (row: HarnessRow) => {
     if (row.status === "signIn" && row.login) {
       // `keep`: the page stays beside the new tab and checks again on return (a page with no chat
       // yet would otherwise be replaced by it).
-      mark(row.harness, { kind: "waiting" });
-      void callNative("tab.open", { kind: "terminal", text: row.login, ...inFolder, run: true, keep: true }).catch(
-        (error) =>
-          mark(row.harness, {
-            kind: "failed",
-            reason: error instanceof Error ? error.message : String(error),
-            retrySignIn: true,
-          }),
-      );
+      retrySignIn(row, row.login);
     } else if (row.status === "notInstalled" && row.install) {
       runInPlace(row, row.install);
     } else if (row.status === "notInstalled" && row.docsUrl) {
@@ -280,8 +286,8 @@ export function HarnessesScreen({
           // A failed login launch retries the login; failed installs offer setup or another look.
           const failedFix =
             doing?.kind === "failed"
-              ? doing.retrySignIn
-                ? { label: t("harnesses.signIn"), run: () => act(row) }
+              ? doing.retrySignIn && doing.login
+                ? { label: t("harnesses.signIn"), run: () => retrySignIn(row, doing.login!) }
                 : row.docsUrl
                   ? { label: t("harnesses.setupGuide"), run: () => openDocs(row) }
                   : { label: t("harnesses.checkAgain"), run: () => checkAgain(row) }

@@ -199,6 +199,32 @@ test("a failed sign-in terminal launch shows its error and retries the same logi
   expect(calls.some((call) => call.method === "chat.new" || call.method === "chat.send")).toBe(false);
 });
 
+test("a failed sign-in retries its saved login after health refresh marks the row ready", async () => {
+  const calls: Call[] = [];
+  let attempts = 0;
+  const auth: Record<string, HarnessHealth["auth"]> = { codex: "signedOut" };
+  const container = await renderPage(calls, [], {
+    auth,
+    openTerminal: () => {
+      attempts += 1;
+      return attempts === 1 ? Promise.reject(new Error("Terminal could not open")) : Promise.resolve({});
+    },
+  });
+  const codex = row(container, "Codex")!;
+  await act(async () => codex.querySelector<HTMLButtonElement>("button")!.click());
+  expect(status(container, "Codex")).toBe("Failed: Terminal could not open");
+  auth.codex = "signedIn";
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  await until(() => codex.dataset.harnessStatus === "ready", "the refreshed ready row");
+  await act(async () => codex.querySelector<HTMLButtonElement>("button")!.click());
+  expect(attempts).toBe(2);
+  expect(calls.some((call) => call.method === "chat.new")).toBe(false);
+  expect(calls.filter((call) => call.method === "tab.open")[1]).toEqual({
+    method: "tab.open",
+    params: { kind: "terminal", text: "codex login", cwd: "/Users/you/src/cmux", run: true, keep: true },
+  });
+});
+
 test("Start Chat starts a chat on that harness in this tab", async () => {
   const calls: Call[] = [];
   const closed: string[] = [];
