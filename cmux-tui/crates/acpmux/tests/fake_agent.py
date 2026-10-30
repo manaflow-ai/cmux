@@ -359,6 +359,12 @@ def handle_prompt(rid, params):
         net_flaky.discard(sid)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
         return
+    # Recovery fixtures: preserve the session, fail the first turn with the supplied
+    # provider error, then answer the continuation normally.
+    if text.startswith("recover-once: ") and sid not in failed_once:
+        failed_once.add(sid)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": text.removeprefix("recover-once: ")}})
+        return
     # "cap-fail-once: X" fails that prompt once per session with the SR2 gateway's capacity
     # error (every pooled account exhausted for a moment); the session's next prompt runs.
     if text.startswith("cap-fail-once:") and sid not in failed_once:
