@@ -1417,6 +1417,9 @@ export class AcpmuxDirectClient {
   private turnPrompt?: string;
   private lastSeq = 0;
   private turnOpen = false;
+  /// The daemon identity and start time of the turn currently shown as running.
+  private turnId?: string;
+  private turnStartedAtMs?: number;
   /// The open turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
   /// (`turn_silent`, hub/silent_turn.rs): the line says the model has not answered. acpmux hearing
   /// the model (`turn_heard`), or the turn's end, clears it; the agent's own bookkeeping does not.
@@ -2053,6 +2056,8 @@ export class AcpmuxDirectClient {
     this.queue = [];
     this.queueWithdrawn = [];
     this.turnOpen = false;
+    this.turnId = undefined;
+    this.turnStartedAtMs = undefined;
     this.silentTurn = false;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
@@ -2412,6 +2417,8 @@ export class AcpmuxDirectClient {
     this.learnChatThread();
     // A paused queue's failed turn no longer runs, whatever status acpmux last listed (`staleRun`).
     this.turnOpen = listed?.status === "running" && !this.staleRun(listed);
+    this.turnId = typeof this.summary?.turn?.turnId === "string" ? this.summary.turn.turnId : undefined;
+    this.turnStartedAtMs = typeof this.summary?.turn?.startedAt === "number" ? this.summary.turn.startedAt : undefined;
     // Only acpmux says what is pending (attach's `session.pending`): a replayed ask is history
     // here. The marks it left on its own rows (an edit "awaiting permission") stand until the
     // attach replays the page, as they do on a page whose decision it does not hold either.
@@ -3501,6 +3508,8 @@ export class AcpmuxDirectClient {
         ? result.lastSeq
         : undefined;
     this.summary = detail;
+    this.turnId = typeof detail.turn?.turnId === "string" ? detail.turn.turnId : undefined;
+    this.turnStartedAtMs = typeof detail.turn?.startedAt === "number" ? detail.turn.startedAt : undefined;
     this.configSeq = Array.isArray(detail.configOptions) && typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.limitsSeq = typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.limitsVersion += 1;
@@ -3593,12 +3602,31 @@ export class AcpmuxDirectClient {
     this.emit("commands");
   }
 
-  /// A summary of a paused queue that says "running" from before its turn failed: it names no
-  /// running turn, or one this page saw end. A turn sent now while prompts stay held runs.
+  /// A summary read before its named turn ended is stale. A paused queue without a
+  /// running turn is stale too; a new turn sent while prompts stay held still runs.
   private staleRun(summary: Record<string, any>): boolean {
-    if (summary.queuePaused !== true) return false;
     const turnId = summary.turn?.turnId;
-    return typeof turnId !== "string" || this.endedTurns.has(turnId);
+    return (
+      (typeof turnId === "string" && this.endedTurns.has(turnId)) ||
+      (summary.queuePaused === true && typeof turnId !== "string")
+    );
+  }
+
+  /// A summary can name a live turn whose opening event is outside the attached page.
+  private adoptSummaryTurn(): void {
+    const summary = this.summary;
+    const turn = summary?.turn;
+    if (
+      (summary?.status !== "running" && summary?.status !== "waiting") ||
+      this.staleRun(summary) ||
+      typeof turn?.startedAt !== "number"
+    )
+      return;
+    if (typeof turn.turnId === "string" && this.endedTurns.has(turn.turnId)) return;
+    if (this.turnStartedAtMs !== undefined && turn.startedAt < this.turnStartedAtMs) return;
+    this.turnStartedAtMs = turn.startedAt;
+    this.turnId = typeof turn.turnId === "string" ? turn.turnId : undefined;
+    this.turnOpen = true;
   }
 
   private sessionChanged(params: SessionChanged): void {
@@ -3630,6 +3658,14 @@ export class AcpmuxDirectClient {
     if (this.readAheadAt.has(session.sessionId)) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
+      // A summary update is authoritative when it says the turn is no longer running. This
+      // clears a summary-only turn whose terminal event was missed, so Stop/continue cannot stay blocked.
+      if (session.status !== "running" && session.status !== "waiting") {
+        this.turnOpen = false;
+        this.turnId = undefined;
+        this.turnStartedAtMs = undefined;
+      }
+      this.adoptSummaryTurn();
       this.learnChatThread();
       // A change that doesn't carry the queue keeps the one already mapped.
       if (session.queue) this.queue = mergeQueue(this.queue, session.queue, this.queueAuthors);
@@ -3853,6 +3889,8 @@ export class AcpmuxDirectClient {
     this.firstSeq = undefined;
     this.lastSeq = 0;
     this.turnOpen = false;
+    this.turnId = undefined;
+    this.turnStartedAtMs = undefined;
     this.turnPrompt = undefined;
     this.silentTurn = false;
     this.turnTokens = undefined;
@@ -3882,6 +3920,7 @@ export class AcpmuxDirectClient {
       this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
       this.reduce(event);
     }
+    this.adoptSummaryTurn();
     // Rows kept from before (a prompt that failed or still sends) are newer than every replayed event.
     this.rows.placeLocalLast();
     this.rows.keepSame(previous);
@@ -3902,6 +3941,9 @@ export class AcpmuxDirectClient {
     const secret = this.pendingSecret;
     this.rebuild();
     this.summary = summary;
+    // `rebuild()` replayed every recovered event, including terminal and subsequent start events.
+    // Keep lifecycle state derived from that replay; only summary-only turns are adopted below.
+    this.adoptSummaryTurn();
     this.limitsSeq = limitsSeq;
     this.limitsVersion = limitsVersion;
     this.queue = queue;
@@ -4565,6 +4607,8 @@ export class AcpmuxDirectClient {
         // A turn that does not name its prompt is no known one's: never the turn before's.
         this.turnPrompt = typeof msg.promptId === "string" && msg.promptId ? promptRoot(msg.promptId) : undefined;
         this.turnOpen = true;
+        this.turnId = typeof msg.turnId === "string" ? msg.turnId : undefined;
+        this.turnStartedAtMs = event.at;
         this.silentTurn = false;
         this.turnTokens = event.seq >= this.usageFromSeq ? 0 : undefined;
         this.turnTokenSplit = this.turnTokens === undefined ? undefined : NO_TOKENS;
@@ -4593,36 +4637,45 @@ export class AcpmuxDirectClient {
           this.waitingSteers = this.waitingSteers.filter((waiting) => waiting.rowId !== rowId);
         }
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
-        this.turnOpen = false;
-        this.turnPrompt = undefined;
-        this.silentTurn = false;
-        this.turnTokens = undefined;
-        this.turnTokenSplit = undefined;
-        this.settleCompactions(event.seq, event.kind === "turn_result" && msg.cancelForced === true);
-        this.landSteer();
-        // Only the daemon's turn-end event completes Stop, never a client-side deadline.
-        this.stopAnswered(event);
-        if (this.stoppingAfterSeq !== undefined && event.seq > this.stoppingAfterSeq) this.stoppingEnded();
-        this.pendingPermission = undefined;
-        this.waitingPermissions.clear();
-        this.groupedPermissions.clear();
-        this.openQuestions.clear();
-        this.heldEdits.clear();
-        // A new row, never an in-place change: emitted snapshots share row objects, and the
-        // transcript's memo compares the drawn row's version with the next one.
-        this.endAssistantSegment();
-        this.rows.delete("typing");
+        const endedTurnId = typeof msg.turnId === "string" ? msg.turnId : undefined;
+        const endsCurrentTurn = endedTurnId === undefined || this.turnId === undefined || endedTurnId === this.turnId;
+        // An older turn's result remains history, but cannot clear the newer turn or its Stop.
+        if (endsCurrentTurn) {
+          this.turnId = undefined;
+          this.turnStartedAtMs = undefined;
+          if (this.summary && !this.summary.turn?.turnId) this.summary = { ...this.summary, status: "idle" };
+          this.turnOpen = false;
+          this.turnPrompt = undefined;
+          this.silentTurn = false;
+          this.turnTokens = undefined;
+          this.turnTokenSplit = undefined;
+          this.settleCompactions(event.seq, event.kind === "turn_result" && msg.cancelForced === true);
+          this.landSteer();
+          // Only the daemon's turn-end event completes Stop, never a client-side deadline.
+          this.stopAnswered(event);
+          if (this.stoppingAfterSeq !== undefined && event.seq > this.stoppingAfterSeq) this.stoppingEnded();
+          this.pendingPermission = undefined;
+          this.waitingPermissions.clear();
+          this.groupedPermissions.clear();
+          this.openQuestions.clear();
+          this.heldEdits.clear();
+          // A new row, never an in-place change: emitted snapshots share row objects, and the
+          // transcript's memo compares the drawn row's version with the next one.
+          this.endAssistantSegment();
+          this.rows.delete("typing");
+        }
         const checkpoint = event.kind === "turn_result" ? readSummaryCheckpoint(msg) : undefined;
         const status = String(msg.status ?? "completed");
         // A turn a prompt sent now cancelled goes on under that prompt; one that ended first did not.
         // Whatever ended it (acpmux's cancel, or the agent's end_turn), but not a failure, which shows.
-        const continued = event.kind === "turn_result" && status !== "failed" && this.interrupting !== undefined;
+        const continued =
+          endsCurrentTurn && event.kind === "turn_result" && status !== "failed" && this.interrupting !== undefined;
         if (continued) {
           this.continuations.set(this.interrupting!, `summary-${event.seq}`);
           this.awaiting = this.interrupting;
         }
-        if (event.kind === "turn_result") this.interrupting = undefined;
-        if (event.kind === "turn_result" && typeof msg.turnId === "string") this.endedTurns.add(msg.turnId);
+        if (endsCurrentTurn && event.kind === "turn_result") this.interrupting = undefined;
+        if (endedTurnId !== undefined) this.endedTurns.add(endedTurnId);
         if (event.kind === "turn_result")
           this.rows.set(`summary-${event.seq}`, {
             id: `summary-${event.seq}`,
@@ -4649,9 +4702,11 @@ export class AcpmuxDirectClient {
             kind: "notice",
             text: translate("stop.forced"),
           });
-        this.streamingAssistant = undefined;
-        this.streamingAssistantMessageId = undefined;
-        this.streamingActivity = undefined;
+        if (endsCurrentTurn) {
+          this.streamingAssistant = undefined;
+          this.streamingAssistantMessageId = undefined;
+          this.streamingActivity = undefined;
+        }
       } else if (!reduceAgentPair(this.rows, event)) this.reduceLiveState(event);
       return;
     }
@@ -5040,7 +5095,7 @@ export class AcpmuxDirectClient {
     const working =
       this.replayThrough === undefined &&
       // acpmux may still list a paused queue as running after its turn failed.
-      (this.turnOpen || (summary?.status === "running" && !this.staleRun(summary)));
+      (this.turnOpen || ((summary?.status === "running" || summary?.status === "waiting") && !this.staleRun(summary)));
     // A chat no longer working has no Stop pending, even when no turn event said the turn ended.
     if (!working && this.replayThrough === undefined) this.stoppingEnded();
     const effort = (summary?.configOptions ?? []).find(
@@ -5133,6 +5188,7 @@ export class AcpmuxDirectClient {
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
       isWorking: working,
+      ...(working && this.turnStartedAtMs !== undefined ? { turnStartedAtMs: this.turnStartedAtMs } : {}),
       // A Stop whose turn has not ended yet (`stoppingAfterSeq`).
       ...(working && this.stoppingAfterSeq !== undefined ? { stopping: true as const } : {}),
       ...(working && this.turnPrompt ? { turnPrompt: this.turnPrompt } : {}),
@@ -5877,7 +5933,7 @@ export class AcpmuxDirectClient {
     }
   }
   async continueIn(harness: string): Promise<string | undefined> {
-    if (!this.handoffSupported || this.turnOpen || this.summary?.status === "running" || this.queue.length > 0) return;
+    if (!this.handoffSupported || this.turnRunning() || this.queue.length > 0) return;
     const generation = this.selectionGeneration;
     const record = await this.handoff.prepare(harness);
     if (!record || generation !== this.selectionGeneration) return;
@@ -6561,7 +6617,10 @@ export class AcpmuxDirectClient {
   }
   /// A turn is running in the shown session.
   turnRunning(): boolean {
-    return this.turnOpen || this.summary?.status === "running";
+    return (
+      this.turnOpen ||
+      ((this.summary?.status === "running" || this.summary?.status === "waiting") && !this.staleRun(this.summary))
+    );
   }
   /// Stops showing the selected session: a harness switch draws its new chat meanwhile. The
   /// session keeps running in acpmux; only this client's attach ends.
@@ -7171,6 +7230,8 @@ export class AcpmuxDirectClient {
   private foldOlder(older: EventRecord[]): void {
     const live = {
       turnOpen: this.turnOpen,
+      turnId: this.turnId,
+      turnStartedAtMs: this.turnStartedAtMs,
       // The running turn's prompt is the held events', never an older page's.
       turnPrompt: this.turnPrompt,
       silentTurn: this.silentTurn,
@@ -7204,6 +7265,8 @@ export class AcpmuxDirectClient {
     };
     const held = new Map(this.rows);
     this.turnOpen = false;
+    this.turnId = undefined;
+    this.turnStartedAtMs = undefined;
     this.turnPrompt = undefined;
     this.silentTurn = false;
     this.turnTokens = undefined;
