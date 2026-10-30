@@ -803,6 +803,18 @@ impl Hub {
         self.inbox_review(session);
     }
 
+    /// Ends notice `notice_id`, carrying `ids`, as one refused before its prompt was written.
+    #[cfg(test)]
+    pub(super) fn inbox_notice_refused(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        notice_id: &str,
+        ids: &[String],
+    ) {
+        let refused = Err(RpcError::invalid_params("steer refused"));
+        self.notice_done(session, notice_id, ids, refused);
+    }
+
     /// A turn started (`run_prompt_joined`): a refusal before it no longer holds the next try
     /// back, and its wake timer is done.
     pub(super) fn inbox_turn_started(self: &Arc<Self>, session: &Arc<Session>) {
