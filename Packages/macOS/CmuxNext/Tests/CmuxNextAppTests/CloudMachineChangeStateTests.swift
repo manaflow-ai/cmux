@@ -179,6 +179,29 @@ struct CloudMachineChangeStateTests {
         session.disconnect()
     }
 
+    @Test(arguments: [CloudMachine.Status.pausing, .starting, .deleting])
+    func aStatusReadPreservesThePendingPowerMutation(change: CloudMachine.Status) async throws {
+        let services = MachineIconTests.services()
+        let cloud = services.cloud
+        let session = MachineIconTests.cloudMachine(services, id: "status-during-mutation")
+        defer { session.disconnect() }
+        session.machine.status = change == .starting ? .paused : .running
+        var stale = session.machine
+        stale.displayName = "Updated by status read"
+        try await cloud.changes.run(change, machineID: session.machineID, of: { session }) {
+            cloud.applyRecord(stale, to: session)
+            #expect(session.machine.pendingChange == change)
+            #expect(session.machine.shownStatus == change)
+            #expect(session.machine.displayName == stale.displayName)
+            #expect(!CloudHandlers.attachable(session))
+        }
+        // An acknowledged request still waits for the provider's terminal record.
+        cloud.applyRecord(stale, to: session)
+        #expect(session.machine.pendingChange == change)
+        #expect(!CloudHandlers.attachable(session))
+        cloud.changes.stop()
+    }
+
     // MARK: The record
 
     @Test func everyBackendStatusKeepsItsOwnState() throws {
