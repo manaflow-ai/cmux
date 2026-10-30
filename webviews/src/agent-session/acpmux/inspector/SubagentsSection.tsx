@@ -19,7 +19,6 @@ const ROW_ICON = rowIconSize(12);
 
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
-import { AgentProgressText } from "../subagents/agentProgressStore";
 import { nestAgents } from "../subagents/AgentsPill";
 import { Avatar, elapsed, running, useNow } from "../subagents/SubagentGroup";
 import { agentTone } from "../subagents/agentTones";
@@ -247,7 +246,6 @@ export function SubagentsSection({
                 .filter(Boolean)
                 .join(" · ")}
             </span>
-            {item.agent && <AgentProgressText agent={item.agent} />}
             {item.task && item.task !== item.name && <span className="acpmux-agent-card__task">{item.task}</span>}
           </span>
         }

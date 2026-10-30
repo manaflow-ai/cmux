@@ -106,7 +106,7 @@ test("App delivers usage-only snapshots to one workflow row without replacing it
     observer.disconnect();
     expect(rows()[0]).toBe(first);
     expect(rows()[1]).toBe(second);
-    expect(first!.querySelector(".acpmux-agent-line__progress")?.textContent).toContain("42K tokens");
+    expect(first!.querySelector(".acpmux-agent-line__progress")?.textContent).toContain("subagents.tokens");
     expect(first!.textContent).toContain("1/3 agents");
     expect(first!.textContent).toContain("1 failed");
     expect(second!.innerHTML).toBe(before);

@@ -6440,12 +6440,32 @@ function AcpmuxPane() {
   // the same agents: the last one stays while nothing the pill shows changed, so a snapshot that
   // streams text redraws neither the pill nor a subagent row.
   const progressStore = useMemo(() => new AgentProgressStore(freshAgents), [shownSessionId]);
-  useLayoutEffect(() => progressStore.update(freshAgents), [progressStore, freshAgents]);
-  const agentsKey = freshAgents
-    .map((agent) =>
-      [agent.id, agent.name, agent.parent, agent.kind, agent.state, agent.action, agent.endedAt, agent.agentId].join("\u0000"),
-    )
-    .join("\u0001");
+  const seenProgressVersions = useRef<Map<string, number | undefined>>(new Map());
+  useLayoutEffect(() => {
+    progressStore.updateChanged(freshAgents, seenProgressVersions.current);
+  }, [progressStore, freshAgents]);
+  const structureRef = useRef<{ agents: readonly typeof freshAgents[number][]; key: string }>({ agents: [], key: "" });
+  let structureChanged = structureRef.current.agents.length !== freshAgents.length;
+  if (!structureChanged) {
+    for (let index = 0; index < freshAgents.length; index += 1) {
+      const previous = structureRef.current.agents[index]!;
+      const agent = freshAgents[index]!;
+      if (
+        previous.id !== agent.id || previous.name !== agent.name || previous.parent !== agent.parent ||
+        previous.kind !== agent.kind || previous.state !== agent.state || previous.action !== agent.action ||
+        previous.endedAt !== agent.endedAt || previous.agentId !== agent.agentId
+      ) { structureChanged = true; break; }
+    }
+  }
+  if (structureChanged) {
+    structureRef.current = {
+      agents: freshAgents,
+      key: freshAgents.map((agent) =>
+        [agent.id, agent.name, agent.parent, agent.kind, agent.state, agent.action, agent.endedAt, agent.agentId].join("\u0000"),
+      ).join("\u0001"),
+    };
+  }
+  const agentsKey = structureRef.current.key;
   // eslint-disable-next-line react-hooks/exhaustive-deps -- progress goes to each row's subscription
   const chatAgents = useMemo(() => freshAgents, [agentsKey, shownSessionId]);
   // A subagent draws no tool row (subagents/subagentFold.ts swallows the call that started it), so

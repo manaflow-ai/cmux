@@ -26,20 +26,26 @@ export class AgentProgressStore {
     };
   }
   update(agents: readonly Subagent[]): void {
-    const remaining = new Set(this.values.keys());
+    for (const agent of agents) this.updateAgent(agent);
+  }
+  updateChanged(agents: readonly Subagent[], seen: Map<string, number | undefined>): void {
     for (const agent of agents) {
-      remaining.delete(agent.id);
-      if (same(this.get(agent.id), agent)) continue;
-      this.values.set(agent.id, {
-        tokens: agent.tokens, toolUses: agent.toolUses,
-        agents: agent.agents ? { ...agent.agents } : undefined,
-      });
-      this.listeners.get(agent.id)?.forEach((notify) => notify());
+      if (seen.get(agent.id) === agent.progressVersion) continue;
+      seen.set(agent.id, agent.progressVersion);
+      this.updateAgent(agent);
     }
-    for (const id of remaining) {
-      this.values.delete(id);
-      this.listeners.get(id)?.forEach((notify) => notify());
-    }
+  }
+  updateAgent(agent: Subagent): void {
+    if (same(this.get(agent.id), agent)) return;
+    this.values.set(agent.id, {
+      tokens: agent.tokens, toolUses: agent.toolUses,
+      agents: agent.agents ? { ...agent.agents } : undefined,
+    });
+    this.listeners.get(agent.id)?.forEach((notify) => notify());
+  }
+  remove(id: string): void {
+    if (!this.values.delete(id)) return;
+    this.listeners.get(id)?.forEach((notify) => notify());
   }
 }
 
@@ -56,5 +62,6 @@ export function useAgentProgress(agent?: Subagent): string | undefined {
   return agent ? subagentProgress(t, language, progress).join(" · ") : undefined;
 }
 export function AgentProgressText({ agent }: { agent: Subagent }) {
-  return <span className="acpmux-agent-line__progress">{useAgentProgress(agent)}</span>;
+  const text = useAgentProgress(agent);
+  return text ? <span className="acpmux-agent-line__progress">{text}</span> : null;
 }
