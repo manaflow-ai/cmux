@@ -31,10 +31,13 @@
 #   source.json (the commit and run that built it). `fetch` downloads it to
 #   cmux-tui/target/hosted/tree/<key>/cmux-tui and checks the published
 #   sha256. When the key is not published yet it waits, printing progress, up
-#   to CMUX_TUI_TREE_WAIT_SECONDS (default 2700), then fails. It never falls
-#   back to another binary. In CI the wait also reads the cmux-tui artifacts
-#   runs of CMUX_TUI_TREE_PUBLISHER_SHA (the pushed commit; needs GH_TOKEN with
-#   actions: read) every CMUX_TUI_TREE_RUN_CHECK_SECONDS (default 300) and fails
+#   to CMUX_TUI_TREE_WAIT_SECONDS (default 2700), then fails. 0 looks once and
+#   never waits, not even for an active artifacts run: the fleet suite lanes
+#   (package-test-lane.sh, run-swift-testing-suites.sh) and the daemon tests
+#   use it, so a miss skips their live-daemon suites at once instead of
+#   holding a Mac. It never falls back to another binary. In CI the wait also
+#   reads the cmux-tui artifacts runs of CMUX_TUI_TREE_PUBLISHER_SHA (the
+#   pushed commit; needs GH_TOKEN with actions: read) every CMUX_TUI_TREE_RUN_CHECK_SECONDS (default 300) and fails
 #   fast when two checks in a row find no active run: the runs were cancelled,
 #   superseded (finished without publishing) or never started. An active run, or
 #   an API it cannot read, keeps the bounded wait. A fleet build that already compiled this source
@@ -633,7 +636,10 @@ wait_for_tree() {
   # branch's previous run in its concurrency group and a fleet build gave up at 45 min, 36 min
   # before the tree was published).
   # Default 7200 s off CI (the fleet); 0 in GitHub Actions, whose jobs keep their own bounded
-  # wait and timeout.
+  # wait and timeout. Never for a caller that does not wait (CMUX_TUI_TREE_WAIT_SECONDS=0): until
+  # 2026-10-29 the 0 of the fleet suite lanes became 7200 s whenever the commit's artifacts run was
+  # active, and a suite step held its Mac for up to two hours running nothing (step 31482fc9e743
+  # waited 7184 s, 036f288649bf 3065 s until it was cancelled).
   if [[ -n "${GITHUB_ACTIONS:-}" ]]; then active_cap="${CMUX_TUI_TREE_ACTIVE_WAIT_SECONDS:-0}"
   else active_cap="${CMUX_TUI_TREE_ACTIVE_WAIT_SECONDS:-7200}"; fi
   [[ "$wait_seconds" =~ ^[0-9]+$ && "$poll_seconds" =~ ^[1-9][0-9]*$ && "$check_seconds" =~ ^[1-9][0-9]*$ && "$active_cap" =~ ^[0-9]+$ ]] || {
@@ -653,7 +659,7 @@ wait_for_tree() {
       publisher=""
     fi
   fi
-  if [[ -n "$publisher" ]]; then
+  if [[ -n "$publisher" ]] && (( wait_seconds > 0 )); then
     if [[ -n "${GH_TOKEN:-}" ]]; then echo "cmux-tui run check reads the GitHub API with a token" >&2
     else echo "cmux-tui run check reads the GitHub API without a token (60 requests an hour per address); a rate limit reads as no run" >&2; fi
   fi
@@ -668,7 +674,9 @@ wait_for_tree() {
     if [[ "$reported" == false ]]; then
       reported=true
       report_tree_miss "$key"
-      if [[ "${CMUX_TUI_TREE_DISPATCH:-}" != 1 ]]; then
+      if (( wait_seconds == 0 )); then
+        echo "next: not waiting (CMUX_TUI_TREE_WAIT_SECONDS=0 looks once)" >&2
+      elif [[ "${CMUX_TUI_TREE_DISPATCH:-}" != 1 ]]; then
         echo "next: no dispatch (CMUX_TUI_TREE_DISPATCH unset); waiting up to ${wait_seconds}s for a push run, or bundle a local build with CMUX_NEXT_TUI_BIN=<path>" >&2
       fi
     fi
@@ -689,7 +697,8 @@ wait_for_tree() {
         publisher="$tree_publisher_sha"
       fi
     fi
-    if [[ -n "$publisher" ]] && (( elapsed >= next_check )); then
+    # A caller that does not wait reads no run state: nothing would wait on it.
+    if [[ -n "$publisher" ]] && (( wait_seconds > 0 && elapsed >= next_check )); then
       next_check=$(( elapsed + check_seconds ))
       state="$(artifacts_runs_state "$publisher")"
       case "$state" in
@@ -717,7 +726,10 @@ wait_for_tree() {
         fail_unpublishable_tree "$key" "$publisher" "$state" "$elapsed"
       fi
     fi
-    if (( elapsed >= wait_seconds )) && [[ "$state" == active ]] && (( elapsed < active_cap )); then
+    if (( wait_seconds == 0 )); then
+      echo "error: cmux-tui for this checkout's tree $key is not published ($sha_url); CMUX_TUI_TREE_WAIT_SECONDS=0 does not wait for it." >&2
+      exit 1
+    elif (( elapsed >= wait_seconds )) && [[ "$state" == active ]] && (( elapsed < active_cap )); then
       if [[ "$extended" == false ]]; then
         extended=true
         echo "note: the cmux-tui artifacts run for ${publisher:0:12} is still queued or running; waiting on, up to ${active_cap}s in all" >&2

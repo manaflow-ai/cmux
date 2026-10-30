@@ -1,11 +1,26 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-29: the tab tuck and additive geometry springs hold their starting values until their
+  explicit begin times. Display-rate frames at nightly source `316bd521` showed an initial flash;
+  opacity-only backwards fill exposed the destination frame, so geometry needs the same fill.
+  Verification includes presentation position and size plus composited folds. The spring, early-fade
+  threshold, duration and row layout stay the same. Leo: "fade it a bit faster or a bit earlier in
+  the movement, so that it looks like, you know, it, like, tucks under rather than it tucks over".
+
 Owner: the sidebar-owner agent (Chief subagent, Oct 23 2026, "one new agent that owns everything about
 sidebar from now on"). Scope: workspace and group rows, nested groups, the group rail, the hover card,
 the row close (X), unread dots, densities, drag and reorder, the Home/pinned band, and sidebar
 performance.
 
 ## Rule for every sidebar change
+
+### Group editor opening (2026-10-28)
+
+Leo's standing rule: "Menus open on the click, with no fade-in or delay"; "Fade out, yes".
+The sidebar and tab group editors now restore their full card before ordering it front, including
+when reopened during a closing fade. The existing closing fade, group palette, layout and controls
+remain the reference. Regression: `GroupEditorInstantOpenTests` exercises both editors with and
+without Reduce Motion. This replaces only the entrance motion introduced by #19040.
 
 Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents can't mess this up"):
 
@@ -219,6 +234,7 @@ the gap, no row left out of place after drop or cancel).
 | #23800 row gaps (b4ea25bd03e red, 5ca9bed6440 fix, cbbada1846e drop gap under a block) | One row spacing after groups, folders, the Pinned block and pinned chats; the pin placed by its ink at the rows' content x. `Sidebar-Look: ALL THIS RELATIVELY UNNECESSARY SPACING AFTER GROUPS AND AFTER PINS` (Leo 2026-10-21). Look change: row gaps only; rail, indent, heights and trailing column unchanged (SidebarUniformRowSpacingTests). |
 | spaces-overhaul (a-spaces-overhaul branch: pinned per space red then fix, dot tear-off red then fix) | Spaces overhaul (Lawrence 14223, plans/cmux-next/spaces-overhaul-DESIGN.md). The band draws a workspace item only while the window's space shows that workspace (`SidebarRows.bandHides`): a pin of another space no longer draws, so a click on a pinned row never switches the space (Austin's bug). A space dot dragged out of the window opens the space in a new window (`SidebarIntent.openProfileInNewWindow`); a drop on the footer band still reorders. No visual change; `SectionFlow.swift` untouched. |
 | [350b65e877c](https://github.com/manaflow-ai/cmux/commit/350b65e877c07b91538361f5177b97e486e49d59) | #24295 menu metrics, committed without a `Sidebar-Look:` trailer. Reviewed: its only sidebar change is `SidebarFooterBand.showProfileMenu`, which now themes the profile menu's rows on the menu grid (`themeRows(in:)`) as the sidebar's other menus are (Leo 2026-10-21: "left alignment on the profile settings dropdown/pop i think is similar"). The menu is the only thing drawn differently; the sidebar list, footer, rows and rails do not change. `MenuGridTests`. |
+| Chief drag out (from #23933) | The Chief dragged past the sidebar's side dims its card (the refused look) and its release out there takes it off (`removesOnDragOut`), from the list, a tile or the older band; a just-added Chief draws, moves and comes off before the daemon's echo. No row, rail or indent change. |
 
 ## Every sidebar package commit, Oct 19-23
 
@@ -499,6 +515,7 @@ the gap, no row left out of place after drop or cancel).
 - 2026-10-28: remote-sidebar-opus (claude-sr2 relaying Leo: "If you're hovering over a workspace or whatever, just don't show the spinner. Also, wow, do we seriously not have these fucking things aligned? ... Oh, because it's the inner tab thing, huh?"): a listed tab row's unread dot centers on the trailing column (it sat 2 pt right of it); hover controls replace the column mark under every close spot, a hovered loading header shows only its chevron, and the controls clear at once as the mark returns. Takes back sb-dot-column's (10990df76a7) "a hover no longer hides the mark" for every row (the 10-27 entry above already did it for a closable row at the end spot) and Lawrence 2026-10-20's hovered header spinner sliding left beside + and more. `SidebarTrailingColumnTests` covers inner tabs at depth 0 and 2 and the hover swap; `SidebarTrailingColumnGalleryTests` draws it with `geometry.json`.
 - 2026-10-27: remote-sidebar-opus (claude-sr2 relaying Leo, on the listed tab rows): a middle-click on a tab row closes exactly that tab (Leo: "we need to be able to middle-click and, you know, just deal with the stuff here. Like just closing tabs fundamentally"). `SidebarMiddleClick` sends `.closeTab(workspace:tab:)` when press and release land on the same tab row; the App runs Close Tab on that tab alone (an explicit target, never widened to the strip selection), the tab strip's middle-click path, so Cmd-Shift-T reopens it. A workspace row's middle-click still closes its workspace; group and section rows still take nothing. Search Tabs rows close on a middle-click too (their Cmd-W close). Then (Leo 2026-10-28: "when you're hovering over that, I think it also wants the close button on there as well") a hovered tab row shows the workspace row's ✕, one button for both (`SidebarRowCloseButton`: `SidebarIconButton.rowClose`, `SidebarStyle.rowCloseFrame`), on the trailing column where the tab's status mark gives way until the hover ends, as a workspace row's at `sidebar.rowCloseSpot` `end`; its own hover and press highlight cover the ✕ only; its press sends the same `.closeTab`, so Cmd-Shift-T reopens it. Look change: the hover ✕ on tab rows only; rest state, row heights, fills and `sidebar.showWorkspaceTabs`'s default (off) are unchanged. `SidebarTabMiddleClickTests`, `SidebarTabMiddleClickReopenTests`, gallery `SidebarTabMiddleClickGalleryTests`.
 - 2026-10-28: remote-sidebar-opus (claude-sr2 relaying Leo: "Also, the update button, don't put at the top. Put on the bottom. The bottom has room. The bottom of the sidebar area."): the quiet Update Available button leaves the titlebar row for the footer line, just left of the Search button at its right end (f004cef0aa9), on its line; the spaces strip ends before it. Takes back #25283's titlebar placement (cbb4aa7ba1a). `SidebarIconMeaningTests.theUpdateButtonSitsAtTheBottom`; gallery `SidebarUpdateButtonGalleryTests`.
+- 2026-10-29: trailing slots, PR #27561 (`4bf0793659a` test, `a780175e437`, `2920608979b`, `7f3ff5f0d6a`; Leo, relayed: "I SAID THE SHIT WAS MISALIGNED LAST FUCCKING NIGHT"): every trailing mark sits on the trailing column within half a backing pixel (the row badge snaps to the nearest pixel instead of flooring), and every trailing control steps one `SidebarStyle.trailingSlotPitch` (`controlSize + space1`) from it: a hovered row's ⌄ and ⋮, a group header's ⋮ and + (at most one slot wide, so they never overlap), and a listed tab's dot beside its status. A hovered row stepped 22 pt to its chevron, a comfortable header 21 pt to its menu; a row with nothing to disclose keeps no hidden chevron slot. Moves marks and controls by at most 2 pt. `SidebarTrailingSlotTests`.
 
 ## Preview surface visibility (2026-10-27)
 
@@ -541,6 +558,10 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Scrolled rows hide under the traffic lights (2026-10-29)
 
 - [f19e4c28604](https://github.com/manaflow-ai/cmux/commit/f19e4c28604) (PR [#24073](https://github.com/manaflow-ai/cmux/pull/24073), test first in 0ccf76674b7). Asked by the coordinator after live QA on nightly 3a63d6d9 ("Agents" header pill beside the traffic lights), verbatim: "keep the list starting level with the panes at rest. When the list is scrolled, extend the top mask so content scrolling under the traffic lights is clipped and faded below the lights (y≈titlebarHeight). Don't use max(tabStripHeight, titlebarHeight) at rest." Look change only while scrolled: `ScrollEdgeFadeView.topClip` clears the mask down to `Metrics.titlebarHeight` when the traffic lights are over this sidebar, and the 18 pt top fade starts below it. At rest the mask, row positions and the list's top are unchanged. The commit predates its branch's first `Sidebar-Look:` check and carries no trailer; reviewed and logged here. Test: `SidebarTopMaskTests`.
+
+## Pointing hand over the sidebar's icon buttons (2026-10-29)
+
+- [668f7306170](https://github.com/manaflow-ai/cmux/commit/668f7306170) (PR [#24009](https://github.com/manaflow-ai/cmux/pull/24009)). Leo, verbatim: "STOP BUTTON, I HOVER OVER IT, MY CURSOR SHOULD ALSO SEE IT AS CLICKABLE.. LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR INDICATOR TO CLICKABLE". `SidebarIconButton` now subclasses `ClickableButton` (CmuxNextDesign), so an enabled sidebar icon button shows the pointing-hand cursor. Only the superclass changes: no drawing, layout, hover or row change, so no look change. The commit predates its branch's `Sidebar-Look:` check and carries no trailer; reviewed and logged here. Test: `ClickableCursorTests`.
 
 ## First group fold reads a prepared lookup (2026-10-29)
 

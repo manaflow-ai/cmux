@@ -24,6 +24,8 @@ extension SettingsWindowService {
             "machines": .array(machines.map { vmHostRow(Self.machineRow($0), id: $0.id) }),
             // Settings > Devices (plans/cmux-next/add-device-DESIGN.md 2.4): every device, one remove.
             "devices": (try? JSONValue.parse(services.devices.pageData(phones: services.iphone.devicePhones))) ?? .null,
+            // This Mac's one-line join consent (labs.machineJoin): null unless joined.
+            "devices_join": services.joinConsent.pageData().flatMap { try? JSONValue.parse($0) } ?? .null,
             "browser_profiles": .array(browserProfiles.map { profile in
                 [
                     "id": .string(profile.id), "name": .string(profile.name),
