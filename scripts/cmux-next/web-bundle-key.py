@@ -17,9 +17,14 @@ fields only: the Xcode verify phase runs with a PATH that may lack bun.
 folder that origin serves, and the bundles name one React file between them
 (webviews/scripts/shared/shared-react.mjs). It prints that file and exits 1 with each problem.
 
+The source key includes the pinned Bun and Node toolchain identity. Set CMUX_WEB_BUN_VERSION or
+CMUX_WEB_NODE_VERSION when a workflow computes the key so a toolchain change cannot reuse a
+published manifest for the same sources.
+
 Usage: web-bundle-key.py ROOT [--stamp | --verify-stamp | --source | --outputs | --inputs | --shared]
 """
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -191,8 +196,34 @@ def file_digest(path):
     return h.hexdigest()
 
 
+def declared_bun_version(root):
+    with open(os.path.join(root, "webviews/package.json"), encoding="utf-8") as f:
+        package_manager = (json.load(f).get("devEngines") or {}).get("packageManager") or {}
+    return package_manager.get("version", "1.4.4") if package_manager.get("name") == "bun" else "1.4.4"
+
+
+def toolchain_identity(root):
+    # Keep these defaults in one place: workflows export the same values before computing keys.
+    bun = normalize_toolchain_version(os.environ.get("CMUX_WEB_BUN_VERSION", declared_bun_version(root)))
+    node = normalize_toolchain_version(os.environ.get("CMUX_WEB_NODE_VERSION", "24.22.1"))
+    return f"bun={bun}\nnode={node}\n"
+
+
+def normalize_toolchain_version(value):
+    """Normalize runtime version output for stable manifest comparisons."""
+    return value.strip().removeprefix("v")
+
+
+def manifest_matches_toolchain(manifest, bun, node):
+    return all(
+        normalize_toolchain_version(manifest.get(name, "")) == normalize_toolchain_version(expected)
+        for name, expected in (("bun", bun), ("node", node))
+    )
+
+
 def source_key(root):
     h = hashlib.sha256()
+    h.update(b"web-bundle-toolchain\0" + toolchain_identity(root).encode())
     for rel in git_files(root, source_inputs(root)):
         path = os.path.join(root, rel)
         # A tracked file deleted in the worktree is listed but absent.

@@ -58,6 +58,16 @@ extension ActionRegistry {
         case .applied(let confirmation):
             effectExpectsFrame()
             start(id, invocation, confirmation.send, rollback: confirmation.rollback)
+        case .appliedResult(let result):
+            let reported = isCapturingWork
+            let title = title(for: id) ?? id.rawValue
+            track(result: Task { [weak self] in
+                let answer = await result()
+                if case .failure(let failure) = answer, !reported {
+                    self?.remoteFailureObserver?(id, failedText(title, failure.message))
+                }
+                return answer
+            })
         case .waiting(let reason, let work):
             effectExpectsFrame()
             waitingRuns[canonicalID(for: id), default: [:]][reason, default: 0] += 1

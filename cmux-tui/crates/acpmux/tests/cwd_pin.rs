@@ -101,6 +101,7 @@ async fn a_pinned_hosted_harness_never_execs_in_a_swapped_folder() {
         buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
         router_owner_fifo: None,
         cwd_pin: Some(pin),
+        cpu_class: Default::default(),
     };
     let launcher = daemon_env::host_launcher();
     let started = link::spawn(&launcher, &spec).await;

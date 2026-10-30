@@ -217,21 +217,56 @@ pub(super) fn is_remote_invocation(args: &[String]) -> bool {
                 index += 1;
             }
             value if value.starts_with('-') => return false,
-            "remote" => return remote_family_word(args.get(index + 1)),
+            "remote" => return remote_family_word(args.get(index + 1..).unwrap_or_default()),
             value => return REMOTE_COMMANDS.contains(&value),
         }
     }
     false
 }
 
-/// Whether the word after `remote` keeps argv in the remote command family:
-/// none, a flag, `help` or one of its actions. Any other word is an app
+/// Whether the words after `remote` keep argv in the remote command family:
+/// none, a flag, `help`, one of its actions, or any word asked for `--help`
+/// (the remote family's help lists its actions). Any other word is an app
 /// action's CLI name (`remote new-group`, `remote reconnect`), which the app
-/// action fallback runs.
-fn remote_family_word(word: Option<&String>) -> bool {
-    word.is_none_or(|word| {
-        word.starts_with('-') || word == "help" || remote_action_command(word).is_some()
+/// action fallback runs; a word no app action has is refused as an unknown
+/// remote action there (see ``unknown_remote_action``).
+fn remote_family_word(rest: &[String]) -> bool {
+    rest.first().is_none_or(|word| {
+        word.starts_with('-')
+            || word == "help"
+            || remote_action_command(word).is_some()
+            || rest
+                .iter()
+                .take_while(|arg| *arg != "--")
+                .any(|arg| matches!(arg.as_str(), "-h" | "--help"))
     })
+}
+
+/// The remote family's refusal of `remote <word>` when `<word>` is neither a
+/// remote action nor an app action's CLI name, in place of the mux grammar's
+/// unknown-scope error for `remote`.
+#[cfg(unix)]
+fn unknown_remote_action(args: &[String]) -> Option<i32> {
+    let (global, command_args) = parse_action_globals(args).ok()?;
+    if command_args.first().map(String::as_str) != Some("remote") {
+        return None;
+    }
+    let action = command_args.get(1).filter(|word| !word.starts_with('-'))?;
+    let message = crate::localization::catalog().remote_client.unknown_action("remote", action);
+    let message = match global.output {
+        OutputMode::Quiet | OutputMode::Human => format!("cmux: {message}"),
+        OutputMode::Json | OutputMode::JsonLines => message,
+    };
+    Some(wire::print_local_error(
+        &serde_json::json!({
+            "code":"usage.invalid",
+            "message":message,
+            "details":{},
+            "retryable":false,
+        }),
+        global.output,
+        1,
+    ))
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -495,6 +530,10 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             // reports replaces the usage error.
             #[cfg(unix)]
             if let Some(code) = run_app_action_fallback(args) {
+                return code;
+            }
+            #[cfg(unix)]
+            if let Some(code) = unknown_remote_action(args) {
                 return code;
             }
             // A command this build does not know may be one the daemon's

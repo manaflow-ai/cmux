@@ -134,6 +134,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let goBack: @convention(c) (Int32) -> Void
     let goForward: @convention(c) (Int32) -> Void
     let reload: @convention(c) (Int32) -> Void
+    /// Chrome's Hard Reload (`cmux_shim_reload_ignore_cache`): the current entry, every resource past the
+    /// cache. Nil when this shim has no such export (a Chromium Host wire generated before it): the caller
+    /// reloads normally.
+    var reloadIgnoreCache: (@convention(c) (Int32) -> Void)? { try? resolver("cmux_shim_reload_ignore_cache") }
     let stop: @convention(c) (Int32) -> Void
     let setFocus: @convention(c) (Int32, Int32) -> Void
     let setZoomLevel: @convention(c) (Int32, Double) -> Void

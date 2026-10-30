@@ -3,21 +3,21 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextServer
 import CmuxNextWakeups
-import SwiftUI
 
-/// Hosts the Machines section: follows the machine registry and each machine's last check, opens a
-/// workspace on a machine through `workspace.newOnMachine` and Add Device through `device.add`. With
-/// Labs `labs.machineJoin` on it also lists the machines that joined with a one-line token, read
-/// when the section is made and each time it shows (never on a timer), with Check, Rotate and Revoke.
+/// Hosts the Machines section (``MachineSectionView``, AppKit): follows the machine registry, each
+/// machine's last check and the section's layout tunable, opens a workspace on a machine through
+/// `workspace.newOnMachine` and Add Device through `device.add`. With Labs `labs.machineJoin` on it
+/// also lists the machines that joined with a one-line token, read when the section is made and each
+/// time it shows (never on a timer), with Check, Rotate and Revoke.
 final class MachineSectionHostView: NSView, RightSidebarRefreshing {
-    let model = MachineSectionModel()
+    let section: MachineSectionView
     private let machines: MachineRegistry
     private let health: MachineHealthStore
     private let joined: JoinedMachineStore
     /// This view in the visibility tree: the rows render only while it is on screen, and once on show.
     let visibility = ViewVisibility("machines-section")
     var visibilityNode: VisibilityNode { visibility.node }
-    private var observation: VisibleObservation<[MachineSectionRow]>?
+    private var observation: VisibleObservation<Shown>?
     /// The joined list's read in flight (a newer show replaces it).
     private var joinedRead: Task<Void, Never>?
     /// Reads the joined list again when Labs `labs.machineJoin` turns on or off (off empties it).
@@ -43,26 +43,26 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
         self.machines = machines
         self.health = health
         self.joined = joined
-        super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
-        // hosting-gate: opt-out a right sidebar section, not tab content: it shows while the sidebar does.
-        let hosting = NSHostingView(rootView: MachineSectionListView(model: model, newWorkspace: { id in
+        section = MachineSectionView(actions: MachineSectionView.Actions(newWorkspace: { id in
             registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string(id)]))
-        }, addMachine: { registry.perform("device.add") }, joinedStore: joined,
-        joinedMenu: { machine, row in Self.joinedMenu(machine, rowID: row.id, registry: registry) }))
-        hosting.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(hosting)
+        }, addMachine: { registry.perform("device.add") }, newWorkspaceMenuItem: { id in
+            registry.makeContextMenuItem(for: "workspace.newOnMachine", in: .machineSection, arguments: ["machine": .string(id)])
+        }, joinedMenu: { machine, row in Self.joinedMenu(machine, rowID: row.id, registry: registry) }))
+        super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
+        section.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(section)
         NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
+            section.leadingAnchor.constraint(equalTo: leadingAnchor),
+            section.trailingAnchor.constraint(equalTo: trailingAnchor),
+            section.topAnchor.constraint(equalTo: topAnchor),
+            section.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         // A view observation on this view's node (its first value applies now): a hidden section renders
-        // nothing and renders once on show.
+        // nothing and renders once on show. It follows the rows, the layout tunable and the joined rows' state.
         observation = VisibleObservation(visibility.node, owner: "MachineSection.rows", on: mainWork) {
-            MachineSectionModel.rows(machines, health: health, joined: joined)
-        } apply: { [weak self] rows in
-            self?.model.update(rows)
+            Shown(machines: machines, health: health, joined: joined)
+        } apply: { [weak self] shown in
+            self?.section.update(shown.rows, style: shown.style, joined: shown.joined)
         }
         // The joined list is read when the section is made and each time it shows (``refresh()``).
         readJoined()
@@ -103,8 +103,24 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     }
 
     func refresh() {
-        model.update(MachineSectionModel.rows(machines, health: health, joined: joined))
+        let shown = Shown(machines: machines, health: health, joined: joined)
+        section.update(shown.rows, style: shown.style, joined: shown.joined)
         readJoined()
+    }
+
+    /// What the section shows: its rows, its layout (`machines.section.style`) and the joined rows' state.
+    private struct Shown: Equatable {
+        let rows: [MachineSectionRow]
+        let style: MachineSectionStyle
+        let joined: MachineSectionView.JoinedRowState
+
+        /// The values now (read where the caller observes them).
+        @MainActor
+        init(machines: MachineRegistry, health: MachineHealthStore, joined: JoinedMachineStore) {
+            rows = MachineSectionRow.rows(machines, health: health, joined: joined)
+            style = ServerTunables.machinesStyle.value
+            self.joined = MachineSectionView.JoinedRowState(joined)
+        }
     }
 
     /// Reads the joined list again (with Labs off, it empties), replacing a read still in flight.

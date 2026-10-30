@@ -1219,6 +1219,7 @@ dependencies = [
  "cmux-process",
  "cmux-threads",
  "libc",
+ "sha2 0.10.9",
 ]
 
 [[package]]

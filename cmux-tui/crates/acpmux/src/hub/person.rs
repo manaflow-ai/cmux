@@ -181,7 +181,9 @@
 //! (`Hub::keeps_harness_mode`, as a handoff target of a source that asks
 //! does). A request that names a mode skips the default; (a) and (b) gate
 //! it as above. Presets, folder profiles, adopted chats and profiles that
-//! pin a mode in their argv keep the harness's own mode.
+//! pin a mode in their argv keep the harness's own mode, except a built-in
+//! Chief subagent preset that names no mode, whose chat starts as a plain one
+//! (`start_mode.rs` `plain_for_mode`, cmux#27847).
 //!
 //! Also without the person: no rules change under a session policy that
 //! does not ask (a rule is then what keeps a tool asking), no removal of a

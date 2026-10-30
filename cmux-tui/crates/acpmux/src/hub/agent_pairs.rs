@@ -58,6 +58,7 @@
 //! `agent.pairCap` / `agent.pairWindow` set the cap.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::collections::{BTreeSet, HashSet, VecDeque};
 
 #[path = "agent_pair_progress.rs"]
@@ -242,7 +243,7 @@ impl Held {
             "control": self.control.as_str(), "trustGate": self.trust_gate, "order": self.order,
         });
         if let Some(class) = self.class {
-            record["class"] = json!(class);
+            record.set("class", json!(class));
         }
         record
     }

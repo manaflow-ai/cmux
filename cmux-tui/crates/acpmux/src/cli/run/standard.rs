@@ -784,7 +784,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let agent = crate::cli::sender::from_an_agent(prompt_id.from_agent.is_some());
             let mut steer = send_steers(steer, no_steer, no_wait, agent);
             let text = arg_or_stdin(&prompt)?;
-            if session.starts_with('@') {
+            // A team address (`@member/agent`, `@team/role`); a bare `@` is the caller's own
+            // session (`orchestrate::expand_session_key`), never the team path.
+            if session.strip_prefix('@').is_some_and(|rest| !rest.is_empty()) {
                 if !attach.is_empty() || superseding || classed {
                     return Err(anyhow!(
                         "team messages currently carry text only and do not support --supersede or --class"

@@ -12,7 +12,7 @@ import CmuxNextWakeups
 /// cost nothing until selected.
 @Observable
 public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCovering, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering, BrowserCrashPageHosting,
-    BrowserAgentFileChoosing {
+    BrowserAgentFileChoosing, BrowserCacheBypassingReload {
     public let id: BrowserTabID
     public let engineKind: BrowserEngineKind = .cef
     public let profileID: BrowserProfileID
@@ -397,7 +397,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         browserID.map { runtime.shim?.goForward($0) }
     }
 
-    public func reload() {
+    public func reload() { reload(bypassingCache: false) }
+
+    /// Hard Reload (``BrowserCacheBypassingReload``): Chrome's Cmd-Shift-R, the entry ignoring the cache.
+    public func reloadBypassingCache() { reload(bypassingCache: true) }
+
+    private func reload(bypassingCache: Bool) {
         isDiscardedInPlace = false
         if runtime.awaitsHostRestart { return runtime.reloadAfterHostRestart(self) }
         guard let browserID else {
@@ -407,7 +412,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         }
         switch reloadPlan {
         case .reloadEntry:
-            runtime.shim?.reload(browserID)
+            // A shim without the export (a Chromium Host wire generated before it) reloads normally.
+            if bypassingCache, let reloadIgnoringCache = runtime.shim?.reloadIgnoreCache {
+                reloadIgnoringCache(browserID)
+            } else {
+                runtime.shim?.reload(browserID)
+            }
         case .load(let url):
             // The sad tab clears now, not when the new renderer's first
             // callback arrives.

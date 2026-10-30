@@ -113,7 +113,7 @@ import QuartzCore
                                                  viewportWidth: strip.viewportWidth)
         var layers = [strip.scrollProbe] + strip.cells.values.map(\.layer) + strip.groups.chips.values.map(\.layer)
         layers += strip.groups.bands.values.flatMap { [$0.washLayer, $0.lineLayer] }
-        if let button = strip.newTabButton.layer { layers.append(button) }
+        layers += [strip.newTabButton.layer, strip.newTabMenuButton.layer].compactMap { $0 }
         TabStripMove.cancelScroll(on: layers)
     }
 

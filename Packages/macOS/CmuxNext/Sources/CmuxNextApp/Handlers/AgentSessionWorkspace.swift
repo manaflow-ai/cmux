@@ -46,7 +46,8 @@ enum AgentSessionWorkspace {
         if let group, !validGroupName(group) {
             throw ActionFailure(message: "agent.openSessionWorkspace: group must be a non-empty human label, not a cmux id; omit group or use a label such as \"GUI push\"")
         }
-        let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, group: group, services: context.services)
+        let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, group: group,
+                           focus: invocation.allowsViewChange, services: context.services)
         context.services.registry.track(task)
     }
 
@@ -56,7 +57,7 @@ enum AgentSessionWorkspace {
     /// daemon is offline.
     @discardableResult
     static func open(session: String, name: String?, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil,
-                     group: String? = nil, services: AppServices) throws -> ActionWork {
+                     group: String? = nil, focus: Bool = false, services: AppServices) throws -> ActionWork {
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let daemon = services.daemon
         guard let connection = daemon.connection, case let repair = services.emptyWorkspaces else {
@@ -73,7 +74,7 @@ enum AgentSessionWorkspace {
         // Every window's sidebar: each lists only its own workspaces, and the predecessor may be in any.
         if let group, let name,
            let row = windows.controllers.lazy.compactMap({ predecessor(named: name, inGroup: group, in: $0.sidebar.model.sections) }).first {
-            return reuse(row, session: session, key: key, host: host, services: services, end: end)
+            return reuse(row, session: session, key: key, host: host, focus: focus, services: services, end: end)
         }
         // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
         // workspace the window shows, when it is in one (cx-caoh), then into
@@ -102,10 +103,13 @@ enum AgentSessionWorkspace {
                     logger.error("agent.openSessionWorkspace: the pane of workspace \(key.rawValue, privacy: .public) did not appear")
                     return ActionWorkFailure("agent.openSessionWorkspace: the new workspace's pane did not appear")
                 }
-                // Selected wherever the workspace is shown later, never shown now.
-                await end.apply(owner: "AgentSessionWorkspace.select", answering: true) {
-                    for window in services.windows.controllers {
-                        window.state.selection.select(tab, in: pane.id)
+                // Selected wherever the workspace is shown later, never shown now; only when the invocation
+                // allows a view change, so a scripted open keeps the user's focus.
+                if focus {
+                    await end.apply(owner: "AgentSessionWorkspace.select", answering: true) {
+                        for window in services.windows.controllers {
+                            window.state.selection.select(tab, in: pane.id)
+                        }
                     }
                 }
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(tab, privacy: .public)")
@@ -122,7 +126,7 @@ enum AgentSessionWorkspace {
     /// The chat of a re-homed lane's new session as a tab of its predecessor's
     /// row `row`, selected there; the caller's `key` is the tab's creation key,
     /// so a launcher run again gets the same tab.
-    private static func reuse(_ row: SidebarWorkspaceID, session: String, key: WorkspaceKey, host: String?,
+    private static func reuse(_ row: SidebarWorkspaceID, session: String, key: WorkspaceKey, host: String?, focus: Bool,
                               services: AppServices, end: ActionCompletion) -> ActionWork {
         let logger = services.daemon.logger, store = services.daemon.store
         return end.start { () -> ActionWorkFailure? in
@@ -130,7 +134,8 @@ enum AgentSessionWorkspace {
                 guard let pane = await store.firstPane(mirroring: WorkspaceKey(rawValue: row.rawValue)) else {
                     return ActionWorkFailure("agent.openSessionWorkspace: the pane of workspace \(row.rawValue) did not appear")
                 }
-                _ = try await addChat(session, in: pane, host: host, idempotencyKey: key.rawValue, services: services, end: end)
+                _ = try await addChat(session, in: pane, host: host, idempotencyKey: key.rawValue, focus: focus,
+                                      services: services, end: end)
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in its predecessor's workspace \(row.rawValue, privacy: .public)")
                 return nil
             } catch let refusal as AgentTabRefusal {
@@ -142,19 +147,22 @@ enum AgentSessionWorkspace {
     }
 
     /// Adds a workspace store tab bound to `session` (agent-session-tabs-v1) to `pane`, so it is saved and restored
-    /// with the workspace like any tab, and selects it there in every window: selected wherever the workspace shows
-    /// later, never shown now. Returns the tab's key. Runs off main; the open and the selection are tasks of `end`.
+    /// with the workspace like any tab, and, when `focus`, selects it there in every window: selected wherever the
+    /// workspace shows later, never shown now (a scripted open keeps the user's focus). Returns the tab's key. Runs
+    /// off main; the open and the selection are tasks of `end`.
     nonisolated private static func addChat(_ session: String, in pane: PaneModel, host: String?,
-                                            idempotencyKey: String = UUID().uuidString.lowercased(),
+                                            idempotencyKey: String = UUID().uuidString.lowercased(), focus: Bool,
                                             services: AppServices, end: ActionCompletion) async throws -> String {
         let pending = try await end.apply(owner: "AgentSessionWorkspace.openTab") {
             Result { try services.agentTabs.open(in: pane.handle, of: services.daemon, session: session, linked: true, host: host,
                                                  idempotencyKey: idempotencyKey) }
         }.get()
         let created = try await pending.value()
-        await end.apply(owner: "AgentSessionWorkspace.select", answering: true) {
-            for window in services.windows.controllers {
-                window.state.selection.select(created.key, in: pane.id)
+        if focus {
+            await end.apply(owner: "AgentSessionWorkspace.select", answering: true) {
+                for window in services.windows.controllers {
+                    window.state.selection.select(created.key, in: pane.id)
+                }
             }
         }
         return created.key

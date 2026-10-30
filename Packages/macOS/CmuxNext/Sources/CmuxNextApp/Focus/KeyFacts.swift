@@ -61,7 +61,7 @@ nonisolated struct KeyFacts: Equatable, Sendable {
     var workspacesAsTabs = false
     /// The focused browser page reports the keys it did not handle (a Chromium tab, through
     /// `CefKeyboardHandler::OnKeyEvent`): Find and content shortcuts go to it first
-    /// (``KeyRouter/offersToPage(_:focus:facts:)``).
+    /// (``KeyRouter/offersToPage(_:event:focus:facts:)``).
     var pageReportsUnhandledKeys = false
     /// The focused hosted page holds a keyboard lock in its fullscreen: it gets the chords cmux would
     /// run but Ghostty's split keys and Quit (``KeyRouter/keyboardLockTakes(_:facts:)``).

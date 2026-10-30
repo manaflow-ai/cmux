@@ -114,9 +114,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view.stripView.hoverFrameInput = services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)
         view.stripView.scrollFrameInput = services.tabScrollFrameInput  // scroll by translation once per frame (`tabStripScrollFrames`)
         view.stripView.setResourceSource(services.resources, deadlines: services.mainDeadlines)
-        // The + is a plain button (Lawrence 2026-10-27: no dropdown caret): a press makes the default
-        // tab; a hold or a right-click opens the type menu (`TabStripView.showNewTabMenu`).
+        // The + stays a plain default-tab action, with hold/right-click for the type menu.
+        // Its adjacent chevron exposes that same menu without changing what a plus click does.
         view.stripView.opensNewTabMenuOnPress = false
+        view.stripView.showsNewTabMenuButton = true
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.stripView.attachHoverCards(services.hoverCards, memory: services.memoryCoordinator, thumbnailPages: services.cache.imageCaches.pictureAllocator, energy: services.cache.hibernation?.highEnergy)
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }

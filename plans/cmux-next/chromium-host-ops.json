@@ -1791,6 +1791,23 @@
       "reason": "Navigation of the same entry; history does not change."
     },
     {
+      "name": "cmux_shim_reload_ignore_cache",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Reload of the same entry without the HTTP cache (Cmd-Shift-R; feat f126eafd8d4); history does not change."
+    },
+    {
       "name": "cmux_shim_stop",
       "class": "post",
       "args": [

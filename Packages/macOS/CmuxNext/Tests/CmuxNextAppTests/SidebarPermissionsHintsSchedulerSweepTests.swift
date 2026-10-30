@@ -30,15 +30,15 @@ struct SidebarPermissionsHintsSchedulerSweepTests {
         let view = MachineSectionHostView(machines: machines, health: health, registry: ActionRegistry(),
                                           mainWork: rig.deadlines.work)
         // In no window: the view's node is under its hidden off-window root. The first rows apply at once.
-        let local = try #require(view.model.rows.first)
+        let local = try #require(view.section.rows.first)
         #expect(local.health == nil)
 
         health.record(local.id, HostReport(name: "mac", host: "mac", ok: false, steps: []))
         rig.frame()
-        #expect(view.model.rows.first?.health == nil, "a hidden Machines section rendered the machine's check")
+        #expect(view.section.rows.first?.health == nil, "a hidden Machines section rendered the machine's check")
 
         try view.visibilityNode.attach(to: VisibilityNode(root: "test.window", own: .visible))
-        #expect(view.model.rows.first?.health == .failing, "the Machines section did not render the check in the show turn")
+        #expect(view.section.rows.first?.health == .failing, "the Machines section did not render the check in the show turn")
     }
 
     // MARK: ServiceObservation, AppEvents and MainDeadline (ComputerUseSetup)
