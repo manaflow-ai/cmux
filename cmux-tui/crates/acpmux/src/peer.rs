@@ -33,6 +33,10 @@ mod state_tests;
 #[path = "peer_restart_tests.rs"]
 mod restart_tests;
 
+#[cfg(test)]
+#[path = "peer_handshake_tests.rs"]
+mod handshake_tests;
+
 /// Source of `Peer::generation`.
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 

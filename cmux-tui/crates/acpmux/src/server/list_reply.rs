@@ -188,6 +188,10 @@ pub(super) fn reply_line(id: &Value, result: &str) -> String {
 }
 
 #[cfg(test)]
+#[path = "list_reply_tests.rs"]
+mod link_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
