@@ -1,8 +1,16 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-30: the narrowest sidebar fits its titlebar row. Lawrence: "get rid of this intersect thing",
+  then "not remove glyph but just make min width of sidebar bigger": at the 160 pt minimum the toolbar band's
+  Forward chevron drew over the +. `SidebarModel.minimumWidth` is now the wider of the `sidebarMinWidth`
+  tunable and `SidebarView.titlebarControlsWidth` (the band reserve, the Priority bell while it shows, the +
+  and its trailing inset); the window's layout sets it and a narrower `width`, saved or dragged, clamps up.
+  No glyph is removed; the options chevron still hides first. Regression: `SidebarMinimumWidthTitlebarTests`.
+
 ## Link opener placement keeps pane-local relationships (2026-10-30)
 
 - [1cc205d8d16](https://github.com/manaflow-ai/cmux/commit/1cc205d8d16) (carry of #26582): behavior-only opener bookkeeping keeps a tab's opener relationship inside its source pane when placement moves it elsewhere. No sidebar drawing or layout changes; the existing `RightPanePlacementTests` cover placement behavior. Reviewed as `Sidebar-Look: no visual change`.
+
 - 2026-10-30: the "cmux Updated!" card is glass again. Leo: "I don't like the non-glassness". The card is a
   React page over the sidebar whose own CSS glass could not see the sidebar (a flat fill; solid in an opaque
   window through the theme bootstrap's html background). `SidebarUpdatedCardHost` now draws `CardSurfaceView`

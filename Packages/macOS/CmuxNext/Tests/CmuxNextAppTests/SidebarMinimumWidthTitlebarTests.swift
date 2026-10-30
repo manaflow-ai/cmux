@@ -60,4 +60,28 @@ import Testing
         #expect(!container.model.isHidden)
         #expect(gapBeforePlus(root) >= Metrics.space2)
     }
+
+    @Test func theMinimumIsDerivedFromTheTitlebarControls() {
+        let (window, root) = root()
+        defer { window.close() }
+        let sidebarView = root.sidebar.sidebarView
+        let controls = sidebarView.titlebarLeadingReserve + SidebarStyle.toolbarButtonSize + Metrics.space3
+        #expect(root.sidebar.model.minimumWidth == max(Metrics.sidebarMinWidth, controls))
+    }
+
+    @Test func thePriorityBellWidensTheMinimumAndStaysClearOfForward() {
+        let (window, root) = root()
+        defer { window.close() }
+        let container = root.sidebar
+        let before = container.model.minimumWidth
+        container.sidebarView.showPriority(SidebarPriorityPanel(entries: []))
+        #expect(container.model.minimumWidth >= before + SidebarStyle.toolbarButtonSize)
+        container.restore(width: 160, presentation: .shown)
+        settle(root)
+        let forward = root.toolbarBand.convert(root.toolbarBand.forwardButton.frame, to: root)
+        let bell = container.sidebarView.convert(container.sidebarView.priorityButton.frame, to: root)
+        #expect(bell.minX - forward.maxX >= Metrics.space2)
+        container.sidebarView.showPriority(nil)
+        #expect(container.model.minimumWidth == before)
+    }
 }

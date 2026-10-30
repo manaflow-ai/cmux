@@ -27,10 +27,30 @@ public final class SidebarView: NSView {
     public var titlebarHeightOverride: CGFloat? { didSet { needsLayout = true } }
     /// Where the titlebar row's accessory may start: after the window's
     /// toolbar band (R68).
-    public var titlebarLeadingReserve: CGFloat = 0 { didSet { if oldValue != titlebarLeadingReserve { needsLayout = true } } }
+    public var titlebarLeadingReserve: CGFloat = 0 { didSet { if oldValue != titlebarLeadingReserve { titlebarReserveChanged() } } }
     /// False when the traffic lights are not over this header (a right
     /// sidebar, R109): the accessory then starts at the reserve alone.
-    public var headerHasWindowControls = true { didSet { if oldValue != headerHasWindowControls { needsLayout = true } } }
+    public var headerHasWindowControls = true { didSet { if oldValue != headerHasWindowControls { titlebarReserveChanged() } } }
+    /// Where the titlebar row's own controls may start: past the traffic lights and the toolbar
+    /// band over a left sidebar, at the reserve alone otherwise.
+    var titlebarLeadingX: CGFloat {
+        headerHasWindowControls ? max(Metrics.trafficLightInset, titlebarLeadingReserve) : titlebarLeadingReserve
+    }
+    /// The narrowest width that fits the titlebar row: everything before ``titlebarLeadingX``,
+    /// then the Priority bell while it shows, the + (New Workspace) and its trailing inset. The
+    /// options chevron hides first, so it does not count.
+    var titlebarControlsWidth: CGFloat {
+        let button = SidebarStyle.toolbarButtonSize
+        let priority = priorityButton.isHidden ? 0 : button + Metrics.space1
+        return titlebarLeadingX + priority + button + Metrics.space3
+    }
+
+    /// The reserve or the row's buttons changed: lay the row out again and give the model the
+    /// width the row now needs.
+    func titlebarReserveChanged() {
+        needsLayout = true
+        model.titlebarControlsWidth = titlebarControlsWidth
+    }
     var titlebarHeight: CGFloat { titlebarHeightOverride ?? Metrics.titlebarHeight }
     let list: SidebarListView
     let scrollView = SidebarScrollView()
@@ -311,7 +331,7 @@ public final class SidebarView: NSView {
         newButton.frame = NSRect(x: b.width - Metrics.space3 - button, y: (rowMidY - button / 2).rounded(), width: button, height: button)
         newWorkspaceOptionsButton.frame = NSRect(x: newButton.frame.minX - Metrics.space1 - button,
                                                   y: newButton.frame.minY, width: button, height: button)
-        let x = headerHasWindowControls ? max(Metrics.trafficLightInset, titlebarLeadingReserve) : titlebarLeadingReserve
+        let x = titlebarLeadingX
         // The chevron is the optional extra (the +'s right-click menu holds the same chooser): on a
         // sidebar too narrow for it and the Priority button beside the +, it hides before either one
         // reaches the leading reserve (the toolbar band sits above it there and takes the clicks).
