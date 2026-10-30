@@ -122,6 +122,7 @@ mod steer_end;
 mod store_load;
 mod stream;
 mod tags;
+mod tailnet_controller;
 mod tap;
 mod titles;
 mod tool_paths;
@@ -838,18 +839,6 @@ impl Hub {
 
     pub fn mailbox(&self) -> &Mailbox {
         &self.mailbox
-    }
-
-    #[cfg(all(unix, feature = "tailnet"))]
-    pub(crate) fn tailnet_controller(&self) -> Arc<crate::tailnet::embedded::Controller> {
-        self.tailnet_controller
-            .get_or_init(|| {
-                crate::tailnet::embedded::Controller::new(
-                    crate::tailnet::embedded::state_dir(&crate::config::home()),
-                    crate::hand::pair::hostname(),
-                )
-            })
-            .clone()
     }
 
     pub(super) fn load_from_store(self: &Arc<Self>, deferred: bool) {
