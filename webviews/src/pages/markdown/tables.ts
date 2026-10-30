@@ -14,8 +14,8 @@
 // - Column widths: a handle on each column's right edge; a drag sets the width, a double-click fits
 //   the column to its content. Widths are a view setting kept per file (`TableWidths`), never
 //   written to the file: GFM has no column widths, and a resize must not mark the file edited.
-import type { Node as ProseNode, Schema } from "@milkdown/kit/prose/model";
-import { AllSelection, Plugin, TextSelection, type EditorState } from "@milkdown/kit/prose/state";
+import type { Node as ProseNode, ResolvedPos, Schema } from "@milkdown/kit/prose/model";
+import { AllSelection, Plugin, TextSelection, type EditorState, type Selection } from "@milkdown/kit/prose/state";
 import {
   CellSelection,
   TableMap,
@@ -772,6 +772,30 @@ export const tableDragOutPlugin = $prose(
     }),
 );
 
+/** The position before the table cell that holds `$pos`, or -1 outside a cell. */
+function cellBefore($pos: ResolvedPos): number {
+  for (let depth = $pos.depth; depth > 0; depth--) {
+    const role = $pos.node(depth).type.spec.tableRole;
+    if (role === "cell" || role === "header_cell") return $pos.before(depth);
+  }
+  return -1;
+}
+
+/**
+ * Whether `next` is prosemirror-tables' normalization of `selection`, a text selection from one
+ * cell into another: its from cell's text (a head at the next cell's start) or a caret at its from
+ * (a selection between two cells' edges). tableEditing's appendTransaction makes it.
+ */
+function normalizesAcrossCells(selection: Selection, next: Selection): boolean {
+  if (!(selection instanceof TextSelection) || !(next instanceof TextSelection)) return false;
+  const from = cellBefore(selection.$from);
+  if (from < 0 || from === cellBefore(selection.$to)) return false;
+  return (
+    (next.from === selection.$from.start() && next.to === selection.$from.end()) ||
+    (next.empty && next.from === selection.from)
+  );
+}
+
 /**
  * Pointer selection in tables is text selection (user 2026-10-28). prosemirror-tables turns a drag
  * that crosses into another cell, and a Shift-click from a caret into another cell, into a cell
@@ -779,30 +803,58 @@ export const tableDragOutPlugin = $prose(
  * plugin drops that start unless a cell selection already exists (Cmd-A, then Shift-click extends
  * it), so the browser's own drag selection goes on, and it does the Shift-click itself as a text
  * selection from the anchor to the click.
+ *
+ * While the button is down it also drops prosemirror-tables' normalization of the drag's text
+ * selection: when the pointer crosses a cell's edge, the head lands at the next cell's start, and
+ * tableEditing cuts the selection to the first cell's text (or a caret). Chromium waits for the
+ * mouseup to write the editor's selection back to the page; WebKit, which the app draws in, writes
+ * it at once, and its drag then stayed on the first cell ("Ada" for a drag from Ada to Navy).
  */
-export const tableTextSelectPlugin = $prose(
-  () =>
-    new Plugin({
-      filterTransaction(tr, state) {
-        const anchor = tr.getMeta(tableEditingKey) as number | undefined;
-        if (typeof anchor !== "number" || anchor < 0) return true;
-        return !(tr.selection instanceof CellSelection) || state.selection instanceof CellSelection;
-      },
-      props: {
-        handleDOMEvents: {
-          mousedown(view, event) {
-            if (event.button !== 0 || !event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return false;
-            const { state } = view;
-            if (state.selection instanceof CellSelection) return false;
-            if (!(event.target as Element | null)?.closest?.("td, th")) return false;
-            const hit = view.posAtCoords({ left: event.clientX, top: event.clientY });
-            if (!hit) return false;
-            const selection = TextSelection.between(state.selection.$anchor, state.doc.resolve(hit.pos));
-            event.preventDefault();
-            if (!selection.eq(state.selection)) view.dispatch(state.tr.setSelection(selection));
-            return true;
-          },
+export const tableTextSelectPlugin = $prose(() => {
+  // Whether the primary button went down in a cell of this editor and is still down.
+  let dragging = false;
+  return new Plugin({
+    filterTransaction(tr, state) {
+      if (
+        dragging &&
+        tr.steps.length === 0 &&
+        tr.selectionSet &&
+        tr.getMeta("pointer") !== true &&
+        normalizesAcrossCells(state.selection, tr.selection)
+      )
+        return false;
+      const anchor = tr.getMeta(tableEditingKey) as number | undefined;
+      if (typeof anchor !== "number" || anchor < 0) return true;
+      return !(tr.selection instanceof CellSelection) || state.selection instanceof CellSelection;
+    },
+    props: {
+      handleDOMEvents: {
+        mousedown(view, event) {
+          if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey) return false;
+          if (!(event.target as Element | null)?.closest?.("td, th")) return false;
+          if (!event.shiftKey) {
+            const window = view.dom.ownerDocument.defaultView;
+            if (!window) return false;
+            dragging = true;
+            const stop = () => {
+              dragging = false;
+              window.removeEventListener("mouseup", stop, true);
+              window.removeEventListener("dragstart", stop, true);
+            };
+            window.addEventListener("mouseup", stop, true);
+            window.addEventListener("dragstart", stop, true);
+            return false;
+          }
+          const { state } = view;
+          if (state.selection instanceof CellSelection) return false;
+          const hit = view.posAtCoords({ left: event.clientX, top: event.clientY });
+          if (!hit) return false;
+          const selection = TextSelection.between(state.selection.$anchor, state.doc.resolve(hit.pos));
+          event.preventDefault();
+          if (!selection.eq(state.selection)) view.dispatch(state.tr.setSelection(selection));
+          return true;
         },
       },
-    }),
-);
+    },
+  });
+});

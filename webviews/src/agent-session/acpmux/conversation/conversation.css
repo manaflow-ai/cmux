@@ -4128,8 +4128,10 @@ a.cv-sha:focus-visible {
 }
 /* A row whose renderer draws nothing (a render update that joined an earlier card, a note whose
    payload never came) takes no room: the 34px floor and the gap under it were a blank band each,
-   between "Worked for" and the reply. The element selector outranks every row-kind padding. */
-article.acpmux-row:empty {
+   between "Worked for" and the reply. The element selector outranks every row-kind padding. Every
+   row holds its gap target (`.acpmux-row__gap`, App.tsx RowFrame), so such a row has no other child
+   rather than none at all (`:empty` stopped matching with #26704). */
+article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   min-height: 0;
   padding-bottom: 0;
 }
