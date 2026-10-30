@@ -557,7 +557,7 @@ enum ConversationRowBuilder {
         info.participant(participantID)?.name.split(separator: " ").first.map(String.init) ?? ""
     }
 
-    private static func footer(for status: ConversationRunPlan.Status, isGroup: Bool) -> MessageFooter {
+    static func footer(for status: ConversationRunPlan.Status, isGroup: Bool) -> MessageFooter {
         switch status {
         case .none:
             return .none

@@ -321,16 +321,20 @@ extension ConversationViewController {
             // Inside the thread, replies render without their quote.
             model.replyQuote = nil
             model.showsTail = true
-            model.showsSenderName = !model.isOutgoing
+            // Names are a group's: a 1:1 thread shows none, as its transcript.
+            model.showsSenderName = model.isGroup && !model.isOutgoing
             model.showsAvatar = model.reservesAvatarColumn
             model.message.replyCount = 0
             return model
         }
-        // The thread is its own transcript: only its newest outgoing message
-        // keeps a delivery status.
-        let lastOutgoing = models.lastIndex { $0.isOutgoing }
-        for index in models.indices where index != lastOutgoing && models[index].footer != .notDelivered {
-            models[index].footer = .none
+        // The thread is its own transcript, so its run plan places the
+        // delivery status: under the thread's newest delivered message of
+        // mine, even when the main transcript shows it on a later one.
+        let plan = ConversationRunPlan(messages: thread, meID: store.meID)
+        let isGroup = store.info?.kind == .group
+        for index in models.indices {
+            guard let position = thread.firstIndex(where: { $0.id == models[index].message.id }) else { continue }
+            models[index].footer = ConversationRowBuilder.footer(for: plan.entries[position].status, isGroup: isGroup)
         }
         let width = view.bounds.width
         var y: CGFloat = 0
@@ -341,7 +345,8 @@ extension ConversationViewController {
             stamp.isUserInteractionEnabled = false
             overlay.content.addSubview(stamp)
             stamp.layoutIfNeeded()
-            y += TimestampCell.height
+            // As in the transcript: the first row starts `nextRowGap` under the heading.
+            y += TimestampCell.height + TimestampCell.nextRowGap
         }
         for (index, model) in models.enumerated() {
             if index > 0 { y += Self.threadRowSpacing(after: models[index - 1], before: model) }
