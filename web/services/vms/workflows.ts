@@ -6319,7 +6319,10 @@ function callerStillOwnsBillingScope(input: ExistingVmAccessInput, vm: CloudVmRo
   if (!billingTeamId) return false;
   if (billingTeamId === input.userId) return true;
   if (!input.teamIds) return false;
-  return new Set(input.teamIds).has(billingTeamId);
+  if (!new Set(input.teamIds).has(billingTeamId)) return false;
+  // Legacy and explicitly enrolled team rows remain shared. Private rows are
+  // visible only to their creator, even within the owning team.
+  return vm.visibility !== "private" || vm.userId === input.userId;
 }
 
 function revokeActiveIdentities(

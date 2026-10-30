@@ -159,6 +159,8 @@ export const cloudVms = pgTable(
     userId: text("user_id").notNull(),
     // The insertion trigger supports older writers; ownership never follows payer changes.
     ownerTeamId: text("owner_team_id").notNull().default(""),
+    // Existing rows are backfilled as team so current team-scoped behavior is unchanged.
+    visibility: text("visibility").$type<"private" | "team">().notNull().default("team"),
     coderouterPoolId: uuid("coderouter_pool_id"),
     billingTeamId: text("billing_team_id"),
     billingPlanId: text("billing_plan_id"),
@@ -215,6 +217,7 @@ export const cloudVms = pgTable(
     uniqueIndex("cloud_vms_provider_vm_id_unique")
       .on(table.provider, table.providerVmId)
       .where(sql`${table.providerVmId} is not null`),
+    check("cloud_vms_visibility_check", sql`${table.visibility} in ('private', 'team')`),
     // Live rows only: a destroyed or failed machine releases its name.
     uniqueIndex("cloud_vms_billing_team_slug_live_unique")
       .on(table.billingTeamId, table.slug)
