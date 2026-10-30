@@ -95,7 +95,10 @@ pub(crate) fn run<C: ControlPlane>(
             if let Some(token) = open_token {
                 server.request_frame_link(&carrier, token);
             }
-            let owns = owner_answer(server, &id, carrier.generation);
+            // The owner answer of this link: the connect_info read for it
+            // (the info cache drops it when the link goes down or is
+            // revoked, and on sign-out). A failed read is not the owner.
+            let owns = owner_answer(server, &id)?;
             Ok(carrier_json(&carrier, owns))
         }
         DISCONNECT => {
@@ -110,22 +113,36 @@ pub(crate) fn run<C: ControlPlane>(
     }
 }
 
-/// The owner answer of link `generation` of `machine` (cmux-platform#89):
-/// the one read when that generation started. A generation with none (a
-/// respawn after a link-details change) gets a fresh read now, never a
-/// cached answer of another link or sign-in. A failed read is not the
-/// owner and is not kept.
-fn owner_answer<C: ControlPlane>(server: &mut Server<C>, machine: &str, generation: u64) -> bool {
-    if let Some(&(g, owns)) = server.attach_mut().owners.get(machine)
-        && g == generation
-    {
-        return owns;
-    }
+/// The owner answer of a connect (cmux-platform#89): a fresh
+/// `connect_info` read under the current sign-in, never a cached answer of
+/// an earlier link or sign-in. A sign-out, or access to the machine that
+/// ended, ends its links as a connect's readiness read does
+/// ([`end_links_after`]) and fails the connect. A transient failure is not
+/// the owner.
+fn owner_answer<C: ControlPlane>(server: &mut Server<C>, machine: &str) -> Result<bool, CloudError> {
     server.attach_mut().infos.forget(machine);
-    let Ok(info) = super::info::connect_info(server, machine) else { return false };
-    let owns = info.caller_owns_vm();
-    server.attach_mut().owners.insert(machine.to_owned(), (generation, owns));
-    owns
+    match super::info::connect_info(server, machine) {
+        Ok(info) => Ok(info.caller_owns_vm()),
+        Err(error) if end_links_after(server, machine, &error) => Err(error),
+        Err(_) => Ok(false),
+    }
+}
+
+/// Ends the links a Cloud read's `error` says may not go on: every link on
+/// a sign-out, this machine's on not-found or forbidden (refusing new
+/// links to it). True when it ended any.
+fn end_links_after<C: ControlPlane>(server: &mut Server<C>, machine: &str, error: &CloudError) -> bool {
+    if error.code == codes::AUTH_REQUIRED {
+        // Signed out: no link may outlive the sign-in.
+        server.attach_mut().supervisor.disconnect_all("signed out of cmux Cloud");
+        true
+    } else if error.code == codes::NOT_FOUND || error.code == codes::FORBIDDEN {
+        // The machine is gone or access ended: refuse new links to it.
+        server.attach_mut().supervisor.revoke(machine, &error.message);
+        true
+    } else {
+        false
+    }
 }
 
 fn carrier_json(carrier: &Carrier, owns: bool) -> Value {
@@ -287,10 +304,7 @@ pub(crate) fn begin_connect<C: ControlPlane>(
     };
     let key = if restart { format!("{start_key}/restart") } else { start_key };
     // The readiness check is a read (connect_info), never a dial: a dial
-    // mints a link token, and each mint is one real connection. A new link
-    // reads it fresh: its owner answer must not come from an earlier link's
-    // read or another sign-in's (cmux-platform#89).
-    server.attach_mut().infos.forget(machine);
+    // mints a link token, and each mint is one real connection.
     let info = ensure_running(server, machine, origin, &key, restart)
         .and_then(|()| super::info::connect_info(server, machine))
         .and_then(|info| match info.state {
@@ -317,13 +331,7 @@ pub(crate) fn begin_connect<C: ControlPlane>(
             // A failed or unfinished start leaves the next connect free to
             // start again.
             server.attach_mut().paused_restarts.remove(machine);
-            if error.code == codes::AUTH_REQUIRED {
-                // Signed out: no link may outlive the sign-in.
-                server.attach_mut().supervisor.disconnect_all("signed out of cmux Cloud");
-            } else if error.code == codes::NOT_FOUND || error.code == codes::FORBIDDEN {
-                // The machine is gone or access ended: refuse new links to it.
-                server.attach_mut().supervisor.revoke(machine, &error.message);
-            }
+            end_links_after(server, machine, &error);
             // A start can fail for plan reasons, and a machine without a host
             // is still provisioning: neither is a revocation.
             return Err(error);
@@ -335,7 +343,6 @@ pub(crate) fn begin_connect<C: ControlPlane>(
             "This Mac may not reach the machine's cmux daemon (team policy)",
         ));
     }
-    let owns = info.caller_owns_vm();
     let host = info.host;
     let command = link_command(&paths, machine, &host, &child_env);
     let attach = server.attach_mut();
@@ -349,9 +356,7 @@ pub(crate) fn begin_connect<C: ControlPlane>(
     if let Some(generation) = attach.supervisor.connecting(machine) {
         return Ok(Begun::Connecting(generation));
     }
-    let generation = attach.supervisor.begin(machine, &command).map_err(link_failure)?;
-    attach.owners.insert(machine.to_owned(), (generation, owns));
-    Ok(Begun::Connecting(generation))
+    attach.supervisor.begin(machine, &command).map(Begun::Connecting).map_err(link_failure)
 }
 
 /// Reads the machine when the projection does not know it, and starts it

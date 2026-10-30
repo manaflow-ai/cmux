@@ -195,10 +195,20 @@ pub struct ConnectInfo {
     pub services: Vec<String>,
     pub daemon: DaemonInfo,
     /// The caller's kind on this machine (`owner` | `team`, cmux-platform#89);
-    /// absent from a Worker that predates it.
-    #[serde(default)]
+    /// absent from a Worker that predates it. Any value that is not a string
+    /// reads as absent, so a bad value fails closed instead of failing the
+    /// whole record.
+    #[serde(default, deserialize_with = "string_or_none")]
     pub vm_kind: Option<String>,
     pub revision: Revision,
+}
+
+/// A string, or `None` for any other JSON value (`ConnectInfo::vm_kind`).
+fn string_or_none<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    Ok(match serde_json::Value::deserialize(d)? {
+        serde_json::Value::String(s) => Some(s),
+        _ => None,
+    })
 }
 
 impl ConnectInfo {
@@ -292,6 +302,7 @@ impl PartialOrd for Revision {
 #[cfg(test)]
 mod tests {
     use super::{ConnectInfo, DaemonInfo, Machine, MachineStatus, Peer, Revision};
+    use serde_json::json;
 
     fn info() -> ConnectInfo {
         ConnectInfo {
@@ -326,6 +337,19 @@ mod tests {
             info.vm_kind = Some(value.into());
             assert_eq!(info.caller_owns_vm(), owns, "{value:?}");
         }
+    }
+
+    #[test]
+    fn a_vm_kind_that_is_not_a_string_reads_as_not_the_owner() {
+        let mut wire = serde_json::to_value(info()).expect("encode");
+        for bad in [json!(true), json!(1), json!(["owner"]), json!({ "kind": "owner" }), json!(null)] {
+            wire["vm_kind"] = bad.clone();
+            let decoded: ConnectInfo = serde_json::from_value(wire.clone()).expect("decodes");
+            assert!(!decoded.caller_owns_vm(), "{bad}");
+        }
+        wire.as_object_mut().expect("object").remove("vm_kind");
+        let decoded: ConnectInfo = serde_json::from_value(wire).expect("decodes");
+        assert!(!decoded.caller_owns_vm());
     }
 
     #[test]
