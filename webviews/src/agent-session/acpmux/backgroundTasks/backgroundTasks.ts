@@ -117,6 +117,11 @@ export const agentState = (agent: Pick<Subagent, "state">): BackgroundState =>
         ? "done"
         : "stopped";
 
+/// A subagent's state, where a paused workflow (subagentFold.ts `paused`: its agents stopped until a
+/// resume) reads stopped even while its own state still says running.
+const nodeState = (agent: Subagent): BackgroundState =>
+  agent.kind === "workflow" && agent.paused ? "stopped" : agentState(agent);
+
 const commandState = (command: BackgroundCommand): BackgroundState =>
   command.state === "running"
     ? "running"
@@ -167,16 +172,20 @@ function toolTasks(agent: Subagent, view: readonly AcpmuxRow[] | undefined, cach
   return tasks;
 }
 
+/// A workflow agent's state in the panel. Paused (Claude Code paused the run: its agents stopped until
+/// a resume by run id) reads stopped, as the workflow pane shows it: no spinner, no clock, clearable.
 const workflowState = (state: WorkflowAgent["state"]): BackgroundState | undefined =>
-  state === "running" || state === "paused"
+  state === "running"
     ? "running"
-    : state === "completed"
-      ? "done"
-      : state === "failed"
-        ? "failed"
-        : state === "cancelled"
-          ? "stopped"
-          : undefined;
+    : state === "paused"
+      ? "stopped"
+      : state === "completed"
+        ? "done"
+        : state === "failed"
+          ? "failed"
+          : state === "cancelled"
+            ? "stopped"
+            : undefined;
 
 /// Workflow node `node`'s agents that started, as tasks that open their transcript in the panel.
 function workflowTasks(node: Subagent, sessionId: string | undefined): BackgroundTask[] {
@@ -255,16 +264,16 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
         id: child.id,
         kind: "agent",
         title: child.task?.trim() || child.name,
-        state: agentState(child),
+        state: nodeState(child),
         startedAt: child.startedAt,
         endedAt: child.endedAt,
         // A nested workflow has no transcript of its own to open (its agents' are in its run).
         ...(child.kind !== "workflow" && { agentId: child.id }),
-        ...(child.state === "running" && { stop: { kind: "agent", id: child.id } as StopTarget }),
+        ...(nodeState(child) === "running" && { stop: { kind: "agent", id: child.id } as StopTarget }),
       });
     // A nested workflow's agents are tasks of the top agent too, each opening its own transcript.
     for (const child of descendants) if (child.kind === "workflow") tasks.push(...workflowTasks(child, sessionId));
-    const state = agentState(agent);
+    const state = nodeState(agent);
     groups.push({
       id: `agent:${agent.id}`,
       kind: "agent",
