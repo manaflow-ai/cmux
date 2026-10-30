@@ -208,3 +208,69 @@ fn a_held_prompt_in_a_later_log_segment_refuses_the_move() {
     hub.held_prompts(&dir).expect("an approved prompt holds nothing");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The owner declines a held prompt in the instant after it entered the queue, before its
+/// `queued` record is logged (review of #26747: the record was written after the queue's lock was
+/// released, so the decline's `queue_declined` and `queue_removed` could come first; a restart then
+/// restored the declined prompt and its resend lost the decline). The decline waits for the
+/// queue's lock, at most half a second here, while `queued` is logged.
+#[tokio::test]
+async fn a_decline_racing_the_queued_record_stays_declined_after_a_restart() {
+    let dir = std::env::temp_dir().join(format!("acpmux-decline-race-{}", uuid::Uuid::now_v7()));
+    let durable = || {
+        let mut cfg: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+            "defaultHarness": "fake"
+        }))
+        .unwrap();
+        cfg.store.mode = StoreMode::Local;
+        let store = crate::store::open(&cfg.store, &dir).unwrap();
+        Hub::new(cfg, store)
+    };
+    let hub = durable();
+    let (tx, rx) = mpsc::channel(8);
+    let (out_tx, mut out) = mpsc::channel(4096);
+    tokio::spawn(crate::server::serve_connection_with(
+        hub.clone(),
+        rx,
+        out_tx,
+        crate::server::Origin::Local,
+    ));
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
+    tx.send(Message::request(1, method::SESSION_NEW, new).to_line()).await.unwrap();
+    let created = until(&mut out, |v| v["id"] == 1).await;
+    let id = created["result"]["sessionId"].as_str().unwrap().to_owned();
+    let session = hub.resolve(&id).unwrap();
+    let guest = json!({"kind": "person_message", "from": "guest:race", "fromName": "Cy",
+        "approval": "owner"});
+    let decline = Arc::new(StdMutex::new(None));
+    let (h, s, slot) = (hub.clone(), session.clone(), decline.clone());
+    *hub.queued_log_seam.lock().unwrap() = Some(Box::new(move || {
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let task = std::thread::spawn(move || {
+            let declined = h.decline_queued(&s, "g-1");
+            let _ = done_tx.send(());
+            declined
+        });
+        let _ = done_rx.recv_timeout(Duration::from_millis(500));
+        *slot.lock().unwrap() = Some(task);
+    }));
+    insert(&hub, &session, "g-1", Some(&guest));
+    let task = decline.lock().unwrap().take().expect("the seam ran");
+    task.join().unwrap().expect("the owner's decline");
+    let logged = hub.events(&id, 0, 10_000).unwrap();
+    let at = |kind: &str| logged.iter().position(|e| e.kind == kind && e.msg["promptId"] == "g-1");
+    assert!(at("queued") < at("queue_declined"), "the decline was logged before the prompt");
+    hub.shutdown_all().await;
+    drop((tx, out, session, hub));
+
+    let hub = durable();
+    hub.resume_queues();
+    let session = hub.resolve(&id).unwrap();
+    assert!(session.queue().is_empty(), "a restart brought the declined prompt back");
+    let resend = hub.logged_prompt(&session, "g-1").expect("the log knows it");
+    let reason = resend.expect_err("a resend is told it was declined").data.unwrap();
+    assert_eq!(reason["reason"], "queue.declined");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}

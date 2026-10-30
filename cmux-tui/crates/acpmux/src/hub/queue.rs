@@ -669,6 +669,13 @@ impl Hub {
             queued.set("displayParts", display_parts.clone());
         }
         super::session::mark_pasted(&mut queued, p.blocks);
+        #[cfg(test)]
+        {
+            let seam = self.queued_log_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some(seam) = seam {
+                seam();
+            }
+        }
         self.append(
             session,
             "mux",
