@@ -86,8 +86,9 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     let url: URL
     let now: @Sendable () -> Date
     private let state = Mutex(State())
-    /// The newest generation on disk; a write of an older one is skipped.
-    private let written = Mutex(0)
+    /// The newest generation written, and whether that write reached the disk; a write of an
+    /// older one is skipped (it would put back what a newer change took out).
+    private let written = Mutex((generation: 0, onDisk: true))
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.prompt-journal", qos: .utility)
 
     public init(url: URL, now: @escaping @Sendable () -> Date = { Date() }) {
@@ -279,23 +280,24 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         state.entries = Array(document.entries.suffix(Self.maximumEntries))
     }
 
-    /// Writes generation `generation` of the entries. True when it is on disk, or a newer one
-    /// (which holds this one's change) already is; the marker moves only once the file is written,
-    /// so a failed write never makes the disk look newer than it is.
+    /// Writes generation `generation` of the entries. True when it reached the disk; an older
+    /// one than the newest written is skipped, and is on disk only as far as that newer write is
+    /// (which holds this one's change).
     @discardableResult
     private func write(_ entries: [Entry], generation: Int) -> Bool {
         written.withLock { last in
-            guard generation > last else { return true }
+            guard generation > last.generation else { return last.onDisk }
+            last.generation = generation
             do {
                 let data = try Self.encoder.encode(Document(entries: entries))
                 try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try data.write(to: url, options: [.atomic])
-                last = generation
-                return true
+                last.onDisk = true
             } catch {
                 Self.logger.error("agent pane prompt journal write failed: \(String(describing: error), privacy: .public)")
-                return false
+                last.onDisk = false
             }
+            return last.onDisk
         }
     }
 
