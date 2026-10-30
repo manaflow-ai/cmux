@@ -37,15 +37,15 @@ struct PeerStatePushTests {
 
     @Test func aListedPeerFollowsAtOnceAndARepeatChangesNothing() {
         let peers = [AcpmuxPeerList.Peer(name: "huge-blue", connected: true, url: "ssh://huge-blue"),
-                     AcpmuxPeerList.Peer(name: "big-red", connected: false)]
+                     AcpmuxPeerList.Peer(name: "peer-a", connected: false)]
         guard case .list(let down) = RemoteMachinesSidebar.push(peer: "huge-blue", state: "reconnecting", onto: peers) else {
             Issue.record("a listed peer that drops moves now")
             return
         }
         #expect(down[0] == AcpmuxPeerList.Peer(name: "huge-blue", connected: false, url: "ssh://huge-blue") && down[1] == peers[1])
         #expect(RemoteMachinesSidebar.push(peer: "huge-blue", state: "connected", onto: peers) == .same)
-        #expect(RemoteMachinesSidebar.push(peer: "big-red", state: "connecting", onto: peers) == .same)
-        guard case .list(let up) = RemoteMachinesSidebar.push(peer: "big-red", state: "connected", onto: peers) else {
+        #expect(RemoteMachinesSidebar.push(peer: "peer-a", state: "connecting", onto: peers) == .same)
+        guard case .list(let up) = RemoteMachinesSidebar.push(peer: "peer-a", state: "connected", onto: peers) else {
             Issue.record("a listed peer that connects moves now")
             return
         }
@@ -101,10 +101,10 @@ struct PeerStatePushTests {
     }
 
     @Test func anUnknownOrRemovedPeerOrAReopenedWatchReadsTheListAgain() {
-        let peers = [AcpmuxPeerList.Peer(name: "big-red", connected: false)]
+        let peers = [AcpmuxPeerList.Peer(name: "peer-a", connected: false)]
         #expect(RemoteMachinesSidebar.push(peer: "cmux16", state: "connected", onto: peers) == .read)
-        #expect(RemoteMachinesSidebar.push(peer: "big-red", state: "offline", onto: peers) == .read)
+        #expect(RemoteMachinesSidebar.push(peer: "peer-a", state: "offline", onto: peers) == .read)
         #expect(RemoteMachinesSidebar.push(peer: nil, state: nil, onto: peers) == .read)
-        #expect(RemoteMachinesSidebar.push(peer: "big-red", state: "connected", onto: nil) == .read)
+        #expect(RemoteMachinesSidebar.push(peer: "peer-a", state: "connected", onto: nil) == .read)
     }
 }
