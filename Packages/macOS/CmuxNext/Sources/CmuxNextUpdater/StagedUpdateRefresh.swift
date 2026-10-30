@@ -50,8 +50,8 @@ final class StagedUpdateRefresh {
     let timer: DemandTimer
     /// The install click waiting for the feed and the pulled list (``beforeInstall(updater:install:)``).
     private struct PendingClick {
-        /// The staged build it read against, the install to run if that build stays, and which click it is.
-        let staged: String, install: @MainActor () -> Void, click: Int
+        /// The install to run if the staged build stays, and which click it is.
+        let install: @MainActor () -> Void, click: Int
         /// The appcast answered (a slow pulled list never hides its newer build), the pulled list
         /// answered, and the deadline passed while the list had not.
         var feedAnswered = false, listAnswered = false, deadlinePassed = false
@@ -89,7 +89,7 @@ final class StagedUpdateRefresh {
         updater.log.append("install click: looking for a build newer than staged build \(staged)")
         clicks += 1
         let click = clicks
-        pendingClick = PendingClick(staged: staged, install: install, click: click)
+        pendingClick = PendingClick(install: install, click: click)
         let probe = updater.probe()
         let pulled = updater.pulledWatch.refresh()
         clickTimer.schedule(after: Self.clickProbeDeadline) { @MainActor [weak self, weak updater] in
@@ -125,11 +125,14 @@ final class StagedUpdateRefresh {
 
     /// The feed and the pulled list answered, or the deadline passed with whatever the appcast
     /// answered by then. A staged build is never installed before the pulled list answers: past
-    /// the deadline, only a newer build on the appcast settles the click; otherwise it waits for the list.
+    /// the deadline, only a newer build this app can swap to settles the click; otherwise it waits
+    /// for the list (each read has a 15-second request timeout). A list that cannot be read at
+    /// all lets the click install: the list is the only word that a build was pulled.
     private func settleClick(answered: Bool, updater: UpdaterService) {
         guard let pending = pendingClick else { return }
-        let staged = pending.staged, install = pending.install
-        guard updater.stagedBuild() == staged else {
+        let install = pending.install
+        // The build staged now is the one judged: Sparkle may have staged another while the click waited.
+        guard let staged = updater.stagedBuild(), !staged.isEmpty else {
             pendingClick = nil
             clickTimer.cancel()
             return install()
@@ -139,7 +142,9 @@ final class StagedUpdateRefresh {
         if answered, case .updateAvailable(let item)? = updater.lastProbe?.outcome, AppcastSelector.isOlder(staged, than: item.version) {
             newer = item.version
         }
-        if !pending.listAnswered, !pulled, newer == nil {
+        // Before the list answers, only a newer build this app can swap to settles the click: every
+        // other path may install the staged build.
+        if !pending.listAnswered, !pulled, newer == nil || !isCancellable(updater) {
             if !pending.deadlinePassed { updater.log.append("install click: waiting for the pulled list before installing staged build \(staged)") }
             pendingClick?.deadlinePassed = true
             return
