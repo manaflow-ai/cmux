@@ -6,9 +6,10 @@
 //! its home, socket and lock, and shuts down normally once any of the three is no longer the
 //! file it started with: removed, renamed away, or replaced by another one.
 //!
-//! Event-driven, never a timer: watch the home, socket directory and their lexical ancestors.
-//! Renaming an ancestor or replacing a symlink wakes an identity check even if nothing changes
-//! inside the original home. Events unrelated to those paths are filtered before waking the task.
+//! Event-driven, never a timer: on Linux/macOS, watch the individual home/socket/lock paths
+//! and their lexical and resolved ancestors for rename/removal only. Kernel subscription masks
+//! exclude directory-entry activity, so unrelated writes under /tmp or /Users never wake us.
+//! Other Unix platforms keep a nearest-directory notify watch with event filtering.
 //! The watcher is dropped when its task ends. Home and socket have separate tasks, so losing the
 //! socket does not stop monitoring the home during shutdown.
 //!
@@ -149,11 +150,13 @@ pub(crate) fn watch(
     home: &Path,
     socket: &Path,
 ) -> HomeGone {
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     use notify::Watcher as _;
     // The home and lock as the daemon first held them (`held`), and the socket as bound. The
     // home watcher starts immediately after lock acquisition, before startup writes; the socket
     // watcher is added once the socket is bound.
     let home_owned = held.is_some();
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     let bound_owned = bound.is_some();
     let Some(owned) = (match (held, bound) {
         (Some(held), Some(bound)) => Some(held.with(bound)),
@@ -166,64 +169,79 @@ pub(crate) fn watch(
     };
     // One slot: events that arrive while a check runs fold into the next check.
     let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(1);
-    // FSEvents reports canonical paths; retain both spellings for filtering while identity
-    // checks keep the lexical spelling. Ancestor watches must not wake us for unrelated entries.
-    let mut relevant: Vec<PathBuf> = owned.paths.iter().map(|entry| entry.path.clone()).collect();
-    relevant.extend(owned.paths.iter().filter_map(|entry| std::fs::canonicalize(&entry.path).ok()));
-    let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-        let relevant_event = match event {
-            Ok(e) => {
-                !e.kind.is_access()
-                    && (e.need_rescan()
-                        || e.paths.is_empty()
-                        || e.paths.iter().any(|p| relevant.contains(p)))
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let watcher = {
+        let mut paths: Vec<PathBuf> = owned.paths.iter().map(|entry| entry.path.clone()).collect();
+        // Include resolved ancestors too: an intermediate symlink's target may itself move.
+        for entry in &owned.paths {
+            if let Ok(resolved) = std::fs::canonicalize(&entry.path) {
+                paths.extend(lexical_ancestors(&resolved));
             }
-            Err(_) => true,
-        };
-        if relevant_event {
+        }
+        paths.sort();
+        paths.dedup();
+        crate::agent_host::record_watch::DirWatch::start_identities(&paths, move || {
             let _ = tx.try_send(());
-        }
-    });
-    let mut watcher = match watcher {
-        Ok(w) => w,
-        Err(e) => {
-            tracing::warn!("home watch off: {e}");
-            return Box::pin(std::future::pending());
-        }
+            tx.is_closed()
+        })
     };
-    // Watch lexical ancestors so renaming an ancestor or retargeting a symlink wakes the check.
-    let mut dirs = Vec::new();
-    if home_owned {
-        for ancestor in lexical_ancestors(home) {
-            if !dirs.iter().any(|dir: &PathBuf| dir == &ancestor) {
-                dirs.push(ancestor);
-            }
-        }
-    }
-    if bound_owned {
-        let parent = socket.parent().unwrap_or(socket);
-        for ancestor in lexical_ancestors(parent) {
-            if !dirs.iter().any(|dir: &PathBuf| dir == &ancestor) {
-                dirs.push(ancestor);
-            }
-        }
-    }
-    for dir in &dirs {
-        if let Err(e) = watcher.watch(&dir, notify::RecursiveMode::NonRecursive) {
-            // A folder gone before its watch began (the home removed during the startup) is
-            // the loss itself, not a watch that could not be set up.
-            if let Some(why) = owned.lost() {
-                if home_owned && owned.lost_except(Some(socket)).is_some() {
-                    crate::config::mark_home_lost();
-                } else {
-                    crate::config::mark_socket_lost();
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    let watcher = {
+        // FSEvents reports canonical paths; retain both spellings for filtering while identity
+        // checks keep the lexical spelling. Ancestor watches must not wake us for unrelated entries.
+        let mut relevant: Vec<PathBuf> =
+            owned.paths.iter().map(|entry| entry.path.clone()).collect();
+        relevant
+            .extend(owned.paths.iter().filter_map(|entry| std::fs::canonicalize(&entry.path).ok()));
+        let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+            let relevant_event = match event {
+                Ok(e) => {
+                    !e.kind.is_access()
+                        && (e.need_rescan()
+                            || e.paths.is_empty()
+                            || e.paths.iter().any(|p| relevant.contains(p)))
                 }
-                return Box::pin(std::future::ready(why));
+                Err(_) => true,
+            };
+            if relevant_event {
+                let _ = tx.try_send(());
             }
-            tracing::warn!("home watch off: watch {}: {e}", dir.display());
-            return Box::pin(std::future::pending());
+        });
+        let mut watcher = match watcher {
+            Ok(w) => w,
+            Err(e) => {
+                tracing::warn!("home watch off: {e}");
+                return Box::pin(std::future::pending());
+            }
+        };
+        let mut dirs = Vec::new();
+        if home_owned {
+            dirs.push(home.to_path_buf());
         }
-    }
+        if bound_owned {
+            let parent = socket.parent().unwrap_or(socket).to_path_buf();
+            if !dirs.contains(&parent) {
+                dirs.push(parent);
+            }
+        }
+        for dir in &dirs {
+            if let Err(e) = watcher.watch(&dir, notify::RecursiveMode::NonRecursive) {
+                // A folder gone before its watch began (the home removed during the startup) is
+                // the loss itself, not a watch that could not be set up.
+                if let Some(why) = owned.lost() {
+                    if home_owned && owned.lost_except(Some(socket)).is_some() {
+                        crate::config::mark_home_lost();
+                    } else {
+                        crate::config::mark_socket_lost();
+                    }
+                    return Box::pin(std::future::ready(why));
+                }
+                tracing::warn!("home watch off: watch {}: {e}", dir.display());
+                return Box::pin(std::future::pending());
+            }
+        }
+        watcher
+    };
     let socket = socket.to_path_buf();
     Box::pin(async move {
         // Owned here: the watch lives exactly as long as this future.
