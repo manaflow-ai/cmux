@@ -343,6 +343,20 @@ import Testing
         await source.shutdown()
     }
 
+    @Test func aMultipartPartIsReadWholeAcrossShortReads() throws {
+        // A read may return fewer bytes than asked without being at the end: the part is filled before it is sent.
+        var chunks = [Data("ab".utf8), Data("c".utf8), Data("defg".utf8), Data("h".utf8)]
+        let read: (Int) throws -> Data? = { limit in
+            guard !chunks.isEmpty else { return Data() }
+            let next = chunks.removeFirst()
+            #expect(next.count <= limit)
+            return next
+        }
+        #expect(try WireHomeSource.readPart(size: 4, read) == Data("abcd".utf8))
+        #expect(try WireHomeSource.readPart(size: 4, read) == Data("efgh".utf8))
+        #expect(try WireHomeSource.readPart(size: 4, read) == Data())
+    }
+
     @Test func theBackoffGrowsToThirtySeconds() {
         #expect((0..<7).map { reconnectDelay(attempt: $0) } == [1, 2, 4, 8, 16, 30, 30].map { Duration.seconds($0) })
     }
