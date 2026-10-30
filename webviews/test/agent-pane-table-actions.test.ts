@@ -1,5 +1,5 @@
 // The Markdown table's Open and Copy controls share one centered line at the table's top-right
-// corner. This is a real gallery render so the check covers CSS geometry as well as the static
+// corner, outside its cells, so they never cover a header's text or catch a click meant for a cell. This is a real gallery render so the check covers CSS geometry as well as the static
 // TableBlock test. The hover screenshot is the zoomed gallery proof for Leo's alignment report.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
@@ -69,7 +69,13 @@ await requireBrowserLane("agent-pane-table-actions.test.ts", async () => {
       const rects = buttons.map((button) => button.getBoundingClientRect());
       const icons = buttons.map((button) => button.querySelector<SVGElement>("svg")!.getBoundingClientRect());
       const table = block.getBoundingClientRect();
+      const box = (rect: DOMRect) => ({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom });
+      const cells = [...block.querySelectorAll<HTMLElement>("th, td")].map((cell) => box(cell.getBoundingClientRect()));
+      const column = block.parentElement!.getBoundingClientRect();
       return {
+        tools: box(tools.getBoundingClientRect()),
+        cells,
+        column: { right: column.right },
         gap: parseFloat(getComputedStyle(tools).gap),
         table: { top: table.top, right: table.right },
         buttons: rects.map((rect) => ({ top: rect.top, right: rect.right, width: rect.width, height: rect.height, center: rect.top + rect.height / 2 })),
@@ -93,7 +99,18 @@ await requireBrowserLane("agent-pane-table-actions.test.ts", async () => {
       expect(Math.abs(measured.buttons[0]!.center - measured.buttons[1]!.center)).toBeLessThan(0.1);
       expect(Math.abs(measured.icons[0]!.center - measured.icons[1]!.center)).toBeLessThan(0.1);
       expect(Math.abs(measured.buttons[0]!.top - measured.table.top)).toBeLessThan(0.1);
-      expect(Math.abs(measured.buttons[1]!.right - measured.table.right)).toBeLessThan(0.1);
+      // Outside the cells: the pair starts at the table's right edge, inside the column, and
+      // no cell's box meets it.
+      expect(measured.tools.left).toBeGreaterThanOrEqual(measured.table.right - 0.1);
+      expect(measured.tools.right).toBeLessThanOrEqual(measured.column.right + 0.1);
+      const overlapping = measured.cells.filter(
+        (cell) =>
+          cell.left < measured.tools.right - 0.1 &&
+          cell.right > measured.tools.left + 0.1 &&
+          cell.top < measured.tools.bottom - 0.1 &&
+          cell.bottom > measured.tools.top + 0.1,
+      );
+      expect(overlapping).toEqual([]);
       expect(measured.gap).toBe(4);
       if (variant === "hover") {
         const output = path.resolve(import.meta.dir, "../../artifacts/fleet/table-action-alignment-zoom.png");
