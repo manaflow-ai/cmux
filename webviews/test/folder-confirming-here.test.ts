@@ -34,3 +34,13 @@ test("an established chat keeps its scope across visits", () => {
   expect(inThisVisit(held, "chat-a", JSON.stringify([3, "chat-a"]))).toBe(true);
   expect(inThisVisit(held, "chat-b", JSON.stringify([3, "chat-a"]))).toBe(false);
 });
+
+// Review at fc6d673d (P2): a stale render (the client already moved to another chat) matches no
+// chat, established or fresh, and neither does a request made from one.
+test("a stale render matches no chat, even an established one", () => {
+  const held = { sessionId: "chat-a", visit: JSON.stringify([1, "chat-a"]) };
+  expect(inThisVisit(held, "chat-a", Symbol("stale-trust-visit"))).toBe(false);
+  expect(
+    inThisVisit({ sessionId: "chat-a", ...visitOf(Symbol("stale")) }, "chat-a", JSON.stringify([2, "chat-a"])),
+  ).toBe(false);
+});
