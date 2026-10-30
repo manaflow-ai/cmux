@@ -166,7 +166,7 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
       const h: LedgerHost = { ...instance.ledgerHost(a.team), state: () => instance.boundEngine.currentState }
       const p: Principal = { identity: `user:${a.user}`, kind: "session", user: a.user, team: a.team }
       const cursor = (value: unknown) => btoa(JSON.stringify(value)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
-      for (const value of [{ installation: 0, page: 1 }, { connection: 0, page: 1 }, { connection: "", page: 1 }, { connection: "con_x", page: "1" }, { connection: "con_x", page: 0 }]) {
+      for (const value of [{ installation: 0, page: 1, query: "" }, { connection: 0, page: 1, query: "" }, { connection: "", page: 1, query: "" }, { connection: "con_x", page: "1", query: "" }, { connection: "con_x", page: 0, query: "" }, { connection: "con_x", page: 1 }, { connection: "con_x", page: 1, query: 3 }]) {
         expect(await githubRepos(h, p, { cursor: cursor(value) })).toMatchObject({ ok: false, status: 400, code: "request.invalid" })
       }
       expect(gh.mints()).toHaveLength(0)
@@ -253,6 +253,56 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
       expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status: 403, code: "policy.denied" })
       answer(502, {})
       expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status: 503, code: "integration.unavailable" })
+      // The cached token is refused and the fresh mint is rate limited: GitHub's wait, not a 503 or a relink.
+      const needsReauth = vi.fn()
+      answer(401, {})
+      gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => new Response(JSON.stringify({ message: "API rate limit exceeded" }), { status: 403, headers: { "x-ratelimit-remaining": "0", "retry-after": "42" } })
+      expect(await githubRepos({ ...h, needsReauth }, p, {})).toMatchObject({ ok: false, status: 429, code: "rate_limited", retry_after: 42 })
+      expect(needsReauth).not.toHaveBeenCalled()
+    })
+  })
+
+  it("a cached installation token GitHub answers with a suspension is dropped, and the suspended installation needs a relink", async () => {
+    const a = await signedInWithInstall("gh-token-repo-suspended", "cli")
+    const { gh } = await linkGitHub(a.session, a.team)
+    await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)), async (instance) => {
+      const needsReauth = vi.fn()
+      const h: LedgerHost = { ...instance.ledgerHost(a.team), state: () => instance.boundEngine.currentState, needsReauth }
+      const p: Principal = { identity: `user:${a.user}`, kind: "session", user: a.user, team: a.team }
+      gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ token: `ghs_susp_${crypto.randomUUID()}`, expires_at: new Date(Date.now() + 3600_000).toISOString(), permissions: { metadata: "read" } }, 201)
+      gh.routes["https://api.github.com/installation/repositories"] = () => ok({ total_count: 1, repositories: [{ full_name: "acme/web", private: true }] })
+      expect(await githubRepos(h, p, {})).toMatchObject({ ok: true })
+      const mints = gh.mints().length
+      const suspended = () => ok({ message: "This installation has been suspended" }, 403)
+      gh.routes["https://api.github.com/installation/repositories"] = suspended
+      gh.routes["https://api.github.com/app/installations/99/access_tokens"] = suspended
+      expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status: 409, code: "needs_reauth" })
+      // The cached token was dropped: the fresh mint answered for the installation.
+      expect(gh.mints().length).toBe(mints + 1)
+      expect(needsReauth).toHaveBeenCalledTimes(1)
+      expect(needsReauth).toHaveBeenCalledWith(expect.anything(), "the GitHub App installation is suspended")
+    })
+  })
+
+  it("a cursor keeps its query: later pages stay filtered, and another query is refused", async () => {
+    const a = await signedInWithInstall("gh-token-repo-query", "cli")
+    const { gh } = await linkGitHub(a.session, a.team)
+    await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)), async (instance) => {
+      const h: LedgerHost = { ...instance.ledgerHost(a.team), state: () => instance.boundEngine.currentState }
+      const p: Principal = { identity: `user:${a.user}`, kind: "session", user: a.user, team: a.team }
+      gh.routes["https://api.github.com/installation/repositories"] = (request) => {
+        const page = new URL(request.url).searchParams.get("page")
+        return ok({ total_count: 101, repositories: page === "1"
+          ? [{ full_name: "acme/web", private: true }, ...Array.from({ length: 99 }, (_, i) => ({ full_name: `acme/hidden-${i}`, private: true }))]
+          : [{ full_name: "acme/api", private: false }] })
+      }
+      const first = await githubRepos(h, p, { query: " WEB " })
+      expect(first).toMatchObject({ ok: true, value: { repos: [{ full_name: "acme/web", private: true }], cursor: expect.any(String) } })
+      if (!first.ok || !first.value.cursor) throw new Error("first page must return a cursor")
+      // Page 2 holds only acme/api, which the query excludes, with or without repeating the query.
+      expect(await githubRepos(h, p, { cursor: first.value.cursor })).toEqual({ ok: true, value: { repos: [], cursor: null } })
+      expect(await githubRepos(h, p, { cursor: first.value.cursor, query: "web" })).toEqual({ ok: true, value: { repos: [], cursor: null } })
+      expect(await githubRepos(h, p, { cursor: first.value.cursor, query: "api" })).toMatchObject({ ok: false, status: 400, code: "request.invalid" })
     })
   })
 
@@ -306,10 +356,11 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
       gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ message }, code)
       expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status: 409, code: "needs_reauth" })
       expect(needsReauth).toHaveBeenCalledTimes(1)
-      // A mint GitHub fails for another reason (a 500, or a 403 that is no suspension) is retryable and records nothing.
-      for (const [other, text] of [[500, "boom"], [403, "Resource not accessible by integration"]] as const) {
+      // A mint GitHub fails for another reason records nothing and reads as the token mint reads it:
+      // a 500 is an outage, a 403 that is no suspension a refusal.
+      for (const [other, text, status, failure] of [[500, "boom", 503, "integration.unavailable"], [403, "Resource not accessible by integration", 403, "policy.denied"]] as const) {
         gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ message: text }, other)
-        expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status: 503, code: "integration.unavailable" })
+        expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status, code: failure })
       }
       expect(needsReauth).toHaveBeenCalledTimes(1)
     })
