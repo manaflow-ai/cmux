@@ -278,6 +278,22 @@ mod tests {
         (id, gave_up)
     }
 
+    /// A daemon that crashed after it queued the continuation and before it settled the cut turn
+    /// finds the turn open again: the next one queues the continuation once, not twice.
+    #[tokio::test]
+    async fn a_crash_before_the_cut_turn_settles_queues_its_continuation_once() {
+        let (root, hub, session) = cut_turn(Some(vec![10_000]), 0);
+        let first = hub.log_restart_continuation(&session, "t1");
+        let again = hub.log_restart_continuation(&session, "t1");
+        assert_eq!(first, Some(format!("p1{SUFFIX}1")));
+        assert_eq!(again, first);
+        let events = hub.events("c1", 0, 10_000).unwrap();
+        let queued = events.iter().filter(|e| e.kind == "queued").count();
+        assert_eq!(queued, 1, "{events:?}");
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// One continuation per configured wait, for a chain of restarts as for a transport cut:
     /// `autoResumeDelaysMs` is the whole loop, not only its waits.
     #[tokio::test]
