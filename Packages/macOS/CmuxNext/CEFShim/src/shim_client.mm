@@ -558,6 +558,7 @@ class Client : public CefClient,
     TakeUnresponsiveCallback(id);
     DropBeforeUnload(id);
     CancelFileDialogs(id);
+    ForgetFileDialogRoute(id);
     TakeHostClose(id);
     ForgetNavigationGuard(id);
     ForgetCertificateState(id);

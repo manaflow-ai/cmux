@@ -135,22 +135,32 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         set { (webView as? PageWKWebView)?.fileDrop = newValue }
     }
     /// Called with their file URLs when files are dropped on the page itself (not a ``fileDrop`` the
-    /// host opens): a real gesture page script can't make.
+    /// host opens): a real gesture page script can't make. In WebKit, with the drop's event in
+    /// dispatch; in Chromium, from the page's drop of a drag the host saw enter
+    /// (``PageChromiumEvent/filesDragged(_:)``, within ``chromiumDropWindow``), its files once.
     public var onFilesDropped: (@MainActor ([URL]) -> Void)? {
-        get { (webView as? PageWKWebView)?.onFilesDropped }
-        set { (webView as? PageWKWebView)?.onFilesDropped = newValue }
+        didSet { (webView as? PageWKWebView)?.onFilesDropped = onFilesDropped }
     }
     /// Called with their file URLs when the person picks files in the page's file input
-    /// (``PageOpenPanel``), before the page gets them: a pick page script can't make.
+    /// (``PageOpenPanel``, or the app's panel for a Chromium page), before the page gets them: a
+    /// pick page script can't make. A Chromium page answers its choosers itself only while it is set.
     public var onFilesChosen: (@MainActor ([URL]) -> Void)? {
-        get { fileChooser?.onChosen }
-        set { fileChooser?.onChosen = newValue }
+        didSet {
+            fileChooser?.onChosen = onFilesChosen
+            chromiumSession?.page.setAnswersFileChooser(onFilesChosen != nil)
+        }
     }
-    /// Called when a paste (Cmd-V, Edit > Paste) is about to reach the page, before WebKit pastes.
+    /// Called when a paste (Cmd-V, Edit > Paste) is about to reach the page, before it pastes: in
+    /// WebKit from the view; in Chromium from its Cmd-V, our menu's Paste and the menu bar's
+    /// (``chromiumPasted()``), each with the person's event in dispatch.
     public var onPaste: (@MainActor () -> Void)? {
-        get { (webView as? PageWKWebView)?.onPaste }
-        set { (webView as? PageWKWebView)?.onPaste = newValue }
+        didSet { (webView as? PageWKWebView)?.onPaste = onPaste }
     }
+    /// The files of the last drag from outside that entered the Chromium page, with when it
+    /// entered; the page's drop reports them once (``onFilesDropped``).
+    var chromiumDragged: (urls: [URL], at: Date)?
+    /// The menu bar's Paste while the Chromium page has the keys (``chromiumPasted()``).
+    var chromiumMenuPaste: (any NSObjectProtocol)?
     /// When a real key or mouse event last reached the page (`systemUptime`; page script cannot set
     /// it), the event behind `PageCallContext.userGesture`. A host that grants one action per
     /// gesture (a file page's "Open <path>?" sheet) records the value it used.
