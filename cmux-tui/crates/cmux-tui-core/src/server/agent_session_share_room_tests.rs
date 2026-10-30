@@ -270,6 +270,16 @@ fn serve_host(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>) {
                 let _ = socket.flush();
                 return;
             };
+            // `{"close": code}` closes the socket with that code, as the room does.
+            if let Some(code) = frame["close"].as_u64() {
+                let code = tungstenite::protocol::frame::coding::CloseCode::from(code as u16);
+                let _ = socket.close(Some(tungstenite::protocol::CloseFrame {
+                    code,
+                    reason: "".into(),
+                }));
+                let _ = socket.flush();
+                continue;
+            }
             let _ = socket.send(Message::text(frame.to_string()));
         }
         match socket.read() {
@@ -1035,4 +1045,31 @@ fn closing_the_chat_stands_when_its_write_fails() {
     assert_code(&redeem, "share.closed");
     shares.refuse_writes.store(false, Ordering::Relaxed);
     assert_eq!(state(&mut owner)["state"], "closed");
+}
+
+#[test]
+fn a_share_the_room_ended_ends_here_and_is_not_reconnected() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, mut owner) = bridged("room-ended-there", &room);
+    create(&mut owner, surface);
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    room.send(json!({"close": 4001}));
+    let deadline = Instant::now() + WAIT;
+    while state(&mut owner)["state"] != "revoked" {
+        assert!(Instant::now() < deadline, "the share ends when its room ended it");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    room.none("another host socket", |s| matches!(s, Seen::Host { .. }));
+    room.none("a DELETE of a room already gone", |s| {
+        matches!(s, Seen::Request { method, .. } if method == "DELETE")
+    });
+}
+
+#[test]
+fn only_guest_facing_redeem_refusals_reach_the_room() {
+    assert!(GUEST_REFUSALS.contains(&"share.used"));
+    for internal in ["share.unsaved", "share.unknown", "share.provisioning", "share.bad_request"] {
+        assert!(!GUEST_REFUSALS.contains(&internal), "{internal} stays in the daemon");
+    }
 }

@@ -156,6 +156,22 @@ fn change<T>(
     shares(mux).with(directory.as_deref(), |all, _| Ok(edit(find(all, share_id)?))).ok()
 }
 
+/// The room ended `share_id` (close code 4001): a share still active here is revoked, with no
+/// room `DELETE` (the room is gone) and no kick left to send, and its guests' connections close.
+fn ended_by_room(mux: &Mux, share_id: &str) {
+    let ended = change(mux, share_id, |s| {
+        if s.state != ShareState::Active {
+            return (false, false);
+        }
+        s.state = ShareState::Revoked;
+        s.pending_room_ops.retain(|o| o["op"] != "kick");
+        (true, true)
+    });
+    if ended == Some(true) {
+        shares(mux).settle(mux);
+    }
+}
+
 /// What the bridge reads of one share.
 struct View {
     url: Option<String>,
@@ -657,13 +673,21 @@ async fn serve_host(
     }
 }
 
+/// The largest `cmux.share/1` frame (and message) the host socket takes.
+const MAX_HOST_FRAME_BYTES: usize = 512 * 1024;
+
 /// Opens `{room}/v1/chat-shares/{id}/host` with the host token. `Err(true)`: refused for good.
 async fn connect(url: &str, share_id: &str, token: &str, timeout: Duration) -> Result<Ws, bool> {
     let socket = format!("{}/v1/chat-shares/{share_id}/host", url.replacen("http", "ws", 1));
     let mut request = socket.into_client_request().map_err(|_| true)?;
     let bearer = HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| true)?;
     request.headers_mut().insert("authorization", bearer);
-    match tokio::time::timeout(timeout, tokio_tungstenite::connect_async(request)).await {
+    // `cmux.share/1` frames are at most 512 KiB: a larger one ends the socket unparsed.
+    let config = tungstenite::protocol::WebSocketConfig::default()
+        .max_message_size(Some(MAX_HOST_FRAME_BYTES))
+        .max_frame_size(Some(MAX_HOST_FRAME_BYTES));
+    let connect = tokio_tungstenite::connect_async_with_config(request, Some(config), false);
+    match tokio::time::timeout(timeout, connect).await {
         Ok(Ok((socket, _))) => Ok(socket),
         Ok(Err(tungstenite::Error::Http(reply))) => {
             Err(matches!(reply.status().as_u16(), 401 | 403 | 404 | 410))
@@ -691,6 +715,13 @@ async fn session(
                 }
                 Some(Ok(Message::Close(frame))) => {
                     let code = frame.map(|frame| u16::from(frame.code));
+                    // The room ended the share (it expired or was deleted there): it ends here
+                    // too, and its guests' connections close.
+                    if code == Some(4001)
+                        && let Some(mux) = mux.upgrade()
+                    {
+                        ended_by_room(&mux, share_id);
+                    }
                     // 4000 replaced, 4001 ended, 4003 refused.
                     return (!matches!(code, Some(4000 | 4001 | 4003))).then_some(ready);
                 }
@@ -728,6 +759,18 @@ fn reconcile(mux: &Mux, share_id: &str) -> Vec<Value> {
     out
 }
 
+/// The redeem refusals the room may pass to a guest.
+const GUEST_REFUSALS: [&str; 8] = [
+    "share.secret",
+    "share.used",
+    "share.name",
+    "share.expired",
+    "share.revoked",
+    "share.closed",
+    "share.kicked",
+    "share.left",
+];
+
 /// The daemon's answer to one room frame.
 fn answer(mux: &Mux, share_id: &str, text: &str, ready: &mut bool) -> Vec<Value> {
     let frame: Value = serde_json::from_str(text).unwrap_or(Value::Null);
@@ -755,9 +798,10 @@ fn answer(mux: &Mux, share_id: &str, text: &str, ready: &mut bool) -> Vec<Value>
             match redeemed {
                 Ok(guest) => vec![json!({"v": 1, "t": "redeemed", "request_id": request_id,
                     "guest_id": guest["guest_id"]})],
-                // Only the daemon's own refusal codes reach the room (and the guest page).
+                // Only the refusals a guest may see reach the room (and the guest page); any
+                // other (storage, provisioning, an unknown share) is `share.unavailable`.
                 Err(code) => {
-                    let code = if code.starts_with("share.") { code } else { "share.unavailable" };
+                    let code = if GUEST_REFUSALS.contains(&code) { code } else { "share.unavailable" };
                     vec![json!({"v": 1, "t": "redeemed", "request_id": request_id, "error": code})]
                 }
             }

@@ -265,7 +265,11 @@ fn read_watch(
                     Some(id)
                 }
                 Value::Null => {
-                    // The list is whole: a chat it left out is gone.
+                    // The list is whole: a chat it left out is gone, and so are its link shares
+                    // (purged while the watch was away).
+                    for session in unlisted.keys() {
+                        crate::server::close_chat_shares(&mux, session);
+                    }
                     unlisted.clear();
                     whole = Some(Instant::now());
                     None
