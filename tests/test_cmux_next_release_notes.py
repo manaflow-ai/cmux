@@ -34,7 +34,31 @@ class ReleaseNotesTests(unittest.TestCase):
                     f"## Changelog\n\nFixed: Tabs stay put{punctuation} Another sentence. A third sentence."),
                     f"Tabs stay put{punctuation}")
         self.assertEqual(notes.pr_description("", "Tabs stay put. Extra detail."), "Tabs stay put.")
-        self.assertEqual(notes.pr_description("## Summary\n\nTabs stay put.\" More detail."), "Tabs stay put.")
+        self.assertEqual(notes.pr_description("## Summary\n\n\"Tabs stay put.\" More detail."), "\"Tabs stay put.\"")
+        self.assertEqual(
+            notes.pr_description("## Summary\n\nTabs restore e.g. pinned panes after restart."),
+            "Tabs restore e.g. pinned panes after restart.",
+        )
+        self.assertEqual(
+            notes.pr_description("## Summary\n\nChoose “Keep tabs.” after restart."),
+            "Choose “Keep tabs.” after restart.",
+        )
+        self.assertEqual(
+            notes.pr_description("## Summary\n\nSee https://cmux-platform.example/run/123 for details." , "Tabs stay put"),
+            "Tabs stay put.",
+        )
+        self.assertEqual(
+            notes.pr_description("## Summary\n\nThe run is on gcp-codex-lane-2.us-west1.c.example.internal." , "Tabs stay put"),
+            "Tabs stay put.",
+        )
+        self.assertEqual(
+            notes.pr_description("## Changelog\n\nFixed: The run is 0123456789abcdef0123 and uses cmux-platform." , "Tabs stay put"),
+            "Tabs stay put.",
+        )
+        self.assertEqual(
+            notes.pr_description("## Changelog\n\nnone\n\n## Summary\n\nTabs stay put after restart." , "Tabs stay put"),
+            "Tabs stay put after restart.",
+        )
 
     def test_pr_body_timeout_returns_media_style_empty_fallback(self):
         import importlib.util
@@ -48,6 +72,9 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertEqual(notes.pr_description(body, "Tabs stay put"), "Tabs stay put.")
         with mock.patch.object(notes.subprocess, "run", side_effect=FileNotFoundError("gh")):
             self.assertEqual(notes.pr_body(123, None), "")
+        with mock.patch.object(notes.subprocess, "run") as run:
+            self.assertEqual(notes.pr_body(123, None, deadline=0), "")
+            run.assert_not_called()
 
     def test_backend_descriptions_are_internal_and_summary_digest_uses_description(self):
         import importlib.util

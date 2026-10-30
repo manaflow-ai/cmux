@@ -178,6 +178,49 @@ HEADING = re.compile(r"^#{1,6}\s*(?P<name>[^#].*?)\s*#*\s*$")
 MARKDOWN_LINK = re.compile(r"\[([^]]+)\]\([^)]*\)")
 INLINE_MARKUP = re.compile(r"[`*_~]")
 HTML_COMMENT = re.compile(r"<!--.*?(?:-->|$)", re.S)
+UNSAFE_DESCRIPTION = re.compile(
+    r"(?:\b(?:https?|file|ssh|git|ftp)://|deeplink/agent|\b(?:aid-[a-z0-9-]{8,}|"
+    r"(?:session|agent)[_-](?:id[_-])?[a-z0-9-]{8,}|[a-f0-9]{16,}|"
+    r"[0-9a-f]{8}-[0-9a-f-]{17,})\b|"
+    r"\b(?:[a-z0-9-]+\.)+(?:com|net|org|io|dev|app|internal|local|lan|test|example)\b|"
+    r"\b(?:cmux-platform|manaflow-ai/cmux|cosmic-gray|air-blue|big-red|huge-blue|"
+    r"blacksmith|gcp-[a-z0-9-]+)\b)",
+    re.I,
+)
+ABBREVIATED_SENTENCE = re.compile(r"\b(?:e\.g|i\.e|etc|vs|dr|mr|mrs|ms|no)\.$", re.I)
+DESCRIPTION_QUOTES = "\"'”’»)]}"
+
+
+def _first_sentence(text):
+    """Return the first complete sentence, preserving closing quotes and abbreviations."""
+    for index, char in enumerate(text):
+        if char not in ".!?。！？":
+            continue
+        prefix = text[: index + 1]
+        if char == "." and ABBREVIATED_SENTENCE.search(prefix):
+            continue
+        if char == "." and index and index + 1 < len(text) and text[index - 1].isdigit() and text[index + 1].isdigit():
+            continue
+        # Punctuation inside a quoted phrase is not the outer sentence's end unless that quote
+        # starts the whole line (the quoted sentence itself is the first sentence).
+        if text[:index].count("“") > text[:index].count("”"):
+            opening = text.rfind("“", 0, index)
+            if text[:opening].strip():
+                continue
+        if text[:index].count('"') % 2:
+            opening = text.rfind('"', 0, index)
+            if text[:opening].strip():
+                continue
+        end = index + 1
+        while end < len(text) and text[end] in DESCRIPTION_QUOTES:
+            end += 1
+        if end == len(text) or text[end].isspace():
+            return text[:end].strip()
+    return text
+
+
+def _safe_description(text):
+    return bool(text) and not UNSAFE_DESCRIPTION.search(text)
 
 def _plain_line(text):
     text = MARKDOWN_LINK.sub(r"\1", text)
@@ -187,9 +230,7 @@ def _plain_line(text):
         return ""
     # A PR body can contain several prose sentences. Keep the first complete sentence so the
     # generated description is always one line and one sentence, before applying the length cap.
-    match = re.search(r".*?[.!?。！？](?=\s|$|[\"'”’»)\]}])", text)
-    if match:
-        text = match.group(0).strip()
+    text = _first_sentence(text)
     if len(text) >= DESCRIPTION_LIMIT:
         text = text[:DESCRIPTION_LIMIT - 1].rsplit(" ", 1)[0].rstrip(" ,;:-")
     return sentence(text)
@@ -212,16 +253,20 @@ def pr_description(body, fallback=""):
         if section == "changelog":
             match = CHANGELOG_LINE.match(line)
             if match:
-                return _plain_line(match["text"])
+                description = _plain_line(match["text"])
+                if _safe_description(description):
+                    return description
+                break
             if not line.startswith(("##", "###")):
                 candidates.append(line.lstrip("-*+ "))
         elif section == "summary":
             candidates.append(line.lstrip("-*+ "))
     for candidate in candidates:
         text = _plain_line(candidate)
-        if text and not text.lower().startswith(("none", "generated with", "agent session")):
+        if text and _safe_description(text) and not text.lower().startswith(("none", "generated with", "agent session")):
             return text
-    return _plain_line(fallback)
+    fallback = _plain_line(fallback)
+    return fallback if _safe_description(fallback) else ""
 
 def internal_change(subject, paths=(), description=""):
     """Whether a change belongs under the collapsed Under the hood section."""
@@ -267,7 +312,7 @@ def summarize_changes(subjects, limit=SUMMARY_LIMIT, descriptions=None):
         line = {"group": entry[0], "title": entry[1]}
         if descriptions:
             description = descriptions.get(subject, "")
-            if description:
+            if _safe_description(description):
                 line["description"] = description
         groups[entry[0]].append(line)
     # A fair share per group first (New 3, Fixed 3, Changed 2), then the rest in order.
@@ -375,6 +420,7 @@ PR_MEDIA_SIGNATURES = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89
 # GitHub leaves later highlights without pictures instead of running the signing job out of time.
 PR_MEDIA_TIMEOUT = 10
 PR_MEDIA_BUDGET = 120
+PR_DESCRIPTION_BUDGET = 120
 
 
 def pr_media_picture(data):
@@ -383,12 +429,17 @@ def pr_media_picture(data):
     return 12 <= len(data) <= PR_MEDIA_MAX_BYTES and (webp or data.startswith(PR_MEDIA_SIGNATURES))
 
 
-def pr_body(pr, fixture):
+def pr_body(pr, fixture, deadline=None):
     if fixture is not None:
         return fixture["bodies"].get(str(pr), "")
+    if deadline is not None and time.monotonic() >= deadline:
+        return ""
+    timeout = PR_MEDIA_TIMEOUT
+    if deadline is not None:
+        timeout = min(timeout, max(0.1, deadline - time.monotonic()))
     try:
         result = subprocess.run(["gh", "api", f"repos/manaflow-ai/cmux/pulls/{pr}", "--jq", ".body // \"\""],
-                                capture_output=True, text=True, timeout=PR_MEDIA_TIMEOUT)
+                                capture_output=True, text=True, timeout=timeout)
     except (subprocess.TimeoutExpired, OSError):
         return ""
     return result.stdout if result.returncode == 0 else ""
@@ -489,7 +540,13 @@ def whats_new_digest(args, also=()):
 def sentence(text):
     """`text` as a whole sentence: the validator wants a summary to end one (WRITING.md)."""
     text = text.strip()
-    return text if not text or text[-1] in ".!?。！？" else text + "."
+    if not text or text[-1] in ".!?。！？":
+        return text
+    if text[-1] in DESCRIPTION_QUOTES:
+        if len(text) > 1 and text[-2] in ".!?。！？":
+            return text
+        return text[:-1] + "." + text[-1]
+    return text + "."
 
 
 def summary_whats_new_digest(args, lines):
@@ -513,6 +570,8 @@ def summary_whats_new_digest(args, lines):
         # The summary says what the title leaves out, or repeats a title that is the whole line.
         full = " ".join(line["title"].split()).rstrip(". ")
         description = line.get("description", "")
+        if not _safe_description(description):
+            description = ""
         entry = {"id": f"summary-{index}", "category": categories[line["group"]],
                  "title": {"en": title},
                  "summary": {"en": sentence(description or (title_tail(full, title) if title != full else full))},
@@ -642,6 +701,7 @@ def build(args):
     if args.pr_descriptions:
         fixture_path = os.environ.get("CMUX_RELEASE_NOTES_PR_FIXTURE")
         fixture = json.loads(Path(fixture_path).read_text()) if fixture_path else None
+        description_deadline = time.monotonic() + PR_DESCRIPTION_BUDGET
         for subject, _, _ in commits:
             match = PR_SUFFIX.match(subject)
             if not match:
@@ -650,7 +710,7 @@ def build(args):
             if number not in pr_descriptions:
                 fallback = summary_entry(match["title"])
                 fallback_title = fallback[1] if fallback else match["title"]
-                pr_descriptions[number] = pr_description(pr_body(number, fixture), fallback_title)
+                pr_descriptions[number] = pr_description(pr_body(number, fixture, description_deadline), fallback_title)
             descriptions[subject] = pr_descriptions[number]
     items = [change_item(subject, author, paths, pr_descriptions if args.pr_descriptions else None)
              for subject, author, paths in commits]
