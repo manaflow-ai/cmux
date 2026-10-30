@@ -73,6 +73,7 @@ export function UserBubble({
           ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }]
           : [],
       );
+  const hasAttachment = Boolean(row.images?.length || files?.length);
   // A prompt that went out with an image as `data:` text (before the composer stopped making them)
   // reads each one as its name: a bubble never draws base64 (inlineImages.ts, Leo 2026-10-20).
   // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
@@ -144,18 +145,26 @@ export function UserBubble({
       <div className="cv-user__body">
         {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
             bubble under them read as a lost message; Leo 2026-10-21). */}
-        {(strip ? shownParts!.some(readsAsText) : hasInterleaved || text.trim()) && (
-          <div className="ui-glass cv-user__bubble selectable">
-            {hasInterleaved ? (
-              <InlinePromptContent rowId={row.id} parts={shownParts!} show={show} renderImage={renderImage} />
-            ) : (
-              <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
-            )}
+        {(strip ? shownParts!.some(readsAsText) : hasInterleaved || text.trim() || (row.delivery && !row.steer && row.delivery.state === "sending")) && (
+          <div className={`cv-user__bubble-wrap${text.trim() ? "" : " is-empty"}`}>
+            {strip ? shownParts!.some(readsAsText) ? (
+              <div className="ui-glass cv-user__bubble selectable">
+                <InlinePromptContent rowId={row.id} parts={shownParts!} show={show} renderImage={renderImage} />
+              </div>
+            ) : null : hasInterleaved ? (
+              <div className="ui-glass cv-user__bubble selectable">
+                <InlinePromptContent rowId={row.id} parts={shownParts!} show={show} renderImage={renderImage} />
+              </div>
+            ) : text.trim() ? (
+              <div className="ui-glass cv-user__bubble selectable">
+                <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
+              </div>
+            ) : null}
             {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
             {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
           </div>
         )}
-        {!row.failed && !row.queued && (text || pending) && (
+        {!row.failed && !row.queued && (text || hasAttachment || pending) && (
           <UserFooter
             className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
             pending={pending}
@@ -209,7 +218,9 @@ export function UserBubble({
                 </button>
               )}
               {/* Not while it is still on its way: a second send would duplicate it. */}
-              {!row.pending && row.delivery?.state !== "sending" && <PromptRetry rowId={row.id} prompt={resend} />}
+              {!row.pending && row.delivery?.state !== "sending" && (
+                <PromptRetry rowId={row.id} prompt={resend} hasAttachment={hasAttachment} />
+              )}
               {forkThrough !== undefined && (
                 <ForkButton
                   throughSeq={forkThrough}
