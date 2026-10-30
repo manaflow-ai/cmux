@@ -52,15 +52,23 @@ async function open(
   {
     watchGate,
     answerGate,
+    attachGate,
     adoptOnConnect = true,
     saved = false,
-  }: { watchGate?: Promise<void>; answerGate?: Promise<void>; adoptOnConnect?: boolean; saved?: boolean } = {},
+  }: {
+    watchGate?: Promise<void>;
+    answerGate?: Promise<void>;
+    attachGate?: Promise<void>;
+    adoptOnConnect?: boolean;
+    saved?: boolean;
+  } = {},
 ) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const { newSessionSummary } = await import("./mockFixture");
   const asked: Record<string, unknown>[] = [];
   const methods: string[] = [];
+  const killed: string[] = [];
   let other = "";
   class LiveElsewhere extends MockAcpmuxSocket {
     constructor() {
@@ -77,6 +85,8 @@ async function open(
       other = String(hooks.sessions[0]!.sessionId);
       hooks.answer = async (method, params) => {
         methods.push(method);
+        if (method === "_acpmux/kill") killed.push(String(params.sessionId));
+        if (method === "_acpmux/attach" && params.sessionId === "fork-1") await attachGate;
         if (method === "_acpmux/watch_take_over" && params.ifLive) await answerGate;
         if (method === "_acpmux/watch_take_over" && !params.ifLive)
           throw Object.assign(new Error("claude session is open in another process"), {
@@ -109,7 +119,7 @@ async function open(
     undefined,
     () => new LiveElsewhere() as unknown as WebSocket,
   );
-  return { client, asked, methods, other: () => other, now: () => snapshot };
+  return { client, asked, methods, killed, other: () => other, now: () => snapshot };
 }
 
 test("a chat another app runs opens View Only, with Fork It and Open Anyway over its transcript", async () => {
@@ -156,7 +166,7 @@ test("Fork It over the watched chat starts the fork at once, as the choice alone
 test("a watch that answers after the person moved to another chat leaves that chat shown", async () => {
   let release = () => undefined as void;
   const watchGate = new Promise<void>((resolve) => (release = resolve));
-  const { client, asked, other, now } = await open(true, { watchGate, adoptOnConnect: false });
+  const { client, asked, other, now, killed } = await open(true, { watchGate, adoptOnConnect: false });
   try {
     const resumed = client.resume(adopt);
     await settle(() => asked.length === 2);
@@ -168,6 +178,8 @@ test("a watch that answers after the person moved to another chat leaves that ch
     expect(now().liveChat).toBeUndefined();
     expect(now().liveTakeOver).toBeUndefined();
     expect(client.adopted).toBeUndefined();
+    // The watch it made for nobody is removed.
+    expect(killed).toEqual(["watched-1"]);
   } finally {
     client.close?.();
   }
@@ -244,3 +256,28 @@ for (const choice of ["fork", "open"] as const)
       client.close?.();
     }
   });
+
+test("an adopt is kept as the tab's only once the pane shows it", async () => {
+  let release = () => undefined as void;
+  const attachGate = new Promise<void>((resolve) => (release = resolve));
+  const { client, methods, other, now } = await open(true, { attachGate });
+  try {
+    await settle(() => Boolean(now().liveTakeOver));
+    const kept = persisted(client);
+    // The fork's attach is still out when the person moves on: the other chat is kept, not the fork.
+    const forked = client.adoptLive("fork");
+    await settle(
+      () =>
+        methods.includes("_acpmux/attach") &&
+        methods.lastIndexOf("_acpmux/attach") > methods.lastIndexOf("session/new"),
+    );
+    const moved = client.select(other());
+    release();
+    await Promise.all([forked, moved]);
+    await settle(() => false);
+    expect(now().sessionId).toBe(other());
+    expect(kept).not.toContain("fork-1");
+  } finally {
+    client.close?.();
+  }
+});
