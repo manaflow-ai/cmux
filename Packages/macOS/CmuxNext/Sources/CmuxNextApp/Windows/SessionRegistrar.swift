@@ -43,7 +43,7 @@ final class SessionRegistrar {
             for await _ in ObservationStream({ () -> [String] in
                 let store = machines.local.store
                 // connectionState changes on each reconnect; sync reads the connection epoch.
-                let link: String = Self.homeKey(store.connectionState)
+                let link: String = Self.homeKey(store.connectionState, epoch: store.connectionEpoch)
                 let home: [String] = [String(store.personal.revision), String(store.personal.isLoaded),
                                       String(store.isProvisional), link]
                 let daemons: [String] = machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.registryID ?? "")" }
@@ -59,7 +59,7 @@ final class SessionRegistrar {
     /// The home connection's part of the observation key: it changes on each reconnect.
     /// Only the state case, pid and generation: never the identity's capability list (this runs
     /// on the main actor at each observation check).
-    static func homeKey(_ state: DaemonConnectionState) -> String {
+    static func homeKey(_ state: DaemonConnectionState, epoch: Int) -> String {
         switch state {
         case .connecting: "connecting"
         case .connected(let identity): "connected:\(identity.pid):\(identity.generation.rawValue)"
