@@ -96,6 +96,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let client = connect(true).await?;
             crate::cli::session_turn_cap::run(&client, &session, change, json_out).await
         }
+        Command::QueueCmd(q) => {
+            let client = connect(true).await?;
+            crate::cli::session_queue::run(&client, q, json_out).await
+        }
         Command::ResumeQueue { session } => {
             let client = connect(true).await?;
             let id = crate::cli::resolve::control_id(&client, &session).await?;
