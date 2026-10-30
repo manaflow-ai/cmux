@@ -5,10 +5,23 @@
 /// Process stderr remains available in its raw form for logs and transcript entries. Callers
 /// use this only when they copy a line into an error or diagnostic shown to a person.
 pub(crate) fn clean_stderr_line(line: &str) -> String {
-    let line = strip_ansi(line);
-    let line = line.trim();
-    let line = strip_tracing_prefix(line);
-    line.trim().to_owned()
+    clean_stripped_line(&strip_ansi(line))
+}
+
+/// Each line of `text` as [`clean_stderr_line`] cleans it, with control sequences removed from the
+/// whole text first: a string control's payload (DCS, OSC, SOS, PM, APC) may span lines, and none
+/// of it may reach the person. Empty lines stay, so callers keep their own filtering.
+pub(crate) fn clean_stderr_lines(text: &str) -> Vec<String> {
+    strip_ansi(text).lines().map(clean_stripped_line).collect()
+}
+
+/// [`clean_stderr_lines`] for stderr already split into lines (a session's stderr tail).
+pub(crate) fn clean_stderr_tail<'a>(lines: impl IntoIterator<Item = &'a String>) -> Vec<String> {
+    clean_stderr_lines(&lines.into_iter().map(String::as_str).collect::<Vec<_>>().join("\n"))
+}
+
+fn clean_stripped_line(line: &str) -> String {
+    strip_tracing_prefix(line.trim()).trim().to_owned()
 }
 
 fn strip_ansi(input: &str) -> String {
@@ -161,6 +174,15 @@ mod tests {
             let line = format!("{introducer}secret\u{009c}error");
             assert_eq!(clean_stderr_line(&line), "error", "C1 {:?}", introducer);
         }
+    }
+
+    #[test]
+    fn a_string_control_spanning_lines_leaks_nothing() {
+        use super::{clean_stderr_lines, clean_stderr_tail};
+        assert_eq!(clean_stderr_lines("\x1bPsecret\nleaked \x1b\\visible error"), vec!["", "visible error"]);
+        assert_eq!(clean_stderr_lines("\x1b]8;;https://x\ny\x07ok\nnext"), vec!["", "ok", "next"]);
+        let tail = vec!["\x1b_Gpayload".to_owned(), "more payload\x1b\\request timed out".to_owned()];
+        assert_eq!(clean_stderr_tail(&tail), vec!["", "request timed out"]);
     }
 
     #[test]
