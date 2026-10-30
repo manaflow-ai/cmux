@@ -203,7 +203,7 @@ final class SidebarBridge {
         sameTurn.observe({ SidebarNavigation.selectedItem(page: state.page, workspace: state.workspaceID,
                                                           creationRow: state.cloudCreation.flatMap { creations.creation($0)?.rowID },
                                                           layout: SidebarRows.visibleLayout(layout.document, showAppStore: services.settings?.snapshot.previewFeatures == true), room: state.profileID.rawValue,
-                                                          refs: WorkspaceLayoutRefs(machines: machines), home: services.home.dockedHomeID,
+                                                          refs: WorkspaceLayoutRefs(machines: machines), home: services.home.dockedHomeID(in: state),
                                                           channels: services.home.dockShowsChannels) }) { [weak self] selected in
             self?.selectionHold.offer(selected) // a new workspace's waits for its row (cx-8g3sn)
         }
