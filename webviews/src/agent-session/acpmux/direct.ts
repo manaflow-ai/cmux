@@ -3858,8 +3858,11 @@ export class AcpmuxDirectClient {
   /// turn_end, or result for another turn is not evidence that this Stop settled.
   private stopAnswered(event: EventRecord): void {
     if (this.stopAfterSeq === undefined || event.seq <= this.stopAfterSeq) return;
-    if (event.kind !== "turn_result") return;
     const turnId = typeof event.msg?.turnId === "string" && event.msg.turnId ? event.msg.turnId : undefined;
+    // A legacy daemon may end the turn with turn_end alone: it answers a Stop that has no turn
+    // identity, or one whose identity it names. A Stop bound to a turn otherwise waits for its result.
+    const legacyEnd = event.kind === "turn_end" && (this.stopTurnId === undefined || turnId === this.stopTurnId);
+    if (event.kind !== "turn_result" && !legacyEnd) return;
     if (this.stopTurnId !== undefined && turnId !== this.stopTurnId) return;
     this.stopAfterSeq = undefined;
     this.stopTurnId = undefined;
@@ -7011,6 +7014,9 @@ export class AcpmuxDirectClient {
       compactionHeardAt: this.compactionHeardAt,
       runningTurnId: this.runningTurnId,
       stopTurnId: this.stopTurnId,
+      // Older events never move the live compaction fence (loadOlder folds only pages that cannot set it).
+      retiredCompactionTurnId: this.retiredCompactionTurnId,
+      compactionFenceSeq: this.compactionFenceSeq,
       // A Send now still waiting for the cancel it causes is the live turn's, never the page's.
       interrupting: this.interrupting,
       awaiting: this.awaiting,
