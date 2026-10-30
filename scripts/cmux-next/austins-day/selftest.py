@@ -527,6 +527,7 @@ class NamedSites(unittest.TestCase):
         self.assertIsNone(unknown[key]["hold_total_us"])
         # Absent from a full list: an upper bound, the smallest listed total (1 µs here), kept apart.
         self.assertEqual(unknown[key]["hold_total_us_at_most"], 1)
+        self.assertIsNone(before[key]["hold_total_us_at_most"])
 
     def test_the_bound_on_the_text_line_is_rounded_up(self):
         """Review of 748dc589635: a 40,000 us bound printed as "at most 0.0 s"."""
@@ -544,7 +545,6 @@ class NamedSites(unittest.TestCase):
             with open(os.path.join(tmp, "s.txt")) as f:
                 text = f.read()
         self.assertIn("registry:terminal_registry_revision: total hold absent from the top 20, so at most 0.1 s", text)
-        self.assertIsNone(before[key]["hold_total_us_at_most"])
 
 
 class LockDetail(unittest.TestCase):
