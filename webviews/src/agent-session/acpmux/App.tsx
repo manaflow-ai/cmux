@@ -141,6 +141,7 @@ import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
+import { restoreComposerDraft } from "./composerRestore";
 import {
   linkAttachment,
   linkItems,
@@ -293,7 +294,14 @@ import {
   type SessionEdits,
 } from "./turnChanges/sessionRows";
 import { repositoryRoot, viewChangesBeside, viewChangesTurn } from "./turnChanges/viewChanges";
-import { TurnActionsContext, chatLoginCommand, resumeThrough, type TurnActions } from "./conversation/turnActions";
+import {
+  TurnActionsContext,
+  chatLoginCommand,
+  compactThrough,
+  offersCompact,
+  resumeThrough,
+  type TurnActions,
+} from "./conversation/turnActions";
 import {
   RunInBackgroundContext,
   backgroundsWork,
@@ -3509,18 +3517,33 @@ export function VirtualTranscript({
         : undefined,
     [drawnId, drawnCard, findQuery],
   );
-  // Find's scroll is the reader's: it stops following now, not when the browser reports the
-  // scroll a frame later, or a re-measure before then puts the view back at the latest row.
-  // It reads the latest layout, since the reveal hold calls it from frames after this render.
-  const findTotalHeight = useRef(layout.totalHeight);
-  findTotalHeight.current = layout.totalHeight;
+  // Find chooses the reader's new place. Discard the previous scroll owners synchronously;
+  // closing Find, a query edit or a measurement must never put that old place back.
   const findMoved = useCallback(
     (node: HTMLDivElement) => {
-      // A Find match moved the view: a Jump to latest in flight ends here, not at the latest row.
       stopJump();
-      scrolledTo.current = scrollPosition(node, findTotalHeight.current);
-      followingRef.current = scrolledTo.current.atLatest;
-      setFollowing(scrolledTo.current.atLatest);
+      stopScroll(node);
+      foldAnchor.current = undefined;
+      scrollPacer.current?.cancel();
+      const top = node.scrollTop;
+      const { layout: placed, rows: shown } = latestLayout.current;
+      // A selected Find match is an explicit opening place, even when the initial transcript fit
+      // the viewport. Complete that handoff now so the first later overflow preserves this place
+      // instead of running the unopened-chat path to the latest row.
+      if (!didOpenAtLatest.current) {
+        didOpenAtLatest.current = true;
+        endSeek();
+        setSeeking(false);
+      }
+      scrolledTo.current = { top, atLatest: false };
+      seenAnchor.current = restingAnchor(top, false, placed, shown);
+      scrollRef.current = { top, delta: top - scrollRef.current.top };
+      setScroll(scrollRef.current);
+      followRef.current(false);
+      if (onAnchorRef.current) {
+        clearTimeout(anchorTimer.current);
+        anchorTimer.current = setTimeout(() => reportAnchorRef.current(), SCROLL_ANCHOR_SETTLE_MS);
+      }
     },
     [stopJump],
   );
@@ -3536,7 +3559,10 @@ export function VirtualTranscript({
     const bottom = top + layout.heights[findIndex];
     // In view where it draws (`lift` from its place while the rows follow a grown composer).
     const drawn = node.scrollTop - liftRef.current;
-    if (top >= drawn && bottom <= drawn + node.clientHeight - dockSpaceRef.current) return;
+    if (top >= drawn && bottom <= drawn + node.clientHeight - dockSpaceRef.current) {
+      findMoved(node);
+      return;
+    }
     unlift();
     node.scrollTop = Math.max(0, top - node.clientHeight / 3);
     findMoved(node);
@@ -3685,6 +3711,9 @@ export function VirtualTranscript({
     reportedAnchor.current = key;
     onAnchor(anchor);
   };
+  // Find's stable callback reports through the latest sink, even if it appeared after mount.
+  const reportAnchorRef = useRef(reportAnchor);
+  reportAnchorRef.current = reportAnchor;
   useEffect(() => {
     if (height > 0 && anchorDeferred.current) reportAnchor();
   });
@@ -5971,6 +6000,17 @@ function AcpmuxPane() {
               : Promise.resolve()
         )(restartChat),
       }),
+      // A context-full failure's Compact sends the agent's own /compact as Continue sends its prompt,
+      // with the same reach: never to a View Only chat or a read-only pane, never the next chat.
+      ...(restartChat &&
+        offersCompact(snapshot.commands) && {
+          compact: (
+            (owner: string) => () =>
+              restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
+                ? compactThrough(callNative)()
+                : Promise.resolve()
+          )(restartChat),
+        }),
       // Restart sends a prompt as the composer would (restart.ts `restartOwner`, `restartReaches`):
       // never to a View Only chat, from a subagent's read-only pane or where the composer cannot send,
       // and only to the chat whose row was clicked, never to the next chat during a switch's hold.
@@ -6060,6 +6100,7 @@ function AcpmuxPane() {
       retryTop,
       catalog,
       restartChat,
+      snapshot.commands,
     ],
   );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
@@ -6958,7 +6999,7 @@ function AcpmuxPane() {
       edit: async (promptId, text, images) => {
         const attachments = await queuedAttachments(images, readQueuedImage);
         const removed = await removeQueued(promptId);
-        if (removed) composerHandle.current?.restore(text, attachments);
+        if (removed) restoreComposerDraft(composerHandle, heldBack, text, attachments);
         return removed;
       },
       // The queue row's Move up and Move down: acpmux's `move` to a place in the whole queue.
@@ -7292,7 +7333,20 @@ function AcpmuxPane() {
           window.dispatchEvent(new CustomEvent("cmux-acpmux-stopTurn", { detail: { sessionId } }));
         }
         // Side Question (the palette): the composer, focused, with `/btw ` to type the question after.
-        if (name === "sideQuestion" && opensSideSessionsRef.current) composerHandle.current?.prefill("/btw ");
+        if (name === "sideQuestion") {
+          const shown = snapshotRef.current;
+          const selected = directClient.current?.selectedSession;
+          const side = shown?.sessions.some((entry) => entry.sessionId === sessionId && entry.side === true);
+          if (
+            !opensSideSessionsRef.current ||
+            !sessionId ||
+            selected !== sessionId ||
+            shown?.sessionId !== sessionId ||
+            side
+          )
+            return;
+          composerHandle.current?.prefill("/btw ");
+        }
         // Find, Find Next, Find Previous and Hide Find on an agent pane (the app's Edit menu, Cmd-F).
         // With the keyboard in the changes view (or the view covering the transcript) they find there.
         const diff = diffFindRef.current;
@@ -10079,7 +10133,7 @@ function AcpmuxPane() {
               const removed = startingSends.owns(promptId)
                 ? startingSends.remove(promptId)
                 : await removeQueued(promptId);
-              if (removed) composerHandle.current?.restore(text, attachments);
+              if (removed) restoreComposerDraft(composerHandle, heldBack, text, attachments);
               return removed;
             }}
             onQueueChange={(promptId, edit) =>
