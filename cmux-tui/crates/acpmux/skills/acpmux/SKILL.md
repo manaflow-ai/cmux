@@ -124,6 +124,8 @@ acpmux send PEER/NAME "see" --attach shot.png     # send files with it (repeatab
 acpmux last NAME [-n 3]                            # last reply text
 acpmux history NAME                                # one line per turn: prompt, status, tools, tokens, wall time
 acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v]
+acpmux ls [--live] [--name REGEX] [--host HOST] [--fields a,b] [--all]   # no filter: the live ones, at most 40
+acpmux ls --json --live --fields name,status,peer   # bare `ls --json` is every record, thousands on a busy host
 acpmux session info NAME                           # model, mode, policy, pending permissions, usage
 acpmux session set NAME model=… | effort=… | mode=… | policy=…
 acpmux session fork NAME [--name NEW]              # new session sharing the history so far
