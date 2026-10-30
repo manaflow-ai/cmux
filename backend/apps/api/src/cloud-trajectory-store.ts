@@ -45,6 +45,13 @@ export interface SessionSummary {
   readonly updated_at: number
 }
 
+/** A complete ordered page of session references; the cursor is stable across metadata updates. */
+export interface TrajectoryListPage {
+  readonly sessions: ReadonlyArray<SessionSummary>
+  readonly has_more: boolean
+  readonly next_after_session: string | null
+}
+
 /** The most one machine keeps (events, records and native files). */
 export const MACHINE_MAX_BYTES = 2 * 1024 ** 3
 /** One stored value stays well under the 2 MB SQLite row limit. */
@@ -205,10 +212,19 @@ export class TrajectoryStore {
     return { ok: true, value: { size: next } }
   }
 
-  /** Every kept session, newest first, at most LIST_MAX_SESSIONS. */
-  list(): ReadonlyArray<SessionSummary> {
-    const rows = this.sql.exec<Record<string, SqlStorageValue>>(`SELECT * FROM traj_session ORDER BY updated_at DESC LIMIT ?`, LIST_MAX_SESSIONS).toArray() as unknown as Array<SessionRow>
-    return rows.map((r) => ({
+  /**
+   * List every kept session through keyset pages. Session ids are immutable, whereas updated_at
+   * changes while a VM writes, so sorting by recency would skip/duplicate rows between requests.
+   * One extra row proves whether another page exists; the caller may only report restore complete
+   * after following every cursor.
+   */
+  list(afterSession: string | null = null): TrajectoryListPage {
+    const rows = this.sql.exec<Record<string, SqlStorageValue>>(
+      `SELECT * FROM traj_session WHERE session > ? ORDER BY session ASC LIMIT ?`,
+      afterSession ?? "", LIST_MAX_SESSIONS + 1
+    ).toArray() as unknown as Array<SessionRow>
+    const hasMore = rows.length > LIST_MAX_SESSIONS
+    const sessions = rows.slice(0, LIST_MAX_SESSIONS).map((r) => ({
       session: r.session,
       generation: Number(r.generation),
       last_seq: Number(r.last_seq),
@@ -216,6 +232,7 @@ export class TrajectoryStore {
       native: this.sql.exec<{ label: string; path: string; size: number }>(`SELECT label, path, size FROM traj_native WHERE session = ? ORDER BY label, path`, r.session).toArray().map((n) => ({ label: n.label, path: n.path, size: Number(n.size) })),
       updated_at: Number(r.updated_at)
     }))
+    return { sessions, has_more: hasMore, next_after_session: hasMore ? sessions.at(-1)!.session : null }
   }
 
   /** The records after `afterSeq`, oldest first, bounded by `limit` and READ_MAX_BYTES. */
@@ -261,8 +278,8 @@ export class TrajectoryDO extends DurableObject<Env> {
   appendNative(session: string, generation: number, label: string, path: string, offset: number, data: Uint8Array) {
     return this.store.appendNative(session, generation, label, path, offset, data, Date.now())
   }
-  list() {
-    return this.store.list()
+  list(afterSession: string | null = null) {
+    return this.store.list(afterSession)
   }
   read(session: string, afterSeq: number, limit: number) {
     return this.store.read(session, afterSeq, limit)

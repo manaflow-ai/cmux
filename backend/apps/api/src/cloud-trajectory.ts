@@ -1,6 +1,6 @@
 import type { Principal } from "@cmux/ownership"
 import { authenticate } from "./auth.ts"
-import { isNativePath, isSessionId, NATIVE_CHUNK_MAX_BYTES, type TrajectoryRefusal, type TrajectoryResult } from "./cloud-trajectory-store.ts"
+import { isNativePath, isSessionId, NATIVE_CHUNK_MAX_BYTES, type TrajectoryListPage, type TrajectoryRefusal, type TrajectoryResult } from "./cloud-trajectory-store.ts"
 import type { Env } from "./env.ts"
 import { isMachineInstallKind } from "./machine-installs.ts"
 import { ssoGate } from "./policy-gate.ts"
@@ -12,7 +12,7 @@ import { principalForOwner, selectTeam, TEAM_HEADER } from "./team-select.ts"
  *
  *   POST /v1/cloud/machines/{machine}/trajectories/append       {session, generation, meta?, lines[]}
  *   POST /v1/cloud/machines/{machine}/trajectories/native       {session, generation, label, path, offset, data (base64)}
- *   POST /v1/cloud/machines/{machine}/trajectories/list         {}
+ *   POST /v1/cloud/machines/{machine}/trajectories/list         {page_protocol?: 2, after_session?}
  *   POST /v1/cloud/machines/{machine}/trajectories/read         {session, after_seq?, limit?}
  *   POST /v1/cloud/machines/{machine}/trajectories/native-read  {session, label, path, offset}
  *
@@ -41,7 +41,7 @@ type CloudStub = { trajectoryScope(entity: string, p: Principal, machine: string
 type Store = {
   append(session: string, generation: number, meta: unknown, lines: ReadonlyArray<string>): Promise<TrajectoryResult<{ last_seq: number }>>
   appendNative(session: string, generation: number, label: string, path: string, offset: number, data: Uint8Array): Promise<TrajectoryResult<{ size: number }>>
-  list(): Promise<unknown>
+  list(afterSession: string | null): Promise<TrajectoryListPage>
   read(session: string, afterSeq: number, limit: number): Promise<TrajectoryResult<unknown>>
   readNative(session: string, label: string, path: string, offset: number): Promise<TrajectoryResult<{ size: number; data: Uint8Array }>>
 }
@@ -141,9 +141,17 @@ export const handleCloudTrajectory = async (request: Request, env: Env, machine:
     return answer(503, "owner.unreachable", "the Cloud service could not be reached; retry")
   }
   if (!scope.ok) return answer(scope.status, scope.code, scope.message)
-  if (scope.store === null) return action === "list" ? ok({ sessions: [] }) : answer(404, "cloud.trajectory.not_found", "this machine was not restored from one of yours")
+  if (scope.store === null) return action === "list" ? ok({ sessions: [], has_more: false, next_after_session: null }) : answer(404, "cloud.trajectory.not_found", "this machine was not restored from one of yours")
   const store = env.TRAJECTORY_DO.get(env.TRAJECTORY_DO.idFromName(`${principal.team!}/${scope.store}`)) as unknown as Store
-  if (action === "list") return ok({ sessions: await store.list() })
+  if (action === "list") {
+    const after = body.after_session
+    if (after !== undefined && !isSessionId(after)) return answer(400, "validation.invalid", "invalid list cursor")
+    const page = await store.list(typeof after === "string" ? after : null)
+    // A guest built before pagination ignores has_more. A full old-style first page would
+    // silently omit chat 501+ during restore; refuse it unless the caller understands cursors.
+    if (page.has_more && body.page_protocol !== 2) return answer(409, "cloud.trajectory.pagination_required", "upgrade the Cloud VM session host to read every saved chat")
+    return ok(page)
+  }
   const session = body.session
   if (!isSessionId(session)) return answer(400, "validation.invalid", "invalid session id")
   switch (action) {

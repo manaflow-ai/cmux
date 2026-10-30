@@ -77,19 +77,31 @@ impl Api for FakeServer {
         let store = if from_parent { self.parent.clone() } else { Some(self.machine.clone()) };
         let Some(store) = store else {
             return match action {
-                "list" => ok(json!({ "sessions": [] })),
+                "list" => ok(json!({ "sessions": [], "has_more": false, "next_after_session": null })),
                 _ => refuse(404, "cloud.trajectory.not_found", Value::Null),
             };
         };
         let sessions = self.stores.entry(store).or_default();
         match action {
-            "list" => ok(json!({ "sessions": sessions.iter().map(|(id, k)| json!({
-                "session": id,
-                "generation": k.generation,
-                "last_seq": k.lines.len(),
-                "meta": k.meta,
-                "native": k.native.iter().map(|((l, p), b)| json!({ "label": l, "path": p, "size": b.len() })).collect::<Vec<_>>(),
-            })).collect::<Vec<_>>() })),
+            "list" => {
+                // Same 500-row, stable id cursor contract as TrajectoryStore.list.
+                let after = body["after_session"].as_str().unwrap_or("");
+                let rows: Vec<_> = sessions.iter().filter(|(id, _)| id.as_str() > after)
+                    .take(501).collect();
+                let has_more = rows.len() > 500;
+                if has_more && body["page_protocol"].as_u64() != Some(2) {
+                    return refuse(409, "cloud.trajectory.pagination_required", Value::Null);
+                }
+                let page: Vec<Value> = rows.into_iter().take(500).map(|(id, k)| json!({
+                    "session": id,
+                    "generation": k.generation,
+                    "last_seq": k.lines.len(),
+                    "meta": k.meta,
+                    "native": k.native.iter().map(|((l, p), b)| json!({ "label": l, "path": p, "size": b.len() })).collect::<Vec<_>>(),
+                })).collect();
+                let next = has_more.then(|| page.last().unwrap()["session"].as_str().unwrap().to_owned());
+                ok(json!({ "sessions": page, "has_more": has_more, "next_after_session": next }))
+            }
             "append" => {
                 let generation = body["generation"].as_u64().unwrap();
                 if sessions.get(&session).is_some_and(|k| generation < k.generation) {
@@ -416,6 +428,91 @@ fn first_machine(server: &mut FakeServer) -> Machine {
     mirror.prime(server).unwrap();
     assert_eq!(mirror.sync(server, 0), Pass::Idle);
     first
+}
+
+
+/// A restore must visit every keyset page before declaring its source complete. A single
+/// 500-session response used to silently omit the last chat while its records were intact.
+#[test]
+fn restores_501_trajectories_from_two_pages_without_losing_the_last_session() {
+    struct ImportNames(Vec<String>);
+    impl Importer for ImportNames {
+        fn ready(&self) -> bool { true }
+        fn import(&mut self, bundle: &Path, meta: &Value) -> Result<(), String> {
+            assert!(bundle.join("session.json").exists());
+            self.0.push(meta["id"].as_str().unwrap().to_owned());
+            Ok(())
+        }
+    }
+
+    let source = Machine::new();
+    let mut server = FakeServer::at("source");
+    let store = server.stores.entry("source".to_owned()).or_default();
+    for i in 0..501 {
+        let id = format!("chat-{i:03}");
+        store.insert(id.clone(), Kept {
+            generation: CREATED,
+            meta: meta(&id, 1, CREATED, &source.layout.home),
+            lines: vec![line(1)],
+            ..Kept::default()
+        });
+    }
+
+    let restored = Machine::new();
+    server.as_machine("replacement", Some("source"));
+    let mut mirror = restored.mirror();
+    assert_eq!(mirror.prime(&mut server).unwrap(), 501);
+    assert_eq!(mirror.pending(), 501);
+    let parent_pages: Vec<_> = server.calls.iter()
+        .filter(|(action, body)| action == "list" && body["from"] == "parent")
+        .collect();
+    assert_eq!(parent_pages.len(), 2);
+    assert_eq!(parent_pages[0].1["after_session"], Value::Null);
+    assert_eq!(parent_pages[1].1["after_session"], "chat-499");
+
+    let mut importer = ImportNames(Vec::new());
+    assert_eq!(mirror.restore(&mut server, &mut importer), 501);
+    assert_eq!(mirror.pending(), 0);
+    assert_eq!(importer.0.len(), 501);
+    assert!(importer.0.contains(&"chat-500".to_owned()));
+}
+
+/// A server that silently truncates a full list can no longer make restore appear complete.
+#[test]
+fn a_short_legacy_trajectory_list_can_still_use_recency_order() {
+    struct LegacyShort;
+    impl Api for LegacyShort {
+        fn call(&mut self, action: &str, _: &Value) -> Answer {
+            assert_eq!(action, "list");
+            // Older servers list newest first, independent of lexical session ID.
+            ok(json!({ "sessions": [
+                { "session": "chat-z", "generation": CREATED, "last_seq": 1,
+                  "meta": { "id": "chat-z" }, "native": [] },
+                { "session": "chat-a", "generation": CREATED, "last_seq": 1,
+                  "meta": { "id": "chat-a" }, "native": [] },
+            ] }))
+        }
+    }
+    let m = Machine::new();
+    assert_eq!(m.mirror().prime(&mut LegacyShort).unwrap(), 0);
+}
+
+#[test]
+fn legacy_500_session_reply_without_cursor_fails_closed() {
+    struct LegacyList;
+    impl Api for LegacyList {
+        fn call(&mut self, action: &str, _: &Value) -> Answer {
+            assert_eq!(action, "list");
+            let sessions: Vec<_> = (0..500).map(|i| json!({
+                "session": format!("chat-{i:03}"), "generation": CREATED,
+                "last_seq": 1, "meta": { "id": format!("chat-{i:03}") }, "native": [],
+            })).collect();
+            ok(json!({ "sessions": sessions }))
+        }
+    }
+    let restored = Machine::new();
+    let failure = restored.mirror().prime(&mut LegacyList).unwrap_err();
+    assert!(matches!(failure, Pass::Failed(s) if s.contains("truncated")));
 }
 
 #[test]
