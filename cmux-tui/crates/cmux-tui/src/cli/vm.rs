@@ -291,7 +291,7 @@ fn mint_through_app(global: &GlobalArgs, plan: &[String]) -> i32 {
             if code == "method_not_found" {
                 return fail(
                     &code,
-                    "this cmux app cannot mint VM tokens yet (no vm.agent_key.create); update cmux, or set CMUX_VM_API_KEY",
+                    "this cmux app has no vm.agent_key.create; set CMUX_VM_API_KEY, or run `cmux vm token create --config ISSUER.json`",
                     exit,
                 );
             }
