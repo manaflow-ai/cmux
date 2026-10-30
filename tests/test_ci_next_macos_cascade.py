@@ -118,6 +118,16 @@ class Counts(unittest.TestCase):
         shot["pools"][GUI] = {"queued": 0, "running": 1, "oldest_queued_minutes": 0}
         self.assertFalse(cascade.owned_label_full(shot, GUI, NOW))
 
+    def test_authoritative_gates_replace_legacy_pool_queue_counts(self):
+        shot = snapshot(minutes_old=1, large=99)
+        shot["gates"] = {"version": 1, "as_of": "2026-10-19T21:59:00Z", "labels": {
+            GUI: {"listening": 0, "busy": 9, "held_offline": {"total": 9, "units": 9, "cpu": 0, "livelock": 0, "other": 0},
+                  "down": 0, "unreported": 0, "queued": 2, "oldest_queued_s": 240,
+                  "as_of": "2026-10-19T21:59:00Z"}}}
+        self.assertTrue(cascade.owned_label_full(shot, GUI, NOW))
+        shot["gates"]["labels"][GUI].update(listening=1, held_offline={"total": 0}, queued=0, oldest_queued_s=0)
+        self.assertFalse(cascade.owned_label_full(shot, GUI, NOW))
+
     def test_owned_health_full_then_overflows(self):
         shot = snapshot(minutes_old=1)
         shot["pools"][GUI] = {"listening": 0, "busy": 9,

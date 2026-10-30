@@ -105,6 +105,7 @@ on:
 permissions: {}
 
 env:
+  CI_FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
   # Renaming the source workflow silently stops every `workflow_run` consumer
   # of it; tests/test_ci_workflow_run_sources.py derives the expected name from
   # this path. The script confirms the run's own `path` again before acting.

@@ -237,7 +237,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pr_runner_pool
-from next_macos_cascade import owned_label_full, OWNED_HEALTH_QUEUE_SECONDS
+from next_macos_cascade import owned_label_full, OWNED_HEALTH_QUEUE_SECONDS, _fleet_gates
 from pr_runner_pool import MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, nightly_dedicated, parse_queue_rounds, persistent  # noqa: E402
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
@@ -698,7 +698,7 @@ class GitHub:
                     self._snapshot = self._snapshot_client.snapshot(now=now)
                 except (*READ_ERRORS, RuntimeError):
                     self._snapshot = None
-            return self._snapshot
+            return _fleet_gates(self._snapshot, os.environ)
 
 
     def request(self, method: str, path: str, *, own_token: bool = False, body: Mapping | None = None) -> Any:
@@ -757,6 +757,22 @@ class GitHub:
 
     def run(self, run_id: int) -> Mapping[str, Any]:
         return self.request("GET", f"/actions/runs/{run_id}")
+
+    def side_runs(self, since: dt.datetime, count: int) -> list[Mapping[str, Any]]:
+        """Queued/in-progress trusted side-lane runs, including runs with no marker artifact."""
+        found: list[Mapping[str, Any]] = []
+        paths = SIDE_WORKFLOW_PATHS
+        for status in ("queued", "in_progress"):
+            data = self.request("GET", f"/actions/runs?status={status}&per_page={count}") or {}
+            for run in data.get("workflow_runs") or []:
+                if not isinstance(run, Mapping) or run.get("path") not in paths:
+                    continue
+                created = parse_time(run.get("created_at"))
+                if created is None or created < since:
+                    continue
+                if run.get("event") in TRUSTED_SIDE_EVENTS:
+                    found.append(run)
+        return found
 
     def owned_reruns(self, count: int) -> list[tuple[int, int]]:
         """(run id, attempt) of unfinished CI and cmux-next re-runs whose owned jobs go back to the minis
@@ -873,6 +889,8 @@ class Target:
     # A side lane's push run: its branch. Push runs of a side lane may each hold
     # their own concurrency group, so a newer push does not cancel this one.
     push_branch: str = ""
+    # Preserve the triggering event for delivery workflows' failover policy.
+    event: str = ""
 
     @property
     def picker_job(self) -> str:
@@ -883,6 +901,11 @@ class Target:
         if self.side:
             return SIDE_WATCH_LIMIT_SECONDS
         return E2E_WATCH_LIMIT_SECONDS if self.e2e else WATCH_LIMIT_SECONDS
+
+
+def never_fails_over(path: str, event: str | None) -> bool:
+    """Delivery-triggered runs never fail over; an absent event is delivery."""
+    return not event or event in {"delivery", "repository_dispatch", "workflow_run", "workflow_call"}
 
 
 def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str:
@@ -916,20 +939,20 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
         return f"attempt {attempt}; its first attempt's watch follows it"
     if e2e and not ios_pull:
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, e2e=True,
-                      path=str(path), attempt_started_at=attempt_started)
+                      path=str(path), attempt_started_at=attempt_started, event=str(run.get("event") or ""))
     if on_main:
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, path=str(path), main=True,
-                      attempt_started_at=attempt_started)
+                      attempt_started_at=attempt_started, event=str(run.get("event") or ""))
     if side_trusted:
         # No pull request: no head to re-check (pull_moved), like a dispatch.
         push_branch = str(run.get("head_branch") or "") if run.get("event") == "push" else ""
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, side=True, path=str(path),
-                      attempt_started_at=attempt_started, push_branch=push_branch)
+                      attempt_started_at=attempt_started, push_branch=push_branch, event=str(run.get("event") or ""))
     pulls = [pr for pr in run.get("pull_requests") or [] if isinstance(pr, Mapping) and pr.get("number")]
     if len(pulls) != 1:
         return "the run does not name exactly one pull request"
     return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), int(pulls[0]["number"]),
-                  e2e=e2e, side=side, path=str(path), attempt_started_at=attempt_started)
+                  e2e=e2e, side=side, path=str(path), attempt_started_at=attempt_started, event=str(run.get("event") or ""))
 
 
 def recover_cmux_next_pull(client: GitHub, run: Mapping[str, Any], sleep: Callable[[float], None],
@@ -956,7 +979,7 @@ def nightly_target(run: Mapping[str, Any], repository: str) -> Target | str:
     if attempt != 1:
         return f"attempt {attempt}; its first attempt's watch follows it"
     return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, path=NIGHTLY_WORKFLOW_PATH,
-                  side=True, nightly=True, push_branch=str(run["head_branch"]))
+                  side=True, nightly=True, push_branch=str(run["head_branch"]), event=str(run.get("event") or ""))
 
 
 def marker_name(target: Target) -> str:
@@ -1068,15 +1091,15 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 if job_pool(job) and waiting_for_runner(job):
                     first_seen.setdefault(job.get("id"), seen_at)
             health = None
-            if target.path == CMUX_NEXT_WORKFLOW_PATH and any(
+            if target.side and any(
                     job_pool(job) and waiting_for_runner(job)
                     and queued_seconds(job, seen_at, first_seen.get(job.get("id"))) >= OWNED_HEALTH_QUEUE_SECONDS
                     for job in jobs):
                 health = api.pool_snapshot(seen_at)
             look = assess(jobs, now=seen_at, budget_seconds=budget_seconds, first_seen=first_seen,
                           deadline=deadline, floor_seconds=floor_seconds,
-                          allow_running_rescue=target.path == CMUX_NEXT_WORKFLOW_PATH,
-                          include_blacksmith_macos=target.path == CMUX_NEXT_WORKFLOW_PATH,
+                          allow_running_rescue=target.side,
+                          include_blacksmith_macos=target.side,
                           health_snapshot=health)
             if look.action == "refused" and not finished and seen_at < deadline and not target.main:
                 # GitHub re-runs no job of a run still in progress (403 "already
@@ -1595,6 +1618,16 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
                 if run_id in seen or (created is not None and created < oldest):
                     continue
                 adopt(run_id, late)
+        # Side-lane workflows have no picker marker. Their queued/in-progress
+        # runs are still adopted directly so a full side label overflows after
+        # the same alarm instead of waiting for a failure artifact.
+        try:
+            for run in getattr(client, "side_runs", lambda *_: [])(oldest, SWEEP_LISTING):
+                run_id = int(run.get("id") or 0)
+                if run_id and run_id not in seen:
+                    adopt(run_id, False)
+        except READ_ERRORS as error:
+            log(f"could not list unmarked side-lane runs ({error}); next tick")
         # A re-run of failed jobs goes back to the minis with no marker of its own; two listings a tick.
         try:
             reruns = client.owned_reruns(SWEEP_LISTING)

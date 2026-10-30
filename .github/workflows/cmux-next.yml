@@ -1235,6 +1235,8 @@ jobs:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           ROUTE_TOKEN_FALLBACK: ${{ steps.route-token-fallback.outputs.token }}
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
+          # Glaeda's authoritative per-label gate reading; this avoids a second API request.
+          CI_FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
           # The cascade's jobs that run on this route at all (next_macos_cascade.py):
           # not a job that path routing or the pull request's labels skip (a job
           # missing here only stays on the minis' queue). The fast tier is always

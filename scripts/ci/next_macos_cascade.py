@@ -253,20 +253,29 @@ def label_full_or_dead(label: str, snapshot: Mapping[str, Any] | None,
                 return True
         except (TypeError, ValueError):
             continue
-    pools = snapshot.get("pools") or {}
-    entry = pools.get(label) if isinstance(pools, Mapping) else None
-    entry = entry if isinstance(entry, Mapping) else {}
-    # A legacy pool record without a declared cap is not a health assertion; keep
-    # the old cascade until the janitor exports the contract fields.
-    if not ("cap" in entry or "capacity" in entry):
-        return False
-    try:
-        cap = int(entry.get("cap", entry.get("capacity", 0)))
-        observed_queued = max(int(queued), int(entry.get("queued", 0)))
-        observed_running = max(int(live), int(entry.get("running", 0)))
-        return cap > 0 and observed_queued > 0 and observed_running >= cap
-    except (TypeError, ValueError):
-        return False
+    gates = snapshot.get("gates") if isinstance(snapshot, Mapping) else None
+    labels = gates.get("labels") if isinstance(gates, Mapping) else None
+    entry = labels.get(label) if isinstance(labels, Mapping) else None
+    if isinstance(entry, Mapping):
+        try:
+            q = int(entry.get("queued", 0))
+            oldest = float(entry.get("oldest_queued_s", 0))
+            listening = int(entry.get("listening", live))
+            held = entry.get("held_offline") or {}
+            held_total = int(held.get("total", 0)) if isinstance(held, Mapping) else 0
+            return (q > 0 and oldest >= OWNED_HEALTH_QUEUE_SECONDS) or (listening == 0 and held_total > 0)
+        except (TypeError, ValueError):
+            return True if queued > 0 else False
+    if isinstance(snapshot, Mapping):
+        pools = snapshot.get("pools") or {}
+        legacy = pools.get(label) if isinstance(pools, Mapping) else None
+        if isinstance(legacy, Mapping) and ("cap" in legacy or "capacity" in legacy):
+            try:
+                cap = int(legacy.get("cap", legacy.get("capacity", 0)))
+                return cap > 0 and max(int(queued), int(legacy.get("queued", 0))) > 0 and max(int(live), int(legacy.get("running", 0))) >= cap
+            except (TypeError, ValueError):
+                pass
+    return False
 
 
 def in_flight(groups: Sequence[Mapping[str, Any]], runners_of: Callable[[int], Sequence[Mapping[str, Any]]],
@@ -343,6 +352,18 @@ class Seen:
     stale: bool = False
 
 
+def _fleet_gates(snapshot: Mapping[str, Any] | None, env: Mapping[str, str]) -> Mapping[str, Any] | None:
+    """Overlay the janitor's authoritative gates reading from CI_FLEET_GATES."""
+    raw = (env.get("CI_FLEET_GATES") or env.get("FLEET_GATES") or "").strip()
+    if not raw:
+        return snapshot
+    try:
+        gates = json.loads(raw)
+    except (TypeError, ValueError):
+        return snapshot
+    return {**(snapshot if isinstance(snapshot, Mapping) else {}), "gates": gates} if isinstance(gates, Mapping) else snapshot
+
+
 def owned_label_full(snapshot: Mapping[str, Any] | None, label: str, now: dt.datetime,
                      *, queued_wait_s: float | None = None) -> bool:
     """Full after a three-minute queue; missing/>5-minute health overflows.
@@ -350,8 +371,12 @@ def owned_label_full(snapshot: Mapping[str, Any] | None, label: str, now: dt.dat
     One adapter for the janitor's legacy queue records and glaeda's listener
     records. Rescue passes its own observed wait; placement uses the snapshot.
     """
-    pools = snapshot.get("pools") if isinstance(snapshot, Mapping) else None
-    entry = pools.get(label) if isinstance(pools, Mapping) else None
+    gates = snapshot.get("gates") if isinstance(snapshot, Mapping) else None
+    gate_labels = gates.get("labels") if isinstance(gates, Mapping) else None
+    entry = gate_labels.get(label) if isinstance(gate_labels, Mapping) else None
+    if not isinstance(gates, Mapping):
+        pools = snapshot.get("pools") if isinstance(snapshot, Mapping) else None
+        entry = pools.get(label) if isinstance(pools, Mapping) else None
     if queued_wait_s is None:
         if not isinstance(entry, Mapping):
             return False  # placement has no evidence a job is already queued
@@ -377,17 +402,21 @@ def owned_label_full(snapshot: Mapping[str, Any] | None, label: str, now: dt.dat
         queued_wait_s += snapshot_age
         if queued_wait_s < OWNED_HEALTH_QUEUE_SECONDS:
             return False
-        listening, queued = int(entry["listening"]), int(entry["queued"])
-        held = entry["held_offline"]
-        counts = [int(held[key]) for key in ("units", "cpu", "livelock")]
-        if min(listening, queued, *counts) < 0:
+        listening, queued = int(entry.get("listening", 0)), int(entry.get("queued", 0))
+        held = entry.get("held_offline") or {}
+        held_total = int(held.get("total", sum(int(held.get(key, 0)) for key in ("units", "cpu", "livelock", "other")))) if isinstance(held, Mapping) else 0
+        if min(listening, queued, held_total) < 0:
             return True
     except (KeyError, TypeError, ValueError):
-        # Legacy janitor records have no authoritative listener health. Treat
-        # them as full only after the observed queue has crossed the overflow
-        # threshold; an empty/short legacy queue must retain a live idle route.
+        # Legacy records may contain listening but omit newer held counters.
+        # A listening runner is not full; otherwise use the queue alarm.
+        try:
+            if int(entry.get("listening", 0)) > 0:
+                return False
+        except (TypeError, ValueError):
+            pass
         return queued_wait_s >= OWNED_HEALTH_QUEUE_SECONDS
-    return listening == 0 and queued > 0 and any(counts)
+    return listening == 0 and (held_total > 0 or (queued > 0 and queued_wait_s >= OWNED_HEALTH_QUEUE_SECONDS))
 
 
 def _fresh(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> tuple[float, Mapping[str, Any]] | None:
@@ -432,6 +461,9 @@ def seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
         return None
     age, pools = fresh
     age = max(0.0, age)
+    gates = snapshot.get("gates") if isinstance(snapshot, Mapping) else None
+    if isinstance(gates, Mapping) and isinstance(gates.get("labels"), Mapping):
+        pools = {**pools, **gates["labels"]}
     waits = {label: float(_field(pools, label, "oldest_queued_minutes")) + age
              if _field(pools, label, "queued") else 0.0 for label in LABELS}
     reserved = {label: _field(pools, label, "reserved_queued") for label in LABELS}
@@ -862,6 +894,7 @@ def read(env: Mapping[str, str], pool: Any, *, now: dt.datetime, log: Callable[[
     if snapshot_token and repository:
         try:
             snapshot = pool.GitHub(snapshot_token, repository).snapshot(now=now)
+            snapshot = _fleet_gates(snapshot, env)
             found = seen(snapshot, now) or reserved_from(snapshot, now)
             if live is not None:
                 waiting = queued(snapshot, now)
