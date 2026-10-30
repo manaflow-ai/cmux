@@ -87,31 +87,13 @@ jobs:
               exit 1
             fi
             gh_read() {
-              local response error status attempt wait detail
-              for attempt in 1 2 3 4; do
-                error="$(mktemp)"
-                if response="$(gh api "$@" 2>"$error")"; then
-                  rm -f "$error"
-                  printf '%s' "$response"
-                  return 0
-                else
-                  status=$?
-                fi
-                detail="$(cat "$error")"
-                detail="${detail:-$response}"
-                rm -f "$error"
-                if ! grep -qiE 'rate limit exceeded|secondary rate limit|too many requests|HTTP 429|HTTP 5[0-9][0-9]|Bad Gateway|Service Unavailable' <<<"$detail"; then
-                  printf '%s\n' "$detail" >&2
-                  return "$status"
-                fi
-                if (( attempt == 4 )); then
-                  printf '%s\n' "$detail" >&2
-                  return "$status"
-                fi
-                wait=$((10 * 2 ** (attempt - 1)))
-                echo "::warning::GitHub API read failed; retry $attempt/3 in ${wait}s: $detail" >&2
-                sleep "$wait"
-              done
+              local response status
+              if response="$(gh api "$@")"; then
+                printf '%s' "$response"
+              else
+                status=$?
+                return "$status"
+              fi
             }
             pr_fields="$(gh_read "repos/$GITHUB_REPOSITORY/pulls/$PR" \
               --jq '[.state, (.head.repo.full_name // ""), .base.ref, .head.sha] | @tsv')" || exit $?

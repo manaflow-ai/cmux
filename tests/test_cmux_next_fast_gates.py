@@ -194,14 +194,13 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(output, "")
 
-    def test_dispatch_transient_server_error_retries_then_resolves(self):
+    def test_dispatch_transient_server_error_surfaces_without_retry(self):
         result, calls, waits, output = self.resolve_dispatch(error="gh: Bad Gateway (HTTP 502)", failures=1)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(calls), 3)
-        self.assertEqual(waits, ["10"])
-        self.assertIn("head_sha=" + "a" * 40, output)
-        self.assertIn("base=" + "b" * 40, output)
-        self.assertIn("post=true", output)
+        self.assertEqual(result.returncode, 17)
+        self.assertIn("Bad Gateway", result.stderr)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(waits, [])
+        self.assertEqual(output, "")
 
     def test_dispatch_permission_failure_is_not_retried(self):
         result, calls, waits, output = self.resolve_dispatch(
