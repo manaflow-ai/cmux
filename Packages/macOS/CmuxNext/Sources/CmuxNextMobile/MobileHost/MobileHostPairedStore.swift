@@ -14,6 +14,7 @@ public final class MobileHostPairedStore: Sendable {
         var generation: UInt64 = 0
         var revision: UInt64 = 0
         var forgotten: Set<String> = []
+        var pendingRemovals: Set<String> = []
         var list: MobileHostPairedDevices?
         var observers: [@Sendable (Change) -> Void] = []
     }
@@ -51,11 +52,42 @@ public final class MobileHostPairedStore: Sendable {
         try await disk.change(store: self, user: user, generation: generation, edit)
     }
 
+    /// Forget a phone even when its initial disk load is still in flight. The marker is
+    /// synchronous, so a load that finishes after this call cannot re-trust the phone.
+    public func forget(id: String, transport: MobileHostPairedDevice.Transport = .hostd) {
+        let key = Self.removalKey(id, transport)
+        let event = state.withLock { state -> (Change, [@Sendable (Change) -> Void])? in
+            guard state.userID != nil else { return nil }
+            state.pendingRemovals.insert(key)
+            guard let list = state.list else { return nil }
+            var next = list
+            next.remove(id, transport: transport)
+            guard next != list else { return nil }
+            let removed = list.devices.filter { $0.id == id && $0.transport == transport }
+            state.list = next
+            state.revision &+= 1
+            return (Change(list: next, removed: removed), state.observers)
+        }
+        if let (change, observers) = event { observers.forEach { $0(change) } }
+        Task { await disk.forget(store: self, id: id, transport: transport, key: key) }
+    }
+
+    private static func removalKey(_ id: String, _ transport: MobileHostPairedDevice.Transport) -> String {
+        transport.rawValue + "\u{0}" + id
+    }
+
     private func publish(_ list: MobileHostPairedDevices, generation: UInt64) {
         let event = state.withLock { state -> (Change, [@Sendable (Change) -> Void])? in
             guard state.generation == generation, state.userID == list.userID else { return nil }
             let removed = (state.list?.devices ?? []).filter { old in
                 !list.devices.contains { $0.id == old.id && $0.transport == old.transport && $0.identityKey == old.identityKey }
+            }
+            var list = list
+            for key in state.pendingRemovals {
+                let parts = key.split(separator: "\0", maxSplits: 1).map(String.init)
+                if parts.count == 2, let transport = MobileHostPairedDevice.Transport(rawValue: parts[0]) {
+                    list.remove(parts[1], transport: transport)
+                }
             }
             state.list = list
             state.revision &+= 1
@@ -67,7 +99,11 @@ public final class MobileHostPairedStore: Sendable {
     private actor Persistence {
         var file: MobileHostPairedDevicesFile?
         func attach(directory: URL, store: MobileHostPairedStore) {
-            if file == nil { file = MobileHostPairedDevicesFile(directory: directory) }
+            if file == nil {
+                let bundleID = directory.deletingLastPathComponent().lastPathComponent
+                file = MobileHostPairedDevicesFile(directory: directory,
+                                                   seal: MobileHostKeychainPairingSeal(bundleID: bundleID))
+            }
             load(store: store)
         }
 
@@ -84,6 +120,20 @@ public final class MobileHostPairedStore: Sendable {
             }
             guard let user else { return }
             store.publish(file.load(userID: user), generation: generation)
+        }
+
+        func forget(store: MobileHostPairedStore, id: String, transport: MobileHostPairedDevice.Transport, key: String) {
+            let (user, generation, pending) = store.state.withLock { ($0.userID, $0.generation, $0.pendingRemovals) }
+            guard let user, let file else { return }
+            var list = file.load(userID: user)
+            list.remove(id, transport: transport)
+            do {
+                try file.save(list)
+                store.state.withLock { state in
+                    guard state.userID == user, state.generation == generation else { return }
+                    state.pendingRemovals.subtract(pending.intersection([key]))
+                }
+            } catch { }
         }
 
         func change(store: MobileHostPairedStore, user: String, generation: UInt64?,

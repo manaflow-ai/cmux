@@ -62,6 +62,33 @@ struct PhoneAdmissionStoreTests {
         #expect(!store.trusts(Self.phone))
     }
 
+    @Test func removalDuringReloadStaysRemoved() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MobileHostPairedStore()
+        store.select(userID: "one")
+        let loading = Task { await store.attach(directory: directory) }
+        // This marker is synchronous; whichever side of the load wins, the result cannot restore the phone.
+        store.forget(id: Self.phone.phoneDeviceID, transport: .iroh)
+        await loading.value
+        await store.reload()
+        #expect(!store.trusts(Self.phone))
+    }
+
+    @Test func aValidUnsealedJsonFileIsNotTrustedAfterRelaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var list = MobileHostPairedDevices(userID: "one")
+        list.approve(Self.phone, at: Date())
+        let data = try JSONEncoder().encode(list)
+        try data.write(to: directory.appendingPathComponent("paired-devices.json"))
+        let restored = MobileHostPairedStore()
+        restored.select(userID: "one")
+        await restored.attach(directory: directory)
+        #expect(!restored.trusts(Self.phone))
+    }
+
     @Test func transportsNeverShareHostdAuthority() throws {
         var list = MobileHostPairedDevices(userID: "one")
         list.approve(Self.phone, at: Date())
