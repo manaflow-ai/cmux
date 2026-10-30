@@ -15,6 +15,8 @@ pub(crate) mod auto_resume;
 mod bg_tasks;
 mod bounded;
 mod btw;
+// A turn ends when its agent ends it; the steers it runs on with are the next turn's.
+mod carried_turn;
 mod exit_reason;
 mod fallback_start;
 pub(crate) mod session_auth;
@@ -86,7 +88,7 @@ mod prompt_line;
 mod queue;
 mod queue_edit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
-pub use queue::{QueuedPrompt, supersede::key as supersede_key};
+pub use queue::{QueuedPrompt, Withdrawn, supersede::key as supersede_key};
 mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
@@ -1049,6 +1051,7 @@ impl Hub {
             queue_moved: Notify::new(),
             moving: StdMutex::new(None),
             restored: StdMutex::new(Vec::new()),
+            inbox_digests: StdMutex::new(HashMap::new()),
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),

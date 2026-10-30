@@ -382,8 +382,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             let setup_name = launch.name.as_deref().unwrap_or("new");
             let client = before_deadline(deadline, setup_name, connect(true)).await?;
-            let host = match crate::cli::place::auto_work(args.host.as_deref()) {
-                Some(work) => {
+            // A machine a person works at places command-line sessions on a fleet host
+            // (`cli/place.rs` `new_target`); the app's chats never come through here.
+            let interactive = crate::cli::place::here_is_interactive();
+            let folder_named = args.cwd.is_some() || launch.worktree.is_some();
+            let target =
+                crate::cli::place::new_target(args.host.as_deref(), interactive, folder_named);
+            let host = match target {
+                crate::cli::place::Target::Place(work) => {
                     before_deadline(
                         deadline,
                         setup_name,
@@ -392,11 +398,18 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                             work,
                             launch.name.as_deref(),
                             launch.reuse,
+                            interactive,
+                            args.host.is_none(),
                         ),
                     )
                     .await?
                 }
-                None => args.host.clone(),
+                crate::cli::place::Target::Host(h) => Some(h),
+                crate::cli::place::Target::Here => None,
+                crate::cli::place::Target::HereForFolder => {
+                    eprintln!("{}", crate::cli::place::FOLDER_HERE);
+                    None
+                }
             };
             let cwd = match &launch.worktree {
                 Some((_, repo)) => Some(repo.clone()),
@@ -783,7 +796,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let agent = crate::cli::sender::from_an_agent(prompt_id.from_agent.is_some());
             let mut steer = send_steers(steer, no_steer, no_wait, agent);
             let text = arg_or_stdin(&prompt)?;
-            if session.starts_with('@') {
+            // A team address (`@member/agent`, `@team/role`); a bare `@` is the caller's own
+            // session (`orchestrate::expand_session_key`), never the team path.
+            if session.strip_prefix('@').is_some_and(|rest| !rest.is_empty()) {
                 if !attach.is_empty() || superseding || classed {
                     return Err(anyhow!(
                         "team messages currently carry text only and do not support --supersede or --class"

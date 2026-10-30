@@ -272,6 +272,7 @@
         "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
         "CmuxNextDesign",
+        "CmuxNextDesignTokens",
         "CmuxNextDevices",
         "CmuxNextDictation",
         "CmuxNextDiff",
@@ -1097,6 +1098,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextFloatingTests",
       "targets": [
+        "CmuxNextDesign",
         "CmuxNextFloating",
         "CmuxNextTestSupport"
       ],
@@ -1656,7 +1658,8 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots",
       "targets": [
         "CmuxNextFileGrid",
-        "CmuxNextFiles"
+        "CmuxNextFiles",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
