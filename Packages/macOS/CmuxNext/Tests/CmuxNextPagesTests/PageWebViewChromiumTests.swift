@@ -1,4 +1,5 @@
 @testable import CmuxNextPages
+import AppKit
 import CmuxNextPagesTestSupport
 import Foundation
 import Testing
@@ -52,6 +53,29 @@ struct PageWebViewChromiumTests {
         #expect(view.loaded)
         view.close()
         #expect(page.closed)
+    }
+
+    @Test func chromiumVisibilityFollowsAncestorAlpha() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        view.chromiumClock = PageTestClock.never
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .titled,
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        window.orderFrontRegardless()
+        view.setChromiumVisibility(true)
+        view.alphaValue = 0
+        view.setChromiumVisibility(true)
+        view.alphaValue = 1
+        view.setChromiumVisibility(true)
+        #expect(page.visibility.suffix(3).elementsEqual([true, false, true]))
+        window.orderOut(nil)
+        window.close()
+        view.close()
     }
 
     /// A route asked for before the Chromium page exists (the composer's Open Cloud… opens a new
