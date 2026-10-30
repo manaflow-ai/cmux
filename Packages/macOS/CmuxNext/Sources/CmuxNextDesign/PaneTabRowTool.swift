@@ -11,7 +11,7 @@ public nonisolated struct PaneTabRowMenuItem: Equatable, Sendable {
     public let children: [PaneTabRowMenuItem]
 
     public init(id: String, label: String, enabled: Bool = true, checked: Bool? = nil,
-                role: String? = nil, url: String? = nil, children: [PaneTabRowMenuItem] = []) {
+                role: String? = nil, children: [PaneTabRowMenuItem] = [], url: String? = nil) {
         self.id = id
         self.label = label
         self.enabled = enabled
@@ -34,7 +34,7 @@ public nonisolated struct PaneTabRowTool: Equatable, Sendable {
     public let menu: [PaneTabRowMenuItem]
 
     public init(id: String, symbol: String, label: String, enabled: Bool = true, toggled: Bool = false,
-                text: String? = nil, badge: String? = nil, menu: [PaneTabRowMenuItem] = []) {
+                badge: String? = nil, menu: [PaneTabRowMenuItem] = [], text: String? = nil) {
         self.id = id
         self.symbol = symbol
         self.label = label
