@@ -20,6 +20,7 @@ import React, {
 import { AnsweredBy, AuthorChip } from "./multiplayer/Faces";
 import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
 import { flushSync } from "react-dom";
+import { composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
 import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind } from "./environments";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { restoreForkSource } from "./handoff/restoreForkSource";
@@ -6636,6 +6637,19 @@ function AcpmuxPane() {
   // Show all chats opens the command palette's chats page (agentPane.searchChats, decision K1:
   // one palette). The host pushes the live bindings through applyShortcuts, so labels follow a rebind.
   const showAllChats = () => void callNative("action.run", { id: "agentPane.searchChats" }).catch(() => undefined);
+  // The + menu's Search chats and Search pages (Leo: "the chatgpt desktop app, let's do their +
+  // symbol's capabiliities for our composer"): the command palette's chats page and its History
+  // search page, both app actions the pane may run (AgentPaneModel.paletteActions). A refusal is
+  // said as the composer's notice, never dropped.
+  const plusSearchExtensions = useMemo(() => composerPlusSearchExtensions(t), [t]);
+  const runPlusSearch = (id: string) => {
+    const name = id === PLUS_SEARCH_ACTIONS.pages ? t("composer.plusSearchPages") : t("sidebar.search");
+    void callNative("action.run", { id }).catch(() =>
+      directClient.current?.notice(translate("composer.offloadNotRun", { action: name })),
+    );
+  };
+  // New Tab shows no transcript, so the page says a refusal itself (NewTabScreen plusRefused).
+  const runNewTabPlusSearch = (id: string) => callNative("action.run", { id });
   const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
   // SSH… opens Connect to Machine; New Cloud Machine opens the host's create flow (Lawrence 2026-10-06).
   const connectMachine = (kind: ConnectKind) =>
@@ -11048,6 +11062,8 @@ function AcpmuxPane() {
             onMode={(modeId) => callNative("chat.mode", { modeId })}
             // Without a folder there is nothing to search; the + menu leaves the item out.
             searchFiles={fileRoot ? searchFiles : undefined}
+            plusExtensions={plusSearchExtensions}
+            onPlusCommand={runPlusSearch}
             capture={captureScreen}
             upload={uploadFiles}
             // A chat on this Mac (as Sources' + below); the host refuses any other.
@@ -11433,6 +11449,7 @@ function AcpmuxPane() {
                   }
                   chips={registryChips ?? NewTabComposerChips}
                   focusField={newTab.focusesField !== false}
+                  onPlusCommand={runNewTabPlusSearch}
                   {...withSubmitAfterHandshake(
                     newTabScreenActions({
                       callNative,

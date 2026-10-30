@@ -450,6 +450,24 @@ Files dropped into a chat (`_acpmux/file_put`, under `<home>/uploads/<session>/`
 deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMaxAgeDays`
 (default 30; 0 keeps them), checked at the daemon's start and daily.
 
+`usageWarnings` (`{"contextTokens": 400000, "subagentsPerHour": 40, "autocompactCap": true}`,
+those are the defaults; 0 or false turns a rule off): a session whose usage breaks a rule gets
+`usageWarnings` on its summary, `[{rule, value, limit, text, action}]`, decided from its `usageStats`
+when the summary is read (`hub/usage_warnings.rs`). `noAutocompactCap`: a Claude session known to run
+with no autocompact cap (`usageStats.autocompact` `none`); `contextTokens`: its last call's
+context is above the limit; `subagentsPerHour`: it started more subagents than the limit in the
+last hour. A number acpmux could not read is null, never zero, and an unknown cap (`unknown`: a
+chat it adopted or revived without seeing its launch) or count never raises a warning. A peer's
+row names the peer's session (`<peer>/<name>`) in its commands. Each warning names the step that answers it (`actions`: `[{label, command, pending}]`, the one
+to try first first; nothing is done automatically): no cap, rotate onto a capped profile
+(`lane-place rotate NAME --harness claude-sr2`, a dry run until `--yes`, which rotates; `pending`
+names leo-workspace#1617 until it lands); a large context, compact it (`acpmux send NAME
+/compact`) or rotate to a fresh session (`lane-place rotate NAME`); many subagents, open
+the session and, to stop it, `acpmux session cancel NAME`. `acpmux ls` marks such a row `warn`
+in a WARN column, shown only while some row has one; `acpmux ls --wide` names each rule with its
+number and commands (`ctx 412k: acpmux send NAME /compact | lane-place rotate NAME`), and `--json` rows carry the whole list. The cmux NEXT
+sidebar draws a warning triangle on the row whose tooltip is each `text`.
+
 A chat whose harness never titles it (Claude Code's `-p` stream-json has no title
 event) gets an instant first-message placeholder, then a 3-6 word model title, logged
 as `titled`. A thin first message may get one refresh after its first completed turn;
