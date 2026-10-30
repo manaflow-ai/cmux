@@ -48,7 +48,9 @@ extension DockSplitStore {
 
     /// Applies the same built-in surface-tab buttons used by workspace panes.
     /// The Dock has no workspace-command execution context, so custom command
-    /// buttons remain workspace-only until Dock routing is added.
+    /// buttons remain workspace-only until Dock routing is added. Built-ins
+    /// pass the same availability gate as the workspace bar, so a disabled
+    /// browser draws no inert globe button here either (#10866).
     func applySurfaceTabBarButtons(
         _ buttons: [CmuxSurfaceTabBarButton],
         sourcePath: String?,
@@ -56,7 +58,8 @@ extension DockSplitStore {
     ) {
         let splitButtons = buttons.compactMap { button -> BonsplitConfiguration.SplitActionButton? in
             guard case .builtIn(let builtIn) = button.action,
-                  builtIn.bonsplitAction != nil else { return nil }
+                  builtIn.bonsplitAction != nil,
+                  Workspace.surfaceTabBarBuiltInActionIsAvailable(builtIn) else { return nil }
             return button.bonsplitActionButton(
                 configSourcePath: sourcePath,
                 globalConfigPath: globalConfigPath

@@ -162,6 +162,56 @@ struct DockRuntimeParityTests {
         }
     }
 
+    @Test("Dock tab buttons skip a configured browser button while the browser is disabled")
+    func dockTabButtonsSkipUnavailableBrowser() async throws {
+        try await withAppContext { _, manager, workspace, _ in
+            let defaults = UserDefaults.standard
+            let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+            defer {
+                if let previousBrowserDisabled {
+                    defaults.set(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey)
+                } else {
+                    defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+                }
+                NotificationCenter.default.post(name: BrowserAvailabilitySettings.didChangeNotification, object: nil)
+            }
+            let docks = [
+                try #require(workspace.dockSplit),
+                manager.makeWindowDockStore(windowId: UUID())
+            ]
+            defer { docks.forEach { $0.closeAllPanels() } }
+            let buttons: [CmuxSurfaceTabBarButton] = [
+                .builtIn(.newBrowser, id: "browser"),
+                .builtIn(.splitDown, id: "down")
+            ]
+            let apply = {
+                manager.applySurfaceTabBarButtons(
+                    buttons, sourcePath: nil, globalConfigPath: "/tmp/cmux-dock-buttons.json",
+                    terminalCommandSourcePaths: [:], workspaceCommands: [:]
+                )
+            }
+
+            // Control: with the browser available the Docks draw the button,
+            // so the disabled case below is not passing vacuously.
+            BrowserAvailabilitySettings.setDisabled(false)
+            if BrowserAvailabilitySettings.isEnabled() {
+                apply()
+                for dock in docks {
+                    let ids = dock.bonsplitController.configuration.appearance.splitButtons.map(\.id)
+                    #expect(ids == ["browser", "down"])
+                }
+            }
+
+            BrowserAvailabilitySettings.setDisabled(true)
+            apply()
+            for dock in docks {
+                let actual = dock.bonsplitController.configuration.appearance.splitButtons
+                #expect(actual.map(\.id) == ["down"], "a disabled browser left its button in the Dock")
+                #expect(!actual.contains { $0.action == .newBrowser })
+            }
+        }
+    }
+
     private static func expectConfiguredDockButtons(
         _ dock: DockSplitStore,
         after stage: String,
