@@ -55,6 +55,10 @@ final class SidebarUpdatedCardHost: NSView {
         }
     }
 
+    /// The card's corner: the page's own card radius (`.wn-card`'s 12 px, updateSurfaces.css), so the
+    /// glass keeps the card's shape. Space 5 is 12 pt at the default density.
+    static var cornerRadius: CGFloat { Metrics.space5 }
+
     /// The x's side and its inset from the card's top right (the page's own x stood there).
     static let closeSide: CGFloat = 18
     static let closeInset = NSSize(width: 8, height: 7)
@@ -115,7 +119,7 @@ final class SidebarUpdatedCardHost: NSView {
     override func layout() {
         super.layout()
         surface.frame = bounds
-        surface.cornerRadius = Metrics.space3
+        surface.cornerRadius = Self.cornerRadius
         let side = Self.closeSide
         closeButton.frame = NSRect(x: bounds.width - Self.closeInset.width - side, y: Self.closeInset.height,
                                    width: side, height: side).integral
