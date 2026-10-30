@@ -190,6 +190,7 @@ await requireBrowserLane("settings-select-menu-browser.test.ts", async () => {
       .get(engine)!
       .newPage({ viewport: { width: 900, height: 640 }, reducedMotion: "reduce" });
     const failures: string[] = [];
+    const shifted: string[] = [];
     let opened = 0;
     try {
       for (const category of categories) {
@@ -231,6 +232,9 @@ await requireBrowserLane("settings-select-menu-browser.test.ts", async () => {
             return {
               row,
               left: p.left - button.getBoundingClientRect().left,
+              // A menu wider than the room right of its trigger (a long list of painting titles)
+              // slides left to stay in the window, as an AppKit menu does: it ends at the edge.
+              noRoom: button.getBoundingClientRect().left + p.width > window.innerWidth - 4,
               narrower: button.getBoundingClientRect().width - p.width,
               rows: items.map((item) => item.getBoundingClientRect().height).filter((h) => Math.abs(h - token) > 0.5),
               text: textLeft.filter((left) => Math.abs(left - 22) > 1),
@@ -238,7 +242,8 @@ await requireBrowserLane("settings-select-menu-browser.test.ts", async () => {
           });
           opened++;
           const where = `${category.id} ${m.row}`;
-          if (Math.abs(m.left) > 1) failures.push(`${where}: menu starts ${m.left.toFixed(1)}px from its trigger`);
+          if (m.noRoom) shifted.push(where);
+          else if (Math.abs(m.left) > 1) failures.push(`${where}: menu starts ${m.left.toFixed(1)}px from its trigger`);
           if (m.narrower > 0.5) failures.push(`${where}: menu ${m.narrower.toFixed(1)}px narrower than its trigger`);
           if (m.rows.length) failures.push(`${where}: rows ${m.rows.join(", ")}px, not the menu row token`);
           if (m.text.length) failures.push(`${where}: text at ${m.text.map((x) => x.toFixed(1)).join(", ")}, not 22`);
@@ -249,7 +254,10 @@ await requireBrowserLane("settings-select-menu-browser.test.ts", async () => {
     } finally {
       await page.close();
     }
-    console.log(`settings-select-menu: opened ${opened} Settings selects; ${failures.length} findings`);
+    console.log(
+      `settings-select-menu: opened ${opened} Settings selects; ${failures.length} findings; ` +
+        `shifted for room: ${shifted.join(", ") || "none"}`,
+    );
     expect(opened).toBeGreaterThan(10);
     expect(failures).toEqual([]);
   }, 480_000);
