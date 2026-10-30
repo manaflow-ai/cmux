@@ -210,7 +210,7 @@ await requireBrowserLane("subsession-open-perf.test.ts", async () => {
       const parent = await context.newPage();
       await parent.goto(url(PARENT));
       await parent.getByText("Started the review sub-session.").waitFor({ timeout: 25_000 });
-      const row = parent.getByText(CHILD_TITLE, { exact: true }).first();
+      const row = parent.getByText(CHILD_TITLE).first();
       await row.waitFor({ timeout: 10_000 });
       const clickedAt = Date.now();
       await row.click();
@@ -227,15 +227,84 @@ await requireBrowserLane("subsession-open-perf.test.ts", async () => {
     }
   };
 
+  /// The new tab alone: opened cold (the host holds no tail for the sub-session, which is the case
+  /// today for a sub-session nobody opened), and opened with the host holding its newest page (what
+  /// `handOverForOpen` puts there). Milliseconds from the tab's navigation to its first frame with
+  /// the transcript; `blank` is that tab's frames before it, which the person sees as a blank pane.
+  const openTab = async (warm: boolean): Promise<number | null> => {
+    const context = await browser!.newContext({ viewport: { width: 1000, height: 760 } });
+    try {
+      const tails = new Map<string, unknown>();
+      if (warm) {
+        const all = events.get(CHILD)!;
+        tails.set(CHILD, {
+          events: all.slice(-400),
+          summary: listed(CHILD),
+          turnOpener: undefined,
+          historyExhausted: false,
+          queue: [],
+          configSeq: 0,
+          usageFromSeq: all[all.length - 400]!.seq,
+        });
+      }
+      await context.exposeBinding("__cmuxHost", (_source, method: string, params: Record<string, any>) => {
+        if (method === "chat.tail.get") return { ok: true, value: tails.get(String(params.sessionId)) ?? null };
+        if (method === "chat.tail") return { ok: true, value: null };
+        return { ok: false, error: { code: "unsupported", message: `unsupported: ${method}` } };
+      });
+      await context.addInitScript(() => {
+        const host = (window as unknown as { __cmuxHost: (m: string, p: unknown) => Promise<unknown> }).__cmuxHost;
+        (window as unknown as { webkit: unknown }).webkit = {
+          messageHandlers: {
+            agentSession: {
+              postMessage: (message: { method: string; params: unknown }) => host(message.method, message.params),
+            },
+          },
+        };
+      });
+      const tab = await context.newPage();
+      await watchFirstContent(tab, MARKER, 15_000);
+      const navigatedAt = Date.now();
+      await tab.goto(url(CHILD));
+      const drawnAt = (await tab.evaluate(
+        () => (window as unknown as { __firstContent: Promise<number | null> }).__firstContent,
+      )) as number | null;
+      return drawnAt === null ? null : drawnAt - navigatedAt;
+    } finally {
+      await context.close();
+    }
+  };
+
+  const fmt = (runs: (number | null)[]) => runs.map((ms) => (ms === null ? "never" : ms.toFixed(0))).join("/");
+  const median = (runs: (number | null)[]) => {
+    const sorted = runs.map((ms) => ms ?? Number.POSITIVE_INFINITY).sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)]!;
+  };
+
+  test("a sub-session's new tab draws from the host's tail long before its own attach answers", async () => {
+    await openTab(false).catch(() => undefined);
+    const cold: (number | null)[] = [];
+    const warm: (number | null)[] = [];
+    for (let run = 0; run < RUNS; run += 1) {
+      cold.push(await openTab(false));
+      warm.push(await openTab(true));
+    }
+    console.log(
+      `::notice title=subsession-open-perf (new tab)::${CHILD_TURNS}-turn sub-session, ${CALL_MS} ms a call, ` +
+        `${PAGE_MS} ms a page: first content cold ${fmt(cold)} ms (median ${median(cold).toFixed(0)}), ` +
+        `host tail ${fmt(warm)} ms (median ${median(warm).toFixed(0)})`,
+    );
+    for (const ms of warm) expect(ms).not.toBeNull();
+    expect(median(warm)).toBeLessThan(median(cold));
+  });
+
   test("a sub-session opened from the tray shows its transcript in its new tab, never a blank pane", async () => {
-    // A warm-up open, so the dev server's first compile is not what the runs time.
     await openOnce().catch(() => undefined);
     const runs: (number | null)[] = [];
-    for (let run = 0; run < RUNS; run += 1) runs.push(await openOnce());
-    const shown = runs.map((ms) => (ms === null ? "never" : ms.toFixed(0))).join("/");
+    for (let run = 0; run < RUNS; run += 1) runs.push(await openOnce().catch(() => null));
     console.log(
-      `::notice title=subsession-open-perf::${CHILD_TURNS}-turn sub-session, ${CALL_MS} ms a call, ${PAGE_MS} ms a page: ` +
-        `click to first content in its new tab ${shown} ms (budget ${SUB_OPEN_MS} ms)`,
+      `::notice title=subsession-open-perf (click)::${CHILD_TURNS}-turn sub-session, ${CALL_MS} ms a call, ${PAGE_MS} ms a page: ` +
+        `click to first content in its new tab ${fmt(runs)} ms (budget ${SUB_OPEN_MS} ms)`,
     );
     for (const ms of runs) {
       expect(ms).not.toBeNull();
