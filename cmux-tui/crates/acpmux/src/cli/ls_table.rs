@@ -167,7 +167,8 @@ fn warn(row: &Value, wide: bool) -> String {
 /// The wide view's usage columns, read from `usageStats` (`hub/usage_view.rs`).
 const USAGE_HEADER: [&str; 7] = ["LAUNCHER", "CAP", "CTX", "CMP", "SUBS", "TOK24H", "$24H"];
 
-/// A row's usage cells: its launcher, autocompact cap (`none` when nothing caps it), the last
+/// A row's usage cells: its launcher, autocompact cap (its tokens; `capped` when a cap is set
+/// but its value could not be read; `none` when nothing caps it), the last
 /// call's context, compactions, subagents live/started, and the last day's tokens and cost. A
 /// value acpmux could not read is `?`, never 0; a row without `usageStats` (a harness it does not
 /// read, records not found yet) is all `?`.

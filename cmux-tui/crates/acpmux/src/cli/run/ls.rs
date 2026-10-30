@@ -47,7 +47,8 @@ pub struct LsArgs {
     /// Text view: also what the compact view hides (closed, reviewer, sub- and unnamed sessions).
     #[arg(long, short)]
     all: bool,
-    /// Text view: every column (AGENT, STATUS, STUCK and LAST, the last prompt).
+    /// Text view: every column (AGENT, STATUS, STUCK, the usage columns and LAST, the last
+    /// prompt); the daemon reads each chat's usage first.
     #[arg(long, short)]
     wide: bool,
 }
@@ -84,7 +85,7 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     }
     // Only a listing that shows usage has the daemon read it first (`hub/usage_view.rs`); the
     // compact one shows the rows as they are.
-    let usage = (wide && fields.is_none())
+    let usage = wide
         || json_out
         || fields.as_ref().is_some_and(|f| f.iter().any(|f| f.starts_with("usageStats")));
     if usage {

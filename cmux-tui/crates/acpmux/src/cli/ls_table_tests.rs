@@ -195,6 +195,9 @@ fn wide_usage_cells_say_unknown_as_a_question_mark() {
         "contextTokens": 9_000, "compactions24h": null, "subagentsLive": null,
         "subagents24h": null, "tokens24h": null, "costUsd24h": null, "launcher": null}});
     assert_eq!(usage(&unread), ["?", "?", "9k", "?", "?/?", "?", "?"]);
+    // A cap is known to be set but not its value: what is known, the rest `?`.
+    let set = json!({"usageStats": {"autocompact": "capped", "autocompactCap": null}});
+    assert_eq!(usage(&set)[1], "capped");
     assert_eq!(usage(&json!({})), ["?", "?", "?", "?", "?/?", "?", "?"]);
     // The wide table puts them before LAST; the compact one has none.
     let out =
