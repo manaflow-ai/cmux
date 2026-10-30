@@ -1173,7 +1173,13 @@ function fallbackRowHeight(
   }
   // Image/file-only user prompts still draw their attachment strip before the action footer.
   // Reserve the fixed thumbnail height so virtualization never places the next row over it.
-  if (row.kind === "user" && !row.text?.trim() && (row.images?.length || row.retryAttachments?.length))
+  if (
+    row.kind === "user" &&
+    !row.text?.trim() &&
+    (row.images?.length ||
+      row.retryAttachments?.length ||
+      row.inlineParts?.some((part) => part.kind === "file" || part.kind === "image"))
+  )
     return finish(128 + messageBelow(beforeFooter) + chromeHeight(row, actions));
   if (row.kind === SUBAGENTS) return finish(56);
   // A workflow's card (summary/WorkflowCard.css): three fixed lines in a hairline box.
