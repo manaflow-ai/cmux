@@ -1060,6 +1060,34 @@ mod codex_tests {
         );
         assert_eq!(tree.parents.get(grandchild), Some(&Some(child.to_owned())));
     }
+
+    #[test]
+    fn an_authoritative_parent_clears_a_stale_pending_sender() {
+        let mut tree = SubagentTree::default();
+        let root = "root-native-thread";
+        let parent = "parent-thread";
+        let child = "child-thread";
+        let unseen = "unseen-sender";
+        tree.set_root(root);
+        let spawn = |tree: &mut SubagentTree, sender: &str, id: &str| {
+            subagents_for(
+                tree,
+                "acp-root",
+                json!({"sessionUpdate": "tool_call", "toolCallId": format!("spawn-{id}"),
+                       "rawInput": {"prompt": "Work", "agentsStates": {}},
+                       "_meta": {"codex": {"collaboration": {"tool": "spawnAgent",
+                         "senderThreadId": sender, "receiverThreadIds": [id]}}}}),
+            )
+        };
+        let _ = spawn(&mut tree, root, parent);
+        let _ = spawn(&mut tree, unseen, child);
+        let _ = spawn(&mut tree, root, child);
+        let _ = spawn(&mut tree, root, unseen);
+
+        assert_eq!(tree.parents.get(parent), Some(&None));
+        assert_eq!(tree.parents.get(child), Some(&None));
+        assert_eq!(tree.parents.get(unseen), Some(&None));
+    }
 }
 
 #[cfg(test)]
