@@ -14,6 +14,7 @@ use tokio::net::UnixStream;
 use tokio::time::Instant;
 
 const QUERY_WAIT: Duration = Duration::from_secs(5);
+const IDLE_PROBE_INTERVAL: Duration = Duration::from_secs(15);
 const MAX_SNAPSHOT_BYTES: u64 = 64 * 1024 * 1024;
 const TREE: usize = 0;
 const PERSONAL: usize = 1;
@@ -270,6 +271,16 @@ fn unsupported_layout(reply: &Value) -> bool {
 }
 
 async fn session(path: &std::path::Path, published: &Published, generation: u64) -> Result<(), ()> {
+    session_with_probe(path, published, generation, IDLE_PROBE_INTERVAL, QUERY_WAIT).await
+}
+
+async fn session_with_probe(
+    path: &std::path::Path,
+    published: &Published,
+    generation: u64,
+    probe_interval: Duration,
+    probe_timeout: Duration,
+) -> Result<(), ()> {
     let stream =
         tokio::time::timeout(QUERY_WAIT, UnixStream::connect(path)).await.map_err(|_| ())?.map_err(|_| ())?;
     let (read, mut write) = stream.into_split();
@@ -280,6 +291,8 @@ async fn session(path: &std::path::Path, published: &Published, generation: u64)
     let mut state = Snapshots::default();
     let mut subscribed = false;
     let startup_deadline = Instant::now() + QUERY_WAIT;
+    let mut next_probe = startup_deadline + probe_interval;
+    let mut probe_deadline = None;
     loop {
         if subscribed {
             for kind in 0..3 {
@@ -295,17 +308,45 @@ async fn session(path: &std::path::Path, published: &Published, generation: u64)
                     write.write_all(format!("{request}\n").as_bytes()).await.map_err(|_| ())?;
                 }
             }
+            if state.pending.iter().all(Option::is_none)
+                && probe_deadline.is_none()
+                && Instant::now() >= next_probe
+            {
+                write.write_all(b"{\"cmd\":\"identify\",\"id\":\"cache-probe\"}\n").await.map_err(|_| ())?;
+                probe_deadline = Some(Instant::now() + probe_timeout);
+            }
         }
-        let deadline =
-            if subscribed { state.pending.iter().flatten().min().copied() } else { Some(startup_deadline) };
+        let deadline = if subscribed {
+            let snapshot_deadline = state.pending.iter().flatten().min().copied();
+            snapshot_deadline.or(probe_deadline).or(Some(next_probe))
+        } else {
+            Some(startup_deadline)
+        };
         let mut line = Vec::new();
         // Bound a corrupt local peer without retaining unbounded partial input.
         let mut bounded = (&mut reader).take(MAX_SNAPSHOT_BYTES + 1);
         let count = match deadline {
-            Some(deadline) => tokio::time::timeout_at(deadline, bounded.read_until(b'\n', &mut line))
-                .await
-                .map_err(|_| ())?
-                .map_err(|_| ())?,
+            Some(deadline) => {
+                match tokio::time::timeout_at(deadline, bounded.read_until(b'\n', &mut line)).await {
+                    Ok(result) => result.map_err(|_| ())?,
+                    Err(_)
+                        if subscribed
+                            && state.pending.iter().all(Option::is_none)
+                            && probe_deadline.is_none() =>
+                    {
+                        // No snapshot is outstanding: the idle deadline is the
+                        // probe tick. Send the cheap probe before declaring this
+                        // subscription stale, then bound the response wait.
+                        write
+                            .write_all(b"{\"cmd\":\"identify\",\"id\":\"cache-probe\"}\n")
+                            .await
+                            .map_err(|_| ())?;
+                        probe_deadline = Some(Instant::now() + probe_timeout);
+                        continue;
+                    }
+                    Err(_) => return Err(()),
+                }
+            }
             None => bounded.read_until(b'\n', &mut line).await.map_err(|_| ())?,
         };
         if count == 0 || count as u64 > MAX_SNAPSHOT_BYTES || line.last() != Some(&b'\n') {
@@ -323,10 +364,18 @@ async fn session(path: &std::path::Path, published: &Published, generation: u64)
                     }
                     subscribed = true;
                     state.dirty = [true; 3];
+                    next_probe = Instant::now() + probe_interval;
                 }
                 Some("cache-tree") => state.answer(TREE, value)?,
                 Some("cache-personal") => state.answer(PERSONAL, value)?,
                 Some("cache-layout") => state.answer(LAYOUT, value)?,
+                Some("cache-probe") => {
+                    if value.get("ok") != Some(&Value::Bool(true)) {
+                        return Err(());
+                    }
+                    probe_deadline = None;
+                    next_probe = Instant::now() + probe_interval;
+                }
                 Some("cache-hello") => {}
                 _ => return Err(()),
             }
@@ -798,6 +847,43 @@ mod tests {
             assert!(views[PERSONAL].is_some());
             assert!(views[LAYOUT].is_none());
         }
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn idle_subscription_probe_expires_a_hung_socket() {
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory.path().join("daemon.sock");
+        let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+        let published = Published::new();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (read, mut write) = stream.into_split();
+            let mut lines = BufReader::new(read).lines();
+            while let Some(line) = lines.next_line().await.unwrap() {
+                let request: Value = serde_json::from_str(&line).unwrap();
+                let response = match request["id"].as_str().unwrap() {
+                    "cache-hello" | "cache-subscribe" => json!({"id":request["id"],"ok":true}),
+                    "cache-tree" => json!({"id":"cache-tree","ok":true,"data":tree()["data"]}),
+                    "cache-personal" => {
+                        json!({"id":"cache-personal","ok":true,"data":{"groups":[],"workspaces":[]}})
+                    }
+                    "cache-layout" => json!({"id":"cache-layout","error":{"code":"operation.unsupported"}}),
+                    // A half-open peer accepts the probe but never replies.
+                    "cache-probe" => continue,
+                    _ => panic!("unexpected request: {request}"),
+                };
+                write.write_all(format!("{response}\n").as_bytes()).await.unwrap();
+            }
+        });
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            session_with_probe(&socket, &published, 0, Duration::from_millis(10), Duration::from_millis(10)),
+        )
+        .await
+        .unwrap();
+        assert!(result.is_err(), "a missing probe reply must reconnect");
         server.await.unwrap();
     }
 
