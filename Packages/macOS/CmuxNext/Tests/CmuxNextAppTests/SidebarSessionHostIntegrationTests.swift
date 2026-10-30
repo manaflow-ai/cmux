@@ -165,8 +165,9 @@ struct SidebarSessionHostIntegrationTests {
             // External tab drops use the same host-header gate only for
             // structural reorders; taking a tab into an existing workspace is
             // still accepted.
-            let workspacePoint = NSPoint(x: 80, y: plain.y + plain.height / 2)
-            #expect(list.externalDragMoved(windowPoint: workspacePoint, sourceMachine: nil) != nil)
+            let currentPlain = try #require(list.displayed.row(for: .workspace(Self.plain)))
+            let workspacePoint = NSPoint(x: 80, y: currentPlain.y + currentPlain.height / 2)
+            #expect(list.externalDragMoved(windowPoint: workspacePoint, sourceMachine: .local) != nil)
             list.externalDragExited()
             let endPoint = NSPoint(x: 80, y: list.displayed.totalHeight - 4)
             #expect(list.externalDragMoved(windowPoint: endPoint, sourceMachine: nil) == nil)

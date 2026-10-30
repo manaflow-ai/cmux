@@ -21,21 +21,12 @@ nonisolated extension SidebarLayout {
             bundles[i] = bundle
         }
         let ids: [WorkspaceID?] = starts.map { if case let .workspace(id) = rows[$0].key { id } else { nil } }
-        // A visible parent inside an explicit user group is still a lineage anchor. Only
-        // loose children move; explicitly placed members keep the user's document order.
-        let looseIDs = Set(starts.compactMap { i -> WorkspaceID? in
-            guard rows[i].group == nil, case .machine = rows[i].section,
-                  case let .workspace(id) = rows[i].key else { return nil }
-            return id
-        })
-        let machineParents = Set(starts.compactMap { i -> WorkspaceID? in
-            guard case let .workspace(id) = rows[i].key,
-                  case .machine = rows[i].section else { return nil }
-            return id
-        })
-        // Preserve the Pinned/custom boundary: a fleet child of a pinned workspace
-        // remains in its own machine group rather than being pulled into Pinned.
-        let parents = tree.parents.filter { looseIDs.contains($0.key) && machineParents.contains($0.value) }
+        // Lineage is the first ordering rule: every visible child nests under
+        // its visible parent, even when either row is in a user group or a
+        // different machine section. Explicit placement keeps the parent row's
+        // document location; it does not detach the child from that lineage.
+        let visibleIDs = Set(ids.compactMap { $0 })
+        let parents = tree.parents.filter { visibleIDs.contains($0.key) && visibleIDs.contains($0.value) }
         let children = Self.treeChildren(ids, parents: parents)
         let nested = Set(children.values.joined())
         let roots = ids.indices.filter { !nested.contains($0) }
