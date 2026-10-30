@@ -354,6 +354,7 @@ impl Peer {
     }
 
     /// Restore explicit outage age independently of a possibly old session-cache lastSeen.
+    #[cfg(test)]
     pub(crate) fn seed_outage(&self, down_since: Option<u64>) {
         self.with_link(|l| l.seed_outage(down_since));
     }
