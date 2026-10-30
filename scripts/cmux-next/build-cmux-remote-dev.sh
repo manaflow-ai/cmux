@@ -60,7 +60,8 @@ iconset="$work/AppIcon.iconset"
 mkdir -p "$iconset"
 for spec in 16:1 16:2 32:1 32:2 128:1 128:2 256:1 256:2 512:1 512:2; do
   points="${spec%%:*}"; scale="${spec##*:}"
-  name="icon_${points}x${points}$([[ $scale == 2 ]] && echo @2x).png"
+  suffix=""; [[ $scale == 2 ]] && suffix="@2x"
+  name="icon_${points}x${points}${suffix}.png"
   "$ictool" "$repo_root/Resources/CmuxRemote.icon" --export-image --output-file "$iconset/$name" \
     --platform macOS --rendition Default --width "$points" --height "$points" --scale "$scale" >/dev/null
 done
