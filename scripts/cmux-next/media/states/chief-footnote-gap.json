@@ -3,9 +3,9 @@
   "launch_args": ["--showcase"],
   "steps": [
     {
-      "title": "Show the empty Chief Home front page",
-      "rpc": {"method": "debug.capture_scene", "params": {"scene": "home-chief"}},
-      "wait": 1.5
+      "title": "Fresh Home shows the Switching card and paused memory footnote",
+      "wait": 1.5,
+      "shot": true
     }
   ]
 }
