@@ -22,6 +22,10 @@ use crate::config::{ArtifactsSyncConfig, Config};
 
 const MAX_PUSH_BYTES: usize = 64 * 1024 * 1024;
 const BLOB_THRESHOLD: usize = 8 * 1024 * 1024;
+/// A server that stops answering fails the pass instead of holding the sync loop forever. The read
+/// timeout is per read, so a large blob that keeps moving is never cut off.
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SyncState {
@@ -664,9 +668,18 @@ impl ArtifactsSync {
         Ok(report)
     }
 
+    /// The local file for a remote path, only when it stays inside its root: a listed path is the
+    /// server's text, and `..`, an absolute path or a backslash must never reach outside the memory
+    /// and artifact folders.
     fn local_for_remote(&self, remote: &str) -> Option<PathBuf> {
         self.roots.iter().find_map(|root| {
-            remote.strip_prefix(&root.remote_prefix).map(|relative| root.local.join(relative))
+            let relative = remote.strip_prefix(&root.remote_prefix)?;
+            let inside = !relative.is_empty()
+                && !relative.contains(['\\', '\0'])
+                && Path::new(relative)
+                    .components()
+                    .all(|part| matches!(part, std::path::Component::Normal(_)));
+            inside.then(|| root.local.join(relative))
         })
     }
     fn url(&self, path: &str) -> String {
@@ -692,7 +705,7 @@ impl std::error::Error for HttpStatusError {}
 /// client does) so a client built before the mesh's never panics.
 fn http_client() -> Result<Client> {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    Ok(Client::builder().build()?)
+    Ok(Client::builder().connect_timeout(CONNECT_TIMEOUT).read_timeout(READ_TIMEOUT).build()?)
 }
 
 /// The query string encoded by `url` (reqwest's own `query` needs a feature this workspace leaves off).
@@ -857,6 +870,26 @@ pub fn sha256(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_remote_path_never_maps_outside_its_root() {
+        let config = ArtifactsSyncConfig { enabled: true, ..Default::default() };
+        let mut sync = ArtifactsSync::new(config, None).unwrap().unwrap();
+        let root = PathBuf::from("/home/u/.codex/memories");
+        sync.roots = vec![SyncRoot { local: root.clone(), remote_prefix: "memory/codex/".into() }];
+        assert_eq!(sync.local_for_remote("memory/codex/notes/a.md"), Some(root.join("notes/a.md")));
+        for path in [
+            "memory/codex/../../.ssh/authorized_keys",
+            "memory/codex/a/../../b",
+            "memory/codex//etc/passwd",
+            "memory/codex/./a",
+            "memory/codex/a\\..\\b",
+            "memory/codex/",
+            "memory/other/a.md",
+        ] {
+            assert_eq!(sync.local_for_remote(path), None, "{path}");
+        }
+    }
 
     #[test]
     fn disabled_is_inert() {
