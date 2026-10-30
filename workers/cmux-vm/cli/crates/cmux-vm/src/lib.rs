@@ -514,6 +514,7 @@ where
     T: Into<OsString> + Clone,
 {
     let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
+    error::set_program(args.first().map(OsString::as_os_str));
     let cli = match Cli::try_parse_from(&args) {
         Ok(cli) => cli,
         Err(e) if !e.use_stderr() => {
@@ -532,12 +533,47 @@ where
         }
     };
     let json = cli.json;
+    let missing = not_found(&cli.command);
     match execute(cli, env, prompt, stdout, stderr).await {
         Ok(code) => code,
         Err(error) => {
+            let error = match &missing {
+                Some((what, list)) => error.with_not_found(what, list),
+                None => error,
+            };
             error.report(json, stderr);
             error.exit_code()
         }
+    }
+}
+
+/// What a 404 from `command` did not find, and the verb that lists them.
+fn not_found(command: &Command) -> Option<(String, &'static str)> {
+    let vm = |id: &str| Some((format!("VM {id}"), "list"));
+    match command {
+        Command::Get(a)
+        | Command::Start(a)
+        | Command::Stop(a)
+        | Command::Pause(a)
+        | Command::Resume(a) => vm(&a.vm_id),
+        Command::Delete(a) | Command::Retire(a) => vm(&a.vm_id),
+        Command::Exec(a) => vm(&a.vm_id),
+        Command::Fork(a) => vm(&a.vm_id),
+        Command::Resize(a) => vm(&a.vm_id),
+        Command::Identity(a) => vm(&a.vm_id),
+        Command::Snapshot(SnapshotCommand::Get(a)) => {
+            Some((format!("snapshot {}", a.snapshot_id), "snapshot list"))
+        }
+        Command::Snapshot(SnapshotCommand::Delete(a)) => {
+            Some((format!("snapshot {}", a.snapshot_id), "snapshot list"))
+        }
+        Command::Creation(
+            CreationCommand::Get(_) | CreationCommand::Reconcile(_) | CreationCommand::Cancel(_),
+        ) => Some((
+            "a creation under this idempotency key".to_owned(),
+            "creation list",
+        )),
+        _ => None,
     }
 }
 

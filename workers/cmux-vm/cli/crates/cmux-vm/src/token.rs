@@ -327,7 +327,7 @@ pub fn parse_ttl(text: &str) -> Result<u64, CliError> {
         }
     };
     // An overflowing product is out of range, never a wrapped small one.
-    let seconds = value.checked_mul(scale).unwrap_or(u64::MAX);
+    let seconds = value.saturating_mul(scale);
     if !(60..=MAX_TTL_SECONDS).contains(&seconds) {
         return Err(CliError::usage("--ttl must be between 1m and 24h"));
     }

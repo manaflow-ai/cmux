@@ -215,12 +215,13 @@ pub async fn run(
         note(stderr, "interrupted");
     }
     let ended = finish(client, &vm_id, args.keep).await;
+    let p = crate::error::program();
     match &ended {
         Ok(state) => note(stderr, &format!("vm {vm_id} {state}")),
         Err(error) => note(
             stderr,
             &format!(
-                "vm {vm_id} was not cleaned up: {}; run `cmux vm rm {vm_id} --yes`",
+                "vm {vm_id} was not cleaned up: {}; run `{p} delete {vm_id} --yes`",
                 error.message()
             ),
         ),
@@ -315,9 +316,10 @@ enum Recovered {
 /// pending, and says what is left (with --keep a lost VM would have no
 /// auto-delete deadline).
 async fn recover_creation(client: &Client, key_text: &str) -> Recovered {
+    let p = crate::error::program();
     let open = |why: &str| {
         Recovered::Open(format!(
-            "{why}: run `cmux vm creation get --idempotency-key {key_text}`, then `cmux vm creation cancel --idempotency-key {key_text} --yes` while it is pending, or `cmux vm rm <id> --yes` once it is committed"
+            "{why}: run `{p} creation get --idempotency-key {key_text}`, then `{p} creation cancel --idempotency-key {key_text} --yes` while it is pending, or `{p} delete <id> --yes` once it is committed"
         ))
     };
     let Ok(get_key) = parse_key::<types::VmCreationsGetVmCreationIdempotencyKey>(key_text) else {
@@ -1112,7 +1114,7 @@ fn summary(paths: &[PathBuf]) -> String {
 }
 
 fn note(stderr: &mut dyn Write, message: &str) {
-    let _ = writeln!(stderr, "cmux vm run: {message}");
+    let _ = writeln!(stderr, "{} run: {message}", crate::error::program());
 }
 
 #[cfg(test)]

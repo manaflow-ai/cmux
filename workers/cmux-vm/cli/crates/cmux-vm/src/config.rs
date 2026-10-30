@@ -90,7 +90,7 @@ impl Settings {
 
         let api_key = env("CMUX_VM_API_KEY").or(file.api_key).ok_or_else(|| {
             CliError::unauthenticated(
-                "no API key: run `cmux vm token create` (in cmux, signed in), or set CMUX_VM_API_KEY or \"apiKey\" in the config file",
+                "no API key: run `cmux vm token create` in a cmux terminal (the cmux app signed in to cmux, with Labs on), or set CMUX_VM_API_KEY or \"apiKey\" in the config file",
             )
         })?;
         let base_url = base_url_flag

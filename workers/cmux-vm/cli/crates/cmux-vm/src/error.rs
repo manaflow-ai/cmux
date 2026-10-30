@@ -8,6 +8,25 @@ use serde_json::{Value, json};
 
 use crate::exit;
 
+static IN_CMUX: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The program name errors and hints use: `cmux vm` when cmux runs this in
+/// process (an agent types that; `cmux-vm` is usually not on PATH), else
+/// `cmux-vm`.
+pub fn program() -> &'static str {
+    if IN_CMUX.load(std::sync::atomic::Ordering::Relaxed) {
+        "cmux vm"
+    } else {
+        "cmux-vm"
+    }
+}
+
+/// Sets [`program`] from argv[0] (`cmux vm` from cmux's in-process call).
+pub(crate) fn set_program(argv0: Option<&std::ffi::OsStr>) {
+    let in_cmux = argv0.is_some_and(|name| name == "cmux vm");
+    IN_CMUX.store(in_cmux, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Error bodies larger than this are cut; the CLI only shows a message.
 const MAX_ERROR_BODY: usize = 64 * 1024;
 
@@ -99,6 +118,19 @@ impl CliError {
         self
     }
 
+    /// A 404 says what was not found and how to list them, unless the
+    /// message already names a next step.
+    pub fn with_not_found(mut self, what: &str, list: &str) -> Self {
+        if self.status == Some(404) && !self.message.contains("next: `") {
+            self.message = format!(
+                "{what} not found ({}); next: `{} {list}`",
+                self.message,
+                program()
+            );
+        }
+        self
+    }
+
     pub fn with_recovery(mut self, recovery: &str) -> Self {
         self.message.push_str("; ");
         self.message.push_str(recovery);
@@ -108,11 +140,17 @@ impl CliError {
     /// Add the VM and operation to an error from a VM-scoped command.
     pub fn for_vm(mut self, vm_id: &str, operation: &str) -> Self {
         let next = match operation {
-            "client-session create" => format!("cmux-vm client-session list {vm_id}"),
+            "client-session create" => format!(
+                "{p} client-session list {vm_id}",
+                p = crate::error::program()
+            ),
             "client-session list" | "client-session revoke" => {
-                format!("cmux-vm client-session list {vm_id}")
+                format!(
+                    "{p} client-session list {vm_id}",
+                    p = crate::error::program()
+                )
             }
-            _ => format!("cmux-vm get {vm_id}"),
+            _ => format!("{p} get {vm_id}", p = crate::error::program()),
         };
         self.message = format!(
             "VM {vm_id} {operation} failed: {}; next: `{next}`",
@@ -217,12 +255,22 @@ impl CliError {
             };
             match (self.status, &tag) {
                 (Some(status), Some(tag)) => {
-                    writeln!(stderr, "cmux-vm: {} (HTTP {status} {tag})", self.message)
+                    writeln!(
+                        stderr,
+                        "{p}: {} (HTTP {status} {tag})",
+                        self.message,
+                        p = crate::error::program()
+                    )
                 }
                 (Some(status), None) => {
-                    writeln!(stderr, "cmux-vm: {} (HTTP {status})", self.message)
+                    writeln!(
+                        stderr,
+                        "{p}: {} (HTTP {status})",
+                        self.message,
+                        p = crate::error::program()
+                    )
                 }
-                _ => writeln!(stderr, "cmux-vm: {}", self.message),
+                _ => writeln!(stderr, "{p}: {}", self.message, p = crate::error::program()),
             }
         };
     }
@@ -234,7 +282,11 @@ pub fn report_warning(message: &str, json: bool, stderr: &mut dyn Write) {
     let _ = if json {
         writeln!(stderr, "{}", json!({ "warning": message }))
     } else {
-        writeln!(stderr, "cmux-vm: warning: {message}")
+        writeln!(
+            stderr,
+            "{p}: warning: {message}",
+            p = crate::error::program()
+        )
     };
 }
 
@@ -253,4 +305,43 @@ async fn read_stream(stream: ByteStream) -> Vec<u8> {
 fn append_capped(body: &mut Vec<u8>, chunk: &[u8]) {
     let room = MAX_ERROR_BODY.saturating_sub(body.len());
     body.extend_from_slice(&chunk[..chunk.len().min(room)]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn errors_and_hints_name_the_command_the_caller_typed() {
+        set_program(Some(std::ffi::OsStr::new("cmux vm")));
+        assert_eq!(program(), "cmux vm");
+        let mut out = Vec::new();
+        CliError::usage("bad").report(false, &mut out);
+        assert_eq!(String::from_utf8(out).unwrap(), "cmux vm: bad\n");
+        let hinted = CliError::from_status(500, b"").for_vm("vm_1", "get");
+        assert!(
+            hinted.message().contains("next: `cmux vm get vm_1`"),
+            "{}",
+            hinted.message()
+        );
+        set_program(Some(std::ffi::OsStr::new("cmux-vm")));
+        assert_eq!(program(), "cmux-vm");
+    }
+
+    #[test]
+    fn a_404_names_what_was_not_found_and_how_to_list_them() {
+        let error = CliError::from_status(404, b"").with_not_found("VM vm_x", "list");
+        assert!(
+            error.message().starts_with("VM vm_x not found ("),
+            "{}",
+            error.message()
+        );
+        assert!(error.message().ends_with("list`"), "{}", error.message());
+        // Other statuses, and a message that already names a next step, are kept.
+        let kept = CliError::from_status(409, b"").with_not_found("VM vm_x", "list");
+        assert!(!kept.message().contains("not found"));
+        let scoped = CliError::from_status(404, b"").for_vm("vm_x", "get");
+        let before = scoped.message().to_owned();
+        assert_eq!(scoped.with_not_found("VM vm_x", "list").message(), before);
+    }
 }
