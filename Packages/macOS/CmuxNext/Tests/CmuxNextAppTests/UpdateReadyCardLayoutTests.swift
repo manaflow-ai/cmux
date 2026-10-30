@@ -5,6 +5,7 @@ import CmuxNextSettings
 @testable import CmuxNextSidebar
 import CmuxNextWakeups
 import Foundation
+import CmuxNextTestSupport
 import Testing
 import CmuxNextWakeupsTestSupport
 
@@ -13,7 +14,7 @@ import CmuxNextWakeupsTestSupport
 /// repeat the popup ("See all changes" was on both), and the popup is the themed popup every
 /// cmux popover is, beside the card, not AppKit's NSPopover with its stock arrow. The update is
 /// staged the way `debug.updater stage` stages one in the app.
-@MainActor @Suite(.serialized) struct UpdateReadyCardLayoutTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct UpdateReadyCardLayoutTests {
     /// The highlights page, as the App's React surface reports it.
     final class Highlights: SidebarSurfaceIsland {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
@@ -29,6 +30,12 @@ import CmuxNextWakeupsTestSupport
         let sidebar: SidebarView
         let window: NSWindow
         var card: SidebarUpdateCardView { sidebar.updateCardView }
+
+        /// The window closes, and the sidebar's one hover card window with it (the card's highlights showed there).
+        func close() {
+            card.hoverCards()?.cardWindow?.close()
+            window.close()
+        }
 
         /// Every piece of text the card shows, with the room it has.
         func texts() -> [any ShownText] {
@@ -72,7 +79,7 @@ import CmuxNextWakeupsTestSupport
 
     @Test func theCardsTextIsWholeAtTheDefaultSidebarWidth() async throws {
         let h = try await make()
-        defer { h.window.close() }
+        defer { h.close() }
         try #require(h.services.updater.readyCard != nil, "the staged update shows no card")
         #expect(!h.card.isHidden)
         let texts = h.texts()
@@ -88,7 +95,7 @@ import CmuxNextWakeupsTestSupport
 
     @Test func theCardLeavesSeeAllChangesToItsPopup() async throws {
         let h = try await make()
-        defer { h.window.close() }
+        defer { h.close() }
         try #require(!h.card.isHidden, "the staged update shows no card")
         let shown = h.texts().map(\.stringValue)
         #expect(!shown.contains("See all changes"), "the card repeats the popup's See all changes: \(shown)")
@@ -101,7 +108,7 @@ import CmuxNextWakeupsTestSupport
         let h = try await make()
         defer {
             h.card.hideNotes()
-            h.window.close()
+            h.close()
         }
         try #require(!h.card.isHidden, "the staged update shows no card")
         h.window.orderFront(nil)
@@ -166,7 +173,7 @@ import CmuxNextWakeupsTestSupport
         defer {
             h.card.hideNotes()
             PointerHover.setDebugPointer(nil, in: h.window)
-            h.window.close()
+            h.close()
         }
         try #require(!h.card.isHidden, "the staged update shows no card")
         h.window.orderFront(nil)
@@ -192,7 +199,7 @@ import CmuxNextWakeupsTestSupport
         defer {
             h.card.hideNotes()
             PointerHover.setDebugPointer(nil, in: h.window)
-            h.window.close()
+            h.close()
         }
         try #require(!h.card.isHidden, "the staged update shows no card")
         h.window.orderFront(nil)
@@ -238,7 +245,7 @@ import CmuxNextWakeupsTestSupport
         defer {
             h.card.hideNotes()
             PointerHover.setDebugPointer(nil, in: h.window)
-            h.window.close()
+            h.close()
         }
         try #require(!h.card.isHidden, "the staged update shows no card")
         h.window.orderFront(nil)
@@ -273,7 +280,7 @@ import CmuxNextWakeupsTestSupport
         defer {
             h.card.hideNotes()
             PointerHover.setDebugPointer(nil, in: h.window)
-            h.window.close()
+            h.close()
         }
         try #require(!h.card.isHidden, "the staged update shows no card")
         h.window.orderFront(nil)
@@ -302,7 +309,7 @@ import CmuxNextWakeupsTestSupport
         let h = try await make()
         defer {
             h.card.hideNotes()
-            h.window.close()
+            h.close()
         }
         try #require(!h.card.isHidden, "the staged update shows no card")
         h.window.orderFront(nil)
@@ -332,7 +339,7 @@ import CmuxNextWakeupsTestSupport
         defer {
             h.card.hideNotes()
             PointerHover.setDebugPointer(nil, in: h.window)
-            h.window.close()
+            h.close()
         }
         try #require(!h.card.isHidden, "the staged update shows no card")
         h.window.orderFront(nil)

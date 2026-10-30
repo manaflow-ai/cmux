@@ -116,6 +116,13 @@ public actor DaemonConnection {
         continuation.finish()
     }
 
+    /// Also waits for an in-flight endpoint/reconnect attempt to finish before its owner is reaped.
+    public func closeAndWait() async {
+        let reconnect = reconnectTask
+        close()
+        await reconnect?.value
+    }
+
     public var isReady: Bool {
         if case .ready = phase { return true }
         return false

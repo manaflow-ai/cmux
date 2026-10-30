@@ -3,13 +3,14 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Modifier-hold hints in the sidebar come from the same slot mapping Cmd-1…9 uses
 /// (`SidebarItemOrder.number(for:_:)`): every digit that reaches a shown destination
 /// has a chip on that destination, so Home and the App Store (Cmd-1, Cmd-2 with
 /// `sidebar.numbering = allItems`) show theirs too (u4457: "i dont see cmd 1 and cmd 2 hints").
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct ShortcutHintSidebarSlotsTests {
     private static func machine(_ ids: [Int]) -> [CmuxNextSidebar.SidebarSection] {
         let store = DaemonStore()
@@ -54,7 +55,7 @@ struct ShortcutHintSidebarSlotsTests {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let (model, sidebar, window) = Self.layOut([Self.topBlock()] + Self.machine([1, 2, 3]))
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let settings = SidebarNavigationSettings(numbering: .allItems, cmd9: .last)
         let home = SidebarItem.topItem(LayoutItemID("itm_home"))
         try #require(model.itemOrder.number(for: home, settings) == 1, "Home is not Cmd-1: \(model.itemOrder.items)")
@@ -67,7 +68,7 @@ struct ShortcutHintSidebarSlotsTests {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let (model, sidebar, window) = Self.layOut(Self.machine([1, 2, 3]))
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         try #require(!model.itemOrder.topItems.isEmpty, "no top items in the band: \(model.itemOrder.items)")
         #expect(Self.digitsWithoutChip(model, sidebar).isEmpty,
                 "digits without a chip: \(Self.digitsWithoutChip(model, sidebar)); order \(model.itemOrder.items)")
@@ -78,7 +79,7 @@ struct ShortcutHintSidebarSlotsTests {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let (model, sidebar, window) = Self.layOut(Self.machine([1, 2, 3]))
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let rows = model.itemOrder.rows.filter { if case .workspace = $0 { true } else { false } }
         #expect(rows.count == 3)
         for row in rows { #expect(sidebar.shortcutHintItemFrames[row] != nil, "\(row) has no chip") }

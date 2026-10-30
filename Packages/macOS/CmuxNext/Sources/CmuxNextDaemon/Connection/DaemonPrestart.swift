@@ -46,7 +46,7 @@ public final class DaemonPrestart: Sendable {
                 await connection.prefetchSnapshot()
                 return .success((connection, identity))
             } catch {
-                await connection.close()
+                await connection.closeAndWait()
                 return .failure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
             }
         }

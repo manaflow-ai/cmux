@@ -857,8 +857,31 @@ struct MacScreenHubHostOrderTests {
 /// The host's approval prompt is visible every time, not only the first.
 @MainActor @Suite(.closesItsWindows)
 struct MacScreenApprovalPanelTests {
+    @Test(arguments: [false, true])
+    func settlingTheLastRequestClosesItsPanel(observerFirst: Bool) throws {
+        let prompt = MacScreenApprovalPrompt()
+        defer { prompt.update([]) }
+        let hub = testHub()
+        let request = SessionRequest(id: "settled", viewerId: "v1", viewerName: "Laptop", scope: .view)
+        prompt.update([request])
+        _ = try #require(prompt.panelFrame)
+        // decide() has removed the request from the hub. Its pending-request observer may
+        // run before the answer's settlement, or afterward; both must close the last panel.
+        if observerFirst { prompt.update(hub.pendingRequests) }
+        prompt.settle(request.id, hub: hub)
+        #expect(prompt.current == nil)
+        #expect(prompt.panelFrame == nil)
+        prompt.update(hub.pendingRequests)
+        #expect(prompt.panelFrame == nil)
+
+        // Closing drops the old panel; a later request still gets a usable replacement.
+        prompt.update([SessionRequest(id: "next", viewerId: "v1", viewerName: "Laptop", scope: .full)])
+        _ = try #require(prompt.panelFrame)
+    }
+
     @Test func everyPromptHasAVisibleFrame() throws {
         let prompt = MacScreenApprovalPrompt()
+        defer { prompt.update([]) }
         let first = SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", viewerKeyFingerprint: String(repeating: "ab", count: 32), scope: .view)
         let second = SessionRequest(id: "s2", viewerId: "v1", viewerName: "Laptop", scope: .full)
         prompt.update([first])
