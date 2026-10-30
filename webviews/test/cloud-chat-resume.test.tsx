@@ -2,7 +2,8 @@
 import { afterEach, beforeEach, expect, jest, setSystemTime, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
-import { flushSync, type Root } from "react-dom/client";
+import { flushSync } from "react-dom";
+import type { Root } from "react-dom/client";
 
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
 const scope = globalThis as Record<string, unknown>;
