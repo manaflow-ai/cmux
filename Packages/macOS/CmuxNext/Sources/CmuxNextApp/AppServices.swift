@@ -491,6 +491,7 @@ final class AppServices {
             processGroups: makeWebProcessGroups(), startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
             hoverFrameInput: hoverFrameInput, retirer: PageRetirer(deadlines: mainDeadlines))
         host.scriptFrames = pageScriptFrame
+        host.scriptReleaseSink = memoryCoordinator.releaseSink
         host.rendererStability = rendererStability
         host.bundleReloadsOnShow = features.isEnabled(.webUpdateReloadOnShow)
         // A page that shows with files a swap replaced reloads at the web updates' safe point.

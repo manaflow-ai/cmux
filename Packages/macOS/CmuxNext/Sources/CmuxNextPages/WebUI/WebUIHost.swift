@@ -39,6 +39,10 @@ public final class WebUIHost {
     /// per frame (``PageWebView/deliverOnFrames(_:)``). Nil while
     /// `pageScriptFrames` is off: each envelope is its own script, as before. The composition root sets it.
     package var scriptFrames: PageScriptFrame?
+    /// Where every page this host opens frees the runs of envelopes its drain task sent or dropped
+    /// (``PageWebView/releaseScriptsOffMain(on:)``): the app's memory release sink, so the main
+    /// thread never frees a large run. Nil frees them on main (a test host); the composition root sets it.
+    package var scriptReleaseSink: (any MemoryReleaseSinking)?
     /// Where the WebKit content-process ends of the pages this host opens go as stability events.
     /// Nil records none; the composition root sets the app's one.
     package var rendererStability: RendererStability?
@@ -155,6 +159,7 @@ public final class WebUIHost {
         view.popupHoverFrameInput = hoverFrameInput
         view.bundleSafePoint = bundleSafePoint
         if let scriptFrames { view.deliverOnFrames(scriptFrames) }
+        if let scriptReleaseSink { view.releaseScriptsOffMain(on: scriptReleaseSink) }
         opened.add(view)
         #if DEBUG || CMUX_BENCH_HOOKS
         view.censusState.engineClosed = { [weak self] in self?.noteEngineClose() }

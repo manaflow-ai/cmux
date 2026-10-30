@@ -1,4 +1,5 @@
 import AppKit
+package import CmuxNextCompat
 
 // Frame delivery (the `pageScriptFrames` feature): the router's envelopes reach
 // the page as one script per frame, and a hidden page takes none until it shows.
@@ -18,6 +19,14 @@ extension PageWebView {
 
     /// Whether the router delivers on frames (``deliverOnFrames(_:)``).
     package var deliversOnFrames: Bool { scripts.deliversOnFrames }
+
+    /// From now on the last reference to each large run of envelopes the page's script pipeline
+    /// sent or dropped (a hidden page's released batch and the drop actions that hold its events)
+    /// goes to `sink`, which frees it off the main thread. ``WebUIHost/open(_:)`` calls it for
+    /// every page it opens.
+    package func releaseScriptsOffMain(on sink: any MemoryReleaseSinking) {
+        scripts.releaseOffMain(on: sink)
+    }
 
     /// Holds the router while the page is hidden and releases it when it shows, on frames only.
     /// Chrome throttles a hidden page's timers (third_party/blink/renderer/platform/scheduler/

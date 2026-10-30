@@ -35,7 +35,13 @@ final class PageScriptPipeline {
     private enum Item {
         case envelope(JSONValue, Drop)
         case gate(Gate)
+        /// The drain task took this envelope with its run (``take(_:)``), which went to
+        /// ``releaseSink``; the slot holds nothing until ``compact()``.
+        case sent
     }
+
+    /// One run of envelopes and their drop actions, in order.
+    private typealias Run = (envelopes: [JSONValue], drops: [Drop])
 
     /// A reset can report an in-flight envelope before its render task resumes. The render task
     /// still calls the drop action when it observes the generation change, so the action is
@@ -45,6 +51,11 @@ final class PageScriptPipeline {
         private var called = false
 
         init(_ action: @escaping @MainActor () -> Void) { self.action = action }
+
+        // The action holds what the router sent (its held events), so the last release of a Drop is
+        // a large free: it runs where that release happens (the release sink's queue), with no hop
+        // back to the main actor.
+        nonisolated deinit {}
 
         func call() {
             guard !called else { return }
@@ -60,6 +71,9 @@ final class PageScriptPipeline {
         private var isOpen = false
         private var reachedWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
         private var openWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
+
+        // A reset's dropped items go to the release sink with their gates: no hop back to main to free one.
+        nonisolated deinit {}
 
         func reached() async {
             guard !isReached else { return }
@@ -163,7 +177,9 @@ final class PageScriptPipeline {
     var deliversOnFrames: Bool { frame != nil }
 
     /// From now on the last reference to each run the drain task sends or drops, and to what
-    /// ``reset()`` drops, goes to `sink`, so its free runs off the main thread.
+    /// ``reset()`` drops, goes to `sink`, so its free runs off the main thread (a hidden page's
+    /// released batch is one run: thousands of events, freed on main in 1,375 ms in P-MAIN S3).
+    /// ``WebUIHost`` passes the app's memory release sink to every page it opens.
     func releaseOffMain(on sink: any MemoryReleaseSinking) {
         releaseSink = sink
     }
@@ -223,8 +239,11 @@ final class PageScriptPipeline {
             switch item {
             case .envelope(_, let drop): drop.call()
             case .gate(let gate): gate.open()
+            case .sent: break
             }
         }
+        // The slice is the queue's storage now: its envelopes and drop actions end off main.
+        release(consume pending)
     }
 
     private func enqueue(_ item: Item) {
@@ -292,7 +311,7 @@ final class PageScriptPipeline {
     }
 
     /// The envelopes of `range` and their drop actions, in order.
-    private func envelopes(_ range: Range<Int>) -> (envelopes: [JSONValue], drops: [Drop]) {
+    private func envelopes(_ range: Range<Int>) -> Run {
         var envelopes: [JSONValue] = []
         var drops: [Drop] = []
         envelopes.reserveCapacity(range.count)
@@ -305,22 +324,43 @@ final class PageScriptPipeline {
         return (envelopes, drops)
     }
 
+    /// ``envelopes(_:)``, leaving ``Item/sent`` in their slots: the returned run is their only
+    /// holder in the pipeline, so handing it to ``release(_:)`` frees them off main.
+    private func take(_ range: Range<Int>) -> Run {
+        let run = envelopes(range)
+        for index in range { queue[index] = .sent }
+        return run
+    }
+
+    /// Hands `value`, the pipeline's last reference to a run it sent or dropped, to ``releaseSink``,
+    /// which frees it off the main thread; without a sink (a pipeline no ``WebUIHost`` opened, as in
+    /// tests) it is freed here. A run ``drainInline()`` sends is not handed over: it fits
+    /// ``inlineBudget``, the size of the work the main actor may do on one run, and its free is
+    /// bounded by the same budget.
+    private func release<Value: Sendable>(_ value: consuming sending Value) {
+        guard let releaseSink else { return }
+        releaseSink.drop(value)
+    }
+
     private func run(generation: UInt64) async {
         while generation == self.generation, head < queue.count {
             let end = runEnd()
             if end > head {
-                let run = envelopes(head..<end)
+                let run = take(head..<end)
                 head = end
                 inFlightDrops = run.drops
                 let delivery = await render(run.envelopes, form())
                 if generation != self.generation {
                     // reset() reported them already; each drop is one-shot.
                     for drop in run.drops { drop.call() }
-                    return
+                    return release((consume run, consume delivery))
                 }
                 inFlightDrops = []
                 // MQ12 held queue: as above.
                 deliver(delivery)
+                // The run (its envelopes and the drop actions that hold the router's events) and its
+                // rendered script: the main thread never frees a large run.
+                release((consume run, consume delivery))
             } else if case .gate(let gate) = queue[head] {
                 head += 1
                 inFlightGate = gate
