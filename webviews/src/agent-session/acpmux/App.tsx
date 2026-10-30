@@ -8435,9 +8435,12 @@ function AcpmuxPane() {
               const projectGeneration = continuationProjectGeneration.current;
               const holder = composerHandle.current;
               const summary = snapshotRef.current?.summary;
+              const intent = switchView.intent;
+              const harness = intent?.harness ?? summary?.harness;
+              const model = intent?.config.model ?? summary?.model;
               return folderContinuation.run({
                 start: () =>
-                  client.startSession(summary?.harness, undefined, undefined, undefined, true, summary?.model),
+                  client.startSession(harness, undefined, undefined, undefined, true, model),
                 current: () =>
                   directClient.current === client &&
                   client.trustGeneration === generation &&
@@ -8445,16 +8448,24 @@ function AcpmuxPane() {
                 copyText: (id) => writePersistedDraft(id, holder?.draftText() ?? ""),
                 clearFolder: () => setProjectDraft(undefined),
                 select: async (id) => {
-                  const selected = await client.select(id);
-                  if (
-                    selected !== id ||
-                    client.selectedSession !== id ||
-                    directClient.current !== client ||
-                    continuationProjectGeneration.current !== projectGeneration
-                  )
+                  holder?.suppressAttachmentCarryFor(summary?.sessionId);
+                  try {
+                    const selected = await client.select(id);
+                    if (
+                      selected !== id ||
+                      client.selectedSession !== id ||
+                      directClient.current !== client ||
+                      continuationProjectGeneration.current !== projectGeneration
+                    ) {
+                      holder?.clearAttachmentCarrySuppression();
+                      return false;
+                    }
+                    void persistSession(selected);
+                    return true;
+                  } catch {
+                    holder?.clearAttachmentCarrySuppression();
                     return false;
-                  void persistSession(selected);
-                  return true;
+                  }
                 },
               });
             }

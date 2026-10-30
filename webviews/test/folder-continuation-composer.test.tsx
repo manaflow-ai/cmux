@@ -121,6 +121,16 @@ test("recovery copies only text, keeps the source intact, and sends nothing", as
   expect(f.handle.current!.draftText()).toBe("held draft");
   expect(f.handle.current!.wakeState().attachments).toEqual([attachment]);
 });
+test("text-only recovery suppresses normal attachment carry into the destination", async () => {
+  const f = await fixture();
+  f.handle.current!.suppressAttachmentCarryFor("source");
+  await f.draw("destination");
+  expect(f.stored.get("destination") ?? []).toEqual([]);
+  expect(f.handle.current!.wakeState().attachments).toEqual([]);
+  await f.draw("source");
+  expect(f.stored.get("source")).toEqual([attachment]);
+  expect(f.handle.current!.wakeState().attachments).toEqual([attachment]);
+});
 test("failed selection leaves the source unchanged without restoring twice", async () => {
   const f = await fixture();
   const { FolderContinuation } = await import("../src/agent-session/acpmux/folderContinuation");

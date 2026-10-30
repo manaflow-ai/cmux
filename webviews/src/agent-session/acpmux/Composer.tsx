@@ -198,6 +198,9 @@ export type ComposerHandle = {
   restore(text: string, attachments: ComposerAttachment[]): void;
   /// Snapshot the unsent text without taking it out of this chat.
   draftText(): string;
+  /// Prevent ordinary session-switch attachment handoff for text-only recovery.
+  suppressAttachmentCarryFor(sessionId?: string): void;
+  clearAttachmentCarrySuppression(): void;
   /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
   /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
   attach(attachment: ComposerAttachment): void;
@@ -559,6 +562,9 @@ export function Composer({
   const restoringSession = useRef(false);
   /// Set while a switch runs and kept until the session change it brings (Lucas 2026-10-19).
   const carryPrompt = useRef(false);
+  /// A folder-trust recovery carries only its draft text. Keep source chips with that chat while
+  /// destination selection is in flight, then release after the destination is rendered.
+  const suppressedAttachmentCarry = useRef<{ from?: string } | undefined>(undefined);
   // Once a new chat has shown its location strip, keep its layout slot through the first send.
   // Resetting on a session key prevents a reopened chat from inheriting that reserved space.
   const locationSlotSession = useRef<string | undefined>(undefined);
@@ -630,7 +636,7 @@ export function Composer({
         .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips)))
         .catch(() => {});
     },
-    carries: () => carryPrompt.current || Boolean(switching),
+    carries: () => !suppressedAttachmentCarry.current && (carryPrompt.current || Boolean(switching)),
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
@@ -674,6 +680,12 @@ export function Composer({
     handle,
     () => ({
       draftText: () => field.current?.value() ?? textRef.current,
+      suppressAttachmentCarryFor(sessionId) {
+        suppressedAttachmentCarry.current = { from: sessionId };
+      },
+      clearAttachmentCarrySuppression() {
+        suppressedAttachmentCarry.current = undefined;
+      },
       restore(restoredText, restoredAttachments) {
         // Put back, not typed: the Enter that sent it says nothing about this change.
         notTyped();
@@ -799,7 +811,19 @@ export function Composer({
   // The pane closes: what it queued for its chat still goes to acpmux, but no quit compares it again.
   useEffect(() => () => forgetQueuedDraft(persistedSession.current), []);
   // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
-  useKeptAttachments(sessionId, attachments, setAttachments, keptAttachments, () => carryPrompt.current);
+  useKeptAttachments(
+    sessionId,
+    attachments,
+    setAttachments,
+    keptAttachments,
+    () => !suppressedAttachmentCarry.current && carryPrompt.current,
+  );
+  // Run after useKeptAttachments' session read/effects. Recovery copied text only; ordinary
+  // switching can carry attachments again once the destination session is shown.
+  useEffect(() => {
+    const suppressed = suppressedAttachmentCarry.current;
+    if (suppressed && sessionId !== suppressed.from) suppressedAttachmentCarry.current = undefined;
+  }, [sessionId]);
   // WEB-SWAP: a web update reloads the page only when the prompt comes back as it is: text and
   // chips kept with the chat (composerDraft.ts, keptAttachments.ts), nothing being sent, read or
   // dictated, no shell mode (pages/shared/webSwap.ts).
