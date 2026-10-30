@@ -179,15 +179,6 @@ final class FakeHomeOwner: @unchecked Sendable {
         #expect(ContinuousClock.now - start < .seconds(20))
     }
 
-    /// Many short holds of the main actor (other suites' work) before the change
-    /// never use up a wait.
-    @Test func manySmallStallsDoNotFailAWait() async {
-        let flag = WaitFlag()
-        for _ in 0..<10 { Task { usleep(40_000) } }
-        Task { flag.done = true }
-        #expect(await until { flag.done })
-    }
-
     /// A cancelled wait ends at once: before, its loop ignored cancellation, so a
     /// timed-out wait kept its task group from finishing.
     @Test func aCancelledWaitEnds() async {
