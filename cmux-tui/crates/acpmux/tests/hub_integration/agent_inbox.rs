@@ -456,8 +456,10 @@ async fn a_review_box_takes_no_inbox_message_and_no_steer_during_its_review() {
     let all = prompts(&hub, &id);
     assert!(notices(&hub, &id).is_empty(), "{all:?}");
     let turns: Vec<_> = all.iter().map(|m| m["turnId"].clone()).collect();
-    assert_eq!(turns.len(), 3, "the review, then each message: {all:?}");
-    assert_ne!(turns[0], turns[1], "{all:?}");
+    // The two messages may join one turn (`digest.rs`); none is in the review's.
+    assert!(turns.len() >= 2, "the review, then the messages: {all:?}");
+    assert!(turns[1..].iter().all(|t| *t != turns[0]), "{all:?}");
+    assert_eq!(answered[&stop]["stopReason"], "end_turn", "{}", answered[&stop]);
 
     // Any other chat: the same message goes to its inbox.
     let lane = new_session(&mut c, "lane").await;
