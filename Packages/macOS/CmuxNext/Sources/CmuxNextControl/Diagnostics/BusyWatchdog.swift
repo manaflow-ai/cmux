@@ -64,7 +64,20 @@ public final class BusyWatchdog: Sendable {
         }
     }
 
+    /// What the watchdog reads from the kernel: each read is a system call that can block for as long as the
+    /// kernel holds the process (`proc_pid_rusage`, `proc_pidinfo`, `thread_info`).
+    struct Probe: Sendable {
+        /// One process's cumulative CPU time and wakeups; nil when it is gone.
+        var usage: @Sendable (pid_t) -> ProcessUsage?
+        /// One thread's CPU time (user + system) in ns; nil when `thread_info` fails.
+        var threadCPUNanos: @Sendable (thread_act_t) -> UInt64?
+
+        /// The kernel's answers.
+        static let system = Probe(usage: { ProcessUsage.sample($0) }, threadCPUNanos: { BusyWatchdog.cpuNanos(of: $0) })
+    }
+
     public let configuration: Configuration
+    private let probe: Probe
     private let log: HangLog
     private let ledger: WakeupLedger
     private let activity: ExpectedActivity
@@ -110,12 +123,21 @@ public final class BusyWatchdog: Sendable {
                   uptime: WakeupLedger.systemUptime, offMain: Self.poolThread)
     }
 
+    /// The production watchdog with its window end on `clock` and `probe` reading the kernel (tests record where
+    /// each read runs).
+    convenience init(configuration: Configuration, log: HangLog, ledger: WakeupLedger, activity: ExpectedActivity,
+                     clock: any Clock<Duration>, probe: Probe) {
+        self.init(configuration: configuration, log: log, ledger: ledger, activity: activity, clock: clock, wakeUps: nil,
+                  uptime: WakeupLedger.systemUptime, offMain: Self.poolThread, probe: probe)
+    }
+
     /// The seam initializer: `uptime` must be the clock of `wakeUps` (tests pass the queue's fake uptime) and
     /// `offMain` runs the close (tests run it inline).
     init(configuration: Configuration, log: HangLog, ledger: WakeupLedger, activity: ExpectedActivity,
          clock: any Clock<Duration>, wakeUps: MainWakeUpQueue?, uptime: @escaping @Sendable () -> UInt64,
-         offMain: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void) {
+         offMain: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void, probe: Probe = .system) {
         self.configuration = configuration
+        self.probe = probe
         self.log = log
         self.ledger = ledger
         self.activity = activity
@@ -177,10 +199,10 @@ public final class BusyWatchdog: Sendable {
         let helperList = helperSource()()
         var sampled: [pid_t: (helper: Helper, usage: ProcessUsage)] = [:]
         for helper in helperList {
-            if let usage = ProcessUsage.sample(helper.pid) { sampled[helper.pid] = (helper: helper, usage: usage) }
+            if let usage = probe.usage(helper.pid) { sampled[helper.pid] = (helper: helper, usage: usage) }
         }
         let startNanos = uptime()
-        let start = Window(process: ProcessUsage.sample(getpid()), mainCPUNanos: mainCPUNanos(), activity: activity.total,
+        let start = Window(process: probe.usage(getpid()), mainCPUNanos: mainCPUNanos(), activity: activity.total,
                            helpers: sampled, startNanos: startNanos)
         window.withLock { $0 = start }
         let windowNanos = UInt64(clamping: configuration.window.wholeMilliseconds).saturatingMultiplication(1_000_000)
@@ -206,7 +228,7 @@ public final class BusyWatchdog: Sendable {
         let quiet = activity.total == start.activity
         if quiet {
             let mainShare = Double(mainCPUNanos() &- start.mainCPUNanos) / wall
-            let process = ProcessUsage.sample(getpid())
+            let process = probe.usage(getpid())
             let processShare = process.flatMap { end in start.process.map { end.cpuShare(since: $0) } } ?? 0
             if mainShare > configuration.mainThreadThreshold || processShare > configuration.processThreshold {
                 let addresses = sampler.withLock { $0?.sample() } ?? []
@@ -216,7 +238,7 @@ public final class BusyWatchdog: Sendable {
             }
             var busy: [(helper: Helper, name: String, share: Double)] = []
             for (pid, entry) in start.helpers {
-                guard let usage = ProcessUsage.sample(pid) else { continue }
+                guard let usage = probe.usage(pid) else { continue }
                 let share = usage.cpuShare(since: entry.usage)
                 if share > configuration.helperThreshold { busy.append((helper: entry.helper, name: usage.name, share: share)) }
             }
@@ -266,6 +288,11 @@ public final class BusyWatchdog: Sendable {
     /// before ``watchCurrentThread()`` or when `thread_info` fails.
     func mainThreadCPUNanos() -> UInt64? {
         guard let thread = mainThread.withLock({ $0 }) else { return nil }
+        return probe.threadCPUNanos(thread)
+    }
+
+    /// `thread`'s CPU time (user + system) from `thread_info`, from any thread; nil when it fails.
+    static func cpuNanos(of thread: thread_act_t) -> UInt64? {
         var info = thread_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info>.size / MemoryLayout<natural_t>.size)
         // SAFETY: thread_info writes at most `count` integer_t words, the size of `info` (a local live for the call),
