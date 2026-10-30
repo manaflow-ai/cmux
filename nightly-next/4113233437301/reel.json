@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "build": "4113233437301",
+  "notes": "notes/4113233437301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28531,
+      "title": "ci(ios): INTERNAL builder holds while it fails instead of rebuilding every head",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
