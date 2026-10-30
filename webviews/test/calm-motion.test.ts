@@ -92,7 +92,7 @@ await requireBrowserLane("calm-motion.test.ts", async () => {
     await p.$eval("[data-message]", (row) => {
       const animation = row.getAnimations()[0];
       if (!animation) throw new Error("message entrance did not start");
-      (row as HTMLElement & { __entrance?: { animation: Animation; startTime: number | null } }).__entrance = {
+      (row as HTMLElement & { __entrance?: { animation: Animation; startTime: CSSNumberish | null } }).__entrance = {
         animation,
         startTime: animation.startTime,
       };
@@ -100,7 +100,7 @@ await requireBrowserLane("calm-motion.test.ts", async () => {
     });
     await p.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
     const stable = await p.$eval("[data-message]", (row) => {
-      const saved = (row as HTMLElement & { __entrance?: { animation: Animation; startTime: number | null } })
+      const saved = (row as HTMLElement & { __entrance?: { animation: Animation; startTime: CSSNumberish | null } })
         .__entrance;
       const current = row.getAnimations()[0];
       return { sameObject: current === saved?.animation, sameStart: current?.startTime === saved?.startTime };
