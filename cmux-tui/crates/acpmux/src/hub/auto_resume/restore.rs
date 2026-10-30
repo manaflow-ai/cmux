@@ -101,9 +101,7 @@ impl Hub {
                 "user_message" if is_cut => {
                     let p = e.msg.pointer("/_meta/provenance");
                     if super::super::subsession_guard::is_family(p) {
-                        from = p
-                            .and_then(|p| p.get("from").and_then(Value::as_str))
-                            .map(str::to_owned);
+                        from = p.and_then(|p| p["from"].as_str()).map(str::to_owned);
                     }
                 }
                 "turn_control"

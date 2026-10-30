@@ -160,27 +160,23 @@ pub(super) fn step_of(kind: &str, msg: &Value) -> Option<Step> {
     match kind {
         "turn_started" => Some(Step::Began(named())),
         "auto_resume_settled" | "auto_resume_exhausted" | "auto_resume_stopped" => {
-            let Some(turn) = named_turn(msg.get("promptId").and_then(Value::as_str)) else {
+            let Some(turn) = named_turn(msg["promptId"].as_str()) else {
                 return Some(Step::NoRetry);
             };
-            let why = msg
-                .get("why")
-                .and_then(Value::as_str)
-                .or_else(|| msg.get("reason").and_then(Value::as_str))
-                .unwrap_or("policy");
+            let why = msg["why"].as_str().or_else(|| msg["reason"].as_str()).unwrap_or("policy");
             Some(Step::NoRetryFor { turn, why: format!("Automatic retry settled ({why}).") })
         }
         "auto_resume_skipped" => {
-            let Some(turn) = named_turn(msg.get("promptId").and_then(Value::as_str)) else {
+            let Some(turn) = named_turn(msg["promptId"].as_str()) else {
                 return Some(Step::NoRetry);
             };
-            let skipped = msg.get("skipped").and_then(Value::as_str).unwrap_or("policy");
+            let skipped = msg["skipped"].as_str().unwrap_or("policy");
             Some(Step::NoRetryFor { turn, why: format!("Automatic retry skipped ({skipped}).") })
         }
         "auto_resume_scheduled" => Some(Step::RetryScheduled),
         "auto_resume_restored" => {
-            let turn = named_turn(msg.get("promptId").and_then(Value::as_str))?;
-            let why = match msg.get("reason").and_then(Value::as_str).unwrap_or("transport") {
+            let turn = named_turn(msg["promptId"].as_str())?;
+            let why = match msg["reason"].as_str().unwrap_or("transport") {
                 "capacity" => "The provider had no capacity.".to_owned(),
                 "agent_exited" => "The agent exited before finishing.".to_owned(),
                 _ => "The connection was interrupted.".to_owned(),

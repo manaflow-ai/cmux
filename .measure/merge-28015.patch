@@ -1,0 +1,3072 @@
+diff --git a/cmux-tui/crates/acpmux/README.md b/cmux-tui/crates/acpmux/README.md
+index f99cd8c6d2e6..02ceb49a902a 100644
+--- a/cmux-tui/crates/acpmux/README.md
++++ b/cmux-tui/crates/acpmux/README.md
+@@ -109,7 +109,9 @@ lane needs someone (`permission`, `capacity`, `harness down`, `failed turn`, `st
+ WARN is `warn` while the row breaks a usage rule. Closed sessions, reviewer boxes,
+ sub-sessions and sessions with only a generated name are hidden and counted on the last line;
+ `--all` lists them, and a filter (`--status`, `--tag`, `--since`, ...) hides nothing. `--wide`
+-adds AGENT, STATUS and LAST (the last prompt). A peer whose link is down never drops out: its
++adds AGENT, STATUS, the usage columns (LAUNCHER, autocompact CAP, CTX, CMP compactions, SUBS
++live/started, TOK24H, $24H; `?` when acpmux could not read one, never 0) and LAST (the last
++prompt). A peer whose link is down never drops out: its
+ rows read `unknown`, and an `UNKNOWN <peer>` line says its sessions are last known. Scripts
+ read `acpmux --json ls`, which is the daemon's rows, unchanged.
+ 
+@@ -344,7 +346,7 @@ acpmux session queue list NAME                                # one row per queu
+ acpmux session queue remove NAME PROMPT_ID...                 # take those out; each reported removed or not found
+ acpmux session queue clear NAME --from-agents [--dry-run]     # take out every other agent's message; your own prompts stay
+ acpmux session tag NAME task=review --ttl 3600; acpmux ls --tag task=review
+-acpmux ls --all --wide                                        # every session, every column
++acpmux ls --all --wide                                        # every session, every column (with usage)
+ acpmux ls --live --host cosmic-gray                           # filters, text and --json alike (--host local: this machine)
+ acpmux ls --status running | --pending                        # filters; --json for the full records
+ acpmux ls --limit 20 --fields name,harness,model,status,cwd   # newest sessions, selected fields
+diff --git a/cmux-tui/crates/acpmux/docs/acpmux-schema.json b/cmux-tui/crates/acpmux/docs/acpmux-schema.json
+index 8d80dd981ed5..b7a0a60b2c5c 100644
+--- a/cmux-tui/crates/acpmux/docs/acpmux-schema.json
++++ b/cmux-tui/crates/acpmux/docs/acpmux-schema.json
+@@ -12,7 +12,7 @@
+   "methods": {
+     "_acpmux/mesh_control": {"params": "{op: start|resume|stop, to: {sessionId}|{name,host?}|{host}|{daemonId}, params?: session/new object, idempotencyKey: string} or {receipt: messageId}", "result": "Mesh receipt {messageId,state,detail?,...}; enqueue adds idempotencyKey", "note": "Local socket only; remote-controlled agent callers are refused. Uses this daemon's configured mesh client, never request-supplied sender identity. Queued is not executed: read receipt once again to learn delivery. Receiving control is off unless its owner lists the hub-stamped sender daemonId in meshRelay.controlFrom. The recipient still enforces its existing peer and app-only policy rules."},
+     "_acpmux/status": {"params": {}, "result": {"version": "string", "capabilities": "string[] (the protocol surfaces this build serves, by stable id: acpmux-v1, queue-edit-v1, ...; also in initialize's _meta.acpmux.capabilities and `acpmux capabilities --json`)", "pid": "number", "exe": "string|null (this daemon's own executable; Linux may add \" (deleted)\" after an update replaced the file)", "exeStable": "boolean (exe is a stable install: not under a CI runner's _work, a temporary folder or a build tree; daemon/exe_path.rs)", "exeUnstable": "runner-work|temp|build-tree|null (why exe is not stable)", "runsAsCmuxTuiAcp": "boolean (it runs as `cmux-tui acp …`; its command line itself is never reported)", "personKey": "boolean (this run holds a person key; never the key)", "personInstance": "string (this daemon run's id, which decision proofs bind)", "sessions": "number", "liveAgents": "number", "openWaits": "number (_acpmux/wait requests subscribed to this daemon's records and not yet answered)", "harnesses": "string[]", "peers": "object[]", "webUrl": "string|null", "listen": "string|null (the bound dashboard/WebSocket address; the real port when started with --listen 127.0.0.1:0)", "ready": "boolean (false while the daemon imports the login environment and checks launchers; session/new and agent spawns wait for it)", "loginEnv": "pending|imported|not_requested", "host_pressure": "HostPressure? (host_pressure.rs: this host's CPU/RAM budget, derived from its cores and RAM and sampled when asked, at most every formula.sample_seconds, on a blocking thread (status waits at most 250 ms, then answers with the last verdict; ok is null before the first): {host, cores, cores_kind: performance|physical|logical (macOS performance: the cores of every perf level not named Efficiency, 15 on an M5 Pro), load1: number|null, load_limit (cores * formula.load1_per_core), pressure: normal|warn|critical|unknown, available_ram_fraction: number|null, swap_mb_per_min: number|null (null until two samples), over: string[] (one phrase per reason; empty when within budget), ok: boolean, warning: string|null (\"host-budget: HOST over its CPU/RAM budget: ...\"), enforce: boolean (the override file asks for holds; this build only warns), formula: {load1_per_core, cores, pressure, psi_some_avg10, min_available_ram_fraction, swap_growth_mb_per_min, sample_seconds} (defaults built in; $ACPMUX_HOST_BUDGET or ~/.config/cmux/host-budget.json overrides them, its hosts.<short host name> entry over its formula), local_turns: number, background_processes: number (of chats whose processes this daemon has read), top: [{session_id, name, turns, processes}] (at most 5, most background processes first)}. Only this daemon's sessions count; a peer's are its own. While ok is false, a turn's _acpmux/prompt_accepted (and the send's accepted) carries the same verdict as host_pressure. Nothing is refused, queued or held.)"}},
+-    "_acpmux/sessions": {"params": {"withTools": "boolean? default false; include tool inventories (also on watch notices)", "limit": "number? (a positive integer: page the list; without it the whole list, in pages by size when it is too large for one message)", "cursor": "string? (a nextCursor: the page after the session it names)", "peer": "string? (sessions owned by this peer)", "status": "string? (sessions with this status)", "localOnly": "boolean? (only sessions owned by this daemon)", "excludeStatus": "string[]? (omit sessions with these statuses)", "orderBy": "sessionId? (requires localOnly; stable ID order for complete scans)"}, "result": {"sessions": "SessionSummary[] (newest updatedAt first, ties by sessionId; the pages of a list too large for one message go in an order updates do not change, a hash of sessionId and peer, and Client::whole_list sorts them back newest first)", "nextCursor": "string|null? (with limit: null when the list is done; without limit: present only when the list is too large for one message (over 14 MiB), and the rest is read with _acpmux/sessions {cursor} and the same filters)"}, "errors": "invalid_params: limit not a positive integer; a cursor that is not a nextCursor; malformed filters", "note": "Keyset pages (hub/session_pages.rs): a session that moves or leaves between pages neither repeats nor skips another."},
++    "_acpmux/sessions": {"params": {"withTools": "boolean? default false; include tool inventories (also on watch notices)", "usage": "boolean? default false; read each chat's usage (SessionSummary.usageStats) from its harness's records first: at most one read every 5 s (sooner after a turn ends), waited for at most 750 ms; without it the rows carry the last read's (acpmux ls --wide and --json send it)", "limit": "number? (a positive integer: page the list; without it the whole list, in pages by size when it is too large for one message)", "cursor": "string? (a nextCursor: the page after the session it names)", "peer": "string? (sessions owned by this peer)", "status": "string? (sessions with this status)", "localOnly": "boolean? (only sessions owned by this daemon)", "excludeStatus": "string[]? (omit sessions with these statuses)", "orderBy": "sessionId? (requires localOnly; stable ID order for complete scans)"}, "result": {"sessions": "SessionSummary[] (newest updatedAt first, ties by sessionId; the pages of a list too large for one message go in an order updates do not change, a hash of sessionId and peer, and Client::whole_list sorts them back newest first)", "nextCursor": "string|null? (with limit: null when the list is done; without limit: present only when the list is too large for one message (over 14 MiB), and the rest is read with _acpmux/sessions {cursor} and the same filters)"}, "errors": "invalid_params: limit not a positive integer; a cursor that is not a nextCursor; malformed filters", "note": "Keyset pages (hub/session_pages.rs): a session that moves or leaves between pages neither repeats nor skips another."},
+     "_acpmux/web_modes": {"params": {"sessionId": "string? (id, name or unique prefix)", "configId": "string? (with value: report asks)", "value": "string?"}, "result": {"families": "{family: string[] (asking modes, the asking default first: the reviewed rows plus config.json webAskingModes, minus every non-asking mode)}", "modeFields": "string[] (fields the remote guard refuses from the Web as mode fields, in params and _meta.acpmux)", "freeConfigIds": "string[] (config ids the Web may set to any value)", "session": "{sessionId, family, mode: string|null, asks?: boolean (configId and value given: whether that value keeps the session asking)}? (absent when sessionId names no known session)"}, "errors": "invalid_params over any WebSocket connection (unix socket only); an ambiguous sessionId", "note": "Read only. The native relay reads the guard's own table and lists here instead of copying them."},
+     "_acpmux/web_token_rotate": {"params": {}, "result": {"webUrl": "string (the dashboard link with the new token)"}, "errors": "invalid_params over any WebSocket connection (unix socket only), while a --token value serves, or with no web listener; internal when config.json cannot be saved (the old token stays)", "note": "Replaces the saved dashboard token (config.json, 0600) and the token the listener checks, at once. Web and Peer connections, which presented the old token, are closed; LocalApp connections stay. CLI: acpmux web --rotate-token."},
+     "_acpmux/harnesses": {"params": {"cwd": "string? (absolute; also list the folder profiles a chat there sees)"}, "result": {"harnesses": "{name: HarnessProfile (kind may be \"terminal\": a profile-file harness without ACP, session/new refuses it with reason harness.terminal) + family + defaults + unavailable? + probeError? (string: why the last model probe failed) + ProfileMeta? (only for profiles from profile files or cmux.json: source managed|user-file|cmux-json, sourcePath, displayName?, icon? (built-in name or absolute file path), capabilities? {effort?, fast?, permissionModes?, resume?}, auth? {login?, docs?, check?}, sessions? (reserved for the device chat index), modelsCommand?, modelDetails?, hooks?)}", "diagnostics": "ProfileDiagnostic[]? ({path, id?, severity: error|warning, message, fix?}; never carries env values)", "defaultHarness": "string|null", "families": "{family: string[]}", "defaults": "{family|profile: SessionDefaults}", "catalog": "CatalogSummary & {harnesses: [{id, name, brand, families, modelSource, docsUrl?, defaultModel?, profiles: string[] (configured profiles that use it; empty: not installed)}]}", "folderProfiles": "FolderProfileRow[]? (only with cwd, only over the unix socket or the local app; Web and peer connections never get it): [{id, folder (the canonical folder that holds .cmux/harnesses), path, state: enabled|needs-enable|needs-trust|error, displayName?, icon? (absolute file path), kind? (acp|terminal|claude-stdio), family?, diagnostics: ProfileDiagnostic[]}], nearest folder first (cwd, then each parent; a nearer folder hides the same id further up; an id the catalog has is state error). Never carries the command line or env."}, "errors": "invalid params when cwd is not absolute", "note": "Folder harness profiles (BRING-YOUR-OWN-HARNESS H4) are read on each request with cwd; they are not watched, so _acpmux/harnesses_changed never reports them."},
+@@ -146,7 +146,8 @@
+     "HarnessProfile": {"kind": "acp|claude-stdio", "argv": "string[] (${model} = the requested model at spawn)", "env": "{key: value}", "family": "string? (derived from argv when absent)", "models": "(string | {id, name})[] declared catalog, shown ahead of the reported one", "model": "string?", "effort": "string?", "policy": "string?", "fallback": "string? (profile to move to on limit or auth errors)", "description": "string?"},
+     "Author": {"id": "string (tailnet:<login>, or user_<id> once accounts are mapped; one line of at most 256 bytes)", "name": "string (one line, 1 to 64 characters)", "login": "string?", "node": "string?", "note": "_meta.acpmux.author, stamped by the daemon that admitted the person; accepted from the unix socket and from a peer daemon forwarding for its own unix socket or app, refused from Web (author.origin_refused). A label and a restriction, never a grant."},
+     "Presence": {"sessionId": "string", "participants": "[{id, name, devices: number (connections that carry this person), viewing: boolean, typing: boolean}] one per person by id; at most 32 besides the owner (id owner, named for the host's user)"},
+-    "SessionSummary": {"sessionId": "string", "name": "string", "harness": "string", "family": "string|null", "cwd": "string", "status": "idle|ready|running|waiting|disconnected|closed", "peer": "string? (host name for remote sessions)", "stateSeq": "number (bumps on status, permission and turn changes)", "unread": "boolean (a turn ended while no attached client showed the chat; cleared when one shows it)", "shown": "boolean (some attached client shows the chat: _acpmux/attach visible, _acpmux/view)", "indicator": "input|working|failed|lost|done|null (the status dot every client draws; first match wins: input = a permission or question waits, working = a turn runs, or work it started runs on past its turn (subagentsWorkingSince), failed = the last turn failed, lost = the agent process is gone (disconnected or unreachable) and the last turn did not answer, done = the last turn answered (seen is client-side), null = nothing to show)", "lastTurn": "{turnId, promptId, status, stopReason?, errorText?, errorSource?, detail?, endedAt} | null", "lane": "{state: working|input|idle|failed|lost, since: number|null, error: string|null, step: string|null, title: string|null, stalledSince: number|null} | null (a coordinator's view of the session; null when closed: working since its turn started (stalledSince: since when a working turn has had no tool call in flight and no sign from its model for stalledTurnMs, default 10 minutes, 0 off), input since it began waiting, idle since its last turn ended, failed with that turn's errorText, lost when the agent process or peer is gone; step is the running turn's prompt, else the agent's last reply line, one line of at most 240 characters; title is the session's title, else its latest prompt, cut the same way; error, step and title have secrets masked, e.g. [GitHub Personal Access Token], and error is cut to 3072 characters; the summary's other text (title, lastPrompt, preview, lastMessage.text, the turn's and queued prompts, lastTurn.errorText) is raw for every client except a proven peer daemon (peer token), which reads it masked and cut to 16384 characters and may not rewrite a queued prompt that holds a secret)", "inputSince": "number|null (when the session began waiting on the person)", "subagentsWorkingSince": "number|null (since when work the session started runs on past its own turn: a background subagent of its harness, or an open sub-session that runs a turn, waits on the person or has such work itself; its indicator and lane are working meanwhile, a task not being done until its subagents are; each change is a subagents_working record {since}, heard as session_changed)", "attached": "number (clients attached now)", "pendingPermissions": "number", "queued": "number", "turnCount": "number", "lastSeq": "number", "lastPrompt": "string|null", "preview": "string|null", "model": "string|null", "effort": "string|null (the harness reasoning effort, when reported)", "currentModeId": "string|null", "policy": "string|null", "rules": "boolean", "tools": "ToolRow[]? (the chat's tools; present on per-session reads, attachments and ACP lists; omitted from census rows unless withTools is true)", "toolsMutable": "boolean? (_acpmux/set_tools can turn its MCP servers off; omitted from census rows)", "tags": "{key: value}", "createdAt": "number", "updatedAt": "number", "queue": "[{promptId, turnId, client, prompt, queuedAt, held, images: [{id, mimeType, name: string|null}], fromAgent: string|null, fromSessionId: string|null, fromHarness: string|null, class: block|question|result|fyi|null, author}] prompts waiting for the running turn (images: what each sends, in order; _acpmux/attachment reads each by id before it runs; prompt is a 200-character preview, _acpmux/queue_text reads one whole; fromSessionId and fromHarness: the sending session and its harness family (claude, codex, ...) as the daemon bound them, from _meta.provenance, display only, null when not bound; class: what another agent's message asks of the chat, result when it named none, null for the person's own prompt and from a peer on an older acpmux)", "turn": "{startedAt, client, prompt, turnId, promptId, turnSeq, stalledSince} | null (the running turn; stalledSince as lane.stalledSince)", "enforcement": "Enforcement", "gitBranch": "string|null (the branch the session's cwd has checked out now; null on a detached HEAD or outside a repository. Live while a client holds the chat (a git record on each change); otherwise the last branch this daemon read, else the one the session started on)"},
++    "SessionSummary": {"sessionId": "string", "name": "string", "harness": "string", "family": "string|null", "cwd": "string", "status": "idle|ready|running|waiting|disconnected|closed", "peer": "string? (host name for remote sessions)", "stateSeq": "number (bumps on status, permission and turn changes)", "unread": "boolean (a turn ended while no attached client showed the chat; cleared when one shows it)", "shown": "boolean (some attached client shows the chat: _acpmux/attach visible, _acpmux/view)", "indicator": "input|working|failed|lost|done|null (the status dot every client draws; first match wins: input = a permission or question waits, working = a turn runs, or work it started runs on past its turn (subagentsWorkingSince), failed = the last turn failed, lost = the agent process is gone (disconnected or unreachable) and the last turn did not answer, done = the last turn answered (seen is client-side), null = nothing to show)", "lastTurn": "{turnId, promptId, status, stopReason?, errorText?, errorSource?, detail?, endedAt} | null", "lane": "{state: working|input|idle|failed|lost, since: number|null, error: string|null, step: string|null, title: string|null, stalledSince: number|null} | null (a coordinator's view of the session; null when closed: working since its turn started (stalledSince: since when a working turn has had no tool call in flight and no sign from its model for stalledTurnMs, default 10 minutes, 0 off), input since it began waiting, idle since its last turn ended, failed with that turn's errorText, lost when the agent process or peer is gone; step is the running turn's prompt, else the agent's last reply line, one line of at most 240 characters; title is the session's title, else its latest prompt, cut the same way; error, step and title have secrets masked, e.g. [GitHub Personal Access Token], and error is cut to 3072 characters; the summary's other text (title, lastPrompt, preview, lastMessage.text, the turn's and queued prompts, lastTurn.errorText) is raw for every client except a proven peer daemon (peer token), which reads it masked and cut to 16384 characters and may not rewrite a queued prompt that holds a secret)", "inputSince": "number|null (when the session began waiting on the person)", "subagentsWorkingSince": "number|null (since when work the session started runs on past its own turn: a background subagent of its harness, or an open sub-session that runs a turn, waits on the person or has such work itself; its indicator and lane are working meanwhile, a task not being done until its subagents are; each change is a subagents_working record {since}, heard as session_changed)", "attached": "number (clients attached now)", "pendingPermissions": "number", "queued": "number", "turnCount": "number", "lastSeq": "number", "lastPrompt": "string|null", "preview": "string|null", "model": "string|null", "effort": "string|null (the harness reasoning effort, when reported)", "currentModeId": "string|null", "policy": "string|null", "rules": "boolean", "tools": "ToolRow[]? (the chat's tools; present on per-session reads, attachments and ACP lists; omitted from census rows unless withTools is true)", "toolsMutable": "boolean? (_acpmux/set_tools can turn its MCP servers off; omitted from census rows)", "tags": "{key: value}", "createdAt": "number", "updatedAt": "number", "queue": "[{promptId, turnId, client, prompt, queuedAt, held, images: [{id, mimeType, name: string|null}], fromAgent: string|null, fromSessionId: string|null, fromHarness: string|null, class: block|question|result|fyi|null, author}] prompts waiting for the running turn (images: what each sends, in order; _acpmux/attachment reads each by id before it runs; prompt is a 200-character preview, _acpmux/queue_text reads one whole; fromSessionId and fromHarness: the sending session and its harness family (claude, codex, ...) as the daemon bound them, from _meta.provenance, display only, null when not bound; class: what another agent's message asks of the chat, result when it named none, null for the person's own prompt and from a peer on an older acpmux)", "turn": "{startedAt, client, prompt, turnId, promptId, turnSeq, stalledSince} | null (the running turn; stalledSince as lane.stalledSince)", "enforcement": "Enforcement", "gitBranch": "string|null (the branch the session's cwd has checked out now; null on a detached HEAD or outside a repository. Live while a client holds the chat (a git record on each change); otherwise the last branch this daemon read, else the one the session started on)", "usageStats": "UsageStats? (what its harness spends and holds, from the harness's own records: Claude Code's transcript and its subagents' transcripts, Codex's rollout; absent for any other harness, until its records are found, and from a peer on an older acpmux. Read from where the last read ended, by a session list or info read at most every 5 s and at each turn end (that chat only, recorded as a mux usage_stats record {UsageStats}, heard as session_changed kind usage_stats), on one blocking thread; usage_stats.rs, hub/usage_view.rs)"},
++    "UsageStats": {"launcher": "string|null (the executable its harness runs, by file name: claude, claude-sr2, codex-acp; null when this daemon did not start it: an adopted, watched or revived chat)", "autocompact": "capped|none|unknown (none: nothing caps it, the harness default; unknown: its argv is not this daemon's, or a flag, env value or settings file that would decide it cannot be read)", "autocompactCap": "number|null (the cap when autocompact is capped and its value is known: --autocompact, CLAUDE_CODE_AUTO_COMPACT_WINDOW, CLAUDE_AUTOCOMPACT_PCT_OVERRIDE of a known window, settings.json autoCompactWindow; Codex model_auto_compact_token_limit)", "contextTokens": "number|null (the last main-loop call's input + cache read + cache write tokens)", "contextWindow": "number|null (the harness's reported window, else the model catalog's)", "compactions24h": "number|null", "subagentsLive": "number|null (Claude subagents not finished whose transcript changed in the last 30 minutes; background subagents the hub follows, Codex's included; 0 when no harness process runs)", "subagents1h": "number|null (spawns)", "subagents24h": "number|null (spawns)", "tokens24h": "number|null (input + output + cache read + cache write, subagents included)", "costUsd24h": "number|null (those tokens at the model catalog's list prices; null when no model has a price)", "updatedAt": "number (unix ms of the read)", "note": "A value acpmux could not read is null, never 0: the counts are null until the reads cover the whole last day (a first read cut short after the day began, a backlog not read yet, a file that could not be read). acpmux ls --wide prints null as ?."},
+     "SubagentEvent": "_meta.acpmux.subagents[] additive event: {id, parent, state, model?: string, effort?: string, lastMessage?: string (latest text, at most 240 characters), tokens?: number (Codex subagent usage), ...}; native Claude Task and Codex legacy subagents use the same shape. Claude workflow progress also carries effort?: string on the full subagent_progress payload and each workflowAgents[] entry.",
+     "WorkflowAgent": "A workflowAgents[] entry: {index, state, model?: string, effort?: string, lastMessage?: string (latest text, at most 240 characters), tokens?: number, ...}; entries are deltas except workflowAgentsFull, where every entry is whole.",
+     "SessionDetail": "SessionSummary plus modes, configOptions, models, agentInfo, agentCapabilities, usage, contextBreakdown: {categories: [{id?, name, tokens, kind: used|free|buffer|deferred}], memoryFiles: [{path, type, tokens}], mcpTools: [{name, serverName, tokens}], skills?: [{name, tokens}], totalTokens, maxTokens}|null (Claude Code's /context after the chat's last turn, also sent then as session_info_update _meta.acpmux.contextBreakdown; each list at most 50 rows, the largest; null for any other harness, after a failover, or until Claude Code first answers get_context_usage; a turn whose get_context_usage Claude Code refuses keeps the last breakdown), usageLimits: {plan?: string, windows: [{id: session|weekly|weekly_opus|weekly_sonnet, usedPercent: number 0-100, resetsAt?: unix seconds}]}|null (the account's plan usage limits, from Claude Code's rate_limit_event (five_hour is session, seven_day weekly, seven_day_opus weekly_opus, seven_day_sonnet weekly_sonnet; overage windows are left out), each window its newest value, a window past its cap 100; also sent as session_info_update _meta.acpmux.usageLimits with every window that Claude Code process reported; plan is not set yet, as Claude Code's stream names none; null for any other harness, before the first event, or after a harness failover), pending: [{permissionId, request, groupId, turnId}] (groupId and turnId are string|null), rulesJson, gitHead: string|null (the cwd's full HEAD commit when the session started or forked; null outside a repository; gitBranch is SessionSummary's, the branch checked out now), totals: TurnUsage|null (the sum of this session's own turns; null until a harness reports any; a fork starts its own)",
+diff --git a/cmux-tui/crates/acpmux/skills/acpmux/SKILL.md b/cmux-tui/crates/acpmux/skills/acpmux/SKILL.md
+index 6d018771a627..ae666738421d 100644
+--- a/cmux-tui/crates/acpmux/skills/acpmux/SKILL.md
++++ b/cmux-tui/crates/acpmux/skills/acpmux/SKILL.md
+@@ -123,7 +123,7 @@ acpmux send NAME --no-wait --supersede KEY "…"     # replace your own prompt s
+ acpmux send PEER/NAME "see" --attach shot.png     # send files with it (repeatable; no scp): images reach the agent and transcript as images, other files as a link; saved 0600 on the session's host; any size and number (large ones are uploaded in chunks first)
+ acpmux last NAME [-n 3]                            # last reply text
+ acpmux history NAME                                # one line per turn: prompt, status, tools, tokens, wall time
+-acpmux ls [--all] [--wide]                         # live named lanes + STUCK reason; --all: closed/reviewer/sub/unnamed too
++acpmux ls [--all] [--wide]                         # live named lanes + STUCK reason; --all: closed/reviewer/sub/unnamed too; --wide: + context, subagents, 24h cost
+ acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v] [--live] [--host HOST]   # a filter hides nothing
+ acpmux --json ls --live --fields name,status,peer  # scripts; bare `ls --json` is every record, thousands on a busy host
+ acpmux session info NAME                           # model, mode, policy, pending permissions, usage
+diff --git a/cmux-tui/crates/acpmux/spec/acpmux-protocol.json b/cmux-tui/crates/acpmux/spec/acpmux-protocol.json
+index 418d15baa0bd..4fbb776f2c9a 100644
+--- a/cmux-tui/crates/acpmux/spec/acpmux-protocol.json
++++ b/cmux-tui/crates/acpmux/spec/acpmux-protocol.json
+@@ -1894,6 +1894,26 @@
+       },
+       "type": "object"
+     },
++    "Autocompact": {
++      "description": "Whether a harness's autocompact is capped (`UsageStats.autocompact`).",
++      "oneOf": [
++        {
++          "const": "capped",
++          "description": "A flag, env or setting caps it.",
++          "type": "string"
++        },
++        {
++          "const": "none",
++          "description": "Nothing caps it: the harness's own default applies.",
++          "type": "string"
++        },
++        {
++          "const": "unknown",
++          "description": "Not known: its argv is not this daemon's, or a value or file it reads could not be read.",
++          "type": "string"
++        }
++      ]
++    },
+     "ChangedSession": {
+       "anyOf": [
+         {
+@@ -4250,6 +4270,17 @@
+           "type": "integer"
+         },
+         "usage": true,
++        "usageStats": {
++          "anyOf": [
++            {
++              "$ref": "#/types/UsageStats"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "description": "What its harness spends and holds, from the harness's own records\n(`usage_stats.rs`); absent until a Claude Code or Codex chat's records\nare found, for any other harness, and from a peer on an older acpmux."
++        },
+         "waitingOn": {
+           "description": "What it waits on the person for: `question` (an agent question) or\n`permission`; null while nothing is pending. Only the person allows a permission.",
+           "type": [
+@@ -4770,6 +4801,17 @@
+           "minimum": 0,
+           "type": "integer"
+         },
++        "usageStats": {
++          "anyOf": [
++            {
++              "$ref": "#/types/UsageStats"
++            },
++            {
++              "type": "null"
++            }
++          ],
++          "description": "What its harness spends and holds, from the harness's own records\n(`usage_stats.rs`); absent until a Claude Code or Codex chat's records\nare found, for any other harness, and from a peer on an older acpmux."
++        },
+         "waitingOn": {
+           "description": "What it waits on the person for: `question` (an agent question) or\n`permission`; null while nothing is pending. Only the person allows a permission.",
+           "type": [
+@@ -4884,6 +4926,13 @@
+             "null"
+           ]
+         },
++        "usage": {
++          "description": "`_acpmux/sessions` only: read each chat's usage from its harness's records first\n(`usageStats`; at most one read every 5 s, waited for at most 750 ms). Without it the\nrows carry what the last read found.",
++          "type": [
++            "boolean",
++            "null"
++          ]
++        },
+         "withTools": {
+           "description": "Include tool inventories explicitly; default census rows omit them.",
+           "type": [
+@@ -5050,6 +5099,123 @@
+       ],
+       "type": "object"
+     },
++    "UsageStats": {
++      "description": "A chat's spend and context as its harness recorded them (`usage_stats.rs`):\nClaude Code's transcript and its subagents' (their spend is the chat's), or\nCodex's rollout. Read from where the last read ended: by a session list\nthat asks (`usage: true`) or an info read, at most every 5 s, and by each\nturn's end for its own chat, recorded then as a mux `usage_stats` record.\nA value that could not be read is null, never 0: a count is null while\nthe reads have not covered the whole last day (a first read cut short\nbefore it, a backlog not read yet, a file that could not be read).",
++      "properties": {
++        "autocompact": {
++          "$ref": "#/types/Autocompact",
++          "description": "Whether something caps the context at which the harness compacts."
++        },
++        "autocompactCap": {
++          "description": "The cap, when `autocompact` is `capped` and its value is known (Claude\nCode's `--autocompact`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW`,\n`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` of a known window, `autoCompactWindow`;\nCodex's `model_auto_compact_token_limit`); null otherwise.",
++          "format": "uint64",
++          "minimum": 0,
++          "type": [
++            "integer",
++            "null"
++          ]
++        },
++        "compactions24h": {
++          "description": "Compactions in the last 24 hours.",
++          "format": "uint64",
++          "minimum": 0,
++          "type": [
++            "integer",
++            "null"
++          ]
++        },
++        "contextTokens": {
++          "description": "The last call's context: its input, cache read and cache write tokens.",
++          "format": "uint64",
++          "minimum": 0,
++          "type": [
++            "integer",
++            "null"
++          ]
++        },
++        "contextWindow": {
++          "description": "The model's context window, as the harness reported it, else the catalog's.",
++          "format": "uint64",
++          "minimum": 0,
++          "type": [
++            "integer",
++            "null"
++          ]
++        },
++        "costUsd24h": {
++          "description": "Those tokens at the model catalog's list prices, USD; null when no model\nthey ran on has a price, or when `tokens24h` is null.",
++          "format": "double",
++          "type": [
++            "number",
++            "null"
++          ]
++        },
++        "launcher": {
++          "description": "The executable its harness runs, by file name (`claude`, `claude-sr2`,\n`codex-acp`); `harness` is the profile. Null when this daemon did not\nstart it (an adopted, watched or revived chat).",
++          "type": [
++            "string",
++            "null"
++          ]
++        },
++        "subagents1h": {
++          "description": "Subagents started in the last hour.",
++          "format": "uint64",
++          "minimum": 0,
++          "type": [
++            "integer",
++            "null"
++          ]
++        },
++        "subagents24h": {
++          "description": "Subagents started in the last 24 hours.",
++          "format": "uint64",
++          "minimum": 0,
++          "type": [
++            "integer",
++            "null"
++          ]
++        },
++        "subagentsLive": {
++          "description": "Subagents that run now.",
++          "format": "uint64",
++          "minimum": 0,
++          "type": [
++            "integer",
++            "null"
++          ]
++        },
++        "tokens24h": {
++          "description": "Tokens of the last 24 hours, subagents' included: input, output, cache\nread and cache write.",
++          "format": "uint64",
++          "minimum": 0,
++          "type": [
++            "integer",
++            "null"
++          ]
++        },
++        "updatedAt": {
++          "description": "Unix ms of the read these come from.",
++          "format": "uint64",
++          "minimum": 0,
++          "type": "integer"
++        }
++      },
++      "required": [
++        "autocompact",
++        "autocompactCap",
++        "compactions24h",
++        "contextTokens",
++        "contextWindow",
++        "costUsd24h",
++        "launcher",
++        "subagents1h",
++        "subagents24h",
++        "subagentsLive",
++        "tokens24h",
++        "updatedAt"
++      ],
++      "type": "object"
++    },
+     "ViewParams": {
+       "additionalProperties": false,
+       "properties": {
+diff --git a/cmux-tui/crates/acpmux/src/cli/ls_table.rs b/cmux-tui/crates/acpmux/src/cli/ls_table.rs
+index 4967a845c4aa..fcc9bfb26c72 100644
+--- a/cmux-tui/crates/acpmux/src/cli/ls_table.rs
++++ b/cmux-tui/crates/acpmux/src/cli/ls_table.rs
+@@ -5,7 +5,8 @@
+ //! while some row is on a peer), STATE, TURNS, AGE, WARN (only while some row breaks a usage
+ //! rule) and STUCK, the short reason a lane needs someone. Closed sessions, reviewer boxes,
+ //! sub-sessions and sessions with only their harness's generated name are hidden and counted on
+-//! a last line. `--all` lists those too; `--wide` prints every column (AGENT, STATUS and LAST).
++//! a last line. `--all` lists those too; `--wide` prints every column (AGENT, STATUS, the usage
++//! columns and LAST).
+ //! A peer whose link is down never drops out: its rows read `unknown`, and a line per such peer
+ //! says its sessions are last known, not live (hq#4897: unreadable means UNKNOWN).
+ 
+@@ -16,14 +17,16 @@ use serde_json::Value;
+ pub const HELP: &str = "Examples:
+   acpmux ls                       live named lanes: NAME, HOST, STATE, TURNS, AGE, STUCK, WARN
+   acpmux ls --all                 also closed, reviewer, sub- and unnamed sessions
+-  acpmux ls --wide                every column (AGENT, STATUS, LAST)
++  acpmux ls --wide                every column (AGENT, STATUS, usage, LAST)
+   acpmux ls --status stuck        only stuck sessions (a filter hides nothing else)
+   acpmux ls --live --host cosmic-gray   that host's live sessions (--host local: this machine)
+   acpmux --json ls --fields name,state,peer   for scripts: the daemon's rows, unchanged
+   acpmux ls 'review-27*' --fields name,turn.activity   name globs (host/glob: one peer's); dotted fields
+ 
+ STUCK is why a lane needs someone: permission, capacity, harness down, failed turn, stalled 12m.
+-A peer that cannot be reached reads UNKNOWN; its sessions are last known. ls never starts a daemon.";
++A peer that cannot be reached reads UNKNOWN; its sessions are last known. ls never starts a daemon.
++Usage (--wide): LAUNCHER, CAP (autocompact cap, or none), CTX (context now), CMP (compactions),
++SUBS (subagents live/started), TOK24H and $24H; ? is a value acpmux could not read, never 0.";
+ 
+ /// Which rows and columns the text list shows.
+ #[derive(Clone, Copy, Debug, Default)]
+@@ -167,6 +170,45 @@ fn warn(row: &Value, wide: bool) -> String {
+     warnings.iter().filter_map(|w| w["rule"].as_str()).collect::<Vec<_>>().join(" ")
+ }
+ 
++/// The wide view's usage columns, read from `usageStats` (`hub/usage_view.rs`).
++const USAGE_HEADER: [&str; 7] = ["LAUNCHER", "CAP", "CTX", "CMP", "SUBS", "TOK24H", "$24H"];
++
++/// A row's usage cells: its launcher, autocompact cap (its tokens; `capped` when a cap is set
++/// but its value could not be read; `none` when nothing caps it), the last
++/// call's context, compactions, subagents live/started, and the last day's tokens and cost. A
++/// value acpmux could not read is `?`, never 0; a row without `usageStats` (a harness it does not
++/// read, records not found yet) is all `?`.
++fn usage(row: &Value) -> [String; 7] {
++    let stats = &row["usageStats"];
++    let tokens = |n: u64| match n {
++        n if n >= 999_500 => format!("{:.1}M", n as f64 / 1e6),
++        n if n >= 1_000 => format!("{}k", (n + 500) / 1000),
++        n => n.to_string(),
++    };
++    let unknown = || "?".to_owned();
++    let count = |k: &str| stats[k].as_u64().map_or_else(unknown, |n| n.to_string());
++    let cap = match (stats["autocompact"].as_str(), stats["autocompactCap"].as_u64()) {
++        (Some("capped"), Some(n)) => tokens(n),
++        (Some("capped"), None) => "capped".to_owned(),
++        (Some("none"), _) => "none".to_owned(),
++        _ => unknown(),
++    };
++    let cost = match stats["costUsd24h"].as_f64() {
++        Some(c) if c >= 10.0 => format!("${c:.0}"),
++        Some(c) => format!("${c:.2}"),
++        None => unknown(),
++    };
++    [
++        short(stats["launcher"].as_str().unwrap_or("?"), 10),
++        cap,
++        stats["contextTokens"].as_u64().map_or_else(unknown, tokens),
++        count("compactions24h"),
++        format!("{}/{}", count("subagentsLive"), count("subagents24h")),
++        stats["tokens24h"].as_u64().map_or_else(unknown, tokens),
++        cost,
++    ]
++}
++
+ /// How long ago `at` was, from `now` (both in ms): `12s`, `4m`, `3h`, `2d`.
+ fn ago(now: u64, at: u64) -> String {
+     let s = now.saturating_sub(at) / 1000;
+@@ -257,6 +299,7 @@ pub fn render(
+             header.push("WARN");
+         }
+         if view.wide {
++            header.extend(USAGE_HEADER);
+             header.push("LAST");
+         }
+         let mut rows = vec![header.into_iter().map(str::to_owned).collect::<Vec<_>>()];
+@@ -278,6 +321,7 @@ pub fn render(
+                 cells.push(warn(row, view.wide));
+             }
+             if view.wide {
++                cells.extend(usage(row));
+                 cells.push(short(text(row, "lastPrompt"), 50));
+             }
+             rows.push(cells);
+diff --git a/cmux-tui/crates/acpmux/src/cli/ls_table_tests.rs b/cmux-tui/crates/acpmux/src/cli/ls_table_tests.rs
+index a11b5ed1cf2b..aaa0ab2b458b 100644
+--- a/cmux-tui/crates/acpmux/src/cli/ls_table_tests.rs
++++ b/cmux-tui/crates/acpmux/src/cli/ls_table_tests.rs
+@@ -145,7 +145,8 @@ fn warn_is_one_word_and_shows_only_while_a_row_has_one() {
+ #[test]
+ fn wide_prints_every_column() {
+     let out = render(&[lane("a")], Some(&[]), View { all: false, wide: true }, false, NOW);
+-    assert_eq!(out.lines().next(), Some("NAME  AGENT   STATUS   TURNS  AGE  STUCK  LAST"), "{out}");
++    let header = "NAME  AGENT   STATUS   TURNS  AGE  STUCK  LAUNCHER  CAP  CTX  CMP  SUBS  TOK24H  $24H  LAST";
++    assert_eq!(out.lines().next(), Some(header), "{out}");
+     assert!(out.lines().nth(1).unwrap().ends_with("a long brief"), "{out}");
+ }
+ 
+@@ -180,6 +181,33 @@ fn every_view_keeps_the_daemons_order() {
+     assert_eq!(order(&filtered), ["newest", "old", "oldest"], "{filtered}");
+ }
+ 
++#[test]
++fn wide_usage_cells_say_unknown_as_a_question_mark() {
++    let row = json!({"usageStats": {"launcher": "claude-sr2", "autocompact": "none",
++        "autocompactCap": null, "contextTokens": 312_400, "compactions24h": 3,
++        "subagentsLive": 4, "subagents24h": 90, "tokens24h": 1_234_567_890u64,
++        "costUsd24h": 1234.5}});
++    assert_eq!(usage(&row), ["claude-sr2", "none", "312k", "3", "4/90", "1234.6M", "$1234"]);
++    let capped = json!({"usageStats": {"autocompact": "capped", "autocompactCap": 200_000,
++        "contextTokens": 0, "compactions24h": 0, "subagentsLive": 0, "subagents24h": 0,
++        "tokens24h": 0, "costUsd24h": null, "launcher": "claude"}});
++    assert_eq!(usage(&capped), ["claude", "200k", "0", "0", "0/0", "0", "?"]);
++    // Read but not known (a cut first read, an adopted chat's flags): `?`, never 0.
++    let unread = json!({"usageStats": {"autocompact": "unknown", "autocompactCap": null,
++        "contextTokens": 9_000, "compactions24h": null, "subagentsLive": null,
++        "subagents24h": null, "tokens24h": null, "costUsd24h": null, "launcher": null}});
++    assert_eq!(usage(&unread), ["?", "?", "9k", "?", "?/?", "?", "?"]);
++    // A cap is known to be set but not its value: what is known, the rest `?`.
++    let set = json!({"usageStats": {"autocompact": "capped", "autocompactCap": null}});
++    assert_eq!(usage(&set)[1], "capped");
++    assert_eq!(usage(&json!({})), ["?", "?", "?", "?", "?/?", "?", "?"]);
++    // The wide table puts them before LAST; the compact one has none.
++    let out =
++        render(&[with(lane("a"), row)], Some(&[]), View { all: false, wide: true }, false, NOW);
++    assert!(out.lines().nth(1).unwrap().contains("claude-sr2  none  312k"), "{out}");
++    assert!(!compact(&[lane("a")]).contains("LAUNCHER"));
++}
++
+ #[test]
+ fn a_short_or_empty_row_pads_without_panicking() {
+     let s = |cells: &[&str]| cells.iter().map(|c| (*c).to_owned()).collect::<Vec<_>>();
+diff --git a/cmux-tui/crates/acpmux/src/cli/run/ls.rs b/cmux-tui/crates/acpmux/src/cli/run/ls.rs
+index bea09e333d02..76e783a86cdd 100644
+--- a/cmux-tui/crates/acpmux/src/cli/run/ls.rs
++++ b/cmux-tui/crates/acpmux/src/cli/run/ls.rs
+@@ -57,7 +57,8 @@ pub struct LsArgs {
+     /// Text view: also what the compact view hides (closed, reviewer, sub- and unnamed sessions).
+     #[arg(long, short)]
+     all: bool,
+-    /// Text view: every column (AGENT, STATUS, STUCK and LAST, the last prompt).
++    /// Text view: every column (AGENT, STATUS, STUCK, the usage columns and LAST, the last
++    /// prompt); the daemon reads each chat's usage first.
+     #[arg(long, short)]
+     wide: bool,
+ }
+@@ -108,6 +109,14 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
+     if with_tools {
+         params.set("withTools", json!(true));
+     }
++    // Only a listing that shows usage has the daemon read it first (`hub/usage_view.rs`); the
++    // compact one shows the rows as they are.
++    let usage = wide
++        || json_out
++        || fields.as_ref().is_some_and(|f| f.iter().any(|f| f.starts_with("usageStats")));
++    if usage {
++        params.set("usage", json!(true));
++    }
+     // The daemon drops closed rows itself (`hub/session_pages.rs`), so a `--live` reply
+     // carries none of them; `RowFilter` checks again below.
+     if live {
+diff --git a/cmux-tui/crates/acpmux/src/hub/mod.rs b/cmux-tui/crates/acpmux/src/hub/mod.rs
+index 3fdcdefd53b5..faca91071e85 100644
+--- a/cmux-tui/crates/acpmux/src/hub/mod.rs
++++ b/cmux-tui/crates/acpmux/src/hub/mod.rs
+@@ -194,6 +194,8 @@ mod transfer_watch;
+ mod trust_wait;
+ mod turn_git;
+ mod turn_usage;
++mod usage_view;
++pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
+ mod turns;
+ #[cfg(test)]
+ mod turns_copy_stop_tests;
+@@ -450,6 +452,8 @@ pub struct Hub {
+     pub(super) events: list_guard::Events,
+     /// The shared, paced full session list (`list_guard.rs`).
+     pub(crate) list_guard: list_guard::ListGuard,
++    /// Each chat's spend and context as its harness recorded them (`usage_view.rs`).
++    pub(crate) usage_stats: usage_view::UsageCache,
+     /// `_acpmux/models` replies now asking peers for theirs
+     /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
+     /// daemon's own catalog, so mutual peers cannot ping-pong.
+@@ -715,6 +719,7 @@ impl Hub {
+             inline_btw: StdMutex::new(HashMap::new()),
+             events,
+             list_guard: Default::default(),
++            usage_stats: Default::default(),
+             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
+             shutdown: Notify::new(),
+             ws_shutdown: Default::default(),
+@@ -1573,7 +1578,11 @@ impl Hub {
+         if session.purged.load(Ordering::SeqCst) {
+             return (record, true);
+         }
+-        self.touch(session);
++        // What its harness spent, read after a turn (`usage_view.rs`), is bookkeeping: it never
++        // keeps the chat's agent awake.
++        if !(dir == "mux" && kind == usage_view::RECORD_KIND) {
++            self.touch(session);
++        }
+         let stored = match self.store.append(&session.id, &record) {
+             Ok(()) => true,
+             Err(e) => {
+diff --git a/cmux-tui/crates/acpmux/src/hub/turns.rs b/cmux-tui/crates/acpmux/src/hub/turns.rs
+index a3928c5ee8b6..f51765fdeba8 100644
+--- a/cmux-tui/crates/acpmux/src/hub/turns.rs
++++ b/cmux-tui/crates/acpmux/src/hub/turns.rs
+@@ -1266,6 +1266,8 @@ impl Hub {
+                 self.write_turn_result(session, msg, git);
+             }
+         }
++        // Its harness wrote the turn's spend: read it (`usage_view.rs`).
++        self.refresh_usage_stats_of(session);
+         self.reset_stream(session);
+         // Nobody showing it: the sidebar dot and `wait --until done` see it.
+         if !self.shown(session) {
+diff --git a/cmux-tui/crates/acpmux/src/hub/usage_view.rs b/cmux-tui/crates/acpmux/src/hub/usage_view.rs
+new file mode 100644
+index 000000000000..4e42d5ea3cd8
+--- /dev/null
++++ b/cmux-tui/crates/acpmux/src/hub/usage_view.rs
+@@ -0,0 +1,178 @@
++//! The hub's side of `usage_stats.rs`: which chats are read, when, and where the
++//! result goes (`SessionSummary.usageStats`).
++//!
++//! A pass reads every Claude Code and Codex chat that is open or changed in the
++//! last day, on one blocking thread, from where the last pass ended. Nothing
++//! watches the files and no timer runs: a session list that asks for usage
++//! (`usage: true`: `acpmux ls --wide`, `--json`) or an info read starts a pass at
++//! most every [`REFRESH_EVERY_MS`] (sooner when a turn ended since), and a turn's
++//! end reads its own chat only; one pass at a time. A plain list reads nothing,
++//! and its rows carry what the last pass found. Only the list waits for its pass,
++//! at most [`READ_WAIT`]. A pass ends when every chat's
++//! new lines are read (at most 64 MiB a file); nothing outlives it but each
++//! chat's offsets and minute buckets, and a closed or purged chat's go on the
++//! next pass.
++
++use super::{Hub, Session};
++use crate::protocol::session::UsageStats;
++use crate::store::{SessionMeta, SessionStatus};
++use crate::usage_stats::{DAY_MS, Models, Source, Tracker};
++use serde_json::Value;
++use std::collections::HashMap;
++use std::sync::atomic::{AtomicBool, Ordering};
++use std::sync::{Arc, Mutex as StdMutex};
++use std::time::Duration;
++
++/// The mux record of a chat's usage after one of its turns (`read_usage`).
++pub const RECORD_KIND: &str = "usage_stats";
++/// The least time between the starts of two passes a read starts.
++const REFRESH_EVERY_MS: u64 = 5_000;
++/// How long a session list or info read waits for its pass; past that it
++/// answers with the last pass's stats and the pass ends on its own.
++pub(crate) const READ_WAIT: Duration = Duration::from_millis(750);
++
++#[derive(Default)]
++pub(crate) struct UsageCache {
++    trackers: Arc<StdMutex<HashMap<String, Tracker>>>,
++    stats: Arc<StdMutex<HashMap<String, UsageStats>>>,
++    /// Held for a pass, with when the last one started: a read that comes
++    /// meanwhile waits for it instead of reading the stats it is about to replace.
++    pass: tokio::sync::Mutex<u64>,
++    /// A turn ended since the last pass began: the next read reads, however soon.
++    dirty: AtomicBool,
++}
++
++impl Hub {
++    /// Reads every chat's usage, after the pass that runs if one does, unless one started in
++    /// the last few seconds and no turn ended since.
++    pub(crate) async fn refresh_usage_stats(&self) {
++        let mut last = self.usage_stats.pass.lock().await;
++        let now = crate::store::now_ms();
++        let dirty = self.usage_stats.dirty.swap(false, Ordering::SeqCst);
++        if !dirty && now.saturating_sub(*last) < REFRESH_EVERY_MS {
++            return;
++        }
++        *last = now;
++        self.read_usage(self.sessions(), true).await;
++    }
++
++    /// Reads one chat's usage and leaves it to run: its turn ended, so its spend changed. The
++    /// next list that asks for usage reads too, however soon, so it never misses this turn.
++    pub(crate) fn refresh_usage_stats_of(self: &Arc<Self>, session: &Arc<Session>) {
++        self.usage_stats.dirty.store(true, Ordering::SeqCst);
++        let (hub, session) = (self.clone(), session.clone());
++        tokio::spawn(async move {
++            let _pass = hub.usage_stats.pass.lock().await;
++            hub.read_usage(vec![session], false).await;
++        });
++    }
++
++    /// Reads `sessions`' records on a blocking thread; `whole`: they are every chat, so a
++    /// chat not among them (closed a day ago, purged) loses its tracker and stats. When any
++    /// chat's stats changed (but for `updatedAt`) the next session list is built anew; a
++    /// turn's own read (not `whole`) records its chat's as a mux `usage_stats` record, which
++    /// watchers hear as `_acpmux/session_changed`.
++    async fn read_usage(&self, sessions: Vec<Arc<Session>>, whole: bool) {
++        let now = crate::store::now_ms();
++        let by_id: HashMap<String, Arc<Session>> =
++            sessions.iter().map(|s| (s.id.clone(), s.clone())).collect();
++        let mut sources = Vec::new();
++        for session in sessions {
++            let m = session.meta();
++            let family = m.family.clone().unwrap_or_default();
++            let Some(sid) = m.agent_session_id.clone().filter(|s| !s.is_empty()) else { continue };
++            if !matches!(family.as_str(), "claude" | "codex")
++                || m.status == SessionStatus::Closed && m.updated_at + DAY_MS < now
++            {
++                continue;
++            }
++            let env = crate::route_account::spawn_env(&m, self.harness_env(&m).await.1);
++            // Only an argv this daemon started it with says how it runs: a watched chat runs in
++            // another app, and one never started here (adopted, revived) ran with unknown flags.
++            let argv = m.spawn_argv.clone().filter(|_| m.watching.is_none());
++            let source = Source {
++                family,
++                agent_session_id: sid,
++                cwd: m.cwd.clone(),
++                created_at: m.created_at,
++                argv,
++                env,
++            };
++            sources.push((m.id.clone(), source));
++        }
++        let models = Models::from_catalog(&self.catalog.current());
++        let cache = &self.usage_stats;
++        let (trackers, stats) = (cache.trackers.clone(), cache.stats.clone());
++        // A read that stops waiting lets the pass go on; the trackers' lock keeps passes apart.
++        let pass = tokio::task::spawn_blocking(move || {
++            let mut trackers = trackers.lock().unwrap_or_else(|e| e.into_inner());
++            let mut fresh = Vec::with_capacity(sources.len());
++            for (id, source) in &sources {
++                let tracker = trackers.entry(id.clone()).or_default();
++                if let Some(found) = tracker.refresh(source, crate::store::now_ms(), &models) {
++                    fresh.push((id.clone(), found));
++                }
++            }
++            let mut stats = stats.lock().unwrap_or_else(|e| e.into_inner());
++            let same = |a: &UsageStats, b: &UsageStats| {
++                UsageStats { updated_at: 0, ..a.clone() }
++                    == UsageStats { updated_at: 0, ..b.clone() }
++            };
++            let changed: Vec<(String, UsageStats)> = fresh
++                .iter()
++                .filter(|(id, new)| stats.get(id).is_none_or(|old| !same(old, new)))
++                .cloned()
++                .collect();
++            let mut gone = false;
++            if whole {
++                trackers.retain(|id, _| sources.iter().any(|(s, _)| s == id));
++                let before = stats.len();
++                // A chat still listed keeps what the last pass found until a pass finds more.
++                stats.retain(|id, _| sources.iter().any(|(s, _)| s == id));
++                gone = stats.len() != before;
++            }
++            // A turn's own read announces its chat's whether or not a list's pass read the
++            // turn first, so every turn's end is followed by its usage.
++            let announce = if whole { Vec::new() } else { fresh.clone() };
++            stats.extend(fresh);
++            (changed.is_empty() && !gone, announce)
++        });
++        let Ok((same, announce)) = pass.await else { return };
++        if !same {
++            self.events.changed();
++        }
++        for (id, stats) in announce {
++            if let Some(session) = by_id.get(&id) {
++                let stats = serde_json::to_value(stats).unwrap_or_default();
++                self.append(session, "mux", RECORD_KIND, stats);
++            }
++        }
++    }
++
++    /// The last pass's stats for a chat, with what the hub itself knows over them:
++    /// the window its harness reported, and the background subagents it follows.
++    pub(super) fn usage_stats_of(&self, session: &Session, m: &SessionMeta) -> Option<UsageStats> {
++        let stats = self.usage_stats.stats.lock().unwrap_or_else(|e| e.into_inner());
++        let mut stats = stats.get(&m.id).cloned()?;
++        let size = m.usage.as_ref().and_then(|u| u.get("size")).and_then(Value::as_u64);
++        if let Some(size) = size.filter(|s| *s > 0) {
++            stats.context_window = Some(size);
++        }
++        // The background subagents the hub follows (`subagents.rs`): a Codex child, which its
++        // rollout does not name, and a Claude one its transcript has not shown yet.
++        let followed = session.subagents.try_lock().ok().map(|t| t.background_running() as u64);
++        stats.subagents_live = match (m.family.as_deref(), stats.subagents_live, followed) {
++            (_, Some(read), Some(followed)) => Some(read.max(followed)),
++            (Some("codex"), None, followed) => followed,
++            (_, read, _) => read,
++        };
++        // No harness process runs, so none of its subagents does.
++        if matches!(
++            m.status,
++            SessionStatus::Closed | SessionStatus::Disconnected | SessionStatus::Idle
++        ) {
++            stats.subagents_live = Some(0);
++        }
++        Some(stats)
++    }
++}
+diff --git a/cmux-tui/crates/acpmux/src/hub/views.rs b/cmux-tui/crates/acpmux/src/hub/views.rs
+index b86d2caf9ef9..942f06375c09 100644
+--- a/cmux-tui/crates/acpmux/src/hub/views.rs
++++ b/cmux-tui/crates/acpmux/src/hub/views.rs
+@@ -471,6 +471,8 @@ impl Hub {
+             lane: None,
+             lifecycle_receipt: None,
+             peer: None,
++            // What its harness spent and holds, as the last read found it (`usage_view.rs`).
++            usage_stats: self.usage_stats_of(session, &m),
+         };
+         let receipt = SessionReceipt::new(
+             LOCAL_HOST_ID,
+diff --git a/cmux-tui/crates/acpmux/src/lib.rs b/cmux-tui/crates/acpmux/src/lib.rs
+index 74f71f8340ba..e001efdee375 100644
+--- a/cmux-tui/crates/acpmux/src/lib.rs
++++ b/cmux-tui/crates/acpmux/src/lib.rs
+@@ -135,6 +135,7 @@ pub mod transcript;
+ pub mod trust;
+ pub mod trust_auto;
+ pub mod tui;
++pub mod usage_stats;
+ pub mod user_settings;
+ pub mod web_modes;
+ pub mod wireguard;
+diff --git a/cmux-tui/crates/acpmux/src/protocol/session.rs b/cmux-tui/crates/acpmux/src/protocol/session.rs
+index 7ad99388bf2d..b9bc5508b576 100644
+--- a/cmux-tui/crates/acpmux/src/protocol/session.rs
++++ b/cmux-tui/crates/acpmux/src/protocol/session.rs
+@@ -190,6 +190,73 @@ pub struct SessionSummary {
+     /// The peer daemon a remote session runs on; absent for this daemon's own.
+     #[serde(skip_serializing_if = "Option::is_none")]
+     pub peer: Option<String>,
++    /// What its harness spends and holds, from the harness's own records
++    /// (`usage_stats.rs`); absent until a Claude Code or Codex chat's records
++    /// are found, for any other harness, and from a peer on an older acpmux.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub usage_stats: Option<UsageStats>,
++}
++
++/// A chat's spend and context as its harness recorded them (`usage_stats.rs`):
++/// Claude Code's transcript and its subagents' (their spend is the chat's), or
++/// Codex's rollout. Read from where the last read ended: by a session list
++/// that asks (`usage: true`) or an info read, at most every 5 s, and by each
++/// turn's end for its own chat, recorded then as a mux `usage_stats` record.
++/// A value that could not be read is null, never 0: a count is null while
++/// the reads have not covered the whole last day (a first read cut short
++/// before it, a backlog not read yet, a file that could not be read).
++#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
++#[serde(rename_all = "camelCase")]
++#[schemars(transform = require_all)]
++pub struct UsageStats {
++    /// The executable its harness runs, by file name (`claude`, `claude-sr2`,
++    /// `codex-acp`); `harness` is the profile. Null when this daemon did not
++    /// start it (an adopted, watched or revived chat).
++    pub launcher: Option<String>,
++    /// Whether something caps the context at which the harness compacts.
++    pub autocompact: Autocompact,
++    /// The cap, when `autocompact` is `capped` and its value is known (Claude
++    /// Code's `--autocompact`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW`,
++    /// `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` of a known window, `autoCompactWindow`;
++    /// Codex's `model_auto_compact_token_limit`); null otherwise.
++    pub autocompact_cap: Option<u64>,
++    /// The last call's context: its input, cache read and cache write tokens.
++    pub context_tokens: Option<u64>,
++    /// The model's context window, as the harness reported it, else the catalog's.
++    pub context_window: Option<u64>,
++    /// Compactions in the last 24 hours.
++    pub compactions24h: Option<u64>,
++    /// Subagents that run now.
++    pub subagents_live: Option<u64>,
++    /// Subagents started in the last hour.
++    #[serde(rename = "subagents1h")]
++    pub subagents1h: Option<u64>,
++    /// Subagents started in the last 24 hours.
++    #[serde(rename = "subagents24h")]
++    pub subagents24h: Option<u64>,
++    /// Tokens of the last 24 hours, subagents' included: input, output, cache
++    /// read and cache write.
++    #[serde(rename = "tokens24h")]
++    pub tokens24h: Option<u64>,
++    /// Those tokens at the model catalog's list prices, USD; null when no model
++    /// they ran on has a price, or when `tokens24h` is null.
++    #[serde(rename = "costUsd24h")]
++    pub cost_usd24h: Option<f64>,
++    /// Unix ms of the read these come from.
++    pub updated_at: u64,
++}
++
++/// Whether a harness's autocompact is capped (`UsageStats.autocompact`).
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
++#[serde(rename_all = "snake_case")]
++pub enum Autocompact {
++    /// A flag, env or setting caps it.
++    Capped,
++    /// Nothing caps it: the harness's own default applies.
++    #[serde(rename = "none")]
++    Uncapped,
++    /// Not known: its argv is not this daemon's, or a value or file it reads could not be read.
++    Unknown,
+ }
+ 
+ /// A durable lifecycle fact supplied by an explicit producer. This contract
+@@ -583,6 +650,11 @@ pub struct SessionsParams {
+     /// Include tool inventories explicitly; default census rows omit them.
+     #[serde(default, skip_serializing_if = "Option::is_none")]
+     pub with_tools: Option<bool>,
++    /// `_acpmux/sessions` only: read each chat's usage from its harness's records first
++    /// (`usageStats`; at most one read every 5 s, waited for at most 750 ms). Without it the
++    /// rows carry what the last read found.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub usage: Option<bool>,
+     /// Page size, at least 1. Without it the reply is the whole list.
+     #[serde(default, skip_serializing_if = "Option::is_none")]
+     #[schemars(range(min = 1))]
+diff --git a/cmux-tui/crates/acpmux/src/server/change_kind.rs b/cmux-tui/crates/acpmux/src/server/change_kind.rs
+index f7f0601dc4a4..545e15961c5f 100644
+--- a/cmux-tui/crates/acpmux/src/server/change_kind.rs
++++ b/cmux-tui/crates/acpmux/src/server/change_kind.rs
+@@ -39,7 +39,9 @@ pub(super) fn session_change_kind(record_kind: &str) -> Option<&str> {
+         // A turn the row showed `retryDeciding` for gets no retry.
+         | "auto_resume_settled"
+         // Work the session started runs past its turn, or ended (`hub/work_below.rs`).
+-        | "subagents_working" => record_kind,
++        | "subagents_working"
++        // What its harness spent and holds, read after a turn (`hub/usage_view.rs`).
++        | "usage_stats" => record_kind,
+         // A Stop's turn reads `stopping`, or a stuck chat works again: the row's `state`.
+         "stopping" | "stop_escalated" | "stop_restarted" | "unstuck" => "status",
+         k if k == "dequeued" || k.starts_with("queue") => "queue",
+diff --git a/cmux-tui/crates/acpmux/src/server/requests.rs b/cmux-tui/crates/acpmux/src/server/requests.rs
+index c905ae2c074b..e7eb762b6803 100644
+--- a/cmux-tui/crates/acpmux/src/server/requests.rs
++++ b/cmux-tui/crates/acpmux/src/server/requests.rs
+@@ -1538,7 +1538,15 @@ async fn dispatch_request(
+             }
+         }
+         method::MUX_STATUS => Ok(hub.status().await),
+-        method::MUX_SESSIONS => super::list_reply::sessions(hub, conn, &params).await,
++        method::MUX_SESSIONS => {
++            // `usage: true` (`ls --wide`, `--json`): each chat's usage as its harness recorded it
++            // until now first (`hub/usage_view.rs`); else rows carry the last pass's.
++            if params.get("usage") == Some(&Value::Bool(true)) {
++                let read = hub.refresh_usage_stats();
++                let _ = tokio::time::timeout(crate::hub::USAGE_READ_WAIT, read).await;
++            }
++            super::list_reply::sessions(hub, conn, &params).await
++        }
+         method::MUX_WEB_MODES => hub.web_modes_view(&params),
+         method::MUX_WEB_TOKEN_ROTATE => hub.rotate_web_token().await,
+         method::MUX_WARM => {
+diff --git a/cmux-tui/crates/acpmux/src/server/requests/info.rs b/cmux-tui/crates/acpmux/src/server/requests/info.rs
+index 30d97570fb67..f9d950dda2be 100644
+--- a/cmux-tui/crates/acpmux/src/server/requests/info.rs
++++ b/cmux-tui/crates/acpmux/src/server/requests/info.rs
+@@ -6,6 +6,9 @@ use super::*;
+ /// true while a move away is begun or committed, null until a restored log is read.
+ pub(super) async fn info(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
+     let s = hub.resolve_told(session_key(params)?, conn.origin == Origin::Local)?;
++    // Never waited for: the next read has it (`hub/usage_view.rs`).
++    let later = hub.clone();
++    tokio::spawn(async move { later.refresh_usage_stats().await });
+     // After a restart the chat logs are read after the ready line; until
+     // then the queue, the turn and the status are the session list's. Info
+     // waits for this chat's (#22916; read now if the background pass has not
+diff --git a/cmux-tui/crates/acpmux/src/usage_stats.rs b/cmux-tui/crates/acpmux/src/usage_stats.rs
+new file mode 100644
+index 000000000000..9a5e37e8afc6
+--- /dev/null
++++ b/cmux-tui/crates/acpmux/src/usage_stats.rs
+@@ -0,0 +1,999 @@
++//! What each chat's harness spends and holds (`SessionSummary.usageStats`), read
++//! from the harness's own records (Leo, 2026-10-30: "that visibility into
++//! huge-blue guys was (and is?) pretty bad i feel like we can make more
++//! improvements to acpmux/cmux-next"): four deputies ran plain Claude Code with
++//! no autocompact cap for hours, at 290-330k tokens of context a call and 67-90
++//! subagents each, and nothing in acpmux showed it.
++//!
++//! - Claude Code: the chat's transcript (`<CLAUDE_CONFIG_DIR or ~/.claude>/projects/<cwd>/<sid>.jsonl`),
++//!   whose `assistant` lines carry each API call's `usage` (several lines share one
++//!   `message.id` and its usage: counted once) and whose `compact_boundary` lines mark
++//!   compactions; and its subagents' own transcripts (`<sid>/subagents/agent-*.jsonl`),
++//!   one per spawn, with a `.meta.json` that says `finished` once it ends.
++//! - Codex: the rollout (`<CODEX_HOME or ~/.codex>/sessions/YYYY/MM/DD/rollout-*-<sid>.jsonl`):
++//!   `token_count` events (`last_token_usage`, `model_context_window`), `compacted`
++//!   items, and `spawn_agent` calls. A Codex child runs in its own thread, so its spend is
++//!   its own rollout's, not the parent's.
++//!
++//! Cheap and incremental: a [`Tracker`] keeps each file's read offset and reads only
++//! what was appended since, in bounded steps; a first read takes at most the newest
++//! [`FIRST_READ_BYTES`]. A count is unknown (null), never a lower number, until the reads
++//! cover the whole day: a first read cut short after the day began, a backlog left for the
++//! next refresh, or a file that could not be read. Lines that cannot carry usage are skipped
++//! before they are parsed. Spend is kept in minute buckets for the last day, so the 24-hour and
++//! one-hour sums need no rescan. Cost is the model catalog's list price for the
++//! tokens (USD per million), null when no model of the window has a price.
++
++use crate::protocol::session::{Autocompact, UsageStats};
++use serde_json::Value;
++use std::collections::{BTreeMap, HashMap, VecDeque};
++use std::io::{Read, Seek, SeekFrom};
++use std::path::{Path, PathBuf};
++
++const MINUTE_MS: u64 = 60_000;
++const HOUR_MS: u64 = 60 * MINUTE_MS;
++pub const DAY_MS: u64 = 24 * HOUR_MS;
++/// The most of a file a first read takes: its newest bytes.
++pub const FIRST_READ_BYTES: u64 = 256 << 20;
++/// The most one refresh reads of one file; the rest waits for the next refresh.
++const READ_STEP_BYTES: u64 = 64 << 20;
++/// A Claude subagent that never said `finished` and whose transcript has not
++/// changed for this long has died with its process: it is not counted live.
++const LIVE_QUIET_MS: u64 = 30 * MINUTE_MS;
++/// How long a transcript that was not found is left before it is looked for again.
++const LOOK_AGAIN_MS: u64 = 5 * MINUTE_MS;
++/// Message ids remembered per file to count a streamed message's usage once.
++const RECENT_IDS: usize = 64;
++
++/// List prices of one model, USD per million tokens (the catalog's `cost`).
++#[derive(Debug, Clone, Copy, Default, PartialEq)]
++pub struct Prices {
++    pub input: f64,
++    pub output: f64,
++    pub cache_read: f64,
++    pub cache_write: f64,
++}
++
++/// What the model catalog says of each model a harness may name: its prices and context window.
++#[derive(Debug, Clone, Default)]
++pub struct Models(HashMap<String, (Option<Prices>, Option<u64>)>);
++
++impl Models {
++    /// The catalog's prices and windows by model id; Anthropic's and OpenAI's own
++    /// entries first, so a reseller's copy of a model never sets its price.
++    pub fn from_catalog(catalog: &crate::catalog::Catalog) -> Self {
++        let mut models = Models::default();
++        let resold = |key: &&String| !(key.starts_with("anthropic/") || key.starts_with("openai/"));
++        let mut keys: Vec<&String> = catalog.models.keys().collect();
++        keys.sort_by_key(resold);
++        for key in keys {
++            let Some(info) = catalog.models.get(key.as_str()) else { continue };
++            let Some((_, id)) = key.split_once('/') else { continue };
++            let prices = info.cost.as_ref().and_then(|c| {
++                Some(Prices {
++                    input: c.input?,
++                    output: c.output?,
++                    cache_read: c.cache_read.or(c.input)?,
++                    cache_write: c.cache_write.or(c.input)?,
++                })
++            });
++            models.add(id, prices, info.context_window);
++        }
++        models
++    }
++
++    /// Adds `id` (a catalog key's model part); the first entry of an id wins.
++    pub fn add(&mut self, id: &str, prices: Option<Prices>, window: Option<u64>) {
++        self.0.entry(id.to_ascii_lowercase()).or_insert((prices, window));
++    }
++
++    fn get(&self, model: &str) -> Option<&(Option<Prices>, Option<u64>)> {
++        // `claude-opus-5-5[1m]` is the same model's long-context name.
++        let id = model.split('[').next().unwrap_or(model).trim().to_ascii_lowercase();
++        self.0.get(&id)
++    }
++
++    fn prices(&self, model: &str) -> Option<Prices> {
++        self.get(model)?.0
++    }
++
++    fn window(&self, model: &str) -> Option<u64> {
++        self.get(model)?.1
++    }
++}
++
++/// What the hub knows of one chat: enough to find its harness's records.
++#[derive(Debug, Clone, Default)]
++pub struct Source {
++    /// `claude` or `codex`; any other family has no records read here.
++    pub family: String,
++    pub agent_session_id: String,
++    pub cwd: PathBuf,
++    /// Unix ms the chat was created: where a Codex rollout is looked for first.
++    pub created_at: u64,
++    /// The argv this daemon last started its harness with; None when it never did (an
++    /// adopted, watched or revived chat), so its launcher and autocompact are unknown.
++    pub argv: Option<Vec<String>>,
++    /// The env its harness starts with (profile, preset, chat store, the chat's own).
++    pub env: BTreeMap<String, String>,
++}
++
++impl Source {
++    /// The harness's own home: `CLAUDE_CONFIG_DIR` / `CODEX_HOME`, else `~/.claude` / `~/.codex`.
++    fn home(&self) -> Option<PathBuf> {
++        let (var, dir) = match self.family.as_str() {
++            "claude" => ("CLAUDE_CONFIG_DIR", ".claude"),
++            "codex" => ("CODEX_HOME", ".codex"),
++            _ => return None,
++        };
++        let set = self.env.get(var).cloned().or_else(|| std::env::var(var).ok());
++        match set.filter(|d| !d.is_empty()) {
++            Some(dir) => Some(PathBuf::from(dir)),
++            None => dirs::home_dir().map(|h| h.join(dir)),
++        }
++    }
++}
++
++#[derive(Debug, Clone, Copy, Default)]
++struct Bucket {
++    tokens: u64,
++    cost_usd: f64,
++    priced: bool,
++    compactions: u64,
++    spawns: u64,
++}
++
++/// One file read so far.
++#[derive(Debug, Default)]
++struct Tail {
++    path: PathBuf,
++    offset: u64,
++    /// Message ids already counted (Claude streams one message over several lines).
++    recent: VecDeque<String>,
++    /// Codex's running total at the last `token_count`, which repeats on rate-limit updates.
++    last_total: Option<u64>,
++    /// Since when (unix ms) what was read covers the file: 0 from its start; None before a read,
++    /// or when a first read began mid-file at a line with no time.
++    covered_from: Option<u64>,
++    /// The newest time (unix ms) of a record that should have counted but could not be read
++    /// (not JSON, no time, no token counts, longer than a read step): the day's counts are
++    /// unknown until it is older than the day.
++    lost_at: Option<u64>,
++    /// The read stopped inside a line longer than a read step: the next drops the rest of it.
++    in_long_line: bool,
++}
++
++impl Tail {
++    /// Whether what was read covers the day before `now`, with nothing in it lost.
++    fn covers_day(&self, now: u64) -> bool {
++        self.covered_from.is_some_and(|from| from == 0 || from + DAY_MS <= now)
++            && self.lost_at.is_none_or(|at| at + DAY_MS <= now)
++    }
++
++    /// A record that should have counted could not be read: `at` is its time, else now.
++    fn lose(&mut self, at: u64) {
++        self.lost_at = Some(self.lost_at.map_or(at, |lost| lost.max(at)));
++    }
++
++    /// A record was seen: a later one with the same key is its duplicate ([`classify`]).
++    fn remember(&mut self, key: &Key) {
++        match key {
++            Key::Message(id) if !self.recent.iter().any(|seen| seen == id) => {
++                if self.recent.len() == RECENT_IDS {
++                    self.recent.pop_front();
++                }
++                self.recent.push_back(id.clone());
++            }
++            Key::Total(total) => self.last_total = Some(*total),
++            Key::Message(_) | Key::None => {}
++        }
++    }
++}
++
++#[derive(Debug, Default)]
++struct Subagent {
++    tail: Tail,
++    /// Its first record was read and counted as a spawn.
++    spawned: bool,
++    /// It said `finished` and was read to its end: never read again.
++    done: bool,
++    live: bool,
++}
++
++/// The running state for one chat: offsets, the day's minute buckets, the last call's context.
++#[derive(Debug, Default)]
++pub struct Tracker {
++    main: Option<Tail>,
++    look_again_at: u64,
++    subagents: HashMap<PathBuf, Subagent>,
++    minutes: BTreeMap<u64, Bucket>,
++    model: Option<String>,
++    context_tokens: Option<u64>,
++    /// When the call `context_tokens` comes from was made: an older one read later never replaces it.
++    context_at: u64,
++    context_window: Option<u64>,
++    /// The newest call older than the window a read passed over, parsed at the read's end.
++    old_context: Option<Vec<u8>>,
++    /// The last refresh read every file to its end, covering the whole day: else the counts are
++    /// lower than the truth, so they read as unknown.
++    complete: bool,
++    /// The most a first read takes and the most one refresh reads, per file (tests set them).
++    limits: Option<(u64, u64)>,
++}
++
++impl Tracker {
++    /// Reads what the chat's harness appended since the last refresh and returns the stats as
++    /// of `now`; None while its transcript is not found.
++    pub fn refresh(&mut self, source: &Source, now: u64, models: &Models) -> Option<UsageStats> {
++        if self.main.is_none() && now >= self.look_again_at {
++            match locate(source) {
++                Some(path) => self.main = Some(Tail { path, ..Tail::default() }),
++                None => self.look_again_at = now + LOOK_AGAIN_MS,
++            }
++        }
++        let codex = source.family == "codex";
++        let limits = self.limits.unwrap_or((FIRST_READ_BYTES, READ_STEP_BYTES));
++        if let Some(mut tail) = self.main.take() {
++            let read = read_new(&mut tail, limits, now, |line, tail| {
++                if codex {
++                    self.codex_line(line, tail, now, models);
++                } else {
++                    self.claude_line(line, tail, now, true, models);
++                }
++            });
++            self.complete = read && tail.covers_day(now);
++            if !codex {
++                self.settle_context(&mut tail, now, models);
++                let subagents =
++                    self.claude_subagents(&tail.path, &source.agent_session_id, now, models);
++                self.complete &= subagents;
++            }
++            self.main = Some(tail);
++        }
++        let cutoff = now.saturating_sub(DAY_MS);
++        self.minutes = self.minutes.split_off(&(cutoff - cutoff % MINUTE_MS));
++        let window =
++            self.context_window.or_else(|| self.model.as_deref().and_then(|m| models.window(m)));
++        self.main.as_ref()?;
++        Some(self.stats(source, now, window))
++    }
++
++    fn stats(&self, source: &Source, now: u64, window: Option<u64>) -> UsageStats {
++        let known = |n: u64| self.complete.then_some(n);
++        let (mut day, mut hour_spawns, mut priced) = (Bucket::default(), 0, false);
++        for (minute, b) in &self.minutes {
++            day.tokens += b.tokens;
++            day.cost_usd += b.cost_usd;
++            day.compactions += b.compactions;
++            day.spawns += b.spawns;
++            priced |= b.priced;
++            if minute + MINUTE_MS > now.saturating_sub(HOUR_MS) {
++                hour_spawns += b.spawns;
++            }
++        }
++        let (autocompact, autocompact_cap) = autocompact(source, window);
++        // Codex's children are not in its rollout: the hub fills them in (`hub/usage_view.rs`).
++        let live = (source.family == "claude" && self.complete)
++            .then(|| self.subagents.values().filter(|s| s.live).count() as u64);
++        UsageStats {
++            launcher: source.argv.as_deref().and_then(launcher),
++            autocompact,
++            autocompact_cap,
++            context_tokens: self.context_tokens,
++            context_window: window,
++            compactions24h: known(day.compactions),
++            subagents_live: live,
++            subagents1h: known(hour_spawns),
++            subagents24h: known(day.spawns),
++            tokens24h: known(day.tokens),
++            // Rounded to the cent's hundredth: a sum of list prices, not a bill.
++            cost_usd24h: (self.complete && priced)
++                .then(|| (day.cost_usd * 10_000.0).round() / 10_000.0),
++            updated_at: now,
++        }
++    }
++
++    fn bucket(&mut self, at: u64, now: u64) -> Option<&mut Bucket> {
++        (at + DAY_MS > now).then(|| self.minutes.entry(at - at % MINUTE_MS).or_default())
++    }
++
++    fn claude_line(&mut self, line: &[u8], tail: &mut Tail, now: u64, main: bool, models: &Models) {
++        if !(contains(line, b"\"assistant\"") || main && contains(line, b"compact_boundary")) {
++            return escaped_kind(Harness::Claude { main }, line, tail, now);
++        }
++        // A line older than the window counts for nothing but, if it is the newest call, the
++        // context: kept unparsed until the read ends (`settle_context`), as most of a long
++        // chat's lines are, so its first read parses only the last day.
++        if let Some(at) = quick_timestamp(line).filter(|at| at + DAY_MS <= now) {
++            // What `parse_claude_line` takes as a call: a main-loop assistant line with usage and
++            // a real model (an API error Claude Code makes up names `<synthetic>`).
++            let reply = contains(line, b"\"type\":\"assistant\"")
++                && contains(line, b"\"input_tokens\"")
++                && !contains(line, b"\"model\":\"<");
++            // Seen, so a later untimed line of the same message is its duplicate, not lost.
++            if reply && let Some(id) = quick_message_id(line) {
++                tail.remember(&Key::Message(id));
++            }
++            if main && reply && !contains(line, b"\"isSidechain\":true") && at >= self.context_at {
++                self.old_context = Some(line.to_vec());
++            }
++            return;
++        }
++        self.parse_claude_line(line, tail, now, main, models);
++    }
++
++    /// The newest old call a read passed over (`claude_line`) as the chat's context, unless a
++    /// newer one was read.
++    fn settle_context(&mut self, tail: &mut Tail, now: u64, models: &Models) {
++        if let Some(line) = self.old_context.take() {
++            // Its id is remembered already (`claude_line`): it is the call, not a repeat of it.
++            let class = classify(Harness::Claude { main: true }, &line, &Tail::default());
++            self.take(class, tail, now, models);
++        }
++    }
++
++    fn parse_claude_line(
++        &mut self,
++        line: &[u8],
++        tail: &mut Tail,
++        now: u64,
++        main: bool,
++        models: &Models,
++    ) {
++        let class = classify(Harness::Claude { main }, line, tail);
++        self.take(class, tail, now, models);
++    }
++
++    fn codex_line(&mut self, line: &[u8], tail: &mut Tail, now: u64, models: &Models) {
++        let wanted = [&b"token_count"[..], b"\"compacted\"", b"spawn_agent", b"turn_context"];
++        if !wanted.iter().any(|w| contains(line, w)) {
++            return escaped_kind(Harness::Codex, line, tail, now);
++        }
++        let class = classify(Harness::Codex, line, tail);
++        self.take(class, tail, now, models);
++    }
++
++    /// Applies one record's [`classify`]: what it counts goes in the day's buckets, what it
++    /// should have counted and could not makes the day unknown (`Tail::lose`).
++    fn take(&mut self, class: Class, tail: &mut Tail, now: u64, models: &Models) {
++        let (at, counts) = match class {
++            Class::Uncountable | Class::Duplicate => return,
++            Class::Model { model } => return self.model = Some(model),
++            Class::Lost { at, key } => {
++                tail.remember(&key);
++                return tail.lose(at.unwrap_or(now));
++            }
++            Class::Counted { at, counts } => (at, counts),
++        };
++        match counts {
++            Counts::Compaction => {
++                if let Some(b) = self.bucket(at, now) {
++                    b.compactions += 1;
++                }
++            }
++            Counts::Spawn => {
++                if let Some(b) = self.bucket(at, now) {
++                    b.spawns += 1;
++                }
++            }
++            Counts::Tokens(t) => {
++                tail.remember(&t.key);
++                if let Some(window) = t.window {
++                    self.context_window = Some(window);
++                }
++                if let Some(context) = t.context.filter(|_| at >= self.context_at) {
++                    if t.model.is_some() {
++                        self.model = t.model.clone();
++                    }
++                    self.context_tokens = Some(context);
++                    self.context_at = at;
++                }
++                let model = t.model.clone().or_else(|| self.model.clone()).unwrap_or_default();
++                let cost = models.prices(&model).map(|p| t.cost(&p));
++                if let Some(b) = self.bucket(at, now) {
++                    b.tokens += t.total;
++                    if let Some(cost) = cost {
++                        b.cost_usd += cost;
++                        b.priced = true;
++                    }
++                }
++            }
++        }
++    }
++
++    /// Claude Code's subagents: one transcript per spawn beside the chat's
++    /// (`<sid>/subagents/agent-*.jsonl`); its spend is the chat's too.
++    /// Whether every subagent's transcript was read to its end, covering the day.
++    fn claude_subagents(&mut self, main: &Path, sid: &str, now: u64, models: &Models) -> bool {
++        let Some(dir) = main.parent().map(|d| d.join(sid).join("subagents")) else { return false };
++        let entries = match std::fs::read_dir(&dir) {
++            Ok(entries) => entries,
++            // A chat that never started one.
++            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return true,
++            Err(_) => return false,
++        };
++        let limits = self.limits.unwrap_or((FIRST_READ_BYTES, READ_STEP_BYTES));
++        let mut complete = true;
++        for entry in entries {
++            let Ok(entry) = entry else {
++                complete = false;
++                continue;
++            };
++            let path = entry.path();
++            if path.extension().is_none_or(|e| e != "jsonl") {
++                continue;
++            }
++            let mut agent = self.subagents.remove(&path).unwrap_or_default();
++            if agent.done {
++                self.subagents.insert(path, agent);
++                continue;
++            }
++            let modified = modified_ms(&path).unwrap_or(0);
++            let finished = std::fs::read(path.with_extension("meta.json"))
++                .ok()
++                .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
++                .is_some_and(|meta| meta.get("finished").and_then(Value::as_bool) == Some(true));
++            if agent.tail.path.as_os_str().is_empty() {
++                agent.tail.path = path.clone();
++                // Older than the window: nothing in it counts; never read.
++                if modified + DAY_MS <= now {
++                    agent.done = true;
++                    self.subagents.insert(path, agent);
++                    continue;
++                }
++            }
++            let mut tail = std::mem::take(&mut agent.tail);
++            let mut first = None;
++            let read = read_new(&mut tail, limits, now, |line, tail| {
++                if first.is_none() && !agent.spawned {
++                    first = serde_json::from_slice::<Value>(line).ok().and_then(|r| timestamp(&r));
++                }
++                self.claude_line(line, tail, now, false, models);
++            });
++            if !agent.spawned
++                && let Some(at) = first.or(Some(modified)).filter(|&at| at > 0)
++            {
++                agent.spawned = true;
++                if let Some(b) = self.bucket(at, now) {
++                    b.spawns += 1;
++                }
++            }
++            complete &= read && tail.covers_day(now);
++            agent.tail = tail;
++            agent.live = !finished && modified + LIVE_QUIET_MS > now;
++            agent.done = finished && read;
++            self.subagents.insert(path, agent);
++        }
++        complete
++    }
++}
++
++/// Which records a transcript has, and the parse that reads them.
++#[derive(Debug, Clone, Copy, PartialEq)]
++enum Harness {
++    /// Claude Code; `main`: the chat's own transcript, not a subagent's.
++    Claude {
++        main: bool,
++    },
++    Codex,
++}
++
++/// What one transcript record is to the usage counts ([`classify`]).
++#[derive(Debug, Clone, PartialEq)]
++enum Class {
++    /// Carries nothing to count: another kind of record, a reply Claude Code made up
++    /// (`<synthetic>`), a rate-limit update, a subagent's compaction.
++    Uncountable,
++    /// Repeats one already counted: a streamed message's other lines, a repeated Codex total.
++    Duplicate,
++    /// Should count but cannot be read: not JSON, no time, no token counts. Its time, when known,
++    /// and what tells a repeat of it (a later line of the same message is a duplicate of it).
++    Lost { at: Option<u64>, key: Key },
++    /// Counts at `at`.
++    Counted { at: u64, counts: Counts },
++    /// Names the model the Codex calls after it ran on (a timed turn context): no count.
++    Model { model: String },
++}
++
++#[derive(Debug, Clone, PartialEq)]
++enum Counts {
++    Compaction,
++    Spawn,
++    Tokens(Tokens),
++}
++
++impl Counts {
++    /// What tells a repeat of it: only a model call has one.
++    fn key(&self) -> Key {
++        match self {
++            Counts::Tokens(t) => t.key.clone(),
++            Counts::Compaction | Counts::Spawn => Key::None,
++        }
++    }
++}
++
++/// One model call's tokens.
++#[derive(Debug, Clone, PartialEq)]
++struct Tokens {
++    /// The model it names (Claude); Codex's comes from its turn context.
++    model: Option<String>,
++    input: u64,
++    output: u64,
++    cache_read: u64,
++    cache_write: u64,
++    /// Of `cache_write`, the hour-long writes (billed at twice the input price).
++    cache_write_1h: u64,
++    /// What the day's count adds.
++    total: u64,
++    /// The chat's context after the call; None for a subagent's call.
++    context: Option<u64>,
++    /// The context window the harness reported.
++    window: Option<u64>,
++    /// What tells a repeat of it.
++    key: Key,
++}
++
++#[derive(Debug, Clone, PartialEq)]
++enum Key {
++    Message(String),
++    Total(u64),
++    None,
++}
++
++impl Tokens {
++    fn cost(&self, p: &Prices) -> f64 {
++        let write_5m = self.cache_write - self.cache_write_1h;
++        (self.input as f64 * p.input
++            + self.output as f64 * p.output
++            + self.cache_read as f64 * p.cache_read
++            + write_5m as f64 * p.cache_write
++            + self.cache_write_1h as f64 * p.input * 2.0)
++            / 1e6
++    }
++}
++
++/// The one decision of what a record is to the counts, timed or not, for every parse
++/// (`Tracker::take` applies it): first whether it is a kind that counts, then whether it
++/// repeats one seen (`tail`'s ids and last total), then whether it can be read (a time, its
++/// token counts). So nothing is lost that would have been skipped, and a record seen once,
++/// counted or lost, is a duplicate after.
++///
++/// Outside it, by design, as they work on files, not records: `read_new` marks lost a line
++/// longer than a read step (it cannot be parsed); `claude_subagents` counts one spawn per
++/// subagent transcript, at its first record's time, else the file's; and the parses'
++/// byte pre-filters pass on only lines that name a counted kind as Claude Code and Codex write
++/// it, unescaped. A line whose kind is written escaped (`"\u0061ssistant"`) is caught by
++/// `escaped_kind` and makes the day unknown, never a count of 0.
++fn classify(harness: Harness, line: &[u8], tail: &Tail) -> Class {
++    let Ok(record) = serde_json::from_slice::<Value>(line) else {
++        // The callers pass only lines that name a kind that counts (`claude_line`, `codex_line`).
++        return Class::Lost { at: quick_timestamp(line), key: Key::None };
++    };
++    let at = timestamp(&record);
++    let counted = |counts: Counts| match at {
++        Some(at) => Class::Counted { at, counts },
++        None => Class::Lost { at: None, key: counts.key() },
++    };
++    let n = |v: &Value, k: &str| v.get(k).and_then(Value::as_u64);
++    match harness {
++        Harness::Claude { main } => match field(&record, "type").as_str() {
++            Some("system") if field(&record, "subtype") == "compact_boundary" => {
++                if main {
++                    counted(Counts::Compaction)
++                } else {
++                    Class::Uncountable
++                }
++            }
++            Some("assistant") => {
++                let message = field(&record, "message");
++                let model = field(message, "model").as_str().unwrap_or_default();
++                let usage = field(message, "usage");
++                if model.is_empty() || model.starts_with('<') || !usage.is_object() {
++                    return Class::Uncountable;
++                }
++                let key = field(message, "id")
++                    .as_str()
++                    .map_or(Key::None, |id| Key::Message(id.to_owned()));
++                if let Key::Message(id) = &key
++                    && tail.recent.iter().any(|seen| seen == id)
++                {
++                    return Class::Duplicate;
++                }
++                // A reply without its token counts cannot be counted: never as 0.
++                let (Some(input), Some(output)) =
++                    (n(usage, "input_tokens"), n(usage, "output_tokens"))
++                else {
++                    return Class::Lost { at, key };
++                };
++                // The API leaves a cache count out when it is 0.
++                let read = n(usage, "cache_read_input_tokens").unwrap_or(0);
++                let write = n(usage, "cache_creation_input_tokens").unwrap_or(0);
++                let write_1h = usage.pointer("/cache_creation/ephemeral_1h_input_tokens");
++                let own = main && field(&record, "isSidechain").as_bool() != Some(true);
++                counted(Counts::Tokens(Tokens {
++                    model: Some(model.to_owned()),
++                    input,
++                    output,
++                    cache_read: read,
++                    cache_write: write,
++                    cache_write_1h: write_1h.and_then(Value::as_u64).unwrap_or(0).min(write),
++                    total: input + output + read + write,
++                    context: own.then_some(input + read + write),
++                    window: None,
++                    key,
++                }))
++            }
++            _ => Class::Uncountable,
++        },
++        Harness::Codex => {
++            let payload = field(&record, "payload");
++            match (field(&record, "type").as_str(), field(payload, "type").as_str()) {
++                // Untimed, it cannot say which calls ran after it: as before, it is passed over.
++                (Some("turn_context"), _) => match (at, field(payload, "model").as_str()) {
++                    (Some(_), Some(model)) => Class::Model { model: model.to_owned() },
++                    _ => Class::Uncountable,
++                },
++                (Some("compacted"), _) => counted(Counts::Compaction),
++                (Some("response_item"), Some("function_call" | "custom_tool_call"))
++                    if field(payload, "name") == "spawn_agent" =>
++                {
++                    counted(Counts::Spawn)
++                }
++                (Some("event_msg"), Some("token_count")) => {
++                    let info = field(payload, "info");
++                    // A rate-limit update alone carries no info.
++                    if info.is_null() {
++                        return Class::Uncountable;
++                    }
++                    let total =
++                        info.pointer("/total_token_usage/total_tokens").and_then(Value::as_u64);
++                    // Codex repeats its last report with each rate-limit update.
++                    if total.is_some() && total == tail.last_total {
++                        return Class::Duplicate;
++                    }
++                    let last = field(info, "last_token_usage");
++                    let (Some(total), Some(input), Some(output)) =
++                        (total, n(last, "input_tokens"), n(last, "output_tokens"))
++                    else {
++                        return Class::Lost { at, key: total.map_or(Key::None, Key::Total) };
++                    };
++                    // OpenAI counts cached input inside input_tokens, and leaves out a 0 cache
++                    // count; its total_tokens is input + output. Priced as it says, unclamped.
++                    let cached = n(last, "cached_input_tokens").unwrap_or(0);
++                    counted(Counts::Tokens(Tokens {
++                        model: None,
++                        input: input.saturating_sub(cached),
++                        output,
++                        cache_read: cached,
++                        cache_write: 0,
++                        cache_write_1h: 0,
++                        total: n(last, "total_tokens").unwrap_or(input + output),
++                        context: Some(input),
++                        window: n(info, "model_context_window"),
++                        key: Key::Total(total),
++                    }))
++                }
++                _ => Class::Uncountable,
++            }
++        }
++    }
++}
++
++/// Feeds each complete line appended to `tail.path` since `tail.offset` to `each` (`now` is
++/// when, for a line it has to skip), at most
++/// `step` bytes a call; a first read starts at most `first` bytes before the end, at the
++/// first line that starts there. A file that shrank (rewritten) is read again from its start.
++/// Returns whether the read reached the end of the file as it was, at a line's end (false on
++/// any error, a backlog left, or a line still being written).
++fn read_new(
++    tail: &mut Tail,
++    (first, step): (u64, u64),
++    now: u64,
++    mut each: impl FnMut(&[u8], &mut Tail),
++) -> bool {
++    let Ok(mut file) = std::fs::File::open(&tail.path) else { return false };
++    let Ok(len) = file.metadata().map(|m| m.len()) else { return false };
++    if len < tail.offset {
++        *tail = Tail { path: std::mem::take(&mut tail.path), ..Tail::default() };
++    }
++    // Bytes to drop through the first newline: the rest of a line the read starts inside.
++    let mut skip_to_line = std::mem::take(&mut tail.in_long_line);
++    if tail.offset == 0 {
++        if len > first {
++            // One byte early: a cut that falls on a line start drops only that newline.
++            tail.offset = len - first - 1;
++            skip_to_line = true;
++        } else {
++            tail.covered_from = Some(0);
++        }
++    }
++    if len == tail.offset {
++        return true;
++    }
++    if file.seek(SeekFrom::Start(tail.offset)).is_err() {
++        return false;
++    }
++    // This read reaches the end of the file as it is now; else a backlog stays for the next.
++    let to_end = len - tail.offset <= step;
++    let mut buf = Vec::new();
++    if file.take(step.min(len - tail.offset)).read_to_end(&mut buf).is_err() {
++        return false;
++    }
++    let Some(end) = memchr::memrchr(b'\n', &buf) else {
++        if !to_end {
++            // A line longer than a step: it cannot be read, so the day it falls in is unknown.
++            tail.offset += buf.len() as u64;
++            tail.in_long_line = true;
++            tail.lose(now);
++        } else if skip_to_line {
++            tail.in_long_line = true;
++        }
++        // Else a line still being written: read again, whole, next time.
++        return false;
++    };
++    let mut lines = buf.get(..end).unwrap_or_default().split(|b| *b == b'\n');
++    if skip_to_line {
++        lines.next();
++    }
++    for line in lines {
++        if tail.covered_from.is_none() {
++            let record = serde_json::from_slice::<Value>(line).ok();
++            tail.covered_from = record.as_ref().and_then(timestamp);
++        }
++        each(line, tail);
++    }
++    tail.offset += end as u64 + 1;
++    // Bytes past the last newline: a line still being written, read next time.
++    to_end && end + 1 == buf.len()
++}
++
++/// The chat's transcript: Claude's under its project folder (else any project
++/// folder, for a chat whose cwd moved), Codex's rollout under its creation day
++/// (else any day).
++fn locate(source: &Source) -> Option<PathBuf> {
++    let sid = source.agent_session_id.as_str();
++    if sid.is_empty() || sid.contains(['/', '\\']) {
++        return None;
++    }
++    let home = source.home()?;
++    match source.family.as_str() {
++        "claude" => {
++            let projects = home.join("projects");
++            let name = format!("{sid}.jsonl");
++            let direct = projects.join(claude_project_dir(&source.cwd)).join(&name);
++            if direct.is_file() {
++                return Some(direct);
++            }
++            let dirs = std::fs::read_dir(&projects).ok()?;
++            dirs.flatten().map(|d| d.path().join(&name)).find(|p| p.is_file())
++        }
++        "codex" => {
++            let sessions = home.join("sessions");
++            let suffix = format!("-{sid}.jsonl");
++            let day = source.created_at / DAY_MS;
++            let near = [day.saturating_sub(1), day, day + 1].map(|d| {
++                let (y, m, d) = civil_from_days(d);
++                sessions.join(format!("{y:04}")).join(format!("{m:02}")).join(format!("{d:02}"))
++            });
++            let found = |dir: &Path| {
++                std::fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).find(|p| {
++                    p.file_name()
++                        .and_then(|n| n.to_str())
++                        .is_some_and(|n| n.starts_with("rollout-") && n.ends_with(&suffix))
++                })
++            };
++            near.iter().find_map(|d| found(d)).or_else(|| {
++                let mut days = Vec::new();
++                for y in std::fs::read_dir(&sessions).ok()?.flatten() {
++                    for m in std::fs::read_dir(y.path()).into_iter().flatten().flatten() {
++                        days.extend(std::fs::read_dir(m.path()).into_iter().flatten().flatten());
++                    }
++                }
++                // Newest day first: a running chat's rollout is a recent one.
++                days.sort_by_key(|d| std::cmp::Reverse(d.path()));
++                days.iter().find_map(|d| found(&d.path()))
++            })
++        }
++        _ => None,
++    }
++}
++
++/// Claude Code's project folder name for a cwd: every character other than an
++/// ASCII letter or digit becomes `-`.
++fn claude_project_dir(cwd: &Path) -> String {
++    cwd.to_string_lossy().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect()
++}
++
++/// The executable the harness runs, by file name (`claude`, `claude-sr2`, `codex-acp`).
++pub fn launcher(argv: &[String]) -> Option<String> {
++    let program = argv.first()?;
++    let name = Path::new(program).file_name()?.to_string_lossy().into_owned();
++    (!name.is_empty()).then_some(name)
++}
++
++/// Whether the harness's autocompact is capped, and at how many tokens when that is known.
++/// Claude Code: `--autocompact N`, else `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, else
++/// `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` of the window, else `autoCompactWindow` in its
++/// settings.json. Codex: `-c model_auto_compact_token_limit=N`, else that key in its
++/// config.toml. Unknown when its argv is not this daemon's, or a value or file that would
++/// decide it cannot be read; `auto` and an absent setting are no cap.
++pub fn autocompact(source: &Source, window: Option<u64>) -> (Autocompact, Option<u64>) {
++    let capped =
++        |n: Option<u64>| n.map_or((Autocompact::Unknown, None), |n| (Autocompact::Capped, Some(n)));
++    let value = |text: &str| match text.trim().trim_matches('"') {
++        t if t.eq_ignore_ascii_case("auto") => (Autocompact::Uncapped, None),
++        t => capped(tokens(t)),
++    };
++    let Some(argv) = source.argv.as_deref() else { return (Autocompact::Unknown, None) };
++    let env = |k: &str| source.env.get(k).cloned().or_else(|| std::env::var(k).ok());
++    // A file the harness reads at start: absent is no setting; unreadable is unknown.
++    let read = |name: &str| match source.home().map(|h| std::fs::read(h.join(name))) {
++        Some(Ok(bytes)) => Ok(Some(bytes)),
++        Some(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
++        _ => Err(()),
++    };
++    match source.family.as_str() {
++        "claude" => {
++            if let Some(v) = flag(argv, "--autocompact") {
++                return value(&v);
++            }
++            if let Some(v) = env("CLAUDE_CODE_AUTO_COMPACT_WINDOW") {
++                return value(&v);
++            }
++            if let Some(pct) = env("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE") {
++                return match pct.trim().parse::<f64>().ok().filter(|p| *p > 0.0 && *p < 100.0) {
++                    Some(pct) => {
++                        (Autocompact::Capped, window.map(|w| (w as f64 * pct / 100.0) as u64))
++                    }
++                    None => (Autocompact::Unknown, None),
++                };
++            }
++            let Ok(settings) = read("settings.json") else { return (Autocompact::Unknown, None) };
++            let Some(settings) = settings else { return (Autocompact::Uncapped, None) };
++            let Ok(settings) = serde_json::from_slice::<Value>(&settings) else {
++                return (Autocompact::Unknown, None);
++            };
++            match field(&settings, "autoCompactWindow") {
++                Value::Null => (Autocompact::Uncapped, None),
++                Value::Number(n) => capped(n.as_u64()),
++                Value::String(s) => value(s),
++                _ => (Autocompact::Unknown, None),
++            }
++        }
++        "codex" => {
++            const KEY: &str = "model_auto_compact_token_limit";
++            let from_argv = argv.windows(2).rev().find_map(|w| {
++                let [flag, value] = w else { return None };
++                let value = (flag == "-c" || flag == "--config").then_some(value)?;
++                let (key, value) = value.split_once('=')?;
++                (key.trim() == KEY).then(|| value.trim().to_owned())
++            });
++            if let Some(v) = from_argv {
++                return capped(tokens(&v));
++            }
++            let Ok(config) = read("config.toml") else { return (Autocompact::Unknown, None) };
++            let Some(config) = config else { return (Autocompact::Uncapped, None) };
++            let Ok(config) = String::from_utf8(config) else { return (Autocompact::Unknown, None) };
++            // Top-level keys only: the first `[table]` ends them.
++            let set =
++                config.lines().take_while(|l| !l.trim_start().starts_with('[')).find_map(|l| {
++                    let (key, value) = l.split_once('=')?;
++                    (key.trim() == KEY).then(|| value.split('#').next().unwrap_or("").to_owned())
++                });
++            set.map_or((Autocompact::Uncapped, None), |v| capped(tokens(&v)))
++        }
++        _ => (Autocompact::Unknown, None),
++    }
++}
++
++/// The value of `--name V` or `--name=V`, the last one given.
++fn flag(argv: &[String], name: &str) -> Option<String> {
++    let mut found = None;
++    for (i, arg) in argv.iter().enumerate() {
++        if arg == name {
++            found = argv.get(i + 1).cloned();
++        } else if let Some(v) = arg.strip_prefix(name).and_then(|r| r.strip_prefix('=')) {
++            found = Some(v.to_owned());
++        }
++    }
++    found
++}
++
++/// A token count as the harnesses take one: `200000`, `200k`, `1M`, `1_000_000`; `auto` and
++/// anything else is None.
++fn tokens(text: &str) -> Option<u64> {
++    let t = text.trim().trim_matches('"').replace('_', "").to_ascii_lowercase();
++    let (digits, scale) = match t.strip_suffix('k') {
++        Some(d) => (d, 1_000.0),
++        None => t.strip_suffix('m').map_or((t.as_str(), 1.0), |d| (d, 1_000_000.0)),
++    };
++    let n = digits.trim().parse::<f64>().ok().filter(|n| n.is_finite() && *n > 0.0)?;
++    Some((n * scale) as u64)
++}
++
++/// A record's `"timestamp":"…"` found without parsing the line: Claude Code writes it on
++/// every line, after the message, so the last one is the record's own.
++fn quick_timestamp(line: &[u8]) -> Option<u64> {
++    const KEY: &[u8] = b"\"timestamp\":\"";
++    let start = memchr::memmem::rfind(line, KEY)? + KEY.len();
++    let rest = line.get(start..)?;
++    let len = memchr::memchr(b'"', rest)?;
++    crate::server::machine_health::rfc3339_ms(std::str::from_utf8(rest.get(..len)?).ok()?)
++}
++
++/// A Claude reply's message id found without parsing the line (`"id":"msg_…"`, as the API
++/// names them); None when the line names none.
++fn quick_message_id(line: &[u8]) -> Option<String> {
++    const KEY: &[u8] = b"\"id\":\"msg_";
++    let start = memchr::memmem::find(line, KEY)? + KEY.len() - 4;
++    let rest = line.get(start..)?;
++    let len = memchr::memchr(b'"', rest)?;
++    String::from_utf8(rest.get(..len)?.to_vec()).ok()
++}
++
++/// A record's field, `Null` when it has none: `record[key]` without the index (the panic ratchet).
++fn field<'a>(record: &'a Value, key: &str) -> &'a Value {
++    const NULL: &Value = &Value::Null;
++    record.get(key).unwrap_or(NULL)
++}
++
++/// A line the parse's byte pre-filter passed over that is a counted kind written escaped
++/// (`"\u0061ssistant"`; Claude Code and Codex never write one): the day it falls in is lost
++/// (unknown), never a count of 0. Only a line with an escape, within the day, is parsed.
++fn escaped_kind(harness: Harness, line: &[u8], tail: &mut Tail, now: u64) {
++    let at = quick_timestamp(line);
++    if !contains(line, b"\\u") || at.is_some_and(|at| at + DAY_MS <= now) {
++        return;
++    }
++    let Ok(record) = serde_json::from_slice::<Value>(line) else { return };
++    let (kind, payload) =
++        (field(&record, "type").as_str().unwrap_or_default(), field(&record, "payload"));
++    let counted = match harness {
++        Harness::Claude { main } => {
++            kind == "assistant"
++                || main && kind == "system" && field(&record, "subtype") == "compact_boundary"
++        }
++        Harness::Codex => {
++            kind == "compacted"
++                || kind == "event_msg" && field(payload, "type") == "token_count"
++                || kind == "response_item" && field(payload, "name") == "spawn_agent"
++        }
++    };
++    if counted {
++        tail.lose(timestamp(&record).unwrap_or(now));
++    }
++}
++
++fn timestamp(record: &Value) -> Option<u64> {
++    record
++        .get("timestamp")
++        .and_then(Value::as_str)
++        .and_then(crate::server::machine_health::rfc3339_ms)
++}
++
++fn modified_ms(path: &Path) -> Option<u64> {
++    let modified = std::fs::metadata(path).ok()?.modified().ok()?;
++    let since = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
++    u64::try_from(since.as_millis()).ok()
++}
++
++fn contains(hay: &[u8], needle: &[u8]) -> bool {
++    memchr::memmem::find(hay, needle).is_some()
++}
++
++/// The proleptic Gregorian date of a day count since 1970-01-01 (Howard Hinnant's algorithm).
++fn civil_from_days(days: u64) -> (i64, u32, u32) {
++    let z = days as i64 + 719_468;
++    let era = z.div_euclid(146_097);
++    let doe = z - era * 146_097;
++    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
++    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
++    let mp = (5 * doy + 2) / 153;
++    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
++    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
++    (yoe + era * 400 + i64::from(m <= 2), m, d)
++}
++
++#[cfg(test)]
++#[path = "usage_stats_tests.rs"]
++mod tests;
+diff --git a/cmux-tui/crates/acpmux/src/usage_stats_tests.rs b/cmux-tui/crates/acpmux/src/usage_stats_tests.rs
+new file mode 100644
+index 000000000000..a3d999a345a9
+--- /dev/null
++++ b/cmux-tui/crates/acpmux/src/usage_stats_tests.rs
+@@ -0,0 +1,858 @@
++use super::*;
++use serde_json::json;
++use std::io::Write;
++
++const SID: &str = "01a18ad5-89bc-7a02-905f-8f4fbef7fed2";
++
++fn ms(text: &str) -> u64 {
++    crate::server::machine_health::rfc3339_ms(text).unwrap()
++}
++
++fn models() -> Models {
++    let mut m = Models::default();
++    let opus = Prices { input: 4.0, output: 20.0, cache_read: 0.2, cache_write: 5.0 };
++    m.add("claude-opus-5-5", Some(opus), Some(1_000_000));
++    let astra = Prices { input: 2.0, output: 10.0, cache_read: 0.5, cache_write: 2.0 };
++    m.add("gpt-6-astra", Some(astra), Some(400_000));
++    m
++}
++
++fn append(path: &Path, records: &[Value]) {
++    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
++    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
++    for r in records {
++        writeln!(f, "{r}").unwrap();
++    }
++}
++
++fn assistant(id: &str, at: &str, usage: Value, sidechain: bool) -> Value {
++    json!({"type": "assistant", "isSidechain": sidechain, "timestamp": at,
++        "message": {"id": id, "model": "claude-opus-5-5", "role": "assistant",
++            "content": [{"type": "text", "text": "hi"}], "usage": usage}})
++}
++
++fn usage(input: u64, write: u64, read: u64, output: u64) -> Value {
++    json!({"input_tokens": input, "cache_creation_input_tokens": write,
++        "cache_read_input_tokens": read, "output_tokens": output})
++}
++
++/// A Claude chat in `home` (its CLAUDE_CONFIG_DIR), and the path of its transcript.
++fn claude(home: &Path) -> (Source, PathBuf) {
++    let cwd = PathBuf::from("/work/repo.x");
++    let mut env = BTreeMap::new();
++    env.insert("CLAUDE_CONFIG_DIR".to_owned(), home.display().to_string());
++    let source = Source {
++        family: "claude".into(),
++        agent_session_id: SID.into(),
++        cwd,
++        created_at: ms("2026-10-30T00:00:00Z"),
++        argv: Some(vec!["/usr/local/bin/claude".into(), "--autocompact".into(), "200k".into()]),
++        env,
++    };
++    (source, home.join("projects/-work-repo-x").join(format!("{SID}.jsonl")))
++}
++
++#[test]
++fn a_claude_transcript_counts_each_message_once_and_reads_only_what_was_appended() {
++    let home = tempfile::tempdir().unwrap();
++    let (source, path) = claude(home.path());
++    let now = ms("2026-10-30T12:00:00Z");
++    append(
++        &path,
++        &[
++            json!({"type": "user", "timestamp": "2026-10-30T11:00:00Z", "message": {"content": "go"}}),
++            // Claude Code writes one line per content block; each repeats the message's usage.
++            assistant("msg_1", "2026-10-30T11:00:01Z", usage(10, 1000, 0, 100), false),
++            assistant("msg_1", "2026-10-30T11:00:01Z", usage(10, 1000, 0, 100), false),
++            json!({"type": "system", "subtype": "compact_boundary", "timestamp": "2026-10-30T11:30:00Z",
++                "compactMetadata": {"trigger": "auto", "preTokens": 190_000}}),
++            // Older than a day: neither its tokens nor its compaction count.
++            assistant("msg_0", "2026-10-28T11:00:00Z", usage(1, 1, 1, 1), false),
++            json!({"type": "system", "subtype": "compact_boundary", "timestamp": "2026-10-28T11:30:00Z"}),
++            // An API error Claude Code made up carries no spend.
++            assistant("msg_s", "2026-10-30T11:31:00Z", usage(0, 0, 0, 0), false)
++                .tap(|v| v["message"]["model"] = json!("<synthetic>")),
++        ],
++    );
++    let mut tracker = Tracker::default();
++    let first = tracker.refresh(&source, now, &models()).unwrap();
++    assert_eq!(first.tokens24h, Some(1110));
++    assert_eq!(first.context_tokens, Some(1010));
++    assert_eq!(first.context_window, Some(1_000_000));
++    assert_eq!(first.compactions24h, Some(1));
++    assert_eq!((first.autocompact, first.autocompact_cap), (Autocompact::Capped, Some(200_000)));
++    assert_eq!(first.subagents_live, Some(0), "it never started one");
++    assert_eq!(first.launcher.as_deref(), Some("claude"));
++    // 10 input at $4, 1000 cache writes at $5, 100 output at $20, per million.
++    assert_eq!(first.cost_usd24h, Some(0.0070));
++    assert_eq!(first.updated_at, now);
++
++    // The next message's first line, then a half-written line: only complete lines are read.
++    append(&path, &[assistant("msg_2", "2026-10-30T11:59:00Z", usage(5, 0, 1010, 50), false)]);
++    let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
++    write!(f, "{}", assistant("msg_3", "2026-10-30T11:59:30Z", usage(1, 0, 0, 1), false)).unwrap();
++    let second = tracker.refresh(&source, now, &models()).unwrap();
++    // The line still being written is not known yet: the day's count is unknown, not short.
++    assert_eq!(second.tokens24h, None);
++    assert_eq!(second.context_tokens, Some(1015));
++    writeln!(f).unwrap();
++    // A subagent's line in the chat's own file (a sidechain) is spend, not the chat's context.
++    append(&path, &[assistant("msg_4", "2026-10-30T11:59:40Z", usage(7, 0, 0, 0), true)]);
++    let third = tracker.refresh(&source, now, &models()).unwrap();
++    assert_eq!(third.tokens24h, Some(1110 + 1065 + 2 + 7));
++    assert_eq!(third.context_tokens, Some(1));
++
++    // A day later every bucket has aged out; the last call's context stays.
++    let later = tracker.refresh(&source, now + DAY_MS, &models()).unwrap();
++    assert_eq!(
++        (later.tokens24h, later.compactions24h, later.cost_usd24h),
++        (Some(0), Some(0), None)
++    );
++    assert_eq!(later.context_tokens, Some(1));
++}
++
++#[test]
++fn a_chat_whose_transcript_is_not_found_has_no_stats() {
++    let home = tempfile::tempdir().unwrap();
++    let (source, path) = claude(home.path());
++    let mut tracker = Tracker::default();
++    let now = ms("2026-10-30T12:00:00Z");
++    assert_eq!(tracker.refresh(&source, now, &models()), None);
++    // Looked for again only after a while, then found.
++    append(&path, &[assistant("msg_1", "2026-10-30T11:00:00Z", usage(1, 0, 0, 1), false)]);
++    assert_eq!(tracker.refresh(&source, now + 1000, &models()), None);
++    assert_eq!(
++        tracker.refresh(&source, now + LOOK_AGAIN_MS, &models()).unwrap().tokens24h,
++        Some(2)
++    );
++}
++
++#[test]
++fn claude_subagents_count_as_spawns_and_spend_and_live_until_finished() {
++    let home = tempfile::tempdir().unwrap();
++    let (source, path) = claude(home.path());
++    // On the real clock: a subagent is live while its file changed in the last half hour.
++    let now = crate::store::now_ms();
++    let ago = |minutes: u64| iso(now - minutes * MINUTE_MS);
++    append(&path, &[assistant("msg_1", &ago(60), usage(1, 0, 0, 1), false)]);
++    let dir = path.parent().unwrap().join(SID).join("subagents");
++    // Started two hours ago and finished.
++    append(
++        &dir.join("agent-a1.jsonl"),
++        &[
++            json!({"type": "user", "isSidechain": true, "timestamp": ago(120)}),
++            assistant("msg_a1", &ago(119), usage(100, 0, 0, 10), true),
++        ],
++    );
++    std::fs::write(dir.join("agent-a1.meta.json"), r#"{"finished":true}"#).unwrap();
++    // Started ten minutes ago and still running.
++    append(
++        &dir.join("agent-a2.jsonl"),
++        &[
++            json!({"type": "user", "isSidechain": true, "timestamp": ago(10)}),
++            assistant("msg_a2", &ago(9), usage(200, 0, 0, 20), true),
++        ],
++    );
++    std::fs::write(dir.join("agent-a2.meta.json"), r#"{"agentType":"Explore"}"#).unwrap();
++    let mut tracker = Tracker::default();
++    let stats = tracker.refresh(&source, now, &models()).unwrap();
++    assert_eq!(stats.subagents24h, Some(2));
++    assert_eq!(stats.subagents1h, Some(1));
++    assert_eq!(stats.subagents_live, Some(1));
++    assert_eq!(stats.tokens24h, Some(2 + 110 + 220));
++    assert_eq!(stats.context_tokens, Some(1), "a subagent's call is not the chat's context");
++
++    // The running one finishes: no longer live, and a later pass never counts it twice.
++    std::fs::write(dir.join("agent-a2.meta.json"), r#"{"finished":true}"#).unwrap();
++    let again = tracker.refresh(&source, now, &models()).unwrap();
++    assert_eq!(
++        (again.subagents24h, again.subagents_live, again.tokens24h),
++        (Some(2), Some(0), Some(332))
++    );
++}
++
++fn iso(at: u64) -> String {
++    crate::server::iso(at)
++}
++
++#[test]
++fn a_codex_rollout_is_found_by_its_day_and_counts_each_token_report_once() {
++    let home = tempfile::tempdir().unwrap();
++    let created = ms("2026-10-29T23:59:00Z");
++    let mut env = BTreeMap::new();
++    env.insert("CODEX_HOME".to_owned(), home.path().display().to_string());
++    let source = Source {
++        family: "codex".into(),
++        agent_session_id: SID.into(),
++        cwd: "/work".into(),
++        created_at: created,
++        argv: Some(vec![
++            "codex-acp".into(),
++            "-c".into(),
++            "model_auto_compact_token_limit=150000".into(),
++        ]),
++        env,
++    };
++    // Written on the next UTC day: still found next to its creation day.
++    let path =
++        home.path().join(format!("sessions/2026/10/30/rollout-2026-10-30T00-00-00-{SID}.jsonl"));
++    let tokens = |total: u64, input: u64, cached: u64, output: u64| {
++        json!({"timestamp": "2026-10-30T11:00:00Z", "type": "event_msg", "payload": {"type": "token_count",
++            "info": {"total_token_usage": {"total_tokens": total},
++                "last_token_usage": {"input_tokens": input, "cached_input_tokens": cached,
++                    "output_tokens": output, "total_tokens": input + output},
++                "model_context_window": 258_400}}})
++    };
++    append(
++        &path,
++        &[
++            json!({"timestamp": "2026-10-30T10:59:00Z", "type": "turn_context", "payload": {"model": "gpt-6-astra"}}),
++            tokens(1100, 1000, 400, 100),
++            // A rate-limit update repeats the same totals.
++            tokens(1100, 1000, 400, 100),
++            json!({"timestamp": "2026-10-30T11:01:00Z", "type": "response_item",
++            "payload": {"type": "function_call", "name": "spawn_agent", "arguments": "{}"}}),
++            json!({"timestamp": "2026-10-30T11:02:00Z", "type": "compacted", "payload": {"message": "..."}}),
++            tokens(3300, 2000, 0, 200),
++        ],
++    );
++    let stats = Tracker::default().refresh(&source, ms("2026-10-30T12:00:00Z"), &models()).unwrap();
++    assert_eq!(stats.tokens24h, Some(1100 + 2200));
++    assert_eq!(stats.context_tokens, Some(2000));
++    assert_eq!(stats.context_window, Some(258_400));
++    assert_eq!(
++        (stats.compactions24h, stats.subagents24h, stats.subagents1h),
++        (Some(1), Some(1), Some(1))
++    );
++    assert_eq!((stats.autocompact, stats.autocompact_cap), (Autocompact::Capped, Some(150_000)));
++    assert_eq!(stats.subagents_live, None, "a Codex child is not in its rollout: the hub knows it");
++    assert_eq!(stats.launcher.as_deref(), Some("codex-acp"));
++    // (600 at $2 + 400 cached at $0.5 + 100 at $10) + (2000 at $2 + 200 at $10), per million.
++    assert_eq!(stats.cost_usd24h, Some(0.0084));
++}
++
++#[test]
++fn a_chat_whose_calls_are_all_older_than_the_day_keeps_its_last_calls_context() {
++    let home = tempfile::tempdir().unwrap();
++    let (source, path) = claude(home.path());
++    // A tool input that names its own timestamp: the record's is the line's last.
++    let mut call = assistant("msg_2", "2026-10-28T10:00:00Z", usage(1, 2, 300, 4), false);
++    call["message"]["content"] =
++        json!([{"type": "tool_use", "input": {"timestamp": "2026-10-30T11:00:00Z"}}]);
++    append(
++        &path,
++        &[
++            assistant("msg_1", "2026-10-28T09:00:00Z", usage(5, 5, 5, 5), false),
++            call,
++            json!({"type": "user", "timestamp": "2026-10-28T10:00:01Z", "message": {"content": "x"}}),
++            // Newer, but no call of the chat's: an API error Claude Code made up, a subagent's.
++            assistant("msg_s", "2026-10-28T10:00:02Z", usage(0, 0, 0, 0), false)
++                .tap(|v| v["message"]["model"] = json!("<synthetic>")),
++            assistant("msg_3", "2026-10-28T10:00:03Z", usage(9, 9, 9, 9), true),
++        ],
++    );
++    let stats = Tracker::default().refresh(&source, ms("2026-10-30T12:00:00Z"), &models()).unwrap();
++    assert_eq!(stats.context_tokens, Some(303));
++    assert_eq!((stats.tokens24h, stats.cost_usd24h), (Some(0), None));
++}
++
++/// Review of #28015: a first read cut exactly at a line start keeps that line.
++#[test]
++fn a_first_read_cut_at_a_line_start_keeps_that_line() {
++    let home = tempfile::tempdir().unwrap();
++    let (source, path) = claude(home.path());
++    let now = ms("2026-10-30T12:00:00Z");
++    let old = assistant("msg_0", "2026-10-28T09:00:00Z", usage(1, 0, 0, 1), false);
++    let kept = assistant("msg_1", "2026-10-28T10:00:00Z", usage(3, 0, 0, 4), false);
++    append(&path, &[old, kept.clone()]);
++    // The cut falls on the last line's first byte.
++    let first = format!("{kept}\n").len() as u64;
++    let mut tracker = Tracker { limits: Some((first, u64::MAX)), ..Tracker::default() };
++    let stats = tracker.refresh(&source, now, &models()).unwrap();
++    assert_eq!(stats.context_tokens, Some(3), "the line at the cut was read");
++    assert_eq!(stats.tokens24h, Some(0), "it starts before the day: the day's count is known");
++}
++
++/// Review of #28015: a line still being written, or one longer than a read step, never reads
++/// as a known count, and a long line does not stop the reads after it.
++#[test]
++fn a_line_being_written_or_too_long_leaves_the_counts_unknown() {
++    let home = tempfile::tempdir().unwrap();
++    let (source, path) = claude(home.path());
++    let now = ms("2026-10-30T12:00:00Z");
++    append(&path, &[assistant("msg_1", "2026-10-30T11:00:00Z", usage(1, 0, 0, 1), false)]);
++    let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
++    write!(f, "{}", assistant("msg_2", "2026-10-30T11:01:00Z", usage(5, 0, 0, 5), false)).unwrap();
++    let mut tracker = Tracker::default();
++    assert_eq!(tracker.refresh(&source, now, &models()).unwrap().tokens24h, None);
++    writeln!(f).unwrap();
++    assert_eq!(tracker.refresh(&source, now, &models()).unwrap().tokens24h, Some(12));
++
++    // A line longer than a read step: skipped, and the day it may fall in is unknown.
++    let mut long = assistant("msg_3", "2026-10-30T11:02:00Z", usage(7, 0, 0, 7), false);
++    long["message"]["content"] = json!([{"type": "text", "text": "x".repeat(4096)}]);
++    append(&path, &[long, assistant("msg_4", "2026-10-30T11:03:00Z", usage(2, 0, 0, 0), false)]);
++    let mut stepped = Tracker { limits: Some((u64::MAX, 1024)), ..Tracker::default() };
++    let mut last = None;
++    for _ in 0..12 {
++        last = Some(stepped.refresh(&source, now, &models()).unwrap());
++    }
++    let last = last.unwrap();
++    assert_eq!(last.context_tokens, Some(2), "the line after the long one was read");
++    assert_eq!(last.tokens24h, None, "the long line's tokens are unknown, not 0");
++    // A day after it was lost (at the refresh's `now`), the day's counts are known again.
++    let later = stepped.refresh(&source, now + DAY_MS, &models()).unwrap();
++    assert_eq!(later.tokens24h, Some(0));
++}
++
++/// Review of #28015: a record that should count but cannot be read (not JSON, no time, no
++/// token counts) makes the day's counts unknown while it is in the day, never 0 or now.
++#[test]
++fn a_record_that_cannot_be_read_is_unknown_not_zero() {
++    let now = ms("2026-10-30T12:00:00Z");
++    let reply = |at: &str| assistant(&format!("msg_{at}"), at, usage(1, 0, 0, 1), false);
++    let mut untimed = reply("x");
++    untimed.as_object_mut().unwrap().remove("timestamp");
++    let mut countless = reply("2026-10-30T11:00:00Z");
++    countless["message"]["usage"] = json!({"cache_read_input_tokens": 9});
++    let mut untimed_synthetic = untimed.clone();
++    untimed_synthetic["message"]["model"] = json!("<synthetic>");
++    let mut old_countless = reply("2026-10-28T11:00:00Z");
++    old_countless["message"]["usage"] = json!({});
++    let cases: Vec<(&str, String, Option<u64>)> = vec![
++        ("not JSON", "{\"type\":\"assistant\",\"message\":{\"usage\":".to_owned(), None),
++        ("no time", untimed.to_string(), None),
++        ("no token counts", countless.to_string(), None),
++        // Older than the day: it cannot be in the day's counts, so they are known.
++        ("no counts, days old", old_countless.to_string(), Some(2)),
++        // Delta review of #28015: an untimed reply Claude Code made up carries no spend.
++        ("untimed <synthetic>", untimed_synthetic.to_string(), Some(2)),
++    ];
++    for (what, bad, want) in cases {
++        let home = tempfile::tempdir().unwrap();
++        let (source, path) = claude(home.path());
++        append(&path, &[reply("2026-10-30T10:00:00Z")]);
++        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
++        writeln!(f, "{bad}").unwrap();
++        let stats = Tracker::default().refresh(&source, now, &models()).unwrap();
++        assert_eq!(stats.tokens24h, want, "{what}");
++    }
++
++    // Codex: a token report without its counts is unknown; a rate-limit update is not one.
++    let home = tempfile::tempdir().unwrap();
++    let mut env = BTreeMap::new();
++    env.insert("CODEX_HOME".to_owned(), home.path().display().to_string());
++    let source = Source {
++        family: "codex".into(),
++        agent_session_id: SID.into(),
++        cwd: "/w".into(),
++        created_at: now,
++        argv: Some(vec!["codex-acp".into()]),
++        env,
++    };
++    let path = home.path().join(format!("sessions/2026/10/30/rollout-x-{SID}.jsonl"));
++    let rate = json!({"timestamp": "2026-10-30T11:00:00Z", "type": "event_msg",
++        "payload": {"type": "token_count", "info": null, "rate_limits": {}}});
++    append(&path, &[rate]);
++    assert_eq!(Tracker::default().refresh(&source, now, &models()).unwrap().tokens24h, Some(0));
++    // Delta review of #28015: one without a time, too, and a line naming spawn_agent that is
++    // no spawn (a tool list), carry nothing to count.
++    let untimed_rate = json!({"type": "event_msg",
++        "payload": {"type": "token_count", "info": null, "rate_limits": {}}});
++    let tools = json!({"type": "response_item", "payload": {"type": "additional_tools",
++        "tools": [{"name": "spawn_agent"}]}});
++    append(&path, &[untimed_rate, tools]);
++    assert_eq!(Tracker::default().refresh(&source, now, &models()).unwrap().tokens24h, Some(0));
++    let broken = json!({"timestamp": "2026-10-30T11:01:00Z", "type": "event_msg",
++        "payload": {"type": "token_count", "info": {"total_token_usage": {"total_tokens": 5}}}});
++    append(&path, &[broken]);
++    assert_eq!(Tracker::default().refresh(&source, now, &models()).unwrap().tokens24h, None);
++}
++
++#[test]
++fn the_autocompact_cap_comes_from_the_flag_then_the_env_then_the_settings() {
++    use Autocompact::{Capped, Uncapped, Unknown};
++    let home = tempfile::tempdir().unwrap();
++    let (mut source, _) = claude(home.path());
++    let argv = |a: &[&str]| Some(a.iter().map(|s| s.to_string()).collect::<Vec<_>>());
++    assert_eq!(autocompact(&source, None), (Capped, Some(200_000)));
++    source.argv = argv(&["claude", "--autocompact=auto"]);
++    assert_eq!(autocompact(&source, None), (Uncapped, None), "auto is the harness's own default");
++    source.argv = argv(&["claude", "--autocompact", "lots"]);
++    assert_eq!(autocompact(&source, None), (Unknown, None), "a value it cannot read");
++    source.argv = argv(&["claude"]);
++    assert_eq!(autocompact(&source, None), (Uncapped, None), "nothing caps it: no settings file");
++    std::fs::write(home.path().join("settings.json"), r#"{"theme": "dark"}"#).unwrap();
++    assert_eq!(autocompact(&source, None), (Uncapped, None), "nor its settings");
++    std::fs::write(home.path().join("settings.json"), "{not json").unwrap();
++    assert_eq!(autocompact(&source, None), (Unknown, None), "settings it cannot read");
++    std::fs::write(home.path().join("settings.json"), r#"{"autoCompactWindow": 300000}"#).unwrap();
++    assert_eq!(autocompact(&source, None), (Capped, Some(300_000)));
++    source.env.insert("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE".into(), "40".into());
++    assert_eq!(autocompact(&source, Some(1_000_000)), (Capped, Some(400_000)));
++    assert_eq!(autocompact(&source, None), (Capped, None), "capped, of a window not known");
++    source.env.insert("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE".into(), "most".into());
++    assert_eq!(autocompact(&source, None), (Unknown, None));
++    source.env.insert("CLAUDE_CODE_AUTO_COMPACT_WINDOW".into(), "1M".into());
++    assert_eq!(autocompact(&source, None), (Capped, Some(1_000_000)));
++    // Adopted, watched or revived: this daemon never started it, so its flags are not known.
++    source.argv = None;
++    assert_eq!(autocompact(&source, None), (Unknown, None));
++
++    let mut codex =
++        Source { family: "codex".into(), argv: argv(&["codex-acp"]), ..Source::default() };
++    codex.env.insert("CODEX_HOME".into(), home.path().join("codex").display().to_string());
++    assert_eq!(autocompact(&codex, None), (Uncapped, None), "no config.toml");
++    std::fs::create_dir_all(home.path().join("codex")).unwrap();
++    std::fs::write(home.path().join("codex/config.toml"), "model = \"gpt-6-astra\"\n").unwrap();
++    assert_eq!(autocompact(&codex, None), (Uncapped, None));
++    std::fs::write(
++        home.path().join("codex/config.toml"),
++        "model = \"gpt-6-astra\"\nmodel_auto_compact_token_limit = 180_000 # cap\n[x]\nmodel_auto_compact_token_limit = 1\n",
++    )
++    .unwrap();
++    assert_eq!(autocompact(&codex, None), (Capped, Some(180_000)));
++}
++
++/// A first read that starts after the day began, or a backlog it left, cannot say the day's
++/// counts: they are unknown (null), never the lower number read so far. Once the reads reach
++/// the end and cover the day, they are known.
++#[test]
++fn counts_are_unknown_until_the_reads_cover_the_day() {
++    let home = tempfile::tempdir().unwrap();
++    let (source, path) = claude(home.path());
++    let now = ms("2026-10-30T12:00:00Z");
++    let calls: Vec<Value> = (0..40)
++        .map(|i| {
++            assistant(
++                &format!("msg_{i}"),
++                &format!("2026-10-30T11:{i:02}:00Z"),
++                usage(1, 0, 0, 1),
++                false,
++            )
++        })
++        .collect();
++    append(&path, &calls);
++    let size = std::fs::metadata(&path).unwrap().len();
++    // A first read cut to the newest bytes starts mid-day: it knows the context, not the day's counts.
++    let mut cut = Tracker { limits: Some((size / 2, u64::MAX)), ..Tracker::default() };
++    let stats = cut.refresh(&source, now, &models()).unwrap();
++    assert_eq!(stats.context_tokens, Some(1));
++    assert_eq!((stats.tokens24h, stats.compactions24h, stats.subagents24h), (None, None, None));
++    assert_eq!((stats.subagents1h, stats.subagents_live, stats.cost_usd24h), (None, None, None));
++    // A day later, what it read started before the day: known again.
++    let later = cut.refresh(&source, now + DAY_MS, &models()).unwrap();
++    assert_eq!(later.tokens24h, Some(0));
++
++    // Reads of a quarter of the file at a time: unknown until the backlog is read.
++    let mut stepped = Tracker { limits: Some((u64::MAX, size / 4 + 1)), ..Tracker::default() };
++    let mut seen = Vec::new();
++    for _ in 0..8 {
++        seen.push(stepped.refresh(&source, now, &models()).unwrap().tokens24h);
++    }
++    // Unknown while a backlog is left, then the whole day, never a partial count.
++    let known = seen.iter().position(Option::is_some).unwrap();
++    assert!(known >= 3, "{seen:?}");
++    assert!(seen[known..].iter().all(|t| *t == Some(80)), "{seen:?}");
++
++    // A transcript it can no longer read leaves the counts unknown.
++    std::fs::remove_file(&path).unwrap();
++    assert_eq!(stepped.refresh(&source, now, &models()).unwrap().tokens24h, None);
++}
++
++#[test]
++fn days_and_token_counts_read_as_the_harnesses_write_them() {
++    assert_eq!(civil_from_days(0), (1970, 1, 1));
++    assert_eq!(civil_from_days(ms("2026-10-30T12:00:00Z") / DAY_MS), (2026, 10, 30));
++    assert_eq!(civil_from_days(ms("2024-02-29T00:00:00Z") / DAY_MS), (2024, 2, 29));
++    assert_eq!(tokens("200k"), Some(200_000));
++    assert_eq!(tokens("1_000_000"), Some(1_000_000));
++    assert_eq!(tokens("auto"), None);
++    assert_eq!(launcher(&["/home/u/.local/bin/claude-sr2".into()]).as_deref(), Some("claude-sr2"));
++    // An argv this daemon never ran: no launcher.
++    let source = Source { family: "claude".into(), ..Source::default() };
++    assert_eq!(Tracker::default().stats(&source, 0, None).launcher, None);
++    let mut m = Models::default();
++    m.add("Claude-Opus-5-5", None, Some(1));
++    assert_eq!(m.window("claude-opus-5-5[1m]"), Some(1));
++}
++
++trait Tap {
++    fn tap(self, f: impl FnOnce(&mut Self)) -> Self;
++}
++
++impl Tap for Value {
++    fn tap(mut self, f: impl FnOnce(&mut Self)) -> Self {
++        f(&mut self);
++        self
++    }
++}
++
++/// A measurement, not a check: reads a real chat's records twice and prints
++/// what each read cost. `ACPMUX_USAGE_PROBE=<family>:<agent session id>:<cwd>`, then
++/// `cargo test -p acpmux --lib usage_probe -- --ignored --nocapture`.
++#[test]
++#[ignore]
++fn usage_probe() {
++    let probe = std::env::var("ACPMUX_USAGE_PROBE").expect("ACPMUX_USAGE_PROBE");
++    let mut parts = probe.splitn(3, ':');
++    let source = Source {
++        family: parts.next().unwrap().into(),
++        agent_session_id: parts.next().unwrap().into(),
++        cwd: parts.next().unwrap_or("/").into(),
++        created_at: crate::store::now_ms(),
++        argv: None,
++        env: BTreeMap::new(),
++    };
++    let catalog: crate::catalog::Catalog =
++        serde_json::from_str(include_str!("../catalog/models-v1.json")).unwrap();
++    let models = Models::from_catalog(&catalog);
++    let mut tracker = Tracker::default();
++    for read in ["first", "incremental"] {
++        let started = std::time::Instant::now();
++        let stats = tracker.refresh(&source, crate::store::now_ms(), &models);
++        println!("{read}: {:?} {}", started.elapsed(), serde_json::to_string(&stats).unwrap());
++    }
++}
++
++/// Review of #28015: one decision (`classify`) for every record kind each parse reads, timed
++/// or not. A record without a time is classified as the same record with one, but for a
++/// count, which it cannot place in the day: `Counted` becomes `Lost`, nothing else changes.
++#[test]
++fn every_record_kind_is_classified_the_same_timed_or_not() {
++    let at = "2026-10-30T11:00:00Z";
++    let claude = Harness::Claude { main: true };
++    let subagent = Harness::Claude { main: false };
++    let mut tail = Tail::default();
++    tail.recent.push_back("msg_seen".into());
++    tail.last_total = Some(500);
++    let reply = |id: &str, model: &str, usage: Value| {
++        json!({"type": "assistant", "timestamp": at, "isSidechain": false,
++            "message": {"id": id, "model": model, "usage": usage}})
++    };
++    let full = usage(1, 2, 3, 4);
++    let token_count = |info: Value| json!({"timestamp": at, "type": "event_msg", "payload": {"type": "token_count", "info": info}});
++    let report = |total: Value, last: Value| {
++        token_count(json!({"total_token_usage": {"total_tokens": total}, "last_token_usage": last}))
++    };
++    let last = json!({"input_tokens": 10, "cached_input_tokens": 4, "output_tokens": 2, "total_tokens": 12});
++    let mut sidechain = reply("msg_side", "claude-opus-5-5", full.clone());
++    sidechain["isSidechain"] = json!(true);
++    // (what, harness, record, its class when timed)
++    let cases: Vec<(&str, Harness, Value, &str)> = vec![
++        ("claude reply", claude, reply("msg_new", "claude-opus-5-5", full.clone()), "tokens"),
++        (
++            "claude reply, no token counts",
++            claude,
++            reply("msg_n", "claude-opus-5-5", json!({"cache_read_input_tokens": 9})),
++            "lost",
++        ),
++        (
++            "claude reply, no usage",
++            claude,
++            json!({"type": "assistant", "timestamp": at, "message": {"id": "m", "model": "claude-opus-5-5"}}),
++            "uncountable",
++        ),
++        ("claude <synthetic>", claude, reply("msg_s", "<synthetic>", full.clone()), "uncountable"),
++        ("claude reply, no model", claude, reply("msg_e", "", full.clone()), "uncountable"),
++        (
++            "claude duplicate message.id",
++            claude,
++            reply("msg_seen", "claude-opus-5-5", full.clone()),
++            "duplicate",
++        ),
++        (
++            "claude duplicate, no token counts",
++            claude,
++            reply("msg_seen", "claude-opus-5-5", json!({})),
++            "duplicate",
++        ),
++        ("claude sidechain reply", claude, sidechain, "tokens"),
++        (
++            "claude subagent's reply",
++            subagent,
++            reply("msg_sub", "claude-opus-5-5", full.clone()),
++            "tokens",
++        ),
++        (
++            "claude compaction",
++            claude,
++            json!({"type": "system", "subtype": "compact_boundary", "timestamp": at}),
++            "compaction",
++        ),
++        (
++            "claude subagent's compaction",
++            subagent,
++            json!({"type": "system", "subtype": "compact_boundary", "timestamp": at}),
++            "uncountable",
++        ),
++        (
++            "claude user line",
++            claude,
++            json!({"type": "user", "timestamp": at, "message": {"content": "assistant"}}),
++            "uncountable",
++        ),
++        ("codex report", Harness::Codex, report(json!(600), last.clone()), "tokens"),
++        (
++            "codex rate-limit update (info null)",
++            Harness::Codex,
++            token_count(Value::Null),
++            "uncountable",
++        ),
++        ("codex duplicate total", Harness::Codex, report(json!(500), last.clone()), "duplicate"),
++        (
++            "codex duplicate total, no last usage",
++            Harness::Codex,
++            report(json!(500), json!({})),
++            "duplicate",
++        ),
++        (
++            "codex report, no total",
++            Harness::Codex,
++            token_count(json!({"last_token_usage": last})),
++            "lost",
++        ),
++        ("codex report, no last usage", Harness::Codex, report(json!(700), json!({})), "lost"),
++        (
++            "codex compaction",
++            Harness::Codex,
++            json!({"timestamp": at, "type": "compacted", "payload": {"message": "s"}}),
++            "compaction",
++        ),
++        (
++            "codex spawn_agent call",
++            Harness::Codex,
++            json!({"timestamp": at, "type": "response_item", "payload": {"type": "function_call", "name": "spawn_agent"}}),
++            "spawn",
++        ),
++        (
++            "codex spawn_agent custom call",
++            Harness::Codex,
++            json!({"timestamp": at, "type": "response_item", "payload": {"type": "custom_tool_call", "name": "spawn_agent"}}),
++            "spawn",
++        ),
++        (
++            "codex tool list naming spawn_agent",
++            Harness::Codex,
++            json!({"timestamp": at, "type": "response_item", "payload": {"type": "additional_tools", "tools": [{"name": "spawn_agent"}]}}),
++            "uncountable",
++        ),
++        (
++            // Review of #28015 at aec8d5f7 (1): a turn context goes through classify; untimed,
++            // it names no model (the untimed run below checks that).
++            "codex turn context",
++            Harness::Codex,
++            json!({"timestamp": at, "type": "turn_context", "payload": {"model": "gpt-6-astra"}}),
++            "model",
++        ),
++        (
++            "codex turn context, no model",
++            Harness::Codex,
++            json!({"timestamp": at, "type": "turn_context", "payload": {}}),
++            "uncountable",
++        ),
++    ];
++    let label = |class: &Class| match class {
++        Class::Model { .. } => "model",
++        Class::Uncountable => "uncountable",
++        Class::Duplicate => "duplicate",
++        Class::Lost { .. } => "lost",
++        Class::Counted { counts: Counts::Compaction, .. } => "compaction",
++        Class::Counted { counts: Counts::Spawn, .. } => "spawn",
++        Class::Counted { counts: Counts::Tokens(_), .. } => "tokens",
++    };
++    for (what, harness, record, want) in cases {
++        let timed = classify(harness, record.to_string().as_bytes(), &tail);
++        assert_eq!(label(&timed), want, "{what}");
++        let mut untimed = record.clone();
++        untimed.as_object_mut().unwrap().remove("timestamp");
++        let untimed = classify(harness, untimed.to_string().as_bytes(), &tail);
++        // Without a time: what would count is lost (keeping what tells a repeat of it), a turn
++        // context names no model, and the rest is as it was.
++        let expected = match timed {
++            Class::Counted { counts, .. } => Class::Lost { at: None, key: counts.key() },
++            Class::Lost { key, .. } => Class::Lost { at: None, key },
++            Class::Model { .. } => Class::Uncountable,
++            other => other,
++        };
++        assert_eq!(untimed, expected, "{what}, without a time");
++    }
++    // Not JSON: lost, at the time it names when it names one.
++    let cut = br#"{"type":"assistant","timestamp":"2026-10-30T11:00:00Z","message":{"usage":"#;
++    assert_eq!(classify(claude, cut, &tail), Class::Lost { at: Some(ms(at)), key: Key::None });
++    assert_eq!(
++        classify(Harness::Codex, b"{\"type\":\"compacted\"", &tail),
++        Class::Lost { at: None, key: Key::None }
++    );
++    // What a counted reply counts: the chat's own call is its context; a subagent's is not.
++    let Class::Counted { counts: Counts::Tokens(t), .. } = classify(
++        claude,
++        reply("msg_x", "claude-opus-5-5", full.clone()).to_string().as_bytes(),
++        &tail,
++    ) else {
++        panic!()
++    };
++    // usage(1, 2, 3, 4): input 1, cache write 2, cache read 3, output 4.
++    assert_eq!((t.total, t.context, t.key), (10, Some(6), Key::Message("msg_x".into())));
++    let Class::Counted { counts: Counts::Tokens(t), .. } =
++        classify(subagent, reply("msg_y", "claude-opus-5-5", full).to_string().as_bytes(), &tail)
++    else {
++        panic!()
++    };
++    assert_eq!(t.context, None);
++    // Codex: cached input is inside input_tokens; the context is all of it.
++    let Class::Counted { counts: Counts::Tokens(t), .. } =
++        classify(Harness::Codex, report(json!(600), last).to_string().as_bytes(), &tail)
++    else {
++        panic!()
++    };
++    assert_eq!((t.input, t.cache_read, t.total, t.context), (6, 4, 12, Some(10)));
++    // Review of #28015 at aec8d5f7 (3): a report whose cached count is above its input is priced
++    // as it says (input at 0, every cached token at the cache price), not clamped.
++    let odd = json!({"input_tokens": 10, "cached_input_tokens": 50, "output_tokens": 10, "total_tokens": 20});
++    let Class::Counted { counts: Counts::Tokens(t), .. } =
++        classify(Harness::Codex, report(json!(800), odd).to_string().as_bytes(), &tail)
++    else {
++        panic!()
++    };
++    assert_eq!((t.input, t.cache_read, t.total), (0, 50, 20));
++    let p = Prices { input: 2.0, output: 10.0, cache_read: 0.5, cache_write: 2.0 };
++    assert_eq!(t.cost(&p), (50.0 * 0.5 + 10.0 * 10.0) / 1e6);
++}
++
++/// Review of #28015 at aec8d5f7 (1, 2, 6, and the escaped kind), on the tracker:
++/// - an untimed turn context does not set the model later Codex calls are priced at;
++/// - a message whose first line is lost is not counted from a later line of it;
++/// - an untimed repeat of a call older than the day is its duplicate, not lost;
++/// - a counted kind written escaped makes the day unknown, never 0.
++#[test]
++fn the_tracker_applies_every_classification() {
++    let now = ms("2026-10-30T12:00:00Z");
++    let codex = |home: &Path| {
++        let mut env = BTreeMap::new();
++        env.insert("CODEX_HOME".to_owned(), home.display().to_string());
++        let source = Source {
++            family: "codex".into(),
++            agent_session_id: SID.into(),
++            cwd: "/w".into(),
++            created_at: now,
++            argv: Some(vec!["codex-acp".into()]),
++            env,
++        };
++        (source, home.join(format!("sessions/2026/10/30/rollout-x-{SID}.jsonl")))
++    };
++    let report = |at: &str, total: u64| {
++        json!({"timestamp": at, "type": "event_msg", "payload": {"type": "token_count", "info": {
++            "total_token_usage": {"total_tokens": total},
++            "last_token_usage": {"input_tokens": 1_000_000, "output_tokens": 0, "total_tokens": 1_000_000}}}})
++    };
++    // (1) A timed turn context prices the call after it at gpt-6-astra ($2/M input); an untimed
++    // one after it does not move the model to one without a price.
++    let home = tempfile::tempdir().unwrap();
++    let (source, path) = codex(home.path());
++    append(
++        &path,
++        &[
++            json!({"timestamp": "2026-10-30T10:00:00Z", "type": "turn_context", "payload": {"model": "gpt-6-astra"}}),
++            json!({"type": "turn_context", "payload": {"model": "no-such-model"}}),
++            report("2026-10-30T11:00:00Z", 1_000_000),
++        ],
++    );
++    let stats = Tracker::default().refresh(&source, now, &models()).unwrap();
++    assert_eq!((stats.tokens24h, stats.cost_usd24h), (Some(1_000_000), Some(2.0)));
++
++    // (2) The first line of msg_1 has no output count: lost (the day unknown), and the full line
++    // of msg_1 after it is that message's, not a second call.
++    let home = tempfile::tempdir().unwrap();
++    let (source, path) = claude(home.path());
++    let mut partial = assistant("msg_1", "2026-10-30T11:00:00Z", usage(5, 0, 0, 5), false);
++    partial["message"]["usage"].as_object_mut().unwrap().remove("output_tokens");
++    append(&path, &[partial, assistant("msg_1", "2026-10-30T11:00:01Z", usage(5, 0, 0, 5), false)]);
++    let mut tracker = Tracker::default();
++    assert_eq!(tracker.refresh(&source, now, &models()).unwrap().tokens24h, None);
++    // A day after the lost line, the day's count is known: msg_1 never counted in it.
++    let later = tracker.refresh(&source, now + DAY_MS, &models()).unwrap();
++    assert_eq!(later.tokens24h, Some(0));
++
++    // (6) An untimed repeat of a call older than the day: its duplicate, so the day is known.
++    let home = tempfile::tempdir().unwrap();
++    let (source, path) = claude(home.path());
++    let old = assistant("msg_old", "2026-10-29T11:00:00Z", usage(1, 0, 0, 1), false);
++    let mut repeat = old.clone();
++    repeat.as_object_mut().unwrap().remove("timestamp");
++    append(&path, &[old, repeat]);
++    let stats = Tracker::default().refresh(&source, now, &models()).unwrap();
++    assert_eq!((stats.tokens24h, stats.context_tokens), (Some(0), Some(1)));
++
++    // An escaped kind the byte pre-filter passes over: unknown, not 0. One old or not counted
++    // (a user line with an escape) changes nothing.
++    for (harness, line, want) in [
++        (
++            "claude",
++            r#"{"type":"\u0061ssistant","timestamp":"2026-10-30T11:00:00Z","message":{"id":"m","model":"claude-opus-5-5","usage":{"input_tokens":1,"output_tokens":1}}}"#,
++            None,
++        ),
++        (
++            "claude",
++            r#"{"type":"\u0061ssistant","timestamp":"2026-10-28T11:00:00Z","message":{"id":"m","model":"claude-opus-5-5","usage":{"input_tokens":1,"output_tokens":1}}}"#,
++            Some(0),
++        ),
++        (
++            "claude",
++            r#"{"type":"user","timestamp":"2026-10-30T11:00:00Z","message":{"content":"\u001b[31mred"}}"#,
++            Some(0),
++        ),
++        (
++            "codex",
++            r#"{"timestamp":"2026-10-30T11:00:00Z","type":"event_msg","payload":{"type":"token_\u0063ount","info":{"total_token_usage":{"total_tokens":10},"last_token_usage":{"input_tokens":8,"output_tokens":2}}}}"#,
++            None,
++        ),
++        (
++            "codex",
++            r#"{"timestamp":"2026-10-30T11:00:00Z","type":"event_msg","payload":{"type":"agent_message","message":"\u00e9"}}"#,
++            Some(0),
++        ),
++    ] {
++        let home = tempfile::tempdir().unwrap();
++        let (source, path) =
++            if harness == "claude" { claude(home.path()) } else { codex(home.path()) };
++        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
++        std::fs::write(&path, format!("{line}\n")).unwrap();
++        let stats = Tracker::default().refresh(&source, now, &models()).unwrap();
++        assert_eq!(stats.tokens24h, want, "{line}");
++    }
++}
++
++/// Review of #28015 at 800ce2b4: an untimed repeat of a record already counted (a Claude
++/// message's other line, a Codex total said again) is a duplicate, not lost.
++#[test]
++fn an_untimed_repeat_of_a_counted_record_is_not_lost() {
++    let now = ms("2026-10-30T12:00:00Z");
++    let home = tempfile::tempdir().unwrap();
++    let (source, path) = claude(home.path());
++    let first = assistant("msg_1", "2026-10-30T11:00:00Z", usage(1, 0, 0, 1), false);
++    let mut repeat = first.clone();
++    repeat.as_object_mut().unwrap().remove("timestamp");
++    append(&path, &[first, repeat]);
++    assert_eq!(Tracker::default().refresh(&source, now, &models()).unwrap().tokens24h, Some(2));
++
++    let home = tempfile::tempdir().unwrap();
++    let mut env = BTreeMap::new();
++    env.insert("CODEX_HOME".to_owned(), home.path().display().to_string());
++    let source = Source {
++        family: "codex".into(),
++        agent_session_id: SID.into(),
++        cwd: "/w".into(),
++        created_at: now,
++        argv: Some(vec!["codex-acp".into()]),
++        env,
++    };
++    let path = home.path().join(format!("sessions/2026/10/30/rollout-x-{SID}.jsonl"));
++    let report = json!({"timestamp": "2026-10-30T11:00:00Z", "type": "event_msg", "payload": {
++        "type": "token_count", "info": {"total_token_usage": {"total_tokens": 10},
++            "last_token_usage": {"input_tokens": 8, "output_tokens": 2, "total_tokens": 10}}}});
++    let mut again = report.clone();
++    again.as_object_mut().unwrap().remove("timestamp");
++    append(&path, &[report, again]);
++    assert_eq!(Tracker::default().refresh(&source, now, &models()).unwrap().tokens24h, Some(10));
++}
+diff --git a/cmux-tui/crates/acpmux/tests/fake_claude.py b/cmux-tui/crates/acpmux/tests/fake_claude.py
+index ab8518376f46..46e76efb7b76 100644
+--- a/cmux-tui/crates/acpmux/tests/fake_claude.py
++++ b/cmux-tui/crates/acpmux/tests/fake_claude.py
+@@ -91,6 +91,7 @@ session window alone, moved. FAKE_CLAUDE_LIMITS=1 sends them on every prompt.
+ import json
+ import os
+ import sys
++import uuid
+ import threading
+ 
+ 
+@@ -736,7 +737,12 @@ while True:
+             at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+             with open(stored(SESSION), "a") as f:
+                 f.write(json.dumps({"type": "user", "sessionId": SESSION, "timestamp": at, "message": {"role": "user", "content": said}}) + "\n")
+-                f.write(json.dumps({"type": "assistant", "sessionId": SESSION, "timestamp": at, "message": {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}}) + "\n")
++                reply = {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}
++                # FAKE_CLAUDE_TRANSCRIPT_USAGE=1: the reply carries its call's model and usage, as Claude Code's does.
++                if os.environ.get("FAKE_CLAUDE_TRANSCRIPT_USAGE") == "1":
++                    reply.update({"id": "msg_" + uuid.uuid4().hex, "model": "claude-opus-5-5", "usage": {
++                        "input_tokens": 3, "cache_creation_input_tokens": 1000, "cache_read_input_tokens": 200_000, "output_tokens": 50}})
++                f.write(json.dumps({"type": "assistant", "sessionId": SESSION, "timestamp": at, "message": reply}) + "\n")
+             # The model's reply takes time: a turn's prompt is never stored in
+             # the millisecond its turn ends.
+             import time
+diff --git a/cmux-tui/crates/acpmux/tests/hub_integration.rs b/cmux-tui/crates/acpmux/tests/hub_integration.rs
+index 3378f8e073b5..0a162e0a4d10 100644
+--- a/cmux-tui/crates/acpmux/tests/hub_integration.rs
++++ b/cmux-tui/crates/acpmux/tests/hub_integration.rs
+@@ -3,9 +3,13 @@
+ #[path = "support/daemon_env.rs"]
+ mod daemon_env;
+ // This process runs stand-in agents (the fake agents under tests/). `ACPMUX_UPDATE_FIXTURES=1`
+-// rewrites the pane fixtures the tests check (`adopt.rs`).
+-const HERMETIC: daemon_env::Process =
+-    daemon_env::Process::stand_in().keep(&["ACPMUX_UPDATE_FIXTURES"]);
++// rewrites the pane fixtures the tests check (`adopt.rs`); `LS_LATENCY_SESSIONS` and
++// `LS_LATENCY_RUNS` size the ignored `ls_latency` bench (`usage_stats.rs`).
++const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
++    "ACPMUX_UPDATE_FIXTURES",
++    "LS_LATENCY_SESSIONS",
++    "LS_LATENCY_RUNS",
++]);
+ 
+ use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
+ use acpmux::hub::Hub;
+diff --git a/cmux-tui/crates/acpmux/tests/hub_integration/fork_through.rs b/cmux-tui/crates/acpmux/tests/hub_integration/fork_through.rs
+index b33114199745..509ed6553cf8 100644
+--- a/cmux-tui/crates/acpmux/tests/hub_integration/fork_through.rs
++++ b/cmux-tui/crates/acpmux/tests/hub_integration/fork_through.rs
+@@ -17,6 +17,9 @@ mod context_window;
+ // The account's plan usage limits a Claude chat reports, which share these helpers too.
+ #[path = "usage_limits.rs"]
+ mod usage_limits;
++// What a Claude chat spent and holds, read from its transcript, which shares these helpers too.
++#[path = "usage_stats.rs"]
++mod usage_stats;
+ // Claude's todo list as an ACP plan, which shares these helpers too.
+ #[path = "todo_plan.rs"]
+ mod todo_plan;
+diff --git a/cmux-tui/crates/acpmux/tests/hub_integration/usage_stats.rs b/cmux-tui/crates/acpmux/tests/hub_integration/usage_stats.rs
+new file mode 100644
+index 000000000000..4608e72bc4c9
+--- /dev/null
++++ b/cmux-tui/crates/acpmux/tests/hub_integration/usage_stats.rs
+@@ -0,0 +1,113 @@
++//! What a Claude chat spent and holds (`SessionSummary.usageStats`), read from the
++//! transcript Claude Code writes under its CLAUDE_CONFIG_DIR: the session list and
++//! a chat's info carry it, and each turn's call is counted once.
++
++use super::*;
++
++fn stats_in(list: &Value, id: &str) -> Value {
++    let rows = list["sessions"].as_array().cloned().unwrap_or_default();
++    let row = rows.into_iter().find(|r| r["sessionId"] == id).unwrap_or(Value::Null);
++    row["usageStats"].clone()
++}
++
++#[tokio::test]
++async fn the_session_list_and_info_carry_what_the_chats_transcript_says() {
++    let root = std::env::temp_dir().join(format!("acpmux-usage-{}", uuid::Uuid::now_v7()));
++    let claude = root.join("claude");
++    std::fs::create_dir_all(&claude).unwrap();
++    let (hub, mut c) = claude_setup(&claude, &[("FAKE_CLAUDE_TRANSCRIPT_USAGE", "1")]).await;
++    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
++    let id = s["sessionId"].as_str().unwrap().to_owned();
++    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]});
++    c.request(method::SESSION_PROMPT, prompt.clone()).await.unwrap();
++
++    // A plain list reads nothing; one that asks for usage reads the transcript first.
++    let list = c.request(method::MUX_SESSIONS, json!({"usage": true})).await.unwrap();
++    let stats = stats_in(&list, &id);
++    // fake_claude.py's reply: 3 input, 1000 cache write, 200000 cache read, 50 output.
++    assert_eq!(stats["contextTokens"], 201_003, "{stats}");
++    assert_eq!(stats["tokens24h"], 201_053, "{stats}");
++    assert_eq!(stats["launcher"], "python3", "{stats}");
++    // This daemon started it with no cap, and its Claude home has no settings: known uncapped.
++    assert_eq!(stats["autocompact"], "none", "{stats}");
++    assert_eq!(stats["autocompactCap"], Value::Null, "{stats}");
++    assert_eq!(stats["subagents24h"], 0, "{stats}");
++    assert!(stats["costUsd24h"].as_f64().is_some_and(|c| c > 0.0), "{stats}");
++
++    // A second turn, within the list's 5 s: its end has the next list read again, and only
++    // its own call is added; info carries what that read found.
++    c.request(method::SESSION_PROMPT, prompt).await.unwrap();
++    let list = c.request(method::MUX_SESSIONS, json!({"usage": true})).await.unwrap();
++    assert_eq!(stats_in(&list, &id)["tokens24h"], 2 * 201_053, "{}", stats_in(&list, &id));
++    let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
++    assert_eq!(info["usageStats"]["tokens24h"], 2 * 201_053, "{}", info["usageStats"]);
++    // Each turn's end is followed by its usage, which watchers hear as session_changed.
++    let mut recorded = Vec::new();
++    for _ in 0..100 {
++        recorded = hub.events(&id, 0, 10_000).unwrap();
++        recorded.retain(|e| e.kind == "usage_stats");
++        if recorded.len() == 2 {
++            break;
++        }
++        tokio::time::sleep(Duration::from_millis(20)).await;
++    }
++    let tokens: Vec<_> = recorded.iter().map(|e| e.msg["tokens24h"].clone()).collect();
++    assert_eq!(tokens, vec![json!(201_053), json!(2 * 201_053)]);
++    hub.shutdown_all().await;
++    let _ = std::fs::remove_dir_all(&root);
++}
++
++/// A new connection, as each `acpmux ls` makes one: its list is not paced by an earlier one's.
++async fn connect(hub: &Arc<Hub>) -> TestClient {
++    let (in_tx, in_rx) = mpsc::channel(64);
++    let (out_tx, out_rx) = mpsc::channel(4096);
++    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
++    let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
++    c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "ls"}}))
++        .await
++        .unwrap();
++    c
++}
++
++/// A measurement, not a check: `_acpmux/sessions` latency over `LS_LATENCY_SESSIONS` (default
++/// 30) Claude chats that each ran a turn, `LS_LATENCY_RUNS` (default 50) runs each of a plain
++/// list (`acpmux ls`) and one that asks for usage (`ls --wide`, `--json`), each on a new
++/// connection. An acpmux without usageStats ignores `usage`, so the same bench runs on a base.
++/// `cargo test -p acpmux --test hub_integration ls_latency -- --ignored --nocapture`
++#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
++#[ignore]
++async fn ls_latency() {
++    let n = |k: &str, d: usize| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
++    let (sessions, runs) = (n("LS_LATENCY_SESSIONS", 30), n("LS_LATENCY_RUNS", 50));
++    let root = std::env::temp_dir().join(format!("acpmux-ls-bench-{}", uuid::Uuid::now_v7()));
++    let claude = root.join("claude");
++    std::fs::create_dir_all(&claude).unwrap();
++    let (hub, mut c) = claude_setup(&claude, &[("FAKE_CLAUDE_TRANSCRIPT_USAGE", "1")]).await;
++    for i in 0..sessions {
++        let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await;
++        let id = s.unwrap()["sessionId"].as_str().unwrap().to_owned();
++        let text = format!("turn {i}");
++        let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
++        c.request(method::SESSION_PROMPT, prompt).await.unwrap();
++    }
++    for (label, params) in [("plain", json!({})), ("usage", json!({"usage": true}))] {
++        let mut took = Vec::with_capacity(runs);
++        for _ in 0..runs {
++            let mut ls = connect(&hub).await;
++            let started = std::time::Instant::now();
++            let list = ls.request(method::MUX_SESSIONS, params.clone()).await.unwrap();
++            took.push(started.elapsed());
++            assert_eq!(list["sessions"].as_array().map(Vec::len), Some(sessions));
++        }
++        took.sort();
++        let at = |q: f64| took[((took.len() as f64 * q).ceil() as usize).clamp(1, took.len()) - 1];
++        println!(
++            "ls_latency {label}: sessions={sessions} runs={runs} p50={:?} p95={:?} max={:?}",
++            at(0.50),
++            at(0.95),
++            took[took.len() - 1]
++        );
++    }
++    hub.shutdown_all().await;
++    let _ = std::fs::remove_dir_all(&root);
++}
+diff --git a/cmux-tui/crates/acpmux/tests/hub_integration/watch.rs b/cmux-tui/crates/acpmux/tests/hub_integration/watch.rs
+index ad87fa6b4f5e..67cc47cad817 100644
+--- a/cmux-tui/crates/acpmux/tests/hub_integration/watch.rs
++++ b/cmux-tui/crates/acpmux/tests/hub_integration/watch.rs
+@@ -22,6 +22,14 @@ async fn watch_setup() -> (Arc<Hub>, TestClient, std::path::PathBuf) {
+     let mut agents = BTreeMap::new();
+     agents.insert("fakecodex".to_owned(), profile("codex"));
+     agents.insert("fakeclaude".to_owned(), profile("claude"));
++    let root =
++        std::path::PathBuf::from("/tmp").join(format!("acpmux-watch-{}", uuid::Uuid::now_v7()));
++    // A Claude profile whose home is the test's store, as a profile with CLAUDE_CONFIG_DIR runs.
++    let mut homed = profile("claude");
++    homed
++        .env
++        .insert("CLAUDE_CONFIG_DIR".into(), root.join("claude").to_string_lossy().into_owned());
++    agents.insert("homedclaude".to_owned(), homed);
+     let mut cfg = Config {
+         harnesses: agents,
+         default_harness: Some("fakecodex".into()),
+@@ -31,8 +39,6 @@ async fn watch_setup() -> (Arc<Hub>, TestClient, std::path::PathBuf) {
+     cfg.permission_policy = PermissionPolicy::ApproveAll;
+     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+     let hub = Hub::new(cfg, store);
+-    let root =
+-        std::path::PathBuf::from("/tmp").join(format!("acpmux-watch-{}", uuid::Uuid::now_v7()));
+     std::fs::create_dir_all(root.join("project")).unwrap();
+     hub.set_harness_homes(HarnessHomes { claude: root.join("claude"), codex: root.join("codex") });
+     let c = connect(&hub).await;
+@@ -189,6 +195,40 @@ async fn a_watched_claude_chat_shows_prompts_and_answers() {
+     let _ = std::fs::remove_dir_all(&root);
+ }
+ 
++/// A watched chat runs in another app: acpmux never started it, so how it runs (its launcher,
++/// its autocompact cap) is unknown, never "no cap", while what its transcript says is read.
++/// (`a_watched_claude_chat_shows_prompts_and_answers` keeps its store out of reach.)
++#[tokio::test]
++async fn a_watched_chats_launcher_and_cap_are_unknown_not_none() {
++    let (hub, mut c, root) = watch_setup().await;
++    let id = uuid::Uuid::now_v7().to_string();
++    let project = root.join("project");
++    let file = root.join(format!("claude/projects/-tmp-watch/{id}.jsonl"));
++    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
++    // Days old: its call is still the context, and its whole file read says the last day spent 0.
++    let at = "2026-10-18T09:00:01.000Z";
++    let user = json!({"type": "user", "cwd": project, "sessionId": id, "timestamp": at, "message": {"role": "user", "content": "hi"}});
++    let reply = json!({"type": "assistant", "cwd": project, "sessionId": id, "timestamp": at, "message": {
++        "id": "msg_1", "role": "assistant", "model": "claude-opus-5-5", "content": [{"type": "text", "text": "yo"}],
++        "usage": {"input_tokens": 5, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 100, "output_tokens": 7}}});
++    append(&file, &[user, reply]);
++    backdate(&file);
++    let s = c.request(method::SESSION_NEW, watch("homedclaude", &id)).await.unwrap();
++    let sid = s["sessionId"].as_str().unwrap().to_owned();
++    assert_eq!(until_prompts(&hub, &sid, 1).await, ["hi"]);
++    let list = c.request(method::MUX_SESSIONS, json!({"usage": true})).await.unwrap();
++    let row = list["sessions"].as_array().unwrap().iter().find(|r| r["sessionId"] == sid).cloned();
++    let stats = row.unwrap()["usageStats"].clone();
++    assert_eq!(stats["autocompact"], "unknown", "{stats}");
++    assert_eq!(
++        (&stats["autocompactCap"], &stats["launcher"]),
++        (&Value::Null, &Value::Null),
++        "{stats}"
++    );
++    assert_eq!((&stats["contextTokens"], &stats["tokens24h"]), (&json!(105), &json!(0)), "{stats}");
++    let _ = std::fs::remove_dir_all(&root);
++}
++
+ #[tokio::test]
+ async fn taking_over_a_watched_chat_lets_it_run_the_conversation() {
+     let (hub, mut c, root) = watch_setup().await;
+diff --git a/webviews/src/agent-session/acpmux/protocol/generated/types.ts b/webviews/src/agent-session/acpmux/protocol/generated/types.ts
+index 5ed5c1ce0334..a6ab2e26a428 100644
+--- a/webviews/src/agent-session/acpmux/protocol/generated/types.ts
++++ b/webviews/src/agent-session/acpmux/protocol/generated/types.ts
+@@ -107,6 +107,9 @@ export type AuthorMetaFields = {
+   author?: (Author | null);
+ } & Record<string, unknown>;
+ 
++/** Whether a harness's autocompact is capped (`UsageStats.autocompact`). */
++export type Autocompact = ("capped" | "none" | "unknown");
++
+ export type ChangedSession = (SessionSummary | PurgedSession);
+ 
+ export type ChatAllowance = {
+@@ -964,6 +967,12 @@ export type SessionDetail = {
+   unread: boolean;
+   updatedAt: number;
+   usage?: unknown;
++  /**
++   * What its harness spends and holds, from the harness's own records
++   * (`usage_stats.rs`); absent until a Claude Code or Codex chat's records
++   * are found, for any other harness, and from a peer on an older acpmux.
++   */
++  usageStats?: (UsageStats | null);
+   /**
+    * What it waits on the person for: `question` (an agent question) or
+    * `permission`; null while nothing is pending. Only the person allows a permission.
+@@ -1174,6 +1183,12 @@ export type SessionSummary = {
+   turnCount: number;
+   unread: boolean;
+   updatedAt: number;
++  /**
++   * What its harness spends and holds, from the harness's own records
++   * (`usage_stats.rs`); absent until a Claude Code or Codex chat's records
++   * are found, for any other harness, and from a peer on an older acpmux.
++   */
++  usageStats?: (UsageStats | null);
+   /**
+    * What it waits on the person for: `question` (an agent question) or
+    * `permission`; null while nothing is pending. Only the person allows a permission.
+@@ -1213,6 +1228,12 @@ export interface SessionsParams {
+    * (`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.
+    */
+   status?: (string | null);
++  /**
++   * `_acpmux/sessions` only: read each chat's usage from its harness's records first
++   * (`usageStats`; at most one read every 5 s, waited for at most 750 ms). Without it the
++   * rows carry what the last read found.
++   */
++  usage?: (boolean | null);
+   /** Include tool inventories explicitly; default census rows omit them. */
+   withTools?: (boolean | null);
+ }
+@@ -1276,6 +1297,58 @@ export interface TypingParams {
+   sessionId: string;
+ }
+ 
++/**
++ * A chat's spend and context as its harness recorded them (`usage_stats.rs`):
++ * Claude Code's transcript and its subagents' (their spend is the chat's), or
++ * Codex's rollout. Read from where the last read ended: by a session list
++ * that asks (`usage: true`) or an info read, at most every 5 s, and by each
++ * turn's end for its own chat, recorded then as a mux `usage_stats` record.
++ * A value that could not be read is null, never 0: a count is null while
++ * the reads have not covered the whole last day (a first read cut short
++ * before it, a backlog not read yet, a file that could not be read).
++ */
++export type UsageStats = {
++  /** Whether something caps the context at which the harness compacts. */
++  autocompact: Autocompact;
++  /**
++   * The cap, when `autocompact` is `capped` and its value is known (Claude
++   * Code's `--autocompact`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW`,
++   * `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` of a known window, `autoCompactWindow`;
++   * Codex's `model_auto_compact_token_limit`); null otherwise.
++   */
++  autocompactCap: (number | null);
++  /** Compactions in the last 24 hours. */
++  compactions24h: (number | null);
++  /** The last call's context: its input, cache read and cache write tokens. */
++  contextTokens: (number | null);
++  /** The model's context window, as the harness reported it, else the catalog's. */
++  contextWindow: (number | null);
++  /**
++   * Those tokens at the model catalog's list prices, USD; null when no model
++   * they ran on has a price, or when `tokens24h` is null.
++   */
++  costUsd24h: (number | null);
++  /**
++   * The executable its harness runs, by file name (`claude`, `claude-sr2`,
++   * `codex-acp`); `harness` is the profile. Null when this daemon did not
++   * start it (an adopted, watched or revived chat).
++   */
++  launcher: (string | null);
++  /** Subagents started in the last hour. */
++  subagents1h: (number | null);
++  /** Subagents started in the last 24 hours. */
++  subagents24h: (number | null);
++  /** Subagents that run now. */
++  subagentsLive: (number | null);
++  /**
++   * Tokens of the last 24 hours, subagents' included: input, output, cache
++   * read and cache write.
++   */
++  tokens24h: (number | null);
++  /** Unix ms of the read these come from. */
++  updatedAt: number;
++} & Record<string, unknown>;
++
+ export interface ViewParams {
+   /**
+    * An author changes only that person's presence (`hub/presence.rs`), not whether the
