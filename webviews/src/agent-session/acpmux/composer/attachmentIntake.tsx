@@ -3,6 +3,7 @@
 // and the New Tab page's field (newtab/NewTabScreen.tsx) take a pasted or dropped image or file the
 // same way, show it as the same chip, and send it with the prompt.
 import React, { useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { Dialog } from "../../../ui/Dialog";
 import {
@@ -132,6 +133,9 @@ export type PendingAttachment = {
   /// Streaming to the session's machine (a file of any size): a send goes without waiting for it,
   /// and it stays for the next prompt (Leo, 2026-10-25: "...prevent new things from happening").
   uploading?: boolean;
+  /// Made by the host for its chat (attachLater, a file on that chat's machine): it stays with that
+  /// chat, never carried to another with the prompt.
+  bound?: boolean;
 };
 
 /// What Retry needs of a pending chip: its file and how it came in.
@@ -151,8 +155,11 @@ export function chipRemoved(state: {
   return !state.strip.some((attachment) => attachment.id === state.chip);
 }
 
-/// `file`: a promise while its bytes are still being made (MadeFile).
-type PendingSource = { file: File | Promise<File>; uploads: boolean };
+/// `file`: a promise while its bytes are still being made (MadeFile). `make`: a chip the host makes
+/// (attachLater), with the note its failure shows.
+type PendingSource =
+  | { file: File | Promise<File>; uploads: boolean }
+  | { make: () => Promise<ComposerAttachment | undefined>; name: string; failure: string; stop?: () => void };
 
 /// A file whose bytes are still being made (pastedText.ts pastedTextFile): its tile shows at once,
 /// by its name and type, and it is read once `file` settles.
@@ -185,8 +192,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   });
   const live = useRef({ options, t });
   live.current = { options, t };
-  /// Each batch still being read, with the chat it belongs to (`scope`).
-  const batches = useRef(new Set<{ scope?: string }>());
+  /// Each batch still being read, with the chat it belongs to (`scope`). A `bound` one (attachLater:
+  /// a file on that chat's machine) stays with its chat when a switch carries the prompt.
+  const batches = useRef(new Set<{ scope?: string; bound?: boolean }>());
   /// Each pending chip's file, for Retry; a chip cancelled by its × is gone from here, so what its
   /// read makes later is dropped.
   const sources = useRef(new Map<string, PendingSource>());
@@ -207,8 +215,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const from = lastScope.current;
     lastScope.current = scope;
     if (from === scope || (from !== undefined && !live.current.options.carries?.())) return;
-    for (const batch of batches.current) if (batch.scope === from) batch.scope = scope;
-    setPending((chips) => chips.map((chip) => (chip.scope === from ? { ...chip, scope } : chip)));
+    for (const batch of batches.current) if (batch.scope === from && !batch.bound) batch.scope = scope;
+    setPending((chips) => chips.map((chip) => (chip.scope === from && !chip.bound ? { ...chip, scope } : chip)));
   }, [scope]);
   /// `uploads`: the person dropped, pasted or chose these, so the chat's host may save what the
   /// composer can't attach (a moved chat's machine, or this Mac for a local chat) and its chip sends
@@ -328,14 +336,56 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       });
     }
   });
-  /// A pending chip's ×: it goes, and whatever its read makes later is dropped.
+  /// A chip the host makes from something of its own (a long dictation recording it sends to the
+  /// chat's machine): its tile shows at once, drawn before this returns so a send made in the same
+  /// task (dictation's auto-send) waits for it, as for a file still being read. `make` answers the
+  /// chip, or undefined (or throws) and the tile fails with `failure` and Retry, which runs `make`
+  /// again. Its × runs `stop` (the host stops sending) and drops whatever `make` answers later.
+  const [attachLater] = useState(
+    () => (name: string, make: () => Promise<ComposerAttachment | undefined>, failure: string, stop?: () => void) => {
+      const batch = { scope: live.current.options.scope, bound: true };
+      const chip: PendingAttachment = { id: crypto.randomUUID(), name, image: false, scope: batch.scope, bound: true };
+      sources.current.set(chip.id, { make, name, failure, stop });
+      batches.current.add(batch);
+      flushSync(() => setPending((chips) => [...chips, chip]));
+      void make()
+        .catch(() => undefined)
+        .then((attachment) => {
+          batches.current.delete(batch);
+          if (!sources.current.has(chip.id)) return;
+          if (!attachment) {
+            setPending((chips) => chips.map((shown) => (shown.id === chip.id ? { ...shown, failed: failure } : shown)));
+            return;
+          }
+          sources.current.delete(chip.id);
+          setPending((chips) => chips.filter((shown) => shown.id !== chip.id));
+          // The composer moved to another chat meanwhile: the chip is the chat's it was made for.
+          const now = live.current.options;
+          if (batch.scope !== now.scope) {
+            if (batch.scope !== undefined) now.elsewhere?.(batch.scope, [attachment]);
+            return;
+          }
+          setAttachments((staged) => appendAttachments(staged, [attachment]));
+        });
+    },
+  );
+  /// A pending chip's ×: it goes, and whatever its read makes later is dropped; a chip the host
+  /// is making (attachLater) is stopped there too.
   const [cancel] = useState(() => (id: string) => {
+    const source = sources.current.get(id);
+    if (source && "make" in source) source.stop?.();
     sources.current.delete(id);
     setPending((chips) => chips.filter((chip) => chip.id !== id));
   });
   /// A failed chip's Retry: its file is read again (and uploaded again when it was).
   const [retry] = useState(() => (id: string) => {
     const source = sources.current.get(id);
+    if (source && "make" in source) {
+      sources.current.delete(id);
+      setPending((chips) => chips.filter((chip) => chip.id !== id));
+      attachLater(source.name, source.make, source.failure, source.stop);
+      return;
+    }
     const file = source?.file;
     // A file whose bytes were never made (making them failed) has nothing to retry.
     if (!source || !file || "then" in file) return;
@@ -404,6 +454,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     drop,
     dropLanded,
     attach,
+    attachLater,
   };
 }
 
@@ -421,7 +472,7 @@ export function useSendWhenAttached(
   pending: number,
   scope?: string,
   unsettled: number = pending,
-): (send: () => void) => boolean {
+): ((send: () => void) => boolean) & { cancel(): void } {
   const held = useRef<(() => void) | undefined>(undefined);
   const count = useRef(pending);
   count.current = pending;
@@ -434,11 +485,20 @@ export function useSendWhenAttached(
     held.current = undefined;
     send();
   }, [unsettled]);
-  const [hold] = useState(() => (send: () => void) => {
-    if (count.current === 0 && !held.current) return false;
-    held.current = send;
-    return true;
-  });
+  const [hold] = useState(() =>
+    Object.assign(
+      (send: () => void) => {
+        if (count.current === 0 && !held.current) return false;
+        held.current = send;
+        return true;
+      },
+      {
+        cancel: () => {
+          held.current = undefined;
+        },
+      },
+    ),
+  );
   return hold;
 }
 

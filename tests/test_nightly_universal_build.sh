@@ -491,9 +491,11 @@ if ! awk '
   exit 1
 fi
 
-# Nightly distribution verification launches no app or CLI. The signed-app and
-# final-DMG jobs retain deterministic artifact and sidecar protocol checks and
-# gate publication, while app behavior stays in the path-routed integration lane.
+# The signed-app and final-DMG jobs retain deterministic artifact and sidecar
+# protocol checks and gate publication. The only app they launch is the cmux NEXT
+# fresh-home launch smoke of the final DMG (launch-smoke-gate.sh, in the secret-free
+# final-DMG job; tests/test_nightly_next_launch_smoke.py); other app behavior stays
+# in the path-routed integration lane.
 if ! awk '
   /^  verify-signed-nightly:/ { job="verify"; next }
   /^  verify-final-dmg-nightly:/ { job="verify-dmg"; dmg_job=1; next }
@@ -508,7 +510,7 @@ if ! awk '
   job == "publish" && /needs: .*verify-signed-nightly/ { gated=1 }
   END { exit !(sidecar && static_dmg && gated && dmg_job && dmg && dmg_gated && !verify_env && !verify_secret) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly must use secret-free static verification jobs that gate publication, with no runtime smoke"
+  echo "FAIL: nightly must use secret-free verification jobs that gate publication"
   exit 1
 fi
 
