@@ -207,6 +207,7 @@ test("ignores stale open failures across navigation, collapse, and retry", async
   const { FilesStore } = await import("../src/pages/files/store");
   const { FilesOps } = await import("../src/pages/files/types");
   const { MockFilesProvider, sampleTree } = await import("../src/pages/files/mockProvider");
+  const { pageError } = await import("../src/pages/shared/pageClient");
   const files = structuredClone(sampleTree);
   const provider = new MockFilesProvider(files);
   const baseCall = provider.call.bind(provider);
@@ -221,7 +222,7 @@ test("ignores stale open failures across navigation, collapse, and retry", async
   };
   const settle = (reject: boolean, message = "gone") => {
     const attempt = pending.shift()!;
-    if (reject) attempt.reject(new Error(message));
+    if (reject) attempt.reject(pageError("test.open_failed", message));
     else attempt.resolve();
   };
   const store = new FilesStore(provider);
