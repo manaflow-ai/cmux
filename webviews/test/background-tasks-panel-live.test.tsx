@@ -225,3 +225,63 @@ test("a workflow named in a subagent's transcript opens no empty transcript", as
   await act(async () => line.click());
   expect(opened).toEqual([]);
 });
+
+test("a workflow agent's transcript loads its older history when the reader scrolls to the top", async () => {
+  const container = installDom();
+  const observers: { fire(): void }[] = [];
+  scope.IntersectionObserver = class {
+    constructor(private readonly callback: (entries: { isIntersecting: boolean }[]) => void) {}
+    observe() {
+      observers.push({ fire: () => this.callback([{ isIntersecting: true }]) });
+    }
+    disconnect() {}
+  };
+  saved.set("IntersectionObserver", undefined);
+  const workflow = {
+    id: "wf-node",
+    parent: null,
+    name: "Workflow",
+    kind: "workflow",
+    state: "running",
+    startedAt: 1_000,
+    runId: "wf_demo",
+    workflowAgents: new Map([
+      [1, { index: 1, label: "review", agentId: "review", state: "running", startedAt: 1_100 }],
+    ]),
+  };
+  const groups = backgroundGroups({
+    rows: [{ id: "s", version: 1, at: 0, kind: SUBAGENTS, subagents: [workflow as never] }],
+    commands: [],
+    sessions: [],
+    chatName: "This chat",
+    sessionId: "chat",
+  });
+  const text = (value: string) => ({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: value } });
+  const reads: Record<string, unknown>[] = [];
+  const read = async (request: Record<string, unknown>) => {
+    reads.push(request);
+    return request.before === undefined
+      ? { start: 200, end: 400, lines: 400, truncated: false, updates: [text("The newest page")] }
+      : { start: 0, end: 200, lines: 400, truncated: false, updates: [text("The oldest page")] };
+  };
+  const pane = 'workflow:["chat","wf_demo","review"]';
+  root = createRoot(container);
+  await act(async () =>
+    root!.render(
+      <BackgroundTasksPanel
+        groups={groups}
+        initialDrill={{ agentId: pane, workflow: true }}
+        workflow={{ sessionId: "chat", chat: "This chat", connection: "connected", read: read as never }}
+        onClearFinished={() => {}}
+        onExpand={() => {}}
+        onClose={() => {}}
+      />,
+    ),
+  );
+  const transcript = container.querySelector(".acpmux-bg__transcript")!;
+  expect(transcript.textContent).toContain("The newest page");
+  expect(observers.length).toBeGreaterThan(0);
+  await act(async () => observers.at(-1)!.fire());
+  expect(reads.at(-1)).toMatchObject({ before: 200 });
+  expect(transcript.textContent).toContain("The oldest page");
+});
