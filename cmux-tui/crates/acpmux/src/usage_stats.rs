@@ -57,6 +57,29 @@ pub struct Prices {
 pub struct Models(HashMap<String, (Option<Prices>, Option<u64>)>);
 
 impl Models {
+    /// The catalog's prices and windows by model id; Anthropic's and OpenAI's own
+    /// entries first, so a reseller's copy of a model never sets its price.
+    pub fn from_catalog(catalog: &crate::catalog::Catalog) -> Self {
+        let mut models = Models::default();
+        let resold = |key: &&String| !(key.starts_with("anthropic/") || key.starts_with("openai/"));
+        let mut keys: Vec<&String> = catalog.models.keys().collect();
+        keys.sort_by_key(resold);
+        for key in keys {
+            let info = &catalog.models[key];
+            let Some((_, id)) = key.split_once('/') else { continue };
+            let prices = info.cost.as_ref().and_then(|c| {
+                Some(Prices {
+                    input: c.input?,
+                    output: c.output?,
+                    cache_read: c.cache_read.or(c.input)?,
+                    cache_write: c.cache_write.or(c.input)?,
+                })
+            });
+            models.add(id, prices, info.context_window);
+        }
+        models
+    }
+
     /// Adds `id` (a catalog key's model part); the first entry of an id wins.
     pub fn add(&mut self, id: &str, prices: Option<Prices>, window: Option<u64>) {
         self.0.entry(id.to_ascii_lowercase()).or_insert((prices, window));
@@ -150,6 +173,8 @@ pub struct Tracker {
     /// When the call `context_tokens` comes from was made: an older one read later never replaces it.
     context_at: u64,
     context_window: Option<u64>,
+    /// The newest call older than the window a read passed over, parsed at the read's end.
+    old_context: Option<Vec<u8>>,
 }
 
 impl Tracker {
@@ -171,6 +196,7 @@ impl Tracker {
                 }
             });
             if !codex {
+                self.settle_context(&mut tail, now, models);
                 self.claude_subagents(&tail.path, &source.agent_session_id, now, models);
             }
             self.main = Some(tail);
@@ -218,6 +244,40 @@ impl Tracker {
         if !(contains(line, b"\"assistant\"") || main && contains(line, b"compact_boundary")) {
             return;
         }
+        // A line older than the window counts for nothing but, if it is the newest call, the
+        // context: kept unparsed until the read ends (`settle_context`), as most of a long
+        // chat's lines are, so its first read parses only the last day.
+        if let Some(at) = quick_timestamp(line).filter(|at| at + DAY_MS <= now) {
+            // What `parse_claude_line` takes as a call: a main-loop assistant line with usage and
+            // a real model (an API error Claude Code makes up names `<synthetic>`).
+            let call = contains(line, b"\"type\":\"assistant\"")
+                && contains(line, b"\"input_tokens\"")
+                && !contains(line, b"\"model\":\"<")
+                && !contains(line, b"\"isSidechain\":true");
+            if main && call && at >= self.context_at {
+                self.old_context = Some(line.to_vec());
+            }
+            return;
+        }
+        self.parse_claude_line(line, tail, now, main, models);
+    }
+
+    /// The newest old call a read passed over (`claude_line`) as the chat's context, unless a
+    /// newer one was read.
+    fn settle_context(&mut self, tail: &mut Tail, now: u64, models: &Models) {
+        if let Some(line) = self.old_context.take() {
+            self.parse_claude_line(&line, tail, now, true, models);
+        }
+    }
+
+    fn parse_claude_line(
+        &mut self,
+        line: &[u8],
+        tail: &mut Tail,
+        now: u64,
+        main: bool,
+        models: &Models,
+    ) {
         let Ok(record) = serde_json::from_slice::<Value>(line) else { return };
         let at = timestamp(&record).unwrap_or(now);
         match record.get("type").and_then(Value::as_str) {
@@ -416,7 +476,7 @@ fn read_new(tail: &mut Tail, mut each: impl FnMut(&[u8], &mut Tail)) {
     if file.take(READ_STEP_BYTES.min(len - tail.offset)).read_to_end(&mut buf).is_err() {
         return;
     }
-    let Some(end) = buf.iter().rposition(|b| *b == b'\n') else { return };
+    let Some(end) = memchr::memrchr(b'\n', &buf) else { return };
     let mut lines = buf[..end].split(|b| *b == b'\n');
     if skip_partial {
         lines.next();
@@ -566,6 +626,15 @@ fn tokens(text: &str) -> Option<u64> {
     Some((n * scale) as u64)
 }
 
+/// A record's `"timestamp":"…"` found without parsing the line: Claude Code writes it on
+/// every line, after the message, so the last one is the record's own.
+fn quick_timestamp(line: &[u8]) -> Option<u64> {
+    const KEY: &[u8] = b"\"timestamp\":\"";
+    let start = memchr::memmem::rfind(line, KEY)? + KEY.len();
+    let len = memchr::memchr(b'"', &line[start..])?;
+    crate::server::machine_health::rfc3339_ms(std::str::from_utf8(&line[start..start + len]).ok()?)
+}
+
 fn timestamp(record: &Value) -> Option<u64> {
     record
         .get("timestamp")
@@ -580,7 +649,7 @@ fn modified_ms(path: &Path) -> Option<u64> {
 }
 
 fn contains(hay: &[u8], needle: &[u8]) -> bool {
-    hay.windows(needle.len()).any(|w| w == needle)
+    memchr::memmem::find(hay, needle).is_some()
 }
 
 /// The proleptic Gregorian date of a day count since 1970-01-01 (Howard Hinnant's algorithm).

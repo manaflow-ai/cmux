@@ -3,9 +3,12 @@
 //!
 //! A pass reads every Claude Code and Codex chat that is open or changed in the
 //! last day, on one blocking thread, from where the last pass ended. Nothing
-//! watches the files and no timer runs: a session list or info read starts a
-//! pass at most every [`REFRESH_EVERY_MS`], and a turn's end starts one, one pass
-//! at a time; while nobody asks, nothing is read. A pass ends when every chat's
+//! watches the files and no timer runs: a session list that asks for usage
+//! (`usage: true`: `acpmux ls --wide`, `--json`) or an info read starts a pass at
+//! most every [`REFRESH_EVERY_MS`] (sooner when a turn ended since), and a turn's
+//! end reads its own chat only; one pass at a time. A plain list reads nothing,
+//! and its rows carry what the last pass found. Only the list waits for its pass,
+//! at most [`READ_WAIT`]. A pass ends when every chat's
 //! new lines are read (at most 64 MiB a file); nothing outlives it but each
 //! chat's offsets and minute buckets, and a closed or purged chat's go on the
 //! next pass.
@@ -13,12 +16,15 @@
 use super::{Hub, Session};
 use crate::protocol::session::UsageStats;
 use crate::store::{SessionMeta, SessionStatus};
-use crate::usage_stats::{DAY_MS, Models, Prices, Source, Tracker};
+use crate::usage_stats::{DAY_MS, Models, Source, Tracker};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
+/// The mux record of a chat's usage after one of its turns (`read_usage`).
+pub const RECORD_KIND: &str = "usage_stats";
 /// The least time between the starts of two passes a read starts.
 const REFRESH_EVERY_MS: u64 = 5_000;
 /// How long a session list or info read waits for its pass; past that it
@@ -32,21 +38,46 @@ pub(crate) struct UsageCache {
     /// Held for a pass, with when the last one started: a read that comes
     /// meanwhile waits for it instead of reading the stats it is about to replace.
     pass: tokio::sync::Mutex<u64>,
+    /// A turn ended since the last pass began: the next read reads, however soon.
+    dirty: AtomicBool,
 }
 
 impl Hub {
-    /// Reads the chats' usage, after the pass that runs if one does, unless one started
-    /// in the last few seconds (`force`: a turn ended, so its chat's spend changed).
-    pub(crate) async fn refresh_usage_stats(&self, force: bool) {
-        let cache = &self.usage_stats;
-        let mut last = cache.pass.lock().await;
+    /// Reads every chat's usage, after the pass that runs if one does, unless one started in
+    /// the last few seconds and no turn ended since.
+    pub(crate) async fn refresh_usage_stats(&self) {
+        let mut last = self.usage_stats.pass.lock().await;
         let now = crate::store::now_ms();
-        if !force && now.saturating_sub(*last) < REFRESH_EVERY_MS {
+        let dirty = self.usage_stats.dirty.swap(false, Ordering::SeqCst);
+        if !dirty && now.saturating_sub(*last) < REFRESH_EVERY_MS {
             return;
         }
         *last = now;
+        self.read_usage(self.sessions(), true).await;
+    }
+
+    /// Reads one chat's usage and leaves it to run: its turn ended, so its spend changed. The
+    /// next list that asks for usage reads too, however soon, so it never misses this turn.
+    pub(crate) fn refresh_usage_stats_of(self: &Arc<Self>, session: &Arc<Session>) {
+        self.usage_stats.dirty.store(true, Ordering::SeqCst);
+        let (hub, session) = (self.clone(), session.clone());
+        tokio::spawn(async move {
+            let _pass = hub.usage_stats.pass.lock().await;
+            hub.read_usage(vec![session], false).await;
+        });
+    }
+
+    /// Reads `sessions`' records on a blocking thread; `whole`: they are every chat, so a
+    /// chat not among them (closed a day ago, purged) loses its tracker and stats. When any
+    /// chat's stats changed (but for `updatedAt`) the next session list is built anew; a
+    /// turn's own read (not `whole`) records its chat's as a mux `usage_stats` record, which
+    /// watchers hear as `_acpmux/session_changed`.
+    async fn read_usage(&self, sessions: Vec<Arc<Session>>, whole: bool) {
+        let now = crate::store::now_ms();
+        let by_id: HashMap<String, Arc<Session>> =
+            sessions.iter().map(|s| (s.id.clone(), s.clone())).collect();
         let mut sources = Vec::new();
-        for session in self.sessions() {
+        for session in sessions {
             let m = session.meta();
             let family = m.family.clone().unwrap_or_default();
             let Some(sid) = m.agent_session_id.clone().filter(|s| !s.is_empty()) else { continue };
@@ -67,28 +98,50 @@ impl Hub {
             };
             sources.push((m.id.clone(), source));
         }
-        let models = models(&self.catalog.current());
+        let models = Models::from_catalog(&self.catalog.current());
+        let cache = &self.usage_stats;
         let (trackers, stats) = (cache.trackers.clone(), cache.stats.clone());
         // A read that stops waiting lets the pass go on; the trackers' lock keeps passes apart.
         let pass = tokio::task::spawn_blocking(move || {
             let mut trackers = trackers.lock().unwrap_or_else(|e| e.into_inner());
-            trackers.retain(|id, _| sources.iter().any(|(s, _)| s == id));
-            let fresh: HashMap<String, UsageStats> = sources
+            let mut fresh = Vec::with_capacity(sources.len());
+            for (id, source) in &sources {
+                let tracker = trackers.entry(id.clone()).or_default();
+                fresh.push((id.clone(), tracker.refresh(source, crate::store::now_ms(), &models)));
+            }
+            let mut stats = stats.lock().unwrap_or_else(|e| e.into_inner());
+            let same = |a: &UsageStats, b: &UsageStats| {
+                UsageStats { updated_at: 0, ..a.clone() }
+                    == UsageStats { updated_at: 0, ..b.clone() }
+            };
+            let changed: Vec<(String, UsageStats)> = fresh
                 .iter()
-                .map(|(id, source)| {
-                    let tracker = trackers.entry(id.clone()).or_default();
-                    (id.clone(), tracker.refresh(source, crate::store::now_ms(), &models))
-                })
+                .filter(|(id, new)| stats.get(id).is_none_or(|old| !same(old, new)))
+                .cloned()
                 .collect();
-            *stats.lock().unwrap_or_else(|e| e.into_inner()) = fresh;
+            let mut gone = false;
+            if whole {
+                trackers.retain(|id, _| sources.iter().any(|(s, _)| s == id));
+                let before = stats.len();
+                stats.retain(|id, _| sources.iter().any(|(s, _)| s == id));
+                gone = stats.len() != before;
+            }
+            // A turn's own read announces its chat's whether or not a list's pass read the
+            // turn first, so every turn's end is followed by its usage.
+            let announce = if whole { Vec::new() } else { fresh.clone() };
+            stats.extend(fresh);
+            (changed.is_empty() && !gone, announce)
         });
-        let _ = pass.await;
-    }
-
-    /// Starts a pass and leaves it to run (a turn ended: its spend changed).
-    pub(super) fn refresh_usage_stats_later(self: &Arc<Self>) {
-        let hub = self.clone();
-        tokio::spawn(async move { hub.refresh_usage_stats(true).await });
+        let Ok((same, announce)) = pass.await else { return };
+        if !same {
+            self.events.changed();
+        }
+        for (id, stats) in announce {
+            if let Some(session) = by_id.get(&id) {
+                let stats = serde_json::to_value(stats).unwrap_or_default();
+                self.append(session, "mux", RECORD_KIND, stats);
+            }
+        }
     }
 
     /// The last pass's stats for a chat, with what the hub itself knows over them:
@@ -109,27 +162,4 @@ impl Hub {
         }
         Some(stats)
     }
-}
-
-/// The catalog's prices and windows by model id; Anthropic's and OpenAI's own
-/// entries first, so a reseller's copy of a model never sets its price.
-fn models(catalog: &crate::catalog::schema::Catalog) -> Models {
-    let mut models = Models::default();
-    let first = |key: &String| !(key.starts_with("anthropic/") || key.starts_with("openai/"));
-    let mut keys: Vec<&String> = catalog.models.keys().collect();
-    keys.sort_by_key(|k| first(k));
-    for key in keys {
-        let info = &catalog.models[key];
-        let Some((_, id)) = key.split_once('/') else { continue };
-        let prices = info.cost.as_ref().and_then(|c| {
-            Some(Prices {
-                input: c.input?,
-                output: c.output?,
-                cache_read: c.cache_read.or(c.input)?,
-                cache_write: c.cache_write.or(c.input)?,
-            })
-        });
-        models.add(id, prices, info.context_window);
-    }
-    models
 }

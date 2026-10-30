@@ -187,8 +187,9 @@ pub struct SessionSummary {
 
 /// A chat's spend and context as its harness recorded them (`usage_stats.rs`):
 /// Claude Code's transcript and its subagents' (their spend is the chat's), or
-/// Codex's rollout. Read again on a session list or info read, at most every
-/// few seconds, from where the last read ended.
+/// Codex's rollout. Read from where the last read ended: by a session list
+/// that asks (`usage: true`) or an info read, at most every 5 s, and by each
+/// turn's end for its own chat, recorded then as a mux `usage_stats` record.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all)]
@@ -612,6 +613,11 @@ pub struct SessionsParams {
     /// Include tool inventories explicitly; default census rows omit them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub with_tools: Option<bool>,
+    /// `_acpmux/sessions` only: read each chat's usage from its harness's records first
+    /// (`usageStats`; at most one read every 5 s, waited for at most 750 ms). Without it the
+    /// rows carry what the last read found.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<bool>,
     /// Page size, at least 1. Without it the reply is the whole list.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 1))]

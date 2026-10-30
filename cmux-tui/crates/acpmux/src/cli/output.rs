@@ -293,23 +293,49 @@ pub(crate) fn age(ms: u64) -> String {
     }
 }
 
-/// The `acpmux ls` usage cells of a session row (`usageStats`): the last call's context,
-/// the last day's cost at list prices, and the subagents that run now; `-` when unknown.
-pub(crate) fn usage_cells(row: &Value) -> [String; 3] {
+/// `acpmux ls --wide`'s usage cells of a session row (`usageStats`), aligned to its header:
+/// launcher, autocompact cap (`none` when nothing caps it), the last call's context,
+/// compactions, subagents live/started, and the last day's tokens and cost; `-` when unknown.
+pub(crate) fn usage_cells(row: &Value) -> String {
     let stats = &row["usageStats"];
+    if !stats.is_object() {
+        return format!(
+            "{:<10} {:>5} {:>6} {:>3} {:>6} {:>7} {:>7}",
+            "-", "-", "-", "-", "-/-", "-", "-"
+        );
+    }
     let tokens = |n: u64| match n {
         n if n >= 999_500 => format!("{:.1}M", n as f64 / 1e6),
         n if n >= 1_000 => format!("{}k", (n + 500) / 1000),
         n => n.to_string(),
     };
+    let count = |k: &str| stats[k].as_u64().map_or_else(|| "-".to_owned(), |n| n.to_string());
+    let cap = stats["autocompactCap"].as_u64().map_or_else(|| "none".to_owned(), tokens);
     let context = stats["contextTokens"].as_u64().map_or_else(|| "-".to_owned(), tokens);
+    let subagents = format!("{}/{}", count("subagentsLive"), count("subagents24h"));
+    let day = stats["tokens24h"].as_u64().map_or_else(|| "-".to_owned(), tokens);
     let cost = match stats["costUsd24h"].as_f64() {
         Some(c) if c >= 10.0 => format!("${c:.0}"),
         Some(c) => format!("${c:.2}"),
         None => "-".to_owned(),
     };
-    let live = stats["subagentsLive"].as_u64().map_or_else(|| "-".to_owned(), |n| n.to_string());
-    [context, cost, live]
+    let launcher = short(stats["launcher"].as_str().unwrap_or("-"), 10);
+    format!(
+        "{launcher:<10} {cap:>5} {context:>6} {:>3} {subagents:>6} {day:>7} {cost:>7}",
+        count("compactions24h")
+    )
+}
+
+#[cfg(test)]
+#[test]
+fn wide_usage_cells_line_up_and_say_none_for_no_cap() {
+    let row = serde_json::json!({"usageStats": {"launcher": "claude-sr2", "autocompactCap": null,
+        "contextTokens": 312_400, "compactions24h": 3, "subagentsLive": 4, "subagents24h": 90,
+        "tokens24h": 1_234_567_890u64, "costUsd24h": 1234.5}});
+    assert_eq!(usage_cells(&row), "claude-sr2  none   312k   3   4/90 1234.6M   $1234");
+    let unknown = usage_cells(&serde_json::json!({}));
+    assert_eq!(unknown, "-              -      -   -    -/-       -       -");
+    assert_eq!(unknown.chars().count(), usage_cells(&row).chars().count());
 }
 
 /// Send a prompt and print the reply as it streams.

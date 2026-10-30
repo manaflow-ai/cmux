@@ -1465,10 +1465,12 @@ async fn dispatch_request(
         }
         method::MUX_STATUS => Ok(hub.status().await),
         method::MUX_SESSIONS => {
-            // Each chat's usage as its harness recorded it until now (`hub/usage_view.rs`).
-            let _ =
-                tokio::time::timeout(crate::hub::USAGE_READ_WAIT, hub.refresh_usage_stats(false))
-                    .await;
+            // `usage: true` (`ls --wide`, `--json`): each chat's usage as its harness recorded it
+            // until now first (`hub/usage_view.rs`); else rows carry the last pass's.
+            if params.get("usage") == Some(&Value::Bool(true)) {
+                let read = hub.refresh_usage_stats();
+                let _ = tokio::time::timeout(crate::hub::USAGE_READ_WAIT, read).await;
+            }
             super::list_reply::sessions(hub, conn, &params).await
         }
         method::MUX_WEB_MODES => hub.web_modes_view(&params),
@@ -1729,9 +1731,9 @@ async fn dispatch_request(
         method::MUX_PRESETS => presets::handle(hub, conn, &params).await,
         method::MUX_INFO => {
             let s = hub.resolve(session_key(&params)?)?;
-            let _ =
-                tokio::time::timeout(crate::hub::USAGE_READ_WAIT, hub.refresh_usage_stats(false))
-                    .await;
+            // Never waited for: the next read has it (`hub/usage_view.rs`).
+            let later = hub.clone();
+            tokio::spawn(async move { later.refresh_usage_stats().await });
             // After a restart the chat logs are read after the ready line; until
             // then the queue, the turn and the status are the session list's. Info
             // waits for this chat's (#22916; read now if the background pass has not

@@ -281,6 +281,10 @@ pub enum Command {
         /// Only sessions updated within this duration (for example `24h` or `30m`).
         #[arg(long, value_name = "DURATION")]
         since: Option<String>,
+        /// Add each session's usage columns: launcher, autocompact cap, context, compactions,
+        /// subagents and the last day's tokens and cost (`usageStats` in `--json`).
+        #[arg(long)]
+        wide: bool,
     },
     /// Open the TUI on a session, or on the session list.
     #[command(alias = "a")]

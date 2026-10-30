@@ -235,7 +235,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             Ok(())
         }
-        Command::Ls { status, pending, tag, limit, fields, since, with_tools } => {
+        Command::Ls { status, pending, tag, limit, fields, since, with_tools, wide } => {
             let since_ms = since.as_deref().map(parse_duration_ms).transpose()?;
             let selected = limit.is_some() || fields.is_some() || since_ms.is_some();
             let fields = fields.as_deref().map(parse_fields).transpose()?;
@@ -251,6 +251,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             };
             if with_tools {
                 params["withTools"] = json!(true);
+            }
+            // Only a listing that shows usage has the daemon read it first; the plain one
+            // shows the rows as they are.
+            let usage = wide
+                || json_out
+                || fields.as_ref().is_some_and(|f| f.iter().any(|f| f.starts_with("usageStats")));
+            if usage {
+                params["usage"] = json!(true);
             }
             let mut v = client.request(method::MUX_SESSIONS, params).await?;
             if status.is_some() || pending || tag.is_some() || selected {
@@ -336,10 +344,28 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
                 return Ok(());
             }
-            println!(
-                "{:<24} {:<8} {:<13} {:>5} {:<6} {:>6} {:>7} {:>4} LAST",
-                "NAME", "AGENT", "STATUS", "TURNS", "AGE", "CTX", "$24H", "SUBS"
-            );
+            if wide {
+                println!(
+                    "{:<24} {:<8} {:<13} {:>5} {:<6} {:<10} {:>5} {:>6} {:>3} {:>6} {:>7} {:>7} LAST",
+                    "NAME",
+                    "AGENT",
+                    "STATUS",
+                    "TURNS",
+                    "AGE",
+                    "LAUNCHER",
+                    "CAP",
+                    "CTX",
+                    "CMP",
+                    "SUBS",
+                    "TOK24H",
+                    "$24H"
+                );
+            } else {
+                println!(
+                    "{:<24} {:<8} {:<13} {:>5} {:<6} LAST",
+                    "NAME", "AGENT", "STATUS", "TURNS", "AGE"
+                );
+            }
             for s in sessions {
                 let g = |k: &str| s.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
                 let mut status =
@@ -347,19 +373,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 if s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0 {
                     status = "waiting!".into();
                 }
-                let [context, cost, subagents] = usage_cells(&s);
-                println!(
-                    "{:<24} {:<8} {:<13} {:>5} {:<6} {:>6} {:>7} {:>4} {}",
+                let row = format!(
+                    "{:<24} {:<8} {:<13} {:>5} {:<6}",
                     short(&g("name"), 24),
                     short(&g("harness"), 8),
                     status,
                     s.get("turnCount").and_then(Value::as_u64).unwrap_or(0),
                     age(s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)),
-                    context,
-                    cost,
-                    subagents,
-                    short(s.get("lastPrompt").and_then(Value::as_str).unwrap_or(""), 50)
                 );
+                let usage = if wide { format!(" {}", usage_cells(&s)) } else { String::new() };
+                let last = short(s.get("lastPrompt").and_then(Value::as_str).unwrap_or(""), 50);
+                println!("{row}{usage} {last}");
             }
             Ok(())
         }

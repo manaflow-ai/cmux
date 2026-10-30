@@ -200,6 +200,31 @@ fn a_codex_rollout_is_found_by_its_day_and_counts_each_token_report_once() {
 }
 
 #[test]
+fn a_chat_whose_calls_are_all_older_than_the_day_keeps_its_last_calls_context() {
+    let home = tempfile::tempdir().unwrap();
+    let (source, path) = claude(home.path());
+    // A tool input that names its own timestamp: the record's is the line's last.
+    let mut call = assistant("msg_2", "2026-10-28T10:00:00Z", usage(1, 2, 300, 4), false);
+    call["message"]["content"] =
+        json!([{"type": "tool_use", "input": {"timestamp": "2026-10-30T11:00:00Z"}}]);
+    append(
+        &path,
+        &[
+            assistant("msg_1", "2026-10-28T09:00:00Z", usage(5, 5, 5, 5), false),
+            call,
+            json!({"type": "user", "timestamp": "2026-10-28T10:00:01Z", "message": {"content": "x"}}),
+            // Newer, but no call of the chat's: an API error Claude Code made up, a subagent's.
+            assistant("msg_s", "2026-10-28T10:00:02Z", usage(0, 0, 0, 0), false)
+                .tap(|v| v["message"]["model"] = json!("<synthetic>")),
+            assistant("msg_3", "2026-10-28T10:00:03Z", usage(9, 9, 9, 9), true),
+        ],
+    );
+    let stats = Tracker::default().refresh(&source, ms("2026-10-30T12:00:00Z"), &models());
+    assert_eq!(stats.context_tokens, Some(303));
+    assert_eq!((stats.tokens24h, stats.cost_usd24h), (0, None));
+}
+
+#[test]
 fn the_autocompact_cap_comes_from_the_flag_then_the_env_then_the_settings() {
     let home = tempfile::tempdir().unwrap();
     let (mut source, _) = claude(home.path());
@@ -248,5 +273,32 @@ impl Tap for Value {
     fn tap(mut self, f: impl FnOnce(&mut Self)) -> Self {
         f(&mut self);
         self
+    }
+}
+
+/// A measurement, not a check: reads a real chat's records twice and prints
+/// what each read cost. `ACPMUX_USAGE_PROBE=<family>:<agent session id>:<cwd>`, then
+/// `cargo test -p acpmux --lib usage_probe -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn usage_probe() {
+    let probe = std::env::var("ACPMUX_USAGE_PROBE").expect("ACPMUX_USAGE_PROBE");
+    let mut parts = probe.splitn(3, ':');
+    let source = Source {
+        family: parts.next().unwrap().into(),
+        agent_session_id: parts.next().unwrap().into(),
+        cwd: parts.next().unwrap_or("/").into(),
+        created_at: crate::store::now_ms(),
+        argv: vec![],
+        env: BTreeMap::new(),
+    };
+    let catalog: crate::catalog::Catalog =
+        serde_json::from_str(include_str!("../catalog/models-v1.json")).unwrap();
+    let models = Models::from_catalog(&catalog);
+    let mut tracker = Tracker::default();
+    for read in ["first", "incremental"] {
+        let started = std::time::Instant::now();
+        let stats = tracker.refresh(&source, crate::store::now_ms(), &models);
+        println!("{read}: {:?} {}", started.elapsed(), serde_json::to_string(&stats).unwrap());
     }
 }
