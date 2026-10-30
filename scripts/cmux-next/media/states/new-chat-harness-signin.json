@@ -1,0 +1,86 @@
+{
+  "title": "New Agent Chat shows harness recovery before its first prompt",
+  "steps": [
+    {
+      "title": "Open New Agent Chat on a fresh home without sending",
+      "cmux": [
+        "agent",
+        "new-chat"
+      ],
+      "wait": 5
+    },
+    {
+      "title": "Record the empty chat and displayed harness before sending",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "chat_state"
+        }
+      },
+      "record": "file",
+      "wait": 1
+    },
+    {
+      "title": "Focus the composer",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "focus_composer"
+        }
+      },
+      "shot": false,
+      "wait": 0.1
+    },
+    {
+      "title": "Type the unsent draft",
+      "key": "d",
+      "pane": "{pane}",
+      "modifiers": [],
+      "shot": false,
+      "wait": 0.05
+    },
+    {
+      "title": "Type the unsent draft",
+      "key": "r",
+      "pane": "{pane}",
+      "modifiers": [],
+      "shot": false,
+      "wait": 0.05
+    },
+    {
+      "title": "Type the unsent draft",
+      "key": "a",
+      "pane": "{pane}",
+      "modifiers": [],
+      "shot": false,
+      "wait": 0.05
+    },
+    {
+      "title": "Type the unsent draft",
+      "key": "f",
+      "pane": "{pane}",
+      "modifiers": [],
+      "shot": false,
+      "wait": 0.05
+    },
+    {
+      "title": "Type the unsent draft",
+      "key": "t",
+      "pane": "{pane}",
+      "modifiers": [],
+      "shot": false,
+      "wait": 0.05
+    },
+    {
+      "title": "The readiness action and unsent draft remain together",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "chat_state"
+        }
+      },
+      "record": "file",
+      "wait": 1
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import { composerHealthHarness } from "./composerPickerEntries";
 import { forkMenuRows } from "./header/forkMenu";
 import { openFork } from "./conversation/openFork";
 import React, {
@@ -4903,13 +4904,31 @@ function AcpmuxPane() {
   // Each prompt's own turn, for the Fork under its bubble; rebuilt only when the turns change.
   const promptSeqsKey = editableKey(promptTurns(forkable ? snapshot.rows : []));
   const stablePromptSeqs = useMemo(() => editableSeqs(promptSeqsKey), [promptSeqsKey]);
+  // Retry with another model (cx-ncc.62): the models the composer's picker lists for the chat's
+  // harness (user-hidden ones left out, aliases folded, the session's own choices added) that it can
+  // run now, kept the same array while they stay the same.
+  const pickerSession = useMemo(
+    () => ({
+      harness: snapshot.summary?.harness,
+      model: snapshot.summary?.model,
+      configOptions: snapshot.summary?.configOptions,
+    }),
+    [snapshot.summary?.harness, snapshot.summary?.model, snapshot.summary?.configOptions],
+  );
+  const pickerState = usePickerCatalog(snapshot.catalog, pickerSession, snapshot.sessions);
+  const pickerCatalog = pickerState.catalog;
   // The chat's agent CLI health (cx-ny85), from this Mac's acpmux on the pane's own connection
   // (cx-jlzsf); a chat on another machine or in the cloud gets none (its CLI is not this Mac's).
   const [readHealth, setHarnessHealth] = useState<HarnessHealth>();
   /// An agent CLI update on offer (hq#2569 #12): the model chip's dot and picker row, not a banner.
   const [updateOffer, setUpdateOffer] = useState<UpdateOffer>();
-  const healthHarness = snapshot.summary?.harness;
-  const healthLocal = !snapshot.summary?.peer && snapshot.summary?.hostKind !== "cloud";
+  // A fresh chat has no summary yet, but its composer already names a harness. Read that
+  // same harness's health so its existing Log In action is available before the first send.
+  const healthHarness = composerHealthHarness(snapshot, pickerCatalog);
+  const healthLocal =
+    !snapshot.summary?.peer &&
+    snapshot.summary?.hostKind !== "cloud" &&
+    (snapshot.sessionId !== undefined || !directClient.current?.newChatPeer());
   /// `harness.health {id, refresh?, rescan?}` answered by this Mac's acpmux (the Harnesses page asks
   /// it by that name); `{}` for a chat on another machine, whose CLIs are not this Mac's, and while
   /// the pane has no acpmux connection. Stable per chat: the Harnesses page re-reads when it changes.
@@ -5899,19 +5918,6 @@ function AcpmuxPane() {
   // Tool call ids belong to one session.
   useEffect(() => setHunkDecisions((current) => (current.size ? new Map() : current)), [snapshot.sessionId]);
   useEffect(() => setStatusCardOpen(false), [snapshot.sessionId]);
-  // Retry with another model (cx-ncc.62): the models the composer's picker lists for the chat's
-  // harness (user-hidden ones left out, aliases folded, the session's own choices added) that it can
-  // run now, kept the same array while they stay the same.
-  const pickerSession = useMemo(
-    () => ({
-      harness: snapshot.summary?.harness,
-      model: snapshot.summary?.model,
-      configOptions: snapshot.summary?.configOptions,
-    }),
-    [snapshot.summary?.harness, snapshot.summary?.model, snapshot.summary?.configOptions],
-  );
-  const pickerState = usePickerCatalog(snapshot.catalog, pickerSession, snapshot.sessions);
-  const pickerCatalog = pickerState.catalog;
   // The first open after a launch: acpmux has not listed its harnesses yet, so none is missing yet.
   const harnessesChecking = useIsFetching({ queryKey: ["acpmux", "harnesses"] }) > 0 && snapshot.catalog.length === 0;
   // Add harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
