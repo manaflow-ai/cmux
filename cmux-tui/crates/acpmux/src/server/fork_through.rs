@@ -50,23 +50,33 @@ pub(super) fn through(params: &Value) -> Option<u64> {
     params.pointer("/_meta/acpmux/throughSeq").and_then(Value::as_u64)
 }
 
+/// Why a chat on another computer (a peer's) cannot be forked here: a `live`
+/// fork names no turn. Daemon error text, in English as acpmux's other
+/// errors; the pane never sends a fork of a peer's chat (webviews
+/// `messageMenu.ts` `forkServed`), so only a raw client reads it.
+fn remote_refusal(live: bool) -> &'static str {
+    if live {
+        "forking a chat on another computer is not supported yet"
+    } else {
+        "forking a chat on another computer through a turn is not supported yet"
+    }
+}
+
 /// The `session/fork` params for an `acp.session.fork` request, or why the
 /// fork cannot happen at that turn.
 async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     let key = session_key(params)?;
+    // `live`: the whole chat as it is now (Fork Conversation), its running turn cut off
+    // there (`hub/fork.rs`).
+    let live = params.get("live").and_then(Value::as_bool).unwrap_or(false);
     let session = hub.resolve(key).map_err(|e| {
         if hub.resolve_remote(key).is_some() {
-            RpcError::invalid_params(
-                "forking a chat on another computer through a turn is not supported yet",
-            )
+            RpcError::invalid_params(remote_refusal(live))
         } else {
             e
         }
     })?;
     let working = matches!(session.meta().status, SessionStatus::Running | SessionStatus::Waiting);
-    // `live`: the whole chat as it is now (Fork Conversation), its running turn cut off
-    // there (`hub/fork.rs`).
-    let live = params.get("live").and_then(Value::as_bool).unwrap_or(false);
     let can_cut = {
         let harness = session.meta().harness;
         let cfg = hub.config.read().await;
