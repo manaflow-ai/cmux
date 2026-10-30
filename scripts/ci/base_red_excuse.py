@@ -234,25 +234,39 @@ def is_rollup(job: dict) -> bool:
                     for step in steps))
 
 
-def step_header(step: dict) -> re.Pattern:
-    """The log's `##[group]Run ...` header of a `run:` step: its script's first line, an expression matching anything."""
+def step_header(step: dict) -> tuple[str, re.Pattern]:
+    """(the API's name for a `run:` step, its log's `##[group]Run ...` header): the header is the script's first line,
+    an expression matching anything; an unnamed step is named after that line, as GitHub names it."""
     first = next((line.strip() for line in str(step.get("run") or "").splitlines() if line.strip()), "")
-    return re.compile(r"##\[group\]Run " + ".*".join(re.escape(part) for part in EXPRESSION.split(first)))
+    return (str(step.get("name") or f"Run {first}"),
+            re.compile(r"##\[group\]Run " + ".*".join(re.escape(part) for part in EXPRESSION.split(first))))
 
 
-def step_output(log: str, headers: list[re.Pattern]) -> set[str] | None:
-    """Every line the steps with these headers printed (numbers and commit shas masked, warnings dropped), or None
-    when a header is not in the log: what a rollup's own steps said, to compare with the base's."""
+def step_output(job: dict, log: str, steps: list[tuple[str, re.Pattern]]) -> set[str] | None:
+    """Every line the rollup's own steps printed in JOB's LOG (numbers and commit shas masked, warnings dropped), or
+    None when that cannot be read whole: a step that ran but is not in the log, in order, or whose section has no
+    end (a cut-short log). Steps are found one after another, so two that start alike are each read; a step the job
+    skipped printed nothing."""
+    ran = {step.get("name"): step.get("conclusion") for step in job.get("steps") or []}
     lines = [ANSI.sub("", line) for line in lines_of(log)]
     found: set[str] = set()
-    for header in headers:
-        start = next((at for at, line in enumerate(lines) if header.fullmatch(line)), None)
+    at = 0
+    for name, header in steps:
+        if name not in ran:
+            return None
+        if ran[name] == "skipped":
+            continue
+        start = next((index for index in range(at, len(lines)) if header.fullmatch(lines[index])), None)
         if start is None:
             return None
-        at = next((at for at in range(start + 1, len(lines)) if lines[at].startswith("##[endgroup]")), len(lines))
-        for line in lines[at + 1:]:
-            if STEP_OUTPUT_END.match(line):
-                break
+        end_group = next((index for index in range(start + 1, len(lines)) if lines[index].startswith("##[endgroup]")),
+                         None)
+        if end_group is None:
+            return None
+        at = next((index for index in range(end_group + 1, len(lines)) if STEP_OUTPUT_END.match(lines[index])), None)
+        if at is None:
+            return None
+        for line in lines[end_group + 1:at]:
             text = line.replace("##[error]", "").strip()
             if text and not text.startswith(("##[group]", "##[endgroup]")) and not WARNING.search(text):
                 found.add(re.sub(r"\d+", "#", mask_shas(text)))
@@ -547,11 +561,11 @@ def judge_jobs(repo: str, base: str, sha: str, runs: list[int], github, checks: 
         if not head_tests:
             compared.append(("errors", head_errors, base_errors))
         if job["id"] in reds.rollup_nodes:
-            headers = reds.rollup_nodes[job["id"]]["headers"]
-            said = step_output(head_log, headers)
+            steps = reds.rollup_nodes[job["id"]]["headers"]
+            said = step_output(job, head_log, steps)
             if said is None:
-                raise Refused(f"'{name}': its own steps' output is not in its log; nothing to compare with the base")
-            compared.append(("lines it printed", said, step_output(base_log, headers) or set()))
+                raise Refused(f"'{name}': its own steps' output is not in its log whole; nothing to compare with the base")
+            compared.append(("lines it printed", said, step_output(base_job, base_log, steps) or set()))
         for kind, head, seen in compared:
             if missing := sorted(head - seen):
                 raise Refused(f"'{name}': {kind} not on {base} run {base_run['id']}: {'; '.join(missing)[:600]}")

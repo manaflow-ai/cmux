@@ -805,6 +805,48 @@ class RollupIsJudgedByTheJobsUnderIt(unittest.TestCase):
         self.gh.logs[4] = self.gh.logs[4].replace("runner-abc", "runner-xyz").replace('"failure"', '"skipped"')
         self.assertIn(f"excused '{GUARD_STATUS}'", "\n".join(self.judge()))
 
+    def two_step_rollup(self, second_output, second="failure"):
+        """Guard status with a second step whose script starts like the first (ci-status's shape)."""
+        self.gh.workflow_files[".github/workflows/ci-guards.yml"] = CI_GUARDS_WORKFLOW.replace(
+            "          PY\n", "          PY\n      - name: Check the routes again\n        env:\n"
+            "          AGAIN: ${{ toJSON(needs) }}\n        run: |\n          python3 - <<'PY'\n          print(1)\n"
+            "          PY\n", 1)
+        for job_id in (3, 4):
+            self.gh.jobs[job_id]["steps"].append({"name": "Check the routes again", "status": "completed",
+                                                  "conclusion": second if job_id == 3 else "failure"})
+        first = rollup_log(GUARD_STATUS, GUARD_STATUS_SCRIPT, "workflow-guard-tests: failure (route linux_guard_tests=true)")
+        self.gh.logs[4] = first + "\n" + rollup_log(GUARD_STATUS, "python3 - <<'PY'\nprint(1)\nPY", "routes: fine")
+        self.gh.logs[3] = first + ("\n" + rollup_log(GUARD_STATUS, "python3 - <<'PY'\nprint(1)\nPY", second_output)
+                                   if second != "skipped" else "")
+
+    def test_two_steps_that_start_alike_are_each_compared(self):
+        self.two_step_rollup("workflow-guard-history: skipped (route linux_guard_history=true)")
+        with self.assertRaisesRegex(excuse.Refused, "lines it printed not on feat-cmux-next run 20: "
+                                                    "workflow-guard-history: skipped"):
+            self.judge()
+
+    def test_a_second_step_that_says_what_the_base_said_is_excused(self):
+        self.two_step_rollup("routes: fine")
+        self.assertIn(f"excused '{GUARD_STATUS}'", "\n".join(self.judge()))
+
+    def test_a_step_the_rollup_skipped_after_its_first_failed_is_not_looked_for(self):
+        self.two_step_rollup("", second="skipped")
+        self.assertIn(f"excused '{GUARD_STATUS}'", "\n".join(self.judge()))
+
+    def test_a_cut_short_rollup_log_stays_red(self):
+        whole = self.gh.logs[3]
+        for cut in (whole.split("##[endgroup]")[0], whole.split("Process completed")[0].rsplit("\n", 1)[0]
+                    .replace("Cleaning up orphan processes", "")):
+            self.gh.logs[3] = cut
+            with self.subTest(cut=cut[-60:]), self.assertRaisesRegex(excuse.Refused, "not in its log whole"):
+                self.judge()
+
+    def test_a_step_the_api_does_not_list_leaves_the_rollup_red(self):
+        self.gh.jobs[3]["steps"] = [step for step in self.gh.jobs[3]["steps"] if step["name"] != "Check routed guard jobs"]
+        self.gh.jobs[3]["steps"].append({"name": "Report", "status": "completed", "conclusion": "failure"})
+        with self.assertRaisesRegex(excuse.Refused, "not in its log whole"):
+            self.judge()
+
     def test_a_rollup_whose_own_output_is_not_in_its_log_stays_red(self):
         self.gh.logs[3] = log(GUARD_STATUS, "Report", "workflow-guard-tests: failure (route linux_guard_tests=true)")
         with self.assertRaisesRegex(excuse.Refused, "its own steps' output is not in its log"):
