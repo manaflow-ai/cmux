@@ -1,8 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample prompts, commands and pull request titles), not shipped UI.
-// The chat's pull requests above the composer (PullRequestDock.tsx, cx-ncc.81): compare the quiet
-// count line, no dock, a single-row treatment and the legacy full bars. Every version keeps the PR
-// count opens Changes; its adjacent disclosure retains hover cards and dismissal.
-import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
+// Compact PR links in the message row, with one-link and tighter alternatives.
+import { pullRequestComparisons } from "./PullRequestDockComparisons";
+import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 
 const create = (title: string, number: number) =>
@@ -11,202 +10,131 @@ const create = (title: string, number: number) =>
     output: `https://github.com/acme/atlas-web/pull/${number}\n`,
     exitCode: 0,
   });
-const merge = (number: number) =>
-  tool(`gh pr merge ${number} --squash`, "execute", "completed", {
-    command: `gh pr merge ${number} --squash`,
-    output: "Merged",
-    exitCode: 0,
-  });
-const inspector = { "pane.tabState": { inspector: true } };
-
-// Synthetic received message, opened: the last visible row is its panel's end, immediately above the
-// dock (the variant ids keep their old "-show-more" names).
-const report = Array.from({ length: 12 }, (_, i) => `Step ${i + 1}: check the uploader retry behavior.`).join("\n\n");
-const inline = (layout: string, note: string): AgentPaneVariant => ({
-  note,
-  documentAttributes: { "pr-dock": "compact", "pr-dock-layout": layout },
-  native: inspector,
-  snapshot: chat([
-    activity([create("Add retry to the uploader", 128), create("Cover retry with a test", 129)], 3),
-    user(report, 1, {
-      incoming: { kind: "message", message: { name: "review", text: report, raw: report } },
-      untyped: true,
-    }),
-  ]),
-  play: async (ctx) => {
-    await ctx.waitFor(() => ctx.document.querySelector(".cv-received .cv-disclosure__toggle"));
-    await ctx.click({ selector: ".cv-received .cv-disclosure__toggle" });
-    await ctx.waitFor(
-      () =>
-        ctx.document.querySelector(".cv-received__text") !== null &&
-        !ctx.document.querySelector(".cv-received")?.getAnimations({ subtree: true }).length,
-    );
-    if (ctx.document.querySelector("aside.acpmux-chat-inspector"))
-      await ctx.click({ selector: ".acpmux-chat-inspector-toggle" });
-    await ctx.click({ selector: ".acpmux-pr-dock__disclosure" });
-    await ctx.scroll({ selector: ".acpmux-scroll" }, "bottom");
-    // The opened message's fold holds its line for a moment after it plays (foldAnchor.ts), which
-    // can put the view back: scroll again until it stays at the end.
-    await ctx.waitFor(() => {
-      const scroller = ctx.document.querySelector<HTMLElement>(".acpmux-scroll");
-      if (!scroller) return false;
-      const end = scroller.scrollHeight - scroller.clientHeight;
-      if (end - scroller.scrollTop > 1) scroller.scrollTop = end;
-      return end - scroller.scrollTop <= 1;
-    });
-  },
-});
-
+const four = [
+  create("Add retry", 128),
+  create("Cover retry", 129),
+  create("Document retry", 130),
+  create("Log retry", 131),
+];
+const snapshot = chat([
+  user("Split the change into four PRs", 6),
+  activity(four, 5),
+  assistant("Four PRs are open.", 2),
+  summary(2, { status: "completed", durationMs: 68_000, toolCount: 4 }),
+]);
 export default agentPaneEntry({
   id: "agent-pane.pr-dock",
-  title: "Pull request bars",
+  title: "Inline pull request pills",
   area: "Agent pane",
   height: 420,
   covers: ["agent-session/acpmux/summary/PullRequestDock.tsx"],
   variants: {
-    "inline-above-show-more": inline(
-      "above",
-      "Selected: chips wrap above the count in the dock's own flow; the opened message above stays clear.",
-    ),
-    "inline-beside-show-more": inline(
-      "beside",
-      "Alternative: chips share the count's row and wrap on narrow panes; less room for chip labels.",
-    ),
-    "inline-below-show-more": inline(
-      "below",
-      "Alternative: chips wrap below the count; clear of the card but moves the disclosure further from the composer.",
-    ),
-    "compact-count": {
-      note: "Recommended: one quiet PR count opens Changes; its disclosure keeps hover cards and dismissal.",
-      documentAttributes: { "pr-dock": "compact" },
-      native: inspector,
+    ...pullRequestComparisons.variants,
+    "inline-pills": {
+      note: "Selected: up to two underlined PR links beside the action row, plus instant overflow.",
+      snapshot,
+    },
+    "one-first": {
+      note: "Alternative: one link and the remainder behind +N, saving more width.",
+      documentAttributes: { "pr-dock": "one" },
+      snapshot,
+    },
+    tight: {
+      note: "Alternative: the same links with tighter horizontal spacing.",
+      documentAttributes: { "pr-dock": "tight" },
+      snapshot,
+    },
+    "no-footer": {
+      note: "While the answer streams, links sit right of its last line without an action row.",
       snapshot: chat([
-        user("Split the change into four PRs", 6),
-        activity(
-          [
-            create("Add retry to the uploader", 128),
-            create("Cover retry with a test", 129),
-            create("Document retry in the README", 130),
-            create("Log each retry", 131),
-          ],
-          5,
+        activity(four, 5),
+        assistant(
+          "The uploader retries transient failures while preserving the existing response and its error details. This earlier paragraph keeps the full message width.\n\n```ts\nconst response = await uploadWithRetry(payload, { attempts: 3, delay: 250 });\n```\n\nFour PRs are ready for review.",
+          2,
+          { streaming: true },
         ),
-        assistant("Four PRs are open.", 2),
-        summary(2, { status: "completed", durationMs: 68_000, toolCount: 4 }),
       ]),
     },
-    "none-session-info": {
-      note: "No composer dock: the PRs live in Session Info's Changes section.",
-      documentAttributes: { "pr-dock": "none" },
-      native: inspector,
+    "code-tail": {
+      note: "Footerless final code keeps PR links visible.",
       snapshot: chat([
-        user("Split the change into four PRs", 6),
-        activity(
-          [
-            create("Add retry to the uploader", 128),
-            create("Cover retry with a test", 129),
-            create("Document retry in the README", 130),
-            create("Log each retry", 131),
-          ],
-          5,
-        ),
-        assistant("Four PRs are open.", 2),
-        summary(2, { status: "completed", durationMs: 68_000, toolCount: 4 }),
+        activity(four, 5),
+        assistant("```ts\nconst response = await uploadWithRetry(payload);\n```", 2, {
+          streaming: true,
+        }),
       ]),
     },
-    "collapsed-line": {
-      note: "Today's PR pills stay in one horizontally scrollable line.",
-      documentAttributes: { "pr-dock": "collapsed" },
-      native: inspector,
+    "table-tail": {
+      note: "Footerless final table keeps PR links visible.",
       snapshot: chat([
-        user("Split the change into four PRs", 6),
-        activity(
-          [
-            create("Add retry to the uploader", 128),
-            create("Cover retry with a test", 129),
-            create("Document retry in the README", 130),
-            create("Log each retry", 131),
-          ],
-          5,
-        ),
-        assistant("Four PRs are open.", 2),
-        summary(2, { status: "completed", durationMs: 68_000, toolCount: 4 }),
+        activity(four, 5),
+        assistant("| Result | State |\n| --- | --- |\n| Build | Passed |", 2, { streaming: true }),
       ]),
     },
-    "full-bars": {
-      note: "Legacy full bars: two show, the rest stay behind Show more.",
-      documentAttributes: { "pr-dock": "full" },
-      native: inspector,
+    "empty-quote": {
+      note: "An empty nested blockquote keeps the fallback until a PR control actually mounts.",
+      snapshot: chat([activity(four, 3), assistant("> >", 1, { streaming: true })]),
+    },
+    "reply-actions": {
+      note: "A finished reply followed by a tool keeps PRs beside its existing action buttons.",
       snapshot: chat([
-        user("Split the change into four PRs", 6),
-        activity(
-          [
-            create("Add retry to the uploader", 128),
-            create("Cover retry with a test", 129),
-            create("Document retry in the README", 130),
-            create("Log each retry", 131),
-          ],
-          5,
-        ),
-        assistant("Four PRs are open.", 2),
-        summary(2, { status: "completed", durationMs: 68_000, toolCount: 4 }),
+        activity(four, 4),
+        assistant("The pull requests are ready.", 2),
+        activity([tool("Read README", "read", "completed")], 1),
       ]),
     },
-    one: {
-      note: "One pull request the chat opened, open.",
-      documentAttributes: { "pr-dock": "full" },
+    "whitespace-reply": {
+      note: "A whitespace-only assistant row does not hide the fallback PR links.",
+      snapshot: chat([user("Open the pull request", 2), activity([create("Open PR", 128)], 1), assistant(" \n\t", 0)]),
+    },
+    "streaming-fence-opener": {
+      note: "A streaming fence opener has no rendered block and does not hide fallback PR links.",
       snapshot: chat([
-        user("Open a PR for the retry change", 4),
-        activity([create("Add retry to the uploader", 128)], 3),
-        assistant("Opened #128.", 2),
-        summary(2, { status: "completed", durationMs: 21_000, toolCount: 1 }),
+        user("Open the pull request", 2),
+        activity([create("Open PR", 128)], 1),
+        assistant("```ts", 0, { streaming: true }),
       ]),
     },
-    "just-merged": {
-      note: "The newest pull request merged in this turn: it leaves the dock; the open one stays.",
-      documentAttributes: { "pr-dock": "full" },
+    "math-tail": {
+      note: "Footerless final math keeps PR links visible.",
+      snapshot: chat([activity(four, 5), assistant("$$x^2 + y^2 = z^2$$", 2, { streaming: true })]),
+    },
+    "rule-tail": {
+      note: "Footerless final rule keeps PR links visible.",
+      snapshot: chat([activity(four, 5), assistant("The checks passed.\n\n---", 2, { streaming: true })]),
+    },
+    "diagram-tail": {
+      note: "Footerless final diagram keeps PR links visible.",
+      snapshot: chat([activity(four, 5), assistant("```mermaid\nflowchart LR\nA --> B\n```", 2, { streaming: true })]),
+    },
+    "notes-tail": {
+      note: "Links share the final visible note even when definitions arrive in a different order.",
       snapshot: chat([
-        user("Open the docs PR and merge it", 4),
-        activity([create("Add retry to the uploader", 128), create("Document retry", 129), merge(129)], 3),
-        assistant("#129 is merged; #128 stays open.", 2),
-        summary(2, { status: "completed", durationMs: 33_000, toolCount: 3 }),
+        activity(four, 5),
+        assistant("The checks passed[^first][^second].\n\n[^second]: Second note.\n\n[^first]: First note.", 2, {
+          streaming: true,
+        }),
       ]),
     },
-    several: {
-      note: "Four pull requests, the first merged: it keeps no bar; the newest two show, one more behind Show more.",
-      documentAttributes: { "pr-dock": "full" },
+    "one-pill": {
+      note: "One PR is a single link with no disclosure or remove button.",
       snapshot: chat([
-        user("Split the change into four PRs and merge the first", 6),
-        activity(
-          [
-            create("Add retry to the uploader", 128),
-            create("Cover retry with a test", 129),
-            create("Document retry in the README", 130),
-            create("Log each retry", 131),
-            merge(128),
-          ],
-          5,
-        ),
-        assistant("Three PRs open; #128 is merged.", 2),
-        summary(2, { status: "completed", durationMs: 74_000, toolCount: 5 }),
+        activity([create("Add retry", 128)], 3),
+        assistant("Ready for review.", 2),
+        summary(2, { status: "completed", toolCount: 1 }),
       ]),
     },
-    "long-title": {
-      note: "A long title uses the composer's width and is cut off only at the column's edge.",
-      documentAttributes: { "pr-dock": "full" },
+    received: {
+      note: "A received message keeps PR links beside its existing actions.",
       snapshot: chat([
-        user("Open a PR for the rulebook change", 4),
-        activity(
-          [
-            create(
-              "rulebook: reviewed PRs merge right away; the label is the fallback when the owner cannot merge, and base reds never block a merge",
-              634,
-            ),
-          ],
-          3,
-        ),
-        assistant("Opened #634.", 2),
-        summary(2, { status: "completed", durationMs: 21_000, toolCount: 1 }),
+        activity(four, 3),
+        user("Ready for review.", 1, {
+          incoming: {
+            kind: "message",
+            message: { name: "review", text: "Ready for review.", raw: "Ready for review." },
+          },
+          untyped: true,
+        }),
       ]),
     },
   },
