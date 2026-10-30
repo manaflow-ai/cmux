@@ -262,6 +262,22 @@ async fn forward_inner(
         {
             return Err(crate::hub::media_read::peer_unsupported(&peer, m));
         }
+        // A peer on an older build replays the chat for `session/resume`, as for a load, and
+        // the replay would reach this client: the resume `initialize` advertises would not hold.
+        // The resume then goes on the link that listed it, or fails (`Peer::session_resume_link`).
+        let resume_link = (m == method::SESSION_RESUME).then(|| peer.session_resume_link());
+        // A link that is down says nothing of the peer's build: the client hears it is down.
+        if resume_link == Some(None) && !peer.ready() {
+            return Err(peer.unreachable_error());
+        }
+        if resume_link == Some(None) {
+            let build = peer.remote_build().unwrap_or_else(|| "unknown".into());
+            return Err(RpcError::method_not_found(&format!(
+                "{m} (peer {} runs acpmux build {build}, whose resume replays the chat; run `acpmux host update {}`)",
+                peer.name, peer.name
+            ))
+            .with_data(json!({"reason": "sessionResume.unsupported", "peer": peer.name})));
+        }
         // So does a subagent's transcript (`hub/subagent_transcript.rs`).
         if m == method::MUX_SUBAGENT_TRANSCRIPT && !peer.supports_subagent_transcript() {
             return Err(crate::hub::media_read::peer_unsupported(&peer, m)
@@ -478,7 +494,7 @@ async fn forward_inner(
         // request keeps its deadline and always goes out: an attach the marker above stands for
         // must reach the peer even when its client is gone.
         // A page goes on the link it is labelled with, or fails.
-        let on = pages.then_some(link);
+        let on = pages.then_some(link).or(resume_link.flatten());
         let result = if crate::peer::waits_on_turn(m) {
             tokio::select! {
                 result = peer.request_on(m, p, on) => result,
