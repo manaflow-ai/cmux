@@ -132,7 +132,10 @@ import Testing
         let refusal: LinkError?
         let data: [Data]
         private var index = 0
-        init(refusal: LinkError?, data: [Data] = []) { self.refusal = refusal; self.data = data }
+        init(refusal: LinkError?, data: [Data] = []) {
+            self.refusal = refusal
+            self.data = refusal == nil ? [Data("{\"size\":\(data.reduce(0) { $0 + $1.count })}".utf8)] + data : data
+        }
         func send(_ data: Data) async throws {}
         func receive() async throws -> Data? {
             defer { index += 1 }

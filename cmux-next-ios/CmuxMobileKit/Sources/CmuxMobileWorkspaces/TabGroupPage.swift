@@ -26,7 +26,6 @@ struct TabGroupPage: View {
             .navigationTitle(group?.displayName ?? "Tab Group")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
-            .toolbar(.hidden, for: .tabBar)
             .background(theme.colors.bg.color.ignoresSafeArea())
             .overlay(alignment: .bottom) { PageToast(source: source) }
             // Ungrouped, closed or moved to another workspace on the Mac: nothing left to act on.
