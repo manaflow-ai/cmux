@@ -41,7 +41,7 @@ use crate::error::CliError;
 use crate::{exit, fetch_body, new_idempotency_key, parse_key, request_body};
 
 /// Seconds without traffic before the VM pauses itself (`--idle-timeout`).
-const DEFAULT_IDLE_TIMEOUT_SECONDS: i64 = 900;
+const DEFAULT_IDLE_TIMEOUT_SECONDS: i64 = 300;
 /// A VM that is not kept is deleted once it has been this long without running.
 const AUTO_DELETE_SECONDS: i64 = 900;
 /// Raw bytes per upload or download chunk: 1 MB is 1,333,336 base64

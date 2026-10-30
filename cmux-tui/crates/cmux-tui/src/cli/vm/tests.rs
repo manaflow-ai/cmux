@@ -139,6 +139,23 @@ fn an_environment_key_or_config_mints_without_the_app() {
 }
 
 #[test]
+fn a_default_config_counts_only_with_an_api_key() {
+    let base = std::env::temp_dir().join(format!("cmux-vm-own-credential-{}", std::process::id()));
+    std::fs::create_dir_all(base.join("cmux")).unwrap();
+    let xdg = base.to_string_lossy().into_owned();
+    let env = |name: &str| (name == "XDG_CONFIG_HOME").then(|| xdg.clone());
+    let file = base.join("cmux").join("vm.json");
+    assert!(!has_own_credential(&env));
+    std::fs::write(&file, r#"{"baseUrl":"https://vm.example.test","teamId":"team_x"}"#).unwrap();
+    assert!(!has_own_credential(&env), "no apiKey: the app mints");
+    std::fs::write(&file, r#"{"apiKey":"cmuxvm_sk_x"}"#).unwrap();
+    assert!(has_own_credential(&env));
+    std::fs::write(&file, "not json").unwrap();
+    assert!(has_own_credential(&env), "a broken file is cmux-vm's to report");
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
 fn mint_params_hold_the_budget_and_never_scopes() {
     let params = mint_params(&args(&["token", "create", "--ttl", "2h", "--max-vms=2"])).unwrap();
     assert_eq!(params["ttlSeconds"], serde_json::json!(7200));

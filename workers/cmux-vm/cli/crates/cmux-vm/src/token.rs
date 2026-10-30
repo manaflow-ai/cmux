@@ -548,15 +548,37 @@ pub async fn revoke(
     writeln!(out, "{text}").map_err(|e| CliError::unexpected(format!("write output: {e}")))
 }
 
-/// Seconds since the Unix epoch for `YYYY-MM-DDTHH:MM:SS[.fff]Z`.
+/// Seconds since the Unix epoch for exactly `YYYY-MM-DDTHH:MM:SS[.fff]Z`
+/// (years 0000 to 9999, so nothing here can overflow); anything else, an
+/// impossible date or time included, is `None`.
 pub fn parse_rfc3339(text: &str) -> Option<i64> {
     let text = text.strip_suffix('Z')?;
-    let (date, time) = text.split_once('T')?;
-    let mut date = date.split('-').map(|part| part.parse::<i64>().ok());
-    let (year, month, day) = (date.next()??, date.next()??, date.next()??);
-    let time = time.split('.').next()?;
-    let mut time = time.split(':').map(|part| part.parse::<i64>().ok());
-    let (hour, minute, second) = (time.next()??, time.next()??, time.next()??);
+    let (main, fraction) = match text.split_once('.') {
+        Some((main, fraction)) => (main, Some(fraction)),
+        None => (text, None),
+    };
+    if fraction.is_some_and(|f| f.is_empty() || !f.bytes().all(|b| b.is_ascii_digit())) {
+        return None;
+    }
+    let bytes = main.as_bytes();
+    if bytes.len() != 19
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || bytes[10] != b'T'
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+    {
+        return None;
+    }
+    let number = |range: std::ops::Range<usize>| {
+        let part = main.get(range)?;
+        if !part.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        part.parse::<i64>().ok()
+    };
+    let (year, month, day) = (number(0..4)?, number(5..7)?, number(8..10)?);
+    let (hour, minute, second) = (number(11..13)?, number(14..16)?, number(17..19)?);
     let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
     let month_days = match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
@@ -622,6 +644,12 @@ mod tests {
             Some(1_709_251_199)
         );
         for bad in [
+            "99999999999999-01-01T00:00:00Z",
+            "+2026-10-29T08:00:00Z",
+            "2026-1-29T08:00:00Z",
+            "2026-10-29T08:00:00.Z",
+            "2026-10-29T08:00:00.5xZ",
+            "2026-10-29T08:00:00",
             "2026-02-31T00:00:00Z",
             "2025-02-29T00:00:00Z",
             "2026-04-31T00:00:00Z",

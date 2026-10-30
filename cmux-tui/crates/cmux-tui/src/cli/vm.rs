@@ -220,7 +220,16 @@ pub(super) fn has_own_credential(env: &dyn Fn(&str) -> Option<String>) -> bool {
         .filter(|value| !value.is_empty())
         .map(std::path::PathBuf::from)
         .or_else(|| env("HOME").map(|home| std::path::PathBuf::from(home).join(".config")));
-    base.is_some_and(|base| base.join("cmux").join("vm.json").is_file())
+    let Some(text) = base.and_then(|base| std::fs::read(base.join("cmux").join("vm.json")).ok())
+    else {
+        return false;
+    };
+    // A file with no API key (only a base URL or team) leaves the app to
+    // mint; one that cannot be parsed is cmux-vm's to report.
+    match serde_json::from_slice::<Value>(&text) {
+        Ok(file) => file["apiKey"].as_str().is_some_and(|key| !key.is_empty()),
+        Err(_) => true,
+    }
 }
 
 /// The `vm.agent_key.create` params for `token create`'s flags.
@@ -262,7 +271,11 @@ pub(super) fn mint_params(plan: &[String]) -> Result<Map<String, Value>, UsageEr
                     })?;
                 params.insert("maxUsdPerHour".into(), json!(usd));
             }
-            other => return Err(UsageError::new(format!("unknown token create option {other}"))),
+            other => {
+                return Err(UsageError::new(format!(
+                    "unknown token create option {other} (cmux's own options, like --app-socket, go before `vm`)"
+                )));
+            }
         }
     }
     params.entry("ttlSeconds").or_insert(json!(cmux_vm::token::DEFAULT_TTL_SECONDS));
