@@ -39,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var forcedQuitExit = ForcedQuitExit(prepare: { [weak self] in
         self?.services?.crashRecovery.applicationWillTerminate()
         AppProcessRoot.shared.hangReports?.applicationWillTerminate()
+        allowBlocking(.terminate) { AgentPaneStateFile.flushAll() }
         self?.services?.home.applicationWillTerminate()
     }, save: { [weak self] in
         await self?.services?.home.flushCacheForQuit()
@@ -509,6 +510,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.viewers.editorPages.terminate()
         // Design mode's Home composer files left by cards still in a draft (BrowserDesignModeTempFiles).
         BrowserDesignModeController.tempFiles.removeAll()
+        // The agent panes' state files (unsent drafts, scroll places) save off the main thread.
+        allowBlocking(.terminate) { AgentPaneStateFile.flushAll() }
         services?.home.applicationWillTerminate()
         services?.vscodeServeWeb.terminateForAppExit()
         cloudContext?.cancel()
