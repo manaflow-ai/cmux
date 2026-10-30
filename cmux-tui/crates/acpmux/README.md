@@ -228,6 +228,7 @@ Five everyday commands, three groups for the rest:
 | `host setup HOST [--no-auto-update]` / `host update [--all] [--if-idle] [--keep-newer] [--binary-dir DIR]` / `host self-update` / `host hold [NAME] [--reason TEXT] [--until TIME] [--release]` / `host add NAME [URL]` / `host ls` / `host status [NAME]` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…` (default `ssh://NAME`: the machine's one daemon as your ssh config reaches it). `ls` names an `ssh://` entry with a user or another port as not the canonical endpoint. `status` (also the hidden `peer status` alias) asks each host's health live: reachable, round trip, disk, load, live sessions, build. |
 | `host enroll HOST [--harness ID]… [--reverse]` / `host doctor NAME\|HOST [--fix] [--reverse]` | Add a machine step by step (reach, install, daemon, update, harness, peer, peer-back, identity), one JSON line per step with `--json`; `peer-back` (this machine as the host's peer) runs only with `--reverse`; `doctor` changes nothing without `--fix`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
+| `session stop NAME --if-idle [--expect-revision REV] [--purge]` | Stop it only when it is idle: no turn (one admitted but not started included), queued prompt, pending permission, agent request or background subagent; with `--expect-revision`, only while its revision (`lastSeq` in `ls --json` / `session info --json`) is still REV. Checked under the lock that admits turns, so none starts between the check and the stop. A refusal stops nothing and exits 6 (`busy` with `busyWith`, or `revision_moved`; `error.data.revision` is the current one). Runs on the session's own daemon: not with `--mesh`, and refused for a peer's session (`stop_if_idle_remote`). |
 | `daemon run\|status\|start\|restart\|shutdown\|stop\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
 | `capabilities [--json]` | The protocol capability ids this build serves (`acpmux-v1`, `queue-edit-v1`, ...), with no daemon running. |
 | `daemon restart` | Stop and start the daemon, keeping hosted sessions so they resume after startup. |
@@ -303,7 +304,8 @@ rules, including app-only permission checks.
 Every command takes `--json` before it for machine output; errors then go to stderr as one
 `{"error": {"code", "detail", "message", "sessionId", "retryable"}}` object and nothing is
 printed on stdout. Exit codes are stable: 0 ok, 1 runtime or agent error, 2 usage, 3 timeout,
-4 no such session, 5 every permission in the turn was denied, 130 interrupted. A closed daemon socket is never reported as a bare "connection closed": the
+4 no such session, 5 every permission in the turn was denied, 6 `session stop --if-idle`
+refused (the session is not idle or its revision moved), 130 interrupted. A closed daemon socket is never reported as a bare "connection closed": the
 message says what was in flight, whether the daemon is still running, exited without cleanup, or
 was shut down, which build it ran when that differs from the CLI's, and where the log is
 (`detail: daemon_closed`, retryable). When a prompt was in flight the error also carries its

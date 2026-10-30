@@ -137,6 +137,7 @@ acpmux session restart NAME                        # restart its agent process a
 acpmux session resume NAME                         # run the prompts a failed turn held (no person needed)
 acpmux session queue list|remove|clear NAME        # its queued prompts; clear --from-agents drops agents' messages only
 acpmux session kill --purge NAME                   # delete (only sessions you created)
+acpmux session stop NAME --if-idle [--expect-revision LASTSEQ]   # stop only if idle and unchanged; else exit 6, nothing stopped
 ```
 
 `send` on a busy or blocked session never refuses: the prompt queues and the
@@ -287,7 +288,8 @@ read-tool payloads in event output.
 
 Exit codes: 0 ok · 1 runtime or agent error · 2 usage, or a permission is
 waiting (`wait`) · 3 timeout · 4 no such session · 5 every permission in the
-turn was denied · 130 interrupted.
+turn was denied · 6 `session stop --if-idle` refused (`busy` or
+`revision_moved`; `error.data.revision` is the current `lastSeq`) · 130 interrupted.
 
 ## 8. Rules
 
