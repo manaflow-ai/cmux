@@ -159,6 +159,29 @@ describe("backgroundGroups", () => {
     expect(finishedGroupIds(groups)).toEqual([clearKey(groups[0]!)]);
   });
 
+  test("a workflow that ended (a cancel, the harness exiting) leaves none of its agents running", () => {
+    const workflow = agent("wf", {
+      kind: "workflow",
+      runId: "wf_run",
+      state: "cancelled",
+      endedAt: 5_000,
+      workflowAgents: new Map([
+        [1, { index: 1, label: "critic", agentId: "crit", state: "running", startedAt: 1_400 }],
+        [2, { index: 2, label: "judge", agentId: "judge", state: "completed", startedAt: 1_500, elapsedMs: 100 }],
+      ]),
+    });
+    const groups = backgroundGroups(input([group([workflow])], {}, { sessionId: "chat" }));
+    expect(groups[0]!.running).toEqual([]);
+    expect(groups[0]!.finished.map((task) => [task.title, task.state])).toEqual(
+      expect.arrayContaining([
+        ["critic", "stopped"],
+        ["judge", "done"],
+      ]),
+    );
+    expect(anyRunning(groups)).toBe(false);
+    expect(finishedGroupIds(groups)).toEqual([clearKey(groups[0]!)]);
+  });
+
   test("an agent that ended while a nested agent still runs stays live: ordered with the running, never cleared", () => {
     const rows = [
       group([
