@@ -6,7 +6,12 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { findMissingGlassMarkup, findOpaqueGlass, findSolidTooltipMarkup } from "../scripts/check-glass-never-opaque";
+import {
+  findMissingGlassMarkup,
+  findOpaqueGlass,
+  findOpaqueOverlays,
+  findSolidTooltipMarkup,
+} from "../scripts/check-glass-never-opaque";
 
 test("glass is never opaque", () => {
   expect(findOpaqueGlass()).toEqual([]);
@@ -179,6 +184,91 @@ test("the scan flags opaque glass and only opaque glass", () => {
       ".named-glass",
       ":root:not([data-reduce-transparency]) .not-rt",
     ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Leo: "I don't like the non-glassness". Popovers, cards, menus, toasts and sheets are glass, never
+// opaque: no overlay surface (and no glass rule) paints a fill that covers 90% or more outside Reduce
+// Transparency, unless OVERLAY_ALLOWED says why. An OVERLAY_PENDING entry fails once it is glass.
+test("every overlay surface is glass, never opaque", () => {
+  expect(findOpaqueOverlays()).toEqual([]);
+});
+
+function overlayFixture(css: string[]): { dir: string; found: string[]; glass: string[] } {
+  const dir = mkdtempSync(join(tmpdir(), "glass-never-opaque-overlay-"));
+  writeFileSync(join(dir, "fixture.css"), css.join("\n"));
+  return { dir, found: findOpaqueOverlays(dir), glass: findOpaqueGlass(dir) };
+}
+
+// Each of these passed the glass checks before (no blur or glass class, or a fill that is not
+// provably opaque): findOpaqueGlass returns nothing for them.
+test("a solid popover, a near-opaque card and the card material fail as overlays", () => {
+  const { dir, found, glass } = overlayFixture([
+    ":root { --surface-popup: var(--cmux-popup-surface); --page-elevated: #fff; }",
+    // The Summary popover: the solid popup surface, no blur, no glass class.
+    ".demo-summary-card[data-placement=popover] { background: var(--surface-popup); }",
+    // cmux#22670's Updated card: a 13% tint layered over the elevated surface at 94%.
+    ".wn-card { background: linear-gradient(red, red), color-mix(in srgb, var(--page-elevated) 94%, transparent); }",
+    ".demo-toast { background: color-mix(in srgb, var(--page-elevated) 92%, transparent); }",
+    ".demo-pill-menu { background: var(--cmux-card-tint, Canvas); }",
+    ".demo-sheet--wide { background-color: #ffffffee; }",
+  ]);
+  try {
+    expect(glass).toEqual([]);
+    expect(found).toEqual([
+      "fixture.css:2: .demo-summary-card[data-placement=popover] { background: var(--surface-popup) }",
+      "fixture.css:3: .wn-card { background: linear-gradient(red, red), color-mix(in srgb, var(--page-elevated) 94%, transparent) }",
+      "fixture.css:4: .demo-toast { background: color-mix(in srgb, var(--page-elevated) 92%, transparent) }",
+      "fixture.css:5: .demo-pill-menu { background: var(--cmux-card-tint, Canvas) }",
+      "fixture.css:6: .demo-sheet--wide { background-color: #ffffffee }",
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a near-opaque fill under a blur fails, a provably opaque one stays findOpaqueGlass's", () => {
+  const { dir, found, glass } = overlayFixture([
+    ".demo-lens { background: color-mix(in srgb, Canvas 95%, transparent); backdrop-filter: blur(20px); }",
+    ".demo-solid { background: Canvas; backdrop-filter: blur(20px); }",
+  ]);
+  try {
+    expect(found).toEqual(["fixture.css:1: .demo-lens { background: color-mix(in srgb, Canvas 95%, transparent) }"]);
+    expect(glass).toEqual(["fixture.css:2: .demo-solid { background: Canvas }"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("glass tints, rows inside a menu, Reduce Transparency and a written reason pass", () => {
+  const { dir, found } = overlayFixture([
+    ":root { --surface-popup: var(--cmux-popup-surface); }",
+    ".demo-popover { background: color-mix(in srgb, Canvas 60%, transparent); backdrop-filter: blur(20px); }",
+    ".demo-card { background: color-mix(in srgb, CanvasText 13%, transparent); }",
+    ".ui-menu-item[data-highlighted] { background: Canvas; }",
+    ".demo-menu .demo-menu-row { background: Canvas; }",
+    "@media (prefers-reduced-transparency: reduce) { .demo-popover { background: var(--surface-popup); } }",
+    ":root[data-reduce-transparency] .demo-card { background: Canvas; }",
+    ".demo-dialog {",
+    "  /* glass-opaque-allow: a test surface that is solid on purpose */",
+    "  background: var(--surface-popup);",
+    "}",
+    ".demo-tooltip { background: var(--some-unknown-token); }",
+  ]);
+  try {
+    expect(found).toEqual([]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a gallery stage is not an overlay surface", () => {
+  const dir = mkdtempSync(join(tmpdir(), "glass-never-opaque-overlay-gallery-"));
+  try {
+    writeFileSync(join(dir, "Menu.gallery.css"), ".menu-gallery-card { background: Canvas; }");
+    expect(findOpaqueOverlays(dir)).toEqual([]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
