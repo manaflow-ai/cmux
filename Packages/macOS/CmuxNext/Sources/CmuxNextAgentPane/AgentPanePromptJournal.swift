@@ -159,7 +159,11 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
                 return (state.generation, state.entries, state.pendingTrust, kept)
             }
             // Older writes queued meanwhile are skipped (they would drop the record from the file);
-            // when this write fails, the next of them writes the journal as it is.
+            // when this write fails, the next of them writes the journal as it is. Until then the
+            // file may hold what this record took out of it again (its connection ended meanwhile),
+            // as a failed write of any removal (``forget(daemon:promptId:)``, a daemon's close)
+            // leaves it: a relaunch sends it once more, under its promptId, and acpmux runs a
+            // promptId at most once.
             last.generation = generation
             let current = entries == proposed.entries && pendingTrust == proposed.pendingTrust
             last.behind = !current && !writeFile(entries, pendingTrust: pendingTrust)
