@@ -2523,3 +2523,47 @@ async fn client_session_revoke_at_a_terminal_needs_the_typed_session_id() {
     assert_eq!(revoked.code, exit::OK, "{}", revoked.stderr);
     assert_eq!(typed.asked, 1);
 }
+
+#[tokio::test]
+async fn run_exits_with_the_command_status_when_cleanup_fails() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/vms"))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({ "id": VM_ID })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/vms/{VM_ID}")))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "id": VM_ID, "state": "running" })),
+        )
+        .mount(&server)
+        .await;
+    // Every exec answers "3" with no output: the work directory, the launch,
+    // then a poll that reads exit status 3 and nothing more.
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/exec")))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "exitCode": 0, "stdout": "3\n\n\n", "stderr": "" })),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/vms/{VM_ID}")))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["run", "--", "exit", "3"]).await;
+    assert_eq!(out.code, 3, "{}", out.stderr);
+    assert!(
+        out.stderr
+            .contains(&format!("vm {VM_ID} was not cleaned up")),
+        "{}",
+        out.stderr
+    );
+    assert!(out.stderr.contains("delete"), "{}", out.stderr);
+}

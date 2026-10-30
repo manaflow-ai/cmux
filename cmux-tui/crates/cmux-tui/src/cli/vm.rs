@@ -317,9 +317,11 @@ fn mint_through_app(global: &GlobalArgs, plan: &[String]) -> i32 {
         Err(error) => return fail("usage.invalid", &error.0, 2),
     };
     let env = |name: &str| std::env::var(name).ok();
-    if let Err(error) = cmux_vm::token::refuse_if_one_is_stored(&env, cmux_vm::token::now_unix()) {
-        return fail("vm.token_stored", error.message(), error.exit_code());
-    }
+    // Held until the new key is stored or revoked (see begin_create).
+    let _lock = match cmux_vm::token::begin_create(&env, cmux_vm::token::now_unix()) {
+        Ok(lock) => lock,
+        Err(error) => return fail("vm.token_stored", error.message(), error.exit_code()),
+    };
     let mut stream = match super::app::connect_command(global) {
         Ok(stream) => stream,
         Err(_) => {

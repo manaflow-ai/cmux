@@ -374,6 +374,57 @@ pub fn create_body(args: &TokenCreateArgs) -> Result<Value, CliError> {
     }))
 }
 
+/// Where `token create` serializes this user's creates: beside the file
+/// store (on macOS too, whose token lives in the Keychain).
+fn create_lock_path(env: &dyn Fn(&str) -> Option<String>) -> Option<std::path::PathBuf> {
+    let base = env("XDG_CONFIG_HOME")
+        .filter(|v| !v.is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            env("HOME")
+                .filter(|v| !v.is_empty())
+                .map(|home| std::path::PathBuf::from(home).join(".config"))
+        })?;
+    Some(base.join("cmux").join("vm-token.lock"))
+}
+
+/// The start of every `token create`: takes this user's create lock and
+/// checks the store under it ([`refuse_if_one_is_stored`]). Hold the lock
+/// until the new key is stored (or revoked), so two concurrent creates cannot
+/// both mint and leave one key stored nowhere. `None` when there is no
+/// config directory to lock in.
+pub fn begin_create(
+    env: &dyn Fn(&str) -> Option<String>,
+    now_unix: i64,
+) -> Result<Option<std::fs::File>, CliError> {
+    let lock = match create_lock_path(env) {
+        Some(path) => {
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir).map_err(|e| {
+                    CliError::unexpected(format!("cannot create {}: {e}", dir.display()))
+                })?;
+            }
+            let mut options = std::fs::OpenOptions::new();
+            options.create(true).truncate(false).write(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let file = options.open(&path).map_err(|e| {
+                CliError::unexpected(format!("cannot open {}: {e}", path.display()))
+            })?;
+            file.lock().map_err(|e| {
+                CliError::unexpected(format!("cannot lock {}: {e}", path.display()))
+            })?;
+            Some(file)
+        }
+        None => None,
+    };
+    refuse_if_one_is_stored(env, now_unix)?;
+    Ok(lock)
+}
+
 /// `token create` refuses while a token that may be live is stored: storing a
 /// new one would leave that key live and billable with nothing able to revoke
 /// it, and revoking it here would delete VMs another process may be using. An
@@ -409,6 +460,7 @@ pub async fn create(
     out: &mut dyn Write,
 ) -> Result<(), CliError> {
     let body: types::CreateAgentKeyRequest = request_body(create_body(args)?)?;
+    let _lock = begin_create(env, now_unix())?;
     // The service takes no idempotency key for agent keys, so a create is
     // never retried: a lost answer leaves at most one key nobody holds, with
     // no VMs, that expires within its --ttl.
@@ -717,6 +769,22 @@ mod tests {
         token.expires_at = "2001-01-01T00:00:00Z".into();
         save(&token, &env).unwrap();
         assert!(refuse_if_one_is_stored(&env, now_unix()).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn one_create_at_a_time() {
+        let dir = std::env::temp_dir().join(format!("cmux-vm-create-lock-{}", std::process::id()));
+        let xdg = dir.to_string_lossy().into_owned();
+        let env = |name: &str| (name == "XDG_CONFIG_HOME").then(|| xdg.clone());
+        let held = begin_create(&env, 0).unwrap().expect("a lock file");
+        let other = std::fs::File::open(create_lock_path(&env).unwrap()).unwrap();
+        assert!(matches!(
+            other.try_lock(),
+            Err(std::fs::TryLockError::WouldBlock)
+        ));
+        drop(held);
+        other.try_lock().unwrap();
         let _ = std::fs::remove_dir_all(&dir);
     }
 

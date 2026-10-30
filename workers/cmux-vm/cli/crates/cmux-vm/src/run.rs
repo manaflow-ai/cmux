@@ -251,7 +251,9 @@ pub async fn run(
         }
         Outcome::Interrupted => 130,
     };
-    ended?;
+    // The exit status is the command's, as documented; a cleanup that
+    // failed is said above with the command that finishes it.
+    drop(ended);
     Ok(code)
 }
 
@@ -959,10 +961,23 @@ fn git_files(dir: &Path) -> Option<Vec<PathBuf>> {
             .stdout
             .split(|b| *b == 0)
             .filter(|entry| !entry.is_empty())
-            .filter_map(|entry| std::str::from_utf8(entry).ok().map(PathBuf::from))
+            .filter_map(git_path)
             .filter(|path| seen.insert(path.clone()))
             .collect(),
     )
+}
+
+/// A path from `git ls-files -z`: its bytes as they are on unix, so a name
+/// that is not UTF-8 still syncs.
+#[cfg(unix)]
+fn git_path(entry: &[u8]) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    Some(PathBuf::from(std::ffi::OsStr::from_bytes(entry)))
+}
+
+#[cfg(not(unix))]
+fn git_path(entry: &[u8]) -> Option<PathBuf> {
+    std::str::from_utf8(entry).ok().map(PathBuf::from)
 }
 
 fn walk(dir: &Path) -> Result<Vec<PathBuf>, CliError> {
@@ -1344,6 +1359,15 @@ mod tests {
             Path::new("../outside/secret.txt")
         ));
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn git_names_that_are_not_utf8_still_sync() {
+        use std::os::unix::ffi::OsStrExt;
+        let name = b"caf\xe9.txt";
+        let path = git_path(name).expect("kept");
+        assert_eq!(path.as_os_str().as_bytes(), name);
     }
 
     #[cfg(unix)]
