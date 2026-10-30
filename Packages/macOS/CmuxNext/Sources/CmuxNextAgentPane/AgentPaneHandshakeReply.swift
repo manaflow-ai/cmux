@@ -7,7 +7,11 @@ import Foundation
 enum AgentPaneHandshakeReply {
     static func reply(to request: AgentPaneRequest, in model: AgentPaneModel) async -> [String: Any] {
         // A page that loaded again starts without the tab row: it is offered again.
-        if request == .ready { model.tabRow.pageLoaded() }
+        // Its native tools were the old page's: they go too, so no stale button sends an old id to the new page.
+        if request == .ready {
+            model.tabRow.pageLoaded()
+            model.setTabRowTools([])
+        }
         model.setCheckpointAvailable(false)
         model.pageCommands = []
         do {
