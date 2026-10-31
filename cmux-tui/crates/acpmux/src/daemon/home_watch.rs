@@ -154,7 +154,10 @@ pub(crate) fn watch(
     use notify::Watcher as _;
     // The home and lock as the daemon first held them (`held`), and the socket as bound. The
     // home watcher starts immediately after lock acquisition, before startup writes; the socket
-    // watcher is added once the socket is bound.
+    // watcher is added once the socket is bound. Keep the held set separate: a socket ancestor
+    // outside the home must never be classified as a home loss.
+    let held_for_classification = held.clone();
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     let home_owned = held.is_some();
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     let bound_owned = bound.is_some();
@@ -229,7 +232,7 @@ pub(crate) fn watch(
                 // A folder gone before its watch began (the home removed during the startup) is
                 // the loss itself, not a watch that could not be set up.
                 if let Some(why) = owned.lost() {
-                    if home_owned && owned.lost_except(Some(socket)).is_some() {
+                    if held_for_classification.as_ref().is_some_and(|held| held.lost().is_some()) {
                         crate::config::mark_home_lost();
                     } else {
                         crate::config::mark_socket_lost();
@@ -259,7 +262,7 @@ pub(crate) fn watch(
             lost = check();
         }
         // At once, before the shutdown starts: no write may make the old home again.
-        if home_owned && owned.lost_except(Some(socket.as_path())).is_some() {
+        if held_for_classification.as_ref().is_some_and(|held| held.lost().is_some()) {
             crate::config::mark_home_lost();
         } else {
             crate::config::mark_socket_lost();
@@ -340,6 +343,28 @@ mod tests {
         std::fs::remove_file(&link).unwrap();
         std::os::unix::fs::symlink(&two, &link).unwrap();
         assert!(owned.lost().is_some(), "symlink retarget was not detected");
+    }
+
+    #[test]
+    fn a_socket_ancestor_loss_is_not_a_home_loss() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let first = dir.path().join("first");
+        let second = dir.path().join("second");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&first).unwrap();
+        std::fs::create_dir_all(&second).unwrap();
+        let link = dir.path().join("socket-link");
+        std::os::unix::fs::symlink(&first, &link).unwrap();
+        let socket = link.join("s.sock");
+        std::fs::write(&socket, "").unwrap();
+        let held = Owned::now(&[home.as_path()]).unwrap();
+        let bound = Owned::now(&[socket.as_path()]).unwrap();
+        std::fs::rename(dir.path().join("second"), dir.path().join("replacement")).unwrap();
+        std::fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink(dir.path().join("replacement"), &link).unwrap();
+        assert!(held.lost().is_none(), "socket ancestor changed the home identity");
+        assert!(bound.lost().is_some(), "socket ancestor replacement was not detected");
     }
 
     #[test]
