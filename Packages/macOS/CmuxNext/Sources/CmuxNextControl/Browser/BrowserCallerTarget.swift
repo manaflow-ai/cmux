@@ -83,7 +83,7 @@ struct BrowserCallerTarget: Sendable, Equatable {
         func found(_ tab: ControlTabInfo, _ screen: ControlScreenInfo, _ pane: ControlPaneInfo) -> Self {
             Self(workspace: workspace, screen: screen, pane: pane, tab: tab, shownIn: pane.selectedTabID == tab.id ? pane : nil)
         }
-        if let focused = topology.focus.tabID {
+        if topology.focus.workspaceID == workspace.id, let focused = topology.focus.tabID {
             for (screen, pane) in panes {
                 if let tab = pane.tabs.first(where: { $0.id == focused }), isBrowser(tab) { return found(tab, screen, pane) }
             }
@@ -154,6 +154,8 @@ extension ControlRouter {
                                          topology: ControlTopology) throws {
         let browserAction = action.requires.contains("browserFocused")
             || (action.category == "browser" && action.requires.contains("webViewFocused"))
+            // These inspector actions also support app web views, so their catalog has no focus requirement.
+            || ["toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement"].contains(action.id)
         guard request.target == nil, browserAction,
               request.callerAgentSession != nil || request.callerTerminal != nil || request.callerHomeChat else { return }
         let caller = ControlCaller(agentSession: request.callerAgentSession, terminalID: request.callerTerminal,
