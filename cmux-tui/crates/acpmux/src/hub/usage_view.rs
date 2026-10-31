@@ -82,7 +82,7 @@ impl Hub {
             let family = m.family.clone().unwrap_or_default();
             let Some(sid) = m.agent_session_id.clone().filter(|s| !s.is_empty()) else { continue };
             if !matches!(family.as_str(), "claude" | "codex")
-                || m.status == SessionStatus::Closed && m.updated_at + DAY_MS < now
+                || m.status == SessionStatus::Closed && m.updated_at.saturating_add(DAY_MS) < now
             {
                 continue;
             }
