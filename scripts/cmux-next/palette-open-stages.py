@@ -26,7 +26,9 @@ has them too); and the longest main-thread stall while the word is typed (`debug
 The key p95 <= 4 ms budget (`// perf-hot: 4ms palette-key`) is reported, never gated.
 --seed-chats N gives the app's acpmux a store of N stored chats titled "Idle-cost chat <i>" (idle_cost_load: two
 template chats made by the bundle's acpmux on a peer daemon, then copies), so type a word they match ("idle cost").
---stress builds the STRESS session (perf-stress-session.py) before typing.
+--stress builds the STRESS session (perf-stress-session.py) before typing. STRESS needs a 1600 x 1000 pt window, which a
+1920 x 1080 display under the menu bar and Dock cannot hold: --vdisplay HZ first makes a 1920 x 1200 virtual main
+display (scripts/ci/frame-pacing/vdisplay.m, as split-spring.sh --vdisplay) for the run.
 
 Usage: palette-open-stages.py --tag <tag> --app PATH [--rounds 10] [--interval 0.35] [--out DIR] [--json PATH]
                               [--search-keys WORD] [--seed-chats N] [--stress]
@@ -48,6 +50,7 @@ parser.add_argument("--no-gate", action="store_true", help="report only; exit 0 
 parser.add_argument("--search-keys", help="time typed keys of this word on Search (Cmd-Shift-A), not palette opens")
 parser.add_argument("--seed-chats", type=int, default=0, help="stored chats in the app's acpmux store (--search-keys)")
 parser.add_argument("--stress", action="store_true", help="build the STRESS session before typing (--search-keys)")
+parser.add_argument("--vdisplay", type=float, help="run on a 1920x1200 virtual main display at this refresh rate (Hz)")
 opts = parser.parse_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
@@ -277,6 +280,8 @@ def summarize(label, samples):
 
 def cleanup():
     print("cleanup", flush=True)
+    if VDISPLAY is not None and VDISPLAY.poll() is None:
+        VDISPLAY.terminate()  # the helper this script started; its display arrangement goes with it
     if os.environ.get("PALETTEOPEN_KEEP") or not LAUNCHED:
         return
     rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
@@ -302,8 +307,43 @@ def cleanup():
         os.remove(SOCKET)
 
 
+VDISPLAY = None
+
+
+def start_vdisplay(hz):
+    """A 1920x1200 virtual main display at `hz` (split-spring.sh's helper), for STRESS's 1600x1000 window."""
+    global VDISPLAY
+    repo = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+    folder = os.path.join(SCRATCH, "vdisplay", "VDisplay.app", "Contents")
+    os.makedirs(os.path.join(folder, "MacOS"), exist_ok=True)
+    binary = os.path.join(folder, "MacOS", "VDisplay")
+    built = subprocess.run(["xcrun", "clang", "-fobjc-arc", "-O2", "-Wno-deprecated-declarations", "-framework", "AppKit",
+                            "-framework", "CoreVideo", os.path.join(repo, "scripts/ci/frame-pacing/vdisplay.m"), "-o", binary],
+                           capture_output=True, text=True)
+    if built.returncode != 0:
+        raise SystemExit(f"palette-open: the virtual display helper did not compile: {built.stderr[-600:]}")
+    with open(os.path.join(repo, "scripts/ci/frame-pacing/VDisplay-Info.plist")) as src, open(os.path.join(folder, "Info.plist"), "w") as dst:
+        dst.write(src.read())
+    subprocess.run(["codesign", "-s", "-", "--force", os.path.dirname(folder)], capture_output=True)
+    out = open(os.path.join(SCRATCH, "vdisplay", "out"), "w+")
+    VDISPLAY = subprocess.Popen([binary, str(hz), "3600", "main", "1920x1200"], stdout=out, stderr=subprocess.DEVNULL)
+    line = ""
+    for _ in range(20):
+        out.seek(0)
+        line = next((l for l in out.read().splitlines() if l.startswith(("ready", "error"))), "")
+        if line or VDISPLAY.poll() is not None:
+            break
+        time.sleep(1)  # test harness: a bounded wait for the helper's own ready line
+    if not line.startswith("ready"):
+        raise SystemExit(f"palette-open: no virtual display ({line or 'no line'})")
+    print(f"vdisplay: {line}", flush=True)
+    time.sleep(2)  # test harness: WindowServer settles the new main display before the app opens on it
+
+
 def main():
     global app, SOCKET
+    if opts.vdisplay:
+        start_vdisplay(opts.vdisplay)
     # No socket check here: BenchApp.launch() refuses a live same-tag app (any bundle path) and unlinks only a
     # socket nothing accepts on.
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
