@@ -1039,6 +1039,30 @@ export const cloudVmPublicationEmailGrants = pgTable("cloud_vm_publication_email
 ]);
 
 /**
+ * A machine credential for one protected publication: API clients send it in
+ * the `__Host-cmux-api-key` cookie, which the edge strips before the VM sees the
+ * request. Only the SHA-256 of the key is stored; revoking sets `revoked_at`.
+ */
+export const cloudVmPublicationApiKeys = pgTable("cloud_vm_publication_api_keys", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  publicationId: uuid("publication_id").notNull().references(() => cloudVmPublications.id, { onDelete: "cascade" }),
+  ownerUserId: text("owner_user_id").notNull(),
+  name: text("name").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  /** The key's last four characters, so a person can tell keys apart. */
+  tokenHint: text("token_hint").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cloud_vm_publication_api_keys_token_hash_unique").on(table.tokenHash),
+  index("cloud_vm_publication_api_keys_publication_idx").on(table.publicationId, table.createdAt),
+  check("cloud_vm_publication_api_keys_hash_check", sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`),
+  check("cloud_vm_publication_api_keys_name_check", sql`char_length(${table.name}) between 1 and 64`),
+  check("cloud_vm_publication_api_keys_hint_check", sql`char_length(${table.tokenHint}) = 4`),
+]);
+
+/**
  * Cross-origin browser transaction created on the publication hostname before
  * the browser visits CMUX sign-in. Only hashes of the opaque transaction and
  * OAuth state values are persisted; the host-only cookie holds the verifier.

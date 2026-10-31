@@ -34,6 +34,7 @@ enum AgentPanePageHost {
         events.append(.preview(view.previewFeatures))
         events.append(.sessionStatus(view.sessionStatus))
         events.append(AgentPaneSuggestedTasks.shared.event(for: view))
+        events.append(view.model.remoteControl?.event(for: view) ?? AgentPaneRemoteControl.event(nil))
         if let link = view.model.machineLink { events.append(link.event(for: view)) }
         events.append(.deviceChats(AgentPaneDeviceChat.shown(view.deviceChats, in: view)))
         events.append(view.recentlyClosed.event)
