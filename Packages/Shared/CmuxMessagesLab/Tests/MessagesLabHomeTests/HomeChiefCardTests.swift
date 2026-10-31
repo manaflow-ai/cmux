@@ -165,6 +165,56 @@ import Testing
 
     // MARK: The real view
 
+    @Test func aFailedChipSendBecomesClickableAgain() async throws {
+        let rig = try await HomeChatRig()
+        defer { rig.stop() }
+        let card = TranscriptItem(key: IdempotencyKey("card"), seq: 1, author: rig.chief,
+                                  parts: [.card(Self.steps)], createdAt: Date(), delivery: .committed)
+        let choice = Self.steps.choices[0]
+        var sent = TranscriptItem(key: IdempotencyKey("choice"), seq: nil, author: rig.me,
+                                  parts: [.text(choice)], createdAt: Date(), delivery: .sending)
+        let states: [(TranscriptItem.Delivery, Bool)] = [
+            (.sending, true), (.notDelivered(.ownerUnreachable), false), (.sending, true), (.committed, true),
+        ]
+        for (delivery, chosen) in states {
+            sent.delivery = delivery
+            rig.view.projection.apply(items: [card, sent], summary: rig.store.summary(HomeChatRig.conversation),
+                                      typing: [], hasOlder: false)
+            let parts = rig.view.controller.store?.state.conversation.messages.flatMap(\.parts) ?? []
+            let payload = try #require(parts.compactMap(Self.payload).first)
+            #expect(payload.chosen == (chosen ? [choice] : []), "delivery: \(delivery)")
+            let layout = HomeChiefCardLayout(payload, width: 400)
+            let chip = try #require(layout.chips.first)
+            #expect(layout.action(at: CGPoint(x: chip.frame.midX, y: chip.frame.midY)) == (chosen ? nil : .choose(choice)),
+                    "a failed send releases the chip for another click")
+        }
+    }
+
+    @Test func theProjectionRequiresAPositivelyIdentifiedPersonToChooseAChip() async throws {
+        let rig = try await HomeChatRig()
+        defer { rig.stop() }
+        let summary = try #require(rig.store.summary(HomeChatRig.conversation))
+        let other = ParticipantID("other_person")
+        var known = summary
+        known.participants.append(CmuxHomeCore.Participant(id: other, kind: .human, displayName: "Other person"))
+        var missing = summary
+        missing.participants = []
+        let card = TranscriptItem(key: IdempotencyKey("card"), seq: 1, author: rig.chief,
+                                  parts: [.card(Self.steps)], createdAt: Date(), delivery: .committed)
+        let choice = Self.steps.choices[0]
+        for metadata in [known, missing, nil] {
+            for author in [rig.chief, ParticipantID("unknown_author"), rig.me, other] {
+                let reply = TranscriptItem(key: IdempotencyKey("reply"), seq: 2, author: author,
+                                           parts: [.text(choice)], createdAt: Date(), delivery: .committed)
+                rig.view.projection.apply(items: [card, reply], summary: metadata, typing: [], hasOlder: false)
+                let parts = rig.view.controller.store?.state.conversation.messages.flatMap(\.parts) ?? []
+                let payload = try #require(parts.compactMap(Self.payload).first)
+                let isPerson = author == rig.me || metadata?.participants.contains { $0.id == author && $0.kind == .human } == true
+                #expect(payload.chosen == (isPerson ? [choice] : []), "author: \(author), metadata: \(String(describing: metadata))")
+            }
+        }
+    }
+
     @Test func aChipClickSendsItsTextAndThenShowsChosen() async throws {
         let rig = try await HomeChatRig()
         defer { rig.stop() }

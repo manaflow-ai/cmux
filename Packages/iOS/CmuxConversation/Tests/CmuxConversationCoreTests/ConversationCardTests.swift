@@ -81,6 +81,25 @@ import Testing
         #expect(card.isAdded(after: 0, in: messages, meID: "me"))
     }
 
+    @Test func failedSendsReleaseChosenChipsAndAddedSignIns() throws {
+        let steps = try #require(ConversationNextSteps(choices: ["Try again"]))
+        let signIn = try #require(ConversationSignInCard(site: "linkedin.com"))
+        var messages = [
+            message("card", from: "chief", "", cards: [.nextSteps(steps), .signIn(signIn)]),
+            message("choice", from: "me", "Try again"),
+            message("added", from: "me", signIn.addedMessage),
+        ]
+        let states: [(ConversationDelivery, Bool)] = [
+            (.sending, true), (.failed("Offline"), false), (.sending, true), (.delivered, true),
+        ]
+        for (delivery, chosen) in states {
+            messages[1].delivery = delivery
+            messages[2].delivery = delivery
+            #expect(steps.chosen(after: 0, in: messages, meID: "me") == (chosen ? ["Try again"] : []), "delivery: \(delivery)")
+            #expect(signIn.isAdded(after: 0, in: messages, meID: "me") == chosen, "delivery: \(delivery)")
+        }
+    }
+
     @Test func messageExposesItsCardsAndTheirText() throws {
         let browser = try #require(ConversationBrowserCard(surface: .browser, step: "Returning to LinkedIn Messaging"))
         let steps = try #require(ConversationNextSteps(choices: ["Go"]))
