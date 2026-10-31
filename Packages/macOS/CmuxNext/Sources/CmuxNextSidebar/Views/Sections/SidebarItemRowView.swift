@@ -40,6 +40,9 @@ class SidebarItemRowView: NSView {
     /// True: the item acts on mouse-down, as workspace rows do (every item but a new-tab
     /// launcher: `LayoutItemRef.activatesOnPress`); false: on release.
     var activatesOnPress = false
+    /// Whether a press on the item may drag it (`LayoutItem.isMovable`, set from the item's data): false for Home,
+    /// whose press-and-drag is a plain press (no lift, no drag, no drop).
+    var isMovable = true
     /// The current press already ran the action on mouse-down; its release does not run it again.
     private var activatedOnPress = false
     /// The sidebar's edit mode (`SidebarItemRowView+Editing`): the item wiggles and shows its ✕
@@ -85,15 +88,18 @@ class SidebarItemRowView: NSView {
         }
     }
     private var pointerHover: PointerHover?
-    private var isPressed = false { didSet { if isPressed != oldValue { pointerChanged() } } }
-    /// The profile control's menu is open over it: the pill holds the
-    /// selected step (between hover and pressed) until the menu closes.
+    private(set) var isPressed = false { didSet { if isPressed != oldValue { pointerChanged() } } }
+    /// A menu opened from this row is open. The profile control's (the whole pill is that control): the pill holds
+    /// the selected step (between hover and pressed) until the menu closes. A workspace tile's hover more button's: the
+    /// hover controls stay shown and only that button lights, never the pill (Leo 2026-10-27: "why are you giving it
+    /// the entire row when it's only this small little section?").
     var showsMenu = false {
         didSet {
             guard showsMenu != oldValue else { return }
             // The menu's tracking takes the release: no mouseUp ends the press.
             isPressed = false
             pointerChanged()
+            needsLayout = true
         }
     }
     /// The next fill change came from the pointer, so it fades.
@@ -146,7 +152,7 @@ class SidebarItemRowView: NSView {
         self.style = style
         title.stringValue = style == .favorite ? info.caption ?? info.title : info.title
         title.isHidden = style.isIconOnly
-        pin.image = info.leadingPin ? NSImage.icon(.statePinned, size: Metrics.smallIconSize) : nil
+        pin.image = info.leadingPin ? NSImage.icon(.statePinned, size: SidebarStyle.leadingGlyphSide) : nil
         title.alignment = style == .favorite ? .center : .natural
         let trailingDot = info.unreadDot && !style.isIconOnly && style != .favorite
         rowBadge.configure(trailingDot ? [.success] : [], look: .plain)
@@ -201,7 +207,8 @@ class SidebarItemRowView: NSView {
     /// step past hover: `selectionFill`, or `pressedFill` over a fill that is
     /// already that (cx-wqn5).
     var fill: NSColor? {
-        let state = ChromeHover.State(hovering: isHovered, pressed: isPressed, selected: info.isActive || showsMenu)
+        // A menu from the hover more button lights that button alone (`layoutHoverActions`), not the pill.
+        let state = ChromeHover.State(hovering: isHovered, pressed: isPressed, selected: info.isActive || (showsMenu && !showsHoverActions))
         return performWithTheme {
             if showsKeyFocus, !isPressed {
                 return info.isActive || style == .tile ? Palette.pressedFill : Palette.selectionFill
@@ -241,7 +248,7 @@ class SidebarItemRowView: NSView {
         // pill inset), and a title after that glyph starts at the one text column (`SidebarStyle.leadingTextX`).
         // A pinned row's own icon or color dot, when it has one, takes the text column after the pin.
         let rowLead = inset * 2 + CGFloat(info.indent) * Metrics.space3
-        let pinFrame = info.leadingPin ? pinGlyphFrame(side: Metrics.smallIconSize, leading: rowLead, height: b.height) : .zero
+        let pinFrame = info.leadingPin ? pinGlyphFrame(side: SidebarStyle.leadingGlyphSide, leading: rowLead, height: b.height) : .zero
         let lead = style == .chip ? Metrics.space2 : info.leadingPin ? SidebarStyle.leadingTextX(leading: rowLead) : rowLead
         let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
@@ -500,9 +507,9 @@ class SidebarItemRowView: NSView {
         if NSEvent.pressedMouseButtons & 1 == 0 { isPressed = false }
     }
 
-    /// Past the drag threshold the region reorders in place (R77).
+    /// Past the drag threshold the region reorders in place (R77). An item that cannot move drags nothing.
     override func mouseDragged(with event: NSEvent) {
-        guard let pressLocation, onDragged?(pressLocation, event) == true else { return super.mouseDragged(with: event) }
+        guard isMovable, let pressLocation, onDragged?(pressLocation, event) == true else { return super.mouseDragged(with: event) }
         didDrag = true
         isPressed = false
     }
@@ -521,6 +528,25 @@ class SidebarItemRowView: NSView {
         isPressed = false
         guard !dragged, !activated, !isEditing, pill.frame.contains(convert(event.locationInWindow, from: nil)) else { return }
         activate(with: pressModifiers)
+    }
+
+    /// Whether a press on the item is still held (its release has not come).
+    var holdsPress: Bool { pressLocation != nil }
+
+    /// Ends the item's press without acting: the gesture that owned it ended elsewhere (the list's one gesture end,
+    /// `SidebarListView.endPointerGesture`), so its release never comes here. The pressed fill clears, and a later
+    /// drag or release of that press does nothing.
+    func endPress() {
+        pressLocation = nil
+        didDrag = false
+        activatedOnPress = false
+        isPressed = false
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        // Off its window no release reaches the item: its press ends with its look.
+        if newWindow == nil { endPress() }
     }
 
     private func activate(with modifiers: NSEvent.ModifierFlags) {

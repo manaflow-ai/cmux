@@ -1,7 +1,8 @@
 // Another agent's message waiting in the queue is no composer-queue row (Leo, 2026-10-25: "I don't
 // know why these things are queued up. It's kind of strange."): the transcript draws it at once as
-// its received line, "Read after this turn" said once over the first of them (conversation/QueuedMessageCard.tsx), its actions in
-// the card's ⋯ menu. The queue's rows, its fold and its "N more queued" count are the person's own
+// its received line with no "Read after this turn" (Leo, 2026-10-29: "why the fuck do you guys keep
+// doing this fucking bullshit with the red after this turn?"), and a message's ⋯ menu, never the
+// queue row's (conversation/QueuedMessageCard.tsx). The queue's rows, its fold and its "N more queued" count are the person's own
 // prompts alone (ComposerQueue.tsx).
 import { afterAll, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -204,87 +205,72 @@ async function card(entry: ReturnType<typeof agent> & { next?: boolean; images?:
   );
 }
 async function openMenu() {
-  await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="queued-message"]')!.click());
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="waiting-message"]')!.click());
   await settle();
 }
 
-test("the received card says when it is read and keeps the queue row's actions in its ⋯ menu", async () => {
+// Leo, 2026-10-29: "WHY AM I SEEING TURN OFF QUEUING ON AGENT MESSAGES????"
+const PERSON_QUEUE_ITEMS = [
+  "composer.queueEditMessage",
+  "composer.queueSideChat",
+  "composer.queueMoveUp",
+  "composer.queueMoveDown",
+  "composer.queueingOff",
+  "composer.queueDelete",
+] as const;
+
+test("an agent's waiting message: its line, no Read after this turn, a message's ⋯ menu", async () => {
   const calls: string[] = [];
   const entry = agent(1);
   await card(entry, calls);
-  // The message's own line: the sender's name, its first line; the quiet note over it, as the first
-  // (here the only) message queued; no spinner, no queue row. Opened, its whole text.
   expect(host.querySelector(".cv-received__from")?.textContent).toBe("lane-1");
   expect(host.querySelector(".cv-received__preview")?.textContent).toContain("CI is green on #24001");
-  const head = host.querySelector(".cv-received__queued-head");
-  expect(head?.textContent).toBe(t("message.readAfterTurn"));
-  expect(head?.nextElementSibling?.classList.contains("cv-received")).toBe(true);
-  expect(host.querySelector(".cv-received__queued")).toBeNull();
+  expect(host.querySelector(".cv-received__queued-head, .cv-received__queued")).toBeNull();
+  expect(host.textContent).not.toContain("Read after this turn");
   expect(host.querySelector(".acpmux-queued, .cv-spinner, [data-spinner]")).toBeNull();
   expect(host.querySelector(".cv-received__text")).toBeNull();
   await act(async () => host.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!.click());
   expect(host.querySelector(".cv-received__text")?.textContent).toContain("CI is green on #24001");
-  await act(async () => host.querySelector<HTMLButtonElement>("button.cv-disclosure__open")!.click());
+  // The sender's name opens its chat.
+  await act(async () => host.querySelector<HTMLButtonElement>("button.cv-received__from")!.click());
   expect(calls).toEqual(["open s-1"]);
 
+  // Another session's message: the ⋯ alone in its group, no hover Copy and no Pin (Leo, 2026-10-30:
+  // "all these weird button stuff from messages from other sessions... weird to be able to pin them").
+  const group = host.querySelector(".cv-received__hover .cv-received-actions")!;
+  expect(group.querySelector(`[aria-label="${t("turn.copy")}"]`)).toBeNull();
+  expect(group.querySelector(".cv-message-pin")).toBeNull();
+  expect(group.querySelector('[data-menu="waiting-message"]')).not.toBeNull();
+  expect(host.querySelectorAll(".cv-received-actions")).toHaveLength(1);
   await openMenu();
-  expect(host.querySelector('.cv-received:has([aria-haspopup][aria-expanded="true"])')).not.toBeNull();
-  expect(items()).toEqual([
-    t("composer.queueSteer"),
-    t("composer.queueEditMessage"),
-    t("composer.queueSideChat"),
-    t("composer.queueMoveUp"),
-    t("composer.queueMoveDown"),
-    t("composer.queueingOff"),
-    t("composer.queueDelete"),
-  ]);
-  await act(async () => item(t("composer.queueSteer")).click());
+  expect(items()).toEqual([t("steer.sendNow"), t("message.dismiss")]);
+  for (const key of PERSON_QUEUE_ITEMS) expect(items()).not.toContain(t(key));
+  await act(async () => item(t("steer.sendNow")).click());
   await settle();
   expect(calls.at(-1)).toBe("steer a1");
-  // Steer goes once: the menu no longer offers it.
+  // Send now goes once.
   await openMenu();
-  expect(items()).not.toContain(t("composer.queueSteer"));
-  await act(async () => item(t("composer.queueDelete")).click());
+  expect(items()).toEqual([t("message.dismiss")]);
+  await act(async () => item(t("message.dismiss")).click());
   await settle();
   expect(calls.at(-1)).toBe("remove a1");
-  await openMenu();
-  await act(async () => item(t("composer.queueEditMessage")).click());
-  await settle();
-  expect(calls.at(-1)).toBe(`edit a1 ${entry.prompt} (0 images)`);
-  await openMenu();
-  await act(async () => item(t("composer.queueSideChat")).click());
-  await settle();
-  expect(calls.at(-1)).toBe(`side a1 ${entry.prompt}`);
-  // Move up and Move down place it in the whole queue, as its queue row did.
-  await openMenu();
-  await act(async () => item(t("composer.queueMoveUp")).click());
-  await settle();
-  expect(calls.at(-1)).toBe("move a1 0");
-  await openMenu();
-  await act(async () => item(t("composer.queueMoveDown")).click());
-  await settle();
-  expect(calls.at(-1)).toBe("move a1 2");
 });
 
-test("queued message actions stay revealed for either open-menu marker without moving the heading", async () => {
+test("queued message actions stay revealed for either open-menu marker", async () => {
   await card(agent(1), []);
-  const actions = host.querySelector<HTMLElement>(".cv-received-actions")!;
-  const trigger = actions.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
-  const heading = host.querySelector<HTMLElement>(".cv-received__queued-head")!;
-  expect(actions.contains(heading)).toBe(false);
-  expect(getComputedStyle(actions).opacity).toBe("0");
+  const slot = host.querySelector<HTMLElement>(".cv-received__hover")!;
+  const trigger = slot.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
+  expect(getComputedStyle(slot).opacity).toBe("0");
   for (const marker of ["aria-expanded", "data-popup-open"]) {
     trigger.setAttribute(marker, "true");
-    expect(getComputedStyle(actions).opacity).toBe("1");
-    expect(getComputedStyle(heading).opacity).not.toBe("0");
+    expect(getComputedStyle(slot).opacity).toBe("1");
     trigger.removeAttribute(marker);
-    expect(getComputedStyle(actions).opacity).toBe("0");
+    expect(getComputedStyle(slot).opacity).toBe("0");
   }
 });
 
-test("several queued messages say Read after this turn once, over the first", async () => {
+test("several queued messages carry no Read after this turn, the first one included", async () => {
   const rows = queuedMessageRows([agent(4), agent(5), agent(6)] as never);
-  expect(rows.map((row) => Boolean(row.queuedMessage?.lead))).toEqual([true, false, false]);
   await show(
     <>
       {rows.map((row) => (
@@ -292,64 +278,69 @@ test("several queued messages say Read after this turn once, over the first", as
       ))}
     </>,
   );
-  const heads = [...host.querySelectorAll(".cv-received__queued-head")];
-  expect(heads.map((head) => head.textContent)).toEqual([t("message.readAfterTurn")]);
-  expect(getComputedStyle(heads[0]!).opacity).toBe("1");
-  expect(heads[0]!.closest("[data-queued-message]")?.getAttribute("data-queued-message")).toBe("a4");
   expect(host.querySelectorAll(".cv-received").length).toBe(3);
-  expect(host.querySelector(".cv-received__queued")).toBeNull();
-  // The queue drains: the next one leads and says it.
-  const drained = queuedMessageRows([agent(5), agent(6)] as never);
-  expect(drained.map((row) => Boolean(row.queuedMessage?.lead))).toEqual([true, false]);
+  expect(host.querySelector(".cv-received__queued-head, .cv-received__queued")).toBeNull();
+  expect(host.textContent).not.toContain("Read after this turn");
 });
 
-test("a message sent now offers no second Steer; one with images keeps them and asks no side chat", async () => {
+test("a message sent now offers no second Send now, and never the person's queue actions", async () => {
   await card({ ...agent(2), next: true }, []);
   await openMenu();
-  expect(items()).toEqual([
-    t("composer.queueEditMessage"),
-    t("composer.queueSideChat"),
-    t("composer.queueMoveUp"),
-    t("composer.queueMoveDown"),
-    t("composer.queueingOff"),
-    t("composer.queueDelete"),
-  ]);
-  const calls: string[] = [];
-  await card({ ...agent(3), images: [{ id: "img", mimeType: "image/png" }] }, calls);
+  expect(items()).toEqual([t("message.dismiss")]);
+  await card({ ...agent(3), images: [{ id: "img", mimeType: "image/png" }] }, []);
   await openMenu();
-  expect(items()).toEqual([
-    t("composer.queueSteer"),
-    t("composer.queueEditMessage"),
-    t("composer.queueMoveUp"),
-    t("composer.queueMoveDown"),
-    t("composer.queueingOff"),
-    t("composer.queueDelete"),
-  ]);
-  await act(async () => item(t("composer.queueEditMessage")).click());
-  await settle();
-  expect(calls.at(-1)).toBe(`edit a3 ${agent(3).prompt} (1 images)`);
+  expect(items()).toEqual([t("steer.sendNow"), t("message.dismiss")]);
+  for (const key of PERSON_QUEUE_ITEMS) expect(items()).not.toContain(t(key));
 });
 
-test("a steer the agent has not read: Read after this step, and Send now in its ⋯ menu, no spinner", async () => {
+// Leo, 2026-10-29: "removing the \"read after this step\" maybe and the odd gap betwene the pin and
+// the ellipsis and the redundant \"open chat\""; 2026-10-30: "all these weird button stuff from
+// messages from other sessions... weird to be able to pin them etc". A delivered message with a
+// steer the agent has not read: its age, Retry and ⋯ are ONE group; no Pin, no hover Copy, no Read
+// after this step, no Open chat.
+test("a delivered steer's ⋯ is in its one action group, with no Pin, Copy, Read after this step or Open chat", async () => {
+  const { SteerWaitingActions } = await import("../src/agent-session/acpmux/conversation/QueuedMessageCard");
+  const { IncomingMessageLine } = await import("../src/agent-session/acpmux/conversation/IncomingMessageCard");
+  const { ReceivedActions } = await import("../src/agent-session/acpmux/conversation/MessageActions");
+  const message = agent(8).message;
+  const row = { id: "steer-row", version: 1, at: Date.now(), kind: "user", text: message.text };
+  await show(
+    <IncomingMessageLine
+      id="steer-row"
+      message={message}
+      onOpen={() => {}}
+      actions={<ReceivedActions row={row as never} more={<SteerWaitingActions promptId="p-8" send={() => {}} />} />}
+    />,
+  );
+  const groups = host.querySelectorAll(".cv-received-actions");
+  expect(groups).toHaveLength(1);
+  const footer = groups[0]!.querySelector(".cv-message-footer-row")!;
+  expect(footer.querySelector('[data-menu="waiting-message"]')?.closest(".cv-message-footer-row")).toBe(footer);
+  expect(host.textContent).not.toContain("Read after this step");
+  expect(host.textContent).not.toContain(t("subsession.openChat"));
+  expect(host.querySelector(".cv-message-pin")).toBeNull();
+  expect(footer.querySelector(`[aria-label="${t("turn.copy")}"]`)).toBeNull();
+  expect(host.querySelector(".cv-disclosure__open, .cv-received__queued")).toBeNull();
+});
+
+test("a steer the agent has not read: no Read after this step, Send now in its ⋯ menu", async () => {
   const { SteerWaitingActions } = await import("../src/agent-session/acpmux/conversation/QueuedMessageCard");
   const { IncomingMessageLine } = await import("../src/agent-session/acpmux/conversation/IncomingMessageCard");
   const sent: string[] = [];
+  const message = agent(7).message;
   await show(
     <IncomingMessageLine
       id="steer-reveal"
-      message={agent(7).message}
+      message={message}
       onOpen={() => {}}
       actions={<SteerWaitingActions promptId="p-steer" send={(id) => void sent.push(id)} />}
     />,
   );
-  expect(host.querySelector(".cv-received__queued")?.textContent).toBe(t("message.readAfterStep"));
-  const status = host.querySelector<HTMLElement>(".cv-received__queued")!;
-  expect(status.dataset.reveal).toBe("hover");
-  expect(getComputedStyle(status).opacity).toBe("0");
+  expect(host.querySelector(".cv-received__queued")).toBeNull();
+  expect(host.textContent).not.toContain("Read after this step");
   expect(host.querySelector(".cv-spinner, [data-spinner]")).toBeNull();
   await openMenu();
   expect(items()).toEqual([t("steer.sendNow")]);
-  expect(getComputedStyle(status).opacity).toBe("1");
   await act(async () => item(t("steer.sendNow")).click());
   await settle();
   expect(sent).toEqual(["p-steer"]);

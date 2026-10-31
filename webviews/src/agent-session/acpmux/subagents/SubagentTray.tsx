@@ -33,7 +33,7 @@
 //
 // A line is quiet at rest: no fill of its own inside the tray's glass, so the tray is one box, not
 // a box in a box. Hovering a line that opens something fills that whole line, its stop button
-// included, to the tray's own edges (one inset), and shows the hand; a line says its kind first
+// included, to the tray's own edges (one inset), with the arrow; a line says its kind first
 // ("Command", "Subagent") and ends in a chevron. A command's whole shell line is its tooltip; its
 // stop button stops only that command (`_acpmux/process/kill`), which the composer's Stop does not
 // (that cancels the turn, and the command outlives it), so its tooltip says so. (Leo 2026-10-21 on
@@ -45,12 +45,12 @@
 // a new message does, leaves on a kept snapshot, its list opens and folds on the shared fold
 // (conversation/fold.ts), a line that joins it rises in, and its header's words tick. What runs
 // turns the shared spinner, never a breathing dot.
-import { memo, useId, useRef, useState } from "react";
+import { memo, useCallback, useId, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { foldMotion, useFold } from "../conversation/fold";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { formatDuration } from "../conversation/turns";
-import { useT } from "../i18n";
+import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { arrivalKey, type BackgroundCommand, commandLabel, sendLabel } from "../inspector/processes";
@@ -58,6 +58,8 @@ import { StopButton as ProcessStopButton } from "../inspector/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
 import { retryLabel, sessionRetry } from "./retryState";
 import { AgentLine } from "./AgentLine";
+import { agentTone } from "./agentTones";
+import { subagentProgress } from "./subagentProgress";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
@@ -124,8 +126,11 @@ export const SubagentTray = memo(function SubagentTray({
   enters?: boolean;
 }) {
   const t = useT();
+  const language = usePaneLanguage();
   const listId = useId();
   const now = useNow(items.length > 0);
+  const trayNode = useRef<HTMLElement | null>(null);
+  const [narrow, setNarrow] = useState(false);
   // The person's choice holds; until then a short list shows and a long one folds.
   const [opened, setOpened] = useState<boolean>();
   const [showFinished, setShowFinished] = useState(false);
@@ -135,6 +140,28 @@ export const SubagentTray = memo(function SubagentTray({
   const [motion] = useState(() => experimentArm(trayMotionLook));
   // Only the bottom stack's tray leaves on a snapshot: one placed in the transcript moves with it.
   const motionRef = useTrayMotion(shown, enters, placement === "tray");
+  const setTrayRef = useCallback(
+    (node: HTMLElement | null) => {
+      trayNode.current = node;
+      return motionRef(node);
+    },
+    [motionRef],
+  );
+  useLayoutEffect(() => {
+    const node = trayNode.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const update = (width: number) =>
+      setNarrow((current) => {
+        const next = width <= 400;
+        return current === next ? current : next;
+      });
+    update(node.getBoundingClientRect().width);
+    const observer = new ResizeObserver(([entry]) =>
+      update(entry?.contentRect.width ?? node.getBoundingClientRect().width),
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
   // The header stays while the tray has more than one line, running or ended: one of two running
   // ending never takes it (and its collapse) away.
   const headed = items.length + finished.length > 1;
@@ -269,13 +296,14 @@ export const SubagentTray = memo(function SubagentTray({
   );
   return (
     <section
-      ref={motionRef}
+      ref={setTrayRef}
       className="acpmux-running-tray"
       aria-label={t("summary.subagents")}
       data-open={open || undefined}
       data-placement={placement}
       data-look={look}
       data-motion={motion}
+      data-narrow={narrow || undefined}
     >
       {headed && (
         <button
@@ -327,7 +355,9 @@ export const SubagentTray = memo(function SubagentTray({
                 ? toolDetail(t, item.agent.action, true)
                 : (item.agent.action ?? item.agent.kind)
           }
+          progress={subagentProgress(t, language, item.agent).join(" · ")}
           mark={item.agent.harness}
+          tone={agentTone(item.agent.id)}
           status={subagentStatus(item.agent, waiting)}
           working={subagentStatus(item.agent, waiting) === "running"}
           state={subagentStateText(t, item.agent, waiting)}
@@ -336,6 +366,7 @@ export const SubagentTray = memo(function SubagentTray({
           title={item.agent.task}
           label={t("subagents.open", { name: item.agent.name })}
           kind={t("tray.kind.subagent")}
+          kindIcon={SUBAGENT_ICON}
           chevron
           trayColumns
           onOpen={() => onOpen(item.agent.id)}
@@ -411,7 +442,10 @@ export const SubagentTray = memo(function SubagentTray({
         name={item.session.title}
         detail={liveSession(item.session) ? doingDetail(t, item.session.doing, item.session.doingTool) : undefined}
         title={item.session.doing}
+        mark={item.session.harness}
+        tone={agentTone(item.session.sessionId)}
         kind={t("tray.kind.subagent")}
+        kindIcon={SUBAGENT_ICON}
         chevron
         icon="agent.chat"
         status={sessionRetrying ? "running" : SESSION_STATUS[item.session.state]}
@@ -424,6 +458,9 @@ export const SubagentTray = memo(function SubagentTray({
   }
 });
 
+/// A subagent's mark before its name, in place of the word: a branch off this chat, never the
+/// chat bubble a session's own icon is (Leo, 2026-10-28: "Shouldn't the subagent icon be different?").
+const SUBAGENT_ICON = "agent.fork";
 const NO_ITEMS: readonly TrayItem[] = [];
 const NO_ARRIVALS: ReadonlySet<string> = new Set();
 /// The most lines that rise in from one update; a bigger burst is simply there.

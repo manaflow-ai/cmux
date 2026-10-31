@@ -82,7 +82,7 @@ impl Daemon {
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).expect("home");
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let config = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"});
+        let config = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all", "agentInbox": false});
         std::fs::write(home.join("config.json"), config.to_string()).expect("config");
         let socket = home.join("s.sock");
         let child = daemon_env::command(&home, daemon_env::Agents::StandIn, &[])

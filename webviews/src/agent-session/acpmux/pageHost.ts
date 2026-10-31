@@ -16,11 +16,14 @@ import { setNowPlaying } from "./newtab/nowPlaying";
 import { setReadAloudState } from "./conversation/readAloud";
 import { setHeaderState } from "./header/headerState";
 import { setTabRow } from "./header/tabRow";
+import { receiveNativeRowToolInvocation } from "./header/nativeRowTools";
 import { setFloatingState } from "./floatingState";
 import { configureNativeSidebarPreviewVariant } from "./sidebarPreview";
 import { setSessionStatus } from "./sessionStatus";
 import { receivePromptUploadState } from "./promptUploadState";
 import { setComputerUsePreview } from "./computerUse/computerUsePreview";
+import { setMachineLink } from "./machineLink";
+import { setRemoteControl } from "./remoteControl";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -105,6 +108,11 @@ export function applyHostEvent(event: HostEvent): void {
     case "sessionStatus":
       // Direct, like editedFiles: a push before the chat mounts is kept.
       return setSessionStatus(event.value);
+    case "machineLink":
+      return setMachineLink(event.value);
+    case "remoteControl":
+      // Direct, like machineLink: a push before Session Info mounts is kept.
+      return setRemoteControl(event.value);
     case "editedFiles":
       // Direct, not through window.cmuxAcpmuxEditedFiles: an event that arrives before the card
       // module loads still sets the value the card then reads.
@@ -137,6 +145,8 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.applyCustomization(value);
     case "headerState":
       return setHeaderState(event.value);
+    case "tabRowToolInvoked":
+      return receiveNativeRowToolInvocation(event.value);
     case "tabRow":
       return setTabRow(event.value);
     case "floatingState":

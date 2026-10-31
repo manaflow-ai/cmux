@@ -148,7 +148,6 @@ describe("ChatUnavailableState", () => {
       { reason: "deleted" as const },
       { reason: "notFound" as const },
       { reason: "offline" as const, machine: "box" },
-      { reason: "connecting" as const, machine: "box" },
     ];
     for (const unavailable of cases) {
       const html = render(unavailable, "Studio");
@@ -158,5 +157,13 @@ describe("ChatUnavailableState", () => {
       expect(html.includes("Close Tab")).toBe(unavailable.reason !== "deleted");
       expect(html.includes("Remove from Sidebar")).toBe(unavailable.reason === "deleted");
     }
+  });
+
+  test("a chat still loading shows nothing: no session id, text or buttons", () => {
+    // Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT ON LOAD". Past the grace it is offline (above).
+    const html = render({ reason: "connecting", machine: "box" }, "Studio");
+    expect(html).toBe(
+      '<div class="acpmux-empty acpmux-unavailable" data-unavailable="connecting" aria-busy="true"></div>',
+    );
   });
 });

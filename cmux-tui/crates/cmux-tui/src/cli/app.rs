@@ -33,6 +33,7 @@ mod batch;
 mod call;
 mod classic;
 mod events;
+mod group_create;
 mod keybinding;
 mod open;
 mod open_link;
@@ -171,6 +172,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     if let Some(command) = agent_open::parse(args)? {
         return Ok(Some(command));
     }
+    if let Some(command) = group_create::parse(args)? {
+        return Ok(Some(command));
+    }
     if scope == "version" {
         if let Some(extra) = args.get(1) {
             let messages = &crate::localization::catalog().app_control;
@@ -213,9 +217,8 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                         }))
             });
             if rest.iter().any(|argument| argument == "--") || !has_command {
-                return Err(UsageError::new(
-                    "usage: cmux cloud exec --target machine:MACHINE_ID --command COMMAND",
-                ));
+                let usage = super::cloud_help::usage("exec").unwrap_or_default();
+                return Err(UsageError::new(format!("usage: {usage}")));
             }
             run_action("cloud exec", rest.get(1..).unwrap_or_default(), ActionName::Cli)?
         }
@@ -361,7 +364,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             AppCommand::Events { params: Value::Object(params) }
         }
         // `team invite` is Invite to Team's other name (`home invite-to-team`): one action, one dialog.
-        ("team", Some("invite")) => run_action("home invite-to-team", &rest[1..], ActionName::Cli)?,
+        ("team", Some("invite")) => {
+            run_action("home invite-to-team", rest.get(1..).unwrap_or_default(), ActionName::Cli)?
+        }
         // Any other words name an action by its CLI name (`app new-window`).
         _ => {
             let words: Vec<&String> = args.iter().take_while(|arg| !arg.starts_with('-')).collect();
@@ -603,8 +608,18 @@ pub(super) fn run_cli_action(global: &GlobalArgs, name: &str, args: &[String]) -
         return Some(super::wire::print_operation_error(&refusal, global.output));
     }
     // A named socket that is missing or not an app (a daemon's `--socket`)
-    // has no CLI action; the caller reports its own usage error.
-    let mut stream = connect_command(global).ok()?;
+    // has no CLI action; the caller reports its own usage error. An action the
+    // app's catalog offers says it needs the app, where "unknown action" sent
+    // agents hunting for another way (tests/tool-evals r13d: `cmux pane screenshot`
+    // headless took GPT 6.1 Sol 25 steps and 550k tokens).
+    let mut stream = match connect_command(global) {
+        Ok(stream) => stream,
+        Err(error) if super::action_hint::offered_app_action(name) => {
+            let message = error.get("message").and_then(Value::as_str).unwrap_or_default();
+            return Some(failure("app.unreachable", message, global.output, 3));
+        }
+        Err(_) => return None,
+    };
     match call(global, &mut stream, command) {
         Ran::Done(code) => Some(code),
         Ran::NoSuchCliAction { .. } => None,
@@ -808,9 +823,19 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             }
             .unwrap_or(result);
             warn_unstable_handles(method, &value, global.output);
+            if global.output == OutputMode::Human
+                && let Some(line) = super::share_cli::human_line(&params, &value)
+            {
+                print!("{line}");
+                return Ran::Done(0);
+            }
             Ran::Done(super::wire::print_local_success(&value, global.output))
         }
-        Err(error) if cli_name && error_code(&error) == Some("not_found") => {
+        // `not_found` with no `reason` is the app saying it has no such CLI action; with one, the
+        // action ran and its target names nothing, which goes to the caller as an error.
+        Err(error)
+            if cli_name && error_code(&error) == Some("not_found") && !names_a_target(&error) =>
+        {
             let name = params["action"].as_str().unwrap_or_default().to_owned();
             let scope = name.split(' ').next().unwrap_or_default().to_owned();
             Ran::NoSuchCliAction { scope, name }
@@ -839,6 +864,11 @@ fn output_shows_notes(output: OutputMode) -> bool {
 
 fn error_code(error: &Value) -> Option<&str> {
     error.get("code").and_then(Value::as_str)
+}
+
+/// Whether a `not_found` is an action's missing target (it gives a `reason`), not a missing action.
+fn names_a_target(error: &Value) -> bool {
+    error.get("data").and_then(|data| data.get("reason")).is_some()
 }
 
 /// A `busy` answer is safe to retry only when the app says the request

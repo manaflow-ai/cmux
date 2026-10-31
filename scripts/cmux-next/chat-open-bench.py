@@ -6,8 +6,9 @@ fast too :(" / "but i also wonder how much of this is simply putting the desktop
 Four opens, each timed by the app's own chat-open trace (`debug.chat_open_trace`: from the action
 to the first frame the pane shows the chat's content, with every surface the pane showed between):
 
-  sidebar    a chat never opened in this app's life, opened in a new workspace
-             (`agent.openSessionWorkspace`, focused, as a sidebar click opens one)
+  sidebar    a chat never opened in this app's life, opened in a new workspace and shown
+             (`agent.openSessionWorkspace`, then `workspace.selectLast`: the action alone makes the
+             workspace and never shows it, so a sidebar click's open is the two)
   reopen     a chat this app showed before, opened again in a new workspace
   subagent   a click on a subagent's line in its chat's transcript (`debug.agent_pane click`),
              which opens the subagent's pane (`chat.subagentPane`)
@@ -43,6 +44,9 @@ Runs on a fleet mini through scripts/measure/chat-open.sh, never on an interacti
   chat-open-bench.py --app BUNDLE [--runs 3] [--turns 3000] [--sessions 1500]
                      [--conditions idle,load,load_utility,load_nice] [--cases sidebar,reopen,subagent,big,restore]
                      [--json FILE] [--md FILE]
+The table is also printed between CHAT-OPEN-TABLE-BEGIN and -END. A fleet step returns ONE file (`cmux-ci run
+--artifact` takes a single path; a second one replaces the first), so ask for artifacts/chat-open.json: it has
+every open's marks, frames, page timing and wire log, and the table can be rebuilt from it.
 Kills only the processes it started (the app it launched through bench_memory, the seeding daemon,
 and the load's own process groups).
 """
@@ -76,7 +80,7 @@ parser.add_argument("--sessions", type=int, default=1500)
 parser.add_argument("--conditions", default="idle,load,load_utility,load_nice")
 parser.add_argument("--cases", default="sidebar,reopen,subagent,big,bloated,restore")
 parser.add_argument("--settle", type=float, default=6, help="seconds a load runs before the first open under it")
-parser.add_argument("--config", default="{}", help="cmux.json for the app (JSON)")
+parser.add_argument("--config", default="{}", help="cmux.json for the app (JSON); workspaces.newPlacement stays bottom")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts = parser.parse_args()
@@ -84,6 +88,9 @@ APP = os.path.realpath(opts.app.rstrip("/"))
 CONDITIONS = [c.strip() for c in opts.conditions.split(",") if c.strip()]
 CASES = [c.strip() for c in opts.cases.split(",") if c.strip()]
 SUBAGENTS = opts.subagents or opts.runs + 1
+# A new workspace goes last, so `workspace.selectLast` shows the one an open just made (the default
+# placement is the top of the list). Over --config: another placement would show the wrong workspace.
+CONFIG = bm.merged(json.loads(opts.config), {"workspaces": {"newPlacement": "bottom"}})
 AGENT = os.path.join(HERE, "chat_open_agent.py")
 NCPU = os.cpu_count() or 8
 
@@ -225,15 +232,16 @@ class Run:
 
     def launch(self, trace_launch=False):
         env = dict(self.env)
-        if trace_launch:
-            env["CMUX_CHAT_OPEN_TRACE_LAUNCH"] = "1"
         if self.scratch is None:
-            self.pid, self.sock, self.scratch = bm.launch(APP, json.loads(opts.config), env)
+            self.pid, self.sock, self.scratch = bm.launch(APP, CONFIG, env)
             self.env["HOME"] = os.path.join(self.scratch, "home")
             self.env["TMPDIR"] = os.path.join(self.scratch, "tmp") + "/"
             self.env["CMUX_NEXT_CONFIG_FILE"] = os.path.join(self.scratch, "cmux.json")
         else:
-            self.pid, self.sock = relaunch(self.scratch, env)
+            # The argument, not CMUX_CHAT_OPEN_TRACE_LAUNCH: the app unsets every inherited CMUX*
+            # variable but the CMUX_NEXT_* knobs at launch (LaunchIdentity.inheritedKeys), before
+            # the trace reads it, so a launch trace armed by the variable never ran.
+            self.pid, self.sock = relaunch(self.scratch, env, ["--chat-open-trace-launch"] if trace_launch else [])
         self.app = bm.App(APP, self.sock)
         deadline = time.monotonic() + 60
         while not self.app.ping() and time.monotonic() < deadline:
@@ -269,7 +277,7 @@ class Run:
             shutil.rmtree(self.scratch, ignore_errors=True)
 
 
-def relaunch(scratch, env):
+def relaunch(scratch, env, args=()):
     """bench_memory.launch's direct launch, on an existing scratch state."""
     import plistlib
     with open(os.path.join(APP, "Contents", "Info.plist"), "rb") as handle:
@@ -279,7 +287,7 @@ def relaunch(scratch, env):
             "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900"}
     full.update(env)
     with open(os.path.join(scratch, "app.log"), "a") as log:
-        subprocess.Popen([binary], env=full, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
+        subprocess.Popen([binary, *args], env=full, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
     home = full["HOME"]
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
@@ -327,7 +335,26 @@ def traced(run, open_fn):
 
 
 def open_workspace(run, session):
-    return run.app.action("agent.openSessionWorkspace", focus=True, session=session)
+    """Opens `session` in a new workspace and shows it, as a sidebar click does. The action makes the
+    workspace and selects its tab but never switches to it (it is the Chief's background spawn), so
+    alone it left every open off screen: no agent pane was made and no trace bound.
+
+    It shows the workspace the open created, by its ref (`goToWorkspace`, as MCP's
+    agents_workspace_select does): `workspace.selectLast` reads the sidebar's order, which can lag
+    the open on a loaded host, and then showed the previous workspace. selectLast is only the
+    fallback when the open names no workspace or the switch is refused; `shown` says which ran."""
+    opened = run.app.action("agent.openSessionWorkspace", focus=True, session=session)
+    if opened.get("error"):
+        return opened
+    created = next((ref for ref in opened.get("created") or [] if str(ref).startswith("ws_")), None)
+    refused = None
+    if created:
+        reply = run.app.action("goToWorkspace", focus=True, workspace=created)
+        if not reply.get("error"):
+            return {**opened, "shown": {"via": "goToWorkspace", "reply": reply}}
+        refused = reply
+    reply = run.app.action("workspace.selectLast", focus=True)
+    return {**opened, "shown": {"via": "workspace.selectLast", "reply": reply, "refused": refused}}
 
 
 def settle_open(run, session):
@@ -343,6 +370,47 @@ def settle_open(run, session):
     return opened
 
 
+def why(record):
+    """What an open's log line says beyond its times, so a run with no artifact (a failed step returns
+    none) still shows why an open had no first content."""
+    parts = []
+    for key in ("error", "timed_out"):
+        if record.get(key):
+            parts.append(f"{key}={str(record[key])[:200]}")
+    if not record.get("first_content_ms"):
+        reply = record.get("open_reply")
+        shown = reply.pop("shown", None) if isinstance(reply, dict) else None
+        parts.append(f"open_reply={json.dumps(reply, default=str)[:200]}")
+        if shown:
+            parts.append(f"shown={json.dumps(shown, default=str)[:200]}")
+            reply["shown"] = shown
+        # Frames are [ms, surface] pairs (flashes, first_of).
+        surfaces = sorted({str(f[1]) for f in record.get("frames") or [] if isinstance(f, (list, tuple)) and len(f) > 1})
+        # `order` lists the marks that ran; `marks_ms` names every mark, null for one that did not.
+        parts.append(f"surfaces={surfaces} frame_count={record.get('frame_count')} marks={record.get('order')}")
+        ready = record.get("readiness") or {}
+        if isinstance(ready, dict):
+            parts.append("readiness=" + json.dumps({k: ready.get(k) for k in ("error", "pane", "body_text_length",
+                                                                                "transcript_rows")},
+                                                   default=str)[:200])
+    return (" " + " ".join(parts)) if parts else ""
+
+
+def click_subagent(run):
+    """Clicks a subagent line the chat shows, newest first. The click needs the line in the page,
+    and which of the chat's subagent lines it renders depends on the build: a fixed name per open
+    failed with "no visible element matches" for "Auditor 0" at one base and "Auditor 1" at
+    another (2026-10-31). A click that matches nothing returns that error at once and does
+    nothing, so the next name is tried. Each open is its own copy of the chat with its own
+    subagents, so the same name in two opens opens two subagents."""
+    reply = None
+    for k in range(SUBAGENTS - 1, -1, -1):
+        reply = run.rpc("debug.agent_pane", {"action": "click", "text": f"Auditor {k}"}) or {}
+        if reply.get("error") != "no visible element matches":
+            return {**reply, "clicked": f"Auditor {k}"}
+    return reply
+
+
 def measure_case(run, case, sessions, index):
     session = sessions[case][index] if case != "reopen" else sessions["reopen"][index]
     if case in ("sidebar", "big", "bloated"):
@@ -354,8 +422,7 @@ def measure_case(run, case, sessions, index):
         return traced(run, lambda: open_workspace(run, session))
     if case == "subagent":
         settle_open(run, session)
-        name = f"Auditor {index}"
-        return traced(run, lambda: run.rpc("debug.agent_pane", {"action": "click", "text": name}))
+        return traced(run, lambda: click_subagent(run))
     raise ValueError(case)
 
 
@@ -394,7 +461,7 @@ def main():
                     record = measure_case(run, case, sessions[condition], index)
                     records.append(record)
                     say(f"chat-open: {condition} {case} {index}: first_content_ms={record.get('first_content_ms')} "
-                        f"empty={record.get('longest_empty_ms')} flashes={record.get('flashes')}")
+                        f"empty={record.get('longest_empty_ms')} flashes={record.get('flashes')}{why(record)}")
                 results["raw"].setdefault(condition, {})[case] = records
                 results["cases"].setdefault(condition, {})[case] = summarize(records)
             if "restore" in CASES:
@@ -410,7 +477,7 @@ def main():
                     record["acp_log"] = run.rpc("debug.agent_pane", {"action": "acp_log", "limit": 40})
                     records.append(record)
                     say(f"chat-open: {condition} restore {index}: first_content_ms={record.get('first_content_ms')} "
-                        f"first_image_ms={record.get('first_image_ms')}")
+                        f"first_image_ms={record.get('first_image_ms')}{why(record)}")
                 results["raw"].setdefault(condition, {})["restore"] = records
                 results["cases"].setdefault(condition, {})["restore"] = summarize(records)
             load.stop()
@@ -439,7 +506,8 @@ def main():
 def markdown(results):
     lines = [f"chat-open-bench on {results['host']} ({results['model']}, {results['ncpu']} CPUs); "
              f"median of {opts.runs} opens, milliseconds from the action to the first frame of chat content; "
-             f"FAILED: a case with an open that showed no content or no empty time (no median over the rest)",
+             f"a cell reads FAILED when an open of its case timed out, errored, or showed no content or no empty time "
+             f"(no median over the rest)",
              "", "| case | " + " | ".join(CONDITIONS) + " |", "|---|" + "---|" * len(CONDITIONS)]
     for case in CASES:
         cells = []
