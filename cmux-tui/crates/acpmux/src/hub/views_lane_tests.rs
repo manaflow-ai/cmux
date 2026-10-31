@@ -18,6 +18,10 @@ fn running(prompt: &str) -> Value {
 #[test]
 fn sidebar_requires_open_only_marks_agent_started_sessions() {
     assert_eq!(
+        lane(&json!({"status": "running", "tags": {"lane.reportsTo": "coordinator"}}))["requiresOpen"],
+        true
+    );
+    assert_eq!(
         lane(&json!({"status": "running", "parentId": "personal-fork"}))["requiresOpen"],
         false
     );

@@ -50,6 +50,7 @@ fn sidebar_requires_open(summary: &Value) -> bool {
         || nonempty(&summary["spawnedBy"])
         || nonempty(&summary["tags"][SPAWNED_BY_TAG])
         || nonempty(&summary["tags"][COORDINATOR_PARENT_TAG])
+        || nonempty(&summary["tags"][super::lane_reports::TAG])
 }
 
 /// The session's status dot, decided here once so every client draws the
