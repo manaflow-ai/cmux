@@ -107,10 +107,29 @@ function noticeOf(threads: Thread[]) {
   };
 }
 
+/// The notice's text as acpmux wrote it before this change: the instruction sentence, then one line
+/// per thread with the newest message's first line cut to 120 characters.
+function oldText(threads: Thread[]): string {
+  const n = threads.length;
+  const lines = [
+    `[inbox] New messages from other agents in ${n} thread${n === 1 ? "" : "s"}. They need no turn of your own: read a thread whole with the inbox_read tool (its thread id), answer in it with inbox_reply, or leave it for later.`,
+  ];
+  for (const thread of threads) {
+    const from = [...new Set(thread.messages.map((m) => m.from))].join(", ");
+    const tag = thread.messages.some((m) => m.blocker) ? "[blocker] " : "";
+    const first = thread.messages.at(-1)!.text.split("\n")[0]!;
+    const line = first.length > 120 ? `${first.slice(0, 120)}…` : first;
+    lines.push(
+      `- ${tag}${thread.messages.length} new in ${thread.label} from ${from}: ${line} (thread ${thread.threadId})`,
+    );
+  }
+  return lines.join("\n");
+}
+
 /// The notice's row as direct.ts reads its recorded `user_message`; `before`, as the pane drew it.
 function notice(threads: Thread[], minutes: number, before = false) {
   const { text, provenance } = noticeOf(threads);
-  if (before) return user(text, minutes);
+  if (before) return user(oldText(threads), minutes);
   const incoming = incomingPrompt(text, { client: "acpmux", _meta: { provenance } });
   return incoming?.kind === "inbox"
     ? user(inboxText(incoming.notice), minutes, { incoming, untyped: true })
@@ -179,7 +198,7 @@ export default agentPaneEntry({
   ],
   variants: {
     "before-six": {
-      note: "Before: three notices in a row, each its text for the agent in the person's bubble.",
+      note: "Before: three notices in a row, as acpmux wrote them and the pane drew them: each its text for the agent in the person's bubble.",
       snapshot: snapshot(SIX, true),
     },
     one: {
