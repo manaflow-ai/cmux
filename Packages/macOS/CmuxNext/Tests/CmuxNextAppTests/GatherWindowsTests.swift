@@ -32,14 +32,14 @@ struct GatherWindowsTests {
         // Each workspace has one pane with a terminal; `wh` is a window's own Home (Home's page tab first, a
         // terminal beside it), in no space.
         func screen(_ index: Int, _ tabs: [TabSnapshot]) -> [ScreenSnapshot] {
-            let id = UInt64(100 + index)
-            return [ScreenSnapshot(id: id, layout: .leaf(id), panes: [PaneSnapshot(id: id, tabs: tabs)])]
+            let raw = UInt64(100 + index), pane = PaneID(rawValue: raw)
+            return [ScreenSnapshot(id: ScreenID(rawValue: raw), layout: .leaf(pane), panes: [PaneSnapshot(id: pane, tabs: tabs)])]
         }
         var page = TabSnapshot(surface: 900, kind: .conversation, title: "Home")
         page.conversation = ConversationTabRef(page: WorkspaceModel.homeDockPage)
         var workspaces = keys.enumerated().map { index, key in
             WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: WorkspaceKey(rawValue: key), name: key,
-                              screens: screen(index, [TabSnapshot(surface: UInt64(200 + index))]))
+                              screens: screen(index, [TabSnapshot(surface: SurfaceID(rawValue: UInt64(200 + index)))]))
         }
         workspaces.append(WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 9), key: WorkspaceKey(rawValue: "wh"), name: "Home",
                                             screens: screen(9, [page, TabSnapshot(surface: 209)])))
