@@ -286,7 +286,12 @@ export function SummaryCard({
               type="button"
               className="acpmux-summary-card__close"
               aria-label={t("summary.close")}
-              onClick={() => card.close()}
+              onClick={(event) => {
+                // The button goes with the card: focus moves to the header's summary button.
+                const pane = event.currentTarget.closest(".acpmux-stage");
+                card.close();
+                pane?.querySelector<HTMLElement>(".acpmux-summary-button")?.focus();
+              }}
             >
               <Icon name="action.close" size={12} />
             </button>
