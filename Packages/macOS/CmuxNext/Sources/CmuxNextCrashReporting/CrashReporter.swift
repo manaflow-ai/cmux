@@ -55,7 +55,7 @@ public final class CrashReporter: Sendable {
     /// event. Call when the account or its teams change.
     /// - Parameter member: The member, or nil for an anonymous report.
     public func setTeamMember(_ member: CrashTeamMember?) {
-        _ = member  // red
+        identityState.withLock { $0.member = member }
     }
 
     /// Follows `members` (one value per sign-in, sign-out or team change) for

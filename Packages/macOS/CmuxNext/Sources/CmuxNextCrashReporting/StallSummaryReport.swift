@@ -39,7 +39,6 @@ public nonisolated struct StallSummaryReport: Sendable, Equatable {
     /// The Sentry event: info level, one issue for every summary.
     public func event() -> Event {
         let event = Event(level: .info)
-        return event  // red
         event.platform = "cocoa"
         event.message = SentryMessage(formatted: "main thread stall summary")
         event.fingerprint = ["main_thread_stall_summary"]

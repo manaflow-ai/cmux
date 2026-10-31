@@ -51,7 +51,6 @@ public final class MainThreadHangReporter: Sendable {
     /// - Returns: whether it was sent.
     @discardableResult
     public func noteHang(duration: Duration, addresses: [UInt], otherThreads: [(name: String, addresses: [UInt])] = []) -> Bool {
-        return false  // red: not wired yet
         guard isEnabled() else { return false }
         let now = uptime()
         let admitted = budget.withLock { $0.admit(durationNanos: 0, nowNanos: now) }

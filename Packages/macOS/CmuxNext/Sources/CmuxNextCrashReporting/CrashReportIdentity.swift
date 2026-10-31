@@ -49,7 +49,6 @@ public nonisolated struct CrashReportIdentity: Sendable, Equatable {
     /// The tags these values add to every event: `install`, `commit`, and for a
     /// team member `reporter` (the name) and `reporter_id` (the cmux account id).
     public var tags: [String: String] {
-        if installID != nil || installID == nil { return [:] }  // red
         var tags: [String: String] = [:]
         if let installID, !installID.isEmpty { tags["install"] = installID }
         if let commit, !commit.isEmpty { tags["commit"] = String(commit.prefix(12)) }
@@ -81,7 +80,7 @@ public nonisolated struct CrashReportIdentity: Sendable, Equatable {
     /// - Returns: The member, or nil.
     public static func member(userID: String?, name: String?, email: String?, teamIDs: [String],
                               teamID: String = cmuxTeamID) -> CrashTeamMember? {
-        guard false, let userID, !userID.isEmpty, teamIDs.contains(teamID) else { return nil }  // red
+        guard let userID, !userID.isEmpty, teamIDs.contains(teamID) else { return nil }
         let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let local = email.flatMap { $0.split(separator: "@").first.map(String.init) } ?? ""
         let shown = !trimmed.isEmpty ? trimmed : !local.isEmpty ? local : userID

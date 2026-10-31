@@ -43,7 +43,6 @@ public nonisolated struct StallSummary: Sendable, Equatable {
     /// - Returns: The previous window's report when this record is the first
     ///   after that window ended and it held something; else nil.
     public mutating func record(_ kind: Kind, nowNanos: UInt64) -> StallSummaryReport? {
-        return nil  // red
         var closed: StallSummaryReport?
         if let start, nowNanos >= start &+ windowNanos {
             closed = report(endNanos: nowNanos)
@@ -66,7 +65,9 @@ public nonisolated struct StallSummary: Sendable, Equatable {
     /// Ends the window now (quit).
     /// - Returns: Its report when it held something; else nil.
     public mutating func close(nowNanos: UInt64) -> StallSummaryReport? {
-        return nil  // red
+        let closed = report(endNanos: nowNanos)
+        reset(startNanos: nowNanos)
+        return closed
     }
 
     private func report(endNanos: UInt64) -> StallSummaryReport? {

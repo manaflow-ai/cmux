@@ -63,7 +63,7 @@ public final class MainThreadWatchdog: Sendable {
 
         public init(threshold: Duration = Configuration.environmentThreshold, capacity: Int = 128, sampleStacks: Bool = true,
                     logStalls: Bool = ControlService.isDebugBuild, hangThreshold: Duration = .seconds(2),
-                    hangReportInterval: Duration = .seconds(300),
+                    hangReportInterval: Duration = .zero,
                     hangAssertThreshold: Duration? = Configuration.defaultHangAssertThreshold) {
             self.threshold = threshold
             self.capacity = capacity
