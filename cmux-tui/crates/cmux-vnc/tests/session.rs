@@ -486,7 +486,8 @@ fn hostile_servers_end_with_protocol_errors() {
 #[test]
 fn close_unblocks_the_reader() {
     let (listener, port) = listen();
-    let server = serve(listener, |server| {
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let server = serve(listener, move |server| {
         server.send(b"RFB 003.008\n");
         server.read(12);
         server.send(&[1, 1]);
@@ -495,11 +496,14 @@ fn close_unblocks_the_reader() {
         server.read(1);
         server.server_init(2, 2, "idle");
         server.client_setup();
+        ready_tx.send(()).unwrap();
         // Then nothing: the client is waiting in next_event.
         let mut rest = Vec::new();
         let _ = server.stream.read_to_end(&mut rest);
     });
     let mut session = connect(port, Credentials::default()).unwrap();
+    // Setup is queued asynchronously; immediate close may discard it.
+    ready_rx.recv_timeout(TIMEOUT).unwrap();
     let input = session.input();
     let reader = thread::spawn(move || session.next_event().is_err());
     input.close();
