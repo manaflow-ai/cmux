@@ -668,33 +668,19 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
 
 // Native smooth scroll can paint one queued compositor step after cancellation. Transcript
 // footnotes use the shared runner so manual input stops them before the next painted frame.
+// A note inside its own scrolling panel (a capped tool result) is first brought into view
+// there, at once, as scrollIntoView would; then the transcript rides to it.
 function scrollNote(note: HTMLElement | null) {
   if (!note) return;
   const node = note.closest<HTMLElement>(".acpmux-scroll");
   if (!node) return note.scrollIntoView({ block: "nearest", behavior: noteScroll() });
-  const target = () => {
-    const box = note.getBoundingClientRect();
-    const top = node.getBoundingClientRect().top + node.clientTop;
-    const paddingBottom =
-      Number.parseFloat(node.ownerDocument.defaultView?.getComputedStyle(node).scrollPaddingBottom ?? "0") || 0;
-    const bottom = top + node.clientHeight - paddingBottom;
-    const visibleHeight = Math.max(0, bottom - top);
-    const above = box.top < top;
-    const below = box.bottom > bottom;
-    const delta =
-      above && below
-        ? 0
-        : above
-          ? box.height <= visibleHeight
-            ? box.top - top
-            : box.bottom - bottom
-          : below
-            ? box.height <= visibleHeight
-              ? box.bottom - bottom
-              : box.top - top
-            : 0;
-    return Math.max(0, Math.min(node.scrollHeight - node.clientHeight, node.scrollTop + delta));
-  };
+  for (let inner = note.parentElement; inner && inner !== node; inner = inner.parentElement) {
+    if (inner.scrollHeight <= inner.clientHeight) continue;
+    const overflow = inner.ownerDocument.defaultView?.getComputedStyle(inner).overflowY;
+    if (overflow !== "auto" && overflow !== "scroll") continue;
+    inner.scrollTop = Math.max(0, Math.min(inner.scrollHeight - inner.clientHeight, inner.scrollTop + nearest(note, inner)));
+  }
+  const target = () => Math.max(0, Math.min(node.scrollHeight - node.clientHeight, node.scrollTop + nearest(note, node)));
   animateScroll(
     node,
     target,
@@ -704,6 +690,22 @@ function scrollNote(note: HTMLElement | null) {
     undefined,
     { explicit: true },
   );
+}
+
+/// How far `scroller` must move to show `note`, by scrollIntoView's "nearest" rule.
+function nearest(note: HTMLElement, scroller: HTMLElement): number {
+  const box = note.getBoundingClientRect();
+  const top = scroller.getBoundingClientRect().top + scroller.clientTop;
+  const paddingBottom =
+    Number.parseFloat(scroller.ownerDocument.defaultView?.getComputedStyle(scroller).scrollPaddingBottom ?? "0") || 0;
+  const bottom = top + scroller.clientHeight - paddingBottom;
+  const visibleHeight = Math.max(0, bottom - top);
+  const above = box.top < top;
+  const below = box.bottom > bottom;
+  if (above && below) return 0;
+  if (above) return box.height <= visibleHeight ? box.top - top : box.bottom - bottom;
+  if (below) return box.height <= visibleHeight ? box.bottom - bottom : box.top - top;
+  return 0;
 }
 
 /// How a footnote reference scrolls to its note: a glide, or with cmux's animations off

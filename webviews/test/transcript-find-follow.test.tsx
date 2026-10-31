@@ -229,7 +229,9 @@ test("held input does not apply a browser clamp twice when rows above shrink", a
     });
     await act(async () => render(rows));
     expect(oldHeight - height()).toBeGreaterThan(100);
-    expect(node.scrollTop).toBeCloseTo(parked - (oldHeight - height()), 4);
+    // Applied once: a second application would land a whole shrink (over 100 px) higher. The
+    // placement pass may keep a sub-pixel residual of its rounded write (scrollCoordinates.ts).
+    expect(Math.abs(node.scrollTop - (parked - (oldHeight - height())))).toBeLessThanOrEqual(1);
   } finally {
     await act(async () => root.unmount());
   }
