@@ -73,7 +73,9 @@ pub const AGENT_SESSION_START_VM_KIND_CAPABILITY: &str = "agent-session-start-vm
 /// `model` on `agent-session-start` is relayed to acpmux's first `session/new`.
 pub const AGENT_SESSION_START_MODEL_CAPABILITY: &str = "agent-session-start-model-v1";
 /// On a Cloud VM with the caller's `vm_kind: "owner"`, `agent-session-start`
-/// starts any agent (Codex and opencode too) without the asking-mode rule:
+/// starts any agent (Codex and opencode too) without the asking-mode rule.
+/// Advertised only where this machine reads as a Cloud VM with no team
+/// evidence (never a Mac, an SSH host or a team VM):
 /// the person's own disposable VM is the boundary (Leo, 2026-10-30, on
 /// ChatGPT's "Where should this chat run?": "we should just have it").
 pub const AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY: &str = "agent-session-start-owner-cloud-v1";
@@ -154,7 +156,7 @@ impl AgentSessionStarts {
     /// Cloud VM with no team evidence and the caller's `vm_kind` is exactly
     /// `owner`. Never a Mac or an SSH host (not a disposable sandbox of the
     /// person's), never a team VM. Read again at each start.
-    fn owner_cloud(&self, caller_owns_vm: bool) -> bool {
+    pub(super) fn owner_cloud(&self, caller_owns_vm: bool) -> bool {
         let source = self.host.lock().unwrap_or_else(|e| e.into_inner()).clone();
         caller_owns_vm
             && matches!(

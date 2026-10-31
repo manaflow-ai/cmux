@@ -1266,4 +1266,14 @@ impl Mux {
     pub(crate) fn serves_agent_session_start(&self) -> bool {
         self.serves_agent_session_attach()
     }
+
+    /// True when `agent-session-start` starts any agent here on the
+    /// caller's owner word: this machine reads as a Cloud VM with no team
+    /// evidence. A Mac, an SSH host and a team VM never advertise
+    /// `agent-session-start-owner-cloud-v1`, so the app never lets a Codex
+    /// or opencode chat send to a session there.
+    pub(crate) fn serves_owner_cloud_start(&self) -> bool {
+        self.serves_agent_session_start()
+            && self.control_clients.agent_sessions.starts.owner_cloud(true)
+    }
 }
