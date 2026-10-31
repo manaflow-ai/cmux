@@ -334,6 +334,7 @@ const full: Props = {
   onSaveEnvironment: () => undefined,
   onSetRunningLimit: async () => undefined,
   onReconnectMcp: async () => undefined,
+  onCompact: () => undefined,
   remoteControl: { on: false, set: () => undefined },
 };
 
@@ -602,7 +603,7 @@ export default componentEntry<Props>({
       },
     },
     "workflow-finished": {
-      note: "Labs: the same workflow finished. 1 finished; Workflow · Finished · 7 agents · 432k tokens; each phase N/N with its dots, no Stop and no Up next. Critique opened: its agents with a check and how long each took.",
+      note: "Labs: the same workflow finished. 1 finished; Workflow · Finished · 7 agents · 432k tokens; each phase N/N with its dots, no Stop. Critique opened: its agents with a check and how long each took.",
       props: workflowProps("finished"),
       play: openPhase(2),
     },
@@ -683,6 +684,10 @@ export default componentEntry<Props>({
     "context-connectors-open": {
       note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",
       props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
+    },
+    "context-compact-working": {
+      note: "Shipped (Leo, 2026-10-28: \"You don't have the compact session\"): Context open while a turn runs. Compact, the quiet text action under the rows (as Environment's Save), is off until the turn ends, as the composer ring's card has it.",
+      props: { ...full, working: true, sections: { ...DEFAULT_SECTIONS, context: true } },
     },
     "context-breakdown": {
       note: "Shipped: a Claude Code chat's /context in Context, open: 43% used with 171.4k / 400k, the bar split by category in steps of the theme accent (largest first; the autocompact buffer grey; free space the track), a row per category with its tokens and share, the deferred ones dimmed with no share, then the MCP tools, Memory files and Skills folds, MCP tools open.",
