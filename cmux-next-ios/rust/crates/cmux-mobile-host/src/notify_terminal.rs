@@ -521,7 +521,10 @@ mod tests {
         hook["title"] = json!("Codex needs approval");
         hook["level"] = json!("warning");
         let pushed = c.handle_at(&hook, &places(), t0).unwrap();
-        assert_eq!((pushed.agent.as_deref(), pushed.state.as_deref()), (Some("Codex"), Some("waiting")));
+        assert_eq!(
+            (pushed.kind.as_str(), pushed.agent.as_deref(), pushed.state.as_deref()),
+            ("permission", Some("Codex"), Some("waiting"))
+        );
         // Codex's own OSC 9 for the same event: not again.
         assert!(
             c.handle_at(&event(11, Some(7), "terminal"), &places(), t0 + Duration::from_secs(2)).is_none()
@@ -530,7 +533,8 @@ mod tests {
         assert!(
             c.handle_at(&event(12, Some(7), "terminal"), &places(), t0 + Duration::from_secs(60)).is_some()
         );
-        assert!(c.handle_at(&hook_n(13), &places(), t0 + Duration::from_secs(61)).is_none());
+        // The agent's hook after the terminal's own alert is what happened: it still pushes.
+        assert!(c.handle_at(&hook_n(13), &places(), t0 + Duration::from_secs(61)).is_some());
         // Two OSC notifications in a row are two events, once the tab's gap is over.
         assert!(
             c.handle_at(&event(14, Some(7), "terminal"), &places(), t0 + Duration::from_secs(62)).is_none()
@@ -546,6 +550,92 @@ mod tests {
         let mut hook = event(n, Some(7), "agent");
         hook["title"] = json!("Codex finished");
         hook
+    }
+
+    fn hook(n: u64, title: &str, level: &str, body: &str) -> Value {
+        let mut hook = event(n, Some(7), "agent");
+        hook["title"] = json!(title);
+        hook["level"] = json!(level);
+        hook["body"] = json!(body);
+        hook
+    }
+
+    /// A terminal agent's hook pushes as the kind an agent chat's event of the same meaning
+    /// does, so "Needed and finished" reaches Claude Code and Codex in a terminal. The daemon
+    /// sets the level from the hook (`agent_hook_notification`): info is a finished turn,
+    /// warning an approval or a plan review, error an error. A program's alert stays `terminal`.
+    #[test]
+    fn a_terminal_agent_hook_pushes_as_what_happened() {
+        let t0 = Instant::now();
+        let mut c = TerminalClassifier::default();
+        let finished = c.handle_at(&hook(20, "Claude finished", "info", ""), &places(), t0).unwrap();
+        assert_eq!(
+            finished,
+            NotifyEvent {
+                event_id: "n-20".into(),
+                kind: "completed".into(),
+                agent: Some("Claude".into()),
+                workspace: Some("cmux-next".into()),
+                place: Some("cmux-next".into()),
+                workspace_id: Some("ws_a".into()),
+                tab_id: Some("s7".into()),
+                notification_id: Some("20".into()),
+                state: Some("finished".into()),
+                replyable: Some(false),
+                ..NotifyEvent::default()
+            }
+        );
+        let mut c = TerminalClassifier::default();
+        let approval = c.handle_at(&hook(21, "Claude needs approval", "warning", "Bash"), &places(), t0).unwrap();
+        assert_eq!(
+            (approval.kind.as_str(), approval.title.as_deref(), approval.body.as_deref(), approval.state.as_deref()),
+            ("permission", Some("Bash"), None, Some("waiting"))
+        );
+        let mut c = TerminalClassifier::default();
+        let error = c.handle_at(&hook(22, "Codex reported an error", "error", ""), &places(), t0).unwrap();
+        assert_eq!((error.kind.as_str(), error.agent.as_deref(), error.state.as_deref()), ("failed", Some("Codex"), Some("failed")));
+        // A program's own alert is still a terminal notification.
+        let mut c = TerminalClassifier::default();
+        assert_eq!(c.handle_at(&event(23, Some(7), "terminal"), &places(), t0).unwrap().kind, "terminal");
+    }
+
+    /// The same hook twice on a tab (a harness that reports one approval through two hooks)
+    /// is one push; a different one, or the same past the window, is another.
+    #[test]
+    fn one_terminal_agent_event_pushes_once() {
+        let t0 = Instant::now();
+        let mut c = TerminalClassifier::default();
+        assert!(c.handle_at(&hook(30, "Claude needs approval", "warning", "Bash"), &places(), t0).is_some());
+        let again = t0 + Duration::from_secs(1);
+        assert!(c.handle_at(&hook(31, "Claude needs approval", "warning", "Bash"), &places(), again).is_none());
+        assert!(c.handle_at(&hook(32, "Claude finished", "info", ""), &places(), t0 + Duration::from_secs(2)).is_some());
+        let later = t0 + ECHO_WINDOW + Duration::from_secs(1);
+        assert!(c.handle_at(&hook(33, "Claude needs approval", "warning", "Bash"), &places(), later).is_some());
+    }
+
+    /// The per-minute cap is for programs that loop OSC 9: agents finishing in many
+    /// workspaces at once all push.
+    #[test]
+    fn terminal_agent_events_are_not_capped_like_program_alerts() {
+        let t0 = Instant::now();
+        let mut c = TerminalClassifier::default();
+        let mut map = PlaceMap::default();
+        for tab in 0..(TERMINAL_PER_MINUTE as u64 + 5) {
+            map.surfaces.insert(
+                100 + tab,
+                Place { workspace_id: "ws_a".into(), workspace: "w".into(), tab_id: format!("t{tab}"), terminal: true },
+            );
+        }
+        let many = Places::default();
+        many.set(map);
+        let pushed = (0..(TERMINAL_PER_MINUTE as u64 + 5))
+            .filter(|tab| {
+                let mut h = hook(40 + tab, "Claude finished", "info", "");
+                h["surface"] = json!(100 + tab);
+                c.handle_at(&h, &many, t0).is_some()
+            })
+            .count();
+        assert_eq!(pushed, TERMINAL_PER_MINUTE + 5);
     }
 
     #[test]
