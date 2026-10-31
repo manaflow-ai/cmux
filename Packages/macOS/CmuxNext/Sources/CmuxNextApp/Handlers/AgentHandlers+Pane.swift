@@ -52,7 +52,7 @@ extension AgentHandlers {
         let capturedByCaller = context.registry.isCapturingWork
         let task = Task { @MainActor () -> Result<[String: ActionResultValue], ActionWorkFailure> in
             let result = await createOnHost(wanted, invocation: invocation, destinations: destinations, context: context)
-            if !capturedByCaller, case .failure(let failure) = result { context.registry.refuse(failure.message) }
+            if !capturedByCaller, case .failure(let failure) = result, !failure.shown { context.registry.refuse(failure.message) }
             return result
         }
         context.registry.track(result: task)
@@ -67,7 +67,7 @@ extension AgentHandlers {
         if wanted == destinations.local.id {
             destination = destinations.local
         } else {
-            let rows = await destinations.load()
+            let rows = await destinations.load(for: wanted)
             guard let remote = AgentChatDestinations.resolve(wanted, in: rows) else {
                 return .failure(ActionWorkFailure(refusal: .notFound, reason: WorkspaceVerbStrings.noMachine))
             }
@@ -87,7 +87,7 @@ extension AgentHandlers {
             routed.arguments["host"] = .string(peer)
         }
         switch destination.route {
-        case .cloud: break
+        case .cloud, .pending: break
         case .local, .peer:
             if let target = invocation.target {
                 guard AgentChatPlacement.resolve(target, services: context.services)?.daemon.isLocal == true else {

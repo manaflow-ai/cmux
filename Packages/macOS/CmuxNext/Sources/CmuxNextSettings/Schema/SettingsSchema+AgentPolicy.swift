@@ -51,6 +51,8 @@ extension SettingsSchema {
         // Whether a chat shows the live view of the app its agent uses: looks only.
         "computerUse.livePreview",
         "shortcuts.showModifierHoldHints",
+        // Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).
+        "contextMenus.showCustomizeItem",
         "window.titlebarButtons",
         "tabs.plusButton",
         "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons", "browser.toolbarPosition",
@@ -242,6 +244,8 @@ extension SettingsSchema {
         "agentPane.needsYou.enabled",
         "updates.notify",
         "updates.showWhatsNew",
+        // Feature tips: a display the person can turn on again.
+        "updates.showFeatureTips",
         "announcements.enabled",
     ]
 

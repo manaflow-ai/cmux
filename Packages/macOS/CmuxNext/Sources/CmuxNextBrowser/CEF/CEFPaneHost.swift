@@ -177,6 +177,10 @@ final class CEFPaneHost {
         lifecycleTrace.record(tab.id, "host-conceal wasShown=\(visibleTab === tab)")
         guard visibleTab === tab else { return }
         visibleTab = nil
+        // The tab view can leave its window before the content lifecycle's visibility callback.
+        // Queue the derived host pass here too so callback ordering cannot leave the Chromium child
+        // window visible after the page is parked.
+        setNeedsHostVisibility()
     }
 
     // MARK: Creation
