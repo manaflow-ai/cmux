@@ -194,11 +194,12 @@ public struct SidebarMapping {
             tabs: zip(tabs, statuses.tabs).map { tab, state in
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
                 let title = Self.shortenedPath(tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle), of: tab, shorten: shorten)
-                var listed = SidebarTab(id: TabID(tab.id), title: title,
-                                        kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
-                                        brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon)
-                if !isNewTabPage { Self.describe(&listed, tab, in: workspace, state: state, rowFolder: rowFolder, shorten: shorten) }
-                return listed
+                // The hover card's tab rows show each tab's own folder and status; a New Tab page shows neither.
+                return SidebarTab(id: TabID(tab.id), title: title,
+                                  kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
+                                  brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon,
+                                  folder: isNewTabPage ? nil : tab.cwd.flatMap { $0.isEmpty ? nil : shorten($0) },
+                                  state: isNewTabPage ? .idle : state)
             },
             muted: muted,
             // The store refuses every close of its home workspace (`home_not_closable`); a
@@ -459,8 +460,7 @@ public struct SidebarMapping {
     /// shells title it so) reads as its prompt writes it: this Mac's home and another computer's home both as `~`.
     /// A title naming another path (a program's), a name the person gave the tab and an agent's tab stay as they are.
     /// Another computer's folder never matched this Mac's home, so a Cloud shell's tab read `/home/cmux` (Leo
-    /// 2026-10-29: "why is there all this weird stuff at the bottom of the sidebar"); as `~`, the tab line then names
-    /// it "Terminal" (`SidebarTabLine.cleanName`), the workspace row already saying the machine and the folder.
+    /// 2026-10-29: "why is there all this weird stuff at the bottom of the sidebar").
     static func shortenedPath(_ title: String, of tab: TabModel, shorten: (String) -> String) -> String {
         // A terminal running an agent (`tab.agent`, its hooks' report) is the agent's tab, not a shell's.
         guard tab.agentSession == nil, tab.agent == nil, tab.kind == .pty || tab.kind == .remoteTerminal, tab.name?.isEmpty ?? true,

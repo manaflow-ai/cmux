@@ -89,8 +89,6 @@ enum Strings {
     }
     static func unreadCount(_ value: Int) -> String { String(localized: "sidebar.a11y.unread", defaultValue: "\(value) unread", bundle: .module) }
     static func progressPercent(_ value: Int) -> String { String(localized: "sidebar.a11y.progress", defaultValue: "\(value)% done", bundle: .module) }
-    static var showTabs: String { String(localized: "sidebar.workspace.showTabs", defaultValue: "Show Tabs", bundle: .module) }
-    static var hideTabs: String { String(localized: "sidebar.workspace.hideTabs", defaultValue: "Hide Tabs", bundle: .module) }
     static func tabCount(_ value: Int) -> String { String(localized: "sidebar.a11y.tabCount", defaultValue: "Tabs: \(value)", bundle: .module) }
     /// The hover card's machine line on a workspace the Chief started for a subagent.
     /// Status entries a row folds past its limit.
@@ -129,8 +127,6 @@ enum Strings {
         }
     }
     static var closeButton: String { String(localized: "sidebar.a11y.closeWorkspace", defaultValue: "Close workspace", bundle: .module) }
-    /// A listed tab row's hover close.
-    static var closeTab: String { String(localized: "sidebar.a11y.closeTab", defaultValue: "Close tab", bundle: .module) }
     static var pinWorkspace: String { String(localized: "sidebar.a11y.pinWorkspace", defaultValue: "Pin workspace", bundle: .module) }
     static var unpinWorkspace: String { String(localized: "sidebar.a11y.unpinWorkspace", defaultValue: "Unpin workspace", bundle: .module) }
     /// The workspace row's more button (cx-a9h6): its menu.
