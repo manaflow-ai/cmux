@@ -44,7 +44,7 @@ extension CloudStartChat {
     /// sized for the chat (`pick`) and pinned to the send before anything runs there.
     func machine(for start: AgentPaneCloudStart, cli: CloudMoveCLI, invocation: ActionInvocation,
                  pick: () async -> CloudWorkPick?) async throws -> (CloudMachineSession, CloudMoveCLI.StartChatPlan) {
-        let machines = services.machines, cloud = services.cloud, workspace = services.workspaceID(ofTab: invocation.target.id)
+        let machines = services.machines, cloud = services.cloud, workspace = invocation.target.flatMap { services.workspaceID(ofTab: $0.id) }
         let request = Self.planRequest(key: start.key, workspace: workspace, user: cloud.auth.user?.id, loaded: cloud.hasLoadedMachines, machines: machines.cloud)
         let plan = try Self.checked(await cli.startChatPlan(request: request))
         var invocation = invocation
