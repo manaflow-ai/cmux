@@ -26,7 +26,7 @@ public final class CredentialVaultBoard {
     @ObservationIgnored private var generation = 0
 
     public init(vault: CredentialVault,
-                enabled: @escaping @MainActor () -> Bool = { CredentialVault.rolloutEnabled.value }) {
+                enabled: @escaping @MainActor () -> Bool = { CredentialVault.isRolloutEnabled }) {
         self.vault = vault
         self.enabled = enabled
         vault.onChange { [weak self] in
@@ -100,7 +100,7 @@ public final class CredentialVaultPageRoute: PageProvider {
 
     /// `window`: the window Settings shows in, for the sheets. `approve`: tests answer the approval.
     public init(board: CredentialVaultBoard, window: @escaping @MainActor () -> NSWindow?,
-                enabled: @escaping @MainActor () -> Bool = { CredentialVault.rolloutEnabled.value },
+                enabled: @escaping @MainActor () -> Bool = { CredentialVault.isRolloutEnabled },
                 approve: (@MainActor (CredentialVault.Approval) async -> Bool)? = nil) {
         self.board = board
         self.enabled = enabled
