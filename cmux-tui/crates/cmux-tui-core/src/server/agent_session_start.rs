@@ -171,6 +171,18 @@ impl AgentSessionStarts {
             )
     }
 
+    /// Whether this machine is a Cloud VM of any kind (a team VM included), as
+    /// the machine kind gate reads it at each call.
+    pub(super) fn on_cloud_vm(&self) -> bool {
+        let source = self.host.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        matches!(
+            source.map(|read| read()),
+            Some(
+                AgentStartHost::OwnerCloud | AgentStartHost::UnknownCloud | AgentStartHost::TeamVm
+            )
+        )
+    }
+
     fn starter(&self) -> Option<AcpmuxStarter> {
         self.starter.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
@@ -263,7 +275,7 @@ pub(super) fn start(
     client: u64,
     id: Option<Value>,
     socket: PathBuf,
-    params: StartParams,
+    mut params: StartParams,
     writer: &MessageWriter,
 ) -> bool {
     if !params.valid() {
@@ -274,6 +286,14 @@ pub(super) fn start(
     }
     if let Err(refusal) = startable(mux, params.surface) {
         return refuse(writer, id, refusal);
+    }
+    // On the caller's own Cloud VM a new chat that would start in the home
+    // folder (no folder of the person's own) starts in the work folder.
+    let own = super::agent_session_trust::callers_own_cloud_vm(mux, &params.vm_kind);
+    if let Some(work) =
+        super::agent_session_trust::owner_cloud_cwd(own, &params.cwd, params.home_confirmed)
+    {
+        params.cwd = work;
     }
     // A chat never starts in `/`, above the home folder, or in the home folder
     // unless the person chose it (cx-1bhjj), as on the Mac.
@@ -476,6 +496,11 @@ fn start_and_bind(
     let trust = link
         .call("acp.trust.get", json!({"cwd": params.cwd}), CALL_TIMEOUT)
         .map_err(Refusal::of)?;
+    // The caller's own Cloud VM's work folder reads trusted (no question).
+    let trust = super::agent_session_trust::owner_cloud_trust(
+        super::agent_session_trust::callers_own_cloud_vm(mux, &params.vm_kind),
+        trust,
+    );
     if !folder_trusted(&trust, params.harness.as_deref()) {
         return Err(Refusal::UntrustedFolder);
     }
