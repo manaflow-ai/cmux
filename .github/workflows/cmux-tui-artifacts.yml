@@ -2039,9 +2039,41 @@ jobs:
         run: bash scripts/ci/gh_budget_wait.sh --backoff-probe 3 "$ATTEST_PROBE" "the attestation"
 
       - name: Attest raw binary subjects (last try)
+        id: attest_subjects_4
         if: steps.attest_subjects_3.outcome == 'failure'
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with: *attest-subjects
+
+      # Installers verify the cmux-tui manifest offline from this bundle
+      # (scripts/install-cmux-tui-client.sh), so a spent GitHub API budget no
+      # longer holds a nightly with its compile done: run 41150090913
+      # (2026-10-31) waited 37 minutes in "Bundle the cmux-tui client" for the
+      # attestations API. Keyed by the manifest's digest, before the manifest
+      # itself goes up, so a published manifest has its bundle. Not fatal: an
+      # installer with no bundle asks the API as before.
+      - name: Publish the manifest's Sigstore bundle
+        if: env.CMUX_TUI_PUBLISH_PASS == 'unix' && hashFiles('assets/cmux-tui/manifest.json') != ''
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          BUNDLE: ${{ steps.attest_subjects.outputs.bundle-path || steps.attest_subjects_2.outputs.bundle-path || steps.attest_subjects_3.outputs.bundle-path || steps.attest_subjects_4.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          [[ -s "$BUNDLE" ]] || { echo "::warning title=no attestation bundle::the attest step gave no bundle; installers use the attestations API"; exit 0; }
+          digest="$(sha256sum assets/cmux-tui/manifest.json | awk '{print $1}')"
+          # Any valid bundle for these bytes verifies, so a second run's identical
+          # manifest finding the key written keeps the first (write-once, 75 = kept).
+          status=0
+          python3 scripts/ci/upload-r2-object.py --write-once --conflict-exit-code 75 \
+            --file "$BUNDLE" --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
+            --key "cmux-tui-attestations/sha256-$digest.sigstore.json" \
+            --content-type application/json \
+            --cache-control "public, max-age=31536000, immutable" || status=$?
+          [[ "$status" == 0 || "$status" == 75 ]] || exit "$status"
+          echo "Published: https://files.cmux.com/cmux-tui-attestations/sha256-$digest.sigstore.json"
 
       - name: Upload to R2
         env:
