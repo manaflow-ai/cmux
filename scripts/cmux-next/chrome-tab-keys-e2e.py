@@ -6,7 +6,7 @@ By default, with no preset and no rebinding (Lawrence 2026-10-20):
   - Cmd-1 to Cmd-8 select the nth item and Cmd-9 the last.
 Cmd-Opt arrows focus panes (Ghostty's `goto_split`) and Ctrl-PageDown / PageUp have no cmux
 default, so neither is checked here.
-They win over the focused surface: a terminal (and its Ghostty keybinds), the New Tab page's
+They win over the focused surface (the user's own Ghostty keybinds win over them, #22418): a terminal, the New Tab page's
 field and an agent chat's composer, in a pane with one tab and in a pane with two (where the
 old Previous / Next switched the pane's tabs). `--surfaces` adds terminal copy mode (which
 takes every other key), a web page, the Settings page and Home (cx-9ce.18); their focus is
