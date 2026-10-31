@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-31: the update status card's download is cancellable; text left, a bigger cancel on the right, vertically
+  centred (#29653). Leo, verbatim: "AND WHY CAN'T I CANCEL THE DOWNLOAD OPTIONALLY AND WHY IS THE SYMBOL SO FUCKING
+  SMALL THIS IS SHIT ASS SPACING WHY NOT JUST LEFT ALIGN THE TEXT PUT A BIGGER SYMBOL ON THE RIGHT" / "ALSO CENTER THE
+  FUCKING BUTTON ON THE RIGHT VERTICALLY". Update status notices draw no leading glyph or spinner; the title, detail and
+  bar start at the card's padding. A running download shows `SidebarNoticeCard.trailing` (xmark.circle.fill, 28 pt hit
+  square) on the right padding, centred on the card's height; cancel stops Sparkle's download and the card returns to
+  the found update. Other notice cards are unchanged. Spec: leo-workspace design/sidebar.md "status cards". Regression:
+  `UpdateDownloadCancelTests`.
 - 2026-10-31: archived workspaces fold into one "Archived (N)" row per list, and the Tidy Up card's Always is a
   switch. Lawrence 18470: "we need better ui for archived stuff instead of just greying them out ... it takes up too
   much vertical space rn"; from the archived-variations gallery Chief picked V2 (one fold row per group, chevron) and
