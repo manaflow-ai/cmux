@@ -27,8 +27,11 @@ const linkLabel = (href: string) => {
   return match ? `${match[1]}/${match[2]}#${match[3]}` : href;
 };
 
+/// One formatter for every card: building an Intl.DateTimeFormat costs far more than formatting with
+/// one, and the card renders again for each row the pointer (or a wheel under it) passes.
+let timeFormat: Intl.DateTimeFormat | undefined;
 const timeLabel = (at: number) =>
-  new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(at));
+  (timeFormat ??= new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" })).format(new Date(at));
 
 // Only bounded preview spans pass here. Preserve both ends of hashes, paths and URLs; the full
 // token stays available to hover and assistive technology instead of taking over the whole card.

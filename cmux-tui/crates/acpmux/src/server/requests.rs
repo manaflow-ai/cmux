@@ -634,10 +634,24 @@ pub(super) async fn handle_request(
     m: &str,
     mut params: Value,
 ) -> Result<Value, RpcError> {
+    // Before forwarding: only the local connection's authenticated caller may attest itself.
+    if m == method::MUX_TURN_ATTESTATION {
+        let ask =
+            crate::turn_attestation::request(&params, conn.caller(), conn.origin == Origin::Local)?;
+        let hub = hub.clone();
+        return tokio::task::spawn_blocking(move || {
+            let identity = cmux_server::pairing::EnrolledIdentity::load_current()
+                .map_err(|_| crate::turn_attestation::refused("turn_attestation.not_enrolled"))?;
+            hub.issue_turn_attestation(&ask.session_id, &identity, ask.ttl_ms)
+        })
+        .await
+        .map_err(|_| crate::turn_attestation::refused("turn_attestation.unavailable"))?;
+    }
     // A bare name or prefix on this machine's socket names the one live session here or on a
     // peer; every check below reads the route it found (`hub/key_route.rs`).
     if conn.origin == Origin::Local {
         route_bare_key(hub, m, &mut params)?;
+
     }
     // The pane's fork through a turn is a session/fork, checked as one from
     // here on (`fork_through.rs`).

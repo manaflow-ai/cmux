@@ -1531,6 +1531,12 @@
       "result": true
     },
     {
+      "kind": "request",
+      "name": "_acpmux/turn_attestation",
+      "params": true,
+      "result": true
+    },
+    {
       "kind": "notification",
       "name": "_acpmux/event",
       "params": {
