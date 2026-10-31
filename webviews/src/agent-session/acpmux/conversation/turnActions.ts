@@ -148,7 +148,10 @@ export function chatLoginCommand(
   harness: string | undefined,
   health: HarnessHealth | undefined,
 ): string | undefined {
-  const profile = catalog.find((entry) => entry.id === (harness ?? ""))?.auth?.login;
   const checked = health && health.id === harness ? health.login?.trim() : undefined;
-  return profile || checked || undefined;
+  // Prefer the health command: it is the profile command after account-home
+  // qualification (CODEX_HOME/CLAUDE_CONFIG_DIR). The catalog value is the
+  // unqualified fallback for a daemon that has not reported health yet.
+  const profile = catalog.find((entry) => entry.id === (harness ?? ""))?.auth?.login;
+  return checked || profile || undefined;
 }

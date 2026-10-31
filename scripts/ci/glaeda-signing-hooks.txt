@@ -17,3 +17,7 @@ a3fc59d7f48dd0655c0fca0eac2e95a08bcdea03a604631ab6c41766cb17b8b8 glaeda 5ac20388
 4a7dff390b415503617dd7395df9d074701e59b273410f5e994b84de30a87eb1 glaeda 1f9758ef: runner: gateway runners for thin cmux-ci clients listen through CPU saturation and a full mini (#1755)
 0e773943b3d18dbeef58b5d22269aba654fc9737761393981b019a12fd92a575 glaeda efae6e73: runner-hook: the CPU gate decides on a 60 s average, not one iostat second (#1756)
 e94edf9ced072267bb1544d2f77d266a28476fb1e127a80b3fbe995f61cc9e0a glaeda 444f239a: runner-hook: declare per mini whether the CPU marks hold its listeners (config/runner-gate.json) (#1757)
+3b7fc168de010536643ec01c34592c5487ff9a89776b434fa32b6db39aaf63f5 glaeda 63ace48b: runner-hook: a signing job its claim gate would refuse is refused before it drains the mini (#1761)
+5d5ce6e83393f6412d09d76bcb211fb454afd639f274258a619810fef0644cd1 glaeda e3582de4: runner-hook: a lock holder keeps its locks while its owner's start token is unreadable (#1763)
+f612f5a83b9c4519e8bfa911b94c192c0fcb614b8bbc160e441f8cd3dbf8dac7 glaeda 485d1dcc: runner-hook: copy cmux's warm-start receipt into the job record (warm_start) (#1764)
+49b5d9f59f582bed21bdc3014d35b187ab2ccc19f01d4eb53ba57dd5449fa3ef glaeda 1cd373c3: runner-hook: a nightly signing drain outlasts the running jobs, and a handed job never fails for a fleet waiter (#1768)
