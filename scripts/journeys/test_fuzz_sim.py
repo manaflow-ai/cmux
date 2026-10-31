@@ -242,19 +242,26 @@ class FakeApp:
         if method == "debug.key":
             return self.key(params["key"], params.get("modifiers") or [])
         if method == "debug.focus":
-            return {"windows": [{"id": "win_1", "consistent": True, "mismatches": [], "model": {"resolved": "terminal"}}]}
+            pane = self.focused_pane()
+            return {"windows": [{"id": "win_1", "is_key": True, "consistent": True, "mismatches": [],
+                                 "model": {"resolved": "terminal"},
+                                 "appkit": {"first_responder": "TerminalSurfaceView",
+                                            "classified": f"content:{pane['id']}" if pane else "windowOrNone"}}]}
         if method == "debug.hangs":
             return {"records": [h for h in self.hangs if h["sequence"] > int(params.get("after") or 0)]}
         if method in ("debug.creation.hold", "debug.creation.release"):
             if "hook" not in self.bugs:
                 raise driver.StepError(f"{method}: {{'code': 'method_not_found'}}")
             if method.endswith("hold"):
-                self.hook = {"armed": [1], "started": 0, "resumed": []}
-                return {"armed": [1], "started": 0, "held": [], "released": [], "resumed": []}
+                self.hook = {"armed": [1], "started": 0, "stand_in": list((params or {}).get("stand_in") or [])}
+                return {"armed": [1], "started": 0, "held": [], "released": [], "resumed": [], "shown": [],
+                        "stand_in": self.hook["stand_in"]}
             hk = getattr(self, "hook", {"started": 0})
             resumed = [1] if hk.get("started", 0) >= 1 else []
+            shown = [] if "old_hook" in self.bugs else [n for n in hk.get("stand_in", []) if hk.get("started", 0) >= n]
             self.hook = {}
-            return {"armed": [], "started": hk.get("started", 0), "held": [], "released": [1], "resumed": resumed}
+            return {"armed": [], "started": hk.get("started", 0), "held": [], "released": [1], "resumed": resumed,
+                    "shown": shown}
         if method == "debug.toast":
             return {"refusals": list(self.toasts)}
         if method == "debug.desync":
@@ -410,6 +417,12 @@ class Sim(unittest.TestCase):
         self.assertEqual((st["played"], st["hold"], st["creation_hold"], st["pass_hold"]), (2, 2, 2, 2))
         report, error = run(seq=seq, shrink=False, actions="layout")  # no hook: the plain variant
         self.assertEqual((report["split_type"]["creation_hold"], report["split_type"]["played"]), (0, 2))
+
+    def test_a_hook_without_the_stand_in_is_not_a_proven_hold(self):
+        seq = [{"a": "new_terminal", "t": "slow"}, {"a": "split_type", "t": "slow"}]
+        report, error = run(bugs={"hook", "old_hook"}, seq=seq, shrink=False, actions="layout")
+        st = report["split_type"]
+        self.assertEqual((st["creation_hold"], st["hold"], st["pass_hold"], st["pass_not_judged"]), (1, 0, 0, 1))
 
     def test_a_refused_split_is_not_judged(self):
         seq = [{"a": "new_terminal", "t": "slow"}, {"a": "split_type", "t": "slow"}]

@@ -547,13 +547,16 @@ class Fuzz:
             rec["dialog"] = self.answer_dialog()
         return rec
 
-    def creation_hook(self, action, n=None):
+    def creation_hook(self, action, n=None, stand_in=None):
         """The P0 1193 owner's DEBUG hook (#29301, `debug.creation.hold {n}` / `debug.creation.release {n?}`): its reply,
         or None on a build without it (remembered for the run: the plain timing variant is used there)."""
         if getattr(self, "has_creation_hook", None) is False:
             return None
         try:
-            reply = self.j.app.rpc("debug.creation." + action, {} if n is None else {"n": n}, timeout=10)
+            params = {} if n is None else {"n": n}
+            if stand_in:
+                params["stand_in"] = stand_in
+            reply = self.j.app.rpc("debug.creation." + action, params, timeout=10)
         except (D.StepError, OSError, ValueError) as error:
             text = str(error).lower()
             if "method_not_found" in text or "unknown method" in text or "not found" in text:
@@ -563,24 +566,31 @@ class Fuzz:
         self.has_creation_hook = True
         return reply if isinstance(reply, dict) else {}
 
-    def wait_new_view(self, known, timeout=5.0):
-        """Until a pane shows a terminal view not in KNOWN and that pane is focused (ext_smoke's
-        smoke_wait_new_view): the new pane's early view has the keyboard while its creation is held."""
+    def wait_new_view(self, split_pane, timeout=5.0):
+        """pa-d's smoke_wait_new_view (1ee7b743983): until AppKit's first responder of the key window is a terminal view
+        in another pane than SPLIT_PANE (debug.focus appkit first_responder "TerminalSurfaceView", classified
+        "content:<pane>"): the new pane's early view has the keyboard. Reads only; True when reached."""
         end = D.now() + timeout
         while D.now() < end:
-            if any(p.get("focused") and p.get("terminal_id") and p["terminal_id"] not in known for p in surfaces(self.j)):
-                return True
-            time.sleep(0.02)
+            report = _rpc(self.j, "debug.focus") or {}
+            for w in report.get("windows") or [] if isinstance(report, dict) else []:
+                kit = (w or {}).get("appkit") or {}
+                where = str(kit.get("classified") or "")
+                if w.get("is_key") and kit.get("first_responder") == "TerminalSurfaceView" and where.startswith("content:") \
+                        and where[len("content:"):] not in ("", split_pane):
+                    return True
+            time.sleep(0.075)
         return False
 
     def split_type(self, item):
         """Two splits, each followed at once by its own line (see ACTIONS["split_type"]); returns the record with the
         lines and the snapshot name the oracle reads.
 
-        On a build with the creation hold hook (#29301, cmux-ad 11:4xZ), creation 1 is held (its daemon reply waits)
-        while line 1, the second split and line 2 are typed, then released: the race of TIP RED 1193 every round, as
-        pa-d's tipred-1193-creation-hold journey plays it. The hold is proven by the release reply (creation 1 was in
-        `resumed` and a second creation started), never assumed. On a build without the hook: the plain timing, where
+        On a build with the creation hold hook (#29301, STATUS 1428, pa-d's tipred-1193-stand-in journey): hold
+        {"n": [1], "stand_in": [2]} (creation 1's reply held, creation 2's stand-in kept out of the store, so its focus
+        cannot land: the memory-pressure state on purpose), first split, wait until the new pane's view is AppKit's
+        first responder, line 1 at once, second split, line 2 at once, release {}. Proven by the release reply: a second
+        creation started, creation 1 in `resumed`, `shown` == [2]; never assumed. On a build without the hook: the plain timing, where
         the hold path is proven only by a key the router held (handled_by "app")."""
         import ext_smoke  # beside this file
         j = self.j
@@ -592,8 +602,8 @@ class Fuzz:
         snap = f"fz-split-{self.splits}"
         ext_smoke.step_smoke_snapshot(j, {"name": snap})
         refused_before = refusals(j)
-        known = {p.get("terminal_id") for p in surfaces(j) if p.get("terminal_id")}
-        hold = None if self.diagnostic else self.creation_hook("hold", [1])
+        split_pane = state(j)["focus"].get("pane")
+        hold = None if self.diagnostic else self.creation_hook("hold", [1], stand_in=[2])
         lines, at, paths, release, reached = [], None, [], None, None
         try:
             for k, down in enumerate(item.get("down") or [False, False]):
@@ -603,7 +613,7 @@ class Fuzz:
                 at = at or t
                 self.last_create = t
                 if k == 0 and hold is not None:
-                    reached = self.wait_new_view(known)
+                    reached = self.wait_new_view(split_pane)
                 line = f"st{j.nonce}-{self.splits}-{k + 1}"
                 # At once in normal mode (type_text waits out the creation hold only in --diagnostic).
                 paths.append(self.type_text(f"echo {line}"))
@@ -619,7 +629,7 @@ class Fuzz:
             # The hook's own report (pa-d's _creation_proof with `resumed`): creation 1 waited for this release, and
             # the second split started while it was held.
             ints = lambda key: [int(x) for x in (release or {}).get(key) or [] if isinstance(x, (int, float))]
-            proven = int((release or {}).get("started") or 0) >= 2 and 1 in ints("resumed")
+            proven = int((release or {}).get("started") or 0) >= 2 and 1 in ints("resumed") and sorted(ints("shown")) == [2]
             rec.update(variant="creation-hold", hold_path=proven, held_keys=held, creation_release=release,
                        new_view_focused=reached)
         else:
