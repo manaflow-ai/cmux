@@ -15,6 +15,21 @@ impl Hub {
         self.catalog_ready.send_replace(false);
     }
 
+    /// The daemon's work once startup is done: chats start (after the login env import: it names
+    /// harness homes), startup is marked done, then the opt-in artifacts sync runs
+    /// (`artifacts_sync.rs`). It returns only when the sync is off; the daemon aborts it at shutdown.
+    pub async fn run_after_startup(self: &Arc<Self>) {
+        let sources = crate::chats::ChatSources::daemon(&*self.config.read().await);
+        if let Some(sources) = sources
+            && let Err(e) = self.start_chats(sources).await
+        {
+            tracing::warn!("{e}");
+        }
+        // Startup's work is done here (`loading.startupDone`); the sync after it is not startup.
+        self.end_startup_work();
+        crate::artifacts_sync::run_background(self.clone()).await;
+    }
+
     /// Background startup: import the login environment (when requested),
     /// reload the catalog so PATH discovery sees it, check launchers, then
     /// let spawns through and probe models.

@@ -612,14 +612,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
             hub.hold_policies_again().await;
             hub.finish_startup().await;
-            // After the login env import: it names harness homes.
-            let sources = crate::chats::ChatSources::daemon(&*hub.config.read().await);
-            if let Some(sources) = sources
-                && let Err(e) = hub.start_chats(sources).await
-            {
-                tracing::warn!("{e}");
-            }
-            hub.end_startup_work();
+            // Until shutdown aborts this task, on every path (a signal too).
+            hub.run_after_startup().await;
         })
     };
     tokio::spawn(notify::notify_loop(hub.clone()));
