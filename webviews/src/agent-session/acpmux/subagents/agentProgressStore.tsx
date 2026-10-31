@@ -12,9 +12,14 @@ export const AgentProgressContext = createContext<AgentProgressStore | undefined
 export function useAgentProgress(agent?: Subagent): string | undefined {
   const store = useContext(AgentProgressContext);
   const id = agent?.id;
-  const subscribe = useCallback((notify: () => void) =>
-    store && id !== undefined ? store.subscribe(id, notify) : () => {}, [store, id]);
-  const snapshot = useCallback(() => store && id !== undefined ? store.get(id) : agent ?? EMPTY, [store, id, agent]);
+  const subscribe = useCallback(
+    (notify: () => void) => (store && id !== undefined ? store.subscribe(id, notify) : () => {}),
+    [store, id],
+  );
+  const snapshot = useCallback(
+    () => (store && id !== undefined ? store.get(id) : (agent ?? EMPTY)),
+    [store, id, agent],
+  );
   const progress = useSyncExternalStore(subscribe, snapshot, snapshot);
   const t = useT();
   const language = usePaneLanguage();

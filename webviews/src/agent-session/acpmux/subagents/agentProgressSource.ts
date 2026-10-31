@@ -5,9 +5,12 @@ import type { AcpmuxRow } from "../model";
 export type AgentProgress = Pick<Subagent, "agents" | "tokens" | "toolUses">;
 const EMPTY: AgentProgress = {};
 const same = (a: AgentProgress, b: AgentProgress) =>
-  a.tokens === b.tokens && a.toolUses === b.toolUses &&
-  a.agents?.done === b.agents?.done && a.agents?.started === b.agents?.started &&
-  a.agents?.failed === b.agents?.failed && a.agents?.queued === b.agents?.queued;
+  a.tokens === b.tokens &&
+  a.toolUses === b.toolUses &&
+  a.agents?.done === b.agents?.done &&
+  a.agents?.started === b.agents?.started &&
+  a.agents?.failed === b.agents?.failed &&
+  a.agents?.queued === b.agents?.queued;
 
 export class AgentProgressStore {
   private values = new Map<string, AgentProgress>();
@@ -15,12 +18,18 @@ export class AgentProgressStore {
   private structures = new Map<string, string>();
   private listeners = new Map<string, Set<() => void>>();
   private changedProgress = new Map<string, AgentProgress>();
-  constructor(agents: readonly Subagent[] = []) { this.update(agents); }
-  has(id: string): boolean { return this.structures.has(id); }
-  get(id: string): AgentProgress { return this.values.get(id) ?? EMPTY; }
+  constructor(agents: readonly Subagent[] = []) {
+    this.update(agents);
+  }
+  has(id: string): boolean {
+    return this.structures.has(id);
+  }
+  get(id: string): AgentProgress {
+    return this.values.get(id) ?? EMPTY;
+  }
   subscribe(id: string, notify: () => void): () => void {
     let listeners = this.listeners.get(id);
-    if (!listeners) this.listeners.set(id, listeners = new Set());
+    if (!listeners) this.listeners.set(id, (listeners = new Set()));
     listeners.add(notify);
     return () => {
       listeners.delete(notify);
@@ -37,16 +46,31 @@ export class AgentProgressStore {
     this.listeners.get(id)?.forEach((notify) => notify());
   }
   updateAgent(agent: Subagent): void {
-    const structure = [agent.id, agent.name, agent.parent, agent.kind, agent.state,
-      agent.action, agent.actionShell, agent.endedAt, agent.agentId, agent.harness,
-      agent.task, agent.startedAt, agent.background, agent.command, retryKey(agent)].join("\u0000");
+    const structure = [
+      agent.id,
+      agent.name,
+      agent.parent,
+      agent.kind,
+      agent.state,
+      agent.action,
+      agent.actionShell,
+      agent.endedAt,
+      agent.agentId,
+      agent.harness,
+      agent.task,
+      agent.startedAt,
+      agent.background,
+      agent.command,
+      retryKey(agent),
+    ].join("\u0000");
     if (this.structures.get(agent.id) !== structure) {
       this.structures.set(agent.id, structure);
       this.structureVersion += 1;
     }
     if (same(this.get(agent.id), agent)) return;
     const progress = {
-      tokens: agent.tokens, toolUses: agent.toolUses,
+      tokens: agent.tokens,
+      toolUses: agent.toolUses,
       agents: agent.agents ? { ...agent.agents } : undefined,
     };
     this.values.set(agent.id, progress);
@@ -68,5 +92,6 @@ export class AgentProgressStore {
 // In-process source metadata stays off the serialized snapshot/cache. Direct-client snapshots
 // sharing a row array share the source; bridge/gallery snapshots use the compatibility path.
 const sources = new WeakMap<readonly AcpmuxRow[], AgentProgressStore>();
-export const markAgentProgressSource = (rows: readonly AcpmuxRow[], source: AgentProgressStore) => sources.set(rows, source);
+export const markAgentProgressSource = (rows: readonly AcpmuxRow[], source: AgentProgressStore) =>
+  sources.set(rows, source);
 export const agentProgressSource = (rows: readonly AcpmuxRow[]) => sources.get(rows);

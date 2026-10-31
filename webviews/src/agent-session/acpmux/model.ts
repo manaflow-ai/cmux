@@ -647,7 +647,10 @@ export type AcpmuxSnapshot = {
   subagentViews?: Record<string, AcpmuxRow[]>;
   /// Agent ids whose usage/progress changed in this snapshot. This lets rows subscribe without
   /// rescanning every agent on a token update.
-  subagentProgress?: Record<string, { agents?: { done: number; started: number; failed?: number; queued?: number }; tokens?: number; toolUses?: number }>;
+  subagentProgress?: Record<
+    string,
+    { agents?: { done: number; started: number; failed?: number; queued?: number }; tokens?: number; toolUses?: number }
+  >;
   /// Monotonic structural revision for the subagent list; usage-only updates do not change it.
   subagentStructureVersion?: number;
   sessions: AcpmuxSessionEntry[];

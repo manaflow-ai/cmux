@@ -6,7 +6,11 @@ import type { PaneLanguage, Translate } from "../i18n";
 import type { Subagent } from "./subagentFold";
 
 /// The progress parts that apply, in order; none until the harness reports any.
-export function subagentProgress(t: Translate, language: PaneLanguage, agent: Pick<Subagent, "agents" | "tokens" | "toolUses">): string[] {
+export function subagentProgress(
+  t: Translate,
+  language: PaneLanguage,
+  agent: Pick<Subagent, "agents" | "tokens" | "toolUses">,
+): string[] {
   const parts: string[] = [];
   if (agent.agents && agent.agents.started > 0)
     parts.push(t("subagents.workflowAgents", { n: agent.agents.started, done: agent.agents.done }));

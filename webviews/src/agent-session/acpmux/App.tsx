@@ -245,7 +245,7 @@ import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTa
 import { backgroundTasksLook } from "./backgroundTasks/backgroundTasksLook.experiment";
 import { settleTrayExit } from "./subagents/trayMotion";
 import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
-import { retryKey, runRetry, type RetryTarget } from "./subagents/retryState";
+import { runRetry, type RetryTarget } from "./subagents/retryState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab, WorkflowCard } from "./summary/WorkflowCard";
 import {
   type DoneLineCache,
@@ -7175,7 +7175,10 @@ function AcpmuxPane() {
   const producerProgress = agentProgressSource(snapshot.rows);
   // Direct snapshots carry only changed progress values from the event fold. The bridge store
   // applies those ids without rebuilding a row list or joining every agent on usage updates.
-  const bridgeProgress = useMemo(() => new AgentProgressStore(), [shownSessionId]);
+  const bridgeProgress = useMemo(
+    () => ({ sessionId: shownSessionId, store: new AgentProgressStore() }),
+    [shownSessionId],
+  ).store;
   // Each session gets a fresh store. Track initialization by store identity so switching
   // sessions cannot leave the new store empty because a ref from the prior session was set.
   const bridgeInitialized = useRef<AgentProgressStore | undefined>(undefined);
@@ -7194,7 +7197,8 @@ function AcpmuxPane() {
   // direct snapshots and newer bridge snapshots use the keyed store above.
   const compatibilitySnapshot = snapshot.subagentStructureVersion === undefined;
   const progressStore =
-    producerProgress ?? (snapshot.subagentProgress !== undefined ? bridgeProgress : undefined);
+    producerProgress ??
+    (!compatibilitySnapshot || snapshot.subagentProgress !== undefined ? bridgeProgress : undefined);
   const producerGeneration = useRef<{ source?: AgentProgressStore; value: number }>({ value: 0 });
   if (producerGeneration.current.source !== producerProgress) {
     producerGeneration.current = {
@@ -7204,14 +7208,22 @@ function AcpmuxPane() {
   }
   const structureVersion = producerProgress
     ? `${producerGeneration.current.value}:${snapshot.subagentStructureVersion ?? 0}`
-    : snapshot.subagentStructureVersion ?? shownSessionId;
+    : (snapshot.subagentStructureVersion ?? shownSessionId);
   // Compatibility snapshots do not carry a structure version, so use their fresh row list to
   // reflect structural changes. Direct snapshots stay keyed by the producer's structure version.
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- direct usage updates use keyed subscriptions
-  const chatAgents = useMemo(
-    () => freshAgents,
-    compatibilitySnapshot ? [freshAgents] : [structureVersion, shownSessionId],
-  );
+  const structuralAgents = useRef({
+    structureVersion,
+    sessionId: shownSessionId,
+    agents: freshAgents,
+  });
+  if (
+    compatibilitySnapshot ||
+    structuralAgents.current.structureVersion !== structureVersion ||
+    structuralAgents.current.sessionId !== shownSessionId
+  ) {
+    structuralAgents.current = { structureVersion, sessionId: shownSessionId, agents: freshAgents };
+  }
+  const chatAgents = structuralAgents.current.agents;
   // A subagent draws no tool row (subagents/subagentFold.ts swallows the call that started it), so
   // a running foreground subagent holds Ctrl-B by itself.
   const foregroundAgent =

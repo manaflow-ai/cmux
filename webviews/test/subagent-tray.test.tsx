@@ -1204,27 +1204,37 @@ describe("workflow progress in the default tray and Inspector", () => {
       const { SubagentsSection } = await import("../src/agent-session/acpmux/inspector/SubagentsSection");
       const workflow = agent("Review modules", { kind: "workflow", action: "Review" });
       const other = agent("Unrelated agent");
-      const draw = (current: Subagent) => surface === "tray"
-        ? createElement(SubagentTray, {
-            items: trayItems([current, other], [], NONE, true), working: true, waiting, onOpen: () => {},
-          })
-        : createElement(SubagentsSection, { agents: [current, other], waiting, onOpen: () => {} });
+      const draw = (current: Subagent) =>
+        surface === "tray"
+          ? createElement(SubagentTray, {
+              items: trayItems([current, other], [], NONE, true),
+              working: true,
+              waiting,
+              onOpen: () => {},
+            })
+          : createElement(SubagentsSection, { agents: [current, other], waiting, onOpen: () => {} });
       const view = await render(draw(workflow));
       try {
         expect(view.root.querySelectorAll(".acpmux-agent-line__progress")).toHaveLength(0);
         const buttons = () => [...view.root.querySelectorAll(".acpmux-agent-line__button")];
         const unrelated = buttons().find((button) => button.textContent?.includes("Unrelated agent"));
         expect(unrelated).toBeDefined();
-        await view.show(draw({ ...workflow, agents: { done: 37, started: 101, failed: 2, queued: 4 }, tokens: 1_200_000 }));
+        await view.show(
+          draw({ ...workflow, agents: { done: 37, started: 101, failed: 2, queued: 4 }, tokens: 1_200_000 }),
+        );
         expect(view.root.querySelectorAll(".acpmux-agent-line__progress")).toHaveLength(1);
-        expect(view.root.querySelector(".acpmux-agent-line__progress")?.textContent)
-          .toBe("37/101 agents · 2 failed · 4 queued · 1.2M tokens");
+        expect(view.root.querySelector(".acpmux-agent-line__progress")?.textContent).toBe(
+          "37/101 agents · 2 failed · 4 queued · 1.2M tokens",
+        );
         expect(buttons().find((button) => button.textContent?.includes("Unrelated agent"))).toBe(unrelated);
         await view.show(draw({ ...workflow, agents: { done: 40, started: 101 }, tokens: 1_300_000 }));
-        expect(view.root.querySelector(".acpmux-agent-line__progress")?.textContent)
-          .toBe("40/101 agents · 1.3M tokens");
+        expect(view.root.querySelector(".acpmux-agent-line__progress")?.textContent).toBe(
+          "40/101 agents · 1.3M tokens",
+        );
         expect(buttons().find((button) => button.textContent?.includes("Unrelated agent"))).toBe(unrelated);
-      } finally { await view.done(); }
+      } finally {
+        await view.done();
+      }
     });
   }
 
