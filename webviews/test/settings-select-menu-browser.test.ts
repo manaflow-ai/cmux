@@ -274,7 +274,7 @@ await requireBrowserLane("settings-select-menu-browser.test.ts", async () => {
     { entry: "ui.context-menu", variant: "open" },
     { entry: "ui.context-menu", variant: "mixed", still: "context-menu-mixed" },
     { entry: "pages.icon-picker", variant: "tone-menu", still: "icon-picker-tone" },
-    { entry: "agent-pane.composer-context", variant: "folder-menu", still: "agent-pane-folder-menu" },
+    { entry: "agent-pane.options-menu", variant: "several-open", still: "agent-pane-options-menu" },
     { entry: "agent-pane.saved-environment-panel", variant: "ssh-host-open", still: "host-select" },
     { entry: "pages.history", variant: "context-menu", still: "history-page-menu" },
     { entry: "pages.settings", variant: "updates-channel-open" },
