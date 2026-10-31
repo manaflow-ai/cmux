@@ -524,41 +524,6 @@
   font-weight: 600;
   line-height: 1;
 }
-/* Two tabs that draw the same mark (two launch setups of one harness) tell apart at a glance: the
-   first keeps the bare mark, each later one a small badge at the mark's lower trailing corner,
-   never a name (Leo 2026-10-31: "plus all this dumbass shit in the model picker"; cmux #29425).
-   A ring in the popup's own colour cuts it out of the mark. `hue` (the default): a dot, each twin
-   its own colour; `shape`: one colour, a dot, ring, square or diamond. */
-.acpmux-quick-rail-twin {
-  --acpmux-twin-size: 7px;
-  position: absolute;
-  inset-block-end: 4px;
-  inset-inline-end: 4px;
-  display: grid;
-  place-items: center;
-  box-sizing: border-box;
-  width: var(--acpmux-twin-size);
-  height: var(--acpmux-twin-size);
-  border-radius: 50%;
-  background: var(--acpmux-twin-color, currentColor);
-  box-shadow: 0 0 0 1.5px var(--acpmux-twin-cut, var(--cmux-surface-solid, Canvas));
-  pointer-events: none;
-}
-.acpmux-quick-rail-twin[data-twin-look="hue"] { --acpmux-twin-color: light-dark(hsl(var(--acpmux-twin-hue) 70% 42%), hsl(var(--acpmux-twin-hue) 80% 62%)); }
-.acpmux-quick-rail-twin[data-twin-look="hue"][data-twin="1"] { --acpmux-twin-hue: 210; }
-.acpmux-quick-rail-twin[data-twin-look="hue"][data-twin="2"] { --acpmux-twin-hue: 140; }
-.acpmux-quick-rail-twin[data-twin-look="hue"][data-twin="3"] { --acpmux-twin-hue: 35; }
-.acpmux-quick-rail-twin[data-twin-look="hue"][data-twin="4"] { --acpmux-twin-hue: 285; }
-.acpmux-quick-rail-twin[data-twin-look="hue"]:not([data-twin="1"], [data-twin="2"], [data-twin="3"], [data-twin="4"]) { --acpmux-twin-hue: 350; }
-.acpmux-quick-rail-twin[data-twin-look="shape"][data-twin="2"] {
-  background: var(--acpmux-twin-cut, var(--cmux-surface-solid, Canvas));
-  border: 1.5px solid currentColor;
-}
-.acpmux-quick-rail-twin[data-twin-look="shape"][data-twin="3"] { border-radius: 1px; }
-.acpmux-quick-rail-twin[data-twin-look="shape"]:not([data-twin="1"], [data-twin="2"], [data-twin="3"]) {
-  border-radius: 1px;
-  transform: rotate(45deg) scale(0.85);
-}
 /* The hairline between the symbols and the list is the list's: a row of icon tabs never sits on a
    plate of its own (gallery-control-surfaces). An inset shadow, not a border, so it takes no room
    and the first row stays flush with the list's top. */

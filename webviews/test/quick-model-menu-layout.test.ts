@@ -338,27 +338,6 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     }
   });
 
-  test("two tabs with the same mark tell apart: the later one carries a corner badge, no name", async () => {
-    // Leo 2026-10-31: "plus all this dumbass shit in the model picker" (three Claude sparks alike).
-    const page = await open("harness-symbols");
-    try {
-      await page.locator(".acpmux-quick-rail-tab").first().waitFor();
-      const tabs = await page.locator(".acpmux-quick-rail-tab").evaluateAll((nodes) =>
-        nodes.map((node) => ({
-          name: node.getAttribute("aria-label"),
-          twin: node.querySelector(".acpmux-quick-rail-twin")?.getAttribute("data-twin") ?? null,
-          text: (node.querySelector(".acpmux-quick-rail-twin") as HTMLElement | null)?.innerText ?? "",
-        })),
-      );
-      expect(tabs.find((tab) => tab.name === "Claude Code")?.twin).toBeNull();
-      expect(tabs.find((tab) => tab.name === "Claude Code (sr)")?.twin).toBe("1");
-      expect(tabs.find((tab) => tab.name === "Codex")?.twin).toBeNull();
-      expect(tabs.every((tab) => tab.text === "")).toBe(true);
-    } finally {
-      await page.close();
-    }
-  });
-
   test("many harnesses wrap into whole symbols, never one cut at the strip's edge", async () => {
     // Leo 2026-10-28: "don't have bullshit end halfway on a fucking icon when there's lots of harnesses".
     for (const width of [320, 640]) {
