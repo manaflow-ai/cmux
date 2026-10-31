@@ -792,22 +792,26 @@ async fn an_attach_page_names_the_prompt_of_the_turn_it_starts_inside() {
 async fn an_attach_page_whose_records_together_pass_one_message_still_opens() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "large-open").await;
-    // The fake agent echoes the prompt as one answer chunk of the same size.
-    c.request(method::SESSION_PROMPT, prompt(&id, &"x".repeat(8 << 20), None)).await.unwrap();
+    // The fake agent echoes the prompt as one answer chunk of the same size; acpmux's
+    // `user_message` holds the prompt's text twice (`text`, and its `inlineParts` text part).
+    c.request(method::SESSION_PROMPT, prompt(&id, &"x".repeat(6 << 20), None)).await.unwrap();
     let session = hub.resolve("large-open").unwrap();
     let records = hub.events(&session.id, 0, 10_000).unwrap();
     let size = |msg: &Value| serde_json::to_string(msg).unwrap().len();
     let opener = records.iter().find(|r| r.dir == "mux" && r.kind == "user_message").unwrap();
-    let echo = records.iter().filter(|r| r.seq > opener.seq).max_by_key(|r| size(&r.msg)).unwrap();
+    let echo = records
+        .iter()
+        .filter(|r| r.seq > opener.seq && r.dir == "in" && r.kind == "agent_message_chunk")
+        .max_by_key(|r| size(&r.msg))
+        .unwrap();
     let limit = acpmux::rpc::MAX_MESSAGE_BYTES;
+    let (opener_bytes, echo_bytes) = (size(&opener.msg), size(&echo.msg));
     // Each record fits one message on its own; together they do not.
-    assert!(size(&opener.msg) < limit - (1 << 20) && size(&echo.msg) < limit - (1 << 20));
     assert!(
-        size(&opener.msg) + size(&echo.msg) > limit,
-        "{} + {}",
-        size(&opener.msg),
-        size(&echo.msg)
+        opener_bytes < limit - (1 << 20) && echo_bytes < limit - (1 << 20),
+        "opener {opener_bytes}, echo {echo_bytes}"
     );
+    assert!(opener_bytes + echo_bytes > limit, "opener {opener_bytes}, echo {echo_bytes}");
 
     // The pane's open of the turn's end: a page of the answer, inside the prompt's turn.
     let mut a = connect(&hub).await;
