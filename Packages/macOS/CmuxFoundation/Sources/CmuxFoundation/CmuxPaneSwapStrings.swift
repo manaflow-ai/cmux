@@ -3,34 +3,30 @@ import Foundation
 public struct CmuxPaneSwapStrings {
     public init() {}
     public var swapWithSession: String {
-        String(
-            localized: "paneSwap.swapWithSession",
-            defaultValue: "Swap With Session…",
-            bundle: .module
+        CmuxFoundationLocalization.string(
+            "paneSwap.swapWithSession",
+            defaultValue: "Swap With Session…"
         )
     }
 
     public var terminalPane: String {
-        String(
-            localized: "paneSwap.terminalPane",
-            defaultValue: "Terminal Pane",
-            bundle: .module
+        CmuxFoundationLocalization.string(
+            "paneSwap.terminalPane",
+            defaultValue: "Terminal Pane"
         )
     }
 
     public var source: String {
-        String(
-            localized: "paneSwap.source",
-            defaultValue: "Source",
-            bundle: .module
+        CmuxFoundationLocalization.string(
+            "paneSwap.source",
+            defaultValue: "Source"
         )
     }
 
     public var swapHere: String {
-        String(
-            localized: "paneSwap.swapHere",
-            defaultValue: "Swap Here",
-            bundle: .module
+        CmuxFoundationLocalization.string(
+            "paneSwap.swapHere",
+            defaultValue: "Swap Here"
         )
     }
 }
