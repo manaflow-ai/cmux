@@ -174,8 +174,8 @@ const sign = async (body: string, key: string) => {
     .setJti(crypto.randomUUID())
     .sign(new TextEncoder().encode(key))
 }
-const deliver = (body: string, signature?: string) =>
-  worker.fetch(WORKFLOW_URL, { method: "POST", headers: { "content-type": "application/json", ...(signature ? { "upstash-signature": signature } : {}) }, body })
+const deliver = (body: string, signature?: string, messageId = crypto.randomUUID()) =>
+  worker.fetch(WORKFLOW_URL, { method: "POST", headers: { "content-type": "application/json", "upstash-message-id": messageId, ...(signature ? { "upstash-signature": signature } : {}) }, body })
 
 /** Signs a webhook job delivery the way its sender must (automation-hook.ts scheme). */
 const hookSign = async (secret: string, ts: string, body: string) => {
@@ -327,19 +327,28 @@ describe("Chief jobs on Upstash Workflow", { timeout: 120_000 }, () => {
     expect((await deliver(junk, await sign(junk, SIGNING.current))).ok).toBe(false)
     expect(q.runs()).toHaveLength(0)
     // A signed fire (as the schedule delivers it) starts the workflow run through QStash.
-    const first = await deliver(raw, await sign(raw, SIGNING.next))
+    const signature = await sign(raw, SIGNING.next)
+    const first = await deliver(raw, signature, "msg_cron_1")
     expect(first.status, await first.clone().text()).toBe(200)
     expect(q.runs().map((r) => r.body)).toEqual([fire])
+    // QStash retries the same scheduled message if its response is lost. It must keep the same run id.
+    expect((await deliver(raw, signature, "msg_cron_1")).status).toBe(200)
+    const scheduled = q.runs()
+    expect(scheduled).toHaveLength(2)
+    expect(new Set(scheduled.map((r) => r.id)).size).toBe(1)
+    const runId = scheduled[0]!.id!
+    // The next cron occurrence is a different message and must get its own run.
+    expect((await deliver(raw, signature, "msg_cron_2")).status).toBe(200)
+    expect(q.runs()[2]!.id).not.toBe(runId)
 
     // The step: the job's note in the Chief's conversation, once per run, and a turn that posts.
-    expect(await st.cjStore(a.team, { op: "fire", body: fire, run: "wfr_test_1" })).toEqual({ ok: true })
-    expect(await st.cjStore(a.team, { op: "fire", body: fire, run: "wfr_test_1" })).toEqual({ ok: true })
-    const rows = await noteOf(a, "wfr_test_1")
+    for (const r of scheduled) expect(await st.cjStore(a.team, { op: "fire", body: r.body, run: r.id! })).toEqual({ ok: true })
+    const rows = await noteOf(a, runId)
     expect(rows).toHaveLength(1)
     expect(rows[0]!.effect_authorized).toBe(1)
     expect(rows[0]!.text).toContain(`[job ${id}] Summarize today's cmux-next PRs.`)
     expect(JSON.stringify(await replyAfterRun(a, 2))).toContain("PRs today: 4 merged, 2 open.")
-    expect((await st.cjStore(a.team, { op: "get", id })).last_run).toMatchObject({ run: "wfr_test_1", state: "delivered", trigger: "cron" })
+    expect((await st.cjStore(a.team, { op: "get", id })).last_run).toMatchObject({ run: runId, state: "delivered", trigger: "cron" })
     // Retries ran out: the record shows the failure.
     await st.cjStore(a.team, { op: "failed", id, run: "wfr_test_9", trigger: "cron", message: "owner.unreachable: the Chief's record could not be read" })
     expect((await st.cjStore(a.team, { op: "get", id })).last_run).toMatchObject({ run: "wfr_test_9", state: "failed" })
