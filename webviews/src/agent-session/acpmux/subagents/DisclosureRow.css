@@ -28,9 +28,14 @@
   min-height: var(--cv-disclosure-line-height);
   cursor: default;
   border-radius: 6px;
-  /* No inset at the start: the icon sits in the transcript's one icon column (conversation.css
-     --cv-row-icon). */
-  padding: 0 var(--ds-space-1) 0 0;
+  /* The line's first toggle takes its start inset back (below), so its icon sits in the one
+     column (conversation.css --cv-row-icon). */
+  padding: 0 var(--ds-space-1);
+}
+/* A line that starts with its toggle: the hover plate keeps its inset, the icon stays in the
+   shared column. */
+.cv-disclosure__line > :is(.cv-disclosure__toggle, .cv-disclosure__open):first-child:not(.is-chevron) {
+  margin-inline-start: calc(-1 * var(--ds-space-1));
 }
 /* A line that opens a chat (`.cv-disclosure__open`) ends at its status; its chevron is the panel's
    own toggle right after it. */

@@ -2709,7 +2709,9 @@ pre.cv-math-source {
   height: var(--cv-disclosure-line-height);
   min-height: 0;
   color: var(--cv-activity-text);
-  padding-inline: 0 var(--ds-space-1);
+  /* The hover plate keeps its inset while the sender's mark stays in the shared icon column. */
+  margin-inline-start: calc(-1 * var(--ds-space-1));
+  padding-inline: var(--ds-space-1);
   border-radius: 6px;
   white-space: nowrap;
   user-select: none;

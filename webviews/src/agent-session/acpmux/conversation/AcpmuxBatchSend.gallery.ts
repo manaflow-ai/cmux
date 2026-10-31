@@ -1,8 +1,9 @@
 // l10n-allow-file: gallery fixtures (sample commands, session names and messages), not shipped UI.
 // Several messages from one call, each its own sent-message row (acpmuxSends.ts `acpmuxSendBatch`,
 // acpmuxMcpSends.ts, SentMessageLine.tsx), never summed up under one line (Leo 2026-10-31: "this
-// +11 is really bad you guys should just render them all separately"). Leo 2026-10-30: "these should be properly rendered too/acpmux batch send
-// tools given to you rendered consistently with other stuff". The shapes: a coordinator's shell
+// +11 is really bad you guys should just render them all separately"). Leo 2026-10-30: "these
+// should be properly rendered too/acpmux batch send tools given to you rendered consistently with
+// other stuff". The shapes: a coordinator's shell
 // function batch (`s(){ acpmux send … "$1" "$(cat "$2")"; }; s a a.md; s b b.md`), a `for` loop, a
 // `&&` chain, and the acpmux MCP send's `messages` (#28671). Names and messages are made up.
 import { agentPaneEntry } from "../../../gallery/format";
