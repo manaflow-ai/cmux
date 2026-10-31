@@ -5,8 +5,9 @@ runs --ab-rounds rounds on this one host; each round runs one segment per build 
 quick pairs, the warm presses), the build order rotated each round. Prints one AB-RESULT line per build and arm:
 typeable_ms (Cmd-T sent to the first field read that holds the letter typed right after it) and key_ms.
 """
-import json, os, subprocess, sys, time
+import json, os, re, subprocess, sys, time
 
+REPO_URL = "https://github.com/manaflow-ai/cmux.git"
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
@@ -33,9 +34,13 @@ def build(label, sha, tag, out):
     wt = os.path.join(ROOT, ".build", f"newtab-ab-{label}")
     start = time.time()
     if not os.path.isdir(wt):
-        if sh(["git", "fetch", "--depth", "1", "origin", sha], ROOT, log) != 0:
-            sh(["git", "fetch", "origin", sha], ROOT, log)
+        # A fleet step's checkout is shallow and has only its own ref: fetch the arm's exact commit by its id
+        # from the repository URL (the checkout's remote may have another name, or none).
+        have = subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"], cwd=ROOT).returncode == 0
+        if not have and sh(["git", "fetch", "--no-tags", "--depth", "1", REPO_URL, sha], ROOT, log) != 0:
+            sh(["git", "fetch", "--no-tags", REPO_URL, sha], ROOT, log)
         if sh(["git", "worktree", "add", "--force", "--detach", wt, sha], ROOT, log) != 0:
+            print(open(log).read()[-2000:], flush=True)
             sys.exit(f"AB-BUILD {label}: no worktree of {sha} (see {log})")
     for sub in ("ghostty", "ghostty-next"):
         if not os.path.exists(os.path.join(wt, sub, ".git")):
@@ -53,6 +58,7 @@ def build(label, sha, tag, out):
     app = next((lines[i + 1].strip() for i in range(len(lines) - 1) if lines[i].startswith("App path:")), None)
     if not app or not os.path.isdir(app):
         print("\n".join([l for l in (proc.stdout + proc.stderr).splitlines() if "error" in l][:40]), flush=True)
+        print((proc.stdout + proc.stderr)[-3000:], flush=True)
         sys.exit(f"AB-BUILD {label}: reload.sh printed no app path (see {log})")
     print(f"AB-BUILD {label} {sha[:12]} tag {tag}: built in {time.time() - start:.0f} s: {app}", flush=True)
     if cache:
@@ -73,10 +79,14 @@ def main(opts, argv):
         builds.append((label, sha, tag or f"ab-{label}"[:24]))
     apps = {}
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    # The step's parent from the raw commit object: a shallow checkout grafts HEAD as parentless, so HEAD^ fails.
+    raw = subprocess.run(["git", "cat-file", "-p", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout
+    parents = re.findall(r"^parent ([0-9a-f]{40})$", raw, re.M)
+    print(f"AB-STEP head {head[:12]} parents {[p[:12] for p in parents]}", flush=True)
     for label, sha, tag in builds:
-        # The step's own app (instant-new-surfaces.sh built it) serves the build whose commit is the step's parent.
-        parent = subprocess.run(["git", "rev-parse", "HEAD^"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
-        if opts.app and sha in (head, parent) and tag == opts.tag:
+        # The step's own app (instant-new-surfaces.sh built it) serves the build whose commit is the step's parent:
+        # the step's commit adds only these two harness files to it.
+        if opts.app and sha in [head, *parents] and tag == opts.tag:
             apps[label] = os.path.abspath(opts.app.rstrip("/"))
             print(f"AB-BUILD {label} {sha[:12]}: the step's own app {apps[label]}", flush=True)
         else:
