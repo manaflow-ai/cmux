@@ -724,22 +724,28 @@ impl Hub {
     /// continuation's end) never ends that hold; only the person's next turn or a resume does.
     /// Read under the queue's lock, where the hold begins and ends.
     pub(super) fn resume_held(&self, session: &Arc<Session>, ids: &[String]) -> bool {
-        let mut resumed = false;
+        let mut released = Vec::new();
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let stop_held = session.stop_hold.load(Ordering::SeqCst) != 0;
         for q in queue.iter_mut() {
-            if ids.contains(&q.prompt_id) && !(stop_held && q.run.agent.is_some()) {
-                resumed |= std::mem::take(&mut q.held);
+            if ids.contains(&q.prompt_id)
+                && !(stop_held && q.run.agent.is_some())
+                && std::mem::take(&mut q.held)
+            {
+                released.push(q.prompt_id.clone());
             }
         }
         drop(queue);
+        let resumed = !released.is_empty();
         if resumed {
             session.queue_moved.notify_waiters();
+            // Only those it let go: one the Stop still holds stays held, in a client and after a
+            // restart (`restore_queue`).
             self.append(
                 session,
                 "mux",
                 "queue_resumed",
-                json!({"queued": session.queued(), "promptIds": ids}),
+                json!({"queued": session.queued(), "promptIds": released}),
             );
         }
         resumed
@@ -897,7 +903,7 @@ impl Hub {
     }
 
     /// The record kinds `restore_queue` reads; the store parses no other line.
-    const QUEUE_KINDS: &[&str] = &[
+    pub(crate) const QUEUE_KINDS: &[&str] = &[
         // Restore the branch baseline in this same pass, never by rereading at attach.
         "git",
         "queued",
@@ -929,14 +935,16 @@ impl Hub {
     /// They run once `resume_restored` starts them; a client that resends one meanwhile waits for
     /// that run (the ledger entry made here).
     pub(super) fn restore_queue(&self, session: &Arc<Session>) {
+        // Other agents' messages are in its inbox, apart from the queue (`inbox.rs`); a closed
+        // chat's threads stay readable.
+        self.restore_inbox(session);
         if session.meta().status == SessionStatus::Closed {
             return;
         }
         let mut waiting = queue_waiting::Waiting::default();
         let mut order = queue_waiting::Order::default();
         let mut held: std::collections::HashSet<String> = Default::default();
-        // A move that began and neither committed nor aborted (`transfer_out.rs`); a chat
-        // moved here was the source's until its `imported` record.
+        // A begun move not yet ended (`transfer_out.rs` `restored_moving`), until `imported`.
         let mut moving: Option<String> = None;
         // What a paused agent pair held here, what its releases took, its pauses and resumes,
         // and the prompt ids that reached the session (`agent_pairs.rs`).
@@ -999,8 +1007,11 @@ impl Hub {
                     | "agent_pair_dropped"
                     | "agent_pair_paused"
                     | "agent_pair_resumed" => pair_records.push(e),
-                    "transfer_out" => moving = e.msg["transferId"].as_str().map(str::to_owned),
-                    "transfer_aborted" | "imported" => moving = None,
+                    // The daemon's own records only: an agent's update may carry any kind.
+                    "transfer_out" if e.dir == "mux" => {
+                        moving = e.msg.get("transferId").and_then(Value::as_str).map(str::to_owned)
+                    }
+                    "transfer_aborted" | "imported" if e.dir == "mux" => moving = None,
                     // Left the queue for a turn that has not started (`lost_start.rs`): its
                     // `queued` record stays waiting, so later records apply to it, and it goes
                     // back ahead of the queue.
@@ -1084,7 +1095,8 @@ impl Hub {
             self.restore_git_branch(session, branch);
         }
         self.restore_agent_pairs(&session.id, pair_records, &recorded);
-        session.moving.lock().unwrap_or_else(|e| e.into_inner()).clone_from(&moving);
+        *session.moving.lock().unwrap_or_else(|e| e.into_inner()) =
+            transfer_out::restored_moving(scanned.is_ok(), moving);
         // An inbox digest whose turn never started gives its messages back in its place.
         digests.finish(&mut waiting, &mut order, |id, order| {
             unstarted.key(Some(&json!(id)), order).unwrap_or_else(|| order.key(Some(&json!(id))))
@@ -1107,6 +1119,7 @@ impl Hub {
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
         let mut restored = session.restored.lock().unwrap_or_else(|e| e.into_inner());
+        let mut restored_any = false;
         for e in waiting {
             let field = |k: &str| e.msg.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
             let (prompt_id, turn_id, text) = (field("promptId"), field("turnId"), field("text"));
@@ -1126,6 +1139,10 @@ impl Hub {
             let control = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
             let trust_gate = e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(false);
             let provenance = crate::prompt_provenance::recorded(&e.msg).filter(|p| p.is_object());
+            // An inbox notice is never run again: what it carried is new again (`inbox.rs`).
+            if super::inbox::is_notice(provenance.as_ref()) {
+                continue;
+            }
             let mut restored_message_opts = PromptOptions::default();
             super::message_events::restore_message_options(
                 &mut restored_message_opts,
@@ -1172,10 +1189,23 @@ impl Hub {
                 requeued: e.msg.get("requeued") == Some(&Value::Bool(true)),
                 retries: 0,
             });
+            restored_any = true;
             session.queued.fetch_add(1, Ordering::SeqCst);
             ledger.push_back((prompt_id, Arc::new(tokio::sync::watch::channel(None).0)));
         }
-        tracing::info!(session = %session.id, queued = queue.len(), "restored queued prompts");
+        let restored_count = queue.len();
+        drop(restored);
+        drop(ledger);
+        drop(queue);
+        // A visible attach may have answered before this background log restore. Publish one
+        // durable change notice so session_changed publishes the current queue summary. It must
+        // not persist an order captured before dropping the lock: a concurrent enqueue may have
+        // already written a newer order. This notice has no replay effect. A second restore adds
+        // no prompt and emits nothing.
+        if restored_any {
+            self.append(session, "mux", "queue_restored", json!({}));
+        }
+        tracing::info!(session = %session.id, queued = restored_count, "restored queued prompts");
     }
 
     /// Runs the prompts `restore_queue` put back, each in its place in the queue (after any
@@ -1194,9 +1224,29 @@ impl Hub {
         }
     }
 
-    /// Runs `sessions`' restored prompts not started yet (each once: its `resume` mark).
+    /// Runs `sessions`' restored prompts not started yet (each once: its `resume` mark). A chat
+    /// in a privacy-protected folder that no client shows waits for the person instead
+    /// (`protected_hold.rs`).
     pub(super) fn resume_restored(self: &Arc<Self>, sessions: &[Arc<Session>]) {
+        self.resume_restored_as(sessions, false);
+    }
+
+    /// `resume_restored`; `asked`: the person asked for these chats now, so a protected folder
+    /// holds nothing (`release_protected_hold`).
+    pub(super) fn resume_restored_as(self: &Arc<Self>, sessions: &[Arc<Session>], asked: bool) {
         for session in sessions {
+            if !asked && self.hold_in_protected_folder(session) {
+                continue;
+            }
+            self.restore_auto_resume(session);
+            // What the restored inbox holds new goes in as it may (`inbox.rs`).
+            {
+                let (hub, session) = (self.clone(), session.clone());
+                tokio::spawn(async move {
+                    hub.wait_startup().await;
+                    hub.inbox_review(&session);
+                });
+            }
             // Agent messages a failed turn held before the restart go in again by themselves.
             self.retry_held_agent_messages(session);
             let restored: Vec<QueuedPrompt> = session
@@ -1266,7 +1316,7 @@ pub(super) fn refuses_closing_run(session: &Session, provenance: Option<&Value>)
 }
 
 /// Whether `session`'s close has begun (`kill` marks it before anything else) or it is closed.
-fn closing(session: &Session) -> bool {
+pub(super) fn closing(session: &Session) -> bool {
     session.closing.load(Ordering::SeqCst) || session.status() == SessionStatus::Closed
 }
 

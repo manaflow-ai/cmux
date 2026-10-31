@@ -191,6 +191,7 @@ import Testing
         let first = try #require(h.shownCards.first, "the workspace card did not show")
         let workspaceSurface = Self.surface(of: first)
         removeAllAnimations(first.contentView?.layer)
+        try restBeforeTheNextShow(h.cards)
 
         h.card.highlights = Highlights()
         h.card.showNotes()
@@ -216,6 +217,7 @@ import Testing
         let first = try #require(h.shownCards.first, "the update card did not show")
         let updateSurface = Self.surface(of: first)
         removeAllAnimations(first.contentView?.layer)
+        try restBeforeTheNextShow(h.cards)
 
         h.cards.pin(h.row.target, from: h.row)
         let second = try #require(h.shownCards.first, "the workspace card did not show")
@@ -241,6 +243,15 @@ import Testing
         #expect(h.shownCards.count == 1, "Reduce Motion shows two cards")
         let animated = Self.morphStartSizes(under: first.contentView?.layer)
         #expect(animated.isEmpty, "the card resizes with motion under Reduce Motion: \(animated)")
+    }
+
+    /// The next show comes later than a sweep (`HoverCardTiming.sweepInterval`): a pointer that
+    /// rested on one card and then went to the other, not one crossing rows, which snaps the card
+    /// at once (0463b5a8e96). The two shows here run in one turn, so the panel's clock steps on.
+    private func restBeforeTheNextShow(_ cards: HoverCardCoordinator) throws {
+        let panel = try #require(cards.panel, "no card window")
+        let rested = CACurrentMediaTime() + HoverCardTiming.sweepInterval.hoverCardSeconds + 1
+        panel.now = { rested }
     }
 
     private func removeAllAnimations(_ layer: CALayer?) {

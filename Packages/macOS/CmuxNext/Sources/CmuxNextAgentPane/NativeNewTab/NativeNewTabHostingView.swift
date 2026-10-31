@@ -5,6 +5,9 @@ public import SwiftUI
 /// the keyboard to (a focused pane makes ``fieldView`` first responder, as it does a web page's
 /// field), so the keys typed after Cmd-T land in the field.
 public final class NativeNewTabHostingView: NSHostingView<NativeNewTabView> {
+    /// The page's model (set by ``NativeNewTabView/hosted(_:)``): a prepared page adopts a tab's context through it.
+    public internal(set) var model: NativeNewTabModel?
+
     /// The page's text field once SwiftUI has made it; nil before the first layout.
     public var fieldView: NSView? { firstTextField(in: self) }
 

@@ -18,6 +18,7 @@ public struct NativeNewTabView: View {
     /// The view in an AppKit host, for a pane tab.
     public static func hosted(_ model: NativeNewTabModel) -> NativeNewTabHostingView {
         let host = NativeNewTabHostingView(rootView: NativeNewTabView(model: model))
+        host.model = model
         host.setAccessibilityIdentifier("cmux.nativeNewTab")
         return host
     }
