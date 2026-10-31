@@ -515,6 +515,36 @@ test("a saved draft at the limit and text typed before the read: nothing written
   expect(state.written.some((text) => tooLong(text) || !text.trim())).toBe(false);
 });
 
+test("a saved draft left apart at the limit, then the typing sent: the saved draft stays and comes back", async () => {
+  // cmux#28204 review at c736d691: the send marked the prompt sent, and the next read took the
+  // empty prompt as the draft and wrote it over the saved one the overflow had kept.
+  const sessionId = "ordering-over-limit-sent";
+  const saved = "s".repeat(LIMIT - 1);
+  const { state, actions } = gatedDaemon(saved);
+  state.holdReads = true;
+  page().cmuxAcpmuxActions = actions as never;
+  await act(async () => notifyDraftActionsChanged());
+  const handle = await render(sessionId);
+  await settle();
+  await type("x");
+  await until(() => prompt() === "x", "the typed text");
+  await settle();
+  state.holdReads = false;
+  for (const answer of state.reads.splice(0)) await act(async () => answer());
+  await settle();
+  await settle();
+  expect(prompt()).toBe("x");
+  await act(async () => void handle.current!.send());
+  await until(() => prompt() === "", "the send's clear");
+  await settle();
+  // The next read (actions reinstalled after a reconnect) finds the saved draft and shows it.
+  await act(async () => notifyDraftActionsChanged());
+  await until(() => prompt() === saved, "the saved draft back");
+  await settle();
+  expect(state.held).toBe(saved);
+  expect(state.written.some((text) => !text.trim())).toBe(false);
+});
+
 test("a saved draft and typed text that fit the limit exactly: merged and written", async () => {
   const sessionId = "ordering-at-limit";
   const saved = "s".repeat(LIMIT - 3);

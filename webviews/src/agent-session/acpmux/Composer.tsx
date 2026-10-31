@@ -90,6 +90,7 @@ import {
   draftFits,
   mergedDraft,
   noteDraftEdited,
+  noteDraftKeptApart,
   noteDraftSent,
   readDurableDraftState,
   readPersistedDraft,
@@ -771,6 +772,7 @@ export function Composer({
       // the editor keeps the typing, and the chat stays unread, so no edit or quit writes the typed
       // text over the saved draft; the next read tries again (deleting the typing brings it back).
       editedBeforeHydration.current = true;
+      noteDraftKeptApart(session);
       if (session) cachePersistedDraft(session, currentText);
       return currentText;
     }

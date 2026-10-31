@@ -112,6 +112,25 @@ struct UnsentDraftTests {
         #expect(try Data(contentsOf: directory.appending(path: aside)) == corrupt)
     }
 
+    /// A file that could not be read when the store loaded is set aside even when it reads by the
+    /// first save (a read that failed once): the store never loaded its drafts, so it never writes
+    /// over them.
+    @Test func aFileUnreadableAtLoadIsSetAsideEvenWhenItReadsLater() throws {
+        let directory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentUnsentDrafts.fileName)
+        try Data("{\"tab-1\": \"half a dra".utf8).write(to: file)
+
+        let drafts = AgentUnsentDrafts(file: file)
+        let readable = Data("{\"tab-1\":\"kept draft\"}".utf8)
+        try readable.write(to: file)
+        drafts.typed("new text", for: "tab-2")
+        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-2") == "new text")
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        let aside = try #require(names.first { $0.contains("unreadable") })
+        #expect(try Data(contentsOf: directory.appending(path: aside)) == readable)
+    }
+
     /// A text past the limit is refused, as acpmux refuses one: the saved draft stays, never nil.
     @Test func aTextPastTheLimitKeepsTheSavedDraft() throws {
         let directory = try Self.directory()

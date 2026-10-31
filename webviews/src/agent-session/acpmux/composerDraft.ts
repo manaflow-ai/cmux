@@ -92,8 +92,14 @@ export function hydratedDraft(input: {
   sent: boolean;
   /** A write of this page's is queued or unanswered. */
   pendingWrite: boolean;
+  /** An earlier read's draft did not fit beside the typing (`overflow`) and was left out of the
+   * prompt: a send since then sent none of it. */
+  keptApart?: boolean;
 }): { text: string; shown: boolean; write: boolean; overflow?: true } {
-  const { current, restored, read, edited, sent, pendingWrite } = input;
+  const { current, restored, read, edited, pendingWrite } = input;
+  // A send consumed acpmux's draft only when the prompt could hold it. After an overflow it did
+  // not, so the saved draft comes back instead of being cleared (cmux#28204 review at c736d691).
+  const sent = input.sent && !input.keptApart;
   // The prompt as it is; it goes to acpmux when acpmux holds something else and nothing is on its way.
   const keep = () => ({ text: current, shown: false, write: !pendingWrite && current !== (restored ?? "") });
   const merge = () => {
@@ -365,12 +371,23 @@ export async function readDurableDraft(sessionId: string | undefined): Promise<s
 // keeps it): whether this page read the chat's acpmux draft, and whether the person edited or sent
 // from its prompt since the last settled read (`hydratedDraft`). One entry per chat the page opened.
 // `generation` counts the edits and sends, so a write knows whether one came after it was queued.
-const chatDrafts = new Map<string, { read: boolean; edited: boolean; sent: boolean; generation: number }>();
+// `keptApart`: a read's draft did not fit beside the typing and stayed out of the prompt (hydratedDraft).
+const chatDrafts = new Map<
+  string,
+  { read: boolean; edited: boolean; sent: boolean; generation: number; keptApart: boolean }
+>();
 
 function chatDraft(sessionId: string) {
   let entry = chatDrafts.get(sessionId);
-  if (!entry) chatDrafts.set(sessionId, (entry = { read: false, edited: false, sent: false, generation: 0 }));
+  if (!entry)
+    chatDrafts.set(sessionId, (entry = { read: false, edited: false, sent: false, generation: 0, keptApart: false }));
   return entry;
+}
+
+/** A read of `sessionId`'s draft did not fit beside the typing (`hydratedDraft` overflow): acpmux
+ * keeps it, and the prompt holds none of it until a read merges it. */
+export function noteDraftKeptApart(sessionId: string | undefined): void {
+  if (sessionId?.trim()) chatDraft(sessionId).keptApart = true;
 }
 
 /** acpmux answered `write`: when nothing of the page's is still on its way for that chat and no
@@ -393,6 +410,7 @@ export function draftHistory(sessionId: string | undefined): {
   edited: boolean;
   sent: boolean;
   pendingWrite: boolean;
+  keptApart: boolean;
 } {
   const entry = sessionId ? chatDrafts.get(sessionId) : undefined;
   return {
@@ -400,6 +418,7 @@ export function draftHistory(sessionId: string | undefined): {
     edited: entry?.edited ?? false,
     sent: entry?.sent ?? false,
     pendingWrite: hasPendingDraftWrite(sessionId),
+    keptApart: entry?.keptApart ?? false,
   };
 }
 
@@ -414,6 +433,7 @@ export function markDraftRead(sessionId: string | undefined): void {
   if (!sessionId?.trim()) return;
   const entry = chatDraft(sessionId);
   entry.read = true;
+  entry.keptApart = false;
   if (!hasPendingDraftWrite(sessionId)) {
     entry.edited = false;
     entry.sent = false;

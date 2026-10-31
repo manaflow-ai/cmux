@@ -40,8 +40,8 @@ public final class AgentUnsentDrafts {
             drafts = decoded
             undelivered = Set(decoded.keys)
         } else {
-            // No file, or one this run could not read or decode: the first save looks again on the
-            // file's queue (no disk check here, on the main thread) and sets aside what it cannot read.
+            // No file, or one this run could not read or decode: the first save, on the file's queue
+            // (no disk check here, on the main thread), sets aside whatever file is there by then.
             unreadable.pending.withLock { $0 = true }
             if data != nil { Self.logger.error("unsent drafts unreadable; set aside on the next write") }
         }
@@ -151,17 +151,14 @@ public final class AgentUnsentDrafts {
     nonisolated private final class UnreadableFile: Sendable {
         let pending = Mutex<Bool>(false)
 
-        /// Runs on the file's queue only. A file that reads and decodes now (another store of it saved
-        /// since) stays; one that does not is moved beside it.
+        /// Runs on the file's queue only. The file this store could not read when it loaded is moved
+        /// beside it before the first save, even when it reads now: this store never loaded what it
+        /// holds, so writing over it would lose those drafts. Before (cmux#28204 review at c736d691),
+        /// a file that decoded on the retry (a read that failed once) was written over.
         func setAside(_ url: URL) throws {
             guard pending.withLock({ $0 }) else { return }
             let files = FileManager.checked
             if files.fileExists(atPath: url.path) {
-                let data = try? Data(blockingContentsOf: url)
-                if data.flatMap({ try? JSONDecoder().decode([String: String].self, from: $0) }) != nil {
-                    pending.withLock { $0 = false }
-                    return
-                }
                 let aside = url.deletingPathExtension()
                     .appendingPathExtension("unreadable-\(Int(Date().timeIntervalSince1970))")
                     .appendingPathExtension(url.pathExtension)
