@@ -139,7 +139,7 @@ fn first_sentence(text: &str, max: usize) -> String {
             (rest.is_empty() || rest.starts_with(char::is_whitespace))
                 .then_some(index + ch.len_utf8())
         })
-        .unwrap_or_else(|| text.len());
+        .unwrap_or(text.len());
     shorten_words(&text[..end], max)
 }
 

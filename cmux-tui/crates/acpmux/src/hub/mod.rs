@@ -642,7 +642,7 @@ pub struct Hub {
     /// Which session each lane reports its turns to (`lane_reports.rs`).
     pub(super) lane_reports: lane_reports::LaneReports,
     /// Authenticated parents already receiving a lane result through wait/history.
-    pub(super) lane_report_reads: lane_report_reads::LaneReportReads,
+    lane_report_reads: lane_report_reads::LaneReportReads,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
     pub(super) subsessions: subsessions::Index,
     /// Creates admitted and still starting (`admission.rs`).
