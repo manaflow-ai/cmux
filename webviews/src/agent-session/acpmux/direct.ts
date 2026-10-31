@@ -338,6 +338,17 @@ type EarlyAttach = {
 /// A settled promise's value, unread: the race waits on the settling only.
 const ignore = () => undefined;
 
+/// The session row an attach reply carries, when it is `sessionId`'s on this machine. A reply
+/// acpmux forwarded from a peer names that peer at its top level (`server/peer_forward.rs`), and
+/// its `session` is the peer daemon's own detail, with no `peer`: either name makes it another
+/// machine's chat.
+export function attachedLocalRow(result: unknown, sessionId: string): Session | undefined {
+  const reply = result as { session?: unknown; peer?: unknown } | undefined;
+  const row = reply?.session as Session | undefined;
+  if (!row || typeof row !== "object" || row.sessionId !== sessionId) return undefined;
+  return typeof row.peer === "string" || typeof reply?.peer === "string" ? undefined : row;
+}
+
 /// The opener of the turn an attach page starts inside, as the reply names it (acpmux reads it
 /// with the page, `server/requests/turn_opener.rs`): `undefined` when the reply does not say (an
 /// older acpmux) or the rows start before the page (a kept tail drawn first), so the pane reads it
@@ -1996,21 +2007,29 @@ export class AcpmuxDirectClient {
       listRead.catch(() => undefined);
       early = this.askEarly();
       this.readPeers(await peersRead);
-      const first = await listRead;
+      // The chat's own row, when its attach answered before the list: the chat opens on it, and the
+      // list settles behind the open (`attachedBeforeList`).
+      const attachedRow = early && (await this.attachedBeforeList(early, listRead));
+      const first = attachedRow ? undefined : await listRead;
       let laterPages = first?.next ? first : undefined;
       const linkedLater =
         first !== undefined &&
         laterPages !== undefined &&
         this.selectedSessionId !== undefined &&
         !first.sessions.some((session) => session.sessionId === this.selectedSessionId);
-      if (first && !linkedLater) this.sessions = first.sessions;
+      if (attachedRow)
+        this.sessions = [
+          attachedRow,
+          ...this.sessions.filter((session) => session.sessionId !== attachedRow.sessionId),
+        ];
+      else if (first && !linkedLater) this.sessions = first.sessions;
       else {
         // A linked chat older than the first page, or a lagged watch restarted the list: read the
         // whole list before calling the chat missing.
         this.sessions = this.sessionPages.settle(await this.sessionPages.whole());
         laterPages = undefined;
       }
-      this.listedSessions = first !== undefined || this.sessions.length > 0;
+      this.listedSessions = !attachedRow && (first !== undefined || this.sessions.length > 0);
       // A chat on another machine: that machine's daemon attached the session its store records for
       // this tab (agent-session-attach checks it), so that session is the tab's chat even when this
       // page holds another name for it: a session name the tab recorded, or the id from before the
@@ -2159,6 +2178,7 @@ export class AcpmuxDirectClient {
       });
       this.emit("connected");
       if (laterPages) void this.readLaterSessions(laterPages);
+      if (attachedRow) void this.listAfterOpen(listRead);
       this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     } catch (error) {
       this.wire.lifecycle("connect failed", {
@@ -2820,9 +2840,9 @@ export class AcpmuxDirectClient {
   /// session_changed notices dropped by a watch lag: reread the whole list.
   /// A selection made while the request was out is newer than the list.
   /// True once this read set the list (false when a newer reread will).
-  private async refreshSessions(): Promise<boolean> {
+  private async refreshSessions(firstRead = this.sessionPages.first()): Promise<boolean> {
     const generation = this.selectionGeneration;
-    const first = await this.sessionPages.first();
+    const first = await firstRead;
     // A newer reread started meanwhile; it sets the list.
     if (!first) return false;
     let list = first.sessions;
@@ -2832,6 +2852,7 @@ export class AcpmuxDirectClient {
     if (first.next && !(await this.sessionPages.rest(first, () => list, add))) return false;
     // Changes that came while the pages did are newer than the pages.
     this.sessions = this.sessionPages.settle(list);
+    this.listedSessions = true;
     this.recheckSenders(this.sessions);
     this.learnChatThread();
     const missing =
@@ -2840,6 +2861,35 @@ export class AcpmuxDirectClient {
     if (missing && generation === this.selectionGeneration) this.selectFallbackSession("session changed");
     else if (!this.reopenMissing()) this.emit("session changed");
     return true;
+  }
+
+  /// The open's chat row from the attach asked with the list (`askEarly`), when that attach answers
+  /// first, for this chat on this machine: the open then draws the chat without the list. A busy
+  /// acpmux paces its full session list (hub/list_guard.rs: one build per window, up to 15 s, and
+  /// every streaming agent makes the last build stale), so a cold open waited on it for 3 to 30 s
+  /// behind "Waiting for the agent service" while the attach had answered in under a second (Leo,
+  /// 2026-10-30: "WHY DID IT TAKE 30 FUCKING SECONDS TO LOAD YOUR CHAT"). The attach's answer
+  /// proves the chat is there; the list settles behind the open (`listAfterOpen`). Undefined: the
+  /// list came first, or the attach failed or named another chat or machine, so the open waits
+  /// for the list and decides with it as before. A remote wire's pane keeps the list first: its
+  /// machine names the tab's chat there (`tab`).
+  private async attachedBeforeList(early: EarlyAttach, listRead: Promise<unknown>): Promise<Session | undefined> {
+    if (!this.localOrigin) return undefined;
+    const listed = listRead.then(ignore, ignore);
+    return Promise.race([
+      listed,
+      early.sent.attaching.then(
+        (result) => attachedLocalRow(result, early.sessionId) ?? listed,
+        () => listed,
+      ),
+    ]);
+  }
+
+  /// The list an open that drew its chat from the attach (`attachedBeforeList`) did not wait for:
+  /// read to its end and laid over what changed meanwhile, as a reread after a lag is. A list that
+  /// fails is read again a moment later.
+  private async listAfterOpen(listRead: Promise<SessionPage<Session> | undefined>): Promise<void> {
+    await this.refreshSessions(listRead).catch(() => this.rereadSessionsLater());
   }
 
   /// Notes that the tab's chat `sessionId` is not listed: from now on the pane says why
