@@ -52,10 +52,11 @@ describe("cmux VM image metadata guard", () => {
   });
 
   test("the check output is read strictly", () => {
-    expect(metadataGuardProblems("user_blocked=yes\nroot_reads=yes\n")).toEqual([]);
-    expect(metadataGuardProblems("user_blocked=no\nroot_reads=yes\n")).toHaveLength(1);
-    expect(metadataGuardProblems("user_blocked=yes\nroot_reads=no\n")[0]).toContain("root no longer reads");
-    expect(metadataGuardProblems("")).toHaveLength(2);
+    const trust = "work_user_sudo_reads=yes\nguard_security_boundary=no\n";
+    expect(metadataGuardProblems(`user_blocked=yes\nroot_reads=yes\n${trust}`)).toEqual([]);
+    expect(metadataGuardProblems(`user_blocked=no\nroot_reads=yes\n${trust}`)).toHaveLength(1);
+    expect(metadataGuardProblems(`user_blocked=yes\nroot_reads=no\n${trust}`)[0]).toContain("root no longer reads");
+    expect(metadataGuardProblems("")).toHaveLength(4);
   });
 
   test("the daemon's browser host is isolated in every bake", () => {

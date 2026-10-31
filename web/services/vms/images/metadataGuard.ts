@@ -23,6 +23,9 @@
  * remove the rule. It is a default block for agent shells and the processes
  * they start; the boundary for browsing is the browser host's own egress
  * listener (cmux-browser-host egress_scope.rs).
+ * Never put credentials or authorization claims in metadata on the assumption
+ * that this rule hides them from an agent. The check proves the sudo bypass
+ * and reports guard_security_boundary=no, including in bake evidence.
  *
  * The rule loads from a oneshot unit early at every boot (before the network)
  * and once during the bake, so the parked snapshot carries it live.
@@ -102,21 +105,26 @@ export function metadataGuardEnableCommand(workUser: string): string {
 }
 
 /**
- * Prints `user_blocked=<yes|no>` and `root_reads=<yes|no>`; fails unless the
- * user is blocked and root still reads the instance id.
+ * Prints the UID block, root read, work-user sudo read, and explicit lack of
+ * a security boundary. Callers must validate the output with metadataGuardProblems.
+ * This checks sudo access without removing the live firewall rule.
  */
 export function metadataGuardCheckCommand(workUser: string): string {
   const token = `curl -sf -m 2 -X PUT http://169.254.169.254/latest/api/token -H 'X-metadata-token-ttl-seconds: 60'`;
   return [
     `if runuser -u ${workUser} -- ${token} >/dev/null 2>&1; then echo user_blocked=no; else echo user_blocked=yes; fi`,
     `if t=$(${token}) && curl -sf -m 2 -H "X-aws-ec2-metadata-token: $t" http://169.254.169.254/latest/meta-data/instance-id >/dev/null; then echo root_reads=yes; else echo root_reads=no; fi`,
+    `if t=$(runuser -u ${workUser} -- sudo -n ${token}) && runuser -u ${workUser} -- sudo -n curl -sf -m 2 -H "X-aws-ec2-metadata-token: $t" http://169.254.169.254/latest/meta-data/instance-id >/dev/null; then echo work_user_sudo_reads=yes; else echo work_user_sudo_reads=no; fi`,
+    "echo guard_security_boundary=no",
   ].join("; ") + "; true";
 }
 
-/** Problems in the check's output (empty: the guard works). */
+/** Problems in the image contract evidence (empty never establishes metadata isolation). */
 export function metadataGuardProblems(output: string): string[] {
   const problems: string[] = [];
   if (!/^user_blocked=yes$/m.test(output)) problems.push("a non-root process still reaches the metadata service");
   if (!/^root_reads=yes$/m.test(output)) problems.push("root no longer reads the metadata service (the VM agent and the boot supervisor need it)");
+  if (!/^work_user_sudo_reads=yes$/m.test(output)) problems.push("the work user's sudo metadata access was not demonstrated; review the image trust contract");
+  if (!/^guard_security_boundary=no$/m.test(output)) problems.push("the guard must explicitly report that it is not a security boundary");
   return problems;
 }

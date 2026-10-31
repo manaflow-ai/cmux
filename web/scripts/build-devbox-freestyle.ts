@@ -621,8 +621,8 @@ try {
   // loaded now so the snapshot carries it live, and at every cold boot by its unit.
   await vm.fs.writeFile(METADATA_GUARD_FILE, metadataGuardRules(), { mode: 0o644 });
   await vm.fs.writeFile(`/etc/systemd/system/${METADATA_GUARD_UNIT}`, metadataGuardUnit(), { mode: 0o644 });
-  // Fails unless the work user is refused and root still reads the instance id.
-  await step("metadata-guard", `out=$(${metadataGuardEnableCommand(WORK_USER)}) && echo "$out" && echo "$out" | grep -qx user_blocked=yes && echo "$out" | grep -qx root_reads=yes`);
+  // Check the default UID block and prove its sudo bypass; this is not isolation.
+  await step("metadata-guard", `out=$(${metadataGuardEnableCommand(WORK_USER)}) && echo "$out" && echo "$out" | grep -qx user_blocked=yes && echo "$out" | grep -qx root_reads=yes && echo "$out" | grep -qx work_user_sudo_reads=yes && echo "$out" | grep -qx guard_security_boundary=no`);
   // Reserve one GiB inside the existing root disk for cmux-tui's state. The
   // image is fully allocated before it is mounted, then the daemon's existing
   // state (including the warm template host) is copied into it. This protects

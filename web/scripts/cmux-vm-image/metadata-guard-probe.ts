@@ -7,6 +7,8 @@
  * - after it, the work user's `curl 169.254.169.254` fails at once, through
  *   the exec API as that user (an agent shell) and through `runuser`;
  * - root still reads the instance id (the VM agent and the boot supervisor);
+ * - the work user reads it through passwordless sudo: the guest guard is not
+ *   an isolation boundary and cannot protect metadata credentials from agents;
  * - the rule survives a restart of the unit (the boot path).
  * The clone is deleted by its exact id, also on failure.
  *
@@ -61,7 +63,7 @@ export async function main(argv = process.argv): Promise<number> {
     console.log(`deleted VM ${vmId}`);
   }
   for (const problem of problems) console.log(`PROBLEM ${problem}`);
-  console.log(problems.length === 0 ? "METADATA GUARD PASSED" : "METADATA GUARD FAILED");
+  console.log(problems.length === 0 ? "METADATA GUARD DEFAULT BLOCK PASSED; SECURITY BOUNDARY=no" : "METADATA GUARD DEFAULT BLOCK FAILED");
   return problems.length === 0 ? 0 : 1;
 }
 

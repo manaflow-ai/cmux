@@ -207,6 +207,20 @@ The team VM and self-hosted servers run the same "VM software" (spec SV1 to SV3;
 
 ## 6. Boot and per-clone identity
 
+The guest metadata guard is a default block for non-root output, not a security
+boundary. The work user has passwordless sudo and can read metadata as root or
+remove the nftables table. Metadata must not carry credentials or claims whose
+authorization depends on hiding them from a guest agent. Metadata instance ids
+are clone-detection hints, not proof of a machine's identity; binding uses the
+control-plane provider exec channel described in section 6b.
+
+Image-check evidence must include `work_user_sudo_reads=yes` and
+`guard_security_boundary=no`, alongside the ordinary UID block and root read.
+`metadata-guard-probe.ts` exercises the sudo read on its disposable clone without
+removing the firewall. A passing probe establishes only this default block and
+its bypass. Any isolation guarantee needs a boundary outside the guest, or a
+separately reviewed change to the work user's root access (HQ #2877).
+
 ### 6.1 What a clone inherits
 
 A Freestyle create from a snapshot resumes the memory image. Measured on clones of one snapshot: `boot_id`, `/etc/machine-id`, hostname, the eth0 MAC and its IPv6 and link addresses are identical; the monotonic and boot clocks jump forward by the snapshot's age, so every timer that expired in between fires in the first instant after resume. There is no VM generation id device (the kernel supports one; the hypervisor exposes none), so the kernel is never told it was cloned. The metadata service's `instance-id` is the only per-machine value.
