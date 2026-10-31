@@ -186,20 +186,32 @@ public actor DaemonUpdatePolicy {
     /// Returns at once while `agent.updatePeers` is off, and when the calling task is cancelled.
     public func updateNow(_ target: any DaemonUpdateTarget) async {
         guard dependencies.enabled() else { return }
-        if running == target.id {
-            // The background offer's update runs now: its end is the update this caller wants.
-            offered[target.id] = target
+        let id = target.id
+        // As the person's click: neither the ledger nor this run's memory holds the next turn back.
+        // A turn that already reached its update takes this mark (``attempt``); one still reading
+        // the machine (its `cannotUpdate` check) leaves it, and ``drainQueue()`` queues it again.
+        retried.insert(id)
+        if running == id {
+            offered[id] = target
         } else {
-            retried.insert(target.id)
             enqueue(target, urgent: true)
+            // Due now, also an urgent entry waiting out a busy backoff (review of #29497).
+            if let index = queue.firstIndex(where: { $0.target.id == id }), queue[index].due > elapsed() {
+                queue[index].due = elapsed()
+                sleeper?.cancel()
+            }
         }
-        await turnEnded(target.id)
+        await turnEnded(id)
+        // The joined turn ended before its update ran: the mark queued its next turn, which runs
+        // the update; wait for that one too.
+        if retried.contains(id) { await turnEnded(id) }
     }
 
     /// Waits until a turn of target `id` ends, or the queue drops it, or the task is cancelled.
     private func turnEnded(_ id: String) async {
         guard running == id || queue.contains(where: { $0.target.id == id }) else { return }
-        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        // One element at most: the stream only ever finishes.
+        let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let key = UUID()
         turnWaiters[id, default: [:]][key] = continuation
         await withTaskCancellationHandler {
