@@ -7,6 +7,7 @@ import type { PlayContext } from "../../../gallery/play";
 import { CWD, manySessions, noChat } from "../../../gallery/fixtures/acpmux";
 import { setComposerLook } from "../composerLook";
 import { DOT_STATES, type NewTabDot } from "./tabDots";
+import { translateNewTab } from "./strings";
 
 const page = (dot: NewTabDot) => ({
   newTab: {
@@ -30,11 +31,15 @@ const pick = (dot: NewTabDot) => async (ctx: PlayContext) => {
   if (pills !== (DOT_STATES[dot].actions ? 3 : 0)) throw new Error(`the ${dot} dot shows ${pills} pills`);
   const dots = ctx.document.querySelectorAll(".nt-style input[type=radio]").length;
   if (dots !== 3) throw new Error(`the page shows ${dots} dots, not three`);
+  const actionsLabel = ctx.document.querySelector<HTMLInputElement>('.nt-look-dots input[value="claudeActions"]')?.getAttribute("aria-label");
+  const locale = (ctx.document.documentElement.lang || "en") as Parameters<typeof translateNewTab>[2];
+  const expectedActionsLabel = `Claude ${translateNewTab("template.minimal", {}, locale)} + ${translateNewTab("widget.actions", {}, locale)}`;
+  if (actionsLabel !== expectedActionsLabel) throw new Error(`wrong actions dot label: ${actionsLabel}`);
 };
 
 export default agentPaneEntry({
   id: "agent-pane.new-tab-dots",
-  title: "New Tab dots (Claude Minimal, Claude + Quick Actions, Codex Minimal)",
+  title: "New Tab dots (Claude Minimal, Claude Minimal + Quick Actions, Codex Minimal)",
   area: "Agent pane",
   height: 560,
   covers: ["agent-session/acpmux/newtab/PageDots.tsx#PageDots"],
