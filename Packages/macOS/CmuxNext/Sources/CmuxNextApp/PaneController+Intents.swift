@@ -185,9 +185,14 @@ extension PaneController {
         if let timing { services.cache.createTabs.expect(timing, tab: pending.tab, standIn: true) } // the stand-in's terminal is the tab's for good
         showStandIn(surface: pending.surface, focus: .content, intent: intent)
         // main-hop-allow: the stand-in shows in this turn; the tracked work awaits the command's main-actor send and selects in its reply's job
-        services.registry.track(Task { [services] in
+        // After the workspace's create before it (a Ctrl-` on a split still in flight names that split's pane once the
+        // daemon made it), as Cmd-D, New Column and New Row go (`WorkspaceContentController.pendingCreate`).
+        let previous = self.workspace?.pendingCreate
+        // main-hop-allow: the stand-in shows in this turn; the tracked work awaits the command's main-actor send and selects in its reply's job
+        let work: ActionWork = Task { [services] in
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
+            await previous?.value
             do {
                 let created = try await NewTerminalTrace.shared.request(of: timing, surface: \.surface.rawValue) { try await pending.send() }; BenchSpans.mark("daemon.newTab.returned") // create.tab: request_sent, reply
                 // The swap moved the selection already (NewTabSuccession); a pane still on the stand-in follows it.
@@ -201,9 +206,12 @@ extension PaneController {
             } catch {
                 services.cache.createTabs.released(pending.tab) // the daemon refused it: the stand-in is gone
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
-                return ActionWorkFailure("new-tab", error)
+                return .create("new-tab", error)
             }
-        })
+        }
+        self.workspace?.pendingCreate = work
+        // A refusal never vanishes: the stand-in rolls back and the refusal shows where refusals show (rule a).
+        services.registry.trackRollingBack("newSurface", work)
     }
 
     /// New browser tab in this pane (`PaneBrowserTabOpener`), selected and

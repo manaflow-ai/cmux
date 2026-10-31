@@ -80,6 +80,17 @@ import Foundation
         return store.panesByHandle[handle] != nil ? handle : nil
     }
 
+    /// A create pressed on a pending create's stand-in (a split's, a New Terminal Tab's): remember the stand-in's public
+    /// id, so the target stays found once the daemon's pane takes the stand-in over under a new handle.
+    static func rememberStandInTarget(_ target: PaneID, in store: DaemonStore) {
+        guard target.rawValue >= ProvisionalPane.firstHandle, store.standInTargets[target] == nil,
+              let paneID = store.panesByHandle[target]?.resourceID?.rawValue else { return }
+        store.standInTargets[target] = paneID
+    }
+
+    /// The pane that shows `target` now: `target` itself, or the daemon's pane that took a stand-in target over.
+    static func shownPane(_ target: PaneID, in store: DaemonStore) -> PaneID? { shownTarget(target, in: store) }
+
     /// The pane the overlay places beside: `target`, or the pane that shows a stand-in target now
     /// (the stand-in itself while it is pending, the daemon's pane once it took it over).
     private static func shownTarget(_ target: PaneID, in store: DaemonStore) -> PaneID? {
@@ -97,12 +108,7 @@ import Foundation
         let daemon = daemonPane(provisional, in: store)
         guard !daemonPlaces(provisional, in: store) else { return nil }
         let leaf = daemon?.handle ?? provisional.handle
-        // A create pressed on a pending create's stand-in: remember its public id, so the target
-        // stays found once the daemon's pane takes the stand-in over under a new handle.
-        if target.rawValue >= ProvisionalPane.firstHandle, store.standInTargets[target] == nil,
-           let paneID = store.panesByHandle[target]?.resourceID?.rawValue {
-            store.standInTargets[target] = paneID
-        }
+        rememberStandInTarget(target, in: store)
         guard let target = shownTarget(target, in: store), store.panesByHandle[target] != nil,
               daemon != nil || (store.panesByHandle[provisional.handle] == nil && store.tabsBySurface[provisional.surface] == nil),
               let screen = store.screen(containing: target) else { return nil }

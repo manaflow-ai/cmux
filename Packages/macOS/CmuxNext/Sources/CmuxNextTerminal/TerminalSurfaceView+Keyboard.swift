@@ -19,6 +19,7 @@ extension TerminalSurfaceView {
             return clipboardRequests.asUserPaste { keyDown(with: event) }
         }
         guard let surface else {
+            noteKeyWithoutSurface()
             interpret(event, as: event)
             return
         }

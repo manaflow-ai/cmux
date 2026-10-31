@@ -39,7 +39,7 @@ import Testing
         let lane = TerminalOutputLane(surface: Self.surface, label: "test.echo-below", highWater: 16) { _, data in
             parsed.yield(data)
         }
-        defer { lane.close() }
+        defer { lane.close {} }
         let wakes = Wakes()
         #expect(!lane.enqueueEcho(Data("abc".utf8), flow: nil, wake: wakes.wake))
         var iterator = parsedChunks.makeAsyncIterator()
@@ -53,7 +53,7 @@ import Testing
         let lane = TerminalOutputLane(surface: Self.surface, label: "test.echo-above", highWater: 2) { _, _ in
             gate.wait() // holds the parse, so the backlog stays above the high water
         }
-        defer { lane.close() }
+        defer { lane.close {} }
         let wakes = Wakes()
         #expect(lane.enqueueEcho(Data("abcd".utf8), flow: nil, wake: wakes.wake))
         #expect(wakes.total == 0)
@@ -77,7 +77,7 @@ import Testing
         #expect(lane.enqueueEcho(Data("first".utf8), flow: nil, wake: wakes.wake))
         var iterator = started.makeAsyncIterator()
         _ = await iterator.next()
-        let closed = Task.detached { lane.close() }
+        let closed = Task.detached { lane.close {} }
         await wakes.next()
         #expect(wakes.total == 1)
         gate.signal()

@@ -112,6 +112,9 @@ public final class MockBrowserTab: BrowserTab {
     /// Thumbnails asked for while the content lifecycle had the page hidden (`setContentVisible(false)`): an engine
     /// that cannot picture a hidden page (Chromium) gets no picture of those.
     @ObservationIgnored public private(set) var hiddenThumbnailCount = 0
+    /// Every `beginThumbnail()` is refused, as Chromium refuses a picture of a page hidden or closing before its turn
+    /// (`CEFThumbnail.start`, `BrowserTabError.snapshotUnavailable`).
+    @ObservationIgnored public var refusesPictures = false
     /// What the last `setContentVisible` said (shown until then).
     @ObservationIgnored public private(set) var isContentHidden = false
 
@@ -258,6 +261,7 @@ public final class MockBrowserTab: BrowserTab {
     public func beginThumbnail() -> BrowserPictureRequest {
         thumbnailCount += 1
         if isContentHidden { hiddenThumbnailCount += 1 }
+        if refusesPictures { return .refused(.snapshotUnavailable) }
         return BrowserPictureRequest { [self] in try await snapshot() }
     }
 

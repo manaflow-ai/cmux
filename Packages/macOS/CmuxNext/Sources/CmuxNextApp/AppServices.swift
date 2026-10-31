@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextApps
 import CmuxNextAgentPane
 import CmuxNextBridge
@@ -958,6 +959,9 @@ final class AppServices {
         }
         WorkspaceClose.willClose = { [weak self] in if !RemoteTerminalService.remoteTabIDs(in: $0).isEmpty { self?.remoteTerminals.workspaceClosing($0) } }
         daemon.workTracker = { [registry] in registry.track($0) }
+        // A pane verb on a pane still opening was not sent: the refusal path logs it and shows it (P0 rule a; every
+        // machine's daemon copies this hook, as `workTracker`).
+        daemon.onPaneNotReady = { [weak registry] reason in registry?.refuse(reason) }
         palettes.whenBuilt { [weak self] in self?.paletteBuilt($0) }  // no palette at launch
         terminalDelegate.services = self
         // Wiring only: the starts behind them are launch posts (`serviceStartPosts()`).

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextLayout
 
 /// Pane and split actions (category `.pane` except columns and screens):
@@ -45,8 +46,10 @@ enum PaneHandlers {
 
     // MARK: Splits
 
+    /// The split actions and their directions (a refused split's notice names its action by this table).
+    private static let splits: [(ActionID, PaneDirection)] = [("splitRight", .right), ("splitDown", .down), ("splitLeft", .left), ("splitUp", .up)]
+
     private static func bindSplits(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        let splits: [(ActionID, PaneDirection)] = [("splitRight", .right), ("splitDown", .down), ("splitLeft", .left), ("splitUp", .up)]
         for (id, direction) in splits {
             registry.bind(id, invoke: { split(ctx, $0, direction: direction) })
         }
@@ -140,9 +143,14 @@ enum PaneHandlers {
             defer { BenchSpans.measure("split.layout") { content?.applyCurrent() } }
             return BenchSpans.measure("split.intend") { command.intendNow(on: daemon, provisional: provisional) }
         }
-        ctx.registry.track(Task {
+        // An optimistic split joins the workspace's creates, as New Column and New Row do
+        // (`WorkspaceContentController.createInKeysTurn`): it goes out once the create before it is in the store, so a
+        // quick second Cmd-D on the first one's stand-in names the daemon's pane (P0 2026-10-30).
+        let previous = intended == nil ? nil : content?.pendingCreate
+        let work: ActionWork = Task {
             var landed = false
             defer { ctx.services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
+            await previous?.value
             do {
                 let created = if let intended {
                     try await intended()
@@ -154,12 +162,18 @@ enum PaneHandlers {
                 landed = true
                 if let shownSizing { content?.layoutModel.commitSplitSizing(shownSizing) }
                 return nil
+            } catch is PaneSplitCancelled {
+                if let shownSizing { content?.layoutModel.cancelSplitSizing(shownSizing) }
+                return nil // the person closed the new pane first
             } catch {
                 if let shownSizing { content?.layoutModel.cancelSplitSizing(shownSizing) }
                 logger.error("split failed: \(String(describing: error), privacy: .public)")
-                return "split: \(error)"
+                return .create("split", error)
             }
-        })
+        }
+        if intended != nil { content?.pendingCreate = work }
+        // A refusal never vanishes: the stand-in rolls back and the refusal shows where refusals show (rule a).
+        ctx.registry.trackRollingBack(splits.first { $0.1 == direction }?.0 ?? "splitDown", work)
     }
 
     static func edge(_ direction: PaneDirection) -> PaneEdge {

@@ -12,7 +12,7 @@ import Testing
 /// read 55x48 in a 664 pt view: the window lost about 25 pt while rj-split was hidden, and the
 /// journey read the grids in the frame the workspace came back, about 50 ms before the claim's
 /// echo. The product boundary here: the real daemon, a script's splits and tab, and the window.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(6)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(6)), .ghosttyStarted, .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct SplitPaneGridFitTests {
     @Test func splitPanesShownAgainRenderTheGridTheirViewsFit() async throws {
         try await Self.withApp { services in

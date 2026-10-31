@@ -22,6 +22,7 @@ import Testing
         }
     }
 
+    // skip-owner: Performance Lead (energy); expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
     @Test(.enabled(if: NSScreen.main != nil, "the scene draws only on a screen: run on a GUI host"))
     func theAgentLineReadsTheCountWhenItChangesAndNotOnATimer() throws {
         _ = NSApplication.shared

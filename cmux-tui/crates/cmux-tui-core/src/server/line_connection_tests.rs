@@ -461,6 +461,98 @@ fn settled_wakeups(mux: &Mux) -> u64 {
     }
 }
 
+/// A connection's stream whose next write, once `stall` is set, takes
+/// 150 ms: an injected stall of the write that sends its replies (the
+/// mux-io loop's, once `mux-line-out`'s).
+struct StallingStream {
+    inner: UnixStream,
+    stall: Arc<AtomicBool>,
+}
+
+impl Read for StallingStream {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.inner.read(buf)
+    }
+}
+
+impl Write for StallingStream {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if self.stall.swap(false, Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(150));
+        }
+        self.inner.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+impl transport::Stream for StallingStream {
+    fn try_clone_box(&self) -> std::io::Result<Box<dyn transport::Stream>> {
+        Ok(Box::new(Self { inner: self.inner.try_clone()?, stall: self.stall.clone() }))
+    }
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.inner.set_read_timeout(timeout)
+    }
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.inner.set_write_timeout(timeout)
+    }
+    fn shutdown(&self, how: Shutdown) -> std::io::Result<()> {
+        self.inner.shutdown(how)
+    }
+    // One socket the mux-io loop serves (its writes still go through `write`).
+    fn socket_fd(&self) -> Option<std::os::fd::RawFd> {
+        Some(self.inner.as_raw_fd())
+    }
+}
+
+/// Each batch of replies the connection's writer (now the mux-io loop)
+/// writes is watched. A reply whose write stalls 150 ms is one hang of the
+/// mux's watchdog (`slow_requests.hangs`; the request watchdog tests check
+/// the row names `mux-line-out`), the replies before and after it none, and
+/// the idle connection then wakes the watchdog 0 times. The stalled reply is
+/// bigger than an inline write takes (`bulk_frame_max`), so the loop writes it.
+#[test]
+fn line_connection_a_stalled_write_is_one_line_out_hang_and_idle_wakes_nothing() {
+    let mux = Mux::new_for_test("line-conn-stall", crate::SurfaceOptions::default());
+    let (socket, server) = UnixStream::pair().unwrap();
+    let stall = Arc::new(AtomicBool::new(false));
+    let stream = StallingStream { inner: server, stall: stall.clone() };
+    let served_mux = mux.clone();
+    let served = std::thread::spawn(move || {
+        let render = Arc::new(RenderService::new());
+        let lane = Box::<RequestFrames>::default();
+        let stream: Box<dyn transport::Stream> = Box::new(stream);
+        let transport = ClientTransport::Unix;
+        serve_connection(served_mux, stream, render, None, transport, Box::new(LinesOnly), lane)
+    });
+    let read_half = socket.try_clone().unwrap();
+    read_half.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let mut peer = Peer { mux, socket, replies: BufReader::new(read_half), served };
+
+    peer.send(&ping(1));
+    assert_eq!(peer.reply().unwrap()["ok"], json!(true));
+    settled_wakeups(&peer.mux);
+    assert_eq!(peer.mux.request_watchdog.snapshot().hangs, 0, "a prompt reply is no hang");
+
+    stall.store(true, Ordering::SeqCst);
+    let big_id = "x".repeat(peer.mux.bulk_frame_max() + 1);
+    peer.send(format!("{}\n", json!({"id": &big_id, "cmd": "ping"})).as_bytes());
+    let reply = peer.reply().unwrap();
+    assert_eq!(reply["ok"], json!(true));
+    assert_eq!(reply["id"], json!(big_id));
+    assert!(!stall.load(Ordering::SeqCst), "the reply's write stalled");
+    peer.send(&ping(3));
+    assert_eq!(peer.reply().unwrap()["ok"], json!(true));
+    let idle = settled_wakeups(&peer.mux);
+    assert_eq!(peer.mux.request_watchdog.snapshot().hangs, 1, "one stalled write, one hang");
+
+    std::thread::sleep(Duration::from_secs(1));
+    assert_eq!(settled_wakeups(&peer.mux), idle, "an idle connection wakes the watchdog 0 times");
+    peer.finish();
+}
+
 /// A connection holds no thread. Its replies leave on the
 /// mux-io loop, its requests run on the pool, and once idle it wakes the
 /// request watchdog 0 times and records no hang.

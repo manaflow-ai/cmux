@@ -182,8 +182,9 @@ extension TerminalAttachment {
 
         /// How the reader hands this view's lines to its connection's decode lane: a snapshot, a
         /// replay or a large line always decodes on the lane, small output inline while the lane is idle; after
-        /// each line the reader waits for the view (its queue's bound, its output lane, a held marker), so a lane
-        /// item never waits on it.
+        /// each line the reader of a view's own connection waits for the view (its queue's bound, its output lane, a
+        /// held marker), so a lane item never waits on it. A stream on the shared connection never waits there
+        /// (``TerminalEventQueue/parksReader``): the wait returns at once.
         var dispatch: EventDispatch {
             let queue = queue
             return EventDispatch(weigh: { name, line in TerminalAttachment.eventWeight(name: name, line: line) },

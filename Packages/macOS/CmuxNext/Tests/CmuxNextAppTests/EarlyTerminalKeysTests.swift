@@ -39,8 +39,10 @@ struct EarlyTerminalKeysTests {
         let entry: TerminalEntry
     }
 
-    /// A window showing one terminal that has the focus; `body` runs with it.
-    private static func withTerminal(_ body: (Harness) async throws -> Void) async throws {
+    /// A window showing one terminal that has the focus; `body` runs with it. `startsInputVerification`: the app's
+    /// `InputVerification.start` launch post runs after the window opened (false: it never runs, as in a test host or
+    /// before the app's first frame).
+    private static func withTerminal(startsInputVerification: Bool = true, _ body: (Harness) async throws -> Void) async throws {
         _ = NSApplication.shared
         GhosttyRuntime.startedForTests()
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -58,7 +60,7 @@ struct EarlyTerminalKeysTests {
         }
         // The app's InputVerification.start launch post runs after the first frame, so after the launch window opened
         // and installed its focus settle observer: that window's settles must still reach the key router.
-        services.input.start(services: services)
+        if startsInputVerification { services.input.start(services: services) }
         let window = try #require(controller.window)
         let paneKey = try #require(store.workspaces.first?.screens.first?.panes.first?.id)
         try await PasswordManagerRouteTests.until({ controller.workspaceContent?.paneController(key: paneKey)?.currentContent != nil },
@@ -122,7 +124,19 @@ struct EarlyTerminalKeysTests {
     /// InputVerificationService to KeyRouter.focusDidSettle): the held key goes to the early terminal at the settle,
     /// with no later key (the coordinator's requirement: the settle path must have a test of its own, not only the bench).
     @Test func heldKeysGoToTheEarlyTerminalAtTheFocusSettle() async throws {
-        try await Self.withTerminal { h in
+        try await Self.heldKeyGoesOnAtTheSettle(startsInputVerification: true)
+    }
+
+    /// The same before `InputVerification.start` ran (an afterFirstFrame launch post since c5900f8557b5; a test host never
+    /// runs it): the key router's settle does not wait for input verification. Before, its settle observer read the
+    /// app's services from the verification service, nil until that post, so a creation hold never flushed on a focus
+    /// settle: it ended only at its limit, and its keys replayed into whatever had the keyboard.
+    @Test func heldKeysGoToTheEarlyTerminalAtTheFocusSettleBeforeInputVerificationStarts() async throws {
+        try await Self.heldKeyGoesOnAtTheSettle(startsInputVerification: false)
+    }
+
+    private static func heldKeyGoesOnAtTheSettle(startsInputVerification: Bool) async throws {
+        try await Self.withTerminal(startsInputVerification: startsInputVerification) { h in
             let (controller, window, tab, entry) = (h.controller, h.window, h.tab, h.entry)
             let router = h.services.keyRouter
             let coordinator = router.creationInputCoordinator

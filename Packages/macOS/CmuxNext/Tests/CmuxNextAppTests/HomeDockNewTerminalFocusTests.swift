@@ -15,6 +15,7 @@ import Testing
 /// (fleet step 4713f899db201892f1cfe058: 9 to 19 of 30 new tabs lost a key; v1.1 none). Second window: the move's focus
 /// expectation was set only by the move's reply completion, up to ~230 ms after the delta showed the new column, so
 /// focus fell back to Home's page in the dock meanwhile (fleet step c301b08a6735a4f28d8bf832).
+/// skip-owner: PL-typing; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct HomeDockNewTerminalFocusTests {
     /// What the window's focus did during the move.

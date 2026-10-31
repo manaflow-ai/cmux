@@ -146,6 +146,8 @@ public final class TerminalSession {
     /// What the events loop changed for the main actor, applied once per frame (``applyEvents()``).
     let events: TerminalEventMailbox
     private var eventsTask: Task<Void, Never>?
+    /// ``close()`` ran: a late start (``surfaceCameLate()``) routes no events.
+    private var isClosed = false
     var createStages = NewTerminalTrace.CreateStages() // the new tab's create.tab while it waits (traceCreate)
     /// Tasks an owner ties to this session's lifetime: ``close()`` cancels them.
     public var closeCancels: [Task<Void, Never>] = []
@@ -233,16 +235,38 @@ public final class TerminalSession {
         view.attachFind(find)
 
         target.session = self
+        // The IO's events go to the surface's output lane, which exists once the surface does. A surface made before
+        // libghostty's app started comes when it starts (`TerminalSurfaceView.createSurface`, a waiter registered before
+        // this one, so it runs first): the events wait for it, in order, instead of being dropped for want of a lane.
+        if surfaceView.surface != nil || GhosttyRuntime.shared.isStarted {
+            startConsumingEvents()
+        } else {
+            GhosttyRuntime.shared.whenStarted { [weak self] _ in self?.surfaceCameLate() }
+        }
+        // The first grid report fired inside the surface init, before
+        // `session` was set; report it now.
+        surfaceView.updateSurfaceSize(forceReport: true)
+        traceSurfaceCreated(io: io) // DEBUG: `debug.new_terminal_trace` (Release: the cache's traceCreate)
+    }
+
+    /// Routes the IO's events to the surface's output lane (once per session).
+    private func startConsumingEvents() {
+        guard eventsTask == nil, !isClosed else { return }
         eventsTask = Self.consume(io.events, from: io, with: TerminalEventRouter(
             lane: surfaceView.lane, mailbox: events, input: input, outputLane: outputLane,
             replace: { [weak self] event -> TerminalOutputLane?? in
                 guard let self else { return nil }
                 return await self.replace(event)
             }))
-        // The first grid report fired inside the surface init, before
-        // `session` was set; report it now.
-        surfaceView.updateSurfaceSize(forceReport: true)
-        traceSurfaceCreated(io: io) // DEBUG: `debug.new_terminal_trace` (Release: the cache's traceCreate)
+    }
+
+    /// libghostty's app started after this session was made, and the surface view made its surface (or could not): the
+    /// theme set before the start goes on the surface, then the events start. No grid lock is pending here (only a
+    /// routed `.resize` sets one, and nothing was routed yet), and the late `createSurface` already reported the size.
+    private func surfaceCameLate() {
+        guard !isClosed else { return }
+        if surfaceView.surface != nil { applyTheme(to: surfaceView, clearing: false, animated: false) }
+        startConsumingEvents()
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -362,6 +386,7 @@ public final class TerminalSession {
     /// Stops consuming events and detaches the surface. The IO owner decides
     /// whether the underlying terminal keeps running.
     public func close() {
+        isClosed = true
         surfaceView.clipboardRequests.cancelPendingWrite()
         eventsTask?.cancel()
         eventsTask = nil

@@ -19,14 +19,14 @@ final class CEFVerificationBridge {
 
     init(tab: CEFTab) { self.tab = tab }
 
-    private static var binding: (String, [String: Any]) {
+    private static var binding: (String, [String: any Sendable]) {
         ("Runtime.addBinding", ["name": VerificationPageScripts.channel, "executionContextName": VerificationPageScripts.world])
     }
 
     /// Runs the detector's ready hook once in the worlds that exist now: `runImmediately` runs a
     /// new-document script in the existing worlds, and removing it at once keeps it off later
     /// documents (their detector finds the binding there from the start).
-    private static func readyCall() -> (String, [String: Any]) {
+    private static func readyCall() -> (String, [String: any Sendable]) {
         ("Page.addScriptToEvaluateOnNewDocument", ["source": readySource, "worldName": VerificationPageScripts.world, "runImmediately": true])
     }
 
@@ -35,7 +35,7 @@ final class CEFVerificationBridge {
     /// The tab's browser exists (`CEFAgentRelay.browserAttached`).
     func attach(_ browser: Int32) {
         guard let tab else { return }
-        let scripts = CEFDocumentScripts(post: .binding).verification.map { script -> (String, [String: Any]) in
+        let scripts = CEFDocumentScripts(post: .binding).verification.map { script -> (String, [String: any Sendable]) in
             ("Page.addScriptToEvaluateOnNewDocument", ["source": script.source, "worldName": script.world, "runImmediately": true])
         }
         run([("Page.enable", [:])] + scripts + [Self.binding], browser, tab: tab)
@@ -55,11 +55,11 @@ final class CEFVerificationBridge {
 
     /// The DevTools calls for a document that reached `phase`: the binding each time, the ready
     /// call (two round trips) only once the document finished.
-    static func documentCalls(phase: BrowserLoadPhase) -> [(String, [String: Any])] {
+    static func documentCalls(phase: BrowserLoadPhase) -> [(String, [String: any Sendable])] {
         phase == .finished ? [binding, readyCall()] : [binding]
     }
 
-    private func run(_ calls: [(String, [String: Any])], _ browser: Int32, tab: CEFTab) {
+    private func run(_ calls: [(String, [String: any Sendable])], _ browser: Int32, tab: CEFTab) {
         Task { [weak tab] in
             for (method, params) in calls {
                 guard let tab, tab.browserID == browser else { return }

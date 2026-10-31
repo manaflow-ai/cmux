@@ -1,7 +1,9 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextLayout
@@ -155,16 +157,19 @@ extension WorkspaceContentController {
         // After the create before it (a fast second press may target its stand-in). What it lands is the rest
         // of the person's key (`personAction`).
         let previous = pendingCreate
-        pendingCreate = services.mainWork.personAction(owner: "WorkspaceContent.createLanded") { () async -> Bool in
+        let work: ActionWork = services.mainWork.personAction(owner: "WorkspaceContent.createLanded") { () async -> ActionWorkFailure?? in
             await previous?.value
             do {
                 _ = try await send()
-                return true
+                return .some(nil)
+            } catch is PaneSplitCancelled {
+                return nil // the person closed the new pane first
             } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-                return false
+                return .some(.create(label, error))
             }
-        } then: { [services, state] landed in
+        } then: { [services, state] outcome in
+            let landed = outcome.map { $0 == nil } ?? false
             if landed {
                 BenchSpans.mark("\(label).reply.optimistic")
                 then?()
@@ -172,7 +177,11 @@ extension WorkspaceContentController {
             keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window)
             // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b).
             withExtendedLifetime((services, state)) {}
+            return outcome ?? nil // a refusal reaches trackRollingBack below; a cancelled create is no failure
         }
+        pendingCreate = work
+        // A refusal never vanishes: the stand-in rolls back and the refusal shows where refusals show (rule a).
+        services.registry.trackRollingBack(ActionID(rawValue: label), work)
     }
 
     /// Runs a pane-creating command and focuses the new pane when it lands;

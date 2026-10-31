@@ -78,8 +78,7 @@ enum DebugHoverSweep {
             "retargets": .array(retargets.map(JSONValue.object)),
             "max_retarget_ms": .number(times.max() ?? 0),
             "frames": stats,
-            "page_thumbnails": .object(["count": .number(Double(services.cache.pageThumbnails.count)),
-                                        "bytes": .number(Double(services.cache.pageThumbnails.totalBytes))]),
+            "page_thumbnails": .object(services.cache.pageThumbnails.debugCounts.mapValues { .number($0) }),
             "card_thumbnails_shown": .number(Double(cards.count)),
         ])
     }

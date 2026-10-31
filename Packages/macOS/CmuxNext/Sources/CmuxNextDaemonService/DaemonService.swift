@@ -445,6 +445,9 @@ public final class DaemonService {
 
     private func didConnect(_ connection: DaemonConnection, identity: DaemonIdentity) {
         Self.launchMark("daemon_connected")
+        // Every connection this service runs (the local one and a remote machine's) shows a request it refuses for a
+        // pane still opening, from any sender (`DaemonConnection.observePaneNotReady`).
+        connection.observePaneNotReady(paneNotReadyReporter)
         connection.heartbeat.follow(KeepaliveGate(mainWork.energy))
         if let connectionPresence { connection.heartbeat.follow(connectionPresence) }
         self.connection = connection
@@ -571,13 +574,37 @@ public final class DaemonService {
         } catch {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             await closeTicket(ticket, label: label, error: error)
-            return ActionWorkFailure(label, error)
+            return workFailure(label, error)
         }
     }
 
     /// Receives every command task `send` starts, so an action run from the
     /// control socket can await it (`ActionRegistry.track`).
     @ObservationIgnored public var workTracker: ((ActionWork) -> Void)?
+    /// Shows a request refused because it names a pane still opening (``PaneNotReady``) when no open action scope
+    /// answers it; the app sets it (the refusal path: log + HUD). Gets the localized reason.
+    @ObservationIgnored public var onPaneNotReady: ((_ reason: String) -> Void)?
+
+    /// What each connection calls when it refuses a request that names a pane still opening, from any sender
+    /// (`DaemonConnection.observePaneNotReady`): the notice shows on the next frame (the drain batcher: work a person's
+    /// action caused), once.
+    /// The service stays on the main actor: the hook carries only a main-actor closure (Sendable because it runs
+    /// there), never the service itself.
+    var paneNotReadyReporter: @Sendable (PaneNotReady) -> Void {
+        let batcher = drainScheduler
+        let show: @MainActor @Sendable (PaneNotReady) -> Void = { [weak self] notReady in self?.showPaneNotReady(notReady) }
+        return { notReady in batcher.scheduleFrame { show(notReady) } }
+    }
+
+    private func showPaneNotReady(_ notReady: PaneNotReady) {
+        onPaneNotReady?(RefusalStrings.paneStillOpening)
+    }
+
+    /// The failure of command `label` as the person reads it: ``PaneNotReady`` is a typed refusal in the app's language
+    /// (``ActionWorkFailure/init(_:_:)``).
+    public func workFailure(_ label: String, _ error: any Error) -> ActionWorkFailure {
+        ActionWorkFailure(label, error)
+    }
 
     public func shutdownConnection() {
         startupDeadlineTimer?.cancel()

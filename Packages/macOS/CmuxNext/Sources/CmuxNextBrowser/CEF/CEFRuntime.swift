@@ -119,6 +119,8 @@ final class CEFRuntime {
     var nextRequest: Int32 = 1
     /// In-process DevTools calls waiting for their result (with deadlines).
     let devToolsCalls = CEFReplyWaiters<CEFDevToolsKey, String>()
+    /// The order awaited DevTools calls reach Chromium in, their parameters encoded off the main actor.
+    let devToolsOrder = CEFDevToolsSendOrder()
     /// Results Chromium sends while `shim.devToolsCall` is still running: a
     /// method the browser process answers synchronously (for example
     /// `Emulation.setEmitTouchEventsForMouse` or `setGeolocationOverride`)

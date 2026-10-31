@@ -112,9 +112,10 @@ final class InputVerificationService {
     /// asks the monitor to check once they settle.
     func observeFocus(of controller: WindowController) {
         let journal = InputJournal.shared
-        // `services` and `monitor` are read when an observer runs, never captured here: the launch window installs its
-        // observers before the `InputVerification.start` post (afterFirstFrame) sets them, and a nil captured then
-        // dropped that window's settles for the whole session.
+        // The settle's app consumers (the key router's creation and New Tab holds, notifications, the location trail,
+        // the record saver) take the app's services from the window's controller, which always has them: they must
+        // work before the `InputVerification.start` post (afterFirstFrame) runs, and a test host never runs it. Only
+        // the invariant monitor waits for that post; it is read when an observer runs, never captured here.
         var sinceCheckpoint = Int.max - 1
         // The notification and location-trail observers act on the settled
         // keyboard target: each runs only when what it reads changed. The
@@ -123,25 +124,24 @@ final class InputVerificationService {
         // once the page hides).
         var notified: FocusState.SettleKey?
         var trailed: TrailSettleKey?
-        controller.focus.settledObserver = { [weak self, weak controller] state in
-            let services = self?.services
-            services?.keyRouter.focusDidSettle(state, in: controller?.window)
-            guard let controller else { return }
+        controller.focus.settledObserver = { [weak controller] state in
+            guard let controller, case let services = controller.services else { return }
+            services.keyRouter.focusDidSettle(state, in: controller.window)
             // Chips shown for a held modifier follow the new focus (pane navigation while held).
             controller.shortcutHints?.focusDidSettle()
-            services?.windows.recordSaver.focusDidSettle(controller.state, pane: state.pane)
+            services.windows.recordSaver.focusDidSettle(controller.state, pane: state.pane)
             let key = state.settleKey
             if key != notified {
                 notified = key
-                services?.notifications.focusDidSettle(state, in: controller)
+                services.notifications.focusDidSettle(state, in: controller)
                 // What new terminals and chats copy (NEW-WORK-INHERITS-CONTEXT).
-                services?.noteWorkFocus(state, in: controller)
+                services.noteWorkFocus(state, in: controller)
             }
-            let trail = TrailSettleKey(focus: key, active: services?.windows.active === controller,
+            let trail = TrailSettleKey(focus: key, active: services.windows.active === controller,
                                        topPage: controller.shownTopPage != nil, workspace: controller.state.workspaceID)
             if trail != trailed {
                 trailed = trail
-                services?.locationTrail.focusDidSettle(state, in: controller)
+                services.locationTrail.focusDidSettle(state, in: controller)
             }
         }
         controller.focus.observer = { [weak self, weak state = controller.state, weak focus = controller.focus] observation in

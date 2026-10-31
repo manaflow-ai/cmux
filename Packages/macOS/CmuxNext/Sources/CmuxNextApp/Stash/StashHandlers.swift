@@ -213,7 +213,8 @@ enum StashHandlers {
                 return nil
             case .failure(let error):
                 let failure = ActionWorkFailure(RefusalStrings.describe(error))
-                if !capturing { registry?.refuse(failure.message) }
+                // A pane-still-opening refusal the daemon service already showed (``PaneNotReady/shown``) shows once.
+                if !capturing, (error as? PaneNotReady)?.shown != true { registry?.refuse(failure.message) }
                 return failure
             }
         }

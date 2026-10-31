@@ -91,9 +91,11 @@ extension DaemonService {
             guard case .failed(let error) = await command.run(body) else { return nil }
             return await mainWork.apply(command.workClass, owner: "DaemonService.send") {
                 command.close(failure: error)
+                // A pane still opening (``PaneNotReady``) was shown where the connection refused it, and the error says
+                // so (``PaneNotReady/shown``): no reporter shows it again.
                 let failure = command.connection == nil
                     ? ActionWorkFailure("\(label): \(self.notConnectedReason ?? DaemonError.notConnected.description)")
-                    : ActionWorkFailure(label, error)
+                    : self.workFailure(label, error)
                 onFailure?(failure)
                 return failure
             }

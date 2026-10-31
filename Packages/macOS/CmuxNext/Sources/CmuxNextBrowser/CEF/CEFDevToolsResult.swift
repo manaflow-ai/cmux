@@ -52,11 +52,32 @@ nonisolated enum CEFDevToolsResult {
         (parse(json)?["executionContextId"] as? NSNumber)?.intValue
     }
 
-    /// JSON text for a parameters object.
-    static func params(_ object: [String: Any]) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: object),
-              let text = String(data: data, encoding: .utf8) else { return "{}" }
-        return text
+    /// JSON text for a parameters object, as a checked CPU call (``cpuIntensiveCall(size:limit:fileID:line:_:)``):
+    /// on the main thread, parameters larger than ``BlockingKind/cpuIntensiveJSONBytes`` are a site.
+    static func params(_ object: [String: Any], fileID: StaticString = #fileID, line: UInt = #line) -> String {
+        cpuIntensiveCall(size: textSize(object), limit: BlockingKind.cpuIntensiveJSONBytes, fileID: fileID, line: line) {
+            guard let data = try? JSONSerialization.data(withJSONObject: object),
+                  let text = String(data: data, encoding: .utf8) else { return "{}" }
+            return text
+        }
+    }
+
+    /// ``params(_:fileID:line:)`` off the caller's actor: a call's parameters can be megabytes (a page host's
+    /// `Runtime.evaluate` script), and the caller is the main actor (CEF's UI thread). ``CEFDevToolsSendOrder`` keeps
+    /// the calls in order meanwhile.
+    @concurrent
+    static func encodedParams(_ object: [String: any Sendable]) async -> String {
+        params(object)
+    }
+
+    /// About the JSON text size of `value`, for the CPU gate: each string's UTF-8 bytes, 8 for any other scalar.
+    static func textSize(_ value: Any) -> Int {
+        switch value {
+        case let string as String: string.utf8.count + 2
+        case let object as [String: Any]: object.reduce(2) { $0 + $1.key.utf8.count + 3 + textSize($1.value) }
+        case let array as [Any]: array.reduce(2) { $0 + textSize($1) + 1 }
+        default: 8
+        }
     }
 
     private static func parse(_ json: String) -> [String: Any]? {

@@ -45,7 +45,7 @@ extension CEFTab: BrowserEmulating {
                     let metrics = method.hasSuffix("DeviceMetricsOverride")
                     do {
                         _ = try await runtime.devTools(browserID, method: method, params: params)
-                        if method == "Emulation.setTouchEmulationEnabled" { touch = params["enabled"] as? Bool ?? false }
+                        if method == "Emulation.setTouchEmulationEnabled" { touch = CEFDeviceEmulation.isOn(params["enabled"]) }
                     } catch {
                         if metrics { inputScale = 1 }
                         runtime.logger.error("device emulation \(method, privacy: .public) failed: \(String(describing: error), privacy: .public)")
@@ -94,7 +94,7 @@ extension CEFTab: BrowserEmulating {
 nonisolated enum CEFDeviceEmulation {
     /// The DevTools calls that end an emulation (the inverse of what the
     /// daemon's calls set: metrics, user agent, touch).
-    static var reset: [(String, [String: Any])] {
+    static var reset: [(String, [String: any Sendable])] {
         [
             ("Emulation.clearDeviceMetricsOverride", [:]),
             ("Emulation.setUserAgentOverride", ["userAgent": ""]),
@@ -106,14 +106,14 @@ nonisolated enum CEFDeviceEmulation {
     /// The daemon's calls with the view's numbers: a device's fit scale, or
     /// a fit's layout size and scale. A fit that shows the page as is
     /// (`viewport` nil) clears the metrics override and keeps the other calls.
-    static func calls(_ emulation: BrowserEmulation?, viewport: BrowserEmulation.Viewport?) -> [(String, [String: Any])] {
+    static func calls(_ emulation: BrowserEmulation?, viewport: BrowserEmulation.Viewport?) -> [(String, [String: any Sendable])] {
         guard let emulation else { return reset }
         guard let list = try? JSONSerialization.blockingJSONObject(with: Data(emulation.chromiumCallsJSON.utf8)) as? [[String: Any]] else {
             return []
         }
         return list.compactMap { call in
             guard let method = call["method"] as? String else { return nil }
-            var params = call["params"] as? [String: Any] ?? [:]
+            var params = (call["params"] as? [String: Any] ?? [:]).mapValues(CEFDeviceEmulation.sendable)
             guard method == "Emulation.setDeviceMetricsOverride" else { return (method, params) }
             guard let viewport else {
                 return emulation.fit != nil ? ("Emulation.clearDeviceMetricsOverride", [:]) : (method, params)
@@ -124,6 +124,30 @@ nonisolated enum CEFDeviceEmulation {
                 params["height"] = Int(viewport.size.height)
             }
             return (method, params)
+        }
+    }
+
+    /// A flag of the calls: `true`, or a nonzero number (as an `NSNumber` read as `Bool` before ``sendable(_:)``).
+    static func isOn(_ value: (any Sendable)?) -> Bool {
+        switch value {
+        case let flag as Bool: flag
+        case let number as Int64: number != 0
+        case let number as Double: number != 0
+        default: false
+        }
+    }
+
+    /// A value of the parsed calls (`JSONSerialization`'s Foundation objects) as the Swift value it bridges to, so
+    /// the call's parameters can be encoded off the main actor (``CEFRuntime/devTools(_:method:params:timeout:)``).
+    static func sendable(_ value: Any) -> any Sendable {
+        switch value {
+        case let object as [String: Any]: return object.mapValues(sendable)
+        case let array as [Any]: return array.map(sendable)
+        case let string as String: return string
+        case let number as NSNumber:
+            if CFGetTypeID(number) == CFBooleanGetTypeID() { return number.boolValue }
+            return CFNumberIsFloatType(number as CFNumber) ? number.doubleValue : number.int64Value
+        default: return NSNull()
         }
     }
 }

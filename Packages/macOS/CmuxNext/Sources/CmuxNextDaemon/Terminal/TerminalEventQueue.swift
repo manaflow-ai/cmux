@@ -42,7 +42,10 @@ import Foundation
 /// Live output that goes straight to the view's lane (``TerminalEchoRouter``)
 /// parks the same reader on the lane's capacity instead (``enqueueOnLane(_:)``), and
 /// output the router holds behind a marker parks it on the router's hold limit
-/// (``holdForMarker()``), under either policy. Every event, output included,
+/// (``holdForMarker()``), only with ``Backpressure/parkReader`` (``parksReader``). On a
+/// shared stream the router never asks either: a full lane or hold sends the output onto
+/// this queue, so nothing parks the shared reader (Lawrence's "no new terminals" stall,
+/// 2026-10-30: one view's full lane held every reply on the connection). Every event, output included,
 /// enters through ``pushWithoutWaiting(_:)``, so the overflow bound of
 /// ``Backpressure/dropAndResync(_:)`` applies there.
 final class TerminalEventQueue: Sendable {
@@ -146,6 +149,20 @@ final class TerminalEventQueue: Sendable {
         }
         self.recorder = recorder
         self.onReaderBlocked = onReaderBlocked
+    }
+
+    /// Whether the reader may wait for this queue's consumer: only a view's own attach connection
+    /// (``Backpressure/parkReader``). A stream on the shared connection never parks its reader.
+    var parksReader: Bool {
+        if case .parkReader = backpressure { return true }
+        return false
+    }
+
+    /// A ``Backpressure/dropAndResync(_:)`` queue dropped output and waits for the READY that replaces it:
+    /// live output meanwhile must come through this queue (which drops it), never straight to the view's lane,
+    /// or the view would parse output with a hole in it (``TerminalEchoRouter``).
+    var isResyncing: Bool {
+        state.withLock { $0.resync != .idle }
     }
 
     /// Enables the bound once the consumer can start draining.

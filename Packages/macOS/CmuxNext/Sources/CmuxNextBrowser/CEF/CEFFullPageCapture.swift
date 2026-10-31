@@ -20,10 +20,16 @@ struct CEFFullPageCapture {
         let width = content.width, height = content.height
         let clip: [String: Any] = ["x": 0, "y": 0, "width": width, "height": height, "scale": 1]
         // The page may have closed or the quit begun while the metrics came and decoded (``CEFThumbnail/mayPicture(_:evenHidden:)``).
+        // The capture leaves in the browser's call order, checked again in the turn it leaves (now, when no earlier
+        // call to the page waits): a close or the quit before that turn sends nothing.
         guard CEFThumbnail.mayPicture(tab, evenHidden: true) else { throw BrowserTabError.snapshotUnavailable }
-        let json = try await runtime.devTools(browserID, method: "Page.captureScreenshot",
-                                              params: ["format": "png", "captureBeyondViewport": true, "clip": clip],
-                                              timeout: .seconds(18))
+        let tab = tab
+        let answer = runtime.sendDevToolsInOrder(browserID, method: "Page.captureScreenshot",
+                                                 params: ["format": "png", "captureBeyondViewport": true, "clip": clip],
+                                                 timeout: .seconds(18), refused: .snapshotUnavailable) { [weak tab] in
+            tab.map { CEFThumbnail.mayPicture($0, evenHidden: true) } ?? false
+        }
+        let json = try await answer.value()
         // Decoded off the main actor: a whole page of PNG in base64.
         return try await CEFDevToolsResult.decodedScreenshot(json)
     }

@@ -2,7 +2,7 @@
   "_doc": "Architecture counts the pre-push ratchet holds (scripts/cmux-next/guardrails.py runs scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a ratcheted row's total, in the code or in this file's totals, nor swap a counted global, broadcast or layer edge for another; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update` (the only writer). The one escape is a dated exception: add {\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\"} to exceptions; the push that adds it may raise that row by n, and the next --update folds it into the totals and marks it with applied_sha (an applied entry is never edited or removed). --update refuses a rise that no pending exception covers, except a rise that commits already on origin/feat-cmux-next made past the hook (a GitHub merge, --no-verify): it records that one with a generated applied entry whose raised_by names those commits. A generated entry allows no rise in any push's code, and the push that brings it is re-checked: its commits must be on origin/feat-cmux-next, after the old measured_sha and in the new one, named by no other entry, and its allow at most their rise. Never CI.",
   "method": "arch_counts",
   "method_version": 6,
-  "measured_sha": "c24aa209aad98ccedfbbba5bba660ac5c660c0be",
+  "measured_sha": "28e7e5144af431051e902bb9d23d2f5494aec2b9",
   "measured_date": "2026-10-30",
   "rows": {
     "layer_hard": {
@@ -65,7 +65,7 @@
     "assume_isolated_total": 181,
     "app_broadcast_names": 2,
     "observer_sites": 198,
-    "blocking_allow_escapes": 19,
+    "blocking_allow_escapes": 18,
     "app_lines": 164014
   },
   "packages": {
@@ -385,8 +385,7 @@
       "global_mutable_statics": 21,
       "assume_isolated_outside_adapters": 9,
       "assume_isolated_total": 12,
-      "observer_sites": 8,
-      "blocking_allow_escapes": 1
+      "observer_sites": 8
     },
     "CmuxNextTrace": {
       "stateful_singletons": 1,
@@ -831,6 +830,208 @@
       "allow": 4,
       "why": "cp/fix-server-helper-sources: CmuxNextCompatCore is the seam module the privileged server helper compiles whole without CmuxNextCompat (swift-atomics, the detector), so the Mac build's helper phase never compiles a hand-picked Compat file list again. Its four escapes are not main-thread blocking: Process.runOnOwnThread's process.run() moved unchanged from CmuxNextCompat/Threading (a seam folder the rule exempts) and runs on the dedicated thread it makes; RunningCodeSigningTeam's three Security calls each run inside the blockingCall its caller passes (the app's SigningTeamInstall passes CmuxNextCompat's checked blockingCall(.systemCall), so the detector still sees each; the helper passes CmuxThreading's). Chrome: the same ScopedBlockingCall seam in a lower component (base/threading/scoped_blocking_call.h).",
       "applied_sha": "c24aa209aad98ccedfbbba5bba660ac5c660c0be"
+    },
+    {
+      "date": "2026-10-30",
+      "row": "app_lines",
+      "allow": 62,
+      "why": "P0 Cmd-D fix (port of feat #28331): the create-and-wait changes live in the App's own controllers (the pendingCreate chain and the creates that join it, PaneSplitCancelled handling, trackRollingBack of a refused create, the creation-hold end log, the pane-not-ready hook wiring); moving them out is the follow-up STATUS item 810 (owner a2c6445561ebeab90, due 2026-11-06). Allowed by cmux-ad item 727.",
+      "author": "a2c6445561ebeab90",
+      "owner": "a2c6445561ebeab90",
+      "receipt": "Review (independent review subagent, Claude Opus 5.5, app-lines exception): SHIP at b52e9f706052f4a5b99a79b827cfb9614369ca47",
+      "expiry": "2026-11-06"
+    }
+  ],
+  "escape_reviews": [
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Crash/RunMarkerFile.swift",
+      "text": "allowBlocking(.terminate) {",
+      "state": "reviewed",
+      "author": "p02-threads-035, 458fbf71334c (merge 8829c1e9729)",
+      "owner": "PL-threads (p02-threads; no OWNERS.md row, Performance Lead)",
+      "receipt": "Review (escape-reviewer-opus): SHIP at aa69a6fb096d5116fe24352099dc188805b6f772",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; independent review SAFE (escape-reviewer-opus)"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/Platform/StandardErrorLogSink+Linux.swift",
+      "text": "// blocking-allow: the blocking detector reports through Logger, so a checked write would report itself (os.Logger's role on Darwin)",
+      "state": "reviewed",
+      "author": "p15-oracle-120, 14ccf445746",
+      "owner": "PL-oracle",
+      "receipt": "Review (escape-reviewer-opus): SHIP at aa69a6fb096d5116fe24352099dc188805b6f772",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; independent review SAFE (escape-reviewer-opus)"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCompatCore/Process+OwnThread.swift",
+      "text": "// blocking-allow: the spawn runs on this thread of its own, made for it; nothing else waits on it.",
+      "state": "reviewed",
+      "author": "cp/fix-server-helper-sources, 08542007d2d",
+      "owner": "Performance Lead (PL-guardrails)",
+      "receipt": "Review (escape-reviewer-opus): SHIP at aa69a6fb096d5116fe24352099dc188805b6f772",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; independent review SAFE (escape-reviewer-opus)"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCompatCore/RunningCodeSigningTeam.swift",
+      "text": "// blocking-allow: `call` runs it as the caller's checked blocking call (blockingCall(.systemCall)).",
+      "state": "reviewed",
+      "author": "cp/fix-server-helper-sources, 08542007d2d",
+      "owner": "Performance Lead (PL-guardrails)",
+      "receipt": "Review (escape-reviewer-opus): SHIP at aa69a6fb096d5116fe24352099dc188805b6f772",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; independent review SAFE (escape-reviewer-opus)"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCompatCore/RunningCodeSigningTeam.swift",
+      "text": "// blocking-allow: `call` runs it as the caller's checked blocking call (blockingCall(.systemCall)).",
+      "state": "reviewed",
+      "author": "cp/fix-server-helper-sources, 08542007d2d",
+      "owner": "Performance Lead (PL-guardrails)",
+      "receipt": "Review (escape-reviewer-opus): SHIP at aa69a6fb096d5116fe24352099dc188805b6f772",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; independent review SAFE (escape-reviewer-opus)"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCompatCore/RunningCodeSigningTeam.swift",
+      "text": "// blocking-allow: `call` runs it as the caller's checked blocking call (blockingCall(.systemCall)).",
+      "state": "reviewed",
+      "author": "cp/fix-server-helper-sources, 08542007d2d",
+      "owner": "Performance Lead (PL-guardrails)",
+      "receipt": "Review (escape-reviewer-opus): SHIP at aa69a6fb096d5116fe24352099dc188805b6f772",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; independent review SAFE (escape-reviewer-opus)"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/QuitDeadline.swift",
+      "text": "allowBlocking(.terminate) { never.blockingWait() }",
+      "state": "reviewed",
+      "author": "p02-threads-035, 458fbf71334c (merge 8829c1e9729)",
+      "owner": "PL-threads (p02-threads; no OWNERS.md row, Performance Lead)",
+      "receipt": "Review (escape-reviewer-opus): SHIP at aa69a6fb096d5116fe24352099dc188805b6f772",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; independent review SAFE (escape-reviewer-opus)"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCrashReporting/CrashKeys.swift",
+      "text": "// blocking-allow: a fatal-signal handler can call no seam (blockingCall records and may allocate).",
+      "state": "reviewed",
+      "author": "p10-stability-207 (fixer), c35047d7ad1b",
+      "owner": "PL-stability",
+      "receipt": "Review (escape-reviewer-opus): SHIP at aa69a6fb096d5116fe24352099dc188805b6f772",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; independent review SAFE (escape-reviewer-opus)"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalOutputLane.swift",
+      "text": "allowBlocking(.surfaceTeardown) { queue.blockingSync {} }",
+      "state": "not-safe",
+      "author": "p02-threads-035 (fixer), cac0aac3227c",
+      "owner": "PL-ghostty",
+      "receipt": "",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30, independent review (escape-reviewer-opus at aa69a6fb096): NOT SAFE. TerminalSurfaceView.deinit -> lane.close() -> queue.blockingSync {} on main waits for the chunk in ghostty_surface_process_output; that parse can push to the 64-slot app mailbox with .forever (ghostty src/termio/stream_handler.zig:228-236, src/App.zig:784), which only ghostty_app_tick on main empties (GhosttyRuntime+Ticks.swift:59): main waits for the lane, the lane waits for main, a permanent deadlock when a pane closes while its program floods titles or bells. Fix for the owner: no wait on main (Chrome's DeleteSoon): close() enqueues a final lane block that posts ghostty_surface_free and the bridge release to main async; remove BlockingAllowance.surfaceTeardown; regression test: a chunk with > 64 surface messages, then a close from main, must not hang. Red for a fixer."
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTrace/LaunchClock.swift",
+      "text": "// blocking-allow: PROC_PIDTBSDINFO of this process copies its in-memory proc fields; no disk, lock or process wait.",
+      "state": "reviewed",
+      "author": "p09-observability-034, e64a5a358f02",
+      "owner": "PL-trace",
+      "receipt": "Review (escape-reviewer-opus): SHIP at aa69a6fb096d5116fe24352099dc188805b6f772",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; independent review SAFE (escape-reviewer-opus)"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWireGen/SchemaFile.swift",
+      "text": "// blocking-allow: host build tool, not the app; no app thread to block.",
+      "state": "reviewed",
+      "author": "p05-ipc-027, 6a78f3222f52",
+      "owner": "PL-ipc (p05-ipc; no OWNERS.md row, Performance Lead)",
+      "receipt": "Review (escape-reviewer-opus): SHIP at aa69a6fb096d5116fe24352099dc188805b6f772",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; independent review SAFE (escape-reviewer-opus)"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWireGen/WireGenArguments.swift",
+      "text": "// blocking-allow: host build tool, not the app; no app thread to block.",
+      "state": "reviewed",
+      "author": "p05-ipc-027, 6a78f3222f52",
+      "owner": "PL-ipc (p05-ipc; no OWNERS.md row, Performance Lead)",
+      "receipt": "Review (escape-reviewer-opus): SHIP at aa69a6fb096d5116fe24352099dc188805b6f772",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; independent review SAFE (escape-reviewer-opus)"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWireGen/WireGenArguments.swift",
+      "text": "// blocking-allow: host build tool, not the app; the rename that makes the write atomic.",
+      "state": "reviewed",
+      "author": "cp/fix-wiregen-atomic-write-hang, e12deef8156",
+      "owner": "PL-ipc (p05-ipc; no OWNERS.md row, Performance Lead)",
+      "receipt": "Review (escape-reviewer-opus): SHIP at aa69a6fb096d5116fe24352099dc188805b6f772",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; independent review SAFE (escape-reviewer-opus)"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWireGen/WireGenArguments.swift",
+      "text": "// blocking-allow: host build tool, not the app; removes the temporary file of a failed write.",
+      "state": "reviewed",
+      "author": "cp/fix-wiregen-atomic-write-hang, e12deef8156",
+      "owner": "PL-ipc (p05-ipc; no OWNERS.md row, Performance Lead)",
+      "receipt": "Review (escape-reviewer-opus): SHIP at aa69a6fb096d5116fe24352099dc188805b6f772",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; independent review SAFE (escape-reviewer-opus)"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/OracleReplay/Journal.swift",
+      "text": "// blocking-allow: host oracle tool, not the app; no app thread to block.",
+      "state": "reviewed",
+      "author": "p15-oracle-104, 38b3314c2ec",
+      "owner": "PL-oracle",
+      "receipt": "Review (escape-reviewer-opus): SHIP at aa69a6fb096d5116fe24352099dc188805b6f772",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; independent review SAFE (escape-reviewer-opus)"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/OracleReplay/Journal.swift",
+      "text": "// blocking-allow: host oracle tool, not the app; no app thread to block.",
+      "state": "reviewed",
+      "author": "p15-oracle-104, 38b3314c2ec",
+      "owner": "PL-oracle",
+      "receipt": "Review (escape-reviewer-opus): SHIP at aa69a6fb096d5116fe24352099dc188805b6f772",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; independent review SAFE (escape-reviewer-opus)"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/OracleReplay/Journal.swift",
+      "text": "// blocking-allow: host oracle tool, not the app; no app thread to block.",
+      "state": "reviewed",
+      "author": "p15-oracle-104, 38b3314c2ec",
+      "owner": "PL-oracle",
+      "receipt": "Review (escape-reviewer-opus): SHIP at aa69a6fb096d5116fe24352099dc188805b6f772",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; independent review SAFE (escape-reviewer-opus)"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/OracleReplay/ReplayRun.swift",
+      "text": "// blocking-allow: host oracle tool, not the app; no app thread to block.",
+      "state": "reviewed",
+      "author": "p15-oracle-104, 38b3314c2ec",
+      "owner": "PL-oracle",
+      "receipt": "Review (escape-reviewer-opus): SHIP at aa69a6fb096d5116fe24352099dc188805b6f772",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; independent review SAFE (escape-reviewer-opus)"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/OracleReplay/ReplayRun.swift",
+      "text": "// blocking-allow: host oracle tool, not the app; no app thread to block.",
+      "state": "reviewed",
+      "author": "p15-oracle-104, 38b3314c2ec",
+      "owner": "PL-oracle",
+      "receipt": "Review (escape-reviewer-opus): SHIP at aa69a6fb096d5116fe24352099dc188805b6f772",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; independent review SAFE (escape-reviewer-opus)"
     }
   ],
   "observer_wrappers": [

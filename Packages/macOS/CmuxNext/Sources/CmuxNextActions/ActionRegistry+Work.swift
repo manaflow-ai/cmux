@@ -23,6 +23,9 @@ public struct ActionWorkFailure: Error, Sendable, Hashable, CustomStringConverti
     /// Typed members the control socket adds to the data of a ``code`` failure, beside its `action` and
     /// `reason` (for example `deferral`, a deferred wake's raw reason).
     public var details: [String: String] = [:]
+    /// The person already saw why it failed (the daemon service showed a pane-still-opening refusal when the command
+    /// ended), so no reporter (the registry, a handler's own report) shows a second notice: once, never zero times or twice.
+    public var shown = false
 
     public init(_ message: String, mayHaveApplied: Bool = false, terminalMayAppear: Bool = false) {
         self.message = message

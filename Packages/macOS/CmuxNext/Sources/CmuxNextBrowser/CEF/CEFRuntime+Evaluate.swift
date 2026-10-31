@@ -7,15 +7,22 @@ extension CEFRuntime {
     /// The longest wait for an evaluation's answer, as for a DevTools call.
     static let evaluateTimeout: Duration = CEFRuntime.devToolsTimeout
 
-    /// Runs `script` in `browser`'s main frame (`world` "" = the page's world) and returns its answer.
+    /// Runs `script` in `browser`'s main frame (`world` "" = the page's world) and returns its answer. It leaves in
+    /// the browser's call order (``CEFDevToolsSendOrder``): now when no earlier call of `browser` waits, else in its
+    /// own turn after them; `timeout` counts from the turn it left.
     func evaluate(_ browser: Int32, world: String, script: String, userGesture: Bool,
                   timeout: Duration = CEFRuntime.evaluateTimeout) async throws -> CEFEvaluationResult {
         guard let tabEvaluate = shim?.tabEvaluate else { throw BrowserTabError.closed }
+        let order = devToolsOrder
+        let ticket = order.take(browser)
+        await order.turn(ticket, of: browser)
         let token = nextEvaluation
         nextEvaluation = nextEvaluation == .max ? 1 : nextEvaluation + 1
         evaluationBrowsers[token] = browser
         defer { evaluationBrowsers[token] = nil }
-        guard tabEvaluate(browser, token, world, script, userGesture ? 1 : 0) == 1 else { throw BrowserTabError.closed }
+        let sent = tabEvaluate(browser, token, world, script, userGesture ? 1 : 0) == 1
+        order.leave(ticket, of: browser)
+        guard sent else { throw BrowserTabError.closed }
         if let early = earlyEvaluations.removeValue(forKey: token) { return early }
         return try await evaluations.reply(for: token, timeout: timeout) { BrowserTabError.timedOut("evaluate (\(timeout))") }
     }
@@ -25,13 +32,18 @@ extension CEFRuntime {
     /// nil when the shim cannot evaluate, the browser closes, or a later call takes the slot. One at
     /// a time, so nothing waits on a timer: the latest question is the only one worth answering (a
     /// force click's Look Up).
+    /// It leaves in the browser's call order (``CEFDevToolsSendOrder/post(_:_:)``).
     func evaluateLatest(_ browser: Int32, world: String, script: String, done: @escaping (CEFEvaluationResult?) -> Void) {
         latestEvaluation.take()?.done(nil)
         guard let tabEvaluate = shim?.tabEvaluate else { return done(nil) }
         let token = nextEvaluation
         nextEvaluation = nextEvaluation == .max ? 1 : nextEvaluation + 1
         latestEvaluation = (token, browser, done)
-        if tabEvaluate(browser, token, world, script, 0) != 1, latestEvaluation?.token == token { latestEvaluation.take()?.done(nil) }
+        devToolsOrder.post(browser) { [weak self] in
+            let sent = tabEvaluate(browser, token, world, script, 0) == 1
+            if !sent, let self, self.latestEvaluation?.token == token { self.latestEvaluation.take()?.done(nil) }
+            return sent
+        }
     }
 
     /// Runs `script` in `browser`'s main frame (`world` "" = the page's world) and keeps no answer: for a

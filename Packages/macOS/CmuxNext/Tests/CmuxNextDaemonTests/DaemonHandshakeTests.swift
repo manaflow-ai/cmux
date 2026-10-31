@@ -337,6 +337,7 @@ import Testing
 
 /// The real daemon answers the bench ops the same on a connection that negotiates frames and streams as on
 /// one that keeps lines, and the upgraded connection sends them as REQUEST frames.
+/// skip-owner: PL-ipc; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
 @Suite(.enabled(if: RealBinary.isBranchBuild, "needs the same-tree cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
        .timeLimit(.minutes(2)), .liveDaemon)
 struct DaemonHandshakeLiveTests {
@@ -386,6 +387,7 @@ struct DaemonHandshakeLiveTests {
             // The acceptance needs the three ops on frames. The daemon binds no `ipc-frames-v2` transport yet
             // (capabilities.rs `IpcTransports::BOUND` is empty), so it offers none and every op above went as a
             // line. The day it binds one this known issue is not recorded, the test fails, and the wrapper goes.
+            // skip-owner: PL-ipc; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
             withKnownIssue("cmux-tui offers no ipc-frames-v2 yet: IpcTransports::BOUND is empty") {
                 try #require(h.identity.supports(WireNegotiation.framesCapability))
                 #expect(grants.frames)

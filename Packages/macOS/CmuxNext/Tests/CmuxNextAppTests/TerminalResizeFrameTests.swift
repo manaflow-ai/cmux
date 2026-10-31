@@ -17,6 +17,7 @@ import Testing
 /// there runs after that commit; the presenter's pass must still run before it.
 ///
 /// Runs only with a GhosttyNextKit pin whose present never waits (`GHOSTTY_PRESENT_NEVER_WAITS`).
+/// skip-owner: PL-ghostty; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)), .enabled(if: TerminalHostFramePresenter.presentNeverWaits))
 struct TerminalResizeFrameTests {
     /// The written text: lines that fill the first grid's columns exactly, so any narrower grid wraps each

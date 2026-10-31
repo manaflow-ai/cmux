@@ -23,12 +23,13 @@ extension ChatsFeed {
         startChiefTurnStates(tag: services.environment.tag, deadlines: services.mainDeadlines)
         SidebarSessionTreeFeed.shared.start(workspaces: { services.machines.allWorkspaces.map { $0.0 } }, localHost: localHost,
                                             reader: services.pullRequests.reader, deadlines: services.mainDeadlines)
-        let feed = ChatsFeed(socketPath: environment.socketPath, deadlines: services.mainDeadlines)
-        // The session tree's chat history: rows open through the shared Open Chat path.
-        let history = SidebarChatHistoryFeed.shared
-        feed.observe(history) { [weak feed] in if let feed { history.chats = feed.store } }
-        history.start(workspaces: { services.machines.allWorkspaces.map { $0.0 } }, localHost: localHost,
-                      open: { [weak services] key in services?.chatsOpener.open(key) }, mainWork: services.mainWork)
+        let feed = ChatsFeed(socketPath: environment.socketPath, deadlines: services.mainDeadlines,
+                             drained: { DebugTimings.chatsFeedApplied(lines: $0, $1) })
+        // The session tree's chat history: two windows acpmux keeps (never the whole index); rows
+        // open through the shared Open Chat path.
+        SidebarChatHistoryFeed.shared.start(workspaces: { services.machines.allWorkspaces.map { $0.0 } }, localHost: localHost,
+                                            open: { [weak services] key in services?.chatsOpener.open(key) }, windows: feed.windows,
+                                            mainWork: services.mainWork)
         return feed
     }
 

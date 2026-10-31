@@ -94,6 +94,9 @@ public actor DaemonConnection {
     /// Waits for a ready connection newer than `after` (`DaemonConnection+ReadyWait`), each with its limit.
     var readyWaits: [UInt64: (after: UInt64, continuation: OnceContinuation<Bool, OnceContinuationError>, timer: DemandTimer)] = [:]
     var readyWaitNext: UInt64 = 0
+    /// Shows a request refused because it names a pane still opening (``PaneNotReady``); see ``observePaneNotReady(_:)``.
+    /// A `Mutex`, as ``admitted``: the request path reads it from the caller's executor, with no actor hop.
+    private nonisolated let paneNotReadyObserver = Mutex<(@Sendable (PaneNotReady) -> Void)?>(nil)
     /// The launch's first snapshot, fetched right after the handshake (``prefetchSnapshot()``).
     var prefetchedSnapshot: (serial: UInt64, fetch: Task<(tree: DaemonTree, barrier: UInt64), any Error>)?
 
@@ -178,16 +181,27 @@ public actor DaemonConnection {
             return try await self.request(request, timeout: configuration.requestTimeout)
         }
         do {
-            return try await sendAdmitted(request, timeout: configuration.spawnTimeout) { request, identity in
-                guard identity.supports(DaemonCapability.terminalShellArgs.rawValue),
-                      let carrier = request as? any ShellIntegrationArgumentCarrying,
-                      let integrated = carrier.addingShellIntegrationArguments() as? R else { return request }
-                return integrated
-            }
+            return try await sendAdmitted(request, timeout: configuration.spawnTimeout, forDaemon: Self.withShellIntegration)
         } catch DaemonError.timedOut(let what) {
             // cmux-tui keeps starting the terminal after the client gave up.
             throw DaemonError.terminalStartTimedOut(what)
         }
+    }
+
+    /// A terminal start the daemon makes exactly once under its client-chosen terminal id (`new-tab` with
+    /// `terminal-placement-env-v1`): sent once, with the shell-integration arguments ``request(_:)`` adds, and answered
+    /// by its reply or the connection's end (``LineTransport`` fails every pending request on close). No client deadline
+    /// decides it: the start's outcome is the daemon's (principled-audit R5, R-L5).
+    nonisolated func requestAwaitingStart<R: TerminalSpawningRequest>(_ request: R) async throws -> R.Response {
+        try await sendAdmitted(request, timeout: nil, forDaemon: Self.withShellIntegration)
+    }
+
+    /// `request` with Ghostty's shell-integration arguments when the daemon that carries it serves them.
+    private static func withShellIntegration<R: DaemonRequest>(_ request: R, identity: DaemonIdentity) -> R {
+        guard identity.supports(DaemonCapability.terminalShellArgs.rawValue),
+              let carrier = request as? any ShellIntegrationArgumentCarrying,
+              let integrated = carrier.addingShellIntegrationArguments() as? R else { return request }
+        return integrated
     }
 
     /// Runs on the caller's executor with no actor hop: it reads the ready connection from
@@ -207,9 +221,34 @@ public actor DaemonConnection {
         let request = forDaemon(request, ready.identity)
         // Before the line goes out: the echo can arrive before the reply.
         DaemonCommandScope.recordEchoTransaction(of: request, in: mutationCauses)
-        let response = try await Self.perform(request, on: ready.transport, timeout: timeout)
+        let response: R.Response
+        do {
+            response = try await Self.perform(request, on: ready.transport, timeout: timeout)
+        } catch let refused as PaneNotReady {
+            throw reported(refused)
+        }
         DaemonCommandScope.noteCreated(by: request, response: response)
         return response
+    }
+
+    /// Rule (a) of the P0 2026-10-30, at the one place every sender's request goes through: a request refused because
+    /// it names a pane still opening shows why once, for every sender (a `DaemonService` funnel, or a handler that calls
+    /// this connection itself). A scope that answers failures (`action.run` from the CLI or MCP,
+    /// ``DaemonCommandScope/answersFailures``) answers the refusal itself, so it shows nothing here; a person's run
+    /// (a key, the menu, the palette) has a person scope that answers nobody, so it shows here. The returned error is
+    /// marked shown, so no reporter shows it again.
+    private nonisolated func reported(_ refused: PaneNotReady) -> PaneNotReady {
+        guard DaemonCommandScope.current?.answersFailures != true, let observer = paneNotReadyObserver.withLock({ $0 }) else { return refused }
+        var shown = refused
+        shown.shown = true
+        observer(shown)
+        return shown
+    }
+
+    /// Sets what shows a request refused because it names a pane still opening (``PaneNotReady``) when no open action
+    /// scope answers it; `DaemonService` sets it on each connection it makes, from main with no hop (a `Mutex`).
+    public nonisolated func observePaneNotReady(_ observer: (@Sendable (PaneNotReady) -> Void)?) {
+        paneNotReadyObserver.withLock { $0 = observer }
     }
 
     /// The event sequence this connection has routed so far, or nil when

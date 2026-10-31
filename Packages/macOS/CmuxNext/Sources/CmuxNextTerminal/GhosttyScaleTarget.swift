@@ -3,11 +3,11 @@ import GhosttyNextKit
 import QuartzCore
 
 /// A view's root layer and Ghostty surface as its ``TerminalScaleTarget``. The view that owns this target
-/// owns the surface, and frees it only in its deinit.
+/// owns the surface until its deinit hands it to ``TerminalSurfaceTeardown``, which frees it later on main.
 @MainActor
 final class GhosttyScaleTarget: TerminalScaleTarget {
-    /// SAFETY: the owning view's surface, freed only in that view's deinit, which releases this
-    /// target with it; every call arrives on the main actor while the view lives.
+    /// SAFETY: the owning view's surface, freed only after that view's deinit (``TerminalSurfaceTeardown``),
+    /// and the deinit releases this target first; every call arrives on the main actor while the view lives.
     @safe private let surface: ghostty_surface_t?
     /// The view whose root layer Ghostty's renderer reads its scale from.
     private weak var view: NSView?

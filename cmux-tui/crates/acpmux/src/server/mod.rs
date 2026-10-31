@@ -99,6 +99,8 @@ pub struct Conn {
     pub(crate) memory_vote: std::sync::OnceLock<cmux_memory::Voter>,
     /// How many hub events its fan-out has handed on (`fanout.rs`); unset with no fan-out.
     fanout_progress: std::sync::OnceLock<tokio::sync::watch::Receiver<u64>>,
+    /// Its windows over the chat index (`chat_windows.rs`).
+    chat_windows: chat_windows::ConnWindows,
 }
 
 // Bound only request handlers that do finite work on behalf of the connection.
@@ -1235,6 +1237,7 @@ async fn serve_connection_body(
     fan.abort();
     conn.media.close_all();
     view::release_all(&hub, &conn);
+    chat_windows::connection_ended(&conn);
     // Leases first: ending one is cheap and synchronous, while the ephemeral release awaits each
     // session's kill. A leased peer must not keep reconnecting to a forward port its bridge already
     // closed, which another process could bind (`hub/peer_lease.rs`).
@@ -1422,6 +1425,8 @@ mod bind_person;
 mod clock_text;
 pub(crate) use clock_text::iso;
 mod change_kind;
+mod chat_windows;
+pub use chat_windows::live_tasks as live_chat_window_tasks;
 mod chats;
 pub mod conn_auth;
 mod ephemeral;

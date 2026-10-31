@@ -12,14 +12,17 @@
 //! record on disk is never older than the newest snapshot taken before it (two saves race from
 //! their snapshot to `queue`, and the newer one can be queued and written first). The log
 //! stays the source of truth for what a crash cuts off: a record behind its log is caught up from the log's tail at the next start
-//! (`Hub::catch_up`), as it always was for a hard stop. `flush` waits for every queued save
-//! (shutdown); `Forget::forget` drops a session's queued save and waits for one being written, so a
-//! purge's delete always comes after the last write of the purged session.
+//! (`Hub::catch_up`), as it always was for a hard stop. Sessions are written in the order they
+//! queued, so a session saved again and again never holds back one saved once. `flush` waits for
+//! every save queued before it (shutdown), never for an empty queue: agents that still run keep
+//! saving, and a flush that waited for an empty queue never returned. `Forget::forget` drops a
+//! session's queued save and waits for one being written, so a purge's delete always comes after
+//! the last write of the purged session.
 
 use crate::daemon::hang_watch::{SyncThread, WRITE_ITEM};
 use crate::store::{SessionMeta, Store};
 use crate::supervised::{Fatal, OwnedThread, ShutdownBehavior, Supervisor};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
@@ -27,6 +30,8 @@ use std::sync::{Arc, Condvar, Mutex};
 struct Queued {
     meta: SessionMeta,
     purged: Arc<AtomicBool>,
+    /// Its ticket ([`State::tickets`]).
+    ticket: u64,
 }
 
 #[derive(Default)]
@@ -35,9 +40,81 @@ struct State {
     /// The newest snapshot version accepted for each session: queued, being written or written.
     /// An older one never reaches the disk after it.
     newest: HashMap<String, u64>,
+    /// Sessions with a queued save, in the order they queued: each is written in turn. A newer
+    /// save of a queued session keeps its place.
+    order: VecDeque<String>,
     /// The session whose record the thread is writing now.
     writing: Option<String>,
+    /// The ticket of the save being written.
+    writing_ticket: u64,
+    /// Saves accepted so far, every session's: each takes the next number as its ticket.
+    tickets: u64,
+    /// The ticket of each session's last save written, from its first save until `forget`. A
+    /// wait for session `id` up to ticket `t` is over once `done[id] >= t`: saves queued after
+    /// the wait began never hold it.
+    done: HashMap<String, u64>,
     stop: bool,
+}
+
+impl State {
+    /// Whether session `id`'s saves up to `ticket` are written (or it was forgotten).
+    fn written(&self, id: &str, ticket: u64) -> bool {
+        self.done.get(id).is_none_or(|done| *done >= ticket)
+    }
+
+    /// Accepts `meta` (snapshot `version`) unless a newer snapshot of its session was accepted
+    /// already; whether it was.
+    fn accept(&mut self, meta: SessionMeta, version: u64, purged: Arc<AtomicBool>) -> bool {
+        if self.newest.get(&meta.id).is_some_and(|newest| *newest > version) {
+            return false;
+        }
+        self.newest.insert(meta.id.clone(), version);
+        self.tickets += 1;
+        let ticket = self.tickets;
+        if !self.queued.contains_key(&meta.id) {
+            self.order.push_back(meta.id.clone());
+        }
+        self.done.entry(meta.id.clone()).or_default();
+        self.queued.insert(meta.id.clone(), Queued { meta, purged, ticket });
+        true
+    }
+
+    /// The next session to write, in the order they queued, and its save; it is now being
+    /// written.
+    fn take(&mut self) -> Option<(String, Queued)> {
+        while let Some(id) = self.order.pop_front() {
+            if let Some(q) = self.queued.remove(&id) {
+                self.writing = Some(id.clone());
+                self.writing_ticket = q.ticket;
+                return Some((id, q));
+            }
+        }
+        None
+    }
+
+    /// The write of session `id`'s save `ticket` ended.
+    fn wrote(&mut self, id: &str, ticket: u64) {
+        self.writing = None;
+        if let Some(done) = self.done.get_mut(id) {
+            *done = (*done).max(ticket);
+        }
+    }
+
+    /// The start of `forget`: session `id`'s queued save is dropped.
+    fn drop_queued(&mut self, id: &str) {
+        self.queued.remove(id);
+        self.order.retain(|o| o != id);
+        self.newest.remove(id);
+    }
+
+    /// The end of `forget`, once no write of session `id` is in progress: a flush waits for it
+    /// no more, nothing of it is written now. A save queued while `forget` waited is dropped too:
+    /// its count goes, so a save left queued would count as written before it is (and the writer
+    /// would write it after the caller deleted the session).
+    fn forgotten(&mut self, id: &str) {
+        self.drop_queued(id);
+        self.done.remove(id);
+    }
 }
 
 struct Shared {
@@ -102,19 +179,26 @@ impl MetaWriter {
             write(store, &meta, &purged);
             return;
         }
-        let mut state = self.lock();
-        if state.newest.get(&meta.id).is_some_and(|newest| *newest > version) {
-            return;
+        if self.lock().accept(meta, version, purged) {
+            self.shared.work.notify_one();
         }
-        state.newest.insert(meta.id.clone(), version);
-        state.queued.insert(meta.id.clone(), Queued { meta, purged });
-        self.shared.work.notify_one();
     }
 
-    /// Waits until every save queued before this call is on disk.
+    /// Waits until every save queued before this call is on disk. Saves queued after it began
+    /// never hold it: at most the write in progress and one write of each session it waits for.
     pub(crate) fn flush(&self) {
         let mut state = self.lock();
-        while self.running() && (!state.queued.is_empty() || state.writing.is_some()) {
+        let mut pending: Vec<(String, u64)> = state
+            .queued
+            .iter()
+            .map(|(id, q)| (id.clone(), q.ticket))
+            .chain(state.writing.clone().map(|id| (id, state.writing_ticket)))
+            .collect();
+        loop {
+            pending.retain(|(id, ticket)| !state.written(id, *ticket));
+            if pending.is_empty() || !self.running() {
+                return;
+            }
             state = cmux_blocking::sync::wait(&self.shared.written, state)
                 .unwrap_or_else(|e| e.into_inner());
         }
@@ -157,12 +241,13 @@ pub(crate) struct Forget(Arc<Shared>);
 impl Forget {
     pub(crate) fn forget(&self, id: &str) {
         let mut state = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
-        state.queued.remove(id);
-        state.newest.remove(id);
+        state.drop_queued(id);
         while state.writing.as_deref() == Some(id) {
             state = cmux_blocking::sync::wait(&self.0.written, state)
                 .unwrap_or_else(|e| e.into_inner());
         }
+        state.forgotten(id);
+        self.0.written.notify_all();
     }
 }
 
@@ -189,9 +274,9 @@ fn run(shared: &Shared, store: &dyn Store) {
     let delay = test_write_delay();
     let mut state = shared.state.lock().unwrap_or_else(|e| e.into_inner());
     loop {
-        // One session at a time, so `forget` waits for at most one write.
-        let next = state.queued.keys().next().cloned();
-        let Some(id) = next else {
+        // One session at a time, so `forget` waits for at most one write; in the order they
+        // queued, so every queued session is written within one write of each other one.
+        let Some((id, q)) = state.take() else {
             if state.stop {
                 return;
             }
@@ -199,8 +284,6 @@ fn run(shared: &Shared, store: &dyn Store) {
                 cmux_blocking::sync::wait(&shared.work, state).unwrap_or_else(|e| e.into_inner());
             continue;
         };
-        let Some(q) = state.queued.remove(&id) else { continue };
-        state.writing = Some(id);
         drop(state);
         if let Some(delay) = delay {
             cmux_threads::checked::sync::sleep(delay);
@@ -210,7 +293,7 @@ fn run(shared: &Shared, store: &dyn Store) {
             write(store, &q.meta, &q.purged);
         }
         state = shared.state.lock().unwrap_or_else(|e| e.into_inner());
-        state.writing = None;
+        state.wrote(&id, q.ticket);
         shared.written.notify_all();
     }
 }
@@ -385,6 +468,32 @@ mod tests {
         store.delete("s1").unwrap();
         writer.flush();
         assert!(store.load("s1").unwrap().is_none());
+    }
+
+    /// `forget` drops a session's queued save, waits for a write of it in progress, then stops
+    /// counting its saves (a flush waits for it no more). A save queued while it waits must not
+    /// count as written while it is still queued: a flush would return before it is on disk, and
+    /// the writer would write it after the caller deleted the session (the same flaw the event
+    /// log's `forget` had, fixed on cp/acpmux-group-commit in 69d858ce976).
+    #[test]
+    fn a_save_queued_while_forget_waits_is_never_counted_before_it_is_written() {
+        let mut state = State::default();
+        let purged = Arc::new(AtomicBool::new(false));
+        assert!(state.accept(meta("s1", "first"), 1, purged.clone()));
+        // The writer takes s1's save and writes it.
+        let (id, first) = state.take().expect("the writer takes the save");
+        // forget begins and waits for that write; a save of s1 is queued meanwhile.
+        state.drop_queued(&id);
+        assert!(state.accept(meta("s1", "late"), 2, purged));
+        let late = state.tickets;
+        // The write ends (as `run` records it); forget ends.
+        state.wrote(&id, first.ticket);
+        state.forgotten(&id);
+        assert!(
+            !(state.written("s1", late) && state.queued.contains_key("s1")),
+            "a queued save of a forgotten session is counted as written"
+        );
+        assert!(state.take().is_none(), "the writer still writes a forgotten session's save");
     }
 
     #[test]

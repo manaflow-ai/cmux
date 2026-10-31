@@ -57,7 +57,8 @@ struct DeviceHubSocketPingTests {
         await DeviceHubSocketWakeTests.skip(&iterator) { $0 == .state(.connected) }
         try await clock.waitForSleeper()
         #expect(clock.sleepRequests.last?.deadline.offset == .seconds(15))
-        #expect(clock.sleepRequests.last?.tolerance == .milliseconds(1500), "the ping's leeway is not a tenth of its interval")
+        #expect(clock.sleepRequests.last?.tolerance == WakeLeeway.window(delay: .seconds(15)).tolerance)
+        #expect(clock.sleepRequests.last?.tolerance == .seconds(1), "the ping's leeway is not WakeLeeway's 1 s cap")
 
         // A frame every 5 s for a minute: each one pushes the ping a whole interval out, so none is ever due.
         for second in stride(from: 5, through: 60, by: 5) {

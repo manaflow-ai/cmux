@@ -72,9 +72,7 @@ struct SwitchToColdTabTypeAheadTests {
             work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
-        _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        AppActions.bind(services)
+        let services = TestHosts.liveDaemonApp()
         services.daemon.start {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
         }
@@ -105,6 +103,9 @@ struct SwitchToColdTabTypeAheadTests {
         await Self.wait(within: .seconds(10)) { !Self.inputBytes(after: seq).isEmpty }
         let shown = try #require(Self.inputBytes(after: seq).keys.first, "the shown terminal got no input")
 
+        // The first tab is still its stand-in (`pending_tab_…`) until the daemon's reply swaps in the daemon's tab: wait
+        // for that state, so the list below names the daemon's tabs and the script's tab is the only new one.
+        await Self.wait(within: .seconds(30)) { pane.orderedIDs.allSatisfy { !ProvisionalTab.isProvisional($0.rawValue) } }
         // A second terminal tab made by a script: the window does not show it, so it has no surface.
         let before = Set(pane.orderedIDs.map(\.rawValue))
         _ = services.registry.perform("newSurface", invocation: ActionInvocation(origin: .cli))

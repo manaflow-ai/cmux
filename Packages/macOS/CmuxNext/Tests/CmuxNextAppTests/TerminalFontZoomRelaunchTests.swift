@@ -12,7 +12,7 @@ import Testing
 /// record's zoom arrives later with the session stream, and the view must take it then.
 /// The boundary: the app's terminal cache with real Ghostty surfaces on a store fed the
 /// relaunch's events in order (launch snapshot, handshake, live tree, session snapshot).
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2)))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .ghosttyStarted)
 struct TerminalFontZoomRelaunchTests {
     static let zoom = 1.154
 

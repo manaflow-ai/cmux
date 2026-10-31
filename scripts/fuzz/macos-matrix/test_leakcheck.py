@@ -77,6 +77,7 @@ class ParseTest(unittest.TestCase):
     def test_output_without_summary_is_an_error_row(self):
         self.assertIn("error", leakcheck.parse("", 124))
 
+    # skip-owner: PL-stability; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
     @unittest.skipIf(os.path.exists("/usr/bin/leaks"), "this Mac has leaks; the case needs a host without it")
     def test_run_local_without_leaks_writes_the_output_and_an_error_row(self):
         with tempfile.TemporaryDirectory() as scratch:

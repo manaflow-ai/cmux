@@ -29,18 +29,18 @@ final class CEFMediaBridge {
         tab.agentRelay.mediaListens = true
         // Blink runs new-document scripts only while the Page domain is on; its events are a few
         // per navigation. The scripts are the same list the renderer path installs (`CEFDocumentScripts`).
-        let scripts = CEFDocumentScripts(post: .binding).media.map { script -> (String, [String: Any]) in
-            var params: [String: Any] = ["source": script.source, "runImmediately": true]
+        let scripts = CEFDocumentScripts(post: .binding).media.map { script -> (String, [String: any Sendable]) in
+            var params: [String: any Sendable] = ["source": script.source, "runImmediately": true]
             if !script.world.isEmpty { params["worldName"] = script.world }
             return ("Page.addScriptToEvaluateOnNewDocument", params)
         }
-        let calls: [(String, [String: Any])] = [("Page.enable", [:])] + scripts + Self.bindings
+        let calls: [(String, [String: any Sendable])] = [("Page.enable", [:])] + scripts + Self.bindings
         run(calls, browser)
         documentChanged()
     }
 
     /// The media world's bindings: the media report and the protected-media refusal.
-    private static var bindings: [(String, [String: Any])] {
+    private static var bindings: [(String, [String: any Sendable])] {
         [BrowserMediaState.channel, BrowserProtectedMedia.channel].map {
             ("Runtime.addBinding", ["name": $0, "executionContextName": BrowserMediaState.world])
         }
@@ -58,7 +58,7 @@ final class CEFMediaBridge {
         run(Self.bindings, browser)
     }
 
-    private func run(_ calls: [(String, [String: Any])], _ browser: Int32) {
+    private func run(_ calls: [(String, [String: any Sendable])], _ browser: Int32) {
         Task { [weak tab] in
             for (method, params) in calls {
                 guard let tab, tab.browserID == browser else { return }

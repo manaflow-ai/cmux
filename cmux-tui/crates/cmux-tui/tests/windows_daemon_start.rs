@@ -346,6 +346,7 @@ const LAUNCHER_HELPER: &str = "launcher_helper_starts_daemon_start_and_exits";
 /// script in an ssh session): it starts `daemon start` with the given
 /// creation flags and exits. It does nothing without its environment.
 #[test]
+// skip-owner: PL-daemon; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
 #[ignore = "launcher helper; run by daemon_start_outlives_its_launchers_job_only_when_launched_with_breakaway"]
 fn launcher_helper_starts_daemon_start_and_exits() {
     let (Ok(session), Ok(socket), Ok(flags), Ok(pid_file)) = (

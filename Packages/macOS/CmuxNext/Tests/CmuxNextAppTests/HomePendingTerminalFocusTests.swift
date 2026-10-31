@@ -16,6 +16,7 @@ import Testing
 /// split or a new tab in a pane does, `CreationInputCoordinator`), so each printable key went to Home's primary input
 /// (`KeyRouter.typesIntoPrimaryInput`), and Home's message box took the keyboard by itself whenever its pane was focused
 /// again (`PrimaryInputTarget.landKeyboard`) or a conversation showed (`NSWindow.keyboardIsFree(for:)`).
+/// skip-owner: PL-typing; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct HomePendingTerminalFocusTests {
     /// A part of Home that takes the keyboard and no text (as a bubble or the bare transcript does).

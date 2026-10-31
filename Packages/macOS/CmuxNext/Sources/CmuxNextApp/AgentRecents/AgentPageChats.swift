@@ -1,3 +1,4 @@
+import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextSidebar
 import CmuxNextWakeups

@@ -96,6 +96,11 @@ pub fn activity_change(hub: &Hub, session: &Session) -> Option<Value> {
 pub struct ChatActivity(HashMap<String, (u64, Value)>);
 
 impl ChatActivity {
+    /// The chat was started by another chat's agent (`parent`): lists fold it under that chat.
+    pub fn has_parent(&self, key: &str) -> bool {
+        self.0.get(key).is_some_and(|(_, fields)| !fields.get("parent").is_none_or(Value::is_null))
+    }
+
     /// Adds `attention`, `preview` and `parent` to a chat value (`chat_value`); a chat
     /// no session continues gets nulls, so a client clears what it had.
     pub fn decorate(&self, chat: &mut Value) {

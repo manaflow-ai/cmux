@@ -22,8 +22,8 @@ import os
 /// session's event loop while more than `highWater` bytes wait to be parsed,
 /// so backpressure reaches the attachment instead of piling up here, and
 /// ``drained()`` waits for the backlog without blocking the main thread.
-/// ``close()`` fences the lane before `ghostty_surface_free`; queued work is
-/// skipped from then on, so the fence waits for at most one chunk.
+/// ``close(then:)`` never waits: queued work is skipped from then on, and its last block, after the
+/// chunk in flight, posts the surface's free to the main thread.
 nonisolated final class TerminalOutputLane: Sendable {
     let highWater: Int
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "terminal")
@@ -217,7 +217,7 @@ nonisolated final class TerminalOutputLane: Sendable {
         enqueue { [self] in
             defer { parsed(data.count) }
             guard let surface = liveSurface else { return }
-            // SAFETY: ``liveSurface`` on the lane: alive until close() fences the lane.
+            // SAFETY: ``liveSurface`` on the lane: alive until close(then:)'s last block posts the free.
             unsafe feed(surface, data)
             echoStage?.outputParsed(armedBefore: armedBefore)
             if let keyFlows { probe.mark(.outputParsed, surface: keyFlows) }
@@ -383,18 +383,18 @@ nonisolated final class TerminalOutputLane: Sendable {
     func lockGrid(_ grid: TerminalGridSize) {
         enqueue { [self] in
             guard let surface = liveSurface, let lock = gridLock.next(grid) else { return }
-            // SAFETY: ``liveSurface`` on the lane, alive for the call (close()'s fence).
+            // SAFETY: ``liveSurface`` on the lane, alive for the call (the free waits for close(then:)'s last block).
             unsafe setGrid(surface, lock.columns, lock.rows, lock.generation)
         }
     }
 
     /// Runs `body` on the lane with the live surface, or not at all after
-    /// ``close()``.
+    /// ``close(then:)``.
     /// `body` must not keep the surface past its call.
     func perform(_ body: @escaping @Sendable (ghostty_surface_t) -> Void) {
         enqueue { [self] in
             guard let surface = liveSurface else { return }
-            // SAFETY: ``liveSurface`` on the lane, alive for the call (close()'s fence).
+            // SAFETY: ``liveSurface`` on the lane, alive for the call (the free waits for close(then:)'s last block).
             unsafe body(surface)
         }
     }
@@ -414,26 +414,33 @@ nonisolated final class TerminalOutputLane: Sendable {
         enqueue(body)
     }
 
-    /// The surface for work on `queue`; nil from ``close()`` on. Work queued after the close's fence
-    /// sees `closing` set (the queue orders it after the store), so nothing touches a freed surface.
+    /// The surface for work on `queue`; nil from ``close(then:)`` on. The surface is freed only after
+    /// the close's last block, which the serial queue runs after every block queued before it, and work
+    /// queued after the close sees `closing` set, so nothing touches a freed surface.
     @safe private var liveSurface: ghostty_surface_t? {
-        // SAFETY: work on the lane reads it before close() sets `closing` and fences the queue,
-        // which the view does before it frees the surface (TerminalSurfaceView.deinit).
+        // SAFETY: work on the lane runs before close(then:)'s last block, which posts the free
+        // (TerminalSurfaceTeardown), or sees `closing` set.
         unsafe closing.load(ordering: .relaxed) ? nil : surface.raw
     }
 
-    /// Skips queued work and waits for the chunk in flight, so nothing
-    /// touches the surface afterwards. Call on the main actor immediately
-    /// before `ghostty_surface_free`.
-    func close() {
+    /// Closes the lane without waiting for it, then runs `last` on the lane once the chunk in flight
+    /// returns. The view calls it on the main actor when it goes away, with a `last` that posts the
+    /// surface's free (``TerminalSurfaceTeardown``).
+    ///
+    /// The main thread must not wait for the lane here: the chunk in flight can be inside Ghostty's
+    /// parse of a flood of titles or bells, blocked on the 64-slot app mailbox (`surfaceMessageWriter`
+    /// pushes with `.forever`) that only the main thread's `ghostty_app_tick` empties. Queued output,
+    /// echo marks and ``perform(_:)`` work are skipped from now on (``liveSurface``): the closed pane has
+    /// no view for its titles and bells.
+    func close(then last: @escaping @Sendable () -> Void) {
         closing.store(true, ordering: .relaxed)
         echoStage?.close()
         let (waiters, wakes) = backlog.withLock { $0.release() }
         waiters.forEach { $0.resume(returning: ()) }
         wakes.forEach { $0() }
-        // The reviewed fence before ghostty_surface_free (BlockingAllowance.surfaceTeardown): queued chunks are
-        // skipped once `closing` is set, so this waits for at most the one chunk being parsed.
-        allowBlocking(.surfaceTeardown) { queue.blockingSync {} }
+        // Not through `enqueue`: a hidden lane's utility QoS must not delay the end of the surface's life.
+        // A lowersHidden queue has no QoS of its own, so the block takes the caller's (main's) QoS.
+        queue.async(execute: last)
     }
 
     private func parsed(_ count: Int) {

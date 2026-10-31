@@ -5,8 +5,9 @@
 //!
 //! The request runner (`server/request_task.rs`) runs each request inside [`scope`] and, before
 //! the answer goes out, [`Hub::wait_written`] waits until every event log record noted in it is
-//! written: the noted sessions move to the front of the writer's turn (`LogWriter::expedite`),
-//! then the request waits on the store's progress. Noted:
+//! written: the noted sessions go in the writer's next batch, in arrival order
+//! (`LogWriter::expedite`), then the request waits on the store's progress, the writer raised to
+//! the request's QoS meanwhile (`Store::write_boost`). Noted:
 //! - every record the request appends on its own task (`Hub::append_at` calls [`note_log`]),
 //!   which covers the records a transfer's import copied on a blocking thread before it: the
 //!   import's `imported` record comes after them in the same log;
@@ -210,10 +211,15 @@ impl Hub {
         if writes.failed {
             return false;
         }
-        // Every noted session goes first in the writer's turn before the request waits on any.
+        // Every noted session goes in the writer's next batch before the request waits on any,
+        // after the sessions earlier requests wait for (`store/log_writer.rs`).
         for id in writes.logs.keys() {
             self.store.expedite(id);
         }
+        // The writer runs at this request's QoS until the wait ends (priority inheritance); a
+        // request that wrote nothing waits for nothing and raises nothing.
+        let boost = if writes.logs.is_empty() { None } else { self.store.write_boost() };
+        let _raise = boost.as_deref().map(cmux_threads::OwnerBoost::wait);
         let mut saved = true;
         for (id, seq) in writes.logs {
             saved &= self.log_written(&id, seq).await;
