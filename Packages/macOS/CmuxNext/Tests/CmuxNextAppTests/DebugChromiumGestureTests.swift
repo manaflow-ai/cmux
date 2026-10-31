@@ -22,12 +22,9 @@ struct DebugChromiumGestureTests {
         defer { try? FileManager.default.removeItem(at: folder) }
         let file = folder.appending(path: "index.html")
         try Data("<html><body><textarea></textarea></body></html>".utf8).write(to: file)
-        #if DEBUG
-        PageID.allowFixtureRoot(folder, for: PageDescriptor.agent.id)
-        #endif
         let hosting = FakeChromiumHosting()
         let pane = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
-                                              pageHost: true, chromium: hosting))
+                                              pageHost: true, testRoot: true, chromium: hosting))
         let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         let parent = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         let child = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)

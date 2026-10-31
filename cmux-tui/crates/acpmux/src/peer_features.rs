@@ -30,6 +30,11 @@ impl Peer {
         self.subagent_transcript.load(Ordering::SeqCst)
     }
 
+    /// Whether the peer said at its last handshake that it pages a chat's native history.
+    pub fn supports_native_history(&self) -> bool {
+        self.native_history.load(Ordering::SeqCst)
+    }
+
     /// Whether the peer said at its last handshake that it saves a message's attachments.
     pub fn supports_send_attach(&self) -> bool {
         self.send_attach.load(Ordering::SeqCst)
