@@ -23,8 +23,8 @@ import Observation
 /// (`backdropView`, the bottom subview) and everything above it is clear.
 final class WindowRootView: NSView, WindowSurfacePainting {
     let titlebar = TitlebarView()
-    /// The window's one material and tint (`WindowBackdrop`).
-    let backdropView = WindowMaterialView(frame: .zero)
+    /// The window's one material and tint (`WindowBackdrop`); its glass keeps the key look through `activeLook`.
+    let backdropView: WindowMaterialView
     /// Whether Reduce Transparency is on (tests pin it; the host setting
     /// differs between machines). Internal, not private: the painting itself
     /// is in `WindowRootView+Surface`.
@@ -125,11 +125,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// - Parameter applyWindowBlur: Sets the window's behind-window blur
     ///   radius (the backdrop's ``WindowBackdrop/windowBlurRadius``).
     /// - Parameter revealClock: Times the collapsed band's close delay.
-    init(sidebar: SidebarContainerView,
+    init(sidebar: SidebarContainerView, activeLook: ActiveLookScope? = nil,
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },
          revealClock: any Clock<Duration> = ContinuousClock()) {
-        self.sidebar = sidebar
+        (self.sidebar, backdropView) = (sidebar, WindowMaterialView(frame: .zero, images: .shared, activeLook: activeLook))
         collapsedBand = CollapsedBandReveal(clock: revealClock)
         self.reduceTransparency = reduceTransparency
         self.applyWindowBlur = applyWindowBlur

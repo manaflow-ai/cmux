@@ -903,7 +903,7 @@ impl Hub {
     }
 
     /// The record kinds `restore_queue` reads; the store parses no other line.
-    const QUEUE_KINDS: &[&str] = &[
+    pub(crate) const QUEUE_KINDS: &[&str] = &[
         // Restore the branch baseline in this same pass, never by rereading at attach.
         "git",
         "queued",

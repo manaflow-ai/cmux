@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { noChat } from "../../../gallery/fixtures/acpmux";
+import { ClosedList } from "./ClosedList";
 import { NewTabScreen } from "./NewTabScreen";
 import { registerHarnessesPage } from "../harnesses/harnessesPage";
 
@@ -100,6 +101,58 @@ test("New Tab exposes the chat composer attachment menu", async () => {
   expect(add).toBeTruthy();
   await act(async () => add!.click());
   expect(container.querySelector('.acpmux-newtab-plus [data-value="attach"]')).toBeTruthy();
+});
+
+test("New Tab + offers Search chats and Search pages as app actions, and no Search files", async () => {
+  const ran: string[] = [];
+  const render = async (onPlusCommand?: (id: string) => Promise<unknown>) =>
+    act(async () => {
+      root!.render(
+        <NewTabScreen
+          snapshot={noChat()}
+          onAsk={() => {}}
+          onOpen={() => {}}
+          onSearch={() => {}}
+          onShell={() => {}}
+          onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+          {...(onPlusCommand ? { onPlusCommand } : {})}
+        />,
+      );
+    });
+  await render();
+  const add = () => container.querySelector<HTMLButtonElement>(".acpmux-newtab-plus .acpmux-picker-button")!;
+  await act(async () => add().click());
+  // A host that cannot run them gets no rows that would do nothing.
+  expect(container.querySelector('.acpmux-newtab-plus [data-value="history.search"]')).toBeNull();
+  await act(async () => add().click());
+
+  await render(async (id) => ran.push(id));
+  for (const id of ["agentPane.searchChats", "history.search"]) {
+    await act(async () => add().click());
+    expect(container.querySelector('.acpmux-newtab-plus [data-value="searchFiles"]')).toBeNull();
+    expect(container.querySelector('.acpmux-newtab-plus [data-value="files.search"]')).toBeNull();
+    const row = container.querySelector<HTMLElement>(`.acpmux-newtab-plus [data-value="${id}"]`);
+    expect(row).toBeTruthy();
+    await act(async () => {
+      row!.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    });
+  }
+  expect(ran).toEqual(["agentPane.searchChats", "history.search"]);
+  expect(container.querySelector(".acpmux-switch-notice")).toBeNull();
+
+  // The app refused it: the page says so instead of nothing happening (New Tab shows no transcript).
+  await render(() => Promise.reject(new Error("unavailable")));
+  await act(async () => add().click());
+  const pages = container.querySelector<HTMLElement>('.acpmux-newtab-plus [data-value="history.search"]')!;
+  await act(async () => {
+    pages.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+  });
+  await act(async () => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+  expect(container.querySelector(".acpmux-switch-notice [role=alert]")?.textContent).toBe(
+    "Search pages isn't available for this chat",
+  );
 });
 
 const firstRunProps = {
@@ -345,4 +398,18 @@ test("a page that goes with an unsent draft hands it over; an untouched page han
   await act(async () => input.dispatchEvent(new dom!.window.Event("change", { bubbles: true })));
   await act(async () => root!.render(<main />));
   expect(left).toEqual([["", [expect.objectContaining({ path: "/tmp/notes.txt" })]]]);
+});
+
+test("a closed agent chat uses the semantic agent glyph and preserves its title", async () => {
+  await act(async () => {
+    root!.render(
+      <ClosedList
+        items={[{ id: "closed:chat", kind: "agent", title: "Pinned chat", closedAt: 1, available: true }]}
+        onReopen={() => {}}
+      />,
+    );
+  });
+
+  expect(container.querySelector('.nt-row-glyph[data-kind="agent"] svg[data-icon="agent.chat"]')).toBeTruthy();
+  expect(container.querySelector(".nt-row-title")?.textContent).toBe("Pinned chat");
 });
