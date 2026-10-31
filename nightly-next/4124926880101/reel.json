@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "build": "4124926880101",
+  "notes": "notes/4124926880101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 29681,
+      "title": "cmux NEXT: slow and widen the running-row shimmer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29742,
+      "title": "Sidebar: keep unopened agent-started chats out of Priority",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29731,
+      "title": "fix(ci): excuse deterministic Chromium currency base reds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29678,
+      "title": "ci(nightly-next): watch and retry stale legacy feed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29720,
+      "title": "fix(webviews): localize session paging failures",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29641,
+      "title": "Session Info: Compact session is a real button that works while a turn runs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29665,
+      "title": "fix(agent-pane): select from blank composer context",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25682,
+      "title": "NEXT Cloud: keep ACP trajectories outside the VM",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29734,
+      "title": "fix(acpmux): warn instead of refusing sessions below the disk floor",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29669,
+      "title": "Cloud: automatically start new chats on the selected Cloud default (carry #29109)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29682,
+      "title": "fix(next): carry chat tool opens into the existing right column",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
