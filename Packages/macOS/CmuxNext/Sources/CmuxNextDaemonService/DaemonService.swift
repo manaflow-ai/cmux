@@ -184,10 +184,11 @@ public final class DaemonService {
         updateHandOff = { await launcher.handOffForUpdate(identity: $1, using: $0) }
         launchSnapshotSession = launcher.configuration.session
         showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
-        let configuration = Self.localConfiguration(terminalEnvironment: terminalEnvironmentProvider,
-                                                    resolvesShellIntegration: resolvesShellIntegration,
-                                                    installKey: launcher.configuration.installKey,
-                                                    echoesPlacementShift: echoesPlacementShift, retryWake: retryWake)
+        // An owner the handshake refuses (an older protocol, a missing capability) is handed off to
+        // the bundled build like one of another build; only a failed handoff shows the refusal.
+        let configuration = launcher.handingOffIncompatibleOwners(Self.localConfiguration(
+            terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
+            installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift, retryWake: retryWake))
         var first: (@Sendable () async -> DaemonPrestart.Outcome)?
         if let prestart {
             // Cancelling the startup (shutdown) cancels the attempt too.
@@ -232,13 +233,21 @@ public final class DaemonService {
         runTask = Task { [weak self, drainScheduler, logger] in
             let clock = self?.startupClock ?? ContinuousClock()
             weak let weakSelf = self
-            let onFailure: @Sendable (DaemonError) async -> Void = { error in await weakSelf?.noteStartupFailure(error) }
+            let onFailure: @Sendable (DaemonError) async -> Void = { error in
+                // An incompatible owner is exiting for a handoff to the bundled build: as after a
+                // version handoff (below), no failure shows and the deadline covers the successor.
+                guard error != .incompatibleOwnerHandedOff else {
+                    await weakSelf?.noteIncompatibleOwnerHandoff()
+                    return
+                }
+                await weakSelf?.noteStartupFailure(error)
+            }
             var connected = await DaemonStartup.shared.connect(wake: wake, clock: clock, first: first,
                                                                makeConnection: makeConnection, onFailure: onFailure)
             if let (exiting, identity) = connected, let handOff, await handOff(exiting, identity) {
                 // The new connection's endpoint waits for the old daemon to
                 // exit and starts the bundled build, which adopts the terminals.
-                await exiting.close()
+                await exiting.closeAndWait()
                 // The first connect was in time; the deadline now covers
                 // the successor's start.
                 self?.armStartupDeadline()
@@ -250,7 +259,7 @@ public final class DaemonService {
             }
             guard let (connection, identity) = connected else { return }
             guard let self, !Task.isCancelled else {
-                await connection.close()
+                await connection.closeAndWait()
                 return
             }
             await connection.observePaneNotReady(self.paneNotReadyReporter)
@@ -313,7 +322,7 @@ public final class DaemonService {
                     await weakSelf?.noteStartupFailure(error)
                 }
                 if Task.isCancelled {
-                    await connected?.0.close()
+                    await connected?.0.closeAndWait()
                     return
                 }
                 guard let (connection, identity) = connected else {
@@ -322,7 +331,7 @@ public final class DaemonService {
                     continue
                 }
                 guard let self, !Task.isCancelled else {
-                    await connection.close()
+                    await connection.closeAndWait()
                     return
                 }
                 do {
@@ -334,14 +343,14 @@ public final class DaemonService {
                     let show = !Task.isCancelled
                     self.shutdownConnection()
                     if show { store.markFailed(String(describing: error)) }
-                    await connection.close()
+                    await connection.closeAndWait()
                     return
                 }
                 await self.observeRemote(connection)
                 self.didConnect(connection, identity: identity)
                 logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
                 await store.run(connection: connection, scheduler: drainScheduler)
-                await connection.close()
+                await connection.closeAndWait()
                 if Task.isCancelled { return }
                 guard await ends.waitAfterFailure(wake: wake, clock: clock) else { return }
             }
@@ -384,6 +393,20 @@ public final class DaemonService {
             startup = .unavailable(error)
             resumeConnectionWaiters()
         }
+    }
+
+    /// The handshake handed an incompatible owner off to the bundled build
+    /// (`DaemonLauncher.handOffIncompatible`); the next connect reaches its successor.
+    /// The handoff can come after the first deadline already showed a failure, so the
+    /// successor gets a fresh `.connecting` window and the old failure is dropped.
+    func noteIncompatibleOwnerHandoff() {
+        Self.launchMark("daemon_version_handoff")
+        logger.info("cmux-tui daemon handoff: the running owner is incompatible; starting the bundled build")
+        if startup != .connected {
+            startup = .connecting
+            lastStartupError = nil
+        }
+        armStartupDeadline()
     }
 
     private func armStartupDeadline() {
@@ -519,7 +542,20 @@ public final class DaemonService {
         return failure
     }
 
+    /// Teardown that must finish before the caller removes a test session's state or reaps its owner.
+    public func shutdownConnectionAndWait() async {
+        let startup = runTask
+        let connected = detachConnection()
+        await connected?.closeAndWait()
+        await startup?.value
+    }
+
     public func shutdownConnection() {
+        // task-owner: teardown hop; close() is idempotent and finishes the store pump
+        if let connection = detachConnection() { Task { await connection.close() } }
+    }
+
+    private func detachConnection() -> DaemonConnection? {
         // Nothing may start an owner again behind the shutdown (the unresponsive owner's restart).
         recovery.detach()
         startupDeadlineTimer?.cancel()
@@ -532,8 +568,8 @@ public final class DaemonService {
         runTask = nil
         keptLayoutRelaunch?.cancel()
         keptLayoutRelaunch = nil
-        // task-owner: teardown hop; close() is idempotent and finishes the store pump
-        if let connection { Task { await connection.close() } }
+        let connected = connection
         connection = nil
+        return connected
     }
 }

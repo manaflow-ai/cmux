@@ -48,10 +48,10 @@ import Testing
 
     @Test func reconnectAfterSpentRetriesIsAFreshConnect() {
         for link: SSHConnectionMachine.Status in [.connecting, .connected, .reconnecting] {
-            #expect(SSHReconnectStep(link: link, daemonStarted: true, daemonFailed: false, retriesSpent: true) == .restart)
+            #expect(link.reconnectStep(daemonConnected: true, daemonFailed: false, retriesSpent: true) == .restart)
         }
-        #expect(SSHReconnectStep(link: .offline, daemonStarted: true, daemonFailed: false, retriesSpent: true) == .connect)
-        #expect(SSHReconnectStep(link: .connected, daemonStarted: true, daemonFailed: false) == .nothing)
+        #expect(SSHConnectionMachine.Status.offline.reconnectStep(daemonConnected: true, daemonFailed: false, retriesSpent: true) == .connect)
+        #expect(SSHConnectionMachine.Status.connected.reconnectStep(daemonConnected: true, daemonFailed: false) == .nothing)
     }
 
     @Test func theStoreMarksSpentRetriesUntilTheNextConnect() throws {

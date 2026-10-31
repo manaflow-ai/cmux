@@ -62,7 +62,7 @@ final class SSHMachineSession {
     @ObservationIgnored var onStatusChange: ((SSHMachineSession, SSHConnectionMachine.Status) -> Void)?
     @ObservationIgnored var connectRecovery: SSHConnectRecovery?
     /// In use by another cmux daemon: only a person's Reconnect takes it over (G5). Retries spent: Offline (G4).
-    var waitsForUser: Bool { if case .failed = linkStatus { link.waitsForUser } else { false } }
+    var waitsForUser: Bool { link.waitsForUser }
     var retriesSpent: Bool { daemon.store.retriesSpent }
     /// Changes at the start of every user or automatic connection attempt, even when the
     /// transport and daemon report the same failure again.
