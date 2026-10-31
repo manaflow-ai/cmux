@@ -80,6 +80,10 @@ pub struct Session {
     /// its guard drops. A prompt that comes meanwhile queues and is accepted at once
     /// (`queue_slot`), instead of waiting unanswered for the lock (fuzz row g, g1).
     pub(super) turn_claimed: AtomicBool,
+    /// Makes a new prompt's check whether it must wait and its place in the `queued` count one
+    /// step (`queue.rs` `queue_slot`): two prompts that come together never both find the chat
+    /// free. A leaf lock, held for no await.
+    pub(super) admit: StdMutex<()>,
     /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop
     /// settles the logical turn before its cancel reaches the harness; keeping this lock until
     /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.
