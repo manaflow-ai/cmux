@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
+import CmuxNextServer
 import Foundation
 import Observation
 import os
@@ -30,9 +31,10 @@ final class SSHService {
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.ssh")
     /// Runs `remote.install` through the registry's confirmation (set by the handlers).
     @ObservationIgnored var offerInstall: ((SSHMachineSession) -> Void)?
-    /// Removes the acpmux peers whose ssh `[user@]host` the predicate picks (set by the handlers:
-    /// `DeviceDirectory.removePeers`). A written Forget takes out the peer enroll added for the same
-    /// host, so the machine leaves the agent list too (HQ #4877 break 8).
+    /// Removes the acpmux peers whose ssh `[user@]host` the predicate picks: by default the app's own
+    /// cmux-tui (`acp host ls`, then `acp host rm` for each match); tests replace it. A written Forget
+    /// takes out the peer enroll added for the same host, so the machine leaves the agent list too
+    /// (HQ #4877 break 8).
     @ObservationIgnored var removePeers: (((String) -> Bool) async -> Void)?
     /// Forgotten machines, so a stale registry echo does not bring them back.
     @ObservationIgnored private var forgotten: Set<String> = []
@@ -54,6 +56,18 @@ final class SSHService {
         paths = SSHPaths.standard(bundleID: bundleID)
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         installer = RemoteInstaller(paths: paths)
+        removePeers = binary.map(Self.removePeers(cli:))
+    }
+
+    /// The default ``removePeers``: the app's own cmux-tui at `cli` lists the peers, then removes each match.
+    private static func removePeers(cli binary: URL) -> ((String) -> Bool) async -> Void {
+        let cli = HostCLI(binary: binary, environment: SSHService.environment)
+        return { matches in
+            guard let data = await cli.json(["acp", "host", "ls", "--json"], label: "host ls") else { return }
+            for peer in DeviceDirectory.sshPeers(data) where matches(peer.destination) {
+                _ = await cli.json(["acp", "host", "rm", peer.name, "--json"], label: "host rm")
+            }
+        }
     }
 
     /// Why SSH machines cannot connect in this build, or nil.

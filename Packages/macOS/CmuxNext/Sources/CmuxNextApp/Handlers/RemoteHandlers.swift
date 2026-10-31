@@ -42,8 +42,6 @@ enum RemoteHandlers {
             // Asks through the registry's confirmation sheet (remote.install is destructive).
             _ = registry?.perform("remote.install", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID)))
         }
-        // A written Forget also removes the acpmux peer enroll added for the machine (HQ #4877 break 8).
-        ssh.removePeers = { [weak services = context.services] matches in await services?.devices.removePeers(where: matches) }
         CloudHandlers.bind("remote.connect", registry, reason: available) { invocation in
             // A CLI/MCP run stays headless unless it explicitly requests focus;
             // capture and automation must not steal the person's active window.
