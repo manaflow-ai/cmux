@@ -129,7 +129,10 @@ extension BrowserTab {
     /// An engine whose `evaluate` awaits a promise (Chromium) runs the body as an async function.
     /// Automation waits: an agent's call.
     public func evaluateAsync(_ body: String) async throws -> BrowserJSValue {
-        try await evaluate("(async () => {\n\(body)\n})()", world: .page, gesture: .agent)
+        guard await BrowserFunctionBodySyntax().isValid(body) else {
+            throw BrowserTabError.javaScript("SyntaxError: invalid async function body")
+        }
+        return try await evaluate("(async () => {\n\(body)\n})()", world: .page, gesture: .agent)
     }
 
     public func fullPageSnapshot() async throws -> CGImage {

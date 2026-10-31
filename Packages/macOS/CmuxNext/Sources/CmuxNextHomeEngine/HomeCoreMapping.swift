@@ -44,6 +44,11 @@ public nonisolated enum HomeCoreMapping {
                   let question = AgentQuestion(conversationPart: json, messageID: messageID, partIndex: index)
             else { return .text("question") }
             return .question(question)
+        case .unknown("card", let payload):
+            // A Chief's card (cmux issue 25830); one this build cannot read shows as its text.
+            guard let data = try? JSONEncoder().encode(payload), let card = try? JSONDecoder().decode(ChiefCard.self, from: data)
+            else { return .text(part.plainText) }
+            return .card(card)
         case .linkPreview(let link):
             return .linkPreview(LinkPreview(url: link.url, title: link.title, site: link.site, image: link.image.map {
                 AttachmentDerivedImage(hash: $0.hash, mimeType: $0.mimeType, byteCount: $0.byteCount)
@@ -143,9 +148,9 @@ public nonisolated enum HomeCoreMapping {
                 return .linkPreview(ConversationLinkPreview(url: link.url, title: link.title, site: link.site, image: link.image.map {
                     ConversationDerivedImage(hash: $0.hash, mimeType: $0.mimeType, byteCount: $0.byteCount)
                 }))
-            case .approval, .location, .question:
+            case .approval, .location, .question, .card:
                 // The local owner has no approval or location parts;
-                // a person never sends a question (agents post them).
+                // a person never sends a question or a card (agents post them).
                 return .text(part.plainText, runs: [])
             }
         }

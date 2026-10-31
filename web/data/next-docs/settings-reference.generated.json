@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 532,
+  "count": 534,
   "sections": [
     {
       "id": "general",
@@ -3454,6 +3454,14 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.showNewWorkspaceChooser",
+          "title": "Show New Workspace Menu Button",
+          "help": "A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.showProfileControl",
           "title": "Show Profile Button",
           "help": "",
@@ -4469,6 +4477,14 @@
             "human",
             "instant"
           ]
+        },
+        {
+          "key": "browser.agentSecureStoreFill",
+          "title": "Let Agents Sign In from the Secure Store",
+          "help": "When an agent's page needs a sign-in you saved in the Secure Store, cmux fills it into the agent's own tab. The agent never sees the password, and its scripts are refused on that site from then on.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Input"
         },
         {
           "key": "browser.builtInAdBlocker",

@@ -136,6 +136,11 @@ export function partText(part: HomePart): string {
       return part.preview ?? part.title;
     case "attachment":
       return part.name;
+    case "card":
+      // The text fallback every owner shows (home-core card.ts `cardText`).
+      if (part.kind === "browser") return `${part.surface === "computer" ? "Computer" : "Browser"}: ${part.step}`;
+      if (part.kind === "sign_in") return `Secure Store: sign in to ${part.site}`;
+      return part.choices.map((choice) => `→ ${choice}`).join("\n");
   }
 }
 

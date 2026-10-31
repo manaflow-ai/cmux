@@ -6794,268 +6794,6 @@
         }
       }
     },
-    "settings.app.showMenuBarIcon": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Menu Bar Icon"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار أيقونة شريط القوائم"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži ikonu na traci menija"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis ikon på menulinjen"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Symbol in der Menüleiste zeigen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar icono en la barra de menús"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher l’icône dans la barre des menus"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra icona nella barra dei menu"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メニューバーにアイコンを表示"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្ហាញរូបតំណាងនៅរបារម៉ឺនុយ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "메뉴 막대에 아이콘 표시"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis ikon i menylinjen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokaż ikonę na pasku menu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar ícone na barra de menus"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывать значок в строке меню"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงไอคอนในแถบเมนู"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Menü çubuğunda simgeyi göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показувати значок у рядку меню"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hiển thị biểu tượng trên thanh menu"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在菜单栏中显示图标"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在選單列中顯示圖像"
-          }
-        }
-      }
-    },
-    "settings.app.showMenuBarIcon.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عنصر cmux في شريط القوائم: فتح cmux وحسابك والوكلاء العاملون والمساعدة وDiscord والتحديثات والسجلات والإنهاء."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stavka cmux na traci menija: otvori cmux, tvoj račun, agenti koji rade, pomoć, Discord, ažuriranja, zapisnici i Izlaz."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Et cmux-element på menulinjen: åbn cmux, din konto, agenter i arbejde, hjælp, Discord, opdateringer, logfiler og Afslut."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ein cmux-Eintrag in der Menüleiste: cmux öffnen, dein Konto, aktive Agenten, Hilfe, Discord, Updates, Protokolle und Beenden."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un elemento de cmux en la barra de menús: abrir cmux, tu cuenta, agentes trabajando, ayuda, Discord, actualizaciones, registros y Salir."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un élément cmux dans la barre des menus : ouvrir cmux, votre compte, les agents au travail, l’aide, Discord, les mises à jour, les journaux et Quitter."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un elemento cmux nella barra dei menu: apri cmux, il tuo account, agenti al lavoro, aiuto, Discord, aggiornamenti, log ed Esci."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メニューバーの cmux 項目: cmux を開く、アカウント、作業中のエージェント、ヘルプ、Discord、アップデート、ログ、終了。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ធាតុ cmux នៅរបារម៉ឺនុយ៖ បើក cmux គណនីរបស់អ្នក ភ្នាក់ងារកំពុងធ្វើការ ជំនួយ Discord បច្ចុប្បន្នភាព កំណត់ហេតុ និងចាកចេញ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "메뉴 막대의 cmux 항목: cmux 열기, 계정, 작업 중인 에이전트, 도움말, Discord, 업데이트, 로그, 종료."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Et cmux-element i menylinjen: åpne cmux, kontoen din, agenter i arbeid, hjelp, Discord, oppdateringer, logger og Avslutt."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Element cmux na pasku menu: otwórz cmux, twoje konto, pracujący agenci, pomoc, Discord, aktualizacje, logi i Zakończ."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Um item do cmux na barra de menus: abrir o cmux, sua conta, agentes trabalhando, ajuda, Discord, atualizações, registros e Sair."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Пункт cmux в строке меню: открыть cmux, ваш аккаунт, работающие агенты, справка, Discord, обновления, журналы и выход."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "รายการ cmux ในแถบเมนู: เปิด cmux บัญชีของคุณ เอเจนต์ที่กำลังทำงาน ความช่วยเหลือ Discord การอัปเดต บันทึก และออก"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Menü çubuğunda bir cmux öğesi: cmux'ı aç, hesabın, çalışan ajanlar, yardım, Discord, güncellemeler, günlükler ve Çık."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Пункт cmux у рядку меню: відкрити cmux, ваш обліковий запис, агенти, що працюють, довідка, Discord, оновлення, журнали й вихід."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Một mục cmux trên thanh menu: mở cmux, tài khoản của bạn, tác nhân đang làm việc, trợ giúp, Discord, cập nhật, nhật ký và Thoát."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "菜单栏中的 cmux 项目：打开 cmux、你的账户、正在工作的代理、帮助、Discord、更新、日志和退出。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選單列中的 cmux 項目：打開 cmux、你的帳號、正在工作的代理程式、輔助說明、Discord、更新、記錄和結束。"
-          }
-        }
-      }
-    },
     "settings.agentPane.display.minimap": {
       "comment": "Settings > Appearance > Agent Chat: what runs down the chat's edge (the prompt rail of ticks, the full map, or nothing)",
       "extractionState": "manual",
@@ -14221,268 +13959,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "開啟連結"
-          }
-        }
-      }
-    },
-    "settings.browser.openSignInPages": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Sign-In Pages in cmux Browser"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "فتح صفحات تسجيل الدخول في متصفح cmux"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Otvaraj stranice za prijavu u cmux pregledniku"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Åbn login-sider i cmux-browser"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Anmeldeseiten im cmux-Browser öffnen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Abrir páginas de inicio de sesión en el navegador de cmux"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ouvrir les pages de connexion dans le navigateur cmux"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Apri le pagine di accesso nel browser cmux"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "サインインページをcmuxブラウザで開く"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បើកទំព័រចូលក្នុងកម្មវិធីរុករក cmux"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "로그인 페이지를 cmux 브라우저에서 열기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Åpne påloggingssider i cmux-nettleseren"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Otwieraj strony logowania w przeglądarce cmux"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Abrir páginas de login no navegador do cmux"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Открывать страницы входа в браузере cmux"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เปิดหน้าลงชื่อเข้าใช้ในเบราว์เซอร์ cmux"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Oturum açma sayfalarını cmux tarayıcısında aç"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Відкривати сторінки входу в браузері cmux"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mở trang đăng nhập trong trình duyệt cmux"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在 cmux 浏览器中打开登录页面"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在 cmux 瀏覽器中開啟登入頁面"
-          }
-        }
-      }
-    },
-    "settings.browser.openSignInPages.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تُفتح صفحات تسجيل الدخول ورموز الأجهزة، مثل صفحة الأجهزة في GitHub أو صفحة يفتحها gh أو aws أو وكيل لتسجيل الدخول، في علامة تبويب متصفح cmux حتى عندما تُفتح الروابط الأخرى في متصفحك الافتراضي. تظل الأولوية لعناوين URL التي تُفتح دائمًا خارجيًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Stranice za prijavu i kodove uređaja, kao što je GitHubova stranica za uređaje ili stranica koju gh, aws ili agent otvori za prijavu, otvaraju se u kartici cmux preglednika čak i kada se ostali linkovi otvaraju u vašem zadanom pregledniku. URL-ovi koji se uvijek otvaraju vanjski i dalje imaju prednost."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Login- og enhedskodesider, såsom GitHubs enhedsside eller en side, som gh, aws eller en agent åbner for at logge ind, åbnes i en cmux-browserfane, selv når andre links åbnes i din standardbrowser. URL'er, der altid åbnes eksternt, vinder stadig."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Anmelde- und Gerätecode-Seiten, etwa die Geräteseite von GitHub oder eine Seite, die gh, aws oder ein Agent zur Anmeldung öffnet, öffnen sich in einem cmux-Browser-Tab, auch wenn andere Links in deinem Standardbrowser geöffnet werden. „Immer extern zu öffnende URLs“ haben weiterhin Vorrang."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Las páginas de inicio de sesión y de código de dispositivo, como la página de dispositivos de GitHub o una página que gh, aws o un agente abre para iniciar sesión, se abren en una pestaña del navegador de cmux aunque los demás enlaces se abran en tu navegador predeterminado. Las URL que siempre se abren externamente siguen teniendo prioridad."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Les pages de connexion et de code d'appareil, comme la page d'appareil de GitHub ou une page que gh, aws ou un agent ouvre pour se connecter, s'ouvrent dans un onglet du navigateur cmux même lorsque les autres liens s'ouvrent dans votre navigateur par défaut. Les URL à toujours ouvrir à l'extérieur restent prioritaires."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le pagine di accesso e dei codici dispositivo, come la pagina dei dispositivi di GitHub o una pagina che gh, aws o un agente apre per accedere, si aprono in una scheda del browser cmux anche quando gli altri link si aprono nel browser predefinito. Gli URL da aprire sempre esternamente hanno comunque la precedenza."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "GitHubのデバイスページや、gh・aws・エージェントがサインインのために開くページなどのサインインページやデバイスコードページは、ほかのリンクがデフォルトブラウザで開く設定でもcmuxブラウザのタブで開きます。「常に外部で開くURL」は引き続き優先されます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ទំព័រចូល និងទំព័រកូដឧបករណ៍ ដូចជាទំព័រឧបករណ៍របស់ GitHub ឬទំព័រដែល gh, aws ឬភ្នាក់ងារបើកដើម្បីចូល នឹងបើកក្នុងផ្ទាំងកម្មវិធីរុករក cmux ទោះបីតំណផ្សេងទៀតបើកក្នុងកម្មវិធីរុករកលំនាំដើមរបស់អ្នកក៏ដោយ។ URL ដែលបើកខាងក្រៅជានិច្ចនៅតែមានអាទិភាព។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "GitHub 기기 페이지나 gh, aws, 에이전트가 로그인하려고 여는 페이지 같은 로그인 및 기기 코드 페이지는 다른 링크가 기본 브라우저에서 열리더라도 cmux 브라우저 탭에서 열립니다. 항상 외부에서 열 URL이 여전히 우선합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Påloggings- og enhetskodesider, som GitHubs enhetsside eller en side gh, aws eller en agent åpner for å logge på, åpnes i en cmux-nettleserfane selv når andre lenker åpnes i standardnettleseren din. URL-er som alltid åpnes eksternt, vinner fortsatt."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Strony logowania i kodów urządzeń, takie jak strona urządzeń GitHuba lub strona, którą gh, aws albo agent otwiera do logowania, otwierają się w karcie przeglądarki cmux, nawet gdy inne linki otwierają się w domyślnej przeglądarce. Adresy URL zawsze otwierane zewnętrznie nadal mają pierwszeństwo."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Páginas de login e de código de dispositivo, como a página de dispositivos do GitHub ou uma página que gh, aws ou um agente abre para entrar, abrem em uma aba do navegador do cmux mesmo quando outros links abrem no seu navegador padrão. URLs para sempre abrir externamente continuam tendo prioridade."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Страницы входа и кодов устройств, например страница устройств GitHub или страница, которую gh, aws или агент открывает для входа, открываются во вкладке браузера cmux, даже если другие ссылки открываются в браузере по умолчанию. Адреса из списка «Всегда открывать во внешнем браузере» по-прежнему имеют приоритет."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "หน้าลงชื่อเข้าใช้และหน้ารหัสอุปกรณ์ เช่น หน้าอุปกรณ์ของ GitHub หรือหน้าที่ gh, aws หรือเอเจนต์เปิดเพื่อลงชื่อเข้าใช้ จะเปิดในแท็บเบราว์เซอร์ cmux แม้ลิงก์อื่นจะเปิดในเบราว์เซอร์เริ่มต้นของคุณ URL ที่เปิดภายนอกเสมอยังคงมีสิทธิ์เหนือกว่า"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "GitHub'ın cihaz sayfası ya da gh, aws veya bir ajanın oturum açmak için açtığı sayfa gibi oturum açma ve cihaz kodu sayfaları, diğer bağlantılar varsayılan tarayıcınızda açılsa bile bir cmux tarayıcı sekmesinde açılır. Her Zaman Harici Açılacak URL'ler yine önceliklidir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Сторінки входу та кодів пристроїв, як-от сторінка пристроїв GitHub або сторінка, яку gh, aws чи агент відкриває для входу, відкриваються у вкладці браузера cmux, навіть коли інші посилання відкриваються в браузері за замовчуванням. Адреси зі списку «Завжди відкривати зовні» й надалі мають пріоритет."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Trang đăng nhập và trang mã thiết bị, chẳng hạn trang thiết bị của GitHub hoặc trang mà gh, aws hay một tác tử mở để đăng nhập, sẽ mở trong một thẻ trình duyệt cmux ngay cả khi các liên kết khác mở trong trình duyệt mặc định của bạn. Các URL luôn mở bên ngoài vẫn được ưu tiên."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "登录页面和设备代码页面（例如 GitHub 的设备页面，或 gh、aws、智能体为登录而打开的页面）会在 cmux 浏览器标签页中打开，即使其他链接在默认浏览器中打开。“始终在外部打开的 URL”仍然优先。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "登入頁面和裝置代碼頁面（例如 GitHub 的裝置頁面，或 gh、aws、代理程式為登入而開啟的頁面）會在 cmux 瀏覽器分頁中開啟，即使其他連結在預設瀏覽器中開啟。「一律在外部開啟的 URL」仍然優先。"
           }
         }
       }
@@ -26536,6 +26012,532 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "密度預設值"
+          }
+        }
+      }
+    },
+    "settings.computerUse.livePreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Preview in Chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットでのライブプレビュー"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "معاينة مباشرة في الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pregled uživo u chatu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Live-forhåndsvisning i chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Live-Vorschau im Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vista previa en directo en el chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aperçu en direct dans le chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anteprima dal vivo nella chat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការមើលជាមុនផ្ទាល់ក្នុងការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅의 실시간 미리보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direkteforhåndsvisning i chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podgląd na żywo w czacie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prévia ao vivo no chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Живой просмотр в чате"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวอย่างสดในแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbette canlı önizleme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Живий перегляд у чаті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xem trước trực tiếp trong cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天中的实时预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天中的即時預覽"
+          }
+        }
+      }
+    },
+    "settings.computerUse.livePreview.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントがアプリを使っている間、そのチャットにアプリの小さなライブビューが表示されます。ビューをクリックするとエージェントのアクティビティが開きます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عندما يستخدم وكيل تطبيقًا، تعرض دردشته عرضًا مباشرًا صغيرًا لهذا التطبيق. انقر على العرض لفتح نشاط الوكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dok agent koristi aplikaciju, njegov chat prikazuje mali prikaz te aplikacije uživo. Kliknite prikaz da otvorite Aktivnost agenta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mens en agent bruger en app, viser dens chat en lille livevisning af appen. Klik på visningen for at åbne Agentaktivitet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Während ein Agent eine App verwendet, zeigt sein Chat eine kleine Live-Ansicht dieser App. Klicke auf die Ansicht, um die Agentenaktivität zu öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mientras un agente usa una app, su chat muestra una pequeña vista en directo de esa app. Haz clic en la vista para abrir Actividad de agentes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pendant qu'un agent utilise une app, son chat affiche un petit aperçu en direct de cette app. Clique sur l'aperçu pour ouvrir Activité des agents."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mentre un agente usa un'app, la sua chat mostra una piccola vista dal vivo di quell'app. Fai clic sulla vista per aprire Attività degli agenti."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពេលភ្នាក់ងារប្រើកម្មវិធីមួយ ការជជែករបស់វាបង្ហាញទិដ្ឋភាពផ្ទាល់តូចមួយនៃកម្មវិធីនោះ។ ចុចលើទិដ្ឋភាពដើម្បីបើកសកម្មភាពភ្នាក់ងារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트가 앱을 사용하는 동안 해당 채팅에 그 앱의 작은 실시간 보기가 표시됩니다. 보기를 클릭하면 에이전트 활동이 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mens en agent bruker en app, viser chatten en liten direktevisning av appen. Klikk på visningen for å åpne Agentaktivitet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdy agent używa aplikacji, jego czat pokazuje mały podgląd tej aplikacji na żywo. Kliknij podgląd, aby otworzyć Aktywność agentów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enquanto um agente usa um app, o chat dele mostra uma pequena visualização ao vivo desse app. Clique na visualização para abrir Atividade de agentes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пока агент работает с приложением, его чат показывает небольшой живой вид этого приложения. Нажмите на вид, чтобы открыть Активность агентов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขณะที่เอเจนต์ใช้แอป แชทของเอเจนต์จะแสดงมุมมองสดขนาดเล็กของแอปนั้น คลิกมุมมองเพื่อเปิดกิจกรรมของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir ajan bir uygulamayı kullanırken sohbeti o uygulamanın küçük bir canlı görünümünü gösterir. Ajan etkinliğini açmak için görünüme tıkla."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поки агент працює з застосунком, його чат показує невеликий живий вигляд цього застосунку. Натисніть на вигляд, щоб відкрити Активність агентів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi một tác tử dùng một ứng dụng, cuộc trò chuyện của nó hiển thị một khung xem trực tiếp nhỏ của ứng dụng đó. Nhấp vào khung xem để mở Hoạt động của tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理使用某个应用时，其聊天会显示该应用的小型实时视图。点按视图可打开代理活动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理使用某個 App 時，其聊天會顯示該 App 的小型即時檢視。按一下檢視即可開啟代理活動。"
+          }
+        }
+      }
+    },
+    "settings.computerUse.livePreview.summary": {
+      "comment": "Settings row summary: one short line under the setting's title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the app an agent uses in its chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが使うアプリをそのチャットに表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض التطبيق الذي يستخدمه الوكيل في دردشته"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikazuje aplikaciju koju agent koristi u njegovom chatu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser den app, en agent bruger, i dens chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeigt die App, die ein Agent verwendet, in seinem Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muestra la app que usa un agente en su chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affiche l'app qu'un agent utilise dans son chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra l'app che un agente usa nella sua chat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញកម្មវិធីដែលភ្នាក់ងារប្រើ ក្នុងការជជែករបស់វា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트가 사용하는 앱을 채팅에 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser appen en agent bruker, i chatten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuje w czacie aplikację, której używa agent"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra no chat o app que um agente usa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывает в чате приложение, с которым работает агент"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงแอปที่เอเจนต์ใช้ในแชทของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajanın kullandığı uygulamayı sohbetinde gösterir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показує в чаті застосунок, з яким працює агент"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiển thị ứng dụng mà tác tử đang dùng trong cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在聊天中显示代理使用的应用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在聊天中顯示代理使用的 App"
+          }
+        }
+      }
+    },
+    "settings.default.neverDiscard": {
+      "comment": "Settings > Browser > Memory > Hibernate Hidden Tabs: the value with nothing in cmux.json: hidden tabs only freeze and are never discarded (reloaded) on their own.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never Discard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "破棄しない"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عدم التجاهل أبدًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nikad ne odbacuj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kassér aldrig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie verwerfen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No descartar nunca"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ne jamais décharger"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non scartare mai"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កុំបោះចោលឡើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "삭제 안 함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forkast aldri"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nigdy nie odrzucaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nunca descartar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не выгружать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ทิ้งเลย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Asla atma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вивантажувати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không bao giờ loại bỏ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "从不丢弃"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "永不捨棄"
           }
         }
       }
@@ -111841,6 +111843,268 @@
         }
       }
     },
+    "settings.browser.agentSecureStoreFill": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let Agents Sign In from the Secure Store"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السماح للوكلاء بتسجيل الدخول من المخزن الآمن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dozvoli agentima prijavu iz Sigurne pohrane"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lad agenter logge ind fra Secure Store"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenten aus dem Secure Store anmelden lassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir que los agentes inicien sesión desde el Secure Store"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Laisser les agents se connecter depuis le Secure Store"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consenti agli agenti di accedere dal Secure Store"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントに Secure Store からサインインさせる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យភ្នាក់ងារចូលពី Secure Store"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트가 Secure Store로 로그인하도록 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La agenter logge på fra Secure Store"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozwól agentom logować się z Secure Store"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir que agentes entrem pelo Secure Store"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разрешить агентам входить через Secure Store"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ให้เอเจนต์ลงชื่อเข้าใช้จาก Secure Store"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajanların Secure Store ile oturum açmasına izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволити агентам входити через Secure Store"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép tác tử đăng nhập từ Secure Store"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允许代理使用安全存储登录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允許代理程式使用安全儲存區登入"
+          }
+        }
+      }
+    },
+    "settings.browser.agentSecureStoreFill.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When an agent's page needs a sign-in you saved in the Secure Store, cmux fills it into the agent's own tab. The agent never sees the password, and its scripts are refused on that site from then on."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عندما تحتاج صفحة الوكيل إلى تسجيل دخول حفظته في Secure Store، يملؤه cmux في علامة تبويب الوكيل نفسه. لا يرى الوكيل كلمة المرور أبدًا، وتُرفض نصوصه البرمجية على ذلك الموقع من ذلك الحين."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kada stranici agenta zatreba prijava koju ste sačuvali u Secure Store, cmux je popunjava u agentovoj kartici. Agent nikad ne vidi lozinku, a njegove skripte se od tada odbijaju na toj stranici."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når en agents side skal bruge et login, du har gemt i Secure Store, udfylder cmux det i agentens egen fane. Agenten ser aldrig adgangskoden, og dens scripts afvises på det websted fra da af."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Braucht die Seite eines Agenten eine Anmeldung, die du im Secure Store gespeichert hast, füllt cmux sie im eigenen Tab des Agenten aus. Der Agent sieht das Passwort nie, und seine Skripte werden auf dieser Website ab dann abgelehnt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuando la página de un agente necesita un inicio de sesión que guardaste en el Secure Store, cmux lo rellena en la pestaña del agente. El agente nunca ve la contraseña y sus scripts se rechazan en ese sitio a partir de entonces."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quand la page d’un agent a besoin d’un identifiant enregistré dans le Secure Store, cmux le remplit dans l’onglet de l’agent. L’agent ne voit jamais le mot de passe, et ses scripts sont refusés sur ce site dès lors."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando la pagina di un agente richiede un accesso salvato nel Secure Store, cmux lo compila nella scheda dell’agente. L’agente non vede mai la password e i suoi script vengono rifiutati su quel sito da quel momento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントのページで Secure Store に保存したサインインが必要になると、cmux がエージェント自身のタブに入力します。エージェントがパスワードを見ることはなく、以後そのサイトではエージェントのスクリプトは拒否されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅពេលទំព័ររបស់ភ្នាក់ងារត្រូវការការចូលដែលអ្នកបានរក្សាទុកក្នុង Secure Store, cmux បំពេញវាក្នុងផ្ទាំងរបស់ភ្នាក់ងារ។ ភ្នាក់ងារមិនដែលឃើញពាក្យសម្ងាត់ទេ ហើយស្គ្រីបរបស់វាត្រូវបានបដិសេធលើគេហទំព័រនោះតាំងពីពេលនោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트의 페이지에 Secure Store에 저장한 로그인이 필요하면 cmux가 에이전트 자신의 탭에 입력합니다. 에이전트는 비밀번호를 보지 못하며, 이후 해당 사이트에서 에이전트의 스크립트는 거부됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når en agents side trenger en pålogging du har lagret i Secure Store, fyller cmux den inn i agentens egen fane. Agenten ser aldri passordet, og skriptene dens avvises på det nettstedet fra da av."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdy strona agenta wymaga logowania zapisanego w Secure Store, cmux wypełnia je w karcie agenta. Agent nigdy nie widzi hasła, a jego skrypty są od tej pory odrzucane w tej witrynie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando a página de um agente precisa de um login que você salvou no Secure Store, o cmux o preenche na aba do próprio agente. O agente nunca vê a senha, e os scripts dele são recusados nesse site a partir de então."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Когда странице агента нужен вход, сохранённый в Secure Store, cmux заполняет его во вкладке агента. Агент никогда не видит пароль, а его скрипты на этом сайте с тех пор отклоняются."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อหน้าของเอเจนต์ต้องใช้การลงชื่อเข้าใช้ที่คุณบันทึกไว้ใน Secure Store cmux จะกรอกให้ในแท็บของเอเจนต์เอง เอเจนต์จะไม่เห็นรหัสผ่าน และสคริปต์ของเอเจนต์จะถูกปฏิเสธบนเว็บไซต์นั้นนับจากนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir ajanın sayfası Secure Store'a kaydettiğiniz bir girişe ihtiyaç duyduğunda cmux bunu ajanın kendi sekmesine doldurur. Ajan parolayı asla görmez ve o andan itibaren o sitede betikleri reddedilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коли сторінці агента потрібен вхід, збережений у Secure Store, cmux заповнює його у вкладці агента. Агент ніколи не бачить пароль, а його скрипти на цьому сайті відтоді відхиляються."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi trang của tác tử cần thông tin đăng nhập bạn đã lưu trong Secure Store, cmux sẽ điền vào tab của chính tác tử. Tác tử không bao giờ thấy mật khẩu, và từ đó các script của nó bị từ chối trên trang đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "当代理的页面需要你保存在安全存储中的登录信息时，cmux 会将其填入代理自己的标签页。代理永远看不到密码，并且此后它在该网站上的脚本会被拒绝。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "當代理程式的頁面需要你儲存在安全儲存區中的登入資訊時，cmux 會將其填入代理程式自己的分頁。代理程式永遠看不到密碼，且此後它在該網站上的指令碼會被拒絕。"
+          }
+        }
+      }
+    },
     "settings.browser.builtInAdBlocker": {
       "extractionState": "manual",
       "localizations": {
@@ -187414,528 +187678,526 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄邊緣不再漸隱，整個列表全部顯示。同時隱藏底部的個人資料和搜尋列。關閉時邊緣漸隱，並顯示該列。"}}
       }
     },
-    "settings.computerUse.livePreview": {
+    "settings.app.showMenuBarIcon": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Live Preview in Chat"
+            "value": "Show Menu Bar Icon"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار أيقونة شريط القوائم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži ikonu na traci menija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis ikon på menulinjen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Symbol in der Menüleiste zeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar icono en la barra de menús"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’icône dans la barre des menus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra icona nella barra dei menu"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャットでのライブプレビュー"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "معاينة مباشرة في الدردشة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pregled uživo u chatu"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Live-forhåndsvisning i chat"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Live-Vorschau im Chat"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vista previa en directo en el chat"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aperçu en direct dans le chat"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Anteprima dal vivo nella chat"
+            "value": "メニューバーにアイコンを表示"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ការមើលជាមុនផ្ទាល់ក្នុងការជជែក"
+            "state": "translated",
+            "value": "បង្ហាញរូបតំណាងនៅរបារម៉ឺនុយ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "채팅의 실시간 미리보기"
+            "state": "translated",
+            "value": "메뉴 막대에 아이콘 표시"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Direkteforhåndsvisning i chat"
+            "state": "translated",
+            "value": "Vis ikon i menylinjen"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Podgląd na żywo w czacie"
+            "state": "translated",
+            "value": "Pokaż ikonę na pasku menu"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Prévia ao vivo no chat"
+            "state": "translated",
+            "value": "Mostrar ícone na barra de menus"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Живой просмотр в чате"
+            "state": "translated",
+            "value": "Показывать значок в строке меню"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ตัวอย่างสดในแชท"
+            "state": "translated",
+            "value": "แสดงไอคอนในแถบเมนู"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sohbette canlı önizleme"
+            "state": "translated",
+            "value": "Menü çubuğunda simgeyi göster"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Живий перегляд у чаті"
+            "state": "translated",
+            "value": "Показувати значок у рядку меню"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Xem trước trực tiếp trong cuộc trò chuyện"
+            "state": "translated",
+            "value": "Hiển thị biểu tượng trên thanh menu"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "聊天中的实时预览"
+            "state": "translated",
+            "value": "在菜单栏中显示图标"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "聊天中的即時預覽"
+            "state": "translated",
+            "value": "在選單列中顯示圖像"
           }
         }
       }
     },
-    "settings.computerUse.livePreview.help": {
+    "settings.app.showMenuBarIcon.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity."
+            "value": "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عنصر cmux في شريط القوائم: فتح cmux وحسابك والوكلاء العاملون والمساعدة وDiscord والتحديثات والسجلات والإنهاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stavka cmux na traci menija: otvori cmux, tvoj račun, agenti koji rade, pomoć, Discord, ažuriranja, zapisnici i Izlaz."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et cmux-element på menulinjen: åbn cmux, din konto, agenter i arbejde, hjælp, Discord, opdateringer, logfiler og Afslut."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein cmux-Eintrag in der Menüleiste: cmux öffnen, dein Konto, aktive Agenten, Hilfe, Discord, Updates, Protokolle und Beenden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un elemento de cmux en la barra de menús: abrir cmux, tu cuenta, agentes trabajando, ayuda, Discord, actualizaciones, registros y Salir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un élément cmux dans la barre des menus : ouvrir cmux, votre compte, les agents au travail, l’aide, Discord, les mises à jour, les journaux et Quitter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un elemento cmux nella barra dei menu: apri cmux, il tuo account, agenti al lavoro, aiuto, Discord, aggiornamenti, log ed Esci."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントがアプリを使っている間、そのチャットにアプリの小さなライブビューが表示されます。ビューをクリックするとエージェントのアクティビティが開きます。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "عندما يستخدم وكيل تطبيقًا، تعرض دردشته عرضًا مباشرًا صغيرًا لهذا التطبيق. انقر على العرض لفتح نشاط الوكيل."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dok agent koristi aplikaciju, njegov chat prikazuje mali prikaz te aplikacije uživo. Kliknite prikaz da otvorite Aktivnost agenta."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mens en agent bruger en app, viser dens chat en lille livevisning af appen. Klik på visningen for at åbne Agentaktivitet."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Während ein Agent eine App verwendet, zeigt sein Chat eine kleine Live-Ansicht dieser App. Klicke auf die Ansicht, um die Agentenaktivität zu öffnen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mientras un agente usa una app, su chat muestra una pequeña vista en directo de esa app. Haz clic en la vista para abrir Actividad de agentes."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pendant qu'un agent utilise une app, son chat affiche un petit aperçu en direct de cette app. Clique sur l'aperçu pour ouvrir Activité des agents."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mentre un agente usa un'app, la sua chat mostra una piccola vista dal vivo di quell'app. Fai clic sulla vista per aprire Attività degli agenti."
+            "value": "メニューバーの cmux 項目: cmux を開く、アカウント、作業中のエージェント、ヘルプ、Discord、アップデート、ログ、終了。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ពេលភ្នាក់ងារប្រើកម្មវិធីមួយ ការជជែករបស់វាបង្ហាញទិដ្ឋភាពផ្ទាល់តូចមួយនៃកម្មវិធីនោះ។ ចុចលើទិដ្ឋភាពដើម្បីបើកសកម្មភាពភ្នាក់ងារ។"
+            "state": "translated",
+            "value": "ធាតុ cmux នៅរបារម៉ឺនុយ៖ បើក cmux គណនីរបស់អ្នក ភ្នាក់ងារកំពុងធ្វើការ ជំនួយ Discord បច្ចុប្បន្នភាព កំណត់ហេតុ និងចាកចេញ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "에이전트가 앱을 사용하는 동안 해당 채팅에 그 앱의 작은 실시간 보기가 표시됩니다. 보기를 클릭하면 에이전트 활동이 열립니다."
+            "state": "translated",
+            "value": "메뉴 막대의 cmux 항목: cmux 열기, 계정, 작업 중인 에이전트, 도움말, Discord, 업데이트, 로그, 종료."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mens en agent bruker en app, viser chatten en liten direktevisning av appen. Klikk på visningen for å åpne Agentaktivitet."
+            "state": "translated",
+            "value": "Et cmux-element i menylinjen: åpne cmux, kontoen din, agenter i arbeid, hjelp, Discord, oppdateringer, logger og Avslutt."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Gdy agent używa aplikacji, jego czat pokazuje mały podgląd tej aplikacji na żywo. Kliknij podgląd, aby otworzyć Aktywność agentów."
+            "state": "translated",
+            "value": "Element cmux na pasku menu: otwórz cmux, twoje konto, pracujący agenci, pomoc, Discord, aktualizacje, logi i Zakończ."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Enquanto um agente usa um app, o chat dele mostra uma pequena visualização ao vivo desse app. Clique na visualização para abrir Atividade de agentes."
+            "state": "translated",
+            "value": "Um item do cmux na barra de menus: abrir o cmux, sua conta, agentes trabalhando, ajuda, Discord, atualizações, registros e Sair."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Пока агент работает с приложением, его чат показывает небольшой живой вид этого приложения. Нажмите на вид, чтобы открыть Активность агентов."
+            "state": "translated",
+            "value": "Пункт cmux в строке меню: открыть cmux, ваш аккаунт, работающие агенты, справка, Discord, обновления, журналы и выход."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ขณะที่เอเจนต์ใช้แอป แชทของเอเจนต์จะแสดงมุมมองสดขนาดเล็กของแอปนั้น คลิกมุมมองเพื่อเปิดกิจกรรมของเอเจนต์"
+            "state": "translated",
+            "value": "รายการ cmux ในแถบเมนู: เปิด cmux บัญชีของคุณ เอเจนต์ที่กำลังทำงาน ความช่วยเหลือ Discord การอัปเดต บันทึก และออก"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Bir ajan bir uygulamayı kullanırken sohbeti o uygulamanın küçük bir canlı görünümünü gösterir. Ajan etkinliğini açmak için görünüme tıkla."
+            "state": "translated",
+            "value": "Menü çubuğunda bir cmux öğesi: cmux'ı aç, hesabın, çalışan ajanlar, yardım, Discord, güncellemeler, günlükler ve Çık."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Поки агент працює з застосунком, його чат показує невеликий живий вигляд цього застосунку. Натисніть на вигляд, щоб відкрити Активність агентів."
+            "state": "translated",
+            "value": "Пункт cmux у рядку меню: відкрити cmux, ваш обліковий запис, агенти, що працюють, довідка, Discord, оновлення, журнали й вихід."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Khi một tác tử dùng một ứng dụng, cuộc trò chuyện của nó hiển thị một khung xem trực tiếp nhỏ của ứng dụng đó. Nhấp vào khung xem để mở Hoạt động của tác tử."
+            "state": "translated",
+            "value": "Một mục cmux trên thanh menu: mở cmux, tài khoản của bạn, tác nhân đang làm việc, trợ giúp, Discord, cập nhật, nhật ký và Thoát."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "代理使用某个应用时，其聊天会显示该应用的小型实时视图。点按视图可打开代理活动。"
+            "state": "translated",
+            "value": "菜单栏中的 cmux 项目：打开 cmux、你的账户、正在工作的代理、帮助、Discord、更新、日志和退出。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "代理使用某個 App 時，其聊天會顯示該 App 的小型即時檢視。按一下檢視即可開啟代理活動。"
+            "state": "translated",
+            "value": "選單列中的 cmux 項目：打開 cmux、你的帳號、正在工作的代理程式、輔助說明、Discord、更新、記錄和結束。"
           }
         }
       }
     },
-    "settings.computerUse.livePreview.summary": {
-      "comment": "Settings row summary: one short line under the setting's title.",
+    "settings.browser.openSignInPages": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows the app an agent uses in its chat"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントが使うアプリをそのチャットに表示"
+            "value": "Open Sign-In Pages in cmux Browser"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يعرض التطبيق الذي يستخدمه الوكيل في دردشته"
+            "value": "فتح صفحات تسجيل الدخول في متصفح cmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prikazuje aplikaciju koju agent koristi u njegovom chatu"
+            "value": "Otvaraj stranice za prijavu u cmux pregledniku"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Viser den app, en agent bruger, i dens chat"
+            "value": "Åbn login-sider i cmux-browser"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zeigt die App, die ein Agent verwendet, in seinem Chat"
+            "value": "Anmeldeseiten im cmux-Browser öffnen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Muestra la app que usa un agente en su chat"
+            "value": "Abrir páginas de inicio de sesión en el navegador de cmux"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Affiche l'app qu'un agent utilise dans son chat"
+            "value": "Ouvrir les pages de connexion dans le navigateur cmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mostra l'app che un agente usa nella sua chat"
+            "value": "Apri le pagine di accesso nel browser cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サインインページをcmuxブラウザで開く"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បង្ហាញកម្មវិធីដែលភ្នាក់ងារប្រើ ក្នុងការជជែករបស់វា"
+            "value": "បើកទំព័រចូលក្នុងកម្មវិធីរុករក cmux"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "에이전트가 사용하는 앱을 채팅에 표시"
+            "value": "로그인 페이지를 cmux 브라우저에서 열기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Viser appen en agent bruker, i chatten"
+            "value": "Åpne påloggingssider i cmux-nettleseren"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pokazuje w czacie aplikację, której używa agent"
+            "value": "Otwieraj strony logowania w przeglądarce cmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mostra no chat o app que um agente usa"
+            "value": "Abrir páginas de login no navegador do cmux"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Показывает в чате приложение, с которым работает агент"
+            "value": "Открывать страницы входа в браузере cmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แสดงแอปที่เอเจนต์ใช้ในแชทของเอเจนต์"
+            "value": "เปิดหน้าลงชื่อเข้าใช้ในเบราว์เซอร์ cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajanın kullandığı uygulamayı sohbetinde gösterir"
+            "value": "Oturum açma sayfalarını cmux tarayıcısında aç"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Показує в чаті застосунок, з яким працює агент"
+            "value": "Відкривати сторінки входу в браузері cmux"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hiển thị ứng dụng mà tác tử đang dùng trong cuộc trò chuyện"
+            "value": "Mở trang đăng nhập trong trình duyệt cmux"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在聊天中显示代理使用的应用"
+            "value": "在 cmux 浏览器中打开登录页面"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在聊天中顯示代理使用的 App"
+            "value": "在 cmux 瀏覽器中開啟登入頁面"
           }
         }
       }
     },
-    "settings.default.neverDiscard": {
-      "comment": "Settings > Browser > Memory > Hibernate Hidden Tabs: the value with nothing in cmux.json: hidden tabs only freeze and are never discarded (reloaded) on their own.",
+    "settings.browser.openSignInPages.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Never Discard"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "破棄しない"
+            "value": "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "عدم التجاهل أبدًا"
+            "value": "تُفتح صفحات تسجيل الدخول ورموز الأجهزة، مثل صفحة الأجهزة في GitHub أو صفحة يفتحها gh أو aws أو وكيل لتسجيل الدخول، في علامة تبويب متصفح cmux حتى عندما تُفتح الروابط الأخرى في متصفحك الافتراضي. تظل الأولوية لعناوين URL التي تُفتح دائمًا خارجيًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nikad ne odbacuj"
+            "value": "Stranice za prijavu i kodove uređaja, kao što je GitHubova stranica za uređaje ili stranica koju gh, aws ili agent otvori za prijavu, otvaraju se u kartici cmux preglednika čak i kada se ostali linkovi otvaraju u vašem zadanom pregledniku. URL-ovi koji se uvijek otvaraju vanjski i dalje imaju prednost."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kassér aldrig"
+            "value": "Login- og enhedskodesider, såsom GitHubs enhedsside eller en side, som gh, aws eller en agent åbner for at logge ind, åbnes i en cmux-browserfane, selv når andre links åbnes i din standardbrowser. URL'er, der altid åbnes eksternt, vinder stadig."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie verwerfen"
+            "value": "Anmelde- und Gerätecode-Seiten, etwa die Geräteseite von GitHub oder eine Seite, die gh, aws oder ein Agent zur Anmeldung öffnet, öffnen sich in einem cmux-Browser-Tab, auch wenn andere Links in deinem Standardbrowser geöffnet werden. „Immer extern zu öffnende URLs“ haben weiterhin Vorrang."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No descartar nunca"
+            "value": "Las páginas de inicio de sesión y de código de dispositivo, como la página de dispositivos de GitHub o una página que gh, aws o un agente abre para iniciar sesión, se abren en una pestaña del navegador de cmux aunque los demás enlaces se abran en tu navegador predeterminado. Las URL que siempre se abren externamente siguen teniendo prioridad."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ne jamais décharger"
+            "value": "Les pages de connexion et de code d'appareil, comme la page d'appareil de GitHub ou une page que gh, aws ou un agent ouvre pour se connecter, s'ouvrent dans un onglet du navigateur cmux même lorsque les autres liens s'ouvrent dans votre navigateur par défaut. Les URL à toujours ouvrir à l'extérieur restent prioritaires."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Non scartare mai"
+            "value": "Le pagine di accesso e dei codici dispositivo, come la pagina dei dispositivi di GitHub o una pagina che gh, aws o un agente apre per accedere, si aprono in una scheda del browser cmux anche quando gli altri link si aprono nel browser predefinito. Gli URL da aprire sempre esternamente hanno comunque la precedenza."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GitHubのデバイスページや、gh・aws・エージェントがサインインのために開くページなどのサインインページやデバイスコードページは、ほかのリンクがデフォルトブラウザで開く設定でもcmuxブラウザのタブで開きます。「常に外部で開くURL」は引き続き優先されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កុំបោះចោលឡើយ"
+            "value": "ទំព័រចូល និងទំព័រកូដឧបករណ៍ ដូចជាទំព័រឧបករណ៍របស់ GitHub ឬទំព័រដែល gh, aws ឬភ្នាក់ងារបើកដើម្បីចូល នឹងបើកក្នុងផ្ទាំងកម្មវិធីរុករក cmux ទោះបីតំណផ្សេងទៀតបើកក្នុងកម្មវិធីរុករកលំនាំដើមរបស់អ្នកក៏ដោយ។ URL ដែលបើកខាងក្រៅជានិច្ចនៅតែមានអាទិភាព។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "삭제 안 함"
+            "value": "GitHub 기기 페이지나 gh, aws, 에이전트가 로그인하려고 여는 페이지 같은 로그인 및 기기 코드 페이지는 다른 링크가 기본 브라우저에서 열리더라도 cmux 브라우저 탭에서 열립니다. 항상 외부에서 열 URL이 여전히 우선합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Forkast aldri"
+            "value": "Påloggings- og enhetskodesider, som GitHubs enhetsside eller en side gh, aws eller en agent åpner for å logge på, åpnes i en cmux-nettleserfane selv når andre lenker åpnes i standardnettleseren din. URL-er som alltid åpnes eksternt, vinner fortsatt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nigdy nie odrzucaj"
+            "value": "Strony logowania i kodów urządzeń, takie jak strona urządzeń GitHuba lub strona, którą gh, aws albo agent otwiera do logowania, otwierają się w karcie przeglądarki cmux, nawet gdy inne linki otwierają się w domyślnej przeglądarce. Adresy URL zawsze otwierane zewnętrznie nadal mają pierwszeństwo."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nunca descartar"
+            "value": "Páginas de login e de código de dispositivo, como a página de dispositivos do GitHub ou uma página que gh, aws ou um agente abre para entrar, abrem em uma aba do navegador do cmux mesmo quando outros links abrem no seu navegador padrão. URLs para sempre abrir externamente continuam tendo prioridade."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не выгружать"
+            "value": "Страницы входа и кодов устройств, например страница устройств GitHub или страница, которую gh, aws или агент открывает для входа, открываются во вкладке браузера cmux, даже если другие ссылки открываются в браузере по умолчанию. Адреса из списка «Всегда открывать во внешнем браузере» по-прежнему имеют приоритет."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่ทิ้งเลย"
+            "value": "หน้าลงชื่อเข้าใช้และหน้ารหัสอุปกรณ์ เช่น หน้าอุปกรณ์ของ GitHub หรือหน้าที่ gh, aws หรือเอเจนต์เปิดเพื่อลงชื่อเข้าใช้ จะเปิดในแท็บเบราว์เซอร์ cmux แม้ลิงก์อื่นจะเปิดในเบราว์เซอร์เริ่มต้นของคุณ URL ที่เปิดภายนอกเสมอยังคงมีสิทธิ์เหนือกว่า"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Asla atma"
+            "value": "GitHub'ın cihaz sayfası ya da gh, aws veya bir ajanın oturum açmak için açtığı sayfa gibi oturum açma ve cihaz kodu sayfaları, diğer bağlantılar varsayılan tarayıcınızda açılsa bile bir cmux tarayıcı sekmesinde açılır. Her Zaman Harici Açılacak URL'ler yine önceliklidir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не вивантажувати"
+            "value": "Сторінки входу та кодів пристроїв, як-от сторінка пристроїв GitHub або сторінка, яку gh, aws чи агент відкриває для входу, відкриваються у вкладці браузера cmux, навіть коли інші посилання відкриваються в браузері за замовчуванням. Адреси зі списку «Завжди відкривати зовні» й надалі мають пріоритет."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không bao giờ loại bỏ"
+            "value": "Trang đăng nhập và trang mã thiết bị, chẳng hạn trang thiết bị của GitHub hoặc trang mà gh, aws hay một tác tử mở để đăng nhập, sẽ mở trong một thẻ trình duyệt cmux ngay cả khi các liên kết khác mở trong trình duyệt mặc định của bạn. Các URL luôn mở bên ngoài vẫn được ưu tiên."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "从不丢弃"
+            "value": "登录页面和设备代码页面（例如 GitHub 的设备页面，或 gh、aws、智能体为登录而打开的页面）会在 cmux 浏览器标签页中打开，即使其他链接在默认浏览器中打开。“始终在外部打开的 URL”仍然优先。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "永不捨棄"
+            "value": "登入頁面和裝置代碼頁面（例如 GitHub 的裝置頁面，或 gh、aws、代理程式為登入而開啟的頁面）會在 cmux 瀏覽器分頁中開啟，即使其他連結在預設瀏覽器中開啟。「一律在外部開啟的 URL」仍然優先。"
           }
         }
       }

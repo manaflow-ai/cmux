@@ -101,6 +101,34 @@ export interface LinkPreviewPart {
   readonly image?: DerivedImage
 }
 
+/** A browser card's screenshot (card.ts): an attachment record of this conversation, PNG, JPEG or WebP, at most 4 MiB. */
+export interface CardImage {
+  readonly hash: string
+  readonly mime_type: string
+  readonly byte_count: number
+  readonly width?: number
+  readonly height?: number
+}
+
+/**
+ * A card only an agent (the Chief) posts (card.ts, https://github.com/manaflow-ai/cmux/issues/25830):
+ * a live browser or computer-use card, a Secure Store sign-in card, or next-step chips. Rust
+ * `Part::Card(card::Card)`.
+ */
+export type CardPart =
+  | {
+      readonly type: "card"
+      readonly kind: "browser"
+      readonly surface: "browser" | "computer"
+      readonly step: string
+      readonly live: boolean
+      readonly target?: string
+      readonly url?: string
+      readonly image?: CardImage
+    }
+  | { readonly type: "card"; readonly kind: "sign_in"; readonly site: string; readonly url?: string }
+  | { readonly type: "card"; readonly kind: "next_steps"; readonly choices: ReadonlyArray<string> }
+
 /** A derived image (a video's poster, an image's preview): JPEG or WebP, stored next to its attachment under the same upload slot. */
 export interface DerivedImage {
   readonly hash: string
@@ -112,6 +140,7 @@ export type Part =
   | { readonly type: "text"; readonly text: string; readonly runs?: ReadonlyArray<TextRun> }
   | AttachmentPart
   | LinkPreviewPart
+  | CardPart
   | {
       readonly type: "work"
       readonly session: string

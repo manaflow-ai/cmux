@@ -149,6 +149,7 @@ fn line_of(h: &Harness, seq: u64) -> u64 {
 
 fn send(text: &str) -> SendCall {
     SendCall {
+        sign_in: None,
         text: Some(text.to_owned()),
         attachments: Vec::new(),
         reply_to: None,

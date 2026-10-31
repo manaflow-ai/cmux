@@ -476,6 +476,27 @@ body,
 .hc-chip-title {
   font-weight: 600;
 }
+.hc-card {
+  flex-wrap: wrap;
+}
+.hc-card-shot {
+  flex-basis: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+.hc-card-choices {
+  display: grid;
+  gap: 8px;
+  max-width: 560px;
+  margin: 4px 0;
+  padding: 0;
+  list-style: none;
+}
+.hc-card-choices .hc-chip {
+  margin: 0;
+  border-radius: 999px;
+}
 .hc-chip-preview {
   min-width: 0;
   overflow: hidden;

@@ -46,6 +46,21 @@ function useImage(
   return state;
 }
 
+/** A browser card's screenshot (an attachment record of the conversation); nothing while it loads or when this host cannot read it. */
+export function CardScreenshot({
+  conversation,
+  image,
+  alt,
+}: {
+  conversation: string;
+  image: HomeAttachment;
+  alt: string;
+}) {
+  const { src } = useImage(conversation, image, "original");
+  if (!src) return null;
+  return <img className="hc-card-shot" src={src} alt={alt} width={image.width} height={image.height} />;
+}
+
 /** The attachment parts of one message, grouped as they show. */
 export function MessageAttachments({
   conversation,

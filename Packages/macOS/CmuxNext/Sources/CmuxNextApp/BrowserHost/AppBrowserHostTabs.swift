@@ -159,6 +159,8 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         guard engine == .cef else {
             throw DriverError(.unsupported, "tabs.open: WebKit tabs open through the WebKit driver")
         }
+        // As the WebKit driver: http, https and about:blank only, never javascript: or data:.
+        let url = try url.map { raw throws(DriverError) in try WebKitDriver.agentNavigableURL(raw, method: "tabs.open").absoluteString }
         do {
             return try await openSessionTab(.cef, url: url).id
         } catch {
