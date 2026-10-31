@@ -266,12 +266,22 @@ struct Controller {
     resumed: bool,
 }
 
+/// One retained entry ([`State::push`]).
+struct Retained {
+    h: u64,
+    /// The entry's frame, as sent.
+    bytes: Arc<[u8]>,
+    weight: usize,
+    /// A next daemon needs it in its log (`orphan::needs_a_daemon`).
+    needed: bool,
+}
+
 struct State {
     record: HostRecord,
     spec: SpawnSpec,
     /// Retained entries as their encoded frames: encoded once in `push`, sent as is
     /// (live and on resume), weighed by their size.
-    entries: VecDeque<(u64, Arc<[u8]>, usize)>,
+    entries: VecDeque<Retained>,
     weight: usize,
     next_h: u64,
     acked_h: u64,
@@ -712,6 +722,19 @@ impl Started {
     }
 }
 
+/// What is kept in place of entry `h` when its frame is over the limit: an answer becomes
+/// an error answer with its id, so the request it answers is not left waiting; anything
+/// else becomes a stderr note.
+fn over_frame_limit(h: u64, entry: &Entry) -> Entry {
+    if let Entry::In { msg } = entry
+        && let Some(id) = msg.get("id").filter(|id| !id.is_null() && msg.get("method").is_none())
+    {
+        let err = crate::rpc::RpcError::internal("agent answer was over the frame limit");
+        return Entry::In { msg: Message::err(id.clone(), err).into_value() };
+    }
+    Entry::Err { line: format!("[entry {h} over the frame limit dropped]") }
+}
+
 impl State {
     /// Note the processes under this host before its harness group is
     /// ended, while the harness still parents what it moved out of it.
@@ -726,6 +749,7 @@ impl State {
     /// Number and retain one entry, and send it to a resumed controller.
     fn push(&mut self, entry: Entry) {
         self.orphan.note_entry(&entry);
+        let needed = orphan::needs_a_daemon(&entry);
         self.next_h += 1;
         let h = self.next_h;
         if matches!(entry, Entry::Exit { .. }) {
@@ -735,9 +759,10 @@ impl State {
         // serialized to weigh it, copied to send it and serialized again to write it).
         let bytes = super::encode_frame(&super::EntryFrame::Entry { h, e: &entry })
             .or_else(|| {
-                // Over the frame limit: kept as a stderr note, as a writer stop would lose it.
-                let line = format!("[entry {h} over the frame limit dropped]");
-                super::encode_frame(&super::EntryFrame::Entry { h, e: &Entry::Err { line } })
+                // Over the frame limit (a writer stop would lose it): an answer is answered
+                // with an error in its place, anything else is kept as a stderr note.
+                let e = over_frame_limit(h, &entry);
+                super::encode_frame(&super::EntryFrame::Entry { h, e: &e })
             })
             .unwrap_or_else(|| Arc::from(&[][..]));
         let weight = bytes.len() + 32;
@@ -747,7 +772,7 @@ impl State {
             // The connection closed; the next owner resumes from the buffer.
             self.controller = None;
         }
-        self.entries.push_back((h, bytes, weight));
+        self.entries.push_back(Retained { h, bytes, weight, needed });
         self.weight += weight;
     }
 
@@ -771,9 +796,9 @@ impl State {
             return;
         }
         self.acked_h = h.min(self.next_h);
-        while self.entries.front().is_some_and(|(eh, _, _)| *eh <= self.acked_h) {
-            if let Some((_, _, w)) = self.entries.pop_front() {
-                self.weight -= w;
+        while self.entries.front().is_some_and(|e| e.h <= self.acked_h) {
+            if let Some(e) = self.entries.pop_front() {
+                self.weight -= e.weight;
             }
         }
     }
@@ -1071,7 +1096,7 @@ impl State {
                 // The controller logged everything through `after`.
                 self.drop_through(after);
                 let backlog: Vec<Arc<[u8]>> =
-                    self.entries.iter().map(|(_, bytes, _)| bytes.clone()).collect();
+                    self.entries.iter().map(|e| e.bytes.clone()).collect();
                 let Some(c) = self.controller.as_mut() else { return };
                 for bytes in backlog {
                     if c.tx.send_encoded(bytes).is_err() {
@@ -1243,5 +1268,28 @@ mod tests {
         // SAFETY: signal 0 to this test's own child only checks existence.
         assert_eq!(unsafe { libc::kill(pid, 0) }, 0, "the leader was reaped by the wait");
         assert_eq!(child.wait().unwrap().code(), Some(3), "the exit status is kept for the reaper");
+    }
+
+    /// An entry too big for one frame is replaced, not dropped with its connection: an
+    /// answer by an error answer to the same id, anything else by a stderr note.
+    #[test]
+    fn an_entry_over_the_frame_limit_is_answered_or_noted() {
+        use super::{Entry, TapDir, over_frame_limit};
+        let answer =
+            Entry::In { msg: serde_json::json!({"jsonrpc": "2.0", "id": 7, "result": {}}) };
+        let Entry::In { msg } = over_frame_limit(3, &answer) else { panic!("not an answer") };
+        assert_eq!(msg["id"], 7);
+        assert_eq!(msg["error"]["message"], "agent answer was over the frame limit");
+        assert!(msg.get("result").is_none());
+
+        let update =
+            serde_json::json!({"jsonrpc": "2.0", "method": "session/update", "params": {}});
+        for entry in [
+            Entry::In { msg: update },
+            Entry::Tap { dir: TapDir::In, msg: serde_json::json!({"id": 1, "result": {}}) },
+        ] {
+            let Entry::Err { line } = over_frame_limit(4, &entry) else { panic!("not a note") };
+            assert_eq!(line, "[entry 4 over the frame limit dropped]");
+        }
     }
 }
