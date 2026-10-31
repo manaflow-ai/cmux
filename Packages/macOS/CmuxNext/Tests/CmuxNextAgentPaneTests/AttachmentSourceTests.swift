@@ -63,8 +63,35 @@ struct AttachmentSourceTests {
         board.clearContents()
         board.setString("x", forType: .string)
         #expect(AttachmentSource.claimed(on: board) == nil)
-        AttachmentSource.claim(board, bundleId: Self.own)
+        #expect(AttachmentSource.write(["y" as NSString], to: board, bundleId: Self.own))
+        #expect(board.string(forType: .string) == "y")
         #expect(board.string(forType: AttachmentSource.pasteboardSourceType) == Self.own)
+        #expect(AttachmentSource.claimed(on: board) == Self.own)
+        // The source is on the item the contents are on, the one a paste reads.
+        #expect(board.pasteboardItems?.count == 1)
+        #expect(board.pasteboardItems?.first?.string(forType: AttachmentSource.pasteboardSourceType) == Self.own)
+        // An id that is no bundle id is never written as a source.
+        #expect(AttachmentSource.write(["z" as NSString], to: board, bundleId: "not an id"))
+        #expect(board.string(forType: .string) == "z")
+        #expect(AttachmentSource.claimed(on: board) == nil)
+    }
+
+    /// Screenshot Tab's copy: a picture, written with cmux as its source, pastes as a picture and
+    /// says cmux wrote it.
+    @Test func aCopiedPictureStillPastesAsAPictureAndSaysItIsCmuxs() throws {
+        let board = NSPasteboard(name: NSPasteboard.Name("cmux-source-\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        let context = try #require(CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 0,
+                                              space: CGColorSpaceCreateDeviceRGB(),
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+        let image = try #require(context.makeImage())
+        #expect(AttachmentSource.write([NSImage(cgImage: image, size: .zero)], to: board, bundleId: Self.own))
+        #expect(board.pasteboardItems?.count == 1)
+        #expect(board.canReadObject(forClasses: [NSImage.self], options: nil))
+        let pasted = board.readObjects(forClasses: [NSImage.self], options: nil) as? [NSImage]
+        #expect(pasted?.first?.size == NSSize(width: 4, height: 4))
         #expect(AttachmentSource.claimed(on: board) == Self.own)
     }
 
