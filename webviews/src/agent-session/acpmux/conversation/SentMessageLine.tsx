@@ -224,9 +224,12 @@ export function SentMessageLine({
             <span className="cv-agentmsg__preview cv-sent__preview">{trailing}</span>
           )}
           {source && (
-            <code className="cv-tool__detail cv-sent__preview cv-sent__file" title={source}>
-              {source}
-            </code>
+            <>
+              {" "}
+              <code className="cv-tool__detail cv-sent__preview cv-sent__file" title={source}>
+                {source}
+              </code>
+            </>
           )}
         </span>
         {/* Copy takes the message's text, shown while the row is pointed at, as a SendMessage
