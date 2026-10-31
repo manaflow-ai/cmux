@@ -7,6 +7,7 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { isVisiblyEmptyMessage } from "../src/agent-session/acpmux/conversation/visibleMessage";
 import { layoutConversation } from "../src/agent-session/acpmux/model";
 
 let at = 0;
@@ -79,6 +80,22 @@ test("an attachment-only prompt is still visible when its text is empty", () => 
   expect(turnView([attachment, summary()], new Set()).map((entry) => entry.id)).toContain("attachment");
   const received = row("received", "user", { text: "", received: {} as never });
   expect(turnView([received, summary()], new Set()).map((entry) => entry.id)).toContain("received");
+});
+
+test("an invisible failed prompt keeps its delivery recovery row", () => {
+  const failed = row("failed-prompt", "user", {
+    text: "\u200B",
+    failed: true,
+    error: "The prompt was not sent.",
+    delivery: {
+      state: "failed",
+      promptId: "prompt-1",
+      sessionId: "session-1",
+      sentAt: 1,
+    },
+  });
+  expect(isVisiblyEmptyMessage(failed)).toBe(false);
+  expect(turnView([failed, summary("failed")], new Set()).map((entry) => entry.id)).toContain("failed-prompt");
 });
 
 test("a turn stopped mid-tool folds its work under the stop line", () => {

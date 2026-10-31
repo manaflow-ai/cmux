@@ -18,6 +18,18 @@ export function isVisiblyEmptyMessage(row: AcpmuxRow): boolean {
     (part) => part.kind !== "text" || !isVisiblyEmptyText("text" in part ? part.text : undefined),
   );
   return (
+    // Empty prompts can still carry recovery or delivery affordances. Keep the row so
+    // DeliveryFailure, PromptActions and queue/steer controls remain reachable.
+    !row.failed &&
+    !row.delivery &&
+    !row.pending &&
+    !row.queued &&
+    !row.queuedMessage &&
+    !row.steer &&
+    !row.retryable &&
+    !row.resumable &&
+    !row.continuable &&
+    !row.error &&
     !row.received &&
     !row.images?.length &&
     !inlineVisible &&
