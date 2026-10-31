@@ -20,7 +20,10 @@ pub(crate) fn split_next_steps(text: &str) -> (String, Vec<String>) {
         cut -= 1;
     }
     let mut choices: Vec<String> = Vec::new();
-    for choice in lines[cut..].iter().filter_map(|line| next_line(line.trim())) {
+    for choice in lines[cut..]
+        .iter()
+        .filter_map(|line| next_line(line.trim()))
+    {
         if !choice.is_empty() && !choices.contains(&choice) {
             choices.push(choice);
         }
@@ -155,7 +158,10 @@ mod tests {
         let Op::MessageSend { parts, .. } = with_cards(&op, &cards) else {
             panic!("a send");
         };
-        assert!(matches!(parts.as_slice(), [Part::Text { .. }, Part::Card(_)]));
+        assert!(matches!(
+            parts.as_slice(),
+            [Part::Text { .. }, Part::Card(_)]
+        ));
         assert_eq!(text_fallback(None, &op, &cards), "Done.\n\n→ Again");
         let sign_in = [Card::SignIn {
             site: "linkedin.com".into(),
