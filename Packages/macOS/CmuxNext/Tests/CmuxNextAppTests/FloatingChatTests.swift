@@ -415,4 +415,25 @@ struct FloatingChatTests {
         #expect(tombstone?.draftGeneration == 5)
         withExtendedLifetime((firstRig, secondRig)) {}
     }
+
+    @Test func quickComposerWaitsForAnAsyncDraftLoadBeforeCreatingItsChat() async throws {
+        let directory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentUnsentDrafts.fileName)
+        AgentUnsentDrafts(file: file).set("restored quick draft", for: QuickComposerController.draftKey, generation: 4)
+        let drafts = AgentUnsentDrafts(file: file, loadSynchronously: false)
+        let (rig, controller) = try Self.rig(floating: false, drafts: drafts)
+
+        controller.show()
+        #expect(rig.drafts.isEmpty, "the panel created a chat before its draft load completed")
+        await drafts.waitUntilLoaded()
+        await Task.yield()
+        #expect(rig.drafts == ["restored quick draft"])
+    }
+
+    private static func directory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "quick-draft-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
 }

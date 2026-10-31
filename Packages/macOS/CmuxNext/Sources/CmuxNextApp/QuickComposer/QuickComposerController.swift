@@ -48,6 +48,9 @@ final class QuickComposerController {
     /// (`AgentUnsentDrafts`, under `draftKey`): the panel has no tab, and its page lives only in
     /// memory, so without it an update's relaunch or a quit lost what was typed.
     private let drafts: AgentUnsentDrafts?
+    /// A panel summon that arrived while the async draft store was loading. It is replayed once
+    /// the store is ready, so `handOut` cannot turn a restored draft into an empty chat.
+    private var waitingForDraftLoad = false
     static let draftKey = "quick-composer"
     static let heldSessionKey = "quickComposer.floatingChatSession"
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.quickComposer")
@@ -91,6 +94,17 @@ final class QuickComposerController {
         if chat == nil, floating(), let held = defaults.string(forKey: Self.heldSessionKey) {
             if moveToFloatingChat(session: held) { return }
             defaults.removeObject(forKey: Self.heldSessionKey)
+        }
+        if let drafts, !drafts.isLoaded {
+            guard !waitingForDraftLoad else { return }
+            waitingForDraftLoad = true
+            Task { @MainActor [weak self] in
+                await self?.drafts?.waitUntilLoaded()
+                guard let self else { return }
+                self.waitingForDraftLoad = false
+                self.show()
+            }
+            return
         }
         guard let chat = chat ?? makeChat(nil, drafts?.handOut(Self.draftKey), drafts?.generation(for: Self.draftKey) ?? 0).map(adopt) else {
             logger.notice("quick agent chat unavailable: this build has no agent page")
