@@ -284,10 +284,20 @@ pub mod method {
     pub const MUX_APP_REPLY: &str = "_acpmux/app_reply";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
     pub const MUX_QUEUE_EDIT: &str = "_acpmux/queue_edit";
+    /// The owner lets a person's prompt that waits for them run, `{sessionId, promptId}`
+    /// (`hub/queue_approve.rs`): `{sessionId, promptId, turnId, revision, approved}`.
+    pub const MUX_QUEUE_APPROVE: &str = "_acpmux/queue_approve";
+    /// The owner drops a person's prompt that waits for them, `{sessionId, promptId}`: its
+    /// `session/prompt` answers `queue.declined`. `{sessionId, promptId, declined}`.
+    pub const MUX_QUEUE_DECLINE: &str = "_acpmux/queue_decline";
     /// One queued prompt's whole text and blocks, `{sessionId, promptId}` →
     /// `{sessionId, promptId, turnId, text, prompt, fromAgent, fromSessionId, fromHarness}`
     /// (`hub/queue_text.rs`); the queue list carries a 200-character preview only.
     pub const MUX_QUEUE_TEXT: &str = "_acpmux/queue_text";
+    /// The owner reads a queued prompt whole before answering it, `{sessionId, promptId}`
+    /// (`hub/queue_approve.rs`): `{promptId, turnId, revision, text, prompt, inlineParts, author,
+    /// provenance, awaitingOwner}`.
+    pub const MUX_QUEUE_GET: &str = "_acpmux/queue_get";
     /// To the agent adapter, `{sessionId}`: stop the agent's current step so it reads the steers
     /// that wait for it, and keep the turn (Send now on a steer, `hub/queue_edit.rs`). Answers
     /// `{interrupted}`, false when no steer waits; an agent without it answers an error.

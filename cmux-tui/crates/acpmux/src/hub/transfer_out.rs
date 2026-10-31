@@ -249,13 +249,20 @@ impl Hub {
             return Err(unfreeze(transfer_error("store", "could not durably record transfer_out")));
         }
         let dir = transfers_dir().join(&transfer_id);
-        let made = self.export(session, &dir).and_then(|bundle| Ok(bundle_files(&bundle)?));
+        let made = self
+            .export(session, &dir)
+            .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
+            .and_then(|bundle| {
+                // Check exactly what the target will restore, even if the live queue changed.
+                self.held_prompts(&bundle)?;
+                bundle_files(&bundle)
+                    .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
+            });
         drop(guard);
         let files = match made {
             Ok(files) => files,
-            Err(e) => {
+            Err(error) => {
                 let _ = std::fs::remove_dir_all(&dir);
-                let error = RpcError::internal(format!("transfer: bundle: {e}"));
                 let record = json!({"transferId": transfer_id});
                 // Its `transfer_out` is logged: it stays frozen unless its end is too.
                 let (_, logged) =
