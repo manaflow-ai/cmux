@@ -178,8 +178,9 @@ extension WorkspaceRowView {
         if !badge.state.isUnread, keycap.number != nil { slot = layoutKeycap(trailing: trailing, cy: cy, control: control) }
         if badge.state.isUnread {
             let w = badge.preferredWidth
-            let h = badge.state == .dot ? SidebarStyle.dotSize : SidebarStyle.badgeHeight
-            let pad = badge.state == .dot ? Metrics.space2 : 0
+            let h = badge.state == .dot ? SidebarStyle.unreadDotSize : SidebarStyle.badgeHeight
+            // A dot keeps its center where the 6 pt dot had it, so the bigger dot stays centered in its column.
+            let pad = badge.state == .dot ? Metrics.space2 - (SidebarStyle.unreadDotSize - SidebarStyle.dotSize) / 2 : 0
             badge.frame = NSRect(x: trailing - w - pad, y: cy - h / 2, width: w, height: h)
             slot = max(control, w + pad)
         }
