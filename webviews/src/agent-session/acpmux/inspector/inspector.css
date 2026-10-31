@@ -213,8 +213,10 @@
   border-radius: var(--acpmux-inspector-row-radius);
   background: none;
 }
-/* The six-dot handle that moves a section (InspectorGroup.tsx): in the body's left padding, beside the
-   section's first row, and seen only on hover, keyboard focus or while it drags, so before a drag the
+/* The six-dot handle that moves a section (InspectorGroup.tsx): in the body's right padding, at the
+   right end of the section's head past its trailing column, as Claude Code draws it (Leo, 2026-10-31:
+   "ok we can click and drag but my screenshots were literally claude code having it on the fucking
+   right"), so the title keeps the text column it has with no handle, and seen only on hover, keyboard focus or while it drags, so before a drag the
    panel draws as it did. It takes no room in the section, and a drag lights only the handle. */
 .acpmux-chat-inspector-section {
   position: relative;
@@ -224,7 +226,7 @@
   z-index: var(--layer-raised);
   top: 0;
   /* The body's 6px side padding (data-layout). */
-  left: -6px;
+  right: -6px;
   width: 6px;
   height: 28px;
   display: flex;
