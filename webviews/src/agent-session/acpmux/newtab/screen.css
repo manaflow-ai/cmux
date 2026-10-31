@@ -40,9 +40,12 @@
 .nt-row.is-selected .nt-row-action,.nt-row:hover .nt-row-action{opacity:1}
 .nt-row-action kbd{padding:2px 6px;border-radius:5px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft);font:11.5px/1 var(--font-ui)}
 /* The create actions the rows don't list (screenModel.ts createStrip): one quiet line under them, never three rows (Leo 2026-10-24: "the new terminal, new browser tab, new tab ... less annoying"). Shows with the rows, no fade. */
-.nt-create-strip{display:flex;gap:4px;margin-top:4px;padding-top:4px;border-top:1px solid color-mix(in srgb,var(--agent-text) 8%,transparent)}
-.nt-create-strip-item{display:flex;align-items:center;gap:8px;height:24px;padding:0 8px;border-radius:var(--ui-row-radius);color:var(--acpmux-composer-dim);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
-.nt-create-strip-item .nt-row-title{max-width:none;overflow:visible}
+.nt-create-strip{display:flex;gap:4px;margin-top:4px;padding-top:4px;border-top:1px solid color-mix(in srgb,var(--agent-text) 8%,transparent);overflow:hidden}
+.nt-create-strip-item{display:flex;flex:1 1 0;align-items:center;gap:8px;min-width:0;height:24px;padding:0 8px;border-radius:var(--ui-row-radius);color:var(--acpmux-composer-dim);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
+.nt-create-strip-item .nt-row-title{flex:1;min-width:0;max-width:none;overflow:hidden;text-overflow:ellipsis}
+/* Labels that do not all fit (createStripFit.ts) go away together: three centered icons, each named by its aria-label and tooltip, never three ellipsized "Nouv…". The title stays measurable (visually hidden, not display:none). */
+.nt-create-strip[data-icons-only] .nt-create-strip-item{position:relative;justify-content:center}
+.nt-create-strip[data-icons-only] .nt-create-strip-item .nt-row-title{position:absolute;width:0;height:0;overflow:hidden;clip-path:inset(50%)}
 .nt-create-strip-item.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
 .nt-chats{margin-top:20px}
 .nt-chats-head{display:flex;align-items:center;gap:14px;height:28px;font-size:13px}
