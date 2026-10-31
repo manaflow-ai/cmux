@@ -163,7 +163,7 @@ import { guestPromptInstallCommand, vmPromptIdentity } from "./guestPrompt";
 import { scheduleGuestVmKindRecord } from "./guestVmKind";
 import { vmAgentUpdatesFromRow, type VmAgentUpdatesSetting } from "./agentUpdates";
 import { guestAgentUpdatesCommand } from "./guestAgentUpdates";
-import { vmKindForCaller, vmKindForCallerNeedsMembers } from "./vmKind";
+import { vmKindForCaller, vmKindForCallerMayUseChatGrant, vmKindForCallerNeedsMembers } from "./vmKind";
 import {
   VM_API_ACTIVITY_MIN_INTERVAL_MS,
   VM_IDLE_PAUSE_MINUTES_KEY,
@@ -5725,12 +5725,14 @@ export function openVmCmuxRemote(input: {
   readonly modelPlane?: VmModelPlaneRevoker;
   /** Reads the owner team's members for the caller's `vmKind` (see callerVmKind). */
   readonly teamDirectory?: VmTeamDirectory;
+  /** Count a chat grant toward the caller's `vmKind` (the attach-endpoint route only; see callerVmKind). */
+  readonly readChatGrants?: boolean;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
-    const vmKind = yield* Effect.fork(callerVmKind(vm, input.userId, input.teamDirectory));
+    const vmKind = yield* Effect.fork(callerVmKind(vm, input.userId, input.teamDirectory, input.readChatGrants === true));
     const supportedTransports = providers.attachTransports?.(vm.provider);
     if (supportedTransports && !supportedTransports.includes("cmux-remote")) {
       return yield* Effect.fail(new VmAttachTransportUnsupportedError({
@@ -5901,23 +5903,55 @@ type OpenAttachEndpointInput = {
   readonly modelPlane?: VmModelPlaneRevoker;
   /** Reads the owner team's members for the caller's `vmKind` (see callerVmKind). */
   readonly teamDirectory?: VmTeamDirectory;
+  /** Count a chat grant toward the caller's `vmKind` (the attach-endpoint route only; see callerVmKind). */
+  readonly readChatGrants?: boolean;
 };
 
 /**
  * The caller's `vmKind` for `vm` (vmKindForCaller). Stack is asked for the
  * owner team's members only when the answer depends on them (a machine the
- * caller created on a Stack team), with the bounded read resolveVmGuestKind
- * uses. With no directory, or a failed or timed-out read, the list is unknown
- * and the answer is `team`. The routes start it as soon as the machine is
- * known, so the read overlaps the endpoint open.
+ * caller created on a Stack team, or one shared with the caller), with the
+ * bounded read resolveVmGuestKind uses. With no directory, or a failed or
+ * timed-out read, the list is unknown and the answer is `team`. The routes
+ * start it as soon as the machine is known, so the reads overlap the endpoint
+ * open.
+ *
+ * With `readChatGrants`, a teammate's chat grant on the machine
+ * (cloud_vm_chat_grants, services/vms/chatGrants.ts) is read first; a read
+ * that fails, times out, or has no store counts as no grant.
  */
-function callerVmKind(vm: CloudVmRow, userId: string, directory: VmTeamDirectory | undefined) {
-  if (!directory || !vmKindForCallerNeedsMembers(vm, userId)) {
-    return Effect.succeed(vmKindForCaller(vm, userId));
-  }
-  return listTeamMemberIdsWithTimeout(directory, vm.ownerTeamId).pipe(
-    Effect.map((members) => vmKindForCaller(vm, userId, members)),
-  );
+function callerVmKind(
+  vm: CloudVmRow,
+  userId: string,
+  directory: VmTeamDirectory | undefined,
+  readChatGrants = false,
+): Effect.Effect<ReturnType<typeof vmKindForCaller>, never, VmRepository> {
+  return Effect.gen(function* () {
+    const chatGranted = readChatGrants && directory !== undefined && vmKindForCallerMayUseChatGrant(vm, userId)
+      ? yield* callerHoldsChatGrant(vm.id, userId)
+      : false;
+    const options = { chatGranted };
+    if (!directory || !vmKindForCallerNeedsMembers(vm, userId, options)) {
+      return vmKindForCaller(vm, userId, undefined, options);
+    }
+    const members = yield* listTeamMemberIdsWithTimeout(directory, vm.ownerTeamId);
+    return vmKindForCaller(vm, userId, members, options);
+  });
+}
+
+/** How long the attach endpoint waits for the caller's chat grant before treating it as absent. */
+const CHAT_GRANT_READ_TIMEOUT_MS = 3000;
+
+function callerHoldsChatGrant(vmId: string, userId: string): Effect.Effect<boolean, never, VmRepository> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    if (!repo.hasVmChatGrant) return false;
+    return yield* repo.hasVmChatGrant({ vmId, userId }).pipe(
+      Effect.timeout(CHAT_GRANT_READ_TIMEOUT_MS),
+      Effect.map((granted) => granted === true),
+      Effect.catchAll(() => Effect.succeed(false)),
+    );
+  });
 }
 
 export function openAttachEndpoint(input: OpenAttachEndpointInput) {
@@ -6078,7 +6112,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
-    const vmKind = yield* Effect.fork(callerVmKind(vm, input.userId, input.teamDirectory));
+    const vmKind = yield* Effect.fork(callerVmKind(vm, input.userId, input.teamDirectory, input.readChatGrants === true));
     // A provider that only runs the cmux-tui daemon cannot serve the legacy
     // websocket/SSH attach at all; say so before waking or mutating anything.
     const supportedTransports = providers.attachTransports?.(vm.provider);

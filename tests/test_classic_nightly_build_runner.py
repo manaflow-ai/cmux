@@ -249,6 +249,83 @@ class DeadLabel(unittest.TestCase):
         self.assertEqual(picker.blacksmith_route(None, NOW, picker.LARGE, older_janitor)[0], picker.LARGE)
 
 
+def stamp(moment: dt.datetime) -> str:
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def both_dead(generated: dt.datetime) -> dict:
+    """2026-10-31 05:44Z: blacksmith-12vcpu-macos-26 88 queued, none running, the oldest 1403 min; 6 vCPU had
+    started nothing for an hour either, so the snapshot shows both labels dead."""
+    snap = observed(generated, **{picker.LARGE: {"queued": 88, "oldest_queued_minutes": 1403},
+                                  picker.SMALL: {"running": 0}})
+    snap["label_started"] = {picker.SMALL: stamp(generated - dt.timedelta(minutes=70))}
+    return snap
+
+
+class EveryLabelDead(unittest.TestCase):
+    """A re-run never takes a label the snapshot or RUNNER_POOLS' `_dead` marks show dead, even when every
+    candidate shows dead: dead_macos_26() drops evidence that names both, so a stale snapshot showing both dead
+    still offered blacksmith-12vcpu-macos-26 as `alternate` (DEV daily verify and tip-dmg-build re-runs)."""
+
+    outputs = DeadLabel.outputs
+
+    def test_a_stale_snapshot_showing_both_dead_offers_no_dead_alternate(self) -> None:
+        stale = both_dead(NOW - dt.timedelta(minutes=50))
+        self.assertEqual(picker.dead_labels(stale, NOW), set())
+        self.assertEqual(picker.every_dead(stale, NOW), {picker.LARGE, picker.SMALL})
+        out = self.outputs(stale)
+        self.assertEqual((out["cloud"], out["alternate"]), (picker.SMALL, picker.SMALL))
+        # Fresh too: the alternate is never the dead label.
+        out = self.outputs(both_dead(NOW))
+        self.assertEqual(out["alternate"], out["cloud"])
+
+    def test_runner_pools_marks_count_as_dead(self) -> None:
+        pools = {"macos_26": picker.SMALL, "_dead": {picker.LARGE: stamp(NOW - dt.timedelta(minutes=5))}}
+        # No snapshot at all: the mark alone keeps the re-run off 12 vCPU and the 12 vCPU-first pick off it.
+        self.assertEqual(picker.alternate(picker.SMALL, None, NOW, None, pools), picker.SMALL)
+        self.assertEqual(picker.blacksmith_route(None, NOW, picker.LARGE, None, pools)[0], picker.SMALL)
+        out = self.outputs(None, first="12vcpu", RUNNER_POOLS=__import__("json").dumps(pools))
+        self.assertEqual((out["cloud"], out["alternate"]), (picker.SMALL, picker.SMALL))
+        # A mark older than runner_pools.DEAD_TTL, one in the future, or a malformed one proves nothing.
+        for since in (stamp(NOW - dt.timedelta(minutes=45)), stamp(NOW + dt.timedelta(hours=1)), "soon", None):
+            with self.subTest(since=since):
+                old = {"macos_26": picker.SMALL, "_dead": {picker.LARGE: since}}
+                self.assertEqual(picker.alternate(picker.SMALL, None, NOW, None, old), picker.LARGE)
+        for raw in ("", "not json", "[1]", '{"_dead": []}'):
+            with self.subTest(raw=raw):
+                self.assertEqual(picker.marked_dead(picker.runner_pools(raw), NOW), set())
+
+    def test_every_label_dead_takes_the_pools_live_member(self) -> None:
+        stale = both_dead(NOW - dt.timedelta(minutes=50))
+        pools = {"macos_26": picker.SMALL, "_dead": {picker.LARGE: stamp(NOW), picker.SMALL: stamp(NOW)}}
+        for first in ("12vcpu", "6vcpu"):
+            with self.subTest(first=first):
+                self.assertEqual(picker.blacksmith_route(None, NOW, first, stale, pools)[0], picker.SMALL)
+                self.assertEqual(picker.blacksmith_route(stale, NOW, first, None, pools)[0], picker.SMALL)
+                self.assertEqual(picker.blacksmith_route(None, NOW, first, None, pools)[0], picker.SMALL)
+        self.assertEqual(picker.alternate(picker.SMALL, None, NOW, stale, pools), picker.SMALL)
+        # A member that is not a candidate is never printed; the caller's order holds.
+        odd = {**pools, "macos_26": "blacksmith-6vcpu-macos-15"}
+        self.assertEqual(picker.blacksmith_route(None, NOW, picker.LARGE, None, odd)[0], picker.LARGE)
+        self.assertEqual(picker.alternate(picker.LARGE, None, NOW, None, odd), picker.LARGE)
+
+    def test_the_mark_ttl_is_the_writers(self) -> None:
+        text = (ROOT / "scripts" / "ci" / "runner_pools.py").read_text()
+        self.assertIn(f'DEAD_KEY = "{picker.DEAD_KEY}"', text)
+        minutes = int(picker.MARK_TTL.total_seconds() // 60)
+        self.assertIn(f"DEAD_TTL = dt.timedelta(minutes={minutes})", text)
+
+    def test_every_picker_step_reads_runner_pools(self) -> None:
+        for name in ("nightly.yml", "cmux-next-dev-daily.yml"):
+            text = (ROOT / ".github" / "workflows" / name).read_text()
+            steps = re.findall(r"env:\n((?:          .*\n)+?)        run: python3 scripts/ci/classic_nightly_build_runner.py\n",
+                               text)
+            with self.subTest(workflow=name):
+                self.assertTrue(steps)
+                for env in steps:
+                    self.assertIn("RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}", env)
+
+
 class Main(unittest.TestCase):
     def run_main(self, env, runners, snap):
         clock = Clock()

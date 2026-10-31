@@ -43,6 +43,41 @@ struct SocketClientCapabilityTests {
         #expect(!issuer.verifies(String(tampered)))
     }
 
+    @Test func deliveryCapabilitiesAreDistinctAndExpire() throws {
+        let issuer = SocketClientCapabilityAuthority(
+            secret: secret,
+            audience: "com.cmuxterm.test"
+        )
+        let issuedAt = Date(timeIntervalSince1970: 10_000)
+        let expiry = issuedAt.addingTimeInterval(30)
+        let first = issuer.issueDeliveryCapability(nonce: nonce, expiresAt: expiry)
+        let second = issuer.issueDeliveryCapability(
+            nonce: Data(repeating: 0xD4, count: SocketClientCapabilityAuthority.secureByteCount),
+            expiresAt: expiry
+        )
+
+        #expect(first != second)
+        #expect(issuer.verifies(first, now: issuedAt))
+        #expect(issuer.verifies(first, now: expiry.addingTimeInterval(-0.001)))
+        #expect(!issuer.verifies(first, now: expiry))
+        #expect(!issuer.verifies(first, now: expiry.addingTimeInterval(1)))
+    }
+
+    @Test func deliveryCapabilityRejectsTamperedExpiry() {
+        let issuer = SocketClientCapabilityAuthority(
+            secret: secret,
+            audience: "com.cmuxterm.test"
+        )
+        let issuedAt = Date(timeIntervalSince1970: 10_000)
+        let capability = issuer.issueDeliveryCapability(
+            nonce: nonce,
+            expiresAt: issuedAt.addingTimeInterval(30)
+        )
+        var components = capability.split(separator: ".")
+        components[1] = "999999"
+        #expect(!issuer.verifies(components.joined(separator: "."), now: issuedAt))
+    }
+
     @Test func envelopeRoundTripsWithoutExposingCapabilityToDispatch() throws {
         let issuer = SocketClientCapabilityAuthority(
             secret: secret,
