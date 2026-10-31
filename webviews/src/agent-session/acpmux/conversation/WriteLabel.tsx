@@ -19,6 +19,7 @@ import { editedPaths } from "../toolPaths";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { fileName } from "./toolGroups";
 import { leadingVerb, ToolLabel } from "./ToolVerb";
+import { useTranscriptReadOnly } from "./readOnly";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -80,10 +81,11 @@ export function WriteLabel({ tool, write, t }: { tool: Tool; write: WriteCall; t
 /// the row's <button> its children are presentational, so VoiceOver reads the row, not the link: the
 /// file opens by pointer and keyboard focus, and from the row's context menu (Open, `data-path`).
 function WriteFileName({ path, cwd }: { path: string; cwd?: string }) {
+  const readOnly = useTranscriptReadOnly();
   const name = fileName(path);
   const folder = cwd?.replace(/\/+$/, "");
   const full = path.startsWith("/") || path.startsWith("~") || !folder ? path : `${folder}/${path}`;
-  if (isDeniedPath(full)) return <span className="cv-tool__file">{name}</span>;
+  if (isDeniedPath(full) || readOnly) return <span className="cv-tool__file">{name}</span>;
   const open = (event: MouseEvent | KeyboardEvent) => {
     event.stopPropagation();
     event.preventDefault();

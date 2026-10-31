@@ -51,6 +51,7 @@ import { laneNotice } from "./laneReport";
 import "./LaneNoticeBatch.css";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptReadOnly } from "./readOnly";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -64,6 +65,7 @@ const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
 /// PendingMessagesCard.tsx): the name opens the sender's chat when there is one to open.
 export function SenderName({ message, onOpen }: { message: IncomingMessage; onOpen(sessionId: string): void }) {
   const t = useT();
+  const readOnly = useTranscriptReadOnly();
   // A Chief's message names the Chief and draws its avatar (chiefFace.ts); its turn session is no
   // chat of the list, so no listed chat with its name stands in for it, and it is no chat to open.
   const chief = useChiefFace(message.chief);
@@ -92,7 +94,7 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
       <span className="cv-received__mark" aria-hidden="true">
         {icon}
       </span>
-      {sessionId ? (
+      {sessionId && !readOnly ? (
         <button
           type="button"
           className="cv-received__from cv-received__from--open"
@@ -140,6 +142,7 @@ export function IncomingMessageLine({
   githubRepository?: string;
 }) {
   const t = useT();
+  const readOnly = useTranscriptReadOnly();
   const notice = laneNotice(message);
   const session = useContext(PromptMarksSession);
   const key = `${session ?? ""}\u0000${id}`;
@@ -197,7 +200,7 @@ export function IncomingMessageLine({
   // A sub-session family's sender says who it is to this chat.
   const from = message.relation ? t(RELATION_LABEL[message.relation], { name }) : name;
   // A reply needs a chat to go to and the message's id to answer: acpmux's `agent_message`.
-  const replies = onReply !== undefined && message.sessionId !== undefined && message.msgId !== undefined;
+  const replies = !readOnly && onReply !== undefined && message.sessionId !== undefined && message.msgId !== undefined;
   const [reply, setReplyState] = useState<"closed" | "open" | "sent" | "failed">(() =>
     replying.has(key) ? "open" : "closed",
   );
