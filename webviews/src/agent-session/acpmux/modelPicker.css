@@ -374,14 +374,15 @@
    list still leaves room for up to six rail rows, so a tab with one row never squashes the menu to
    that row with the selected harness scrolled out of the rail (Leo 2026-10-29: "This fucking
    minimum space is just asinine"). --acpmux-quick-rail-rows is the rail's tab count. The floor is
-   at most half the menu's room, so a short window keeps the search field and footer in view. */
+   at most half the menu's room (Base UI's --available-height; --acpmux-quick-room does not inherit),
+   so a short window keeps the search field and footer in view. */
 .acpmux-quick-layout {
   display: flex;
   flex-direction: row;
   flex: 1 1 auto;
   min-height: min(
     calc(min(var(--acpmux-quick-rail-rows, 0), 6) * var(--ui-row-height) + var(--ds-space-2)),
-    calc(var(--acpmux-quick-room) / 2)
+    calc(min(var(--available-height, 100vh), 100vh - 16px) / 2)
   );
   max-height: calc(100vh - 16px);
   max-height: min(calc(100vh - 16px), var(--acpmux-quick-room));
