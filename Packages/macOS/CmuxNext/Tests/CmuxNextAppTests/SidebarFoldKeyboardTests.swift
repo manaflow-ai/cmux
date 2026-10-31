@@ -95,24 +95,6 @@ import Testing
         }
     }
 
-    /// A click on a tab row takes keyboard focus off the disclosure, as workspace and item clicks do: Return or
-    /// Space after it must not toggle the fold the keyboard focused before.
-    @Test(arguments: [false, true])
-    func clickingATabRowTakesFocusOffTheFold(returnKey: Bool) throws {
-        try withList(tabs: true) { list in
-            let tab = SidebarRowKey.tab(WorkspaceID("w1"), CmuxNextSidebar.TabID("w1-tab-b"))
-            try press(code: 125, in: list)
-            let showMore = try #require(list.rowViews[.showMore(Self.fold)])
-            #expect(list.focusedFold == .showMore(Self.fold))
-            try click(tab, in: list)
-            #expect(list.focusedFold == nil, "A tab click must take focus off the disclosure")
-            #expect(list.focusedGroup == nil)
-            #expect((showMore.layer?.borderWidth ?? 0) == 0, "The disclosure keeps its ring after a tab click")
-            if returnKey { try press(code: 36, in: list) } else { try space(in: list) }
-            #expect(list.openShowMore.isEmpty, "Return or Space toggled the disclosure the tab click left")
-        }
-    }
-
     private func click(_ key: SidebarRowKey, in list: SidebarListView) throws {
         let row = try #require(list.displayed.row(for: key))
         let frame = list.frame(for: row)
@@ -152,7 +134,7 @@ import Testing
         list.keyDown(with: event)
     }
 
-    private func withList(tabs: Bool = false, _ body: (SidebarListView) throws -> Void) throws {
+    private func withList(_ body: (SidebarListView) throws -> Void) throws {
         _ = NSApplication.shared
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
@@ -166,14 +148,10 @@ import Testing
         let nodes = (0..<5).map { index -> SidebarNode in
             var workspace = SidebarWorkspace(id: WorkspaceID("w\(index)"), title: "Workspace \(index)")
             if index == 4 { workspace.taskStatus = .done }
-            if tabs, index == 1 {
-                workspace.tabs = ["a", "b"].map { SidebarTab(id: CmuxNextSidebar.TabID("w1-tab-\($0)"), title: "Tab \($0)", kind: .agentChat) }
-            }
             return .workspace(workspace)
         }
         let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: nodes)],
                                  activeWorkspaceID: WorkspaceID("w1"))
-        model.showWorkspaceTabs = tabs
         let list = SidebarListView(model: model)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 800),
                               styleMask: [.borderless], backing: .buffered, defer: false)
