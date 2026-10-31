@@ -8,7 +8,8 @@
  "steps": [
   {
    "do": "new_terminal",
-   "name": "jr-focus-drag"
+   "name": "jr-focus-drag",
+   "via": "key"
   },
   {
    "do": "neutral_prompt"

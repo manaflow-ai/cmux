@@ -8,7 +8,8 @@
  "steps": [
   {
    "do": "new_terminal",
-   "name": "jr-r3-reattach"
+   "name": "jr-r3-reattach",
+   "via": "key"
   },
   {
    "do": "neutral_prompt"
