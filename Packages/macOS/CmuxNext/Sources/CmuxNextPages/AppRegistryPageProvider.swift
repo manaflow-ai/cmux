@@ -99,7 +99,7 @@ public final class AppRegistryPageProvider: PageProvider {
         }
         let parts = app.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         guard parts.count == 2, Self.isAppID(publisher: parts[0], name: parts[1]),
-              version.range(of: #"^[0-9A-Za-z.+-]{1,64}$"#, options: .regularExpression) != nil
+              version.range(of: #"^[0-9A-Za-z.+-]+$"#, options: .regularExpression) != nil
         else { throw PageError.invalidParams("not an App Store app or version") }
         // The hash comes from the listing, the files from the bundle: the supervisor checks
         // one against the other before anything is written.
