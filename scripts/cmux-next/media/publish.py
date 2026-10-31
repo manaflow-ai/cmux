@@ -45,7 +45,6 @@ DEFAULT_FRAME_INTERVAL = 0.5
 # GIFs are intentionally lighter than the source video, while retaining smooth UI motion.
 GIF_FPS = 15
 VIDEO_SIZE = (1280, 800)
-# tour.py's MAX_FRAMES: a larger artifact does not make a longer video.
 GIF_WIDTHS = (720, 560, 440)
 VIDEO_NAME = "capture.mov"
 TOUR_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")

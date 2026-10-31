@@ -237,8 +237,7 @@ class MakeVideoTests(unittest.TestCase):
                 "-i", "testsrc2=size=320x240:rate=60", "-t", "2", "-c:v", "libx264",
                 "-pix_fmt", "yuv420p", str(capture),
             ], capture_output=True, text=True)
-            if generated.returncode:
-                self.skipTest(f"ffmpeg cannot generate the synthetic source: {generated.stderr.strip()}")
+            self.assertEqual(generated.returncode, 0, generated.stderr)
             mp4, gif = publish.make_video(directory, {"video": "capture.mov", "capture_fps": 60}, root,
                                           pr_media)
             self.assertIsNotNone(mp4)

@@ -927,7 +927,7 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     app = App(app_path, session, workdir, fresh_state=fresh_state, settings=tour.get("settings"))
     screen = Screen(session, session.shareable(workdir / "raw"), app)
     recorder = Recorder(screen, frames)
-    video = WindowVideo(session, None, directory, screen.scratch)
+    video = WindowVideo(session, None, session.shareable(directory), screen.scratch)
     video_started = False
     manifest: dict[str, Any] = {"name": tour["name"], "title": tour["title"], "steps": [], "frames": [],
                                 "frame_interval": recorder.interval, "console_user": session.user,
