@@ -650,8 +650,17 @@ def _current_workspace(j):
 
 def step_smoke_widths(j, step):
     workspace = _current_workspace(j)
-    no_frame = {}
-    widths, columns = _widths(j, workspace, None, no_frame), _columns(j, workspace)
+    for state in ("smoke_unknown_since", "smoke_width_held"):
+        stored = getattr(j, state, None)
+        if stored is not None:
+            stored.discard(step["name"]) if isinstance(stored, set) else stored.pop(step["name"], None)
+    end = time.monotonic() + float(step.get("frame_wait", UNKNOWN_SECONDS))
+    while True:
+        no_frame = {}
+        widths, columns = _widths(j, workspace, None, no_frame), _columns(j, workspace)
+        if not no_frame or time.monotonic() >= end:
+            break
+        time.sleep(0.2)
     if no_frame:
         # A pane with no frame (an off-screen column whose terminal the app closed under memory pressure): its
         # column's width is unknown. Not judged (the round is "not run"), never a fail or a pass.
@@ -686,15 +695,22 @@ def cond_smoke_same_widths(j, want, cache):
         if index == split_in:
             continue
         # The old column's width now, from its OLD panes only: a pane a split just added to it (Split Down) may not
-        # have its frame yet, and the column's width is the span of the panes it already had.
+        # have its frame yet, and the column's width is the span of the panes it already had. When every pane of the
+        # column has its frame, the span of all of them must be that width too (a column that grew to hold a new pane
+        # beside its old ones changed width).
         after, missing = _span(j, members, cache)
-        widths_now[match] = after
+        whole, _whole_missing = _span(j, new_cols.get(match, members), cache)
+        widths_now[match] = whole if whole is not None else after
         if before is None or after is None:
             unknown[index] = {"old": before, "new": after, "panes": members, "no_frame": missing}
-        elif abs(before - after) > 0.01:
-            changed[index] = {"old": before, "new": after, "panes": members}
+        elif abs(before - after) > 0.01 or (whole is not None and abs(before - whole) > 0.01):
+            changed[index] = {"old": before, "new": whole if whole is not None and abs(before - whole) > 0.01 else after,
+                              "panes": members, "old_panes_span": after, "all_panes_span": whole}
+
     matched = {next((k for k, m in new_cols.items() if set(members) <= set(m)), None) for members in old_cols.values()}
     added = sorted(k for k in new_cols if k not in matched)
+    for k in added:
+        widths_now[k] = _span(j, new_cols[k], cache)[0]
     problems = []
     if changed:
         problems.append(f"{len(changed)} existing columns changed width")
@@ -716,6 +732,14 @@ def cond_smoke_same_widths(j, want, cache):
               "old_columns": old_cols, "new_columns": new_cols}
     seen = getattr(j, "smoke_unknown_since", {})
     j.smoke_unknown_since = seen
+    held = getattr(j, "smoke_width_held", set())
+    j.smoke_width_held = held
+    if unknown and not problems and want["since"] in held:
+        # The check held, then an old pane lost its frame during the settle (its terminal closed under memory
+        # pressure): the driver's settle reads a negative condition again only while it holds, so a False here would
+        # be final. Not judged at once.
+        raise D.NotRun(f"an old pane lost its frame after the check held: {sorted({p for v in unknown.values() for p in v['no_frame']})} "
+                       f"(the widths of {len(unknown)} existing columns are unknown; not judged)")
     if unknown and not problems:
         # Only unknown widths (an old column's pane has no frame, e.g. an off-screen column whose terminal the app
         # closed under memory pressure): not yet judged this poll; past UNKNOWN_SECONDS, not judged at all (the
@@ -727,6 +751,8 @@ def cond_smoke_same_widths(j, want, cache):
                            f"the widths of {len(unknown)} existing columns are unknown (not judged)")
         return False, dict(detail, waiting_for_frames=True)
     seen.pop(want["since"], None)
+    if not problems:
+        held.add(want["since"])
     return not problems, detail
 
 

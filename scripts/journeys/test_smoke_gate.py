@@ -682,7 +682,7 @@ class Resize(unittest.TestCase):
         bare = self.journey(columns=[(1, "P2", 650.0, 300.0)])
         del bare.app.panes()[1]["grid"]
         with self.assertRaises(self.NotRun):
-            self.ext.step_smoke_widths(bare, {"name": "c1"})
+            self.ext.step_smoke_widths(bare, {"name": "c1", "frame_wait": 0.3})
 
     def test_a_new_pane_without_its_frame_yet_does_not_hide_the_old_column(self):
         # Split Down adds P6 to column 1; P6 has no frame yet at this poll. Column 1's width is read from P2 alone.
@@ -693,6 +693,22 @@ class Resize(unittest.TestCase):
         del down.app.panes()[2]["grid"]
         ok, detail = self.ext.cond_smoke_same_widths(down, {"since": "c0", "new": 0}, {})
         self.assertTrue(ok, detail)
+
+    def test_a_column_that_grew_to_hold_a_new_pane_beside_its_old_ones_fails(self):
+        j = self.journey(columns=[(1, "P2", 650.0, 300.0)])
+        self.ext.step_smoke_widths(j, {"name": "c0"})
+        # P6 joins column 1 to the right of P2: P2 keeps 300 points, but the column is now 600 wide.
+        grew = self.journey(columns=[(1, "P2", 650.0, 300.0), (1, "P6", 951.0, 300.0)])
+        grew.smoke_width_snaps = j.smoke_width_snaps
+        ok, detail = self.ext.cond_smoke_same_widths(grew, {"since": "c0", "new": 0}, {})
+        self.assertFalse(ok)
+        self.assertEqual(detail["changed"]["1"]["all_panes_span"], 601.0)
+        # The new columns' widths are in the evidence.
+        added = self.journey(columns=[(1, "P2", 650.0, 300.0), (2, "P7", 951.0, 250.0)])
+        added.smoke_width_snaps = j.smoke_width_snaps
+        ok, detail = self.ext.cond_smoke_same_widths(added, {"since": "c0", "new": 1}, {})
+        self.assertTrue(ok, detail)
+        self.assertEqual(detail["new_widths"]["2"], 250.0)
 
     def test_a_real_failure_is_judged_even_when_a_width_is_unknown(self):
         # Column 0's pane has no frame, and Cmd-D opened a column instead of splitting: a FAIL, not "not judged".
@@ -762,6 +778,54 @@ class Resize(unittest.TestCase):
         self.assertFalse(ok)
         self.assertTrue(any("new columns" in p for p in detail["problems"]), detail["problems"])
         self.assertIn("smoke_same_widths", self.ext.NEGATIVE)
+
+
+class SettleThroughTheDriver(unittest.TestCase):
+    """smoke_same_widths through the real driver.Journey.step_expect (its polls and its settle): an old pane that
+    loses its frame after the check held is not judged (not run), never a FAIL; a frame never lost passes."""
+
+    def run_step(self, lose_after):
+        sys.path.insert(0, str(HERE))
+        import driver
+        import ext_smoke
+        ext_smoke.install(driver)
+        t0 = driver.now()
+        topo = {"workspaces": [{"id": "W", "screens": [{"panes": [{"id": "P1", "column": 0}, {"id": "P2", "column": 1},
+                                                                  {"id": "P3", "column": 2}]}]}]}
+
+        class App:
+            snapshot_window = None
+
+            def rpc(self_, method, params=None):
+                return {"topology": topo} if method == "snapshot.get" else {}
+
+            def panes(self_):
+                lost = lose_after is not None and driver.now() - t0 >= lose_after
+                rows = [{"pane": "P1", "workspace": "W", "grid": {"frame_x": 0.0, "frame_width": 300.0}},
+                        {"pane": "P2", "workspace": "W", "grid": {"frame_x": 301.0, "frame_width": 300.0}},
+                        {"pane": "P3", "workspace": "W", "grid": {"frame_x": 602.0, "frame_width": 300.0}}]
+                if lost:
+                    del rows[0]["grid"]
+                return rows
+
+        with tempfile.TemporaryDirectory() as tmp:
+            j = driver.Journey({"id": "settle-test", "steps": []}, App(), tmp, driver.now() + 60, 1.0)
+            j.smoke_width_snaps = {"c0": {"workspace": "W", "widths": {"0": 300.0, "1": 300.0},
+                                          "columns": {"0": ["P1"], "1": ["P2"]}, "focused": "P2"}}
+            j.marks["m"] = driver.now()
+            return j.step_expect({"title": "R3b settle", "since": "m", "timeout": 4, "settle": 1.5,
+                                  "all": [{"smoke_same_widths": {"since": "c0", "new": 1}}]}), driver
+
+    def test_a_frame_never_lost_passes(self):
+        result, _driver = self.run_step(None)
+        self.assertTrue(result)
+
+    def test_a_frame_lost_during_the_settle_is_not_judged(self):
+        sys.path.insert(0, str(HERE))
+        import driver
+        with self.assertRaises(driver.NotRun):
+            self.run_step(0.3)
+
 
 class Loads(unittest.TestCase):
     def test_the_smoke_journey_and_its_steps_load(self):
