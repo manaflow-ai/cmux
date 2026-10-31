@@ -79,6 +79,12 @@ type CaretDocument = Document & {
   caretRangeFromPoint?: (x: number, y: number) => Range | null;
 };
 
+// Composer strips contain a full-width layout context around their actual controls. Keep those
+// controls (and their padding) under native pointer ownership while allowing a drag from the
+// context's blank room to use the transcript selection path.
+const INTERACTIVE_TARGETS =
+  'button, a[href], input, textarea, select, label, summary, [contenteditable="true"], [draggable="true"], [data-interactive], [role="button"], [role="link"], [role="menuitem"], [role="option"], [role="textbox"], [role="combobox"], [role="listbox"], [role="menu"], [role="dialog"]';
+
 /// The caret at a client point: the standard caretPositionFromPoint, else WebKit's and older
 /// Chromium's caretRangeFromPoint.
 export function caretAt(doc: Document, x: number, y: number): Caret | undefined {
@@ -450,8 +456,12 @@ export function installGutterSelect(
     const blankPress = Boolean(
       targetElement?.getAttribute("data-transcript-gap") === "blank" && thread.contains(targetElement),
     );
+    const strip = targetElement?.closest<HTMLElement>(".acpmux-composer-strip");
     const stripPress = Boolean(
-      targetElement?.matches(".acpmux-composer-strip") && eventSurface.contains(targetElement),
+      strip &&
+      eventSurface.contains(strip) &&
+      !targetElement?.closest(INTERACTIVE_TARGETS) &&
+      !targetElement?.closest(".acpmux-location-readonly"),
     );
     if (!directTranscriptTarget && !stripPress && !rowGapPress && !blankPress) return;
     const geometry = measure(scroller, thread);
