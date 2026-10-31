@@ -50,7 +50,17 @@ await requireBrowserLane("computer-picker-onboarding.test.ts", async () => {
                 .filter((call) => call.method === "action.run")
                 .map((call) => call.params?.id),
             );
-          // The right-click menu holds the setup actions.
+          // The right-click menu holds the setup actions. The New Tab scene opens with the list open;
+          // close it first so its popover does not cover the control.
+          if ((await computer.getAttribute("aria-expanded"))?.includes("true")) {
+            await page.keyboard.press("Escape");
+            await page.waitForFunction(
+              () =>
+                document
+                  .querySelector('.acpmux-location-picker[data-kind="computer"] button')
+                  ?.getAttribute("aria-expanded") !== "true",
+            );
+          }
           await computer.click({ button: "right" });
           const more = page.getByRole("menu");
           const add = more.getByRole("menuitem", { name: /Add Machine…/ });
