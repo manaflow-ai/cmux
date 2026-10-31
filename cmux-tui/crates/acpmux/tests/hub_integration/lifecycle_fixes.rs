@@ -689,3 +689,77 @@ async fn the_persons_start_never_waits_behind_lanes_that_are_stuck_starting() {
     }
     let _ = std::fs::remove_file(&gate);
 }
+
+/// The PR's load bench (not run by default): `LOAD_STARTS` starts of each kind at once on a host
+/// under synthetic CPU load (`LOAD_BURNERS` busy loops, default 4 per CPU), with a 2 s
+/// `agentStartTimeoutMs`. The agent connection's starts keep the deadline, as every start did
+/// before; the person's wait. Prints how many failed and how long the person's took.
+/// `cargo test -p acpmux --test hub_integration -- --ignored starts_under_load --nocapture`
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[ignore = "a load bench: run by hand"]
+async fn starts_under_load() {
+    let n: usize = std::env::var("LOAD_STARTS").ok().and_then(|v| v.parse().ok()).unwrap_or(24);
+    let cpus = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let burners: usize =
+        std::env::var("LOAD_BURNERS").ok().and_then(|v| v.parse().ok()).unwrap_or(4 * cpus);
+    let gate = std::env::temp_dir().join(format!("acpmux-load-gate-{}", uuid::Uuid::now_v7()));
+    std::fs::write(&gate, b"").unwrap();
+    let (hub, _person) = gated_hub(&gate, &[]).await;
+    hub.config.write().await.agent_start_timeout_ms = Some(2_000);
+    // Our own busy loops, ended below by their handles.
+    let mut load: Vec<std::process::Child> = (0..burners)
+        .map(|_| {
+            std::process::Command::new("sh")
+                .args(["-c", "while :; do :; done"])
+                .spawn()
+                .expect("a busy loop")
+        })
+        .collect();
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let mut runs = Vec::new();
+    for i in 0..n {
+        for person in [true, false] {
+            let mut c = if person { connect(&hub).await } else { agent_client(&hub) };
+            let name = format!("{}-{i}", if person { "person" } else { "agent" });
+            runs.push(tokio::spawn(async move {
+                let began = std::time::Instant::now();
+                let r = c.request(method::SESSION_NEW, new_params(&name, "fake")).await;
+                (person, r.is_ok(), began.elapsed(), r.err())
+            }));
+        }
+    }
+    let mut person_ms = Vec::new();
+    let (mut person_failed, mut agent_failed) = (0, 0);
+    let mut agent_ms = Vec::new();
+    for run in runs {
+        let (person, ok, took, err) =
+            tokio::time::timeout(Duration::from_secs(600), run).await.unwrap().unwrap();
+        let ms = took.as_millis() as u64;
+        match (person, ok) {
+            (true, true) => person_ms.push(ms),
+            (true, false) => {
+                person_failed += 1;
+                eprintln!("person start failed: {err:?}");
+            }
+            (false, true) => agent_ms.push(ms),
+            (false, false) => agent_failed += 1,
+        }
+    }
+    for child in &mut load {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    let _ = std::fs::remove_file(&gate);
+    let pct = |v: &mut Vec<u64>, p: usize| {
+        v.sort_unstable();
+        v.get((v.len().saturating_sub(1)) * p / 100).copied().unwrap_or(0)
+    };
+    eprintln!(
+        "LOAD cpus={cpus} burners={burners} starts={n}/kind budget=2000ms | agent (as before): failed {agent_failed}/{n}, p50 {} ms max {} ms | person: failed {person_failed}/{n}, p50 {} ms max {} ms",
+        pct(&mut agent_ms, 50),
+        pct(&mut agent_ms, 100),
+        pct(&mut person_ms, 50),
+        pct(&mut person_ms, 100),
+    );
+    assert_eq!(person_failed, 0, "a person's start failed under load");
+}

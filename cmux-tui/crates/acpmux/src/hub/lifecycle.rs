@@ -774,7 +774,8 @@ impl Hub {
         // session, forever. Re-adoption and pool adoption above keep their
         // own bounds: they serve agents that may be mid-turn.
         let budget = self.config.read().await.agent_start_timeout();
-        let started = self.cold_start(session, profile, stops, off);
+        // Boxed: inline, the start outgrows a debug build's 2 MiB test-thread stack.
+        let started = Box::pin(self.cold_start(session, profile, stops, off));
         let started = if session.person.load(Ordering::SeqCst) {
             Ok(self.person_start(session, budget, started).await)
         } else {
