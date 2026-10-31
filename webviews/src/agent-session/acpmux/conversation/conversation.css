@@ -714,11 +714,16 @@
     transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
   }
   .cv-user:hover .cv-user__actions,
+  .cv-user:has([data-popup-open]) .cv-user__actions,
   .cv-received:hover .cv-received-actions,
+  .cv-received:has([data-popup-open]) .cv-received-actions,
   .cv-received > .cv-disclosure__line:hover .cv-received__hover,
+  .cv-received > .cv-disclosure__line:has([data-popup-open]) .cv-received__hover,
   .acpmux-assistant:hover .cv-reply-actions,
+  .acpmux-assistant:has([data-popup-open]) .cv-reply-actions,
   .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
-  .acpmux-turnSummary:hover .cv-turn-actions {
+  .acpmux-turnSummary:hover .cv-turn-actions,
+  .acpmux-turnSummary:has([data-popup-open]) .cv-turn-actions {
     transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
   }
 }
@@ -733,6 +738,7 @@
   }
 }
 .cv-user:hover .cv-user__actions,
+.cv-user:has([data-popup-open]) .cv-user__actions,
 .cv-user__actions:focus-within,
 .cv-user__actions:has([aria-haspopup="menu"][aria-expanded="true"]),
 .cv-user__actions--versions {
@@ -754,6 +760,7 @@
   opacity: 0;
 }
 .cv-received:hover .cv-received-actions,
+.cv-received:has([data-popup-open]) .cv-received-actions,
 .cv-received-actions:focus-within,
 .cv-received-actions:has([aria-haspopup="menu"][aria-expanded="true"]),
 .cv-received-actions:has([aria-haspopup="menu"][data-popup-open]) {
@@ -2701,6 +2708,7 @@ pre.cv-math-source {
   pointer-events: none;
 }
 .cv-received > .cv-disclosure__line:hover .cv-received__hover,
+.cv-received > .cv-disclosure__line:has([data-popup-open]) .cv-received__hover,
 .cv-received__hover:focus-within,
 .cv-received__hover:has([aria-haspopup="menu"]:is([aria-expanded="true"], [data-popup-open])) {
   opacity: 1;
@@ -3198,7 +3206,8 @@ a.cv-sha:focus-visible {
   overflow-wrap: anywhere;
   text-align: start;
 }
-.cv-iconbtn:hover {
+.cv-iconbtn:hover,
+.cv-iconbtn[data-popup-open] {
   color: var(--cv-text);
   background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
 }
@@ -3235,6 +3244,7 @@ a.cv-sha:focus-visible {
 .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
 .acpmux-turnSummary:focus-visible .cv-turn-actions,
 .acpmux-turnSummary:hover .cv-turn-actions,
+.acpmux-turnSummary:has([data-popup-open]) .cv-turn-actions,
 .acpmux-turnSummary .cv-turn-actions:focus-within,
 .acpmux-turnSummary .cv-turn-actions--failed,
 .acpmux-turnSummary .cv-turn-actions--resumable {
@@ -3248,6 +3258,7 @@ a.cv-sha:focus-visible {
   opacity: 0;
 }
 .acpmux-assistant:hover .cv-reply-actions,
+.acpmux-assistant:has([data-popup-open]) .cv-reply-actions,
 .acpmux-assistant:focus-visible .cv-reply-actions,
 .cv-reply-actions:focus-within {
   opacity: 1;
@@ -4591,7 +4602,8 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
     transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
   }
   .cv-received:hover .cv-received__reply,
-  .cv-received:hover .cv-received__queued {
+  .cv-received:hover .cv-received__queued,
+  .cv-received:has([data-popup-open]) .cv-received__queued {
     transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
   }
   .cv-received:focus-within .cv-received__reply,

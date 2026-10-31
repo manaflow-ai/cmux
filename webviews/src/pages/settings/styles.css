@@ -2010,6 +2010,7 @@ button.menu-disclosure {
 }
 
 .menu-row:hover .menu-row-actions,
+.menu-row:has([data-popup-open]) .menu-row-actions,
 .menu-row:focus-within .menu-row-actions {
   opacity: 1;
 }

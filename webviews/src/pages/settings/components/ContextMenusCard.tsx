@@ -200,12 +200,15 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
     const host = nativeMenu();
     if (!host) return setPicker({ path });
     const rect = button.getBoundingClientRect();
+    // The row's actions stay shown and Move to stays lit while its menu is open (styles.css).
+    button.setAttribute("data-popup-open", "");
     void host({
       items: choices.map((choice) => ({ id: choice.id, label: choice.label, ...(choice.current ? { disabled: true } : {}) })),
       point: { x: rect.left, y: rect.bottom },
     })
       .then((reply) => choices.find((choice) => choice.id === pickedId(reply))?.run())
-      .catch(() => setPicker({ path }));
+      .catch(() => setPicker({ path }))
+      .finally(() => button.removeAttribute("data-popup-open"));
   };
 
   // MARK: Dragging
