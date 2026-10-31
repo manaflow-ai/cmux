@@ -40,7 +40,7 @@ for (const key of Object.getOwnPropertyNames(dom.window))
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
 
-const { act } = await import("react");
+const { act, useState } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { diffFingerprintReader, useDiffFreshness } = await import("../src/diff-viewer/freshness");
 
@@ -76,8 +76,14 @@ function Viewer({
   canRefresh: boolean;
   refresh: () => void;
 }) {
-  const stale = useDiffFreshness(read, 0, () => canRefresh, refresh);
-  return <output>{stale ? "stale" : "fresh"}</output>;
+  const [unavailable, setUnavailable] = useState<string>();
+  const stale = useDiffFreshness(read, 0, () => canRefresh, refresh, setUnavailable);
+  return (
+    <>
+      <output>{stale ? "stale" : "fresh"}</output>
+      <aside>{unavailable}</aside>
+    </>
+  );
 }
 const shown = () => dom.window.document.querySelector("output")?.textContent;
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
@@ -119,4 +125,51 @@ test("with a draft or the commit form open it says the files changed instead", a
   await settle();
   expect(refreshed).toBe(0);
   expect(shown()).toBe("stale");
+});
+
+test("an open Cloud diff reports disconnection and clears it after reconnect without losing its patch", async () => {
+  let failure: Error | undefined;
+  let refreshed = 0;
+  const reason = "Build VM is offline. Reconnect to see its diff.";
+  const read = async () => {
+    if (failure) throw failure;
+    return "same-patch";
+  };
+  await act(async () =>
+    root.render(<Viewer key="machine-disconnect" read={read} canRefresh={false} refresh={() => (refreshed += 1)} />),
+  );
+  await settle();
+  expect(shown()).toBe("fresh");
+
+  failure = Object.assign(new Error(reason), { code: "cmux.diff.machine_offline" });
+  dom.window.dispatchEvent(new dom.window.Event("focus"));
+  await settle();
+  expect(host.querySelector("aside")?.textContent).toBe(reason);
+  expect(shown()).toBe("fresh");
+  expect(refreshed).toBe(0);
+
+  failure = undefined;
+  dom.window.dispatchEvent(new dom.window.Event("focus"));
+  await settle();
+  expect(host.querySelector("aside")?.textContent).toBe("");
+  expect(shown()).toBe("fresh");
+  expect(refreshed).toBe(0);
+});
+
+test("a replaced source ignores a late offline failure from the old machine", async () => {
+  let refuse: ((error: Error) => void) | undefined;
+  const oldRead = () =>
+    new Promise<string>((_resolve, reject) => {
+      refuse = reject;
+    });
+  const refresh = () => {};
+  await act(async () => root.render(<Viewer key="machine-race" read={oldRead} canRefresh={false} refresh={refresh} />));
+  expect(typeof refuse).toBe("function");
+  const newRead = async () => "new-machine";
+  await act(async () => root.render(<Viewer key="machine-race" read={newRead} canRefresh={false} refresh={refresh} />));
+  await settle();
+  refuse?.(Object.assign(new Error("Old VM is offline"), { code: "cmux.diff.machine_offline" }));
+  await settle();
+  expect(host.querySelector("aside")?.textContent).toBe("");
+  expect(shown()).toBe("fresh");
 });

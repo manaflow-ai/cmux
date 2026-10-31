@@ -46,6 +46,7 @@ export function useDiffFreshness(
   generation: number,
   canRefresh: () => boolean,
   refresh: () => void,
+  _onUnavailable?: (reason: string | undefined) => void,
 ): boolean {
   const [stale, setStale] = useState<number>();
   const baseline = useRef<string | undefined>(undefined);
