@@ -208,3 +208,116 @@ fn vt_fuzz_finding_e3_ready_snapshot_encodes_after_a_resize_to_one_column() {
     let complete = term.encode_snapshot(SnapshotPhase::Complete);
     assert!(complete.is_ok(), "E3: COMPLETE at 1x1 does not encode: {complete:?}");
 }
+
+/// E2's own symptom only: after some op, a viewport row of the replayed view shows the terminal's row text shifted
+/// right (the same text after leading spaces, more leading spaces). Any other replay difference does not count, so a
+/// shrink keeps E2's cause and not another replay bug (the first shrink found the doubled wide character, #29536).
+fn shifted_row(start: (u16, u16), ops: &[Op]) -> Option<String> {
+    let mut term = Terminal::new(start.0, start.1, SCROLLBACK, Callbacks::default()).unwrap();
+    for (index, op) in ops.iter().enumerate() {
+        match op {
+            Op::Write(bytes) => term.vt_write(bytes),
+            Op::Resize(cols, rows) => term.resize(*cols, *rows, 8, 16).unwrap(),
+        }
+        if !term.vt_stream_is_ground() {
+            continue;
+        }
+        let replay = term.vt_replay_bytes().unwrap();
+        let mut view =
+            Terminal::new(term.cols(), term.rows(), SCROLLBACK, Callbacks::default()).unwrap();
+        view.vt_write(&replay);
+        let (text, view_text) = (term.viewport_text().unwrap(), view.viewport_text().unwrap());
+        let (rows, view_rows): (Vec<&str>, Vec<&str>) =
+            (text.split('\n').collect(), view_text.split('\n').collect());
+        if rows.len() != view_rows.len() {
+            continue;
+        }
+        for (y, (row, view_row)) in rows.iter().zip(view_rows.iter()).enumerate() {
+            let (core, view_core) = (row.trim_start_matches(' '), view_row.trim_start_matches(' '));
+            if !core.is_empty() && core == view_core && view_row.len() > row.len() {
+                return Some(format!(
+                    "step {index} at {}x{}: row {y} {:?} replayed {} columns right; replay {:?}",
+                    term.cols(),
+                    term.rows(),
+                    core,
+                    view_row.len() - row.len(),
+                    String::from_utf8_lossy(&replay)
+                ));
+            }
+        }
+    }
+    None
+}
+
+/// ddmin of E2 that keeps E2's own symptom (`shifted_row`). Fails with the minimal stream while E2 is red.
+#[test]
+fn vt_fuzz_finding_e2_shift_shrink() {
+    #[derive(Clone, Copy)]
+    enum Atom {
+        Byte(u8),
+        Resize(u16, u16),
+    }
+    let mut atoms = Vec::new();
+    for op in e2_ops() {
+        match op {
+            Op::Write(bytes) => atoms.extend(bytes.iter().map(|byte| Atom::Byte(*byte))),
+            Op::Resize(cols, rows) => atoms.push(Atom::Resize(cols, rows)),
+        }
+    }
+    let to_ops = |atoms: &[Atom]| {
+        let mut ops = Vec::new();
+        let mut run = Vec::new();
+        for atom in atoms {
+            match atom {
+                Atom::Byte(byte) => run.push(*byte),
+                Atom::Resize(cols, rows) => {
+                    if !run.is_empty() {
+                        ops.push(Op::Write(Box::leak(std::mem::take(&mut run).into_boxed_slice())));
+                    }
+                    ops.push(Op::Resize(*cols, *rows));
+                }
+            }
+        }
+        if !run.is_empty() {
+            ops.push(Op::Write(Box::leak(run.into_boxed_slice())));
+        }
+        ops
+    };
+    let fails = |atoms: &[Atom]| shifted_row((20, 5), &to_ops(atoms)).is_some();
+    if !fails(&atoms) {
+        return;
+    }
+    let mut granularity = 2usize;
+    while atoms.len() >= 2 {
+        let chunk = atoms.len().div_ceil(granularity);
+        let mut reduced = false;
+        for start in (0..atoms.len()).step_by(chunk) {
+            let mut candidate = atoms[..start].to_vec();
+            candidate.extend_from_slice(&atoms[(start + chunk).min(atoms.len())..]);
+            if fails(&candidate) {
+                atoms = candidate;
+                granularity = (granularity - 1).max(2);
+                reduced = true;
+                break;
+            }
+        }
+        if !reduced {
+            if granularity >= atoms.len() {
+                break;
+            }
+            granularity = (granularity * 2).min(atoms.len());
+        }
+    }
+    let mut shown = String::new();
+    for atom in &atoms {
+        match atom {
+            Atom::Byte(byte) => shown.push_str(&std::ascii::escape_default(*byte).to_string()),
+            Atom::Resize(cols, rows) => shown.push_str(&format!("<RESIZE {cols}x{rows}>")),
+        }
+    }
+    let detail = shifted_row((20, 5), &to_ops(&atoms)).unwrap_or_default();
+    panic!(
+        "E2 shift minimal stream ({} atoms) from 20x5: {shown}\nE2 shift detail: {detail}",
+        atoms.len()
+    );
+}
