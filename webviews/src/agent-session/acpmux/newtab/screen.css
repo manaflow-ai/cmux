@@ -93,8 +93,11 @@
    changing only the textarea's inner inset still shifts its anonymous text box. The shared icon size
    is independent of the mode's font. With no prompt glyph the text starts one lead gap after +
    (Leo 2026-10-31: "composer still looks like shit with the + spacing indent to the text"), and
-   shell mode's `!` stands in that gap, right before the command, so entering it moves no text. */
-.nt-field-slot[data-glyph-column] .nt-field {
+   shell mode's `!` stands in that gap, right before the command, so entering it moves no text. The
+   row without the split (Codex's look) has no + and no gap before the field, so it keeps the reserved
+   column for `!` there too: `!pwd` never draws `!` over the `p`. */
+.nt-field-slot[data-glyph-column] .nt-field,
+.nt-input:not([data-split]) .nt-field-slot .nt-field {
   padding-inline-start: var(--ds-control-icon);
 }
 .nt-input[data-split] .nt-field-slot:not([data-glyph-column]) .nt-input-glyph {
