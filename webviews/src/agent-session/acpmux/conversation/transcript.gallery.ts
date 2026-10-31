@@ -460,7 +460,7 @@ const showLessAtEnd = async (ctx: PlayContext) => {
   if (row.getBoundingClientRect().top >= view().top) throw new Error("the opened output's row top is still in view");
   await ctx.click(more);
   const clicked = performance.now();
-  // The hold lasts at most FOLD_HOLD_MAX_MS from the click; the view is the reader's after it.
+  // The hold is over well before 1.7 s (FOLD_HOLD_MIN_MS, or the fold and its settle); the view is the reader's after it.
   await ctx.waitFor(
     () => ctx.find(more).getAttribute("aria-expanded") === "false" && performance.now() - clicked > 1700,
     { capMs: 5000 },

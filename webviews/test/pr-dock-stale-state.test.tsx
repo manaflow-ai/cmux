@@ -2,8 +2,8 @@
 // A pull request bar the header isn't following knows only what the chat saw when the PR was
 // opened, so it names no state rather than a stale "Open". A merged or closed pull request keeps
 // no bar above the composer (it lives in the right panel's Changes card): the chat's own merge or
-// close drops it, and so does the header's live state. A long repository name truncates with its
-// full name a hover away.
+// close drops it, and so does the header's live state. A chip shows its title only when a readable
+// part of it fits (pullRequestChipPlan.ts), with the full title a hover away.
 import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -94,7 +94,8 @@ const bars = () =>
   [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-pr-dock__bar")].map((bar) => [
     bar.querySelector(".acpmux-pr-dock__number")?.textContent,
     bar.querySelector(".acpmux-pr-dock__state")?.textContent ?? null,
-    bar.querySelector(".acpmux-pr-dock__repo")?.textContent,
+    // JSDOM lays nothing out, so the row has no room for a readable title: the number alone.
+    bar.querySelector(".acpmux-pr-dock__title")?.textContent,
   ]);
 
 const container = () => dom.window.document.body.appendChild(dom.window.document.createElement("div"));
@@ -119,9 +120,9 @@ test("a PR remains linked after merging, with no stale state label or removable 
   ];
   const root = createRoot(container());
   await act(async () => root.render(<TestDock rows={rows as never} />));
-  expect(bars()).toEqual([["#41", null, "uploader"]]);
+  expect(bars()).toEqual([["#41", null, undefined]]);
   await act(async () => setHeaderState({ pullRequest: live(url, 41, "merged") }));
-  expect(bars()).toEqual([["#41", null, "uploader"]]);
+  expect(bars()).toEqual([["#41", null, undefined]]);
   expect(dom.window.document.querySelector(".acpmux-pr-dock__bar")?.getAttribute("data-state")).toBe("merged");
   expect(dom.window.document.querySelector(".acpmux-pr-dock__dismiss")).toBeNull();
   act(() => root.unmount());
