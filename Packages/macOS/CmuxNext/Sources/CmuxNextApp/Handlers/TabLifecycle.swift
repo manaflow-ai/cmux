@@ -383,7 +383,8 @@ enum TabLifecycle {
             // creation it focuses closes, never the old pane's tab (CancelledCreation).
             if let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelCreation(tab: id) {
                 trace.mark(.creationCancelled, input: input)
-                return ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window)
+                ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window)
+                return content.showCancelledCreation() // the focus leaves the closed split's stand-in in this turn
             }
             // A press aimed at a pane the last close emptied (made before the frame showing the
             // focus elsewhere was presented, or a repeat of the held key that emptied it) closes
@@ -394,6 +395,7 @@ enum TabLifecycle {
                 return ctx.refuse(RefusalStrings.closeAimedAtClosedPane)
             }
             guard let (pane, selected) = ctx.tab(invocation) else { return }
+            defer { pane.workspace?.showCancelledCreation() } // a close of a pending split's stand-in: the focus to a live pane now
             // A Cmd-W while the last one's close still asks the daemon closes the next tab (TabCloseGuard).
             guard let id = invocation.origin == .user ? TabCloseGuard.cmdWTarget(selected, in: pane) : selected else { return }
             // The user's Cmd-W closes a pinned tab, as Chrome's does, unless `tabs.cmdWClosesPinnedTabs`

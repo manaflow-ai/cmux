@@ -98,6 +98,13 @@ extension WorkspaceContentController {
     /// Starts a user intent whose result lands later.
     func beginFocusIntent() -> UInt64 { focus.beginIntent() }
 
+    /// A close cancelled a pending split (`CancelledCreation`): the store took its stand-in out in this turn, so the window
+    /// shows that now, not at its store observation a turn later, and the focus reducer gives the stand-in's successor
+    /// (the pane it was split from) the focus at once: the next key never acts on the closed stand-in (P0 STATUS 1584).
+    func showCancelledCreation() {
+        if panes.values.contains(where: { daemon.store.pane($0.pane.handle) == nil }) { applyCurrent() }
+    }
+
     /// Focuses `surface` once the daemon reports it, unless the user acted
     /// after `generation` (nil: app-driven, no intent). `awayFrom`: only
     /// once it left that pane (a tab created there and moved away).
