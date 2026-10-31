@@ -191,6 +191,7 @@ impl Hub {
         p: Slot<'_>,
         accept: &mut impl FnMut(Value),
     ) -> Result<(String, bool, TurnGuard<'a>, Arc<PromptRun>), Answer> {
+        let limits = super::queue_admission::QueueLimits::of(&*self.config.read().await);
         // Claimed under the queue lock, as `restore_queue` takes them: a turn of agent messages
         // joins only a restored prompt its task claimed (`digest.rs` `take_joined`).
         let restored = {
@@ -235,6 +236,10 @@ impl Hub {
                 // lock is tried below, and the queue read again under it.
                 if p.no_queue && waiting {
                     return Err(Err(super::auto_resume::retry_turn::busy()));
+                }
+                // A queue with no room refuses it, before it is copied or written (`queue_admission.rs`).
+                if waiting && let Err(e) = super::queue_admission::room(session, &p, limits) {
+                    return Err(Err(e));
                 }
                 let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
                 let withdraw = waiting.then(|| {
