@@ -16,7 +16,7 @@ extension AgentPageProvider {
         }
         let row = body?["rowId"] as? String
         let offset = (body?["offset"] as? NSNumber)?.doubleValue ?? 0
-        anchors.remember(row.map { AgentPaneScrollAnchor(rowId: $0, offset: offset) }, for: session)
+        guard anchors.remember(row.map { AgentPaneScrollAnchor(rowId: $0, offset: offset) }, for: session) else { throw PageError.closed }
         return .null
     }
 }

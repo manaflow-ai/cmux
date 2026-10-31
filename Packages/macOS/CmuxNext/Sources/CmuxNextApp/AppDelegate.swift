@@ -46,6 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self?.services?.home.applicationWillTerminate()
     }, save: { [weak self] in
         await self?.services?.home.flushCacheForQuit()
+        // Then the lanes' blockShutdown saves (unsent drafts, scroll places), under the same bound.
+        await AgentPanePersistenceQuit(drafts: self?.services?.agentTabs.unsentDrafts, anchors: AgentPaneScrollAnchors.shared, work: self?.services?.work).drain()
     })
     private var settings: SettingsController?
     /// The app's one main-thread scheduler for budgeted work: its per-frame budget, with the

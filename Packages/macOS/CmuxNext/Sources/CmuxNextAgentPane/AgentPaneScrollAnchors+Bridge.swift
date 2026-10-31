@@ -55,7 +55,9 @@ extension AgentPaneScrollAnchors {
         // At the latest message the page sends `rowId: null`, which forgets the place.
         let row = params?["rowId"] as? String
         let offset = (params?["offset"] as? NSNumber)?.doubleValue ?? 0
-        anchors.remember(row.map { AgentPaneScrollAnchor(rowId: $0, offset: offset) }, for: session)
+        guard anchors.remember(row.map { AgentPaneScrollAnchor(rowId: $0, offset: offset) }, for: session) else {
+            return AgentPaneReply.failure(code: "closed", message: "Closed")
+        }
         return AgentPaneReply.success()
     }
 }
