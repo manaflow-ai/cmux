@@ -313,6 +313,33 @@ CMUX_NIGHTLY_NEXT_MAX_REFUSED=1 request --tree-ready "$head"
 [[ "$status" == 0 ]] && ! dispatched "$fresh" && ! dispatched "$stale" \
   || fail "the search must stop after CMUX_NIGHTLY_NEXT_MAX_REFUSED refusals (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 rm -f "$TMP/bin/node"
+# A runner with no node cannot check the strings, which is no proof they are
+# fresh: the promoting run (NIGHTLY_NEXT_PROMOTE=1) fails red and requests
+# nothing. A run that only reports still reports, with a warning.
+nonode="$TMP/nonode"; mkdir -p "$nonode"
+IFS=: read -r -a path_dirs <<<"$TMP/bin:$PATH"
+for dir in "${path_dirs[@]}"; do
+  for tool in "$dir"/*; do
+    name="${tool##*/}"
+    [[ "$name" != node && -x "$tool" && ! -e "$nonode/$name" ]] || continue
+    ln -s "$tool" "$nonode/$name"
+  done
+done
+git_q -C "$src" checkout -q --detach "$strings"
+status=0; : > "$TMP/gh.log"
+out=$(cd "$src" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u CMUX_TUI_TREE_DISPATCH PATH="$nonode" \
+  RUNNER_TEMP="$TMP/runner" GITHUB_RUN_ID=1 NIGHTLY_NEXT_PROMOTE=1 \
+  bash scripts/cmux-next/request-nightly-next.sh --repo o/r --sha "$strings" --release-compile-green 2>&1) || status=$?
+[[ "$status" == 1 ]] && ! dispatched "$strings" \
+  || fail "a promoting run without node must fail and request nothing (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+grep -q "no node" <<<"$out" || fail "the failure must name the missing node:" "$out"
+status=0; : > "$TMP/gh.log"
+out=$(cd "$src" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u CMUX_TUI_TREE_DISPATCH PATH="$nonode" \
+  RUNNER_TEMP="$TMP/runner" GITHUB_RUN_ID=1 NIGHTLY_NEXT_PROMOTE= \
+  bash scripts/cmux-next/request-nightly-next.sh --repo o/r --sha "$strings" --release-compile-green 2>&1) || status=$?
+[[ "$status" == 0 ]] && ! grep -q "workflow run nightly.yml" "$TMP/gh.log" \
+  || fail "a reporting run without node must not fail (exit $status):" "$out"
+grep -q "not checked" <<<"$out" || fail "the report must say the strings were not checked:" "$out"
 git_q -C "$src" checkout -q --detach "$head"
 
 # A tree published before its daemon tests ended (source.json daemonTests
