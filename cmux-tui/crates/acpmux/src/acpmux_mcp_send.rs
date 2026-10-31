@@ -28,7 +28,7 @@ pub(super) const MAX_RECIPIENTS: usize = 64;
 /// about 64k tokens, a third of a 200k-token context and more than any brief. A file past it is an
 /// attachment (`acpmux send --attach`), which the receiver opens when it needs it.
 pub(super) const MAX_FILE_BYTES: u64 = 256 << 10;
-/// How long a batch gives each session name to resolve to its id ([`identities`]), before its
+/// How long a batch gives each session name to resolve to its id ([`aliases`]), before its
 /// own wait for the deliveries.
 const RESOLVE_WAIT: Duration = Duration::from_secs(2);
 
@@ -353,7 +353,7 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value) -> Value {
             targets.len()
         ));
     }
-    let chains = same_session(&identities(daemon, &targets).await);
+    let chains = same_session(&aliases(daemon, &targets).await);
     let now = tokio::time::Instant::now();
     let deadline = now.checked_add(STATUS_WAIT).unwrap_or(now);
     let sent = futures::future::join_all(chains.into_iter().map(|chain| {
@@ -373,24 +373,51 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value) -> Value {
 }
 
 /// The batch's targets in chains, each the seats (indexes into `targets`) of one session in the
-/// order given, by `identities` (one per target, [`identities`]).
-pub(super) fn same_session(identities: &[String]) -> Vec<Vec<usize>> {
-    let mut chains: Vec<(&str, Vec<usize>)> = Vec::new();
-    for (seat, id) in identities.iter().enumerate() {
-        match chains.iter_mut().find(|(have, _)| *have == id.as_str()) {
-            Some((_, chain)) => chain.push(seat),
-            None => chains.push((id.as_str(), vec![seat])),
+/// order given. `aliases` holds, per target, every name it may go by ([`aliases`]); two targets
+/// that share one, directly or through others, are one chain.
+pub(super) fn same_session(aliases: &[Vec<String>]) -> Vec<Vec<usize>> {
+    // Union-find over the seats: each seat joins the first seat that had any of its aliases.
+    let mut parent: Vec<usize> = (0..aliases.len()).collect();
+    fn root(parent: &[usize], mut seat: usize) -> usize {
+        while let Some(&up) = parent.get(seat) {
+            if up == seat {
+                break;
+            }
+            seat = up;
+        }
+        seat
+    }
+    let mut first: BTreeMap<&str, usize> = BTreeMap::new();
+    for (seat, names) in aliases.iter().enumerate() {
+        for name in names {
+            match first.get(name.as_str()) {
+                Some(&other) => {
+                    let (a, b) = (root(&parent, other), root(&parent, seat));
+                    // The older seat stays the root, so a chain's order is its first seat's.
+                    if let Some(slot) = parent.get_mut(a.max(b)) {
+                        *slot = a.min(b);
+                    }
+                }
+                None => {
+                    first.insert(name, seat);
+                }
+            }
         }
     }
-    chains.into_iter().map(|(_, chain)| chain).collect()
+    let mut chains: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for seat in 0..aliases.len() {
+        chains.entry(root(&parent, seat)).or_default().push(seat);
+    }
+    chains.into_values().collect()
 }
 
-/// Which session each target is, so one named two ways (its name, its id, `host/name`) is one
-/// chain: a tag's target is already its id (`peer/id` on a peer, as [`crate::cli::resolve::routed_id`]
-/// gives); a name is resolved, each distinct one once, side by side, within [`RESOLVE_WAIT`]. Names
-/// that resolve to nothing (a peer that is down, a name nobody has) are all one chain: which
-/// session such a name is cannot be known, so none of them may overtake another.
-pub(super) async fn identities(daemon: &Arc<Client>, targets: &[Target]) -> Vec<String> {
+/// Every name each target may go by, so a session named two ways (its name, its id,
+/// `host/name`, a tag's `peer/id`) is one chain: its key and name, and for a named target its
+/// session id, resolved (each distinct name once, side by side, within [`RESOLVE_WAIT`]) to the
+/// form a tag's target has (`peer/id` on a peer, as [`crate::cli::resolve::routed_id`] gives).
+/// A name that resolves to nothing cannot be told apart from any session it might be: all such
+/// names are one chain, and one on a peer (`host/...`) also joins every target on that host.
+pub(super) async fn aliases(daemon: &Arc<Client>, targets: &[Target]) -> Vec<Vec<String>> {
     let mut names: Vec<&str> =
         targets.iter().filter(|t| t.tag.is_none()).map(|t| t.key.as_str()).collect();
     names.sort_unstable();
@@ -406,13 +433,28 @@ pub(super) async fn identities(daemon: &Arc<Client>, targets: &[Target]) -> Vec<
         .await
         .into_iter()
         .collect();
+    let unresolved =
+        |t: &Target| t.tag.is_none() && !matches!(resolved.get(t.key.as_str()), Some(Some(_)));
+    let host_of = |key: &str| key.split_once('/').map(|(host, _)| format!("\0host:{host}"));
+    // The hosts some unresolved name is on: every target there is in its chain.
+    let dark: Vec<String> =
+        targets.iter().filter(|t| unresolved(t)).filter_map(|t| host_of(&t.key)).collect();
     targets
         .iter()
-        .map(|t| match (&t.tag, resolved.get(t.key.as_str())) {
-            (Some(_), _) => t.key.clone(),
-            (None, Some(Some(id))) => id.clone(),
-            // Not a session id any target can have.
-            (None, _) => "\0unresolved".to_owned(),
+        .map(|t| {
+            let mut names = vec![t.key.clone(), t.to.clone()];
+            if let Some(Some(id)) = resolved.get(t.key.as_str()).filter(|_| t.tag.is_none()) {
+                names.push(id.clone());
+            }
+            if unresolved(t) {
+                names.push("\0unresolved".to_owned());
+            }
+            if let Some(host) = host_of(&t.key).or_else(|| host_of(&t.to))
+                && dark.contains(&host)
+            {
+                names.push(host);
+            }
+            names
         })
         .collect()
 }

@@ -329,20 +329,30 @@ fn target(index: usize, to: &str, key: &str) -> send::Target {
     }
 }
 
-/// A batch's messages to one session form one chain, however it is named; others their own.
+/// Targets that share any alias, directly or through another, form one chain, in order.
 #[test]
 fn messages_to_one_session_form_one_chain() {
-    let ids: Vec<String> =
-        ["id-a", "id-b", "id-a", "\0unresolved", "huge-blue/id-c", "\0unresolved"]
-            .map(str::to_owned)
-            .to_vec();
-    assert_eq!(send::same_session(&ids), vec![vec![0, 2], vec![1], vec![3, 5], vec![4]]);
+    let aliases: Vec<Vec<String>> = [
+        vec!["lane-a", "id-a"],
+        vec!["lane-b", "id-b"],
+        vec!["id-a"],
+        vec!["nobody", "\0unresolved"],
+        vec!["huge-blue/id-c", "huge-blue/lane-c"],
+        vec!["ghost", "\0unresolved"],
+        // Joins lane-b's chain through x, which only it and seat 1's later alias share.
+        vec!["x"],
+        vec!["x", "id-b"],
+    ]
+    .into_iter()
+    .map(|names| names.into_iter().map(str::to_owned).collect())
+    .collect();
+    assert_eq!(send::same_session(&aliases), vec![vec![0, 2], vec![1, 6, 7], vec![3, 5], vec![4]]);
 }
 
 /// Codex review: a session named by its name in one item and by its id in another is one
 /// session, so its messages are one chain; a tag's target is its id already.
 #[tokio::test]
-async fn one_session_by_name_and_by_id_is_one_identity() {
+async fn one_session_by_name_and_by_id_is_one_chain() {
     let (_hub, client, _dir) = daemon().await;
     let a = session(&client, "ident-a").await;
     session(&client, "ident-b").await;
@@ -355,12 +365,34 @@ async fn one_session_by_name_and_by_id_is_one_identity() {
         by_tag,
         target(4, "nobody", "nobody"),
     ];
-    let ids = send::identities(&client, &targets).await;
-    assert_eq!(ids[0], a);
-    assert_eq!(ids[1], a);
-    assert_eq!(ids[3], a);
-    assert_ne!(ids[2], a);
-    assert_eq!(send::same_session(&ids), vec![vec![0, 1, 3], vec![2], vec![4]]);
+    let aliases = send::aliases(&client, &targets).await;
+    assert!(aliases[0].contains(&a), "{aliases:?}");
+    assert_eq!(send::same_session(&aliases), vec![vec![0, 1, 3], vec![2], vec![4]]);
+}
+
+/// Codex review: a peer that is down answers no lookup, so a session there named `peer/id`
+/// resolves to nothing, while a tag's target for the same session (from the cached list) is
+/// `peer/id` too. Its identical key keeps them one chain, and any other target on that peer
+/// joins it, since an unresolved name there could be any of them.
+#[tokio::test]
+async fn an_unresolved_peer_session_stays_in_one_chain_with_its_tag_target() {
+    let (_hub, client, _dir) = daemon().await;
+    session(&client, "here").await;
+    let mut tagged = target(1, "down-host/lane-p", "down-host/id-p");
+    tagged.tag = Some("area=x".to_owned());
+    let mut other = target(2, "down-host/lane-q", "down-host/id-q");
+    other.tag = Some("area=x".to_owned());
+    let targets =
+        [target(0, "down-host/id-p", "down-host/id-p"), tagged, other, target(3, "here", "here")];
+    let aliases = send::aliases(&client, &targets).await;
+    assert_eq!(send::same_session(&aliases), vec![vec![0, 1, 2], vec![3]], "{aliases:?}");
+    // A healthy batch's tag targets on one host stay side by side.
+    let mut q = target(0, "down-host/lane-q", "down-host/id-q");
+    q.tag = Some("t".to_owned());
+    let mut p = target(1, "down-host/lane-p", "down-host/id-p");
+    p.tag = Some("t".to_owned());
+    let aliases = send::aliases(&client, &[q, p]).await;
+    assert_eq!(send::same_session(&aliases), vec![vec![0], vec![1]], "{aliases:?}");
 }
 
 /// Codex review: the outbox runs every delivery on its own and retries it, so a message queued
