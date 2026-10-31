@@ -1,0 +1,365 @@
+// The composer's draft against acpmux's, over every ordering the cmux#28204 reviews walked: load,
+// edit, send, unmount, remount, a write sent and answered, a read answered, a reconnect. One rule
+// (composerDraft.ts hydratedDraft): once the person touched the prompt (an edit or a send, in this
+// mount or an earlier one, or a write still on its way), the prompt is the draft and acpmux's is
+// never merged in; text typed before the page ever read the chat's draft is kept beside acpmux's;
+// an untouched prompt shows acpmux's draft.
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { JSDOM } from "jsdom";
+import { act, createRef } from "react";
+import type { Root } from "react-dom/client";
+import { noChat } from "../src/gallery/fixtures/acpmux";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
+import { hydratedDraft, notifyDraftActionsChanged } from "../src/agent-session/acpmux/composerDraft";
+
+const scope = globalThis as Record<string, unknown>;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "IS_REACT_ACT_ENVIRONMENT",
+  "Node",
+  "Element",
+  "MutationObserver",
+  "ResizeObserver",
+  "getComputedStyle",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+  "localStorage",
+] as const;
+const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
+let dom: JSDOM;
+let root: Root | undefined;
+let host: HTMLElement;
+
+beforeAll(() => {
+  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
+  const { window } = dom;
+  Object.assign(scope, {
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+    window,
+    document: window.document,
+    navigator: window.navigator,
+    HTMLElement: window.HTMLElement,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    Node: window.Node,
+    Element: window.Element,
+    MutationObserver: window.MutationObserver,
+    getComputedStyle: window.getComputedStyle.bind(window),
+    requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
+    cancelAnimationFrame: (id: number) => clearTimeout(id),
+    localStorage: window.localStorage,
+  });
+  // jsdom lays nothing out and its Range has no rects: ProseMirror measures one to scroll.
+  const box = () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) });
+  Object.assign(window.Range.prototype, {
+    getClientRects: () => Object.assign([box()], { item: () => box() }),
+    getBoundingClientRect: box,
+  });
+  host = window.document.getElementById("root")!;
+});
+
+afterEach(() => {
+  act(() => root?.unmount());
+  root = undefined;
+  host.replaceChildren();
+  dom.window.localStorage.clear();
+  delete page().cmuxAcpmuxActions;
+});
+
+afterAll(() => {
+  dom.window.close();
+  for (const [key, had, value] of saved) {
+    if (had) scope[key] = value;
+    else delete scope[key];
+  }
+});
+
+function Chips() {
+  return null;
+}
+
+async function render(
+  sessionId: string | undefined,
+  options: { draft?: string; onUnsentDraft?: (text: string) => void } = {},
+  handle = createRef<ComposerHandle>(),
+) {
+  const { createRoot } = await import("react-dom/client");
+  const { Composer } = await import("../src/agent-session/acpmux/Composer");
+  const snapshot = noChat(
+    [],
+    sessionId ? { sessionId, summary: { sessionId, harness: "claude", cwd: "/Users/you/src/app", turnCount: 0 } } : {},
+  );
+  root ??= createRoot(host);
+  await act(async () =>
+    root!.render(
+      <Composer
+        snapshot={snapshot}
+        sessionId={sessionId}
+        chips={Chips}
+        onSend={() => true}
+        onStop={() => {}}
+        onProject={() => {}}
+        onNewChat={() => {}}
+        handle={handle}
+        localName="studio"
+        projectChoices={[{ cwd: "/Users/you/src/app", label: "app" }]}
+        {...(options.draft ? { draft: options.draft } : {})}
+        {...(options.onUnsentDraft ? { onUnsentDraft: options.onUnsentDraft } : {})}
+      />,
+    ),
+  );
+  await until(() => !!host.querySelector('[role="combobox"]'), "the editor");
+  return handle;
+}
+
+async function until(ready: () => boolean, what: string) {
+  const deadline = performance.now() + 2_000;
+  while (!ready()) {
+    if (performance.now() > deadline) throw new Error(`timed out waiting for ${what} (prompt: ${prompt()})`);
+    await settle();
+  }
+}
+
+const settle = () =>
+  act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+const prompt = () => markdownField()?.value() ?? "";
+const markdownField = () => host.querySelector<MarkdownFieldElement>(".acpmux-md-field")?.acpmuxMarkdownField;
+const page = () =>
+  dom.window as unknown as {
+    cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+  };
+
+async function type(text: string) {
+  await act(async () => markdownField()!.setCaret(Number.MAX_SAFE_INTEGER));
+  await act(async () => markdownField()!.insertTyped(text));
+}
+
+/// acpmux's drafts for one chat, with reads and writes the steps can hold and answer.
+function gatedDaemon(saved: string | undefined) {
+  const state = {
+    held: saved,
+    holdReads: false,
+    holdWrites: false,
+    reads: [] as (() => void)[],
+    writes: [] as (() => void)[],
+    written: [] as string[],
+  };
+  const actions = {
+    "chat.readDraft": () =>
+      new Promise((done) => {
+        // Answers with what acpmux holds when it answers, not when it was asked.
+        const answer = () => done({ draft: state.held ?? null });
+        if (state.holdReads) state.reads.push(answer);
+        else answer();
+      }),
+    "chat.writeDraft": ({ text }: Record<string, unknown>) =>
+      new Promise<void>((done) => {
+        const land = () => {
+          state.written.push(String(text));
+          state.held = String(text).trim() ? String(text) : undefined;
+          done();
+        };
+        if (state.holdWrites) state.writes.push(land);
+        else land();
+      }),
+  };
+  return { state, actions };
+}
+
+type Row = { name: string; saved?: string; steps: string[]; text: string; held?: string };
+
+/// Each row's steps, in order; `expect` is the prompt and acpmux's draft once every held read and
+/// write is answered. Rows 1-3 are the three cases the reviews found.
+const rows: Row[] = [
+  {
+    name: "1 buy bread: replaced while disconnected, away and back, then reconnect",
+    saved: "buy milk",
+    steps: ["connect", "load", "disconnect", "edit:buy bread", "away", "load", "connect"],
+    text: "buy bread",
+    held: "buy bread",
+  },
+  {
+    name: "2 in-flight write: unmounted and remounted before acpmux answers the write",
+    saved: "buy milk",
+    steps: ["connect", "load", "hold writes", "edit:buy bread", "unmount", "load", "ack writes"],
+    text: "buy bread",
+    held: "buy bread",
+  },
+  {
+    name: "3 send during read: a cached draft edited and sent before the read answers",
+    saved: "buy milk",
+    steps: ["connect", "load", "unmount", "hold reads", "load", "edit:buy bread", "send", "answer reads"],
+    text: "",
+  },
+  {
+    name: "typed before the page ever read the draft: both kept, the saved one first",
+    saved: "saved",
+    steps: ["hold reads", "connect", "load", "edit:typed", "answer reads"],
+    text: "saved\n\ntyped",
+    held: "saved\n\ntyped",
+  },
+  {
+    name: "untouched revisit after another client changed the draft: acpmux's",
+    saved: "v1",
+    steps: ["connect", "load", "unmount", "external:v2", "load"],
+    text: "v2",
+    held: "v2",
+  },
+  {
+    name: "untouched prompt, acpmux's draft changed while disconnected, reconnect: acpmux's",
+    saved: "v1",
+    steps: ["connect", "load", "disconnect", "external:v2", "connect"],
+    text: "v2",
+    held: "v2",
+  },
+  {
+    name: "an answered edit, then away and back: the edit",
+    saved: "buy milk",
+    steps: ["connect", "load", "edit:buy bread", "unmount", "load"],
+    text: "buy bread",
+    held: "buy bread",
+  },
+  {
+    name: "edited while disconnected, reconnect in place",
+    saved: "buy milk",
+    steps: ["connect", "load", "disconnect", "edit:buy bread", "connect"],
+    text: "buy bread",
+    held: "buy bread",
+  },
+  {
+    name: "write out, reconnect before its answer",
+    saved: "buy milk",
+    steps: ["connect", "load", "hold writes", "edit:buy bread", "disconnect", "connect", "ack writes"],
+    text: "buy bread",
+    held: "buy bread",
+  },
+  {
+    name: "write out, remount, the read answers before the write does",
+    saved: "buy milk",
+    steps: [
+      "connect",
+      "load",
+      "hold writes",
+      "edit:buy bread",
+      "hold reads",
+      "unmount",
+      "load",
+      "answer reads",
+      "ack writes",
+    ],
+    text: "buy bread",
+    held: "buy bread",
+  },
+  {
+    name: "sent after the load, remounted before the clear is answered",
+    saved: "buy milk",
+    steps: ["connect", "load", "hold writes", "edit:buy bread", "send", "unmount", "load", "ack writes"],
+    text: "",
+  },
+  {
+    name: "sent before the first read answered",
+    saved: "buy milk",
+    steps: ["hold reads", "connect", "load", "edit:buy bread", "send", "answer reads"],
+    text: "",
+  },
+  {
+    name: "edited, then the read answers with nothing saved",
+    steps: ["hold reads", "connect", "load", "edit:buy bread", "answer reads"],
+    text: "buy bread",
+    held: "buy bread",
+  },
+];
+
+let rowNumber = 0;
+for (const row of rows) {
+  test(`orderings: ${row.name}`, async () => {
+    // A chat of its own per row: the page keeps its per-chat bookkeeping for its life.
+    const sessionId = `ordering-${++rowNumber}`;
+    const { state, actions } = gatedDaemon(row.saved);
+    let handle = createRef<ComposerHandle>();
+    const release = async () => {
+      for (let round = 0; round < 4; round += 1) {
+        for (const answer of state.reads.splice(0)) await act(async () => answer());
+        for (const land of state.writes.splice(0)) await act(async () => land());
+        await settle();
+      }
+    };
+    for (const step of row.steps) {
+      if (step === "connect") {
+        page().cmuxAcpmuxActions = actions as never;
+        await act(async () => notifyDraftActionsChanged());
+      } else if (step === "disconnect") {
+        delete page().cmuxAcpmuxActions;
+        await act(async () => notifyDraftActionsChanged());
+      } else if (step === "load") {
+        handle = await render(sessionId, {}, handle);
+      } else if (step === "away") {
+        handle = await render(`${sessionId}-other`, {}, handle);
+      } else if (step === "unmount") {
+        act(() => root?.unmount());
+        root = undefined;
+        handle = createRef<ComposerHandle>();
+      } else if (step.startsWith("edit:")) {
+        const next = step.slice("edit:".length);
+        // The person replaces the prompt: select all, type.
+        await act(async () => markdownField()!.type(""));
+        await type(next);
+        await until(() => prompt() === next, `the edit to ${next}`);
+      } else if (step === "send") {
+        await act(async () => void handle.current!.send());
+        await until(() => prompt() === "", "the send's clear");
+      } else if (step === "hold reads") state.holdReads = true;
+      else if (step === "hold writes") state.holdWrites = true;
+      else if (step === "answer reads") {
+        state.holdReads = false;
+        for (const answer of state.reads.splice(0)) await act(async () => answer());
+      } else if (step === "ack writes") {
+        state.holdWrites = false;
+        for (const land of state.writes.splice(0)) await act(async () => land());
+      } else if (step.startsWith("external:")) state.held = step.slice("external:".length);
+      else throw new Error(`unknown step ${step}`);
+      await settle();
+      await settle();
+    }
+    state.holdReads = false;
+    state.holdWrites = false;
+    await release();
+    expect(prompt()).toBe(row.text);
+    expect(state.held).toBe(row.held);
+    // acpmux's old draft never went back merged into the person's text.
+    if (row.saved && row.text && !row.text.includes(row.saved))
+      expect(state.written.some((text) => text.includes(row.saved!))).toBe(false);
+  });
+}
+
+test("hydratedDraft: the one rule", () => {
+  const base = { current: "", restored: undefined, read: false, edited: false, sent: false, pendingWrite: false };
+  // Untouched, read before: acpmux's draft fills the prompt.
+  expect(hydratedDraft({ ...base, current: "old", restored: "new", read: true })).toEqual({
+    text: "new",
+    shown: true,
+    write: false,
+  });
+  // Untouched, first read: whatever the prompt held is kept beside it.
+  expect(hydratedDraft({ ...base, current: "cached", restored: "saved" }).text).toBe("saved\n\ncached");
+  // Typed before any read: both kept.
+  expect(hydratedDraft({ ...base, current: "typed", restored: "saved", edited: true }).text).toBe("saved\n\ntyped");
+  // Touched after a read, a write on its way, or sent: the prompt as it is.
+  for (const touched of [{ edited: true, read: true }, { pendingWrite: true }, { sent: true }])
+    expect(hydratedDraft({ ...base, current: "buy bread", restored: "buy milk", ...touched }).text).toBe("buy bread");
+  expect(hydratedDraft({ ...base, current: "", restored: "buy milk", sent: true })).toEqual({
+    text: "",
+    shown: false,
+    write: true,
+  });
+});

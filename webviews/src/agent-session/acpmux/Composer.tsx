@@ -70,15 +70,16 @@ import {
 import { BoltIcon } from "./BoltIcon";
 import {
   cachePersistedDraft,
+  draftHistory,
   draftWasRead,
   flushPendingDraftWrites,
-  forgetDraftRead,
   forgetQueuedDraft,
-  hasPendingDraftWrite,
   hydratedDraft,
   lastQueuedDraftText,
   markDraftRead,
   mergedDraft,
+  noteDraftEdited,
+  noteDraftSent,
   readDurableDraftState,
   readPersistedDraft,
   settlePendingDraftWrites,
@@ -755,10 +756,17 @@ export function Composer({
             await Promise.all([unsent?.settle(), settlePendingDraftWrites()]);
             return;
           }
-          markDraftRead(session);
           readAnswered = true;
           // Re-read after the async call: the person may have typed while acpmux was answering.
-          typed = mergedDraft(field.current?.value() ?? textRef.current, saved.draft);
+          // The same rule as the read on open (hydratedDraft): typed before any read, both kept;
+          // after a send, or with a write on its way, the prompt as it is.
+          typed = hydratedDraft({
+            current: field.current?.value() ?? textRef.current,
+            restored: saved.draft,
+            ...draftHistory(session),
+            edited: true,
+          }).text;
+          markDraftRead(session);
         }
         // A restore not yet committed (`restoringSession`) is acpmux's own draft: the editor still
         // shows what it had before, so writing it would clear the draft being restored.
@@ -840,6 +848,7 @@ export function Composer({
     // Not yet acpmux's: the durable read merges it with acpmux's draft and writes the result.
     if (typedBefore.trim()) {
       editedBeforeHydration.current = true;
+      noteDraftEdited(sessionId);
       if (sessionId) cachePersistedDraft(sessionId, initial);
     }
     setText(initial);
@@ -877,7 +886,6 @@ export function Composer({
   }, [switching]);
   useEffect(() => {
     let current = true;
-    const firstRead = !draftWasRead(sessionId);
     void readDurableDraftState(sessionId).then((state) => {
       if (!current) return;
       // acpmux did not answer (its action map not installed yet, a connection that failed or
@@ -886,17 +894,11 @@ export function Composer({
       // merged it (the action map's next version runs this again). Before, an unanswered read
       // counted as "no draft", and the typed text then replaced the draft acpmux kept.
       if (sessionId && !state) return;
-      markDraftRead(sessionId);
       const currentText = field.current?.value() ?? textRef.current;
-      const edited = editedBeforeHydration.current;
+      const history = draftHistory(sessionId);
+      const edited = editedBeforeHydration.current || history.edited;
       editedBeforeHydration.current = false;
-      const next = hydratedDraft({
-        current: currentText,
-        restored: state?.draft,
-        edited,
-        pendingWrite: hasPendingDraftWrite(sessionId),
-        firstRead,
-      });
+      const next = hydratedDraft({ current: currentText, restored: state?.draft, ...history, edited });
       if (next.shown) {
         // Its own write (below) or none: the text effect does not write it again.
         restoringSession.current = next.text !== textRef.current;
@@ -908,6 +910,9 @@ export function Composer({
       hydratedText.current = next.text;
       // A local remount cache or keystroke arrived before the daemon read: preserve it durably.
       if (next.write) writePersistedDraft(sessionId, next.text);
+      // After the write: a chat with nothing on its way to acpmux is settled (edits and sends
+      // forgotten); one with a write out stays the page's until a later read finds it answered.
+      markDraftRead(sessionId);
       hydratedSession.current = sessionId;
       flushPendingDraftWrites();
       // A web update reloaded the page while the prompt had the keyboard: it takes it back, the
@@ -922,7 +927,6 @@ export function Composer({
       current = false;
     };
   }, [sessionId, draftActionsVersion]);
-  useEffect(() => () => forgetDraftRead(sessionId), [sessionId]);
   useEffect(() => {
     if (restoringSession.current) {
       restoringSession.current = false;
@@ -1212,6 +1216,8 @@ export function Composer({
       plusDraft.current = undefined;
       if (field.current && rest) field.current.type(rest);
       else edit(rest, rest.length);
+      // The sent text is no draft any more: a read still on its way never brings it back.
+      noteDraftSent(persistedSession.current);
       sentAt.current = Date.now();
       refocusSend.current = fromSend;
     };
@@ -1558,6 +1564,8 @@ export function Composer({
     edit(value, at);
     if (performance.now() - typedAt.current >= TYPED_WINDOW_MS) return;
     if (hydratedSession.current !== sessionId) editedBeforeHydration.current = true;
+    // Kept past this mount: a composer that comes back keeps the person's text over acpmux's.
+    noteDraftEdited(sessionId);
     // One change per key: what the field does after it (normalizing) is not another.
     typedAt.current = Number.NEGATIVE_INFINITY;
     if (sessionId && value.trim()) onTyping?.(value, sessionId);

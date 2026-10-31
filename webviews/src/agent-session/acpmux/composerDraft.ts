@@ -39,33 +39,45 @@ export function mergedDraft(typed: string, saved: string | undefined): string {
 }
 
 /**
- * What the composer does when acpmux's draft read answers (`readDurableDraftState`).
- * - `firstRead`: this page never read the chat's draft before, so nothing it holds was built on it
- *   (a relaunch, a reload, text typed while the chat loaded). Saved and held text are merged
- *   (`mergedDraft`): an empty or load-time editor never replaces acpmux's non-empty draft, and
- *   typed text is never dropped for it.
- *   A write still queued for the chat (`pendingWrite`) is never a first read's: only a page that
- *   read the draft queues one, so the queued text (an edit or a clear made while acpmux was away)
- *   stays authoritative and is not merged with the older draft acpmux still holds.
- * - Otherwise the page already read it: what the page holds or still has queued is newer (the
- *   person's own edit, a clear included), as before.
+ * What the composer does when acpmux's draft read answers (`readDurableDraftState`). One rule:
+ * once the person touched this chat's prompt (`local`: an edit or a send, in this mount or an
+ * earlier one, or a write still queued or unanswered), what the page holds is the draft, and
+ * acpmux's is never merged into it. The one exception is text typed before this page ever read the
+ * chat's draft (`read` false: the chat still loading after a launch or reload): that text was not
+ * built on acpmux's, so both are kept (`mergedDraft`), unless the person already sent it.
+ * Untouched, with nothing on its way, acpmux's draft fills the prompt; on the page's first read
+ * whatever the prompt holds (the remount cache, an inherited draft) is kept beside it.
  * `text` is the prompt to show, `shown` whether it differs from the editor, and `write` whether it
  * goes to acpmux.
  */
 export function hydratedDraft(input: {
   current: string;
   restored: string | undefined;
+  /** This page read the chat's acpmux draft before (in this mount or an earlier one). */
+  read: boolean;
+  /** The person edited the prompt since the last settled read. */
   edited: boolean;
+  /** The person sent from the prompt since the last settled read. */
+  sent: boolean;
+  /** A write of this page's is queued or unanswered. */
   pendingWrite: boolean;
-  firstRead: boolean;
 }): { text: string; shown: boolean; write: boolean } {
-  const { current, restored, edited, pendingWrite, firstRead } = input;
-  if (firstRead && restored && !pendingWrite) {
+  const { current, restored, read, edited, sent, pendingWrite } = input;
+  // The prompt as it is; it goes to acpmux when acpmux holds something else and nothing is on its way.
+  const keep = () => ({ text: current, shown: false, write: !pendingWrite && current !== (restored ?? "") });
+  const merge = () => {
     const text = mergedDraft(current, restored);
-    return { text, shown: text !== current, write: text !== restored };
+    return { text, shown: text !== current, write: text !== (restored ?? "") && Boolean(text.trim()) };
+  };
+  if (edited || sent || pendingWrite) {
+    if (sent || pendingWrite || read || !restored) return keep();
+    return merge();
   }
-  if (!pendingWrite && restored && !current && !edited) return { text: restored, shown: true, write: false };
-  return { text: current, shown: false, write: !pendingWrite && (Boolean(current.trim()) || edited) };
+  if (read) {
+    const text = restored ?? "";
+    return { text, shown: text !== current, write: false };
+  }
+  return restored ? merge() : keep();
 }
 
 const PERSISTED_DRAFT_PREFIX = "cmux.acpmux.composer-draft.";
@@ -307,26 +319,58 @@ export async function readDurableDraft(sessionId: string | undefined): Promise<s
   return (await readDurableDraftState(sessionId))?.draft;
 }
 
-// The chats whose acpmux draft this page has read: from then on what the page holds for one is
-// built on it (`hydratedDraft`'s `firstRead`). Never trimmed: one id per chat the page opened.
-const readDrafts = new Set<string>();
+// Per chat, for the page's life (unmounts and remounts included, so a composer that comes back
+// keeps it): whether this page read the chat's acpmux draft, and whether the person edited or sent
+// from its prompt since the last settled read (`hydratedDraft`). One entry per chat the page opened.
+const chatDrafts = new Map<string, { read: boolean; edited: boolean; sent: boolean }>();
+
+function chatDraft(sessionId: string) {
+  let entry = chatDrafts.get(sessionId);
+  if (!entry) chatDrafts.set(sessionId, (entry = { read: false, edited: false, sent: false }));
+  return entry;
+}
+
+/** What `hydratedDraft` needs to know of `sessionId` besides the texts. */
+export function draftHistory(sessionId: string | undefined): {
+  read: boolean;
+  edited: boolean;
+  sent: boolean;
+  pendingWrite: boolean;
+} {
+  const entry = sessionId ? chatDrafts.get(sessionId) : undefined;
+  return {
+    read: entry?.read ?? false,
+    edited: entry?.edited ?? false,
+    sent: entry?.sent ?? false,
+    pendingWrite: hasPendingDraftWrite(sessionId),
+  };
+}
 
 /** Whether this page has read `sessionId`'s acpmux draft before. */
 export function draftWasRead(sessionId: string | undefined): boolean {
-  return Boolean(sessionId && readDrafts.has(sessionId));
+  return Boolean(sessionId && chatDrafts.get(sessionId)?.read);
 }
 
-/** Records a successful read only after the caller has confirmed that its result is current. */
+/** A read of `sessionId`'s draft answered and was applied. With nothing of the page's still on its
+ * way to acpmux, the prompt and acpmux agree from here: earlier edits and sends are settled. */
 export function markDraftRead(sessionId: string | undefined): void {
-  if (sessionId?.trim()) readDrafts.add(sessionId);
+  if (!sessionId?.trim()) return;
+  const entry = chatDraft(sessionId);
+  entry.read = true;
+  if (!hasPendingDraftWrite(sessionId)) {
+    entry.edited = false;
+    entry.sent = false;
+  }
 }
 
-/** A composer left a session; a later visit must merge that session's durable draft again. A
- * session with a write still queued or unanswered keeps its mark: that write was built on the read, and a later
- * visit must not merge acpmux's older draft into it. */
-export function forgetDraftRead(sessionId: string | undefined): void {
-  if (!sessionId?.trim() || hasPendingDraftWrite(sessionId)) return;
-  readDrafts.delete(sessionId);
+/** The person edited `sessionId`'s prompt (a clear included). */
+export function noteDraftEdited(sessionId: string | undefined): void {
+  if (sessionId?.trim()) chatDraft(sessionId).edited = true;
+}
+
+/** The person sent from `sessionId`'s prompt: the text that was there is not a draft any more. */
+export function noteDraftSent(sessionId: string | undefined): void {
+  if (sessionId?.trim()) chatDraft(sessionId).sent = true;
 }
 
 /// Reads the daemon draft: `{ draft }` once acpmux answered (`draft` undefined when it holds none),

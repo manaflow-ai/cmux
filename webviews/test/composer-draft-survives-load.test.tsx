@@ -174,31 +174,31 @@ test("the merge keeps both texts once, the saved draft first", () => {
   expect(mergedDraft("typed", undefined)).toBe("typed");
   expect(mergedDraft("saved, then more", "saved")).toBe("saved, then more");
   expect(mergedDraft("typed", "saved\n\ntyped")).toBe("saved\n\ntyped");
+  // The read's rule itself is covered in composer-draft-orderings.test.tsx (hydratedDraft).
+  const none = { read: false, sent: false, pendingWrite: false };
   // A first read of acpmux's draft merges; an empty editor never writes over it.
-  expect(hydratedDraft({ current: "", restored: "saved", edited: true, pendingWrite: false, firstRead: true })).toEqual(
-    {
-      text: "saved",
-      shown: true,
-      write: false,
-    },
-  );
-  // A write still queued (an edit or a clear made after an earlier read) stands, even when the
-  // read bookkeeping was lost: acpmux's older draft is not merged into it.
+  expect(hydratedDraft({ ...none, current: "", restored: "saved", edited: true })).toEqual({
+    text: "saved",
+    shown: true,
+    write: false,
+  });
+  // A write still queued (an edit or a clear made after an earlier read) stands: acpmux's older
+  // draft is not merged into it.
   expect(
-    hydratedDraft({ current: "buy bread", restored: "buy milk", edited: true, pendingWrite: true, firstRead: true }),
+    hydratedDraft({ ...none, current: "buy bread", restored: "buy milk", edited: true, pendingWrite: true }),
   ).toEqual({
     text: "buy bread",
     shown: false,
     write: false,
   });
   // After the page read it, the person's own clear (queued) stands.
-  expect(hydratedDraft({ current: "", restored: "saved", edited: true, pendingWrite: true, firstRead: false })).toEqual(
-    {
-      text: "",
-      shown: false,
-      write: false,
-    },
-  );
+  expect(
+    hydratedDraft({ ...none, current: "", restored: "saved", edited: true, pendingWrite: true, read: true }),
+  ).toEqual({
+    text: "",
+    shown: false,
+    write: false,
+  });
 });
 
 test("(a) text typed before the chat's session attached is still there after it loads", async () => {
