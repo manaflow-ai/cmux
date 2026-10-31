@@ -146,7 +146,8 @@ pub(crate) enum Destination {
 /// Where the send `key` goes: the machine its first try took while that
 /// machine exists (before the App's list is `loaded`, it is kept: it may be
 /// one made for this send). Then, for a send from the Mac workspace
-/// `workspace`, [`workspace_destination`]; for one from no workspace, [`pick`].
+/// `workspace`, [`workspace_destination`]; for one from no workspace, [`pick`]
+/// among the machines no workspace owns.
 /// Drops a pin to a machine that is gone, which holds no tab of this send.
 pub(crate) fn destination(
     key: &str,
@@ -165,7 +166,11 @@ pub(crate) fn destination(
     match workspace {
         Some(workspace) => workspace_destination(workspace, pins, candidates, user, loaded),
         None => {
-            pick(candidates, user, &pins.machines()).map_or(Destination::New, Destination::Machine)
+            // A workspace's own machine is never shared with a send from no workspace.
+            let owned = pins.workspace_machines();
+            let shared: Vec<Candidate> =
+                candidates.iter().filter(|machine| !owned.contains(&machine.id)).cloned().collect();
+            pick(&shared, user, &pins.machines()).map_or(Destination::New, Destination::Machine)
         }
     }
 }

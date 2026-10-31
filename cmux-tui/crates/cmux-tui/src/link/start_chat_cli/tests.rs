@@ -307,10 +307,15 @@ fn each_workspace_gets_its_own_machine_and_keeps_it() {
         pick::destination(&key(), Some("ws-a"), &mut pins, &[], Some(ME), false),
         Destination::Machine("vm-a".into())
     );
-    // A send from no workspace keeps the shared pick.
+    // A send from no workspace keeps the shared pick, but never takes a workspace's own machine,
+    // even one marked for chats.
     assert_eq!(
         pick::destination(&key(), None, &mut pins, &listed, Some(ME), true),
         Destination::Machine("vm-free".into())
+    );
+    assert_eq!(
+        pick::destination(&key(), None, &mut pins, &listed[1..], Some(ME), true),
+        Destination::New
     );
 }
 

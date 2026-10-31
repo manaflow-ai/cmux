@@ -87,6 +87,11 @@ impl Ledger {
             .map(|binding| binding.machine_id.clone())
     }
 
+    /// The machines that are some workspace's own.
+    pub(crate) fn workspace_machines(&self) -> BTreeSet<String> {
+        self.workspaces.iter().map(|binding| binding.machine_id.clone()).collect()
+    }
+
     /// `machine` is the workspace `workspace`'s own from now on.
     pub(crate) fn bind(&mut self, workspace: &str, machine: &str) {
         self.workspaces.retain(|kept| kept.workspace != workspace);
