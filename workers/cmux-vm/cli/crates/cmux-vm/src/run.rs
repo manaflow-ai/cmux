@@ -434,7 +434,13 @@ async fn wait_running(client: &Client, vm_id: &str) -> Result<(), CliError> {
         let vm: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
         match vm["state"].as_str() {
             Some("running") => return Ok(()),
-            Some("starting") | None => {}
+            Some("starting" | "unknown") => {}
+            None => {
+                return Err(
+                    CliError::unexpected("the VM API answered without the new VM's state")
+                        .for_vm(vm_id, "run"),
+                );
+            }
             Some(other) => {
                 return Err(
                     CliError::unexpected(format!("the new VM is {other}, not running"))
@@ -516,10 +522,16 @@ async fn prepare(client: &Client, vm_id: &str, archive: Option<&[u8]>) -> Result
     Ok(String::from_utf8_lossy(&result.stdout).trim().to_owned())
 }
 
-/// The script that ends a timed-out command's process group.
+/// The script that ends a timed-out command's process group. It exits 0
+/// once the group is gone (or the command already ended) and non-zero when
+/// there is no usable pid or the group outlives SIGKILL.
 fn kill_script(run_dir: &str) -> String {
     format!(
-        "kill -TERM -- -$(cat {run_dir}/pid) 2>/dev/null; sleep 2; kill -KILL -- -$(cat {run_dir}/pid) 2>/dev/null; true"
+        "d={run_dir}; [ -f $d/rc ] && exit 0; p=$(cat $d/pid 2>/dev/null); \
+         case \"$p\" in ''|*[!0-9]*|0|1) echo 'no process id for the command' >&2; exit 1;; esac; \
+         gone() {{ ! kill -0 -- -$p 2>/dev/null; }}; \
+         kill -TERM -- -$p 2>/dev/null; i=0; while [ $i -lt 20 ] && ! gone; do sleep 0.1; i=$((i+1)); done; \
+         gone && exit 0; kill -KILL -- -$p 2>/dev/null; sleep 0.2; gone || [ -f $d/rc ]"
     )
 }
 
@@ -932,15 +944,20 @@ pub(crate) fn credential_path(path: &Path) -> bool {
     if credential_shaped(&name) {
         return true;
     }
-    let parts: Vec<&std::ffi::OsStr> = path
+    // Any case: macOS volumes are case-insensitive by default, so `.AWS`
+    // is the AWS CLI's `.aws` there.
+    let parts: Vec<String> = path
         .parent()
-        .map(|parent| parent.components().map(Component::as_os_str).collect())
+        .map(|parent| {
+            parent
+                .components()
+                .map(|part| part.as_os_str().to_string_lossy().to_ascii_lowercase())
+                .collect()
+        })
         .unwrap_or_default();
-    parts
-        .iter()
-        .any(|part| CREDENTIAL_DIRS.iter().any(|dir| *part == *dir))
+    parts.iter().any(|part| CREDENTIAL_DIRS.contains(&part.as_str()))
         || parts.windows(2).any(|pair| {
-            pair[0] == ".config" && CREDENTIAL_CONFIG_DIRS.iter().any(|dir| pair[1] == *dir)
+            pair[0] == ".config" && CREDENTIAL_CONFIG_DIRS.contains(&pair[1].as_str())
         })
 }
 
