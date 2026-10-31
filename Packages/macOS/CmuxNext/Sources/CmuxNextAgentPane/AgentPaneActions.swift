@@ -26,12 +26,14 @@ extension ActionID {
     public static let openBrowser: ActionID = "openBrowser"
 }
 
-/// A chat header toggle the native palette runs through the page's `command` bridge, by its name
-/// there. The page lists the ones that apply to its chat now (`pane.commandAvailability`): Quick
-/// Chat's panel has no tabs beside it, a remote chat's folder is not on this Mac, Preview needs the
-/// chat's page or the preview it opened.
+/// A chat control the native palette runs through the page's `command` bridge, by its name there.
+/// The page lists the ones that apply to its chat now (`pane.commandAvailability`): Quick Chat's
+/// panel has no tabs beside it, a remote chat's folder is not on this Mac, Preview needs the chat's
+/// page or the preview it opened, Run in Background needs work in the foreground, and Session
+/// Info's sections need rows.
 public enum AgentPageCommand: String, CaseIterable, Sendable {
     case toggleFiles, togglePreview, toggleSideTabs
+    case runInBackground, toggleQueueing, showSubagents, showBackgroundTasks
 }
 
 extension ActionRegistry {

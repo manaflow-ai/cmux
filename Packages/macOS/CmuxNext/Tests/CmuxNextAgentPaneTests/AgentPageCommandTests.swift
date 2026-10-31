@@ -2,8 +2,9 @@ import CmuxNextActions
 import Testing
 @testable import CmuxNextAgentPane
 
-/// The chat header's toggles in the palette (``AgentPageCommand``): run only where the target chat's
-/// page lists them, honest about why not, and never run by automation that did not ask for focus.
+/// The chat's controls in the palette (``AgentPageCommand``): the header's toggles, Run in Background,
+/// queueing and Session Info's sections. Each runs only where the target chat's page lists it, is
+/// honest about why not, and never runs by automation that did not ask for focus.
 @Suite(.serialized)
 @MainActor
 struct AgentPageCommandTests {
@@ -65,5 +66,32 @@ struct AgentPageCommandTests {
         #expect(ran.isEmpty)
         registry.perform("agentPane.togglePreview", invocation: ActionInvocation(origin: .cli, focusRequested: true))
         #expect(ran == [.togglePreview])
+    }
+
+    /// Run in Background, queueing and Session Info's sections: bound like the header's toggles, run
+    /// when the focused chat's page offers them, greyed out with their own title when it does not.
+    @Test(arguments: [
+        (AgentPageCommand.runInBackground, "Run in Background"),
+        (.toggleQueueing, "Toggle Prompt Queueing"),
+        (.showSubagents, "Show Subagents in Session Info"),
+        (.showBackgroundTasks, "Show Background Tasks in Session Info"),
+    ])
+    func theChatsControlsRunWhereThePageOffersThem(command: AgentPageCommand, title: String) {
+        let registry = ActionRegistry.standard()
+        registry.context = ActionContext(rawValue: .max)
+        let id = ActionID(command)
+        #expect(registry.descriptor(for: id)?.title == title)
+        var offered: Set<String> = []
+        var ran: [AgentPageCommand] = []
+        #expect(registry.bindAgentPageCommands(available: { _ in offered }, run: { command, _ in ran.append(command) }))
+        let focused = ActionInvocation(origin: .cli, focusRequested: true)
+        let reason = "\(title) isn't available in this chat."
+        #expect(registry.action(for: id)?.paletteUnavailableReason?() == reason)
+        #expect(registry.capturingRefusal { registry.perform(id, invocation: focused) } == reason)
+        #expect(ran.isEmpty)
+        offered = [command.rawValue]
+        #expect(registry.action(for: id)?.paletteUnavailableReason?() == nil)
+        registry.perform(id, invocation: focused)
+        #expect(ran == [command])
     }
 }
