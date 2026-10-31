@@ -380,7 +380,7 @@ function metadataRecord(raw: unknown): Record<string, unknown> {
     : {};
 }
 
-function defaultAdminStackApp(): AdminStackApp {
+export function defaultAdminStackApp(): AdminStackApp {
   const app = getStackServerApp();
   return {
     getUser: (userId) => app.getUser(userId),
@@ -550,7 +550,7 @@ function teamMutationKey(teamId: string): string {
   return `team:${teamId}`;
 }
 
-function defaultWithFreshTeam(app: AdminStackApp): FreshAdminTeamMutation {
+export function defaultWithFreshTeam(app: AdminStackApp): FreshAdminTeamMutation {
   return async (teamId, operation) =>
     await withAccountDeletionUserMutation(cloudDb(), teamMutationKey(teamId), async (lease) => {
       const team = await app.getTeam(teamId);
