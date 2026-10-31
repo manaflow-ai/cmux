@@ -128,7 +128,7 @@ extension AgentTabStore {
                 case .running, .provisioning, .paused:
                     return AgentPaneMoveTarget(id: machine.machineID, label: machine.machine.title,
                                                status: machine.machine.status.rawValue)
-                case .failed, .destroyed, .unknown:
+                case .pausing, .starting, .deleting, .failed, .destroyed, .unknown:
                     return nil
                 }
             }
