@@ -431,8 +431,10 @@ fn meta_save_kill_point_a_no_op_answers_after_the_change_it_repeats_is_on_disk()
         let holder = {
             let (socket, id) = (daemon.socket.clone(), id.clone());
             std::thread::spawn(move || {
-                Client::connect(&socket)
-                    .call("_acpmux/rename", json!({"sessionId": id, "newName": "g2-noop-holder"}))
+                Client::connect(&socket).call(
+                    "_acpmux/rename",
+                    json!({"sessionId": id, "newName": format!("g2-noop-holder-{id}")}),
+                )
             })
         };
         wait_held(&daemon, &id);
