@@ -112,15 +112,18 @@ struct HomeAgentMessages {
             let members = byGroup[group] ?? []
             guard members.count > 1, let first = members.first else { return members }
             var peers: [String] = []
+            var seenPeers: Set<String> = []
             for member in members {
                 guard case let .message(from, to, outgoing, _)? = member.agentMessage?.kind else { continue }
                 let peer = outgoing ? to : from
-                if !peers.contains(peer) { peers.append(peer) }
+                if seenPeers.insert(peer).inserted { peers.append(peer) }
             }
             let open = expanded.contains(group)
+            let preview = peers.prefix(HomeAgentMessageRow.peerPreviewLimit).joined(separator: " · ")
+            let overflow = peers.count > HomeAgentMessageRow.peerPreviewLimit ? " · …" : ""
             var fold = TranscriptItem(
                 key: IdempotencyKey("agent-messages:\(group)"), seq: nil, author: first.author,
-                parts: [.text("\(open ? "▾" : "▸") \(peers.joined(separator: " · "))")], createdAt: first.createdAt,
+                parts: [.text("\(open ? "▾" : "▸") \(preview)\(overflow)")], createdAt: first.createdAt,
                 delivery: .committed, replyTo: first.replyTo, threadRoot: first.threadRoot)
             fold.isReadOnly = true
             fold.agentMessage = HomeAgentMessageRow(group: group, kind: .fold(count: members.count, peers: peers, expanded: open))
