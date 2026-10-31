@@ -579,7 +579,7 @@ export function ChatMenu({
     if (pickerLabel === null) return;
     return registerPicker(pickerLabel, () => showRef.current());
   }, [label, registerPickerLabel]);
-  // A row's letter picks it (Claude Code desktop's R, F, A), never a key that is text (menuLetters.ts:
+  // A row's letter picks it (the title menu's R, F, A, D), never a key that is text (menuLetters.ts:
   // a field, an editor, an IME composition, the menu's own typeahead). Each opening starts a fresh
   // typeahead, so a key typed into the menu just closed never swallows the next open's first letter.
   const typing = useRef<MenuTyping>({ last: 0 });

@@ -127,7 +127,7 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
   }
 
   describe("transcript view", () => {
-    test("letters typed into the chat menu's typeahead neither rename, fork, archive nor change the view", async () => {
+    test("letters typed into the chat menu are its typeahead: they never rename, fork, archive nor change the view", async () => {
       const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
       await page.goto(pageUrl());
       await page.getByText(ANSWER).waitFor();
@@ -135,8 +135,9 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       const before = await stored();
       await page.getByRole("button", { name: "Chat actions" }).click();
       await page.getByRole("menu").first().waitFor();
-      // "tr" (Transcript view), "ma" (Mark as Unread), "fo" (Fork…): each second key is typeahead.
-      for (const word of ["tr", "ma", "fo"]) {
+      // The ··· menu has no row letters (only the title menu has, #25661): a bare "r", "a" or "f" and
+      // "tr" (Transcript view), "ma" (Mark as Unread), "fo" (Fork…), "ar", "re" only move the focus.
+      for (const word of ["r", "a", "f", "tr", "ma", "fo", "ar", "re"]) {
         await page.keyboard.type(word, { delay: 40 });
         // fixed-wait: each word must start its own typeahead sequence (menuLetters.ts TYPEAHEAD_MS, 600 ms).
         await page.waitForTimeout(700);
