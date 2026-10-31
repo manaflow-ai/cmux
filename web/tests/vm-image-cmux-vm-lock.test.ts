@@ -182,7 +182,7 @@ describe("base fingerprint and closure checks", () => {
   test("base packages and npm globals must be in the lock", () => {
     expect(basePackageProblems(lock, new Map(Object.entries(lock.base.basePackages)))).toEqual([]);
     expect(basePackageProblems(lock, new Map())).toHaveLength(Object.keys(lock.base.basePackages).length);
-    const globals = new Map([["npm", "11.19.0"], ["openclaw", "2026.7.1-2"], ["left-pad", "1.3.0"], ["corepack", "0.37.0"]]);
+    const globals = new Map([["npm", lock.base.npmGlobals.keep.npm], ["openclaw", "2026.7.1-2"], ["left-pad", "1.3.0"], ["corepack", "0.37.0"]]);
     expect(npmGlobalProblems(lock, globals)).toEqual([
       "base npm global left-pad@1.3.0 is not in the lock (keep or strip it)",
       "base npm global corepack@0.37.0, lock keeps 0.36.0",

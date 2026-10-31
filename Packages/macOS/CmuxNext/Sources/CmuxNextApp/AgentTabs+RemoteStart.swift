@@ -27,7 +27,7 @@ extension AgentTabStore {
     /// send, in the page's folder and agent (nil: the seed's, then a workspace folder there).
     func startRemoteChat(_ key: String, machine: String, cwd: String? = nil, harness: String? = nil, model: String? = nil,
                          personKey: AgentSessionAttachClient.PersonKey? = nil, ownerLink: AgentSessionAttachClient.OwnerLink? = nil,
-                         reconnect: AgentSessionAttachClient.Reconnect? = nil,
+                         teammate: AgentSessionAttachClient.Teammate? = nil, reconnect: AgentSessionAttachClient.Reconnect? = nil,
                          endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
         if let running = remoteStarts[resolveRemote(key)] { return try await running.value }
@@ -36,7 +36,7 @@ extension AgentTabStore {
         let task = Task<AgentTabRemoteStart.Started, any Error> { [weak self] in
             guard let self else { throw CancellationError() }
             return try await runRemoteStart(key, machine: machine, cwd: cwd, harness: harness, model: model, personKey: personKey,
-                                            ownerLink: ownerLink, reconnect: reconnect, endpoint: endpoint)
+                                            ownerLink: ownerLink, teammate: teammate, reconnect: reconnect, endpoint: endpoint)
         }
         remoteStarts[resolveRemote(key)] = task
         defer { if remoteStarts[resolveRemote(key)] == task { remoteStarts[resolveRemote(key)] = nil } }
@@ -45,7 +45,7 @@ extension AgentTabStore {
 
     private func runRemoteStart(_ key: String, machine: String, cwd chosen: String?, harness chosenHarness: String?, model chosenModel: String?,
                                 personKey: AgentSessionAttachClient.PersonKey?, ownerLink: AgentSessionAttachClient.OwnerLink?,
-                                reconnect: AgentSessionAttachClient.Reconnect?,
+                                teammate: AgentSessionAttachClient.Teammate?, reconnect: AgentSessionAttachClient.Reconnect?,
                                 endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
         if let pending = remoteCreations[key] ?? remoteCreations[resolveRemote(key)] { _ = try await pending.value() }
@@ -55,6 +55,10 @@ extension AgentTabStore {
         }
         let surface = tab.surface.rawValue
         if let session = sessions[key] ?? record.session { return .init(surface: surface, session: session) }
+        // A teammate's Cloud machine (the Cloud API's answer on its link): its owner starts chats
+        // there, so none is sent, and the card offers New Cloud Machine (cmux#29214). The owner
+        // check below is unchanged: only an owner answer ever sends a start.
+        if ownerLink != nil, let teammate, await teammate() { throw AgentRemoteStartRefusal.teamMachine(machine: machine) }
         let seed = await remoteSeeds[key]?.peek()
         // Only an absolute folder of that machine (a `~` or relative one is not its path).
         let absolute = { (path: String?) in path.flatMap { $0.hasPrefix("/") ? $0 : nil } }
@@ -89,7 +93,9 @@ extension AgentTabStore {
             if error.code == "agent_session.bound", let session = lookup(resolveRemote(key))?.record.session {
                 return .init(surface: surface, session: session)
             }
-            throw AgentRemoteStartRefusal(code: error.code, machine: machine, folder: cwd, detail: error.message,
+            // A link that came up as a teammate's while the start connected is refused as one.
+            let code = AgentSessionAttachError.classified(error.code, teammate: await teammate?() ?? false)
+            throw AgentRemoteStartRefusal(code: code, machine: machine, folder: cwd, detail: error.message,
                                           keyedRestartSafe: error.keyedRestartSafe)
         case .failure(let error):
             throw error
@@ -133,6 +139,8 @@ nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHostRefusal
     static let hostMismatchCode = "app.host_mismatch"
 
     static func folderNeeded(machine: String) -> Self { Self(code: folderNeededCode, machine: machine) }
+    /// The refusal of a start on a teammate's machine (the card's New Cloud Machine, startRefusal.ts).
+    static func teamMachine(machine: String) -> Self { Self(code: AgentSessionAttachError.teamMachine, machine: machine) }
     /// An untrusted folder on a machine whose cmux-tui cannot take the person's Trust from here.
     var withoutTrust: Self { code == "agent_session.untrusted_folder" ? Self(code: "app.trust_update", machine: machine, folder: folder) : self }
     static func startUnsupported(machine: String) -> Self { Self(code: AgentSessionAttachClient.startUnsupported, machine: machine) }
@@ -150,7 +158,7 @@ nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHostRefusal
         case "agent_session.not_asking":
             RefusalStrings.format("handlers.refusal.agentRemoteStart.harnessRefused",
                                   "This agent cannot ask before it acts on %@, so it cannot run there from this Mac. Pick another agent.", machine)
-        case "agent_session.team_vm_blocked":
+        case AgentSessionAttachError.teamMachine:
             RefusalStrings.format("handlers.refusal.agentRemoteStart.teamVM",
                                   "%@ is a teammate's machine, so its owner starts chats there. Pick your own machine, or create one with New Cloud Machine.", machine)
         case "agent_session.host_unverified":

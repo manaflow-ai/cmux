@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextLayout
 import CmuxNextSidebar
 
 /// The one place that converts between a sidebar workspace id

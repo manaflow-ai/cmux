@@ -271,6 +271,7 @@ export function useChatInspector({
   beside,
   wide = false,
   onReconnectMcp,
+  remoteControl,
   onCompact,
 }: {
   snapshot: AcpmuxSnapshot;
@@ -333,6 +334,8 @@ export function useChatInspector({
   subagent?: SubagentScope;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  /// Environment's Remote Control switch (App.tsx, remoteControl.ts): absent, no row.
+  remoteControl?: { on: boolean; set: (on: boolean) => void };
   /// Sends the chat's agent its `/compact` (Context's Compact); unset where Compact cannot reach.
   onCompact?: () => void;
 }): {
@@ -467,6 +470,7 @@ export function useChatInspector({
         onOpenFolder={onOpenFolder}
         onSaveEnvironment={onSaveEnvironment}
         onReconnectMcp={onReconnectMcp}
+        remoteControl={remoteControl}
         onCompact={onCompact}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
@@ -517,6 +521,7 @@ function InspectorPresence({
   onOpenFolder,
   onSaveEnvironment,
   onReconnectMcp,
+  remoteControl,
   onCompact,
   onOpenDocument,
   onShowCall,
@@ -563,6 +568,7 @@ function InspectorPresence({
   onOpenFolder?: (path: string) => void;
   onSaveEnvironment?: () => Promise<unknown>;
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  remoteControl?: { on: boolean; set: (on: boolean) => void };
   onCompact?: () => void;
   onOpenDocument?: (artifact: Artifact) => void;
   onShowCall?: (toolCallId: string) => boolean;
@@ -739,6 +745,7 @@ function InspectorPresence({
         // Save keeps the chat's machine and folder, not a subagent's.
         onSaveEnvironment={scope ? undefined : onSaveEnvironment}
         onReconnectMcp={onReconnectMcp}
+        remoteControl={scope ? undefined : remoteControl}
         // Compact ends the chat's context, not a subagent's.
         onCompact={scope ? undefined : onCompact}
         working={snapshot.isWorking}

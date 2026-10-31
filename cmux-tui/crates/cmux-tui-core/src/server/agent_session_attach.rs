@@ -36,8 +36,8 @@ pub use agent_session_folders::AGENT_SESSION_FOLDERS_CAPABILITY;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
 pub use agent_session_start::{
     AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
-    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY, AcpmuxStarter,
-    AgentStartHost, AgentStartHostSource,
+    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
+    AGENT_SESSION_START_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
 pub use agent_session_trust::{
     AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY,
@@ -1289,5 +1289,15 @@ impl Mux {
     /// acpmux socket path; without a starter a start needs acpmux running).
     pub(crate) fn serves_agent_session_start(&self) -> bool {
         self.serves_agent_session_attach()
+    }
+
+    /// True when `agent-session-start` starts any agent here on the
+    /// caller's owner word: this machine reads as a Cloud VM with no team
+    /// evidence. A Mac, an SSH host and a team VM never advertise
+    /// `agent-session-start-owner-cloud-v1`, so the app never lets a Codex
+    /// or opencode chat send to a session there.
+    pub(crate) fn serves_owner_cloud_start(&self) -> bool {
+        self.serves_agent_session_start()
+            && self.control_clients.agent_sessions.starts.owner_cloud(true)
     }
 }
