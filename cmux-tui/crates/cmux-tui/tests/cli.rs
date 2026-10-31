@@ -33,17 +33,18 @@ impl HeadlessServer {
     }
 
     fn start_with_config(name: &str, config_contents: Option<&str>) -> Self {
-        Self::start_with_options(name, config_contents, None)
+        Self::start_with_options(name, config_contents, None, &[])
     }
 
     fn start_in(name: &str, launch_cwd: &std::path::Path) -> Self {
-        Self::start_with_options(name, None, Some(launch_cwd))
+        Self::start_with_options(name, None, Some(launch_cwd), &[])
     }
 
     fn start_with_options(
         name: &str,
         config_contents: Option<&str>,
         launch_cwd: Option<&std::path::Path>,
+        env: &[(&str, &std::ffi::OsStr)],
     ) -> Self {
         let dir = unique_temp_dir(name);
         fs::create_dir_all(&dir).unwrap();
@@ -63,6 +64,7 @@ impl HeadlessServer {
             .arg("--state")
             .arg(&state)
             .env("CMUX_TUI_CONFIG", &config)
+            .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
         if let Some(launch_cwd) = launch_cwd {
@@ -3322,6 +3324,27 @@ fn raw_command_is_the_explicit_private_protocol_v10_escape() {
 
 #[test]
 fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
+    // This scenario asserts that history clear preserves visible output when
+    // no OSC 133 prompt boundary exists. Use a plain shell and isolated startup
+    // files so the runner's shell integration cannot change that precondition.
+    #[cfg(unix)]
+    let home = tempfile::tempdir().unwrap();
+    #[cfg(unix)]
+    let server = HeadlessServer::start_with_options(
+        "matrix",
+        None,
+        None,
+        &[
+            ("HOME", home.path().as_os_str()),
+            ("CFFIXED_USER_HOME", home.path().as_os_str()),
+            ("SHELL", std::ffi::OsStr::new("/bin/sh")),
+            ("ENV", std::ffi::OsStr::new("/dev/null")),
+            ("BASH_ENV", std::ffi::OsStr::new("/dev/null")),
+            ("PS1", std::ffi::OsStr::new("prompt> ")),
+            ("CMUX_TUI_SHELL_INTEGRATION", std::ffi::OsStr::new("none")),
+        ],
+    );
+    #[cfg(not(unix))]
     let server = HeadlessServer::start("matrix");
 
     let identify = raw_cli(&server, serde_json::json!({"id":"identify-human","cmd":"identify"}));
