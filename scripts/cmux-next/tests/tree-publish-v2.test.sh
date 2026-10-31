@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # CMUX-TUI-TREE-KEY-V2: the cmux-tui artifacts push publication writes the
-# tree under its v2 key and then its v1 key. When v2 already holds a partial
+# tree under its v2 key and then its v2-legacy key. When v2 already holds a partial
 # publication from another commit X (the repair case), completing v2 puts X's
-# binaries into assets/tree; the v1 call must still publish THIS run's build
+# binaries into assets/tree; the compatibility call must still publish THIS run's build
 # (review F1). The Windows daemon: the other commit X predates the Windows
 # target (it published no cmux-tui-windows/<X>/), so v2 gets THIS run's Windows build with
 # completion-windows.json naming this run's commit; a second run reuses it.
@@ -71,9 +71,13 @@ git_q -C "$src" commit -m one
 git_q -C "$src" update-index --add --cacheinfo 160000,"$(git -C "$src" rev-parse HEAD)",ghostty
 git_q -C "$src" update-index --add --cacheinfo 160000,"$(git -C "$src" rev-parse HEAD)",ghostty-next
 git_q -C "$src" commit -m gitlinks
+mkdir -p "$src/cmux-tui/docs"
+echo prose > "$src/cmux-tui/docs/README.md"
+git_q -C "$src" add cmux-tui/docs/README.md
+git_q -C "$src" commit -m docs
 run_sha=$(git -C "$src" rev-parse HEAD)
 v2=$(cd "$src" && python3 scripts/ci/cmux_tui_tree_key.py --version v2)
-v1=$(cd "$src" && python3 scripts/ci/cmux_tui_tree_key.py --version v1)
+legacy=$(cd "$src" && python3 scripts/ci/cmux_tui_tree_key.py --version v2-legacy)
 other=1111111111111111111111111111111111111111
 
 # This run's build (assets/tree) and its commit manifest.
@@ -94,7 +98,7 @@ manifest "$run_sha" "$src/assets/tree" "${windows_names[@]}" > "$cdn/windows/$ru
 for n in "${names[@]}"; do cp "$src/assets/tree/$n" "$cdn/$run_sha/$n"; done
 for n in "${windows_names[@]}"; do cp "$src/assets/tree/$n" "$cdn/windows/$run_sha/$n"; done
 manifest "$other" "$cdn/$other" "${names[@]}" > "$cdn/$other/manifest.json"
-# v2: a partial publication by the other commit (source.json only). v1: nothing.
+# v2: a partial publication by the other commit (source.json only). v2-legacy: nothing.
 printf '{"key": "%s", "commit": "%s"}\n' "$v2" "$other" > "$cdn/tree/$v2/source.json"
 
 mkdir -p "$TMP/bin"
@@ -122,16 +126,16 @@ chmod +x "$TMP/bin/curl"
 status=0
 out=$(cd "$src" && env PATH="$TMP/bin:$PATH" GITHUB_SHA="$run_sha" GITHUB_RUN_ID=1 \
   GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=manaflow-ai/cmux GITHUB_REF=refs/heads/feat-cmux-next R2_ENDPOINT=https://r2.test \
-  KEY_V2="$v2" LEGACY_KEY="$v1" bash "$TMP/publish.sh" 2>&1) || status=$?
+  KEY_V2="$v2" LEGACY_KEY="$legacy" bash "$TMP/publish.sh" 2>&1) || status=$?
 [[ "$status" == 0 ]] || fail "the publication failed (exit $status):" "$out"
 for n in "${names[@]}"; do
   [[ "$(cat "$cdn/tree/$v2/$n")" == "other build $n" ]] || fail "v2 $n is not the other commit's build it was started with"
-  [[ "$(cat "$cdn/tree/$v1/$n")" == "run build $n" ]] || fail "v1 $n is not this run's build"
+  [[ "$(cat "$cdn/tree/$legacy/$n")" == "run build $n" ]] || fail "v2-legacy $n is not this run's build"
 done
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["key"] == sys.argv[2] and d["commit"] == sys.argv[3], d' \
-  "$cdn/tree/$v1/source.json" "$v1" "$run_sha" || fail "the v1 source.json does not name v1 and this run's commit"
-[[ -f "$cdn/tree/$v1/completion.json" && -f "$cdn/tree/$v2/completion.json" ]] || fail "a completion manifest is missing"
-for key in "$v2" "$v1"; do
+  "$cdn/tree/$legacy/source.json" "$legacy" "$run_sha" || fail "the v2-legacy source.json does not name v2-legacy and this run's commit"
+[[ -f "$cdn/tree/$legacy/completion.json" && -f "$cdn/tree/$v2/completion.json" ]] || fail "a completion manifest is missing"
+for key in "$v2" "$legacy"; do
   for n in "${windows_names[@]}"; do
     [[ "$(cat "$cdn/tree/$key/$n")" == "run build $n" ]] || fail "$key $n is not this run's Windows build"
     [[ "$(awk '{print $1}' "$cdn/tree/$key/$n.sha256")" == "$(sha "$cdn/tree/$key/$n")" ]] || fail "$key $n.sha256 is wrong"
@@ -145,7 +149,7 @@ done
 cp "$src"/assets/run/* "$cdn/$run_sha/"
 out=$(cd "$src" && rm -rf assets/tree tree && mkdir -p assets/tree && cp "$src"/assets/run/* assets/tree/ && env PATH="$TMP/bin:$PATH" GITHUB_SHA="$run_sha" GITHUB_RUN_ID=2 \
   GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=manaflow-ai/cmux GITHUB_REF=refs/heads/feat-cmux-next R2_ENDPOINT=https://r2.test \
-  KEY_V2="$v2" LEGACY_KEY="$v1" bash "$TMP/publish.sh" 2>&1) || fail "the second publication failed:" "$out"
+  KEY_V2="$v2" LEGACY_KEY="$legacy" bash "$TMP/publish.sh" 2>&1) || fail "the second publication failed:" "$out"
 
 # The Windows build is optional: a run that built none (no cmux-tui-windows/<sha>/)
 # publishes the macOS and Linux tree without Windows objects.
@@ -155,8 +159,8 @@ printf '{"key": "%s", "commit": "%s"}\n' "$v2" "$other" > "$cdn/tree/$v2/source.
 for n in "${windows_names[@]}"; do rm -f "$src/assets/run/$n"; done
 out=$(cd "$src" && rm -rf assets/tree tree && mkdir -p assets/tree && cp assets/run/* assets/tree/ && env PATH="$TMP/bin:$PATH" GITHUB_SHA="$run_sha" GITHUB_RUN_ID=3 \
   GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=manaflow-ai/cmux GITHUB_REF=refs/heads/feat-cmux-next R2_ENDPOINT=https://r2.test \
-  KEY_V2="$v2" LEGACY_KEY="$v1" bash "$TMP/publish.sh" 2>&1) || fail "a run without a Windows build failed:" "$out"
-for key in "$v2" "$v1"; do
+  KEY_V2="$v2" LEGACY_KEY="$legacy" bash "$TMP/publish.sh" 2>&1) || fail "a run without a Windows build failed:" "$out"
+for key in "$v2" "$legacy"; do
   [[ -f "$cdn/tree/$key/completion.json" ]] || fail "$key: no completion.json without Windows"
   [[ ! -e "$cdn/tree/$key/completion-windows.json" ]] || fail "$key: completion-windows.json without a Windows build"
   for n in "${windows_names[@]}"; do [[ ! -e "$cdn/tree/$key/$n" ]] || fail "$key: $n without a Windows build"; done
@@ -173,10 +177,10 @@ rm -rf "$cdn/tree" "$cdn/windows"
 publish_pass() { # <pass> <run id>
   (cd "$src" && rm -rf assets/tree tree && mkdir -p assets/tree && cp assets/run/* assets/tree/ && env PATH="$TMP/bin:$PATH" GITHUB_SHA="$run_sha" GITHUB_RUN_ID="$2" \
     GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=manaflow-ai/cmux GITHUB_REF=refs/heads/feat-cmux-next R2_ENDPOINT=https://r2.test \
-    CMUX_TUI_PUBLISH_PASS="$1" KEY_V2="$v2" LEGACY_KEY="$v1" bash "$TMP/publish.sh" 2>&1)
+    CMUX_TUI_PUBLISH_PASS="$1" KEY_V2="$v2" LEGACY_KEY="$legacy" bash "$TMP/publish.sh" 2>&1)
 }
 out=$(publish_pass unix 4) || fail "the first pass failed:" "$out"
-for key in "$v2" "$v1"; do
+for key in "$v2" "$legacy"; do
   [[ -f "$cdn/tree/$key/completion.json" ]] || fail "$key: the first pass published no completion.json"
   [[ ! -e "$cdn/tree/$key/completion-windows.json" ]] || fail "$key: completion-windows.json before the Windows pass"
   cp "$cdn/tree/$key/completion.json" "$TMP/completion-$key.json"
@@ -189,7 +193,7 @@ mkdir -p "$cdn/windows/$run_sha"
 for n in "${windows_names[@]}"; do cp "$src/assets/run/$n" "$cdn/windows/$run_sha/$n"; done
 manifest "$run_sha" "$src/assets/run" "${windows_names[@]}" > "$cdn/windows/$run_sha/manifest.json"
 out=$(publish_pass windows 5) || fail "the Windows pass failed:" "$out"
-for key in "$v2" "$v1"; do
+for key in "$v2" "$legacy"; do
   cmp -s "$TMP/completion-$key.json" "$cdn/tree/$key/completion.json" || fail "$key: the Windows pass changed completion.json"
   for n in "${windows_names[@]}"; do
     [[ "$(cat "$cdn/tree/$key/$n")" == "run build $n" ]] || fail "$key $n: the Windows pass did not add this run's Windows build"

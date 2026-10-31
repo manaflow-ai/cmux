@@ -111,6 +111,9 @@ async function closeServer(server: ChildProcess) {
     server.kill();
   });
 }
+/** A terminal colour escape (ESC [ ... m), as a server banner may wrap its port in one. */
+const SGR = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+
 async function startServer(dev: boolean) {
   const port = await freePort();
   const vp = path.join(webviews, "node_modules/.bin/vp");
@@ -139,8 +142,12 @@ async function startServer(dev: boolean) {
     );
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("server startup timed out")), 30_000);
+      // The banner may color the port ("127.0.0.1:" ESC[1m port ESC[22m) and arrive split across
+      // chunks: match the output so far (its last 4 KB) with SGR escapes dropped, or startup times out.
+      let banner = "";
       const ready = (chunk: Buffer) => {
-        if (String(chunk).includes(`127.0.0.1:${port}`)) {
+        banner = (banner + String(chunk)).slice(-4096);
+        if (banner.replaceAll(SGR, "").includes(`127.0.0.1:${port}`)) {
           clearTimeout(timer);
           resolve();
         }
@@ -376,10 +383,13 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
   return results.some((result) => !result.pass) && !options.noFail ? 1 : 0;
 }
 if (import.meta.main) {
+  let code = 1;
   try {
-    process.exitCode = await main();
+    code = await main();
   } catch (error) {
     console.error(`latency: ${String(error)}`);
-    process.exitCode = 1;
   }
+  // Exit with the run: a server's child that outlives its killed parent keeps the pipes open, and
+  // with them this process, until an outer timeout (a failed start hung CI runs for 30 minutes).
+  process.exit(code);
 }

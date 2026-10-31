@@ -34,6 +34,16 @@
       "aliases": ["session rail", "prompt rail", "thread minimap", "rail ticks"],
       "paths": ["webviews/src/agent-session/acpmux/threadMinimap/"]
     },
+    "feature-tips": {
+      "spec": "leo-workspace design/feature-tips.md",
+      "aliases": ["feature tip", "tips", "coach mark", "callout", "new badge"],
+      "paths": [
+        "webviews/src/ui/FeatureTip.tsx",
+        "webviews/src/ui/featureTip.css",
+        "webviews/src/ui/featureTips/",
+        "webviews/src/agent-session/acpmux/featureTips.tsx"
+      ]
+    },
     "new-tab": {
       "spec": "leo-workspace design/new-tab.md",
       "aliases": ["new tab"],
