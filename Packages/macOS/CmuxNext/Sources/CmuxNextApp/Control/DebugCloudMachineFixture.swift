@@ -29,17 +29,11 @@ enum DebugCloudMachineFixture {
     /// The fixture machine's id when the call names none.
     static let defaultName = "demo-cloud"
 
-    /// The app services whose `cloudContextDidChange` keeps `cloudWorkspace` (AppServices+Cloud): one
-    /// app's, never another's (tests build their own). Only ``seed(_:_:)`` changes it, and this whole
-    /// type is DEBUG only, so a Release build never holds it.
-    private static var holders: Set<ObjectIdentifier> = []
-
-    static func holdsCloudWorkspace(_ services: AppServices) -> Bool { holders.contains(ObjectIdentifier(services)) }
-
     /// Holds (or, `false`, drops) `cloudWorkspace` in `services`' registry context, as a Cloud machine's
-    /// active workspace does, without a session or a sign-in.
+    /// active workspace does, without a session or a sign-in: only in that app's ``AppServices/DebugFixtures``, never
+    /// another's (tests build their own), and DEBUG only, so a Release build never holds it.
     static func seed(_ services: AppServices, _ on: Bool = true) {
-        if on { holders.insert(ObjectIdentifier(services)) } else { holders.remove(ObjectIdentifier(services)) }
+        services.debugFixtures.holdsCloudWorkspace = on
         services.cloudContextDidChange()
     }
 
@@ -89,7 +83,7 @@ enum DebugCloudMachineFixture {
     }
 
     /// An open menu's keys for `title`: each letter (type-select), then the right arrow, down and up.
-    private static func folderKeys(_ title: String, window: NSWindow) -> [NSEvent] {
+    static func folderKeys(_ title: String, window: NSWindow) -> [NSEvent] {
         // ANSI key codes 0 to 47 by character (10 and 36 have none here).
         let codes = Array("asdfhgzxcv\0bqweryt123465=97-80]ou[ip\0lj'k;\\,/nm.")
         var keys = title.lowercased().map { (String($0), UInt16(codes.firstIndex(of: $0) ?? 49), NSEvent.ModifierFlags()) }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextBridge
@@ -69,6 +70,14 @@ final class SidebarBridge {
         container.sidebarView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         groupFlow.wireEditor()
         SidebarWorkspacePins.wire(self)
+        // The Chief dropped beside the sidebar comes off it, as Remove from Sidebar does (Leo 2026-10-21), in a band,
+        // a group or a machine list.
+        container.sidebarView.removesOnDragOut = { [weak model] id in
+            (model?.layout.item(LayoutItemID(id)) ?? model?.listedItem(LayoutItemID(id)))?.ref == .builtIn(.chief)
+        }
+        container.sidebarView.onDragOutRemove = { [weak services] id in
+            _ = services?.registry.perform("sidebar.item.removeEverywhere", invocation: ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: id), origin: .user))
+        }
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
         container.sidebarView.customization = services.sidebarCustomization
@@ -193,7 +202,7 @@ final class SidebarBridge {
         sameTurn.observe({ SidebarNavigation.selectedItem(page: state.page, workspace: state.workspaceID,
                                                           creationRow: state.cloudCreation.flatMap { creations.creation($0)?.rowID },
                                                           layout: SidebarRows.visibleLayout(layout.document, showAppStore: services.settings?.snapshot.previewFeatures == true), room: state.profileID.rawValue,
-                                                          refs: WorkspaceLayoutRefs(machines: machines), home: services.home.dockedHomeID,
+                                                          refs: WorkspaceLayoutRefs(machines: machines), home: services.home.dockedHomeID(in: state),
                                                           channels: services.home.dockShowsChannels) }) { [weak self] selected in
             self?.selectionHold.offer(selected) // a new workspace's waits for its row (cx-8g3sn)
         }
@@ -426,9 +435,11 @@ final class SidebarBridge {
         // A pinned workspace's tile has its row's menu: name, colors, Unpin (a tile's
         // generic item menu had no colors, 2026-10-21), then the tile's Show/Hide Label.
         case .layoutItem(let id):
-            if let workspace = pinnedWorkspaceID(ofItem: id) {
+            if let workspace = pinnedWorkspaceID(ofItem: id),
+               let ref = (model.layout.item(id) ?? model.listedItem(id))?.ref,
+               let (_, owner) = WorkspaceLayoutRefs(machines: services.machines).workspace(for: ref) {
                 SidebarContextMenus.menu(for: .workspaces([workspace]), model: model, services: services, scope: container.themeScope.fullStrength,
-                                         trailing: tileRows(id))
+                                         trailing: tileRows(id), workspaceMachineID: owner.machineID)
             } else {
                 layoutItemMenu(id)?.themeRows(in: container.themeScope.fullStrength)
             }

@@ -40,7 +40,7 @@ import Testing
     @Test func theCertificateViewersSelectedSegmentIsTheThemeSelection() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let window = CertificateViewerWindow(chain: [], site: PageInfoSite(url: URL(string: "https://example.com"), kind: .internalPage),
-                                             failure: nil)
+                                             failure: nil, activeLook: nil)
         window.isReleasedWhenClosed = false
         defer { window.close() }
         scope.adopt(window)
@@ -97,7 +97,7 @@ import Testing
                           animated: false)
         for scope in [light, try ThemedOverlayColorsTests.purpleRoom()] {
             let window = CertificateViewerWindow(chain: [], site: PageInfoSite(url: URL(string: "https://example.com"), kind: .internalPage),
-                                                 failure: nil)
+                                                 failure: nil, activeLook: nil)
             window.isReleasedWhenClosed = false
             defer { window.close() }
             scope.adopt(window)
@@ -117,7 +117,7 @@ import Testing
     @Test func theSelectedSegmentsLabelDrawsInItsInkAndDimsWhenDisabled() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let window = CertificateViewerWindow(chain: [], site: PageInfoSite(url: URL(string: "https://example.com"), kind: .internalPage),
-                                             failure: nil)
+                                             failure: nil, activeLook: nil)
         window.isReleasedWhenClosed = false
         defer { window.close() }
         scope.adopt(window)

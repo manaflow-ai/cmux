@@ -543,6 +543,8 @@ final class RowCell: UICollectionViewCell {
     var tiled: TiledBody?
     /// Markdown rows: scrollable blocks and copy buttons (MarkdownOverlay.swift).
     var markdownOverlay: MarkdownOverlay?
+    /// cmux: the Chief's status line's shimmer (HomeNoticeShimmer.swift), made on its first notice row.
+    var noticeShimmer: HomeNoticeShimmer?
     /// The row this cell waits for from the bitmap queue (renders nobody waits for are skipped).
     private var pendingWant: RowSpec?
     private func dropWant() { if let w = pendingWant { RowBitmaps.shared.unwant(w); pendingWant = nil } }
@@ -858,6 +860,8 @@ final class RowCell: UICollectionViewCell {
         } else {
             setTyping(false, spec)
         }
+        // cmux: the Chief's status line shimmers (HomeNoticeShimmer); any other row takes the shimmer off.
+        if case .notice = spec.kind { HomeNoticeShimmer.configure(self, spec) } else { noticeShimmer?.detach(from: self) }
         if TiledBubble.applies(spec) { markdownOverlay?.detach(); TiledBubble.configure(self, spec); CATransaction.commit(); return }
         tiled?.detach(self)
         let span = RowDraw.drawSpan(spec)
@@ -1060,8 +1064,9 @@ final class RowCell: UICollectionViewCell {
             DispatchQueue.concurrentPerform(iterations: specs.count) { i in
                 // checked reads and writes (crash ratchet)
                 let r0 = CACurrentMediaTime()
-                if let slot = out.checkedIndex(i), let spec = specs[checked: i], let sc = scales[checked: i] {
-                    out[slot] = PaletteScope.with(palettes[checked: i] ?? nil) { RowBitmaps.render(spec, scale: sc) }
+                if let spec = specs[checked: i], let sc = scales[checked: i] {
+                    let image = PaletteScope.with(palettes[checked: i] ?? nil) { RowBitmaps.render(spec, scale: sc) }
+                    if let slot = out.checkedIndex(i) { out[slot] = image }
                 }
                 if let slot = ms.checkedIndex(i) { ms[slot] = (CACurrentMediaTime() - r0) * 1000 }
             }
