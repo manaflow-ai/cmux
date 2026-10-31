@@ -6,7 +6,7 @@ import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { useHeaderState, type HeaderState } from "../header/headerState";
 import { transcriptPullRequestKey, transcriptPullRequests, type SummaryPullRequest } from "./transcriptPullRequests";
-import { headerStatus, visibleChanges } from "../inspector/ChangesSection";
+import { headerStatus, visibleChanges } from "../session-info/ChangesSection";
 import { GitHubMark } from "../conversation/icons";
 import { LinkHoverCard } from "../chips/LinkHoverCard";
 import { useSiteInfo } from "../chips/linkStore";

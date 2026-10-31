@@ -13,18 +13,18 @@ import { useScrollEdges } from "./scrollEdges";
 import { sessionSummary } from "./sessionSummary";
 import type { SubsessionRow } from "../subagents/subsessions";
 import { SUBSESSION_STATUS, SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
-import { sessionStatus } from "../inspector/ChildSessionRows";
+import { sessionStatus } from "../session-info/ChildSessionRows";
 import { sessionRetry } from "../subagents/retryState";
 import { SubagentsTab } from "./SubagentsTab";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
 import type { ChatToolsControl } from "./SourcesAddMenu";
 import type { SummaryCardControl } from "./cardState";
-import { backgroundCommands } from "../inspector/processes";
+import { backgroundCommands } from "../session-info/processes";
 import type { SummaryBackgroundTask } from "./sessionSummary";
-import type { ProcessRegistry } from "../inspector/processes";
+import type { ProcessRegistry } from "../session-info/processes";
 import type { WorkflowActions } from "./WorkflowSummary";
 import type { WorkflowSummary } from "./workflow";
-import { EnvironmentSection } from "../inspector/EnvironmentSection";
+import { EnvironmentSection } from "../session-info/EnvironmentSection";
 import type { ComponentProps } from "react";
 import type { WorkflowCapacitySignal } from "./foldWorkflows";
 
@@ -66,7 +66,7 @@ export function SummaryCard({
   workflows,
   workflowActionsFor,
   workflowCapacity,
-  onOpenInspector,
+  onOpenSessionInfo,
 }: {
   card: SummaryCardControl;
   environment?: ComponentProps<typeof EnvironmentSection>;
@@ -112,7 +112,7 @@ export function SummaryCard({
   workflowActionsFor?: (workflow: WorkflowSummary) => WorkflowActions;
   workflowCapacity?: WorkflowCapacitySignal;
   /// Opens a complete Session Info section beside the chat.
-  onOpenInspector?: (section: "subagents" | "tasks") => void;
+  onOpenSessionInfo?: (section: "subagents" | "tasks") => void;
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -348,7 +348,7 @@ export function SummaryCard({
                 // The tab lists subagents only; a chat with only sub-sessions or started chats has none to show there.
                 // The popover has no title row, so this title is its one way into the tab too.
                 onShowAll={agents.length > 0 ? () => setTab("subagents") : undefined}
-                onOpenInPane={onOpenInspector ? () => onOpenInspector("subagents") : undefined}
+                onOpenInPane={onOpenSessionInfo ? () => onOpenSessionInfo("subagents") : undefined}
                 subsessions={subsessionRows}
                 sessions={children}
                 onOpenSession={sessions?.onOpen ?? subsessions?.onOpen}
@@ -371,7 +371,7 @@ export function SummaryCard({
                 tools={tools}
                 commands={commands}
                 onStopCommand={background?.onStop}
-                onOpenTasksInPane={onOpenInspector ? () => onOpenInspector("tasks") : undefined}
+                onOpenTasksInPane={onOpenSessionInfo ? () => onOpenSessionInfo("tasks") : undefined}
                 workflow={workflow}
                 workflowActions={workflowActions}
                 workflows={workflows}

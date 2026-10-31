@@ -1838,7 +1838,7 @@ export class AcpmuxDirectClient {
   /// profile written, live model lists refreshed); the catalog re-reads (catalog.ts
   /// followHarnessChanges).
   onHarnessesChanged?: () => void;
-  /// `_acpmux/process_update` listeners (inspector/processes.ts).
+  /// `_acpmux/process_update` listeners (session-info/processes.ts).
   private readonly processListeners = new Set<(process: unknown) => void>();
   /// A prompt carrying the workspace context is on its way (send).
   private contextInFlight = false;

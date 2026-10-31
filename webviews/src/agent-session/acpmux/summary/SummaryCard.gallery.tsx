@@ -11,7 +11,7 @@ import { GALLERY_NOW } from "../../../gallery/clock";
 import { activity, CWD, row, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { StartedSession } from "../started/startedSessions";
 import type { SummaryCardControl } from "./cardState";
-import type { InspectorProcess } from "../inspector/processes";
+import type { SessionInfoProcess } from "../session-info/processes";
 import { SummaryCard } from "./SummaryCard";
 import { ArtifactPanel } from "../conversation/ArtifactPanel";
 import { SummaryButton } from "./SummaryButton";
@@ -22,8 +22,8 @@ import { realWorkflowFixture } from "../realWorkflowFixture";
 
 type Props = Pick<
   ComponentProps<typeof SummaryCard>,
-  "rows" | "background" | "sessions" | "onAttach" | "workflow" | "workflowActions" | "onOpenInspector"
-> & { tabRowHeight?: number; preview?: boolean; popover?: boolean; inspectorPush?: boolean };
+  "rows" | "background" | "sessions" | "onAttach" | "workflow" | "workflowActions" | "onOpenSessionInfo"
+> & { tabRowHeight?: number; preview?: boolean; popover?: boolean; sessionInfoPush?: boolean };
 
 const none = () => undefined;
 /// The inline column, shown and open.
@@ -38,20 +38,20 @@ const card: SummaryCardControl = {
   fold: none,
 };
 
-function GallerySummaryCard({ tabRowHeight, preview, popover, inspectorPush, ...props }: Props) {
+function GallerySummaryCard({ tabRowHeight, preview, popover, sessionInfoPush, ...props }: Props) {
   return (
     <div
       className="acpmux-shell"
       data-tab-row={tabRowHeight ? "" : undefined}
-      data-inspector-chat-placement={inspectorPush ? "push" : undefined}
+      data-session-info-chat-placement={sessionInfoPush ? "push" : undefined}
       style={
         {
           height: "100%",
           "--acpmux-tab-row-height": `${tabRowHeight ?? 0}px`,
-          ...(inspectorPush
+          ...(sessionInfoPush
             ? {
-                "--acpmux-inspector-top": tabRowHeight ? `${tabRowHeight}px` : "28px",
-                // ChatInspector.tsx writes this as a measured shell px value. The fixture is 1000px
+                "--acpmux-session-info-top": tabRowHeight ? `${tabRowHeight}px` : "28px",
+                // SessionInfo.tsx writes this as a measured shell px value. The fixture is 1000px
                 // wide, with Preview's 46vw artifact resolving to 460px at that width.
                 "--acpmux-header-room": preview ? "540px" : "1000px",
               }
@@ -71,22 +71,22 @@ function GallerySummaryCard({ tabRowHeight, preview, popover, inspectorPush, ...
           </div>
         )}
       </div>
-      {inspectorPush && (
+      {sessionInfoPush && (
         <aside
-          className="ui-glass ui-glass-floats acpmux-chat-inspector"
+          className="ui-glass ui-glass-floats acpmux-session-info"
           data-placement="push"
           data-presence="shown"
           aria-label="Session Info"
           style={
             {
               width: "220px",
-              "--acpmux-inspector-top": tabRowHeight ? `${tabRowHeight}px` : "28px",
+              "--acpmux-session-info-top": tabRowHeight ? `${tabRowHeight}px` : "28px",
             } as CSSProperties
           }
         >
-          <div className="acpmux-chat-inspector__head">Session Info</div>
-          <div className="acpmux-chat-inspector__body">
-            <div className="acpmux-chat-inspector-section">Pushed Session Info</div>
+          <div className="acpmux-session-info__head">Session Info</div>
+          <div className="acpmux-session-info__body">
+            <div className="acpmux-session-info-section">Pushed Session Info</div>
           </div>
         </aside>
       )}
@@ -95,7 +95,7 @@ function GallerySummaryCard({ tabRowHeight, preview, popover, inspectorPush, ...
           artifact={{ kind: "markdown", lang: "markdown", code: "# Preview\nA document beside the chat." }}
           onClose={none}
         />
-      ) : inspectorPush ? null : (
+      ) : sessionInfoPush ? null : (
         <SummaryCard
           card={popover ? { ...card, column: false } : card}
           environment={{
@@ -130,8 +130,8 @@ const record = (id: string, command: string, startedMin: number, state = "runnin
     startedAt: minutesAgo(startedMin),
     state,
     ...(endedMin !== undefined ? { endedAt: minutesAgo(endedMin) } : {}),
-  }) satisfies InspectorProcess;
-const processes: InspectorProcess[] = [
+  }) satisfies SessionInfoProcess;
+const processes: SessionInfoProcess[] = [
   record("dev", "bun run dev --port 5173", 26),
   record("watch", "tsc --noEmit --watch", 25),
   record("logs", "tail -f logs/server.log", 3),
@@ -142,7 +142,7 @@ const processes: InspectorProcess[] = [
 
 /// A busy chat: eight commands running and three finished, more than the card used to show before
 /// "View all".
-const manyProcesses: InspectorProcess[] = [
+const manyProcesses: SessionInfoProcess[] = [
   ...processes.slice(0, 3),
   record("api", "bun run api --watch", 23),
   record("queue", "bun run worker:queue", 22),
@@ -233,7 +233,7 @@ const liveSubagentRows = [
 /// A record from before acpmux reported subagents: Claude's Task tool as a titled `think` call.
 const legacySubagentRows = [...rows, activity([tool("Audit the retry callers", "think", "in_progress")], 2)];
 
-const background = (list: InspectorProcess[]) => ({
+const background = (list: SessionInfoProcess[]) => ({
   processes: list,
   listed: true,
   running: [],
@@ -247,7 +247,7 @@ export default componentEntry<Props>({
   pane: true,
   height: 560,
   widths: { narrow: 300, normal: 360 },
-  covers: ["agent-session/acpmux/summary/SummaryTasks.tsx", "agent-session/acpmux/inspector/ChildSessionRows.tsx"],
+  covers: ["agent-session/acpmux/summary/SummaryTasks.tsx", "agent-session/acpmux/session-info/ChildSessionRows.tsx"],
   load: async () => GallerySummaryCard,
   variants: {
     "popover-environment": {
@@ -270,17 +270,17 @@ export default componentEntry<Props>({
       note: "The Preview sibling obeys the same native tab-row clearance, both beside the chat and covering a narrow pane.",
       props: { tabRowHeight: 32, preview: true, rows: [] },
     },
-    "preview-pushed-inspector-tab-row": {
+    "preview-pushed-session-info-tab-row": {
       note: "Preview and a pushed Session Info card share the pane; the native tools span both side-panel terms.",
-      props: { tabRowHeight: 32, preview: true, inspectorPush: true, rows: [] },
+      props: { tabRowHeight: 32, preview: true, sessionInfoPush: true, rows: [] },
     },
-    "inspector-pushed-tab-row": {
+    "session-info-pushed-tab-row": {
       note: "A pushed Session Info card keeps the native tools at the pane edge.",
-      props: { tabRowHeight: 32, inspectorPush: true, rows: [] },
+      props: { tabRowHeight: 32, sessionInfoPush: true, rows: [] },
     },
-    "inspector-pushed-no-tab-row": {
+    "session-info-pushed-no-tab-row": {
       note: "A pushed Session Info card keeps ordinary header tools in place when no native row is active.",
-      props: { tabRowHeight: 0, inspectorPush: true, rows: [] },
+      props: { tabRowHeight: 0, sessionInfoPush: true, rows: [] },
     },
     "shared-tab-row": {
       note: "The inline Summary column beside the chat, under a 32px native tab row. Two commands and a failed subagent keep long counts visible with a right ellipsis, outside the native header holes.",
@@ -353,7 +353,7 @@ export default componentEntry<Props>({
         rows,
         background: background(manyProcesses),
         sessions: { list: manySessions, onOpen: none },
-        onOpenInspector: none,
+        onOpenSessionInfo: none,
       },
     },
     "finished-open": {

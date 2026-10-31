@@ -41,8 +41,8 @@ const inline = (layout: string, note: string): AgentPaneVariant => ({
         ctx.document.querySelector(".cv-received__text") !== null &&
         !ctx.document.querySelector(".cv-received")?.getAnimations({ subtree: true }).length,
     );
-    if (ctx.document.querySelector("aside.acpmux-chat-inspector"))
-      await ctx.click({ selector: ".acpmux-chat-inspector-toggle" });
+    if (ctx.document.querySelector("aside.acpmux-session-info"))
+      await ctx.click({ selector: ".acpmux-session-info-toggle" });
     await ctx.click({ selector: ".acpmux-pr-comparison__disclosure" });
     await ctx.scroll({ selector: ".acpmux-scroll" }, "bottom");
     // The opened message's fold holds its line for a moment after it plays (foldAnchor.ts), which

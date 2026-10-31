@@ -8,7 +8,7 @@ import type { AcpmuxRow } from "../model";
 import { Close } from "../conversation/icons";
 import { pullRequestStateSince, useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { transcriptPullRequestKey, transcriptPullRequests, type SummaryPullRequest } from "./transcriptPullRequests";
-import { headerStatus, visibleChanges } from "../inspector/ChangesSection";
+import { headerStatus, visibleChanges } from "../session-info/ChangesSection";
 import { GitHubMark } from "../conversation/icons";
 import { LinkHoverCard } from "../chips/LinkHoverCard";
 import { useSiteInfo } from "../chips/linkStore";
@@ -63,7 +63,7 @@ function shown(
 
 /// Whether `pr` is merged or closed, so it keeps no bar. A merge the chat ran is final; a close it
 /// ran holds until the header reads the pull request again after it (a reopen), as the Changes card
-/// decides (inspector/ChangesSection.tsx rowState). An open one defers to the header's live read.
+/// decides (session-info/ChangesSection.tsx rowState). An open one defers to the header's live read.
 function ended(pr: SummaryPullRequest, live: HeaderPullRequest | undefined): boolean {
   if (pr.state === "merged") return true;
   const state = live?.url === pr.url ? live.state : undefined;

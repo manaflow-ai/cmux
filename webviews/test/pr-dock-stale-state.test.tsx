@@ -158,7 +158,7 @@ test("the compact count follows Changes for touched PRs and read-only reply ment
 
 test("the dock count equals Changes for created, pushed, merged and referenced PRs", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { headerStatus, visibleChanges } = await import("../src/agent-session/acpmux/inspector/ChangesSection");
+  const { headerStatus, visibleChanges } = await import("../src/agent-session/acpmux/session-info/ChangesSection");
   const { transcriptPullRequests } = await import("../src/agent-session/acpmux/summary/transcriptPullRequests");
   delete dom.window.document.documentElement.dataset.prDock;
   const rows = [

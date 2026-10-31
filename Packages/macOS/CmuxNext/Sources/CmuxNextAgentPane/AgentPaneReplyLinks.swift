@@ -71,7 +71,7 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     /// however often it is hovered (``AgentReplyPullRequests``).
     public var pullRequest: @MainActor (URL) -> AgentPanePullRequestAnswer = { _ in .init() }
     /// The same answer from the cache alone, never starting a read (`pr.inspect` with `cached`):
-    /// the Inspector's Changes asks it for many links, whose reads its batched registration starts.
+    /// Session Info's Changes asks it for many links, whose reads its batched registration starts.
     public var cachedPullRequest: @MainActor (URL) -> AgentPanePullRequestAnswer = { _ in .init() }
     /// The pull requests a reply links, so the host has them before a card opens.
     public var registerPullRequests: @MainActor ([URL]) -> Void = { _ in }

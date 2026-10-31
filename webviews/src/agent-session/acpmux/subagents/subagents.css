@@ -606,7 +606,7 @@ button.cv-subagent > :last-child {
   flex: none;
 }
 /* A line (AgentLine.tsx) is its button and, for a running subagent or a registry command, its
-   stop button (SubagentGroup.tsx, inspector/TasksSection.tsx). */
+   stop button (SubagentGroup.tsx, session-info/TasksSection.tsx). */
 .acpmux-agent-line {
   position: relative;
   display: flex;
@@ -618,7 +618,7 @@ button.cv-subagent > :last-child {
   min-width: 0;
 }
 /* Progress is a second line and may wrap for long counts or narrow panes. Keep the compact
-   28px row when it fits, but let both the tray and Inspector row grow instead of clipping it. */
+   28px row when it fits, but let both the tray and Session Info row grow instead of clipping it. */
 .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
   height: auto;
   min-height: 28px;
@@ -634,7 +634,7 @@ button.cv-subagent > :last-child {
   flex: none;
   margin: 0;
 }
-.acpmux-agent-line > .acpmux-agent-line__stop-slot > .acpmux-chat-inspector-stop {
+.acpmux-agent-line > .acpmux-agent-line__stop-slot > .acpmux-session-info-stop {
   margin: 0;
 }
 /* A narrow tray cannot fit the title, duration and controls on one line. Give every row the
@@ -699,7 +699,7 @@ button.cv-subagent > :last-child {
    no line hover. */
 .acpmux-running-tray .acpmux-summary-row,
 .acpmux-running-tray .acpmux-summary-link:is(:hover, :active),
-.acpmux-running-tray :is(.acpmux-chat-inspector-stop, .cv-subagent__stop):is(:hover, :active) {
+.acpmux-running-tray :is(.acpmux-session-info-stop, .cv-subagent__stop):is(:hover, :active) {
   border-radius: 0;
   background: none;
 }
@@ -707,7 +707,7 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray .acpmux-running-tray__head:hover {
   background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
 }
-.acpmux-running-tray :is(.acpmux-agent-line__button, .acpmux-running-tray__head, .acpmux-chat-inspector-stop):enabled {
+.acpmux-running-tray :is(.acpmux-agent-line__button, .acpmux-running-tray__head, .acpmux-session-info-stop):enabled {
   cursor: default;
 }
 /* What the line is ("Command", "Subagent"), dim before its name. */
@@ -734,7 +734,7 @@ button.cv-subagent > :last-child {
   display: inline-flex;
   color: var(--agent-tone-ink);
 }
-/* A line's hover card (the Inspector's Subagents): its name, then its state, time and what it does
+/* A line's hover card (Session Info's Subagents): its name, then its state, time and what it does
    now, then its task, dim; a failed one's state in the danger color. */
 .ui-card.acpmux-agent-card__popup {
   max-width: min(320px, calc(100vw - 24px));

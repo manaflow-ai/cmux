@@ -408,7 +408,7 @@ type Props = {
   authBlock?: string;
   /// Keeps auth refusal blocking sends when its text is represented by another notice.
   authBlocked?: boolean;
-  /// Opens the Inspector at its Context section: the context ring's card links to it (Details ›).
+  /// Opens Session Info at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
   /// Sends the agent its `/compact`: the ring's card offers Compact only with it (App.tsx `compactChat`).
   onCompact?(): void;

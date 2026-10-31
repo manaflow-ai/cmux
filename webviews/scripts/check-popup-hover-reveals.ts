@@ -48,9 +48,9 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "agent-session/acpmux/conversation/MessageGroupRow.css|.cv-msggroup__entry .cv-tool:hover .cv-tool__chevron",
     "disclosure chevron",
   ],
-  // The ⋯ keeps itself shown while its menu is open (.acpmux-chat-inspector-pr__more:is([data-popup-open], …)).
+  // The ⋯ keeps itself shown while its menu is open (.acpmux-session-info-pr__more:is([data-popup-open], …)).
   [
-    "agent-session/acpmux/inspector/inspector.css|.acpmux-chat-inspector-pr:is(:hover, :focus-within) .acpmux-chat-inspector-pr__more",
+    "agent-session/acpmux/session-info/sessionInfo.css|.acpmux-session-info-pr:is(:hover, :focus-within) .acpmux-session-info-pr__more",
     "own-menu rule",
   ],
   // The model star is a pressed toggle (QuickModelMenu.tsx); it opens no menu.
@@ -114,7 +114,7 @@ const NON_POPUP_REVEALS = new Map<string, string>([
   ["optchat-inspector/styles.css|.term:hover .tip", "inspector tooltip"],
   ["agent-session/acpmux/styles.css|.acpmux-omni-row:hover .acpmux-omni-action", "new-tab affordance"],
   [
-    "agent-session/acpmux/inspector/inspector.css|.acpmux-chat-inspector-section:hover > .acpmux-chat-inspector-section__handle",
+    "agent-session/acpmux/session-info/sessionInfo.css|.acpmux-session-info-section:hover > .acpmux-session-info-section__handle",
     "drag handle",
   ],
   [
