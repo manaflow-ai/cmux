@@ -68,6 +68,8 @@ public final class AgentPaneModel {
     /// Cloud VM behind Labs and answers the page's reply (the receipt, or a typed refusal). Nil: no
     /// sandboxes in this app.
     @ObservationIgnored public var onSandboxRun: (@MainActor (_ task: String, _ agent: String?, _ key: String) async -> [String: Any])?
+    /// A new chat's first send with Cloud picked (``AgentPaneCloudStart``); nil: no Cloud chats here.
+    @ObservationIgnored public var onCloudStartChat: (@MainActor (AgentPaneCloudStart) async -> [String: Any])?
     /// This pane's Sandboxed send, kept across a page reload (``AgentPaneSandboxRuns``).
     @ObservationIgnored public let sandboxRuns = AgentPaneSandboxRuns()
     /// Agent session avatars (the app's ``ChiefAvatarUploads``, keyed per session): the avatar as a
@@ -396,7 +398,9 @@ public final class AgentPaneModel {
             return await notePicked(pick, startFolders.use(cwd, confirm: confirm, transport: transport))
         case .browseProject where remoteChat: return Self.unsupported("project.browse")
         case .listProjects(let query) where remoteChat:
-            return AgentPaneReply.success(["projects": await onListRemoteProjects?(query) ?? []])
+            // `machine`: the folders are the chat's machine's, so its folder menu lists them and a
+            // pick there goes through `workspace.useFolder` (cmux#29213).
+            return AgentPaneReply.success(["projects": await onListRemoteProjects?(query) ?? [], "machine": true])
         case .browseProject:
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
@@ -435,25 +439,9 @@ public final class AgentPaneModel {
         case .watchChat(let key): if let onWatchChat { onWatchChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.watch") }
         case .chatsPage(let query): return await respondToChatsPage(query)
         case .environment(let request): return await request.reply(store: startFolders.environments, newTabPage: newTab != nil && sessionId == nil)
-        case .sandboxRun(let task, let agent, let key):
-            // A new chat only, and it spends Cloud time: the Send's own gesture, as a git write.
-            // Not once a chat starts or opens here (it would replace the run's result), and one at a time;
-            // while it runs no chat starts or opens here. The send line drains first, so a start or
-            // open the page handed over before this is counted.
-            guard sessionId == nil, let onSandboxRun else { return Self.unsupported("sandbox.run") }
-            let notNow = AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
-            guard await transport.lineDrained(within: .seconds(5)) else { return notNow }
-            if let refusal = sandboxRuns.refusal { return AgentPaneReply.failure(code: refusal, message: refusal) }
-            let replacements = transport.replacements
-            guard replacements.beginSandbox() else { return notNow }
-            guard transport.gestures.consume() else {
-                replacements.endSandbox()
-                return Self.transportFailure(.gestureRequired)
-            }
-            return await sandboxRuns.run(task: task, key: key) {
-                defer { replacements.endSandbox() }
-                return await onSandboxRun(task, agent, key)
-            }
+        // A new chat's send elsewhere spends Cloud time: the Send's own gesture (``AgentPaneHandOff``).
+        case .sandboxRun(let task, let agent, let key): return await AgentPaneHandOff(model: self).sandbox(task: task, agent: agent, key: key)
+        case .cloudStartChat(let start): return await AgentPaneHandOff(model: self).cloud(start)
         case .sandboxState(let wait):
             return await sandboxRuns.state(wait: wait)
         case .cloudMachine(let request): return await request.reply(cloudMachines, gestures: transport.gestures)
@@ -531,6 +519,7 @@ public final class AgentPaneModel {
         case .composerSetting(let path, let show): return await setComposer(path, show, userGesture: userGesture)
         case .displaySetting(let path, let value): return await setDisplay(path, value)
         case .featureTips(let tips): return featureTipState(tips)
+        case .remoteControl(let on): return await AgentPaneRemoteControl.reply(on: on, in: self, userGesture: userGesture)
         case .toolCard(let card, let action, let value): return AgentPaneToolCard.respond(card: card, action: action, value: value, in: self)
         case .computerUsePreview(let action): return AgentPaneComputerUsePreview.respond(action, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)
