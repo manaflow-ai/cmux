@@ -118,6 +118,9 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
+          # Only main dispatches save: a dispatch on another branch never restores
+          # its own save, so it would only push useful entries out of the cache store.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: cmux-tui -> target
           key: rust-1.91.0
 
@@ -521,6 +524,8 @@ jobs:
           key: cmux-tui-source-${{ hashFiles('cmux-tui/**/*.rs', 'cmux-tui/**/Cargo.toml', 'cmux-tui/Cargo.lock') }}
           cache-all-crates: true
           cache-workspace-crates: true
+          # Only main dispatches save: a dispatch on another branch never restores
+          # its own save, so it would only push useful entries out of the cache store.
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Report cargo cache hit rate
@@ -725,6 +730,9 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
+          # Only main dispatches save: a dispatch on another branch never restores
+          # its own save, so it would only push useful entries out of the cache store.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: cmux-tui -> target
 
       - name: Verify LLVM GNU linker
@@ -803,14 +811,15 @@ jobs:
       # Its own job key: test's shared key holds the whole workspace build, and the
       # first save under a key wins, so a small CDP-only save there would starve test.
       # cache-bin: false keeps an owned mini's own ~/.cargo/bin (rust-cache's save
-      # cleanup deletes what was there at restore), and an owned mini saves only on
-      # main: its branch saves never come back.
+      # cleanup deletes what was there at restore).
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
           workspaces: cmux-tui -> target
-          save-if: ${{ !contains(runner.name, '-glaeda') || github.ref == 'refs/heads/main' }}
+          # Only main dispatches save: a dispatch on another branch never restores
+          # its own save, so it would only push useful entries out of the cache store.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run configured Chrome CDP smoke
         working-directory: cmux-tui
