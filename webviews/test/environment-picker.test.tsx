@@ -519,6 +519,7 @@ test("each connect choice runs its own host action", async () => {
   expect(CONNECT_ACTIONS).toEqual({
     ssh: "remote.connect",
     cloud: "newCloudMachine",
+    cloudSignIn: "palette.auth.signIn",
     cloudPage: "palette.openCloudPane",
     addMachine: "device.add",
     move: "cloudMove",

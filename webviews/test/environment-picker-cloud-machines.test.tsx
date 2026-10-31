@@ -149,7 +149,10 @@ test("signed out keeps existing Cloud actions and adds a sign-in row", async () 
   expect(rows.map(label)).toContain(t("composer.newCloudMachine"));
   expect(rows.map(label)).toContain(t("composer.connectSSH"));
   await act(async () => rows.find((row) => label(row) === "Sign in for Cloud")!.click());
-  expect(calls).toEqual(["cloud"]);
+  // Sign-in only: New Cloud Machine (`cloud`) would sign in and then create a machine.
+  expect(calls).toEqual(["cloudSignIn"]);
+  const { CONNECT_ACTIONS } = await import("../src/agent-session/acpmux/environments");
+  expect(CONNECT_ACTIONS.cloudSignIn).toBe("palette.auth.signIn");
 });
 
 test("an absent Cloud account state still offers sign-in, while an explicit signed-in state does not", async () => {
@@ -175,10 +178,14 @@ test("an absent Cloud account state still offers sign-in, while an explicit sign
 test("the plain Computer picker offers Cloud sign-in before the account reply", async () => {
   const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
   setCloudMachinesForTestAccount(undefined);
-  await mount(false, { peers: [], cloudMachines: [], onConnect: () => undefined });
+  const calls: string[] = [];
+  await mount(false, { peers: [], cloudMachines: [], onConnect: (kind: string) => calls.push(kind) });
   await openPicker();
-  const labels = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].map(label);
+  const items = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")];
+  const labels = items.map(label);
   expect(labels).toContain("Sign in for Cloud");
+  await act(async () => items.find((row) => label(row) === "Sign in for Cloud")!.click());
+  expect(calls).toEqual(["cloudSignIn"]);
   expect(labels).toContain(t("composer.addComputer"));
   expect(labels).toContain(t("composer.newCloudMachine"));
 

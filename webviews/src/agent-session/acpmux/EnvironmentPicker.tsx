@@ -280,7 +280,7 @@ export function EnvironmentPicker({
                   value: ACTION + "cloudSignIn",
                   text: t("composer.cloudSignIn"),
                   kind: "cloud" as const,
-                  run: () => onConnect("cloud"),
+                  run: () => onConnect("cloudSignIn"),
                 },
               ]
             : []),
