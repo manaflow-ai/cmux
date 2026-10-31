@@ -3,14 +3,19 @@
 // A caller that keeps its own open state (an incoming message, whose state the row estimate reads,
 // incomingOpened.ts) passes `open` and `onOpenChange` in place of `disclosureKey`; `actions` sit after
 // the toggle, outside its button, for the controls a row adds at the line's end (a menu, a queue tag,
-// Reply).
+// Reply); `leading` sits before it, outside its button too, for a control of its own at the line's
+// start (an incoming message's sender, which opens its chat), with the icon then left to it.
+// A row that opens a chat (`onOpen`) is that chat's button: a click on the line opens it, and the
+// chevron after the status is its own button for the panel. No "Open chat" word beside it (Leo,
+// 2026-10-29: "Nobody asked for open chat. We can just click. Just have the thing be clickable, and
+// then you can open it.").
 import { useCallback, useId, type ReactNode } from "react";
 import type { AcpmuxActivity } from "../model";
 import { useFindReveal } from "../conversation/chatFind";
 import { ChevronRight } from "../conversation/icons";
 import { useTranscriptDisclosure } from "../conversation/transcriptDisclosure";
+import { useT } from "../i18n";
 import { useAnchoredCollapse } from "../conversation/useAnchoredCollapse";
-import { Icon } from "../icons/Icon";
 import "./DisclosureRow.css";
 
 export type DisclosureRowProps = {
@@ -19,13 +24,15 @@ export type DisclosureRowProps = {
   disclosureKey?: string;
   /// Indexed activities enclosed by this panel; Find opens each matching ancestor and child.
   findItems?: readonly AcpmuxActivity[];
-  icon: ReactNode;
+  icon?: ReactNode;
   label: ReactNode;
   meta?: ReactNode;
   status?: ReactNode;
+  /// The line's tooltip when it opens a chat ("Open chat").
   openLabel?: string;
-  /// The open button's tooltip, when it says more than `openLabel` (its accessible name).
+  /// The line's tooltip, when it says more than `openLabel`.
   openTitle?: string;
+  /// Opens the row's chat: the line's click does this, and the chevron alone opens the panel.
   onOpen?: () => void;
   children?: ReactNode;
   defaultOpen?: boolean;
@@ -36,10 +43,13 @@ export type DisclosureRowProps = {
   animates?: () => boolean;
   /// Whether opening fades the panel in (default: yes); false moves its height alone.
   fadeIn?: boolean;
-  /// The toggle's accessible name, when its visible label alone does not read well.
+  /// The toggle's accessible name, when its visible label alone does not read well (the chevron's,
+  /// "Details" when absent, when the line opens a chat).
   toggleLabel?: string;
   /// After the toggle, outside its button.
   actions?: ReactNode;
+  /// Before the toggle, outside its button.
+  leading?: ReactNode;
   /// The row's own class, next to `cv-disclosure`.
   className?: string;
 };
@@ -62,6 +72,7 @@ export function DisclosureRow({
   fadeIn,
   toggleLabel,
   actions,
+  leading,
   className,
 }: DisclosureRowProps) {
   const [stored, setStored] = useTranscriptDisclosure(disclosureKey, defaultOpen);
@@ -77,36 +88,53 @@ export function DisclosureRow({
   useFindReveal(findItems, () => setOpen(true));
   const collapse = useAnchoredCollapse({ open: held ? open : stored, onOpenChange: setOpen, animates, fadeIn });
   const bodyId = useId();
+  const t = useT();
+  const content = (
+    <>
+      {icon !== undefined && (
+        <span className="cv-disclosure__icon" aria-hidden="true">
+          {icon}
+        </span>
+      )}
+      <span className="cv-disclosure__label">{label}</span>
+      {meta && <span className="cv-disclosure__meta">{meta}</span>}
+      {status && <span className="cv-disclosure__status">{status}</span>}
+    </>
+  );
+  const chevron = <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />;
   return (
     <div className={className ? `cv-disclosure ${className}` : "cv-disclosure"} data-open={collapse.open || undefined}>
       {/* The line summarizes indexed content in the panel; it adds no Find occurrences. */}
-      <div className="cv-disclosure__line" data-find-skip>
-        <button
-          ref={collapse.headerRef}
-          type="button"
-          className="cv-disclosure__toggle"
-          aria-expanded={collapse.open}
-          aria-controls={collapse.present ? bodyId : undefined}
-          aria-label={toggleLabel}
-          onClick={collapse.toggle}
-        >
-          <span className="cv-disclosure__icon" aria-hidden="true">
-            {icon}
-          </span>
-          <span className="cv-disclosure__label">{label}</span>
-          {meta && <span className="cv-disclosure__meta">{meta}</span>}
-          {status && <span className="cv-disclosure__status">{status}</span>}
-          <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />
-        </button>
-        {onOpen && (
+      <div className="cv-disclosure__line" data-find-skip ref={onOpen ? collapse.headerRef : undefined}>
+        {leading}
+        {onOpen ? (
+          <>
+            <button type="button" className="cv-disclosure__open" title={openTitle ?? openLabel} onClick={onOpen}>
+              {content}
+            </button>
+            <button
+              type="button"
+              className="cv-disclosure__toggle is-chevron"
+              aria-expanded={collapse.open}
+              aria-controls={collapse.present ? bodyId : undefined}
+              aria-label={toggleLabel ?? t("message.details")}
+              onClick={collapse.toggle}
+            >
+              {chevron}
+            </button>
+          </>
+        ) : (
           <button
+            ref={collapse.headerRef}
             type="button"
-            className="cv-disclosure__open"
-            aria-label={openLabel}
-            title={openTitle ?? openLabel}
-            onClick={onOpen}
+            className="cv-disclosure__toggle"
+            aria-expanded={collapse.open}
+            aria-controls={collapse.present ? bodyId : undefined}
+            aria-label={toggleLabel}
+            onClick={collapse.toggle}
           >
-            <Icon name="agent.chat" size={14} />
+            {content}
+            {chevron}
           </button>
         )}
         {actions}

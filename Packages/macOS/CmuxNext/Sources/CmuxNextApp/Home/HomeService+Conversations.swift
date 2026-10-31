@@ -1,6 +1,7 @@
 import CmuxHomeCore
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextFloating
 import CmuxNextChiefPetWiring
 import CmuxNextHome
 import CmuxNextHomeEngine
@@ -34,7 +35,7 @@ extension HomeService {
     }
     func recipientLook(_ recipient: HomeRecipient) -> HomeRecipientLook {
         chiefRoster.look(recipient, rows: homeStore.rows, avatars: chiefFaces,
-                         fallback: HomeHostView.defaultTileAvatar(picture: services.characterPicture(of: nil)),
+                         fallback: HomeHostView.defaultTileAvatar(picture: services.wornUpload(of: nil)?.still),
                          harnesses: directory.chiefHarnesses)
     }
 
@@ -160,7 +161,7 @@ extension HomeService {
             rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
             me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] },
             chiefAvatars: { [weak self] in self?.chiefFaces ?? [:] },
-            defaultChiefAvatar: { [weak self] in HomeHostView.defaultTileAvatar(picture: self?.services.characterPicture(of: nil)) },
+            defaultChiefAvatar: { [weak self] in HomeHostView.defaultTileAvatar(picture: self?.services.wornUpload(of: nil)?.still) },
             chiefHarnesses: { [weak self] in self?.directory.chiefHarnesses ?? [:] },
             chiefRoster: { [weak self] in self?.chiefRoster ?? HomeChiefRoster() },
             chiefNames: { [weak self] in self?.chiefNames ?? [:] })
@@ -276,17 +277,37 @@ extension HomeService {
     }
 
     /// Each listed Chief's avatar as its Home row, header and bubbles draw it: its own picture or
-    /// text, else the picture of its own pet character (``ChiefMascotPicks``), so a character picked
-    /// for one Chief never shows on another.
+    /// text, else its own worn upload (`AppServices.wornUpload(of:)`), so one Chief's upload never
+    /// shows on another; a Chief with none is left out and draws its name's monogram.
     var chiefFaces: [String: HomeChiefAvatar] {
         var chiefs = Set(homeStore.rows.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
         #if DEBUG
         chiefs.formUnion(debugChiefs)
         #endif
-        return Self.chiefFaces(chiefs: chiefs, own: directory.chiefAvatars) { services.characterPicture(of: $0) }
+        return Self.chiefFaces(chiefs: chiefs, own: directory.chiefAvatars) { services.wornUpload(of: $0)?.still }
     }
 
-    /// `own` (each Chief's own avatar), with each other Chief in `chiefs` wearing the `picture` of its character.
+    /// Chief `chief` (a participant id) as an agent chat draws a message it sent there
+    /// (`chief.face`, manaflow-ai/cmux#27914): the name and avatar Home and the sidebar show for it.
+    func agentPageFace(of chief: String, avatars: AgentAvatars) async -> [String: String] {
+        // The one name its tile, header and tab show (a rename being saved included): its own
+        // conversation's; else what a conversation or its record calls it.
+        let own = homeStore.rows.first { Self.soleChief(of: $0.summary.participants) == chief }
+        let name = own.flatMap { chiefName(of: $0.summary.id) }
+            ?? homeStore.rows.lazy.flatMap(\.summary.participants).first { $0.id.rawValue == chief }?.displayName
+            ?? directory.chiefs.first { $0.id == chief }?.name
+        // The sidebar draws the default Chief (`agent_mux`) with no id.
+        var picture = services.wornUpload(of: chief == DaemonHomeSource.chief.id ? nil : chief)?.still, text: String?
+        switch chiefFaces[chief] {
+        case .picture(let url): picture = url
+        case .text(let own): text = own
+        case nil: break
+        }
+        if picture == nil, text == nil { text = HomeChiefAvatar.monogram(of: name ?? "") }  // as Home's header (CH)
+        return await avatars.chiefFace(name: name, picture: picture, text: text)
+    }
+
+    /// `own` (each Chief's own avatar), with each other Chief in `chiefs` wearing its `picture` (its upload) when it has one.
     static func chiefFaces(chiefs: Set<String>, own: [String: HomeChiefAvatar], picture: (String) -> URL?) -> [String: HomeChiefAvatar] {
         var faces = own
         for chief in chiefs where faces[chief] == nil {

@@ -65,6 +65,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_START_CAPABILITY);
         capabilities.push(AGENT_SESSION_TRUST_CAPABILITY);
         capabilities.push(AGENT_SESSION_TRUST_VM_KIND_CAPABILITY);
+        capabilities.push(AGENT_SESSION_FOLDERS_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_KEYED_REASON_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_VM_KIND_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_MODEL_CAPABILITY);
@@ -263,6 +264,7 @@ pub(super) fn advertised_capabilities(
         NOTIFICATION_MARK_UNREAD_CAPABILITY,
         TAB_MARK_UNREAD_CAPABILITY,
         TAB_ATTENTION_CAPABILITY,
+        TAB_ATTENTION_REQUEST_ID_CAPABILITY,
         WORKSPACE_DESCRIPTION_CAPABILITY,
         WORKSPACE_STATUS_CAPABILITY,
         WORKSPACE_CREATE_FOCUS_CAPABILITY,
@@ -357,6 +359,7 @@ pub(super) fn advertised_capabilities(
         crate::browser_profile_ops::CAPABILITY,
         crate::state::layout_bulk::CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
+        crate::state::conversation_tabs_store::CLOSED_CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::PAGE_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::PAGE_TAB_ROUTE_CAPABILITY,

@@ -51,11 +51,13 @@ extension SettingsSchema {
         // Whether a chat shows the live view of the app its agent uses: looks only.
         "computerUse.livePreview",
         "shortcuts.showModifierHoldHints",
+        // Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).
+        "contextMenus.showCustomizeItem",
         "window.titlebarButtons",
         "tabs.plusButton",
         "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons", "browser.toolbarPosition",
         "navigation.historyScope", "navigation.history.scope",
-        "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors",
+        "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.textSize", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors",
         "sidebar.showLocalMachine",
         "sidebar.controlsOnHover", // sidebar control visibility (looks only)
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",
@@ -63,10 +65,11 @@ extension SettingsSchema {
         "sidebar.side", "sidebar.style",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
         "tabs.newTabTemplate",
+        "tabs.nativeNewTabPage", // which New Tab page draws; a look switch, ends no work
         "tabs.newTabPosition",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
-        "tabs.terminalFirst",
+        "tabs.nativeNewTabPage", // which New Tab page opens; ends no work
         "app.hideDockIconWithoutWindows", // Dock icon and Cmd-Tab entry with no window open; ends no work
         "app.showMenuBarIcon", // the menu bar item; looks only, ends no work
         "tabs.overflow",
@@ -92,6 +95,8 @@ extension SettingsSchema {
         "layout.scrollAreas",
         "layout.scrollModifier",
         "layout.pagesHandleCommandScroll",
+        // The cmux model router's default model is the same choice exposed by its Settings and MCP pickers.
+        "agents.modelRouter.model",
         "layout.minimumPaneWidth",
         "layout.minimumPaneHeight",
         "appearance.theme",
@@ -181,19 +186,21 @@ extension SettingsSchema {
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
-        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.noFade", "sidebar.showChats", "sidebar.sessionTree",
+        "sidebar.pinnedBandsScroll", "sidebar.noFade", "sidebar.showChats", "sidebar.sessionTree",
         "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.maxRows",
         "sidebar.hoverCards.sections.timings", "sidebar.hoverCards.sections.prompts", "sidebar.hoverCards.sections.waiting",
         "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.hoverCards.groups.workspaceGroups", "sidebar.hoverCards.groups.tabGroups",
         "sidebar.hoverCards.groups.delay", "sidebar.hoverCards.groups.order", "sidebar.hoverCards.groups.maxMembers",
         "sidebar.hoverCards.groups.sections.status", "sidebar.hoverCards.groups.sections.members",
         "sidebar.hoverCards.groups.sections.activity", "sidebar.hoverCards.groups.sections.git",
-        "sidebar.hoverCards.groups.sections.ports", "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "media.pictureInPicture.enabled", "tabs.newTabWidgets.greeting", "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats", "tabs.newTabWidgets.styleDots", "tabs.newTabWidgets.order", "tabs.newTabWidgets.machines", "tabs.newTabWidgets.clock", "tabs.newTabWidgets.timer", "tabs.newTabWidgets.warmGreeting", "tabs.newTabWidgets.quote", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.groupBy",
+        "sidebar.hoverCards.groups.sections.ports", "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "media.pictureInPicture.enabled", "tabs.newTabWidgets.greeting", "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats", "tabs.newTabWidgets.styleDots", "tabs.newTabWidgets.order", "tabs.newTabWidgets.machines", "tabs.newTabWidgets.clock", "tabs.newTabWidgets.timer", "tabs.newTabWidgets.warmGreeting", "tabs.newTabWidgets.quote", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.showNewWorkspaceChooser", "sidebar.groupBy",
         "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
         "browser.defaultEngine",
         "browser.siteEngines",
         "browser.newTabPage",
         "browser.showBookmarksBar",
+        // Whether browser tabs offer to import cookies: the card reads nothing until the person clicks Import.
+        "browser.import.cookieBanner",
         "browser.toolbarButtons",
         "browser.hibernation",
         "browser.hibernationExclusions",
@@ -240,6 +247,8 @@ extension SettingsSchema {
         "agentPane.needsYou.enabled",
         "updates.notify",
         "updates.showWhatsNew",
+        // Feature tips: a display the person can turn on again.
+        "updates.showFeatureTips",
         "announcements.enabled",
     ]
 

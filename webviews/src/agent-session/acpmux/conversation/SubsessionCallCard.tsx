@@ -3,7 +3,8 @@
 // cut to three lines; a wait or a list as each one's card, a finished one's reply under it; a
 // message as "Sent message to tests" and its first line (SentMessageLine.tsx, the row a shell
 // `acpmux send` draws too), which opens to all of it. Each card reads its state live from
-// the session list (subagents/subsessions.ts). The call's JSON stays behind "Raw".
+// the session list (subagents/subsessions.ts). The call's JSON stays behind "Raw"; the prompt or
+// reply a card shows copies from its top-right corner (CardCopy.tsx).
 import type { ReactNode } from "react";
 import { useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { type Translate, useT } from "../i18n";
@@ -25,6 +26,7 @@ import { Spinner } from "./icons";
 import { Markdown } from "./Markdown";
 import { McpCallDetails } from "./McpCallRows";
 import { mcpCall, mcpRawName } from "./mcpCalls";
+import { CardCopy } from "./CardCopy";
 import { RawToggle, SentMessageLine } from "./SentMessageLine";
 import type { SubsessionCall, SubsessionDelivery, SubsessionReply } from "./subsessionCalls";
 import "./SubsessionCallCard.css";
@@ -247,6 +249,7 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
       disclosureKey={`subsession-start:${tool.id}`}
       started
     >
+      {call.prompt && <CardCopy text={call.prompt} />}
       {call.prompt && (
         <div className="cv-subsession__markdown selectable" data-find-primary={promptFindId}>
           <Markdown commits="quiet">{call.prompt}</Markdown>
@@ -403,6 +406,7 @@ function SessionCards({ call, tool }: { call: Extract<SubsessionCall, { tool: "w
           disclosure
           disclosureKey={`subsession-result:${tool.id}:${session.sessionId}`}
         >
+          {session.reply && session.state !== "working" && <CardCopy text={session.reply} />}
           {session.reply && session.state !== "working" && <Cut text={session.reply} />}
         </SessionCard>
       ))}

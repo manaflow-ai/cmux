@@ -476,6 +476,7 @@ struct FailureCard: View {
     let message: String
     /// The agent's own message, when the sentence says it in plain words (the Mac's Details).
     var detail: String?
+    var canRetry = true
     /// Retry with another model, beside Retry (the Mac's failed turn shows it there).
     var retryWith: RetryModelChoice?
     let retry: () -> Void
@@ -498,6 +499,7 @@ struct FailureCard: View {
             }
             HStack(spacing: 8) {
                 Button("Retry", action: retry).buttonStyle(CmuxMobileCapsuleButtonStyle(.primary, size: .large))
+                    .disabled(!canRetry)
                 if let retryWith {
                     retryWith.menu
                         .labelStyle(.iconOnly)

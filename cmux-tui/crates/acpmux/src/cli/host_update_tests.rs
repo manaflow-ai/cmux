@@ -558,19 +558,83 @@ fn a_pushed_binary_that_does_not_run_is_never_installed() {
     peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
 }
 
+/// A cmux Cloud VM's daemon as cmux runs it: no `acpmux.service` of acpmux's
+/// own, or one the `~/.acpmux` daemon does not run under, or a unit someone
+/// else wrote. `cmux link machine update --to-bundled` owns that daemon.
+#[cfg(unix)]
+const CLOUD_SHAPES: [&str; 3] = ["no unit", "daemon outside the unit", "unit someone else wrote"];
+
+#[cfg(unix)]
+fn cloud_vm(tag: &str, shape: &str) -> FakePeer {
+    let peer = FakePeer::new(tag);
+    peer.write("etc/cmux/vm-kind", "team\n");
+    let unit = format!("{UNITS}/acpmux.service");
+    match shape {
+        "no unit" => {
+            std::fs::remove_file(peer.home.join(&unit)).unwrap();
+            std::fs::remove_file(peer.home.join("active-acpmux.service")).unwrap();
+            peer.under("run-cmux-tui-0123.scope");
+        }
+        "daemon outside the unit" => peer.under("session-26.scope"),
+        "unit someone else wrote" => peer.write(&unit, &format!("{SYSTEMD_UNIT}# theirs\n")),
+        other => panic!("no shape {other}"),
+    }
+    peer
+}
+
 #[test]
 #[cfg(unix)]
 fn a_cloud_vm_is_left_to_cmux_link_machine_update() {
-    let peer = FakePeer::new("cloud-vm");
-    peer.write("etc/cmux/vm-kind", "cloud\n");
-    peer.offer(NEW, Some(NEW));
-    for if_idle in [false, true] {
-        let up = peer.update(if_idle);
-        assert_eq!(up.outcome, Outcome::Failed, "{up:?}");
-        assert_eq!(up.reason.as_deref(), Some("cloudMachine"));
-        assert!(up.error.as_deref().unwrap_or_default().contains("--to-bundled"), "{up:?}");
-        peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+    for shape in CLOUD_SHAPES {
+        let peer = cloud_vm(&format!("cloud-vm-{}", shape.replace(' ', "-")), shape);
+        peer.offer(NEW, Some(NEW));
+        for if_idle in [false, true] {
+            let up = peer.update(if_idle);
+            assert_eq!(up.outcome, Outcome::Failed, "{shape}: {up:?}");
+            assert_eq!(up.reason.as_deref(), Some("cloudMachine"), "{shape}");
+            assert!(up.error.as_deref().unwrap_or_default().contains("--to-bundled"), "{up:?}");
+            peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+        }
     }
+}
+
+/// A cmux Cloud VM the fleet set up as a lane host (2026-10-30)
+/// runs acpmux's own `acpmux.service` from `~/.local/bin/acpmux`, beside
+/// cmux Cloud's `~/.cmux/bin/acpmux`, which is the only one `cmux link
+/// machine update` replaces. Nobody else updates that daemon, so `host
+/// update` (and the self-update timer) does.
+#[test]
+#[cfg(unix)]
+fn a_cloud_vm_whose_daemon_is_acpmux_service_is_updated() {
+    let peer = FakePeer::new("cloud-vm-own-unit");
+    peer.write("etc/cmux/vm-kind", "team\n");
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(false);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(NEW, Some(NEW)));
+    assert_eq!(peer.daemon(), NEW);
+    assert!(peer.take_calls().contains(&"systemctl --user restart acpmux.service".to_owned()));
+}
+
+/// The check both probes share: only acpmux's own unit with the daemon
+/// under it lifts the Cloud VM mark, and a host without the mark is never one.
+#[test]
+#[cfg(unix)]
+fn the_cloud_check_lifts_the_mark_only_for_acpmux_service() {
+    let said = |peer: &FakePeer| {
+        let script = format!("{}echo \"cloud=$acpmux_cloud\"", cloud_vm_check());
+        let out = peer.exec(&script, None).unwrap();
+        assert!(out.ok, "{}", out.stderr);
+        out.stdout.lines().last().unwrap_or_default().to_owned()
+    };
+    for shape in CLOUD_SHAPES {
+        let peer = cloud_vm(&format!("cloud-check-{}", shape.replace(' ', "-")), shape);
+        assert_eq!(said(&peer), "cloud=1", "{shape}");
+    }
+    let own = FakePeer::new("cloud-check-own");
+    assert_eq!(said(&own), "cloud=", "no mark");
+    own.write("etc/cmux/vm-kind", "team\n");
+    assert_eq!(said(&own), "cloud=", "acpmux.service runs the daemon");
 }
 
 #[test]

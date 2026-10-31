@@ -1,6 +1,7 @@
 // A sub-session as the transcript's cards draw it (conversation/SubsessionCallCard.tsx): its
-// harness's mark, name, model, state (the working spinner, never a dot), and what its turn does now.
-// When a session can open, its header row is the chat target. The caller reads its state live
+// harness's mark, name, model, state (the working spinner, never a dot) and what its turn does now;
+// with `onOpen` its line is the chat's button, no "Open chat" word beside it (Leo, 2026-10-29: "Just
+// have the thing be clickable, and then you can open it."). The caller reads its state live
 // (subsessions.ts) and adds a prompt or a reply below.
 import type { ReactNode } from "react";
 import { useAgentAvatar } from "../agentAvatar";
@@ -19,7 +20,7 @@ export type AgentCardProps = {
   harness?: string;
   /// Its acpmux session, whose own avatar (Set Avatar…, agentAvatar.ts) replaces the mark.
   sessionId?: string;
-  /// Stable list identity used when the harness has no icon.
+  /// Stable list identity, for the icon's tone when the harness has no mark.
   identity?: string;
   model?: string;
   /// Undefined while the session list does not have it (a gallery, an archived chat).
@@ -35,7 +36,7 @@ export type AgentCardProps = {
   /// Its state's word when the state's own is not it (a run that was stopped).
   stateLabel?: string;
   onOpen?: () => void;
-  /// The open button's word: "Open chat" when absent.
+  /// The line's tooltip when it opens the chat: "Open {name}" when absent.
   openLabel?: string;
   /// Draw this card as a one-line transcript disclosure with its children in a panel.
   disclosure?: boolean;
@@ -67,6 +68,8 @@ export function AgentCard({
   children,
 }: AgentCardProps) {
   const t = useT();
+  // A profile names its family first (`claude-sr2`): AgentIdentity draws its family's mark when it
+  // has none, else the session icon in the card's own stable tone.
   const tone = agentTone(identity ?? sessionId ?? name);
   const avatar = useAgentAvatar(sessionId);
   const stateText = state
@@ -105,7 +108,7 @@ export function AgentCard({
             </>
           )
         }
-        openLabel={openLabel ?? t("subsession.openChat")}
+        openLabel={openLabel ?? t("subagents.open", { name })}
         onOpen={onOpen}
       >
         {children}
@@ -141,10 +144,9 @@ export function AgentCard({
   return (
     <div className="cv-agent-card" data-state={state}>
       {onOpen ? (
-        // Its name and state name the button; what a click does (Open chat, Show output) is its title.
         <button
           type="button"
-          className="cv-agent-card__head"
+          className="cv-agent-card__head is-open-chat"
           title={openLabel ?? t("subagents.open", { name })}
           onClick={onOpen}
         >

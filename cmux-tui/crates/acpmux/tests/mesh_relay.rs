@@ -352,6 +352,39 @@ async fn a_message_for_a_session_here_runs_once_and_is_acked_with_its_prompt_id(
     relay.stop().await;
 }
 
+/// A relayed message names the session that sent it (`fromSessionId` on its provenance), as its
+/// daemon proved it (`mesh_send.rs`), so the queue row opens that chat; the hub's sender record
+/// carries no harness, so it names none.
+#[tokio::test]
+async fn a_relayed_message_names_its_sending_session_for_display() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("dep-land").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    let mut sent = message("msg-from", "dep-land", Kind::Prompt);
+    sent.from.session_id = Some("s-remote-1".into());
+    fake.lease(sent);
+    fake.until("the ack", |s| !s.acked("msg-from").is_empty()).await;
+    let mut found = Value::Null;
+    for _ in 0..600 {
+        let page = local
+            .call("_acpmux/events", json!({"sessionId": session, "kinds": ["user_message"]}))
+            .await;
+        let events = page.pointer("/result/events").and_then(Value::as_array).cloned();
+        if let Some(e) = events.into_iter().flatten().find(|e| e["msg"]["promptId"] == "msg-from") {
+            found = e["msg"].clone();
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let p = &found["_meta"]["provenance"];
+    assert_eq!(p["fromName"], "gcp-lane/lane-a", "{found}");
+    assert_eq!(p["fromSessionId"], "s-remote-1", "{found}");
+    assert!(p.get("fromHarness").is_none(), "{found}");
+    relay.stop().await;
+}
+
 #[tokio::test]
 async fn a_relayed_message_reads_no_peer_here_and_is_never_forwarded_to_one() {
     let hub = hub();
@@ -959,6 +992,14 @@ async fn a_send_to_a_name_no_peer_has_goes_through_the_hub_and_is_delivered_with
     let said = keyed.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
     assert!(said.contains("--supersede") && !said.contains("no session"), "{keyed}");
     assert_eq!(fake.with(|s| s.sent.len()), posted, "a keyed send reached the hub");
+    // Nor a class but result, the default the target reads: refused, not sent as a result.
+    let mut block = send_queue("dep-land", "prompt-0005");
+    block["request"]["_meta"]["acpmux"]["class"] = json!("block");
+    let block = sender.call("_acpmux/send_queue", block).await;
+    assert_eq!(block.pointer("/error/data/reason"), Some(&json!("mesh.no_class")), "{block}");
+    let said = block.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
+    assert!(said.contains("--class") && !said.contains("no session"), "{block}");
+    assert_eq!(fake.with(|s| s.sent.len()), posted, "a classified send reached the hub");
     relay.stop().await;
 }
 

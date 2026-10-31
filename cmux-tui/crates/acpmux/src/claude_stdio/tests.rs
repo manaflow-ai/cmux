@@ -27,6 +27,89 @@ async fn prompt_becomes_user_line_and_result_answers_it() {
     }
 }
 
+/// Claude Code's stream-json bridge accepts a client `side_question` control
+/// request while its main turn is running. It answers with the callback's
+/// payload, without an ACP prompt or transcript event.
+#[tokio::test]
+async fn native_side_question_uses_claude_control_protocol() {
+    let t = Translator::new("acp-1".into(), "default", "sonnet", "default");
+    t.in_turn.store(true, Ordering::SeqCst);
+    let req = Message::request(
+        19,
+        SIDE_QUESTION,
+        json!({
+            "question": "what does this function do?",
+            "history": [{"question": "earlier", "response": "already answered"}]
+        }),
+    );
+    let Outbound::Lines(lines) = t.outbound(&req).await else { panic!() };
+    assert_eq!(
+        lines,
+        vec![json!({
+            "type": "control_request",
+            "request_id": "side-19",
+            "request": {
+                "subtype": "side_question",
+                "question": "what does this function do?",
+                "history": [{"question": "earlier", "response": "already answered"}]
+            }
+        })]
+    );
+
+    let msgs = t
+        .inbound(&json!({
+            "type": "control_response",
+            "response": {
+                "subtype": "success",
+                "request_id": "side-19",
+                "response": {"response": "It reads the file.", "synthetic": false}
+            }
+        }))
+        .await;
+    assert!(matches!(
+        &msgs[..],
+        [Message::Response { id, result: Some(result), error: None }]
+            if *id == 19 && result["response"] == "It reads the file." && result["synthetic"] == false
+    ));
+}
+
+#[tokio::test]
+async fn native_side_question_rejects_missing_answer_callback() {
+    let t = Translator::new("acp-1".into(), "default", "sonnet", "default");
+    t.in_turn.store(true, Ordering::SeqCst);
+    let req = Message::request(20, SIDE_QUESTION, json!({"question": "probe"}));
+    let Outbound::Lines(_) = t.outbound(&req).await else { panic!() };
+    let msgs = t
+        .inbound(&json!({
+            "type": "control_response",
+            "response": {
+                "subtype": "error",
+                "request_id": "side-20",
+                "error": "side_question is not supported in this context"
+            }
+        }))
+        .await;
+    assert!(matches!(
+        &msgs[..],
+        [Message::Response { id, result: None, error: Some(error) }]
+            if *id == 20 && error.message.contains("side_question is not supported")
+    ));
+}
+
+#[tokio::test]
+async fn native_side_question_rejects_an_idle_chat_before_writing_control_request() {
+    let t = Translator::new("acp-1".into(), "default", "sonnet", "default");
+    let req = Message::request(21, SIDE_QUESTION, json!({"question": "probe"}));
+    let Outbound::Reply(Message::Response { id, result: None, error: Some(error) }) =
+        t.outbound(&req).await
+    else {
+        panic!("idle side question must be refused before writing to Claude")
+    };
+    assert_eq!(id, Value::from(21));
+    assert_eq!(error.code, -32601);
+    assert!(error.message.contains(SIDE_QUESTION));
+}
+
 /// A steer Claude Code reads after the reply it is writing (cx-f51kv): the
 /// reply's text and the steer's answer are two API messages, and each chunk
 /// names its message, so the pane ends the reply where its message ends.
@@ -488,4 +571,40 @@ async fn modes_are_claude_codes_own_labels_descriptions_and_order() {
     let values: Vec<&str> =
         mode["options"].as_array().unwrap().iter().filter_map(|o| o["value"].as_str()).collect();
     assert_eq!(values, ["auto", "default", "acceptEdits", "plan", "bypassPermissions"]);
+}
+
+/// A chat started with a versioned family name (`opus-5-5`, as a picker or
+/// an agent's `--model` may pass it) failed every turn: Claude Code sent it to
+/// the API unchanged ("There's an issue with the selected model (opus-5-5)").
+/// The translator hands Claude Code the full id at spawn and on every switch.
+#[tokio::test]
+async fn versioned_family_names_reach_claude_code_as_full_ids() {
+    assert_eq!(model_id("opus-5-5"), "claude-opus-5-5");
+    assert_eq!(model_id("sonnet-5-5[1m]"), "claude-sonnet-5-5[1m]");
+    for unchanged in ["opus", "opusplan", "opus[1m]", "claude-opus-5-5", "default", "gpt-6.1-sol"] {
+        assert_eq!(model_id(unchanged), unchanged);
+    }
+
+    let profile: crate::config::HarnessProfile =
+        serde_json::from_value(json!({"kind": "claude-stdio", "argv": ["claude"]})).unwrap();
+    let plan = spawn_plan(&profile, None, false, None, None, "default", Some("opus-5-5"));
+    let at = plan.args.iter().position(|a| a == "--model").expect("--model");
+    assert_eq!(plan.args[at + 1], "claude-opus-5-5");
+
+    let t = Translator::new("acp-1".into(), "default", "opus-5-5", "default");
+    assert_eq!(*t.model.lock().await, "claude-opus-5-5");
+    let req = Message::request(
+        3,
+        method::SESSION_SET_MODEL,
+        json!({"sessionId": "acp-1", "modelId": "haiku-5-5"}),
+    );
+    let Outbound::Lines(lines) = t.outbound(&req).await else { panic!() };
+    assert_eq!(lines[0]["request"]["model"], "claude-haiku-5-5");
+    let req = Message::request(
+        4,
+        method::SESSION_SET_CONFIG_OPTION,
+        json!({"sessionId": "acp-1", "configId": "model", "value": "sonnet-5-5"}),
+    );
+    let Outbound::Lines(lines) = t.outbound(&req).await else { panic!() };
+    assert_eq!(lines[0]["request"]["model"], "claude-sonnet-5-5");
 }

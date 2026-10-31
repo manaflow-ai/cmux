@@ -21,17 +21,6 @@
   min-width: 0;
   height: 24px;
 }
-button.cv-agent-card__head {
-  appearance: none;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: start;
-  cursor: pointer;
-}
 /* An agent session's own avatar (agentAvatar.ts), in place of its harness mark: also the sender chip's. */
 .cv-agent-avatar {
   display: block;
@@ -69,6 +58,25 @@ button.cv-agent-card__head {
 .cv-agent-card__state[data-state="failed"] {
   color: var(--agent-status-failure);
 }
+/* A card that opens its chat: its line is the button (AgentCard.tsx). */
+.cv-agent-card__head.is-open-chat {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  height: 24px;
+  margin-inline: -4px;
+  padding-inline: 4px;
+  border-radius: 6px;
+  cursor: default;
+}
+.cv-agent-card__head.is-open-chat:hover,
+.cv-agent-card__head.is-open-chat:focus-visible {
+  background: color-mix(in srgb, var(--cv-text) 6%, transparent);
+}
 .cv-agent-card__doing {
   margin-inline-start: 24px;
   color: var(--cv-text-muted);
@@ -91,4 +99,16 @@ button.cv-agent-card__head {
   color: var(--cv-text-muted);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+/* A Chief's text avatar (chiefFace.ts): its letters or emoji where its picture would be. */
+.cv-chief-text-avatar {
+  display: inline-flex;
+  width: 16px;
+  aspect-ratio: 1;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--cv-card-fill);
+  font-size: var(--text-detail);
+  line-height: 1;
 }

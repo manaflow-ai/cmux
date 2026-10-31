@@ -60,8 +60,10 @@ test("with no harness to show, each line keeps its icon in its own stable tone",
   const tones = icons(html).map((icon) => icon.tone);
   expect(tones).toEqual(ids.map((id) => String(agentTone(id))));
   expect(new Set(tones).size).toBeGreaterThan(1);
-  const rerendered = renderToStaticMarkup(<SubagentsSection agents={ids.map((id) => agent(id))} waiting={new Set()} />);
-  expect(icons(rerendered)).toEqual(icons(html));
+  // A second render draws the same icon in the same tone for each line. Only the icons are compared:
+  // the lines' elapsed time can tick between the two renders.
+  const again = renderToStaticMarkup(<SubagentsSection agents={ids.map((id) => agent(id))} waiting={new Set()} />);
+  expect(icons(again)).toEqual(icons(html));
 });
 
 test("a chat the agent started draws its own harness's mark, else its icon in its own tone", () => {

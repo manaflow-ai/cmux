@@ -114,7 +114,9 @@ class NightlyTrustedRouting(unittest.TestCase):
                          and 'CMUX_CI_RUNNER_VARIABLES' not in path.read_text())
         self.assertEqual(readers, ['nightly.yml'])
         uses = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('runs-on', '')))
-        self.assertEqual(uses, [])
+        # Nightlies never use Blacksmith (Lawrence, 2026-10-30): these jobs' last fallback is the owned nightly
+        # slot (then the owned side lane), never a Blacksmith label.
+        self.assertEqual(uses, ['generate-nightly-deltas', 'sign-nightly-identity-legacy', 'verify-nightly-identity-legacy'])
         steps = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('steps', '')))
         # The verify jobs' owned pick (pick-nightly-sign-runner) offers the same labels as the build's.
         self.assertEqual(steps, ['pick-nightly-build-runner', 'pick-nightly-sign-runner'])
@@ -132,7 +134,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                  'vars.CI_SEED_TRUSTED_POOL': 'glaeda-trusted-std-xcode-26.6',
                  # nightly-next reads pick-nightly-build-runner's owned and Blacksmith picks
                  # (tests/test_nightly_build_runner.py covers every combination).
-                 'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-26.6',
+                 'needs.pick-nightly-build-runner.outputs.helper': 'glaeda-side-std-xcode-26.6',
                  'needs.pick-nightly-build-runner.outputs.attempt': '1',
                  'needs.pick-nightly-build-runner.outputs.dedicated': '',
                  'needs.pick-nightly-build-runner.outputs.blacksmith': 'blacksmith-6vcpu-macos-26', **changes})
@@ -144,17 +146,21 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertEqual(helper(**{'github.run_attempt': 2, 'needs.pick-nightly-build-runner.outputs.attempt': '2'}),
                          'glaeda-side-std-xcode-26.6')
         # The dedicated builder admits only build-nightly-app: the helper never takes it.
-        self.assertEqual(helper(**{'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-trusted-next-nightly',
+        self.assertEqual(helper(**{'needs.pick-nightly-build-runner.outputs.helper': 'glaeda-trusted-next-nightly',
                                    'needs.pick-nightly-build-runner.outputs.dedicated': 'glaeda-trusted-next-nightly'}),
                          'blacksmith-6vcpu-macos-26')
+        # While the app build holds the dedicated builder, the helper takes its own idle owned pick.
+        self.assertEqual(helper(**{'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-trusted-next-nightly',
+                                   'needs.pick-nightly-build-runner.outputs.dedicated': 'glaeda-trusted-next-nightly'}),
+                         'glaeda-side-std-xcode-26.6')
         self.assertEqual(helper(**{'github.ref': 'refs/heads/main'}), 'glaeda-trusted-std-xcode-26.6')
         self.assertEqual(helper(**{'github.ref': 'refs/heads/main', 'github.event_name': 'schedule'}),
                          'glaeda-trusted-std-xcode-26.6')
         # No owned pick (busy fleet, no routing token): Blacksmith.
         for changes in ({'github.run_attempt': 2},
-                        {'github.event_name': 'workflow_dispatch', 'needs.pick-nightly-build-runner.outputs.owned': ''},
+                        {'github.event_name': 'workflow_dispatch', 'needs.pick-nightly-build-runner.outputs.helper': ''},
                         {'github.ref': 'refs/heads/main', 'vars.CI_PR_POOL_OWNED': '0'},
-                        {'needs.pick-nightly-build-runner.outputs.owned': ''},
+                        {'needs.pick-nightly-build-runner.outputs.helper': ''},
                         {'github.ref': 'refs/heads/main', 'vars.CI_SEED_TRUSTED_POOL': ''},
                         {'github.ref': 'refs/heads/other'}):
             with self.subTest(changes=changes):
@@ -201,15 +207,15 @@ class NightlyTrustedRouting(unittest.TestCase):
         for runner in ('', 'blacksmith-16vcpu-ubuntu-2404', 'blacksmith-32vcpu-ubuntu-2404'):
             with self.subTest(runner=runner):
                 primary = label('prepare-nightly-variant-primary', runner)
-                self.assertEqual(label('prepare-nightly-variant-fallback', runner, 'success'), primary)
-                retry = label('prepare-nightly-variant-fallback', runner, 'failure')
+                self.assertEqual(label('prepare-nightly-variant', runner, 'success'), primary)
+                retry = label('prepare-nightly-variant', runner, 'failure')
                 self.assertNotEqual(retry, primary)
                 self.assertIn(retry, ('blacksmith-16vcpu-ubuntu-2404', 'blacksmith-32vcpu-ubuntu-2404'))
         # The retry and signer-build pick from the declared set, whatever LINUX_RUNNER holds.
         members = ('blacksmith-16vcpu-ubuntu-2404', 'blacksmith-32vcpu-ubuntu-2404')
         for runner in ('', 'ubuntu-24.04', 'blacksmith-4vcpu-ubuntu-2404') + members:
             with self.subTest(runner=runner):
-                self.assertIn(label('prepare-nightly-variant-fallback', runner, 'failure'), members)
+                self.assertIn(label('prepare-nightly-variant', runner, 'failure'), members)
                 self.assertIn(label('signer-build', runner), members)
         self.assertEqual(label('signer-build', 'blacksmith-16vcpu-ubuntu-2404'), 'blacksmith-16vcpu-ubuntu-2404')
         self.assertEqual(label('signer-build', 'ubuntu-24.04'), 'blacksmith-32vcpu-ubuntu-2404')

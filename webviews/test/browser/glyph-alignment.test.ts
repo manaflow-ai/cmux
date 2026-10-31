@@ -75,11 +75,6 @@ await requireBrowserLane("glyph-alignment.test.ts", async () => {
         ],
       ] as const,
     },
-    {
-      id: "agent-pane.waiting-messages-card",
-      variant: undefined,
-      selectors: [[".cv-waiting__toggle", ".cv-waiting__icon svg", ".cv-waiting__count"]] as const,
-    },
   ];
   test("glyphs use shared row geometry in light and dark", async () => {
     const root = path.resolve(import.meta.dir, "../..");

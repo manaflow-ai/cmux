@@ -126,6 +126,23 @@ export interface Env {
   readonly CLOUD_VM_API_IMAGE_REVISION?: string
   /** The https API origin written into each VM's bind file (the image's bind agent calls it). */
   readonly CLOUD_API_ORIGIN?: string
+  /**
+   * `upstash` runs new Chief jobs (`chief-auto`) on Upstash Workflow (chief-brain-cc/jobs-upstash.ts): the
+   * records in each team's `<team>/chief-jobs` brain object, a QStash schedule per cron job, a workflow run
+   * per fire, and webhook and provider-event (CI failed) triggers. Anything else (the default) keeps them on
+   * the SchedulerDO. Needs all four settings below; with any missing, jobs stay on the SchedulerDO. Jobs made
+   * on the SchedulerDO keep running there either way.
+   */
+  readonly CHIEF_JOBS_ENGINE?: string
+  /** This Worker's public URL of POST /v1/hooks/upstash/chief-job (where QStash delivers each fire). */
+  readonly CHIEF_JOBS_WORKFLOW_URL?: string
+  /** Secret: the QStash token of the cmux Upstash account. */
+  readonly QSTASH_TOKEN?: string
+  /** Optional QStash API origin (a regional or local QStash). */
+  readonly QSTASH_URL?: string
+  /** Secrets: QStash's request signing keys; every workflow request is verified with them. */
+  readonly QSTASH_CURRENT_SIGNING_KEY?: string
+  readonly QSTASH_NEXT_SIGNING_KEY?: string
   /** Prepaid credits top-up range in USD (paid-plans-DESIGN.md §6.2); defaults 5 and 2500. */
   readonly CREDITS_TOPUP_MIN_USD?: string
   readonly CREDITS_TOPUP_MAX_USD?: string
@@ -146,6 +163,12 @@ export interface Env {
   readonly CLOUD_PLAN_ENTITLEMENTS?: string
   /** Var: "on" = PlatformMachines (platform-machines.ts) answers bound Workers; anything else refuses every call. Development only today. */
   readonly PLATFORM_MACHINES?: string
+  /** Named AgentGateway binding: on only in development; every MCP write still requires exact approval. */
+  readonly PLATFORM_AGENT_GATEWAY?: string
+  /** Service binding to cmux-platform-<env> (platform-forward.ts); absent in every environment until its cutover deploy. */
+  readonly PLATFORM?: Fetcher
+  /** Var: comma-separated surfaces the platform serves ("cloud"); unset or empty = every request stays in this Worker. */
+  readonly PLATFORM_SURFACES?: string
   /**
    * Secret: link-token signing keys (LINK-TOKEN-FORMAT) as JSON {active: kid, keys: {kid: private Ed25519 JWK}}, at most 2 kids.
    * Per environment; never logged, never in a response, error, event or storage. Without it bind and link_token refuse.
@@ -215,6 +238,8 @@ export interface Env {
   readonly STACK_WEBHOOK_SECRET?: string
   /** Pace of Stack webhook syncs per project, one token per sync (stack-server.ts stackReadPace); namespaces 1201-1203 (cx-f5tk4). */
   readonly STACK_READ_LIMIT?: RateLimit
+  /** The low lane of the Stack read pace (stack-server.ts stackLowReadPace): syncs of never-mirrored teams no person waits on. */
+  readonly STACK_READ_LOW_LIMIT?: RateLimit
   /** Secrets per provider; a provider without its secrets reports `configured: false`. */
   readonly GITHUB_APP_SLUG?: string
   readonly GITHUB_APP_CLIENT_ID?: string
@@ -376,11 +401,13 @@ export interface Env {
   /** Rotation: the previous key and its id; URLs signed with it stay valid until they expire. */
   readonly HOME_ATTACHMENT_KEY_PREVIOUS?: string
   readonly HOME_ATTACHMENT_KEY_PREVIOUS_ID?: string
-  /** Presigned PUTs for 32-100 MB files: R2 S3 endpoint (https://<account>.r2.cloudflarestorage.com), bucket and a bucket-scoped token. Unset = large files refused. */
+  /** Presigned PUTs for large files from clients that do not send parts: R2 S3 endpoint (https://<account>.r2.cloudflarestorage.com), bucket and a bucket-scoped token. Unset = such clients stream through the Worker. */
   readonly HOME_ATTACHMENTS_S3_ENDPOINT?: string
   readonly HOME_ATTACHMENTS_S3_BUCKET?: string
   readonly HOME_ATTACHMENTS_S3_ACCESS_KEY_ID?: string
   readonly HOME_ATTACHMENTS_S3_SECRET_ACCESS_KEY?: string
+  /** The largest request body this Worker's zone accepts, in bytes (decimal digits): 100 MB on Free and Pro (the default), 200 MB on Business, 500 MB on Enterprise. */
+  readonly HOME_ATTACHMENT_WORKER_BODY_BYTES?: string
   /** Burst limit per user on attachment intents and download URL mints. */
   readonly HOME_ATTACHMENT_LIMIT?: RateLimit
   /** "<Apple Team ID>.<iOS bundle id>" whose App Attest keys this deployment accepts (presence keys). */
