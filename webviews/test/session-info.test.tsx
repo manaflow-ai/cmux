@@ -63,7 +63,7 @@ function installDom(sessionInfo: boolean): HTMLElement {
     pretendToBeVisual: true,
   });
   // The App pushes Debug Settings `agent.inspector` with the header state.
-  setHeaderState({ inspector });
+  setHeaderState({ inspector: sessionInfo });
   observers = [];
   class FakeResizeObserver {
     constructor(private readonly callback: () => void) {

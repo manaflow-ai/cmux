@@ -28,7 +28,7 @@ function installDom(sessionInfo: boolean): HTMLElement {
     url: "http://localhost/",
     pretendToBeVisual: true,
   });
-  setHeaderState({ inspector });
+  setHeaderState({ inspector: sessionInfo });
   class FakeResizeObserver {
     observe() {}
     disconnect() {}
