@@ -4,16 +4,21 @@
 //! that would wait past `queueMaxPrompts` or `queueMaxBytes` is refused before anything is
 //! copied or written, with `queue.full` or `queue.bytes` and what to do; nothing is dropped.
 //!
-//! Only a new prompt that would wait is checked (`queue.rs` `queue_slot`). One that runs at once
-//! holds nothing here, and the prompts a restart rebuilds, a failed turn holds or an edit
-//! changes were admitted already.
+//! The check runs in `queue.rs` `enqueue`, under the queue lock that puts the prompt in, so two
+//! prompts cannot both take the last room, and every way a new prompt joins the queue passes it
+//! (it waits behind a turn, behind a turn that began as it took the lock, or for a parent's run
+//! slot). The prompts a supersede key replaces leave as it comes in, so they do not count against
+//! it. Not checked: the prompts a restart rebuilds, a failed turn or a Stop holds, or an edit
+//! changes, which were admitted already, and an inbox digest (`inbox_digest.rs`), which joins
+//! queued messages into one and so never adds a prompt.
+//!
+//! Each prompt's size is measured once (`PromptRun::size`), so the check adds up at most
+//! `queueMaxPrompts` numbers under the lock.
 
-use super::Session;
-use super::queue::Slot;
+use super::queue::{PromptRun, QueuedPrompt, Slot};
 use crate::config::Config;
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
-use std::sync::atomic::Ordering;
 
 /// `queueMaxPrompts` and `queueMaxBytes`; None is no limit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,11 +41,16 @@ impl QueueLimits {
     }
 }
 
-/// Refused unless `session`'s queue has room for `p`: one more prompt, and its content. The
-/// count is every prompt waiting (`Session::queued`, those about to queue too); the bytes are
-/// those of the prompts in the queue, which a prompt waiting for the turn lock does not hold yet.
-pub(super) fn room(session: &Session, p: &Slot<'_>, limits: QueueLimits) -> Result<(), RpcError> {
-    let queued = session.queued.load(Ordering::SeqCst);
+/// Refused unless `queue` has room for one more prompt of `size` bytes, not counting the prompts
+/// it `replaces`. Called with the queue locked.
+pub(super) fn room(
+    queue: &[QueuedPrompt],
+    size: u64,
+    replaces: impl Fn(&QueuedPrompt) -> bool,
+    limits: QueueLimits,
+) -> Result<(), RpcError> {
+    let staying = || queue.iter().filter(|q| !replaces(q));
+    let queued = staying().count() as u64;
     if let Some(max) = limits.prompts
         && queued >= max
     {
@@ -54,26 +64,33 @@ pub(super) fn room(session: &Session, p: &Slot<'_>, limits: QueueLimits) -> Resu
         ));
     }
     let Some(max) = limits.bytes else { return Ok(()) };
-    let adding = blocks_bytes(p.blocks) + p.display_parts.map_or(0, bytes);
-    let held: u64 = {
-        let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        queue
-            .iter()
-            .map(|q| blocks_bytes(&q.run.blocks) + q.run.display_parts.as_ref().map_or(0, bytes))
-            .sum()
-    };
-    if held.saturating_add(adding) > max {
+    let held: u64 = staying().map(|q| run_bytes(&q.run)).sum();
+    if held.saturating_add(size) > max {
         return Err(full(
             "queue.bytes",
             format!(
                 "this chat's queue is full: its waiting prompts hold {held} bytes, this one \
-                 {adding}, and the limit is {max} (queueMaxBytes); send it again once some have \
-                 run, or send its files as uploads"
+                 {size}, and the limit is {max} (queueMaxBytes); send it again once some have \
+                 run, or remove some"
             ),
-            json!({"limit": max, "queuedBytes": held, "bytes": adding, "queued": queued}),
+            json!({"limit": max, "queuedBytes": held, "bytes": size, "queued": queued}),
         ));
     }
     Ok(())
+}
+
+/// What a prompt asking for its turn would hold in the queue.
+pub(super) fn slot_bytes(p: &Slot<'_>) -> u64 {
+    content_bytes(p.blocks, p.display_parts)
+}
+
+/// What a queued prompt holds, measured the first time it is asked.
+pub(super) fn run_bytes(run: &PromptRun) -> u64 {
+    *run.size.get_or_init(|| content_bytes(&run.blocks, run.display_parts.as_ref()))
+}
+
+fn content_bytes(blocks: &[Value], display_parts: Option<&Value>) -> u64 {
+    blocks.iter().map(bytes).sum::<u64>() + display_parts.map_or(0, bytes)
 }
 
 fn full(reason: &str, message: String, mut data: Value) -> RpcError {
@@ -82,21 +99,22 @@ fn full(reason: &str, message: String, mut data: Value) -> RpcError {
     RpcError::new(-32000, message).with_data(data)
 }
 
-fn blocks_bytes(blocks: &[Value]) -> u64 {
-    blocks.iter().map(bytes).sum()
-}
-
-/// About what `v` takes as JSON: its strings' and keys' bytes, and a little for each value. It
-/// walks the value once and allocates nothing, so it is cheap under the queue lock: a prompt is
-/// a few values, an inline image one long string.
+/// About what `v` takes as JSON, and no less than the memory its strings hold: each string's and
+/// key's bytes with their quotes, its separators, and a number at its longest. It walks the value
+/// once and allocates nothing: a prompt is a few values, an inline image one long string.
 pub(super) fn bytes(v: &Value) -> u64 {
+    // The longest a JSON number is written (`-1.7976931348623157e308`).
+    const NUMBER: u64 = 24;
+    let items = |n: usize| n.saturating_sub(1) as u64 + 2;
     match v {
+        Value::Null | Value::Bool(_) => 5,
+        Value::Number(_) => NUMBER,
         Value::String(s) => s.len() as u64 + 2,
-        Value::Array(items) => items.iter().map(bytes).sum::<u64>() + 2,
+        Value::Array(values) => values.iter().map(bytes).sum::<u64>() + items(values.len()),
         Value::Object(fields) => {
-            fields.iter().map(|(k, v)| k.len() as u64 + 4 + bytes(v)).sum::<u64>() + 2
+            fields.iter().map(|(k, v)| k.len() as u64 + 3 + bytes(v)).sum::<u64>()
+                + items(fields.len())
         }
-        _ => 8,
     }
 }
 

@@ -429,8 +429,9 @@ tool step; it is never a turn or a steer of its own. false puts plain sends back
 `queueMaxPrompts` (default 1000) and `queueMaxBytes` (default 268435456, 256 MiB; 0 is no limit
 for either): the most prompts one chat's queue holds, and the most bytes of prompt content they
 hold. A prompt that would wait past either is refused with `queue.full` or `queue.bytes`
-(`retryable`, with the limit and what waits), before anything is written; files sent as uploads
-count only their reference.
+(`retryable`, with the limit and what waits), before anything is written. An uploaded image
+small enough to go inline for the model counts with its bytes; any other uploaded file goes by
+its path and counts only that.
 
 `silentTurnMs` (default 90000; 0 turns it off): a turn whose model shows no sign of work
 (no message, thought, tool call, plan, compaction or request, and no harness line only a

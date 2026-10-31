@@ -25,5 +25,12 @@ fn bytes_follow_the_json_size() {
     let counted = bytes(&block);
     assert!(counted >= json_len, "{counted} < {json_len}");
     assert!(counted < json_len + 64, "{counted} vs {json_len}");
-    assert!(bytes(&json!([1, true, null])) > 0);
+    // Separators, numbers at any length and nesting are never counted below their JSON.
+    for v in [
+        json!(["", ""]),
+        json!([12345678901234567890u64, -1.5e300, true, null, {}]),
+        json!({"a": [[], {"b": [1, 2, 3]}], "c": "d"}),
+    ] {
+        assert!(bytes(&v) >= v.to_string().len() as u64, "{v}: {}", bytes(&v));
+    }
 }

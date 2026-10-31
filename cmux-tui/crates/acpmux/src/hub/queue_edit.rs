@@ -286,6 +286,7 @@ impl Hub {
                 tracing::info!(session = %session.id, prompt = %prompt_id, dropped, refused, "a queue edit dropped display parts of blocks it did not keep or that no longer fit them");
             }
             q.run = Arc::new(PromptRun {
+                size: Default::default(),
                 blocks,
                 display_parts,
                 control: stricter(q.run.control, control),
@@ -385,6 +386,7 @@ impl Hub {
                 };
                 crate::author::may_change(editor, q.sender())?;
                 let run = PromptRun {
+                    size: Default::default(),
                     blocks: q.run.blocks.clone(),
                     display_parts: q.run.display_parts.clone(),
                     control,

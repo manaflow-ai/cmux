@@ -1135,9 +1135,10 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queue_max_prompts: Option<u64>,
     /// `queueMaxBytes`: the most bytes of prompt content one chat's waiting prompts hold
-    /// (`hub/queue.rs`); a prompt that would pass it is refused with `queue.bytes`. Files sent by
-    /// reference (`prompt_uploads.rs`) count only their reference. Default 268435456 (256 MiB);
-    /// 0 is no limit.
+    /// (`hub/queue.rs`); a prompt that would pass it is refused with `queue.bytes`. An uploaded
+    /// image small enough to go inline for the model counts with its bytes; any other uploaded
+    /// file goes by its path and counts only that (`prompt_uploads.rs`). Default 268435456
+    /// (256 MiB); 0 is no limit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queue_max_bytes: Option<u64>,
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a

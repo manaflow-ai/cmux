@@ -104,3 +104,36 @@ async fn a_prompt_past_the_byte_limit_is_refused_and_a_smaller_one_still_queues(
         reply(&mut c, r).await.unwrap();
     }
 }
+
+/// A prompt that replaces its sender's queued one under a supersede key adds nothing to the
+/// queue, so a full queue still takes it; another prompt is still refused.
+#[tokio::test]
+async fn a_full_queue_still_takes_a_prompt_that_replaces_a_queued_one() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.queue_max_prompts = Some(1);
+    let id = new_session(&mut c, "replace").await;
+    let keyed = |pid: &str, text: &str| {
+        let mut p = prompt(&id, text, Some(pid));
+        p["_meta"]["acpmux"]["supersede"] = json!("status");
+        p
+    };
+
+    let running = c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", Some("p-run"))).await;
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-run").await;
+    let first = c.send(method::SESSION_PROMPT, keyed("p-status-1", "status one")).await;
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-status-1").await;
+
+    let second = c.send(method::SESSION_PROMPT, keyed("p-status-2", "status two")).await;
+    let acc = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-status-2").await;
+    assert_eq!(acc["queued"], true, "{acc}");
+    assert_eq!(acc["replaced"], 1, "{acc}");
+    reply(&mut c, first).await.unwrap();
+
+    let other = c.send(method::SESSION_PROMPT, prompt(&id, "other", Some("p-other"))).await;
+    let error = reply(&mut c, other).await.expect_err("a prompt past the limit was taken");
+    assert_eq!(error["data"]["reason"], "queue.full", "{error}");
+
+    stop(&mut c, &id).await;
+    reply(&mut c, running).await.unwrap();
+    reply(&mut c, second).await.unwrap();
+}

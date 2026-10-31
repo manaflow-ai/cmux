@@ -5,6 +5,7 @@
 //! and runs it (`resume_queues`), so queued prompts survive a crash, an update
 //! relaunch, a quit and a reboot.
 
+use super::queue_admission::QueueLimits;
 use super::subsession_runs::{TurnGuard, WaitMark};
 use super::*;
 use cmux_json::JsonSet as _;
@@ -99,6 +100,8 @@ pub(super) struct PromptRun {
     /// Delivery metadata normalized before queueing or recovered from a durable queued record.
     pub(super) message_id: Option<String>,
     pub(super) message_sender: Option<Value>,
+    /// What its content holds, measured once (`queue_admission::run_bytes`).
+    pub(super) size: std::sync::OnceLock<u64>,
 }
 
 /// A prompt asking for its turn (`queue_slot`).
@@ -133,6 +136,9 @@ pub(super) struct Slot<'a> {
 
 /// What a prompt's `session/prompt` answers.
 pub(super) type Answer = Result<Value, RpcError>;
+
+/// What a queued prompt's `session/prompt` waits on: its withdrawal, and the turn it joins.
+type Waits = (Arc<Notify>, Arc<StdMutex<Option<super::digest::Joined>>>);
 
 /// How a queued prompt's wait ends (`queue_turn`).
 pub(super) enum Wait<'a> {
@@ -191,7 +197,7 @@ impl Hub {
         p: Slot<'_>,
         accept: &mut impl FnMut(Value),
     ) -> Result<(String, bool, TurnGuard<'a>, Arc<PromptRun>), Answer> {
-        let limits = super::queue_admission::QueueLimits::of(&*self.config.read().await);
+        let limits = QueueLimits::of(&*self.config.read().await);
         // Claimed under the queue lock, as `restore_queue` takes them: a turn of agent messages
         // joins only a restored prompt its task claimed (`digest.rs` `take_joined`).
         let restored = {
@@ -237,18 +243,16 @@ impl Hub {
                 if p.no_queue && waiting {
                     return Err(Err(super::auto_resume::retry_turn::busy()));
                 }
-                // A queue with no room refuses it, before it is copied or written (`queue_admission.rs`).
-                if waiting && let Err(e) = super::queue_admission::room(session, &p, limits) {
-                    return Err(Err(e));
-                }
                 let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
-                let withdraw = waiting.then(|| {
-                    let waits = self.enqueue(session, &p, position, &turn_id);
+                let withdraw = if waiting {
+                    let waits = self.enqueue_or_refuse(session, &p, position, &turn_id, limits)?;
                     accept(
                         json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position}),
                     );
-                    waits
-                });
+                    Some(waits)
+                } else {
+                    None
+                };
                 (turn_id, withdraw)
             }
         };
@@ -288,7 +292,7 @@ impl Hub {
                 if session.turn().is_some() {
                     drop(guard);
                     let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
-                    let waits = self.enqueue(session, &p, position, &turn_id);
+                    let waits = self.enqueue_or_refuse(session, &p, position, &turn_id, limits)?;
                     accept(
                         json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position}),
                     );
@@ -302,6 +306,7 @@ impl Hub {
                                 p.provenance,
                             );
                             let run = PromptRun {
+                                size: Default::default(),
                                 blocks: p.blocks.to_vec(),
                                 display_parts: p.display_parts.cloned(),
                                 control: p.control,
@@ -329,7 +334,8 @@ impl Hub {
                             }
                             let mark = self.mark_waiting_for_slot(&parent, session);
                             let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
-                            let waits = self.enqueue(session, &p, position, &turn_id);
+                            let waits =
+                                self.enqueue_or_refuse(session, &p, position, &turn_id, limits)?;
                             accept(
                                 json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position, "waitsForSlot": true}),
                             );
@@ -476,16 +482,43 @@ impl Hub {
     /// Puts a prompt that waits for the running turn in the queue and tells every client right
     /// away. The returned `Notify` fires when `remove_queued` withdraws it or it joins an earlier
     /// agent message's turn (then `joined` is set, `digest.rs`).
+    /// [`Self::enqueue`] for `queue_slot`: a prompt the queue has no room for is counted back out
+    /// of the session's queued total, and its refusal is what `session/prompt` answers.
+    fn enqueue_or_refuse(
+        &self,
+        session: &Arc<Session>,
+        p: &Slot<'_>,
+        position: u64,
+        turn_id: &str,
+        limits: QueueLimits,
+    ) -> Result<Waits, Answer> {
+        self.enqueue(session, p, position, turn_id, limits).map_err(|e| {
+            session.queued.fetch_sub(1, Ordering::SeqCst);
+            Err(e)
+        })
+    }
+
+    /// Puts `p` in the queue, unless it has no room for it (`queue_admission.rs`): then nothing
+    /// is put in, written or replaced.
     fn enqueue(
         &self,
         session: &Arc<Session>,
         p: &Slot<'_>,
         position: u64,
         turn_id: &str,
-    ) -> (Arc<Notify>, Arc<StdMutex<Option<super::digest::Joined>>>) {
+        limits: QueueLimits,
+    ) -> Result<Waits, RpcError> {
+        // Measured before the lock: under it only sizes measured already are added up.
+        let size = super::queue_admission::slot_bytes(p);
         let withdraw = Arc::new(Notify::new());
         let joined = Arc::new(StdMutex::new(None));
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Checked and put in under one lock, so two prompts cannot both take the last room. The
+        // prompts it replaces leave as it comes in, so they do not count against it.
+        let replaces = |q: &QueuedPrompt| {
+            p.supersede.is_some_and(|key| supersede::superseded(q, key, p.agent, p.prompt_id))
+        };
+        super::queue_admission::room(&queue, size, replaces, limits)?;
         // The sender's prompts under its key leave under the lock that puts this one in
         // (`supersede.rs`), with the ledger pinned first as `remove_queued_because` pins it.
         let superseded = p.supersede.map(|key| {
@@ -520,6 +553,7 @@ impl Hub {
                 queued_at: now_ms(),
                 withdraw: withdraw.clone(),
                 run: Arc::new(PromptRun {
+                    size: size.into(),
                     blocks: p.blocks.to_vec(),
                     display_parts: p.display_parts.cloned(),
                     control: p.control,
@@ -601,7 +635,7 @@ impl Hub {
                 json!({"held": [p.prompt_id], "reason": "stop"}),
             );
         }
-        (withdraw, joined)
+        Ok((withdraw, joined))
     }
 
     /// Waits until the queued prompt `turn_id` is at the head of the queue and no other turn
@@ -1171,6 +1205,7 @@ impl Hub {
                 queued_at: e.at,
                 withdraw: Arc::new(Notify::new()),
                 run: Arc::new(PromptRun {
+                    size: Default::default(),
                     blocks,
                     display_parts: e.msg.get("displayParts").cloned(),
                     control,
