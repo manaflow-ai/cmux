@@ -154,7 +154,7 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (
         <div {...fold.bodyProps}>
-          {exec ? (
+          {exec && failure?.kind !== "hook" ? (
             <CmuxExecDetails id={detailsId} tool={tool} call={call} raw={raw} reveal={reveal} />
           ) : (
             <McpCallDetails
@@ -162,6 +162,7 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
               call={call}
               raw={raw}
               output={tool.output}
+              tool={tool}
               strip={stripsEnvelopeImages(tool)}
               reveal={reveal}
             />
@@ -204,6 +205,7 @@ export function McpCallDetails({
   call,
   raw,
   output,
+  tool,
   strip,
   reveal,
   requestFindAlternatives = {},
@@ -212,6 +214,8 @@ export function McpCallDetails({
   call: McpCall;
   raw: string;
   output?: string;
+  /// The original call distinguishes a hook refusal from output that merely quotes one.
+  tool?: NonNullable<AcpmuxActivity["tool"]>;
   /// Whether the call's strip shows its envelope's images, which its response then leaves out.
   strip: boolean;
   reveal: number;
@@ -220,7 +224,10 @@ export function McpCallDetails({
 }) {
   const t = useT();
   const request = useMemo(() => prettyValue(call.args), [call]);
-  const response = useMemo(() => mcpOutputResult(output, strip, call.tool), [output, strip, call.tool]);
+  const failure = useMemo(() => (tool ? toolFailure(tool) : undefined), [tool]);
+  const blocked = failure?.kind === "hook";
+  const shownOutput = blocked ? failure.output : output;
+  const response = useMemo(() => mcpOutputResult(shownOutput, strip, call.tool), [shownOutput, strip, call.tool]);
   const requestBox = useMoreBelow<HTMLPreElement>(request);
   return (
     <div id={id} className="cv-mcp-call" ref={menuPartRef({ output: response?.text })}>
@@ -237,12 +244,12 @@ export function McpCallDetails({
           </pre>
         </div>
       )}
-      {response && (
+      {(response || blocked) && (
         <div className="cv-mcp-call__part">
           <div className="cv-mcp-call__head" data-find-skip>
-            {t("tools.mcp.response")}
+            {blocked ? t("tools.blockedByHook") : t("tools.mcp.response")}
           </div>
-          <ToolOutput result={response} reveal={reveal} />
+          {response && <ToolOutput result={response} reveal={reveal} />}
         </div>
       )}
     </div>
@@ -377,6 +384,7 @@ export function CmuxExecDetails({
             call={call}
             raw={raw}
             output={tool.output}
+            tool={tool}
             strip={stripsEnvelopeImages(tool)}
             reveal={reveal}
           />
