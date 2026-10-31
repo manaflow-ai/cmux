@@ -74,10 +74,15 @@ extension CloudHandlers {
             // Environments live in the cmux-next backend's CloudDO: only its Cloud path lists them.
             let supportsEnvironments = cloud.configuration.linkSource == .appServer
             let environments = supportsEnvironments ? await cloud.appServerEnvironmentOptions() : []
+            // The plan's sizes, from the last machine list: only the `/api/vm` create takes a size
+            // (the app server's create refuses one for now), so its path shows no size choice.
+            let sizes = cloud.configuration.linkSource == .legacy
+                ? cloud.planSizes : []
             guard let plan = try await wizard.choosePlan(availability: availability,
                 scopeIsCurrent: { cloud.auth.user?.id == userID && cloud.auth.teamID == teamID },
                 supportsRepository: cloud.configuration.linkSource == .legacy, suggested: pick?.repo,
-                environments: environments, supportsEnvironments: supportsEnvironments, present: present) else { return }
+                environments: environments, supportsEnvironments: supportsEnvironments,
+                sizes: sizes, autosized: pick?.autosize != nil && pick?.repo != nil, present: present) else { return }
             var request = CloudChatPick.request(plan, sizedFor: pick)
             if let new = plan.newEnvironment {
                 // Saved first, then booted: the first machine starts cold and runs the setup itself.
