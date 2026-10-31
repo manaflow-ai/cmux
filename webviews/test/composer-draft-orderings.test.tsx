@@ -384,3 +384,38 @@ test("hydratedDraft: the one rule", () => {
     write: true,
   });
 });
+
+test("a quit's read answers before the load's: the editor and acpmux both keep saved and typed", async () => {
+  // cmux#28204 review at ffdbd9d1: settleDraft marked the draft read and saved the merge while the
+  // editor still held only "typed"; the load's read then kept "typed" and wrote it over the merge.
+  const sessionId = "ordering-quit-read-first";
+  const { state, actions } = gatedDaemon("saved");
+  state.holdReads = true;
+  page().cmuxAcpmuxActions = actions as never;
+  await act(async () => notifyDraftActionsChanged());
+  const handle = await render(sessionId);
+  await settle();
+  await type("typed");
+  await until(() => prompt() === "typed", "the typed text");
+  await settle();
+  // The load's read is held; the quit's read joins it.
+  const quit = handle.current!.settleDraft();
+  await settle();
+  expect(state.reads.length).toBe(2);
+  const [loadRead, quitRead] = state.reads.splice(0);
+  await act(async () => quitRead!());
+  await act(async () => quit);
+  await settle();
+  await act(async () => loadRead!());
+  await settle();
+  await settle();
+  state.holdReads = false;
+  expect(prompt()).toBe("saved\n\ntyped");
+  expect(state.held).toBe("saved\n\ntyped");
+  // One more edit keeps "saved".
+  await type("!");
+  await until(() => prompt() === "saved\n\ntyped!", "the next edit");
+  await settle();
+  await settle();
+  expect(state.held).toBe("saved\n\ntyped!");
+});
