@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxDeviceHub
 import CmuxMobileAgentChat
 import CmuxMobileAuth
 import CmuxMobileBrowserStream
@@ -7,13 +8,15 @@ import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileLive
 import CmuxMobileModel
+import CmuxMobileScreenSharing
 import CmuxMobileSettings
 import CmuxMobileTerminal
 import CmuxMobileVoice
 import CmuxMobileWorkspaces
-import Observation
 import OSLog
+import Observation
 import SwiftUI
+import UIKit
 
 private let theme = CmuxMobileTheme.standard
 private let shellLog = Logger(subsystem: "dev.cmux.mobile", category: "shell")
@@ -84,6 +87,8 @@ final class ShellModel {
     private(set) var deviceDirectory: (any SettingsDeviceDirectory)?
     /// The Macs' terminal sizing policies (Settings and Connected Devices).
     var sizingService: (any TerminalSizingService)? { live }
+    /// Screen Sharing with the account's Macs while signed in (Settings → Screen Sharing).
+    private(set) var screenSharing: ScreenSharingService?
     /// DEBUG mock mode (Settings → Developer → Mock): sample content only.
     let mockMode: Bool
     /// The team an email invite is being written for (live mode).
@@ -200,6 +205,7 @@ final class ShellModel {
         if live == nil, mockMode { deviceDirectory = MockDeviceDirectory(store: store) }
         #endif
         live?.onMacRemoved = { [weak self] macID in self?.macRemoved(macID) }
+        attachScreenSharing(signedIn: live != nil)
         updateShownMacs()
         if let live {
             // Tab ids repeat across Macs: every call names the tab's Mac, and
@@ -244,6 +250,11 @@ final class ShellModel {
             // Browser tabs opened on this iPhone follow the Macs' tab lists.
             StreamedBrowserDirectory.shared.tabsRetained = { NativeBrowserTabs.shared.retain(tabs: $0) }
             StreamedBrowserDirectory.shared.tabRenamed = { NativeBrowserTabs.shared.rename(tab: $0, to: $1) }
+            // Their `localhost:<port>` pages, forwarded to the Mac when it serves `localhost`.
+            NativeBrowserTabs.shared.forwarder = StreamedBrowserDirectory.shared.localhost
+            NativeBrowserTabs.shared.macForwardsLocalhost = { [store] macID in
+                macID.flatMap { store.macCapabilities[$0] }?.contains(NativeBrowserTabs.forwardCapability) ?? false
+            }
         } else {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil
@@ -457,19 +468,21 @@ final class ShellModel {
         #if DEBUG
         // Layout captures only: `-cmux-mobile-banner-demo pairing|pairing-reset|reconnecting`.
         switch UserDefaults.standard.string(forKey: "cmux-mobile-banner-demo") {
+        case "connected"?: return .connected
+        case "reconnecting"?: return .reconnecting(to: "Mac Studio")
+        case "offline"?: return .connectionFailed
         case "pairing"?: return .waitingForPairing(on: "Mac Studio")
         case "pairing-reset"?: return .waitingForPairingAfterNewKeys(on: "Mac Studio")
-        case "reconnecting"?: return .reconnecting(to: "Mac")
         default: break
         }
         #endif
         if store.isOffline { return .offline }
         // Pairing (verify/phone-approvals.md): the Mac asks the user the first time.
         switch live?.pairingState {
-        case .waiting(let mac)?: return .waitingForPairing(on: mac)
-        case .waitingAfterNewKeys(let mac)?: return .waitingForPairingAfterNewKeys(on: mac)
-        case .denied(let mac)?: return .failed("\(mac) did not allow this iPhone")
-        case .failed(let reason)?: return .failed("Pairing failed: \(reason)")
+        case .waiting(let mac)?: return .waitingForPairing(on: mac, identity: live?.focusedMacID)
+        case .waitingAfterNewKeys(let mac)?: return .waitingForPairingAfterNewKeys(on: mac, identity: live?.focusedMacID)
+        case .denied(let mac)?: return .failed("\(mac) did not allow this iPhone", identity: live?.focusedMacID)
+        case .failed(let reason)?: return .failed("Pairing failed: \(reason)", identity: live?.focusedMacID)
         default: return live?.banner
         }
     }
@@ -560,7 +573,7 @@ final class ShellModel {
                 theme.haptics.success()
                 switchTeam(to: team.id)
             } catch ServiceTeamCreation.Failure.unavailable {
-                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Creating teams isn't available for this account yet")
+                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Your account can't create teams")
                 theme.haptics.error()
             } catch {
                 toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't create the team")
@@ -592,5 +605,33 @@ struct ShareSheet: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+}
+extension ShellModel {
+    /// Signed in: one Screen Sharing service for the account (it opens the
+    /// device hub when its page first shows). Signed out: it ends and forgets the hub.
+    func attachScreenSharing(signedIn: Bool) {
+        guard signedIn else {
+            screenSharing?.stop()
+            screenSharing = nil
+            ScreenSharingService.current = nil
+            return
+        }
+        guard screenSharing == nil else { return }
+        #if DEBUG
+        let isDebug = true
+        #else
+        let isDebug = false
+        #endif
+        let auth = auth
+        let configuration = ScreenSharingService.Configuration(
+            baseURL: ScreenSharingService.hubURL(isDebug: isDebug, environment: ProcessInfo.processInfo.environment),
+            bundleIdentifier: Bundle.main.bundleIdentifier ?? "dev.cmux.mobile",
+            deviceName: UIDevice.current.name,
+            tokens: DeviceHubAccountToken { try await auth.accessToken() }
+        )
+        let service = ScreenSharingService(configuration: configuration)
+        screenSharing = service
+        ScreenSharingService.current = service
+    }
 }
 #endif

@@ -19,6 +19,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// with an owner): that daemon stops, keeping its sessions, and the page's next handshake
     /// starts this app's own. Only with a real gesture; answers `{stopped}`.
     case restartAcpmux
+    /// `acpmux.restartStuck {}`: the waiting line's "Restart agent service", while the page's
+    /// handshake waits for this app's own acpmux (``AgentPaneHostProviding/restartStuckAcpmux(sessionId:)``):
+    /// that daemon stops, keeping its sessions, and the page's next handshake starts a new one.
+    /// Only with a real gesture; answers `{stopped}`.
+    case restartStuckAcpmux
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
@@ -88,8 +93,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case jump(AgentPaneJumpTarget, id: String)
     /// The new tab page asked to change a kind's New shortcut.
     case editShortcut(AgentPaneTabKind)
-    /// The new tab page asked the app to run a user facing action.
-    case runAction(String)
+    /// The new tab page asked the app to run a user facing action. `session`, when the page names
+    /// one (the title menu's Bring Back Local), binds it to that chat: the app runs it only while the
+    /// tab still shows it.
+    case runAction(String, session: String? = nil)
     /// The new-tab project picker asked for the explicit Browse… fallback.
     case browseProject
     /// "Choose Folder…" (`workspace.chooseFolder`): the native folder sheet that sets the
@@ -156,6 +163,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// header/quickActions.ts) closes the split this tab's button opened
     /// when it is still there, else opens one.
     case paneAction(String, cwd: String? = nil, toggle: Bool = false)
+    /// Moves the current chat to one of the eligible Cloud machines advertised by `pane.tabState`.
+    /// The host validates the id against its live target list before dispatching the existing
+    /// `cloudMove` action, so the page cannot target an arbitrary machine. `session` is the chat
+    /// whose title menu offered the move: the host moves the tab only while it still shows it.
+    case moveToMachine(String, session: String)
     /// The header's Changes or an edited-files card naming a chat turn (`pane.action {id:
     /// "openDiffViewer", cwd, mode, turn}`): the diff beside the chat, with that turn as its Last
     /// turn (``AgentPaneDiffTurn``).
@@ -194,7 +206,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case asksAnswer(AgentPaneAskAnswer)
     /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
     /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
-    case subagentPane(String, focus: Bool)
+    case subagentPane(String, focus: Bool, title: String? = nil)
+    /// `chat.subagentShown {subagent?, title?}`: a pane opened on a subagent now shows that subagent
+    /// (named `title`), or its chat again (no subagent): its tab's name follows (``SubagentTabTitles``).
+    case subagentShown(String?, title: String?)
     /// `chat.processTerminal {toolCallId}`: the background process this chat's tool call started,
     /// in a read-only terminal tab beside the chat (``AgentPaneProcessViewer``).
     case processTerminal(toolCall: String)
@@ -302,6 +317,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// key (``AgentPaneDisplaySetting/writablePath(_:)``); a null value removes it.
     /// `pane.setAttachmentView {view}` writes `agentPane.attachmentView` the same way (`inline` or `strip`).
     case displaySetting(path: [String], value: JSONValue?)
+    /// `tips.state`: read the feature tip records, keep one, or ask to show a tip
+    /// (``AgentPaneFeatureTipRecords``).
+    case featureTips(AgentPaneFeatureTipRequest)
     /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
     /// with what the person typed in its field.
     case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)

@@ -72,6 +72,7 @@ const menuRows = (): ChatMenuItem[] => [
       { key: "copyLink", label: "Copy link", shortcutAction: "palette.copySurfaceLink", onSelect: () => undefined },
       { key: "copyResponse", label: "Copy last response", onSelect: () => undefined },
       { key: "copyMarkdown", label: "Copy as Markdown", onSelect: () => undefined },
+      { key: "saveMarkdown", label: "Save as Markdown…", onSelect: () => undefined },
     ],
   },
   "separator",
@@ -331,6 +332,13 @@ const keyboardSubmenu: Play = async (ctx) => {
       ctx.document.activeElement?.getAttribute("aria-label") === "Chat actions"
     );
   });
+};
+
+const copySubmenu: Play = async (ctx) => {
+  await openMenu(ctx);
+  await ctx.focus({ role: "menuitem", name: "Copy" });
+  await ctx.press("ArrowRight");
+  await ctx.waitFor(() => ctx.document.querySelectorAll('[role="menu"]').length === 2);
 };
 
 // A Cloud chat's machine rows (cloudMachineMenu.ts), placed as the App places them: before Archive's group.
@@ -697,6 +705,12 @@ export default componentEntry<HeaderToolsProps>({
       note: "Hand off to… opens with ArrowRight; Escape closes the submenu and then the parent menu.",
       props: base,
       play: keyboardSubmenu,
+    },
+    "menu-copy-submenu": {
+      height: 860,
+      note: "Copy opens with ArrowRight: Copy as Markdown puts the whole chat on the clipboard, and Save as Markdown… writes the same Markdown to a file the person picks.",
+      props: base,
+      play: copySubmenu,
     },
     "quick-chat": {
       note: "Quick Chat has no tab to split, so only the summary and chat actions remain.",

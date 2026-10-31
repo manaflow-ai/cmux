@@ -35,8 +35,12 @@ export type QuickMenu = {
   onModelEffort?(id: string, effort: string): void;
   /** Opt in to inline model/effort segments; omitted or false keeps the Effort submenu. */
   inlineEffort?: boolean;
-  /** Gallery alternatives; joined segments are the shipped choice. */
-  effortLook?: "joined" | "spaced" | "underline";
+  /// A model's effort is a side dropdown at the row's trailing edge, its levels in a vertical
+  /// column (Leo 2026-10-30: "we dont like horizontal text for effort. just make it vertical. hell,
+  /// why not do a vertical slider?"), never a row of effort words. `list` (the default) the levels
+  /// one per line with the model's recommended one named; `plain` the levels alone; `slider` a
+  /// vertical slider from Low to the model's highest.
+  effortLook?: EffortLook;
   /// The reasoning levels; absent when the model offers no choice.
   effort?: {
     levels: Choice[];
@@ -86,6 +90,9 @@ export type QuickMenu = {
 };
 
 export type QuickSearchGroups = "harness" | "flat";
+
+/// How a model's effort side dropdown draws its levels (`QuickMenu.effortLook`).
+export type EffortLook = "list" | "plain" | "slider";
 
 export type QuickSearchField = "always" | "typed" | "long";
 
@@ -414,25 +421,68 @@ export function QuickModelMenu({
       }
       pickRow({ ...model, effort: value });
     };
+    const look = menu.effortLook ?? "list";
+    const shown = running ? choices.find((choice) => choice.id === effort?.current) : undefined;
+    // The row stays one line: the model, then its effort item at the trailing edge (the running
+    // model's level and a chevron). Pointing at it or ArrowRight opens the model's levels as a side
+    // dropdown beside the row, a vertical list in its own popup (never clipped by the list's scroll,
+    // never over the next row), and a level lands the model and its effort together.
     return (
-      <div className="acpmux-quick-model-effort" key={valueOf(model)} data-effort-look={menu.effortLook ?? "joined"}>
+      <div
+        className="acpmux-quick-model-effort"
+        key={valueOf(model)}
+        data-effort-look={look}
+        data-running={running ? "" : undefined}
+      >
         {name}
-        <fieldset className="acpmux-quick-efforts" aria-label={`${model.name} · ${t("effort.title")}`}>
-          <MenuRadioGroup value={running ? (effort?.current ?? "") : ""} onValueChange={pickEffort}>
-            {choices.map((choice) => (
-              <MenuRadioItem
-                key={choice.id}
-                className="acpmux-quick-effort-segment"
-                disabled={model.disabled}
-                label={`${model.name} · ${choice.name}`}
-                value={choice.id}
-                closeOnClick
-              >
-                <span data-selected={running && effort?.current === choice.id ? "" : undefined}>{choice.name}</span>
-              </MenuRadioItem>
-            ))}
-          </MenuRadioGroup>
-        </fieldset>
+        <Submenu
+          className="acpmux-quick-item acpmux-quick-effort-trigger"
+          popupClassName="acpmux-quick-menu acpmux-quick-submenu acpmux-quick-effort-menu"
+          disabled={model.disabled}
+          label={
+            <span className="acpmux-quick-effort-now">
+              {shown?.name}
+              <span className="sr-only">{`${model.name} · ${t("effort.title")}`}</span>
+            </span>
+          }
+        >
+          {look === "slider" ? (
+            <div className="acpmux-quick-effort-vertical" data-effort-look="slider">
+              <EffortTrack
+                efforts={choices}
+                current={running ? effort?.current : undefined}
+                fallback={choices.find((choice) => choice.recommended)?.id}
+                sliderStyle={effort?.sliderStyle}
+                onPick={pickEffort}
+                onRangeKey={(event) => {
+                  if (EFFORT_SLIDER_KEYS.has(event.key)) event.stopPropagation();
+                }}
+                focusOnMount
+              />
+            </div>
+          ) : (
+            <MenuRadioGroup value={running ? (effort?.current ?? "") : ""} onValueChange={pickEffort}>
+              {choices.map((choice) => (
+                <MenuRadioItem
+                  key={choice.id}
+                  className="acpmux-quick-item acpmux-quick-effort-segment"
+                  label={`${model.name} · ${choice.name}`}
+                  value={choice.id}
+                  closeOnClick
+                >
+                  {/* One grid cell for the name and its badge, as a model row's label: the check
+                      keeps the trailing column and the row stays one line. */}
+                  <span className="acpmux-quick-label">
+                    <span className="acpmux-menu-label">{choice.name}</span>
+                    {look === "list" && choice.recommended && (
+                      <span className="acpmux-quick-effort-badge">{t("picker.modeRecommended")}</span>
+                    )}
+                  </span>
+                </MenuRadioItem>
+              ))}
+            </MenuRadioGroup>
+          )}
+        </Submenu>
       </div>
     );
   };
@@ -923,17 +973,8 @@ export function QuickModelMenu({
         .map((model) => (
           <div className="acpmux-quick-width-probe-row" key={`${model.family}\u0000${model.id}`}>
             <span className="acpmux-menu-label">{model.name}</span>
-            {menu.inlineEffort === true && (
-              <span className="acpmux-quick-width-probe-efforts acpmux-quick-efforts">
-                {(model.efforts?.length ? model.efforts : (effort?.levels.map((choice) => choice.id) ?? [])).map(
-                  (id) => (
-                    <span className="acpmux-quick-width-probe-segment" key={id}>
-                      {id}
-                    </span>
-                  ),
-                )}
-              </span>
-            )}
+            {/* The effort column: its fixed width (CSS), never the levels side by side. */}
+            {menu.inlineEffort === true && <span className="acpmux-quick-width-probe-efforts" />}
           </div>
         ))}
     </div>

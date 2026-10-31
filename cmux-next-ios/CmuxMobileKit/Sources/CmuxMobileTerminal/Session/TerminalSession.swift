@@ -167,6 +167,12 @@ public protocol TerminalSession: AnyObject {
     /// The name of the device whose size the Mac's grid has now, when that
     /// is not this phone (the letterbox note). Nil when unknown.
     var hostGridOwnerName: String? { get }
+    /// Whether ``clearHistory()`` clears the terminal where it runs (the Mac's daemon owns
+    /// a Mac terminal's screen and scrollback). False: the screen sends Ctrl-L instead.
+    var clearsHistory: Bool { get }
+    /// Clear Screen and Scrollback where the terminal runs, so every view of it clears
+    /// (the Mac's Cmd-K, `clear-history`). A full-screen app is left as it is.
+    func clearHistory() async throws
 }
 
 extension TerminalSession {
@@ -185,6 +191,10 @@ extension TerminalSession {
     public func setClaimsSize(_ claims: Bool) {}
 
     public func noteInteraction() {}
+
+    public var clearsHistory: Bool { false }
+
+    public func clearHistory() async throws {}
 
     public var hostGridOwnerName: String? { nil }
 }

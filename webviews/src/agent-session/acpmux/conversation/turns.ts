@@ -19,9 +19,11 @@ import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
-import { awaitsPermission, isDraftCall, isRunning, messageGroupKey, toolGroups } from "./toolGroups";
+import { awaitsPermission, groupId, isDraftCall, isRunning, messageGroupKey, toolGroups } from "./toolGroups";
 import { acpmuxSendCall } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
+import { isWaitingMessage } from "./pendingMessages";
+import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
@@ -141,6 +143,9 @@ export type TurnView = {
   messageBreaks: readonly number[];
   /// The steers that wait (snapshot `waitingSteers`): a new list draws the running turn again.
   waitingSteers?: readonly string[];
+  /// Other sessions' messages in the last turn the agent has not read yet, which it does not draw:
+  /// they are in the group of waiting messages (pendingMessages.ts).
+  pending: readonly AcpmuxRow[];
   /// Where the first prompt is: the rows before it draw as they are.
   lead: number;
   /// Each turn's prompt index in `source`, its times, whether it is dated, and how many drawn
@@ -157,6 +162,7 @@ export type TurnView = {
 /// differs from `previous.source` (by object) keep their drawn rows, so a long chat's snapshot
 /// shapes only its last turns.
 const NO_MESSAGE_BREAKS: readonly number[] = [];
+const NO_PENDING: readonly AcpmuxRow[] = [];
 
 export function turnViewFrom(
   rows: readonly AcpmuxRow[],
@@ -253,6 +259,7 @@ export function turnViewFrom(
   }
   const first = starts.length;
   const fromStart = lead === 0;
+  const pending: AcpmuxRow[] = [];
   // Each turn is its prompt's index up to the next accepted prompt: its rows, and any prompt not
   // yet accepted (sent while this turn runs, or refused), which sorts among them by its send time
   // and neither ends the turn nor folds into it. A steer goes on with the turn it went into
@@ -292,9 +299,17 @@ export function turnViewFrom(
       sessionStatus,
       lineBelow,
     );
-    // Other sessions' messages stay each its own line where it arrived (IncomingMessageCard.tsx),
-    // never folded into one card (Leo, 2026-10-29).
-    for (const row of shaped) out.push(row);
+    // Other sessions' messages the agent read stay each its own line where it read them
+    // (IncomingMessageCard.tsx). One it has not read yet (a steer that waits for its step) leaves
+    // the running turn for the one group of waiting messages at the end (pendingMessages.ts).
+    // Reuse batches while tokens change: only a newly arrived notice computes a new descriptor.
+    // The boundary is this turn; unrelated rows and report/inbox kind changes end a batch.
+    const drawn: AcpmuxRow[] = [];
+    for (const row of shaped) {
+      if (last && isWaitingMessage(row)) pending.push(row);
+      else appendLaneNotice(drawn, row);
+    }
+    for (const row of drawn) out.push(row);
     ends.push({ count: out.length, row: out.at(-1) });
   }
   return {
@@ -307,6 +322,7 @@ export function turnViewFrom(
     sessionStatus,
     messageBreaks,
     ...(waitingSteers ? { waitingSteers } : {}),
+    pending: pending.length ? pending : NO_PENDING,
     lead,
     starts,
     times,
@@ -1105,7 +1121,7 @@ type OwnRow = true | { key: string; open: boolean } | undefined;
 
 /// Where ToolRows draws a call (TurnRows.tsx groupNode, ToolGroupRow.tsx): a lone call, a message
 /// card, a sub-session card and a lone MCP call have their own row; a grouped call shows under its group's line while
-/// the group is open; a folded run (`foldRun`, codexRuns) shows none
+/// the group is open (every step shows, ToolGroupRow.tsx); a folded run (`foldRun`, codexRuns) shows none
 /// until opened. The key is the one groupNode gives the group's disclosure.
 function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
   const groups = toolGroups(row.items ?? []);
@@ -1126,7 +1142,7 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
   // while one goes out (MessageGroupRow.tsx).
   if (group.type === "messages") return { key: messageGroupKey(group.items, row.id, at), open: true };
   const kind = group.type === "mcp" ? "mcp" : group.kind;
-  const key = `group:${kind}:${group.items[0]!.tool!.id || `${row.id}:${at}`}`;
+  const key = `group:${kind}:${(group.type === "mcp" ? group.items[0]!.tool!.id : groupId(group.items)) || `${row.id}:${at}`}`;
   return { key, open: kind !== "mcp" && kind !== "edits" };
 }
 
