@@ -114,7 +114,9 @@ class NightlyTrustedRouting(unittest.TestCase):
                          and 'CMUX_CI_RUNNER_VARIABLES' not in path.read_text())
         self.assertEqual(readers, ['nightly.yml'])
         uses = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('runs-on', '')))
-        self.assertEqual(uses, [])
+        # Nightlies never use Blacksmith (Lawrence, 2026-10-30): these jobs' last fallback is the owned nightly
+        # slot (then the owned side lane), never a Blacksmith label.
+        self.assertEqual(uses, ['generate-nightly-deltas', 'sign-nightly-identity-legacy', 'verify-nightly-identity-legacy'])
         steps = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('steps', '')))
         # The verify jobs' owned pick (pick-nightly-sign-runner) offers the same labels as the build's.
         self.assertEqual(steps, ['pick-nightly-build-runner', 'pick-nightly-sign-runner'])
