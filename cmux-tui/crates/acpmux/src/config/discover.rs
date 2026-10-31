@@ -273,6 +273,10 @@ pub fn discover_harnesses_from(
         // Cursor's CLI speaks ACP itself: `cursor-agent acp` (newer installs
         // name the launcher `agent`; see cursor_agent_launcher below).
         ("cursor", "cursor-agent"),
+        // Hermes Agent (NousResearch/hermes-agent) speaks ACP itself:
+        // `hermes acp`. Its provider and model come from ~/.hermes
+        // (`hermes model`).
+        ("hermes", "hermes"),
     ] {
         // An ~/.acpx entry keeps its name, except the reserved Claude names:
         // `claude` and `claude-sr` are acpmux's own Claude Code adapter
@@ -295,7 +299,7 @@ pub fn discover_harnesses_from(
                 "omp" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "prime-agent" => (HarnessKind::Acp, vec![path, "--mode".into(), "acp".into()]),
                 "grok" => (HarnessKind::Acp, vec![path, "agent".into(), "stdio".into()]),
-                "cursor-agent" => (HarnessKind::Acp, vec![path, "acp".into()]),
+                "cursor-agent" | "hermes" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "gemini" => (HarnessKind::Acp, vec![path, "--experimental-acp".into()]),
                 "opencode" | "opencode2" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "dsh" => (HarnessKind::Acp, vec![path, "--profile".into(), "acp".into()]),
@@ -542,5 +546,34 @@ mod muse_tests {
         let acpx = r#"{"agents": {"muse": {"argv": ["/Users/me/bin/my-muse"]}}}"#;
         let found = discover_harnesses_from(Some(acpx), &on_path(&["muse", "muse-acp"]));
         assert_eq!(found["muse"].argv, ["/Users/me/bin/my-muse"]);
+    }
+}
+
+#[cfg(test)]
+mod hermes_tests {
+    use super::*;
+
+    fn on_path(names: &'static [&'static str]) -> impl Fn(&str) -> Option<String> {
+        move |name| names.contains(&name).then(|| format!("/opt/bin/{name}"))
+    }
+
+    /// Hermes Agent (NousResearch/hermes-agent) speaks ACP itself: `hermes
+    /// acp`. On PATH it is an ACP harness of its own family, so the Chief's
+    /// engine picker, `chief engine set --harness hermes` and chats can run it.
+    #[test]
+    fn hermes_on_path_runs_hermes_acp() {
+        let found = discover_harnesses_from(None, &on_path(&["hermes"]));
+        let hermes = found.get("hermes").expect("hermes on PATH is a harness");
+        assert_eq!(hermes.kind, HarnessKind::Acp);
+        assert_eq!(hermes.argv, ["/opt/bin/hermes", "acp"]);
+        assert_eq!(crate::config::derive_family("hermes", hermes), "hermes");
+    }
+
+    /// A `hermes` the person imported from ~/.acpx stays theirs.
+    #[test]
+    fn hermes_imported_from_acpx_stays_theirs() {
+        let acpx = r#"{"agents": {"hermes": {"argv": ["/Users/me/bin/my-hermes", "acp"]}}}"#;
+        let found = discover_harnesses_from(Some(acpx), &on_path(&["hermes"]));
+        assert_eq!(found["hermes"].argv, ["/Users/me/bin/my-hermes", "acp"]);
     }
 }

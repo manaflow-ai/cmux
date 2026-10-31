@@ -91,6 +91,12 @@ pub struct Under {
 /// it cannot be read: the process ended, belongs to another user, or rewrote its argument area.
 #[cfg(target_os = "macos")]
 pub fn argv(pid: u32) -> Option<Vec<String>> {
+    procargs2_argv(&procargs2(pid)?)
+}
+
+/// The raw `KERN_PROCARGS2` answer for `pid`: `argc`, the exec path, then argv and env.
+#[cfg(target_os = "macos")]
+fn procargs2(pid: u32) -> Option<Vec<u8>> {
     let pid = libc::c_int::try_from(pid).ok()?;
     let mut argmax: libc::c_int = 0;
     let mut size = std::mem::size_of::<libc::c_int>();
@@ -126,7 +132,8 @@ pub fn argv(pid: u32) -> Option<Vec<String>> {
     if read != 0 {
         return None;
     }
-    procargs2_argv(buffer.get(..filled)?)
+    buffer.truncate(filled);
+    Some(buffer)
 }
 
 /// The exact argv of `pid` from `/proc/<pid>/cmdline`; `None` when it cannot be read.
@@ -150,14 +157,25 @@ pub fn exe(pid: u32) -> Option<std::path::PathBuf> {
     let size = u32::try_from(buffer.len()).ok()?;
     // SAFETY: the buffer is writable for its whole length, which is passed.
     let written = unsafe { libc::proc_pidpath(pid, buffer.as_mut_ptr().cast(), size) };
-    buffer.truncate(usize::try_from(written).ok().filter(|n| *n > 0)?);
-    Some(std::path::PathBuf::from(String::from_utf8(buffer).ok()?))
+    match usize::try_from(written).ok().filter(|n| *n > 0) {
+        Some(n) => {
+            buffer.truncate(n);
+            Some(std::path::PathBuf::from(String::from_utf8(buffer).ok()?))
+        }
+        // `proc_pidpath` fails once the file the process runs was replaced (an app update swaps
+        // the bundle under every running MCP server). The exec path the kernel recorded at exec
+        // is not argv (`exec -a` and `process.title` leave it), so it still names the program;
+        // without it every server started before an update was "unknown" and its idle harness
+        // never hibernated (160 hosts, 920 processes on one Mac).
+        None => procargs2_exec_path(&procargs2(u32::try_from(pid).ok()?)?),
+    }
 }
 
 /// The executable `pid` runs (`/proc/<pid>/exe`); `None` when it cannot be read.
 #[cfg(target_os = "linux")]
 pub fn exe(pid: u32) -> Option<std::path::PathBuf> {
-    std::fs::read_link(format!("/proc/{pid}/exe")).ok()
+    // A replaced file reads as `PATH (deleted)`: still the program the server was started as.
+    std::fs::read_link(format!("/proc/{pid}/exe")).ok().map(undeleted)
 }
 
 /// Other unix systems: no executable is read, so no process passes for a server.
@@ -220,6 +238,25 @@ pub struct Identity {
 #[cfg(unix)]
 pub fn identity(pid: u32) -> Option<Identity> {
     Some(Identity { exe: exe(pid)?, argv: argv(pid)?, cwd: cwd(pid) })
+}
+
+/// The exec path in a `KERN_PROCARGS2` answer (the path the process was exec'd as); `None` when
+/// it is cut short, not UTF-8 or not absolute.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn procargs2_exec_path(data: &[u8]) -> Option<std::path::PathBuf> {
+    let (_, rest) = data.split_first_chunk::<4>()?;
+    let end = rest.iter().position(|b| *b == 0)?;
+    let path = std::str::from_utf8(rest.get(..end)?).ok()?;
+    std::path::Path::new(path).is_absolute().then(|| std::path::PathBuf::from(path))
+}
+
+/// `/proc/<pid>/exe`'s target without the ` (deleted)` Linux appends once the file was replaced.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn undeleted(target: std::path::PathBuf) -> std::path::PathBuf {
+    match target.to_str().and_then(|t| t.strip_suffix(" (deleted)")) {
+        Some(t) => std::path::PathBuf::from(t),
+        None => target,
+    }
 }
 
 /// The argv in a `KERN_PROCARGS2` answer: `argc` (i32), the exec path, NUL padding, then `argc`
@@ -325,6 +362,33 @@ mod census_tests {
         assert!(under_in("104 1 104 Z claude\n", 104, 1).is_none(), "a zombie leader");
     }
 
+    /// An app update swaps the file a running MCP server was started from; the census must still
+    /// know the server (it was "unknown" before, so its idle harness never hibernated).
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn exe_still_names_a_program_whose_file_was_replaced() {
+        let dir = std::env::temp_dir().join(format!("acpmux-exe-replaced-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let program = dir.join("server");
+        std::fs::copy("/bin/sleep", &program).unwrap();
+        let mut child = std::process::Command::new(&program).arg("30").spawn().unwrap();
+        let canonical = std::fs::canonicalize(&program).unwrap();
+        // The update: the old file goes, a new one takes its path.
+        std::fs::remove_file(&program).unwrap();
+        std::fs::copy("/bin/sleep", &program).unwrap();
+        let seen = super::exe(child.id());
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = std::fs::remove_dir_all(&dir);
+        let seen = seen.expect("a replaced program still has an executable");
+        assert!(
+            seen == program || seen == canonical,
+            "exe {} is not {}",
+            seen.display(),
+            program.display()
+        );
+    }
+
     #[test]
     fn argv_keeps_each_word_whole() {
         use super::{cmdline_argv, procargs2_argv};
@@ -335,6 +399,13 @@ mod census_tests {
         let mut short = 3i32.to_ne_bytes().to_vec();
         short.extend_from_slice(b"/bin/a\0/bin/a\0b");
         assert!(procargs2_argv(&short).is_none(), "cut short");
+        // The exec path still names the program after an update replaced its file.
+        assert_eq!(super::procargs2_exec_path(&data).unwrap(), std::path::Path::new(app));
+        let mut relative = 1i32.to_ne_bytes().to_vec();
+        relative.extend_from_slice(b"bin/a\0bin/a\0");
+        assert!(super::procargs2_exec_path(&relative).is_none(), "not absolute");
+        assert_eq!(super::undeleted(format!("{app} (deleted)").into()), std::path::Path::new(app));
+        assert_eq!(super::undeleted(app.into()), std::path::Path::new(app));
         assert_eq!(
             cmdline_argv(format!("{app}\0forum-mcp\0").as_bytes()).unwrap(),
             [app, "forum-mcp"]
