@@ -17,15 +17,13 @@ import type { Env } from "./env.ts"
 import { HomePushQueue } from "./home-push.ts"
 import { apnsHomePushSender, decideHomePush, drainHomePush, feedHomePushQuiet } from "./home-push-drain.ts"
 import { CLOSE_RETRY_MS, flushInstallCloses, markAgentClosing, markInstallClosing, nextCloseAt, registerSocketOwner } from "./socket-registry.ts"
-import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
+import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
 import { pullLargeRows, readInboxOp } from "./user-inbox.ts"
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
 import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
-import { InstallAuthorityFanout } from "./install-authority-fanout.ts"
 import { INSTALL_AUTHORITY_CHANGED, installAuthorityVersion } from "./domains/user-authority.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
-import { installAuthorityVersion } from "./domains/user-authority.ts"
 
 const CHALLENGE_TTL_MS = 2 * 60_000
 
@@ -40,7 +38,6 @@ export type RedeemResult = ({ ok: true } & InstallClaims) | { ok: false; code: "
 export type { PresenceKeyBody } from "./user-presence-key.ts"
 
 export class UserDO extends OwnerDO<UserState> {
-  private readonly authorityFanout = new InstallAuthorityFanout(this.ctx.storage.sql, this.env)
   /** UserDO is the revocation authority: it closes a revoked install's sockets itself (afterOp). */
   protected override checksInstallRevocation = false
   /** Second stream `inbox:<user>` (lane 15 E2): Home inbox entries, pins, mutes, archive. */
@@ -116,7 +113,7 @@ export class UserDO extends OwnerDO<UserState> {
     const inbox = this.inbox.nextWakeAt()
     const pending = krlDueAt(this.boundEngine?.currentState, this.krlRetry, Date.now())
     const closes = nextCloseAt(this.ctx.storage.sql, this.closeRetryAt)
-    const times = [inbox, pending, closes, this.homePush.nextDueAt(), this.authorityFanout.nextAt(Date.now())].filter((t): t is number => t !== null)
+    const times = [inbox, pending, closes, this.homePush.nextDueAt()].filter((t): t is number => t !== null)
     return times.length ? Math.min(...times) : null
   }
 
@@ -150,14 +147,14 @@ export class UserDO extends OwnerDO<UserState> {
     this.closeRetryAt = failed ? now + CLOSE_RETRY_MS : null
   }
 
-  /** Stamp accepted install sockets with the current UserDO authority incarnation and grant expiry. */
-  protected override acceptOwnerSocket(entity: string, attachment: Attachment): Response {
-    const principal = attachment.principal
-    if (principal.kind !== "install" || !this.isBound(entity)) return super.acceptOwnerSocket(entity, attachment)
+  /** Stamp accepted install sockets at the shared Worker/self-hosted admission seam. */
+  override acceptSubscriber(server: WebSocket, entity: string, principal: Principal): void {
+    if (principal.kind !== "install") return super.acceptSubscriber(server, entity, principal)
     const state = this.bind(entity).currentState, grant = liveInstallGrant(state, principal, Date.now())
-    if (!grant || !principal.install) return new Response("forbidden", { status: 403 })
+    if (!grant || !principal.install) throw new Error("install authority changed before socket admission")
     const expires_at = Math.min(principal.expires_at ?? Infinity, grant.expires_at ?? Infinity)
-    return super.acceptOwnerSocket(entity, { ...attachment, principal: { ...principal, install_authority: installAuthorityVersion(state, principal.install), ...(Number.isFinite(expires_at) ? { expires_at } : {}) } })
+    super.acceptSubscriber(server, entity, { ...principal, install_authority: installAuthorityVersion(state, principal.install),
+      ...(Number.isFinite(expires_at) ? { expires_at } : {}) })
   }
 
   /**
@@ -184,7 +181,7 @@ export class UserDO extends OwnerDO<UserState> {
     // Each step runs even when an earlier one throws; a failure is logged, then rethrown after all
     // ran, so OwnerDO.alarm still backs off (no hot loop on past-due work) and still reschedules.
     let failure: unknown
-    for (const [step, run] of [["closes", () => this.flushCloses(now)], ["authority", () => this.authorityFanout.run(this.boundEngine!.stream.slice("user:".length), now)], ["home_push", () => this.drainHomePush(now)], ["krl", () => this.deliverKrlNotices(now)]] as const) {
+    for (const [step, run] of [["closes", () => this.flushCloses(now)], ["home_push", () => this.drainHomePush(now)], ["krl", () => this.deliverKrlNotices(now)]] as const) {
       try {
         await run()
       } catch (e) {
@@ -201,8 +198,11 @@ export class UserDO extends OwnerDO<UserState> {
     for (const item of notices) {
       const install = (item.params as { install?: unknown } | null)?.install
       if (source !== `user:${entity}` || typeof install !== "string" || !install || install.length > 200) continue
-      const state = this.bind(entity).currentState
-      this.authorityFanout.enqueue(install, installAuthorityVersion(state, install)); this.scheduleAlarm()
+      this.bind(entity)
+      // Reuse the durable registry's existing close-and-retry queue. Repeated
+      // notices coalesce naturally, and no authority value crosses the RPC.
+      markInstallClosing(this.ctx.storage.sql, install, Date.now())
+      this.scheduleAlarm()
     }
     const rest = items.filter((item) => item.op !== INSTALL_AUTHORITY_CHANGED)
     return { done: [...notices.map((item) => item.id), ...(rest.length ? (await super.systemDeliver(entity, source, rest)).done : [])] }
