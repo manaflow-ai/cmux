@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -10,6 +11,12 @@ import os
 /// whose project set changed. On each new daemon connection it first sends
 /// `project.sync`, which makes the daemon reread the editor sources. It holds
 /// no rule: refusals, merge and the user's overlay are the daemon's.
+///
+/// A failed relay waits a ``Backoff`` before it runs again: index changes in the
+/// wait ride on that one retry, and only a new daemon connection (an event that
+/// can make it succeed) retries at once. Without the wait, a failed sync left
+/// every later relay fresh, and each chat change sent the sync and every list
+/// again (v2.2.10-opt: 5,311 failures in 17 h on a Mac deep in swap).
 @MainActor
 final class ProjectsImport {
     /// One harness's projects: each cwd with its newest chat.
@@ -87,6 +94,10 @@ final class ProjectsImport {
     private var sendAgain = false
     /// The clock a failed relay's retry waits on; tests pass a manual one.
     private let clock: any Clock<Duration>
+    /// The spacing of retries after failures; reset by a success or a new connection.
+    private var backoff = Backoff(initial: .seconds(2), maximum: .seconds(300))
+    /// The wait before a failed relay's retry, and the connection it failed on.
+    private var retry: (connection: ObjectIdentifier, wait: Task<Void, Never>)?
     private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "projects-import")
 
     /// - Parameters:
@@ -102,7 +113,7 @@ final class ProjectsImport {
     var inFlight: Task<Void, Never>? { sending }
 
     /// The wait before a failed relay's retry, if one is pending (tests await it).
-    var pendingRetry: Task<Void, Never>? { nil }
+    var pendingRetry: Task<Void, Never>? { retry?.wait }
 
     /// `services`' local daemon as a ``Target``, nil while it is away or does not list projects.
     private static func localDaemon(_ services: AppServices?) -> Target? {
@@ -137,6 +148,7 @@ final class ProjectsImport {
     // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
         sending?.cancel()
+        retry?.wait.cancel()
     }
 
     /// Follows the chat index and the local daemon connection for the app's life.
@@ -163,7 +175,8 @@ final class ProjectsImport {
         }
     }
 
-    /// One send at a time; a change during one sends again after it.
+    /// One send at a time; a change during one sends again after it. After a failure, nothing
+    /// sends on that connection until its retry wait ends.
     private func relay() {
         guard sending == nil else {
             sendAgain = true
@@ -171,6 +184,13 @@ final class ProjectsImport {
         }
         guard let target = target() else { return }
         let id = target.id, send = target.send
+        if let pending = retry {
+            // The retry at the end of the wait reads the index as it is then: this change rides on it.
+            guard pending.connection != id else { return }
+            pending.wait.cancel()
+            retry = nil
+            backoff.reset()
+        }
         let fresh = connectionID != id
         if fresh { sent = [:] }
         // A copy-on-write snapshot (O(1) here); the walk over every chat runs off the main actor.
@@ -192,9 +212,32 @@ final class ProjectsImport {
         sending = nil
         if ended.synced { connectionID = id }
         if connectionID == id { sent.merge(ended.delivered) { $1 } }
+        guard !ended.failed else {
+            // Changes during the failed send ride on the retry too.
+            sendAgain = false
+            scheduleRetry(on: id)
+            return
+        }
+        backoff.reset()
         if sendAgain {
             sendAgain = false
             relay()
         }
+    }
+
+    /// Runs the relay again once `backoff`'s next wait ends, with no index change needed.
+    private func scheduleRetry(on id: ObjectIdentifier) {
+        let start = backoff, clock = clock
+        // task-owner: the one retry wait, held in `retry`; a new connection or deinit cancels it.
+        let wait = Task { [weak self] in
+            var spacing = start
+            // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
+            do { try await spacing.wait(owner: "projects.import.retry", clock: clock) } catch { return }
+            guard !Task.isCancelled, let self, self.retry?.connection == id else { return }
+            self.backoff = spacing
+            self.retry = nil
+            self.relay()
+        }
+        retry = (id, wait)
     }
 }
