@@ -318,6 +318,46 @@ mod e2_shift_probe {
         panic!("PROBE never stale");
     }
 
+    /// Diagnosis only: the row flags and the cursor right before and after the byte that leaves the stale flag.
+    #[test]
+    fn e2_stale_flag_detail_probe() {
+        fn rows(term: &Terminal) -> String {
+            let sb = term.scrollbar().unwrap();
+            let mut out = format!(
+                "cursor {:?} total {} history {}; ",
+                term.cursor_position(),
+                sb.total,
+                term.history_rows()
+            );
+            for y in sb.total.saturating_sub(8)..sb.total {
+                let w = term.row_flag(sys::GHOSTTY_POINT_TAG_SCREEN, y, sys::GHOSTTY_ROW_DATA_WRAP);
+                let c = term.row_flag(
+                    sys::GHOSTTY_POINT_TAG_SCREEN,
+                    y,
+                    sys::GHOSTTY_ROW_DATA_WRAP_CONTINUATION,
+                );
+                out.push_str(&format!("r{y}:w{}c{} ", w == Some(true), c == Some(true)));
+            }
+            out
+        }
+        let mut term = Terminal::new(20, 5, 1 << 20, Callbacks::default()).unwrap();
+        term.vt_write(PRE);
+        term.resize(164, 14, 8, 16).unwrap();
+        let after_resize = rows(&term);
+        term.vt_write(&POST[..POST.len() - 8]);
+        let mut steps = Vec::new();
+        for b in &POST[POST.len() - 8..] {
+            let before = rows(&term);
+            term.vt_write(std::slice::from_ref(b));
+            steps.push(format!("{:?}: before {before}\n   after {}", *b as char, rows(&term)));
+        }
+        panic!(
+            "PROBE after resize {after_resize}\nPROBE {}\nPROBE viewport {:?}",
+            steps.join("\nPROBE "),
+            term.viewport_text().unwrap()
+        );
+    }
+
     #[test]
     fn e2_shift_probe() {
         let mut term = Terminal::new(20, 5, 1 << 20, Callbacks::default()).unwrap();
