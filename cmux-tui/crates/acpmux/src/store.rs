@@ -1651,7 +1651,9 @@ impl Store for LocalStore {
     }
 
     fn stage_compaction(&self, id: &str, mode: CompactMode) -> Result<Option<Staged>> {
-        let _open = self.writable()?;
+        // Not under the seal: staging writes only copies beside the log, and a large log's
+        // stage would hold a shutdown's seal for as long as it reads (router review of #28503).
+        // The commit that puts them in place is sealed.
         LocalStore::stage_compaction(self, id, mode)
     }
 
