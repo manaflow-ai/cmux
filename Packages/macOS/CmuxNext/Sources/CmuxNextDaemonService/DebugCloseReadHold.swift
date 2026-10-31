@@ -33,9 +33,15 @@ public final class DebugCloseReadHold {
         await withCheckedContinuation { waiting.append($0) }
     }
 
+    /// Arms the hold: every close read from now on waits for ``release()`` (tests; `debug.close.hold`).
+    public func arm() {
+        release()
+        armed = true
+    }
+
     /// Disarms the hold and lets every waiting read go on; returns how many waited.
     @discardableResult
-    func release() -> Int {
+    public func release() -> Int {
         armed = false
         round += 1
         let resumed = waiting
@@ -48,8 +54,7 @@ public final class DebugCloseReadHold {
     public var methods: [ControlMethod] {
         [
             .mainActor("debug.close.hold") { [self] call in
-                release()
-                armed = true
+                arm()
                 var report = call.params.filter { _ in false }
                 report["held"] = .number(0)
                 return .value(.object(report))
