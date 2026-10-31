@@ -1,0 +1,19 @@
+html[data-cmux-page="artifacts"] body { overflow: hidden; }
+.artifacts-page { display: grid; grid-template-columns: minmax(220px, 28%) 1fr; height: 100vh; color: var(--page-text); }
+.artifacts-tree { min-width: 0; border-right: 1px solid var(--page-separator); background: color-mix(in srgb, var(--page-surface) 90%, transparent); }
+.artifacts-tree-header, .artifacts-file-header { display: flex; align-items: baseline; justify-content: space-between; gap: var(--ds-space-3); min-height: var(--ds-control-primary); padding: var(--ds-space-3) var(--ds-space-4); border-bottom: 1px solid var(--page-separator); }
+.artifacts-tree-header span, .artifacts-file-header span, .artifacts-trailers, .artifacts-muted { color: var(--page-text-3); font-size: 12px; }
+#artifacts-file-tree { height: calc(100vh - 52px) !important; --file-tree-row-height: 28px; }
+.artifacts-main { min-width: 0; display: grid; grid-template-rows: auto minmax(180px, 1fr) minmax(180px, 38%); }
+.artifacts-content { margin: 0; overflow: auto; padding: var(--ds-space-4); font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
+.artifacts-frame { width: 100%; height: 100%; border: 0; background: white; }
+.artifacts-message, .artifacts-inline-error { margin: 0; padding: var(--ds-space-4); color: var(--page-text-2); }
+.artifacts-inline-error { border-bottom: 1px solid var(--page-separator); color: var(--page-danger, #d14); }
+.artifacts-history { min-height: 0; overflow: auto; border-top: 1px solid var(--page-separator); padding: var(--ds-space-3) var(--ds-space-4); }
+.artifacts-history h2 { margin: 0 0 var(--ds-space-2); font-size: 13px; }
+.artifacts-commit { padding: var(--ds-space-2) 0; border-top: 1px solid color-mix(in srgb, var(--page-separator) 65%, transparent); }
+.artifacts-commit-meta { display: flex; justify-content: space-between; gap: var(--ds-space-3); font-size: 12px; }
+.artifacts-commit-meta time { color: var(--page-text-3); white-space: nowrap; }
+.artifacts-commit-button { display: block; width: 100%; padding: 0; border: 0; color: inherit; text-align: left; background: transparent; cursor: pointer; }
+.artifacts-commit-button:hover, .artifacts-commit-button:focus-visible { color: var(--page-accent); }
+.artifacts-diff { margin-top: var(--ds-space-2); max-height: 180px; overflow: auto; }

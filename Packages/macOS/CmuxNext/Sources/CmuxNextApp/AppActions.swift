@@ -39,6 +39,7 @@ enum AppActions {
         ListHandlers.bind(into: registry, context: context)
         PasswordHandlers.bind(into: registry, context: context)
         CloudPageHandlers.bind(into: registry, context: context)
+        ArtifactsPageTab.bind(into: registry, context: context)
         ServerHandlers.bind(into: registry, context: context)
         WorkspaceHandlers.bind(into: registry, context: context)
         WorkspaceVerbHandlers.bind(into: registry, context: context)

@@ -86188,6 +86188,18 @@
         }
       }
     },
+    "action.artifacts.show": {
+      "comment": "Command palette: opens the read-only Artifacts Labs pane",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Artifacts as Pane"
+          }
+        }
+      }
+    },
     "action.stats.show": {
       "comment": "Command palette: opens the Agent Stats page (a preview feature)",
       "extractionState": "manual",
