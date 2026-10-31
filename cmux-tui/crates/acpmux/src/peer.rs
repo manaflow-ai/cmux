@@ -1286,42 +1286,36 @@ impl Peer {
                 });
             me.session_messages.store(messages, Ordering::SeqCst);
             // The reader published the reply's list (`watch_key`), so Connected follows it.
-            let watch = |tools| json!({"enabled": true, "withTools": tools});
+            // Without tools: an inventory is read per session, on an attachment (whose
+            // `session_changed` notices carry it) or `_acpmux/info`, never in the list. With
+            // them one host's list was 23 MB for 3,700 rows (2026-10-31), past the message
+            // limit, and every link to it built and was refused one list before reading it
+            // again without them; without them 16.6 MB.
+            let watch = json!({"enabled": true, "withTools": false});
             let row_pages = build.is_some() && *me.row_pages_for.lock_or_recover() == build;
             let first = if row_pages {
                 tracing::info!(peer = %me.name, "the watch list needed pages of rows last time; reading it so");
                 me.watch_row_pages(link).await?;
                 None
             } else {
-                match me.watch_paced(method::MUX_WATCH, watch(true), link).await {
-                    // A list too large to send with tools (big-red's, 17 MB with 5241 rows, on
-                    // 2026-10-30) is read without them: the link connects with its rows' tools
-                    // missing rather than never. A peer on this build leaves its peers' rows out
-                    // of a link's list (`server/list_reply.rs` `watch`), so its list stays small.
+                match me.watch_paced(method::MUX_WATCH, watch, link).await {
+                    // A peer from before #28182 sends a whole list in one message or not at
+                    // all (cosmic-gray's NIGHTLY, 16.4 MB without tools, on 2026-10-30): it is
+                    // read in pages of a count of rows, which such a peer serves.
                     Err(e) if too_large(&e) => {
-                        tracing::warn!(peer = %me.name, "the watch list is too large with tools ({}); reading it without them", e.message);
-                        match me.watch_paced(method::MUX_WATCH, watch(false), link).await {
-                            // A peer from before #28182 sends a whole list in one message or not
-                            // at all (cosmic-gray's NIGHTLY, 16.4 MB without tools, on
-                            // 2026-10-30): it is read in pages of a count of rows, which such a
-                            // peer serves.
-                            Err(e) if too_large(&e) => {
-                                tracing::warn!(peer = %me.name, "the watch list is too large without tools ({}); reading it in pages", e.message);
-                                me.watch_row_pages(link).await?;
-                                *me.row_pages_for.lock_or_recover() = build.clone();
-                                None
-                            }
-                            answer => Some((answer?, false)),
-                        }
+                        tracing::warn!(peer = %me.name, "the watch list is too large ({}); reading it in pages", e.message);
+                        me.watch_row_pages(link).await?;
+                        *me.row_pages_for.lock_or_recover() = build.clone();
+                        None
                     }
-                    answer => Some((answer?, true)),
+                    answer => Some(answer?),
                 }
             };
             // A list too large for one message comes in pages (a peer served as Web, over
             // plain ws://, gets the whole list): every page is read before the link connects,
             // and the reader publishes the list once, whole, after the last.
-            if let Some((first, tools)) = first {
-                me.watch_pages(first, tools, link).await?;
+            if let Some(first) = first {
+                me.watch_pages(first, link).await?;
             }
             // Connected only now, and ready with it, so its state note follows `connected`.
             // `run` moves the epoch on before it clears `connected` and takes the link down, so
@@ -1681,14 +1675,14 @@ impl Peer {
     /// Reads every page after the watch reply `first` with `_acpmux/sessions {cursor}` on link
     /// `link`; the reader gathers their rows (`watch_key`). A cursor given twice, or one that is
     /// not a string, is an error that ends the handshake, never a loop or a short list.
-    async fn watch_pages(&self, first: Value, tools: bool, link: u64) -> Result<(), RpcError> {
+    async fn watch_pages(&self, first: Value, link: u64) -> Result<(), RpcError> {
         let (mut seen, mut next) = (HashSet::new(), page_cursor(&first)?);
         while let Some(cursor) = next {
             if !seen.insert(cursor.clone()) {
                 let why = format!("the peer gave the watch page cursor {cursor:?} twice");
                 return Err(RpcError::internal(why));
             }
-            let params = json!({"withTools": tools, "cursor": cursor});
+            let params = json!({"withTools": false, "cursor": cursor});
             let page = self.watch_request_on(method::MUX_SESSIONS, params, link).await?;
             next = page_cursor(&page)?;
         }

@@ -50,10 +50,12 @@ fn fake_peer_with(
     })
 }
 
-/// A watch list too large to send with tools is asked for again without them: the link
-/// connects, with the rows of that list, instead of timing out.
+/// A link's watch list is asked for without tools from the start: an inventory is read per
+/// session (`_acpmux/info`, an attachment's notices), and with them one host's list was 23 MB,
+/// past the message limit (2026-10-31). The link connects on one watch, with every row, from a
+/// peer that would refuse the list with tools as too large.
 #[tokio::test]
-async fn a_watch_list_too_large_with_tools_is_read_without_them() {
+async fn a_watch_list_is_asked_for_without_tools_from_the_start() {
     let (tx, mut notices) = mpsc::channel(64);
     let peer = Peer::new("big", "ws://127.0.0.1:9", None, None, tx);
     let (ours, theirs) = tokio::io::duplex(1 << 16);
@@ -91,8 +93,8 @@ async fn a_watch_list_too_large_with_tools_is_read_without_them() {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["sessionId"], "m1");
     assert!(peer.link().is_ready());
-    assert_eq!(asked.recv().await, Some(true));
     assert_eq!(asked.recv().await, Some(false));
+    assert!(asked.try_recv().is_err(), "one watch, never one with tools");
     serving.abort();
     fake.abort();
 }
@@ -592,14 +594,14 @@ async fn an_old_peer_that_paces_its_lists_links_inside_the_handshake_deadline() 
 }
 
 /// A peer whose list the last handshake read in pages of rows is read so at once the next time
-/// (the same build): no whole list is asked for, so neither is built and refused.
+/// (the same build): no whole list is asked for, so none is built and refused.
 #[tokio::test(start_paused = true)]
 async fn a_peer_whose_list_needed_pages_of_rows_is_read_in_them_at_once_next_time() {
     let (tx, mut notices) = mpsc::channel(64);
     let peer = Peer::new("cosmic", "ws://127.0.0.1:9", None, None, tx);
     let first = Arc::new(Asked::default());
     link_to_paced_old_peer(&peer, &mut notices, first.clone()).await.expect("the first link");
-    assert_eq!(first.whole.load(Ordering::SeqCst), 2, "with tools, then without");
+    assert_eq!(first.whole.load(Ordering::SeqCst), 1, "one whole list, without tools");
     let again = Arc::new(Asked::default());
     let (took, rows) =
         link_to_paced_old_peer(&peer, &mut notices, again.clone()).await.expect("the next link");
