@@ -1,7 +1,7 @@
 use super::*;
+use cmux_process::{Command, Stdio};
 use std::io::{Read as _, Write as _};
 use std::os::fd::AsRawFd as _;
-use std::process::{Command, Stdio};
 
 const FIXTURE_SOCKET: &str = "CMUX_SUPERVISED_CHILD_TEST_SOCKET";
 

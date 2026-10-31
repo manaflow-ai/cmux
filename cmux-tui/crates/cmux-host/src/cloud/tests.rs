@@ -307,12 +307,12 @@ fn vm_receiver_client_existing_bind_auth_report_and_refresh_keep_working() {
     let mut store = MemoryStore::default();
     store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
     let key = ensure_install_key(&mut store, "i-original", &rng).unwrap().key;
-    let BindResult::Bound(bound) = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), T0)
-    else {
-        panic!("original bind failed")
-    };
+    let bound = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), T0);
+    assert!(matches!(bound, BindResult::Bound(_)), "original bind failed");
     let saved: Bound = serde_json::from_str(&store.read(BOUND_FILE).unwrap()).unwrap();
-    assert_eq!(*bound, saved);
+    if let BindResult::Bound(bound) = bound {
+        assert_eq!(*bound, saved);
+    }
     let mut client = CloudClient::new(fake.clone(), saved, key);
     let report = OpRequest {
         op: STATUS_REPORT_OP,
