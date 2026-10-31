@@ -1,0 +1,132 @@
+{
+ "id": "r3x-region-reopen",
+ "priority": "P1",
+ "title": "Step-17 split (b): the window at 70%, no drag, the E2 scroll region output (DECSTBM 3;10, ends in cat), quit and reopen: the workspace comes back",
+ "why": "r3-e2-reattach failed 6 of 6 valid rounds at step 17 on f2f3083b: after the quit the app showed 'No workspaces'. This keeps only its scroll region output.",
+ "source": "cmux-ad P0 2026-10-31 (Lawrence on v2.2.11-opt: resizing terminals is broken); R3 invariant",
+ "budget_seconds": 240,
+ "steps": [
+  {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "key",
+   "title": "Cmd-N: a new workspace",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "ws0"
+  },
+  {
+   "do": "expect",
+   "title": "the new workspace shows",
+   "since": "ws0",
+   "timeout": 20,
+   "all": [
+    {
+     "smoke_workspaces": {
+      "new": 1
+     }
+    }
+   ]
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "jr-r3-e2r"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo base-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "base-${nonce}",
+   "as": "main"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 70% x 70% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.7,
+    0.7
+   ]
+  },
+  {
+   "do": "expect",
+   "title": "the terminal fits the placed window",
+   "timeout": 15,
+   "settle": 1.5,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "main"
+     }
+    }
+   ]
+  },
+  {
+   "do": "remember",
+   "as": "start",
+   "pane": "main"
+  },
+  {
+   "do": "type",
+   "text": "printf '\\033[3;10r'; for i in 1 2 3 4 5 6 7 8 9 10 11 12; do printf 'in-%02d region\\n' $i; done; printf '\\e7\\033[%d;1HNu-out-${nonce}\\e8' $(tput lines); printf '\\033[5;1H'; echo e2r-${nonce}; cat",
+   "enter": true
+  },
+  {
+   "do": "expect",
+   "title": "the region output and the out-of-region row are on the daemon's screen",
+   "timeout": 15,
+   "all": [
+    {
+     "daemon_contains": "e2r-${nonce}"
+    },
+    {
+     "daemon_contains": "Nu-out-${nonce}"
+    }
+   ]
+  },
+  {
+   "do": "relaunch",
+   "how": "quit",
+   "mark": "reopen"
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "e2r-${nonce}",
+   "as": "again"
+  },
+  {
+   "do": "expect",
+   "title": "after the reopen: the workspace and its terminal came back",
+   "since": "reopen",
+   "timeout": 30,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "again"
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}

@@ -1,0 +1,160 @@
+{
+ "id": "r3x-grow-reopen",
+ "priority": "P1",
+ "title": "Step-17 split (a): small window, grow it by a drag, a plain line (no scroll region), quit and reopen: the workspace comes back",
+ "why": "r3-e2-reattach failed 6 of 6 valid rounds at step 17 on f2f3083b: after the quit the app showed 'No workspaces'. This keeps only its window grow.",
+ "source": "cmux-ad P0 2026-10-31 (Lawrence on v2.2.11-opt: resizing terminals is broken); R3 invariant",
+ "budget_seconds": 240,
+ "steps": [
+  {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "key",
+   "title": "Cmd-N: a new workspace",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "ws0"
+  },
+  {
+   "do": "expect",
+   "title": "the new workspace shows",
+   "since": "ws0",
+   "timeout": 20,
+   "all": [
+    {
+     "smoke_workspaces": {
+      "new": 1
+     }
+    }
+   ]
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "jr-r3-e2r"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo base-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "base-${nonce}",
+   "as": "main"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: a small window (25% x 30%)",
+   "fraction": [
+    0.05,
+    0.05,
+    0.25,
+    0.3
+   ]
+  },
+  {
+   "do": "expect",
+   "title": "the small terminal fits",
+   "timeout": 15,
+   "settle": 1.5,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "main"
+     }
+    }
+   ]
+  },
+  {
+   "do": "remember",
+   "as": "start",
+   "pane": "main"
+  },
+  {
+   "do": "type",
+   "text": "seq -f 'pre-%02g' 1 8",
+   "enter": true
+  },
+  {
+   "do": "window_drag",
+   "title": "grow the window: drag the corner 900 right, 300 down",
+   "by": [
+    900,
+    300
+   ],
+   "events": 30,
+   "mark": "grow"
+  },
+  {
+   "do": "expect",
+   "title": "the grown terminal fits",
+   "since": "grow",
+   "timeout": 20,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "main",
+      "vs": "start",
+      "cols": "wider"
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "echo plain-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "expect",
+   "title": "the plain line is on the daemon's screen",
+   "timeout": 15,
+   "all": [
+    {
+     "daemon_contains": "plain-${nonce}"
+    }
+   ]
+  },
+  {
+   "do": "relaunch",
+   "how": "quit",
+   "mark": "reopen"
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "plain-${nonce}",
+   "as": "again"
+  },
+  {
+   "do": "expect",
+   "title": "after the reopen: the workspace and its terminal came back",
+   "since": "reopen",
+   "timeout": 30,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "again"
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}
