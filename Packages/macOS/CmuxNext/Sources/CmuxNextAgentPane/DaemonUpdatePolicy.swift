@@ -6,7 +6,7 @@ import os
 
 /// After the app updates, brings other machines' daemons to the app's own build, in the
 /// background. One policy for every kind of machine (``DaemonUpdateTarget``), and one instance per
-/// app (``shared``) that every source feeds with ``offer(_:)``:
+/// app (``DaemonUpdates/policy``, made once by `AppServices`) that every source feeds with ``offer(_:)``:
 ///
 /// - the trigger: a target whose build is another commit than the app's bundled build (a dirty
 ///   bundled build never pushes); an ``DaemonUpdateTarget/urgent`` target also with no known build.
@@ -40,7 +40,7 @@ public actor DaemonUpdatePolicy {
         public var targets: @Sendable () async -> [any DaemonUpdateTarget]
         /// `agent.updatePeers`.
         public var enabled: @Sendable () -> Bool
-        /// Each target's state as it changes (``DaemonUpdateBoard``).
+        /// Each target's state as it changes (the app's ``DaemonUpdateBoard``).
         public var report: @Sendable (DaemonUpdateEvent) async -> Void
         /// Where ``DaemonUpdateLedger`` lives.
         public var directory: URL
@@ -57,7 +57,7 @@ public actor DaemonUpdatePolicy {
         public init(bundledBuild: @escaping @Sendable () async -> String?,
                     targets: @escaping @Sendable () async -> [any DaemonUpdateTarget] = DaemonUpdatePolicy.noTargets,
                     enabled: @escaping @Sendable () -> Bool = { AgentPaneTunables.updatePeersAutomatically.value },
-                    report: @escaping @Sendable (DaemonUpdateEvent) async -> Void = DaemonUpdatePolicy.showOnBoard,
+                    report: @escaping @Sendable (DaemonUpdateEvent) async -> Void,
                     directory: URL = DaemonUpdatePolicy.defaultDirectory, clock: any Clock<Duration> = ContinuousClock()) {
             self.bundledBuild = bundledBuild
             self.targets = targets
@@ -73,11 +73,6 @@ public actor DaemonUpdatePolicy {
     /// No targets: ``Dependencies/targets`` by default.
     @Sendable public nonisolated static func noTargets() async -> [any DaemonUpdateTarget] { [] }
 
-    /// Applies `event` to ``DaemonUpdateBoard/shared``: ``Dependencies/report`` by default.
-    @Sendable public nonisolated static func showOnBoard(_ event: DaemonUpdateEvent) async {
-        await MainActor.run { DaemonUpdateBoard.shared.apply(event) }
-    }
-
     /// `daemon-update` in this build's own Application Support directory (``BuildIdentity``).
     public nonisolated static let defaultDirectory: URL = {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -85,9 +80,6 @@ public actor DaemonUpdatePolicy {
         return BuildIdentity(bundle: .main).appSupport(support.appendingPathComponent("cmux", isDirectory: true))
             .appendingPathComponent("daemon-update", isDirectory: true)
     }()
-
-    // lint:allow one policy per app process: every machine's update goes through its one queue, one at a time
-    public nonisolated static let shared = DaemonUpdatePolicy(Dependencies(bundledBuild: { await DaemonUpdatePolicy.bundledAcpmuxBuild() }))
 
     /// The bundled acpmux's build (the binary `acpmux host update` pushes); nil when the app has none.
     nonisolated static func bundledAcpmuxBuild() async -> String? {

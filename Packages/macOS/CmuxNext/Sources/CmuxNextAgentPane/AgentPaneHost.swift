@@ -158,6 +158,9 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// the handshake fails as ``AgentPaneHostError/chiefStarting`` and the page retries, instead
     /// of waiting for someone to open Home (#25570). Nil: nobody to ask.
     private let startOwner: (@Sendable () async -> Bool)?
+    /// The app's local daemons (``AcpmuxLocalDaemons``): its marks say restarting in Settings while
+    /// a handoff runs; it keeps two Restart acpmux from stopping two daemons.
+    private let daemons: AcpmuxLocalDaemons
     /// Stops this app's own daemon when a person asks (``restartStuckAcpmux(sessionId:)``); one per host.
     private let daemonStop = AcpmuxDaemonStop()
     /// Sends the Computer Use endpoint to the daemon (`AcpmuxComputerUse.enroll`; a recorder in tests).
@@ -166,12 +169,13 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     private let peerApprover: AgentPanePeerApprover?
 
     /// - Parameters:
+    ///   - daemons: the app's one ``AcpmuxLocalDaemons``, shared by every host.
     ///   - healReplaced: called once per daemon pid when a daemon this
     ///     host does not start (`startsDaemons: false`) runs from a replaced bundle.
     ///   - startOwner: called when nothing listens on the socket of a daemon this host does not
     ///     start: asks its owner to start it; true when a start is on its way.
     ///   - peerApprover: the app's approver key, given to each daemon this host connects.
-    public init(environment: AcpmuxEnvironment?, startsDaemons: Bool = true,
+    public init(daemons: AcpmuxLocalDaemons, environment: AcpmuxEnvironment?, startsDaemons: Bool = true,
                 healReplaced: (@Sendable () async -> Bool)? = nil,
                 startOwner: (@Sendable () async -> Bool)? = nil, peerApprover: AgentPanePeerApprover? = nil) {
         self.resolveEnvironment = { environment }
@@ -184,12 +188,14 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.startsDaemons = startsDaemons
         self.healReplaced = healReplaced
         self.startOwner = startOwner
+        self.daemons = daemons
         self.peerApprover = peerApprover
     }
 
     /// Looks for acpmux (bundled, PATH, install directories) on the actor,
-    /// off the main thread, at the first handshake that needs it.
-    public init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
+    /// off the main thread, at the first handshake that needs it. `daemons`: the app's one
+    /// ``AcpmuxLocalDaemons``, shared by every host.
+    public init(daemons: AcpmuxLocalDaemons, resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
                 computerUse: @escaping @Sendable () -> [String: String] = { [:] },
                 offersSessionTools: @escaping @Sendable () -> Bool = { AgentPaneSuggestedTasks.forNextDaemon.isOn },
                 agentPairGuard: @escaping @Sendable () -> Bool = { AgentPaneTunables.agentPairGuard.value },
@@ -197,13 +203,13 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                     (Int(AgentPaneTunables.agentPairCap.value), Int(AgentPaneTunables.agentPairWindow.value))
                 },
                 daemonReady: (@Sendable (String) async -> Void)? = nil, peerApprover: AgentPanePeerApprover? = nil) {
-        self.init(resolve: resolve, computerUse: computerUse, offersSessionTools: offersSessionTools,
+        self.init(daemons: daemons, resolve: resolve, computerUse: computerUse, offersSessionTools: offersSessionTools,
                   agentPairGuard: agentPairGuard, agentPairCap: agentPairCap, daemonReady: daemonReady,
                   enrollComputerUse: { await AcpmuxComputerUse.enroll($0) }, peerApprover: peerApprover)
     }
 
     /// `enrollComputerUse` sends the Computer Use endpoint (a recorder in tests).
-    init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
+    init(daemons: AcpmuxLocalDaemons, resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
          computerUse: @escaping @Sendable () -> [String: String] = { [:] },
          offersSessionTools: @escaping @Sendable () -> Bool = { AgentPaneSuggestedTasks.forNextDaemon.isOn },
          agentPairGuard: @escaping @Sendable () -> Bool = { AgentPaneTunables.agentPairGuard.value },
@@ -222,6 +228,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.startsDaemons = true
         self.healReplaced = nil
         self.startOwner = nil
+        self.daemons = daemons
         self.peerApprover = peerApprover
     }
 
@@ -294,7 +301,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         guard startsDaemons else { return false }
         if environment == nil { environment = resolveEnvironment() }
         guard let environment, !environment.isAttached, owner.socketPath == environment.socketPath else { return false }
-        return await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner)
+        return await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner, daemons: daemons)
     }
 
     /// The person's "Restart agent service" while a pane waits for this host's daemon: only this
@@ -343,13 +350,13 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if let healReplaced {
             heal = { @Sendable (pid: Int32) async -> Bool in await self.healOnce(pid: pid, healReplaced) }
         }
-        let (startOwner, approver) = (startOwner, peerApprover)
+        let (startOwner, approver, daemons) = (startOwner, peerApprover, daemons)
         let daemonReady = daemonReady
         // The lookup itself tells `daemonReady`, so a caller that stops waiting (its cancel) never
         // skips it for the others.
         let task = Task {
-            let endpoint = try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal,
-                                                      startOwner: startOwner, approver: approver)
+            let endpoint = try await Self.findOrStart(environment, daemons: daemons, startsDaemon: startsDaemon, owned: owned,
+                                                      heal: heal, startOwner: startOwner, approver: approver)
             await daemonReady(daemonSocket)
             return endpoint
         }
@@ -495,8 +502,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// then made every chat reload and the load worse. So the status calls here wait for the
     /// answer, and a daemon that exits closes the connection, which ends the wait; the pane shows
     /// that it is connecting meanwhile, and every pane that asks shares this one lookup.
-    /// - Parameter approver: gets this Mac's approver key to the daemon found or started; nil: none.
-    private static func findOrStart(_ environment: AcpmuxEnvironment, startsDaemon: Bool, owned: Bool,
+    /// - Parameters:
+    ///   - daemons: where a handoff or takeover marks the home restarting (Settings' daemon line).
+    ///   - approver: gets this Mac's approver key to the daemon found or started; nil: none.
+    private static func findOrStart(_ environment: AcpmuxEnvironment, daemons: AcpmuxLocalDaemons, startsDaemon: Bool, owned: Bool,
                                     heal: (@Sendable (Int32) async -> Bool)?,
                                     startOwner: (@Sendable () async -> Bool)? = nil,
                                     approver: AgentPanePeerApprover? = nil) async throws -> AcpmuxWebEndpoint {
@@ -505,7 +514,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         // This lookup took a stray daemon over or handed a stale one off: Settings' daemon line
         // says restarting until it ends.
         var handedOff = false
-        defer { if handedOff { AcpmuxDaemonSummary.mark(home: environment.home, restarting: false) } }
+        defer { if handedOff { daemons.mark(home: environment.home, restarting: false) } }
         do {
             let status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath, deadline: nil)
             // A daemon of another acpmux home answers on this socket: it is another app's or
@@ -549,8 +558,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             // After an update, or for this launch's person key (`AcpmuxPersonKey`): a daemon
             // that cannot take the key is handed off and ours starts with it. A daemon no cmux
             // install runs (`~/.local/bin/acpmux`) is taken over first (`AcpmuxStrayDaemon`).
-            let stray = await AcpmuxStrayDaemon.handOffIfStray(status, environment: environment)
-            let stale = stray ? true : await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment)
+            let stray = await AcpmuxStrayDaemon.handOffIfStray(status, environment: environment, daemons: daemons)
+            let stale = stray ? true : await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment, daemons: daemons)
             handedOff = stale
             let stopped = stale ? true : await AcpmuxPersonKey.enroll(status, environment: environment)
             guard stopped else {
