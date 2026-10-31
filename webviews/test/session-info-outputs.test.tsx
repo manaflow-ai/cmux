@@ -132,7 +132,7 @@ test("every Outputs row opens what it names: artifacts in the side panel, files 
 
   const link = outputs.querySelector<HTMLAnchorElement>("a.acpmux-session-info-row")!;
   expect(link.getAttribute("href")).toBe("https://cmux.com/docs/session-info");
-  expect(link.textContent).toBe(`cmux.com/docs/sessionInfo${translate("sessionInfo.outputs.link")}`);
+  expect(link.textContent).toBe(`cmux.com/docs/session-info${translate("sessionInfo.outputs.link")}`);
 });
 
 test("without a diff opener, changed files stay readable plain output rows", async () => {
