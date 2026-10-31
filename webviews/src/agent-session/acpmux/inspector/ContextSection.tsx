@@ -4,7 +4,7 @@
 // (`summary.contextBreakdown`) splits it by category, with the MCP tools, memory files and skills
 // it names under folds; without one, the parts are what is used and the free space. The composer's
 // context ring draws the same breakdown in its details (ComposerPickers ContextRing). Where the agent
-// lists `/compact`, Compact ends it, as the ring's card offers it (Leo, 2026-10-28: "You don't have
+// lists `/compact`, Compact ends it; the ring's card has none (Leo, 2026-10-28: "You don't have
 // the compact session").
 import { useState } from "react";
 import { useT } from "../i18n";
@@ -192,7 +192,7 @@ export function ContextSection({
   /// Sends the chat's agent its `/compact` (App.tsx `compactChat`); unset where the agent lists no
   /// compact command or the chat cannot be sent to, so no Compact shows.
   onCompact?: () => void;
-  /// A turn runs: Compact is off until it ends, as the composer ring's card has it (ContextCard).
+  /// A turn runs: Compact is off until it ends.
   working?: boolean;
 }) {
   const t = useT();

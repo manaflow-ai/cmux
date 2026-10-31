@@ -471,11 +471,15 @@
   line-height: var(--text-control--line-height);
   letter-spacing: var(--text-control--letter-spacing);
 }
-.acpmux-composer-bar .acpmux-mode-text {
+/* The mode chip names its mode in every row that shows the label: the chat's bar and New Tab's
+   Codex row (.nt-pickers). Without .nt-pickers here New Tab's trigger kept the icon-only 34 px width
+   above and its centred, clipped label read "s pern" for "Bypass permissions" (Leo 2026-10-31:
+   "OURS IS F***ING SHIT"). test/composer-codex-row.test.ts checks the label is drawn whole. */
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-mode-text {
   display: inline;
   white-space: nowrap;
 }
-.acpmux-composer-bar .acpmux-access-trigger {
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-access-trigger {
   position: relative;
   width: auto;
   gap: 4px;
