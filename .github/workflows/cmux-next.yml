@@ -1948,6 +1948,8 @@ jobs:
             bash scripts/cmux-next/tests/rust-daemon-miss-builds.test.sh
             bash scripts/cmux-next/tests/build-cmux-tui-client.test.sh
             bash scripts/cmux-next/tests/cef-manifest-r2.test.sh
+            # The Chromium staleness guard (cmux-next-chromium-staleness.yml) fails a pin 2+ stable majors behind.
+            python3 -I tests/test_chromium_staleness.py
             # The herdr-derived agent plugin's vendored manifests match their pin.
             python3 -I scripts/cmux-next/herdr-sync.py check
             python3 -I scripts/cmux-next/tests/test_herdr_sync.py
@@ -3294,8 +3296,11 @@ jobs:
       # mini, CMUX_TEST_REQUIRE_GUI=1 turns a lost display into a failure
       # instead of a silent skip. Blacksmith and hosted labels
       # keep the skip: nothing has shown that they have a display session.
+      # Not on a pull request: display tests gate no PR (Leo, 2026-10-31: "i dont like doing display
+      # tests anymore"), so a PR's display suites skip, and a lost display never fails a PR job. Pushes
+      # and nightlies keep the requirement as advisory coverage.
       - name: Require the GUI session on a mini
-        if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') }}
+        if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') && github.event_name != 'pull_request' }}
         shell: bash
         run: echo "CMUX_TEST_REQUIRE_GUI=1" >> "$GITHUB_ENV"
 
@@ -3879,8 +3884,11 @@ jobs:
       # mini, CMUX_TEST_REQUIRE_GUI=1 turns a lost display into a failure
       # instead of a silent skip. Blacksmith and hosted labels
       # keep the skip: nothing has shown that they have a display session.
+      # Not on a pull request: display tests gate no PR (Leo, 2026-10-31: "i dont like doing display
+      # tests anymore"), so a PR's display suites skip, and a lost display never fails a PR job. Pushes
+      # and nightlies keep the requirement as advisory coverage.
       - name: Require the GUI session on a mini
-        if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') }}
+        if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') && github.event_name != 'pull_request' }}
         shell: bash
         run: echo "CMUX_TEST_REQUIRE_GUI=1" >> "$GITHUB_ENV"
 
@@ -4289,8 +4297,11 @@ jobs:
       # mini, CMUX_TEST_REQUIRE_GUI=1 turns a lost display into a failure
       # instead of a silent skip. Blacksmith and hosted labels
       # keep the skip: nothing has shown that they have a display session.
+      # Not on a pull request: display tests gate no PR (Leo, 2026-10-31: "i dont like doing display
+      # tests anymore"), so a PR's display suites skip, and a lost display never fails a PR job. Pushes
+      # and nightlies keep the requirement as advisory coverage.
       - name: Require the GUI session on a mini
-        if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') }}
+        if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') && github.event_name != 'pull_request' }}
         shell: bash
         run: echo "CMUX_TEST_REQUIRE_GUI=1" >> "$GITHUB_ENV"
 
@@ -6482,9 +6493,14 @@ jobs:
           API: ${{ github.api_url }}/repos/${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           RESULTS: https://gh-events.cmux.com/compile-checks/v1
+          # The pull request this head belongs to (empty on a push). A head whose run the controller never
+          # saw has no check; a read that names its pull request has the controller queue one
+          # (cmuxterm-hq#5571), instead of this step waiting 40 minutes for a check that never comes.
+          PR: ${{ github.event.pull_request.number }}
         run: |
           set -uo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Compile check::bad head sha '$SHA'"; exit 1; }
+          [[ -z "${PR:-}" || "$PR" =~ ^[1-9][0-9]*$ ]] || PR=""
           # One deadline for the pending post and the wait (40 min); the terminal post comes after it
           # (at most 110 s), so the step (50 min) and the App token (60 min) always outlast both.
           deadline=$((SECONDS + ${WAIT_SECONDS:-2400}))
@@ -6509,7 +6525,7 @@ jobs:
             # and a 404 (no result yet) is retried by curl inside the same bound.
             if ! timeout "$left" curl -sS --fail --connect-timeout 10 --max-time "$((wait + 30))" \
                 --retry 60 --retry-delay 30 --retry-max-time "$left" --retry-all-errors \
-                -o "$reply" "$RESULTS/$SHA?repo=${REPO/\//%2F}&wait=$wait"; then
+                -o "$reply" "$RESULTS/$SHA?repo=${REPO/\//%2F}${PR:+&pr=$PR}&wait=$wait"; then
               echo "::warning title=Compile check::no result for $SHA from the controller (attempt $attempt)"
               continue
             fi
