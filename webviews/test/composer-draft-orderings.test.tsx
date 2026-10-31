@@ -588,6 +588,35 @@ test("a read asked before an edit's write was answered never puts the old draft 
   expect(held).toBe("buy bread");
 });
 
+test("a quit after a reconnect took another pane's draft never writes it over that pane's later one", async () => {
+  // cmux#28204 review at 9df3d754: the page saved "A", a reconnect showed another pane's "B", that
+  // pane then saved "C"; the quit compared "B" with the page's old "A" and wrote "B" over "C".
+  const sessionId = "ordering-quit-after-remote";
+  const { state, actions } = gatedDaemon("v0");
+  page().cmuxAcpmuxActions = actions as never;
+  await act(async () => notifyDraftActionsChanged());
+  const handle = await render(sessionId);
+  await until(() => prompt() === "v0", "the saved draft");
+  await act(async () => markdownField()!.type(""));
+  await type("A");
+  await until(() => prompt() === "A", "the edit");
+  await settle();
+  await settle();
+  expect(state.held).toBe("A");
+  delete page().cmuxAcpmuxActions;
+  await act(async () => notifyDraftActionsChanged());
+  state.held = "B";
+  page().cmuxAcpmuxActions = actions as never;
+  await act(async () => notifyDraftActionsChanged());
+  await until(() => prompt() === "B", "the other pane's draft");
+  await settle();
+  state.held = "C";
+  await act(async () => handle.current!.settleDraft());
+  await settle();
+  expect(state.held).toBe("C");
+  expect(state.written).not.toContain("B");
+});
+
 test("a saved draft and typed text that fit the limit exactly: merged and written", async () => {
   const sessionId = "ordering-at-limit";
   const saved = "s".repeat(LIMIT - 3);

@@ -308,6 +308,16 @@ export function lastQueuedDraftText(sessionId: string): string | undefined {
 }
 
 /** A composer left `sessionId` (another chat, or the pane closed): its queued text is not compared again. */
+/** A read found the prompt as acpmux holds it (`text`), with nothing of the page's on its way: that
+ * is what a quit compares the editor with from here (lastQueuedDraftText), not an older write of the
+ * page's. Before (cmux#28204 review at 9df3d754), a reconnect that took another pane's "B" kept the
+ * page's older "A" there, so a quit wrote "B" over that pane's later "C". */
+export function noteDraftHeld(sessionId: string, text: string): void {
+  if (hasPendingDraftWrite(sessionId)) return;
+  if (text) lastQueuedDraft.set(sessionId, text);
+  else lastQueuedDraft.delete(sessionId);
+}
+
 export function forgetQueuedDraft(sessionId: string | undefined): void {
   if (sessionId) lastQueuedDraft.delete(sessionId);
 }

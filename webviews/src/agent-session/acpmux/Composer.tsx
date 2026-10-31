@@ -90,6 +90,7 @@ import {
   draftFits,
   mergedDraft,
   noteDraftEdited,
+  noteDraftHeld,
   noteDraftKeptApart,
   noteDraftSent,
   readDurableDraftState,
@@ -791,6 +792,7 @@ export function Composer({
     hydratedText.current = next.text;
     // A local remount cache or keystroke arrived before the daemon read: preserve it durably.
     if (next.write) writePersistedDraft(session, next.text);
+    else if (session && next.text === (saved ?? "")) noteDraftHeld(session, next.text);
     // After the write: a chat with nothing on its way to acpmux is settled (edits and sends
     // forgotten); one with a write out stays the page's until a later read finds it answered.
     markDraftRead(session);
