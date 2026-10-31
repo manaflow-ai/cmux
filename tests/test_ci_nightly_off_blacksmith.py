@@ -26,10 +26,32 @@ SWITCH_OFF = {"CI_CLOUD_OVERFLOW_SAVED": []}
 OVERFLOW_UNREAD = ("ci-cloud-overflow-probe.yml#probe",)
 LINUX_LABEL = re.compile(r"blacksmith-\d+vcpu-ubuntu-\d{4}|ubuntu-24\.04")
 # The nightly jobs that hold no release secrets and need no Mac.
-LIGHT_NIGHTLY_JOBS = ("decide", "resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
+LIGHT_NIGHTLY_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
                       "pick-nightly-build-runner", "prepare-nightly-variant-primary",
                       "prepare-nightly-variant", "pick-nightly-sign-runner",
                       "find-nightly-next-recovery")
+
+# A runs-on term that can put a nightly job on our own fleet: the owned nightly slot or side lane, or a picker's or
+# placement's owned output (pick-nightly-build-runner, pick-nightly-sign-runner, build-nightly-app's light placement).
+FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER|vars\.CI_SIDE_LANE_RUNNER|vars\.CI_LIGHT_LANE_RUNNER"
+                         r"|needs\.[\w-]+\.outputs\.(?:owned|light_mini_runner|mini_runner|runs_on|helper|dedicated)\b"
+                         r"|matrix\.")
+# nightly.yml jobs whose only route is still Blacksmith Linux, as of 2026-10-31. Debt to move onto the fleet (portable
+# placement, #29130/#29436), never to grow: a new nightly job on Blacksmith Linux alone fails, and an entry that has
+# gained a fleet route (or no longer exists) must leave this list. decide left it first: run 41234993713 queued it on
+# blacksmith-32vcpu-ubuntu-2404 with no fleet route, and every other nightly job waits on it.
+BLACKSMITH_LINUX_ONLY_DEBT = frozenset({
+    "promote-nightly-next", "await-release-surface-ack", "promote-nightly-next-acked",
+    "resolve-nightly-ghostty-cli-helper", "build-nightly-inputs", "pick-nightly-build-runner",
+    "attest-nightly-remote-daemon", "resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary",
+    "prepare-nightly-variant", "pick-nightly-sign-runner", "signer-build", "signer-app", "signer-app-notary",
+    "signer-dmg", "find-nightly-next-recovery", "route-visual-gate-nightly", "visual-gate-nightly-verdict",
+    "report-visual-gate-nightly", "publish-nightly", "publish-nightly-next-github",
+    "publish-nightly-next-github-names", "keep-published-dsyms", "legacy-identity-target",
+    "publish-nightly-identity-legacy", "nightly-identity-legacy-published", "republish-nightly-deltas",
+    "published-in", "sign-release-notes", "publish-release-notes", "publish-nightly-reel",
+    "report-nightly-failure", "close-nightly-failure-issue",
+})
 
 SINGLE_HOST = re.compile(r"cmux22|glaeda-runner-[a-z0-9][a-z0-9-]*", re.IGNORECASE)
 OLD_NIGHTLY_RUNNER = re.compile(r"CI_NIGHTLY_(?:NEXT_)?TRUSTED_(?:POOL|RUNNER)")
@@ -215,6 +237,23 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 self.assertTrue(steps["Put llvm-lipo on PATH as lipo"]["if"].startswith("runner.os == 'Linux' && "))
                 restore = steps["Restore unsigned nightly products"]["run"]
                 self.assertIn('if [ "$RUNNER_OS" = Linux ]; then', restore)
+
+    def test_no_new_nightly_job_rides_blacksmith_linux_alone(self) -> None:
+        """No pins: a nightly job needs a fleet route ahead of its Blacksmith Linux label.
+
+        The light-job test above only checked that these jobs stay on Linux, so decide's literal
+        blacksmith-32vcpu-ubuntu-2404 pin passed it. This ratchets BLACKSMITH_LINUX_ONLY_DEBT down."""
+        import yaml
+        jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
+        alone = {name for name, job in jobs.items()
+                 if re.search(r"blacksmith-\d+vcpu-ubuntu", str((job or {}).get("runs-on") or ""))
+                 and not FLEET_ROUTE.search(str(job.get("runs-on")))}
+        self.assertEqual(sorted(alone - BLACKSMITH_LINUX_ONLY_DEBT), [],
+                         "these nightly jobs can only take Blacksmith Linux: give them a fleet route first")
+        self.assertEqual(sorted(BLACKSMITH_LINUX_ONLY_DEBT - alone), [],
+                         "these jobs left Blacksmith-only routing (or are gone): drop them from the debt list")
+        self.assertIn("decide", jobs)
+        self.assertNotIn("decide", BLACKSMITH_LINUX_ONLY_DEBT)
 
     def test_no_job_takes_a_mac_only_while_the_overflow_switch_is_on(self) -> None:
         """The overflow switch never sends a job to a macOS label it would not take otherwise.

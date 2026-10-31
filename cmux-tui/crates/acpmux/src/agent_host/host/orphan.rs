@@ -52,7 +52,7 @@ fn orphan_step(
     pending: Pending,
 ) -> OrphanStep {
     if alone < wait {
-        OrphanStep::Wait(wait - alone)
+        OrphanStep::Wait(wait.saturating_sub(alone))
     } else if !pending.none() {
         OrphanStep::Wait(wait)
     } else {
@@ -225,7 +225,7 @@ impl State {
         let Some(exit) = &self.spec.orphan_exit else { return false };
         if self.controller.is_some() {
             if self.orphan.since.take().is_some() {
-                self.orphan.generation += 1;
+                self.orphan.generation = self.orphan.generation.wrapping_add(1);
             }
         } else if self.orphan.since.is_none() && !self.orphan.ending {
             let wait = std::time::Duration::from_millis(exit.idle_ms);
@@ -271,7 +271,9 @@ impl State {
         // yet may be a next daemon's). From here to the group's SIGTERM no other event is handled.
         let mut pending = self.pending().await;
         pending.connections = self.pending_conns.len();
-        pending.unlogged += usize::from(census.is_some() && self.next_h != self.orphan.census_at);
+        pending.unlogged = pending
+            .unlogged
+            .saturating_add(usize::from(census.is_some() && self.next_h != self.orphan.census_at));
         if let OrphanStep::Wait(after) = orphan_step(wait, since.elapsed(), pending) {
             self.orphan_wait(events, after);
             return;
@@ -311,7 +313,7 @@ impl State {
     async fn orphan_end(&mut self, events: &mpsc::Sender<Event>) {
         tracing::info!("no daemon came back for this host's wait and its agent is idle; ending it");
         self.orphan.ending = true;
-        let by = ORPHAN_END_GRACE + self.orphan_idle().max(HELLO_LINGER);
+        let by = ORPHAN_END_GRACE.saturating_add(self.orphan_idle().max(HELLO_LINGER));
         self.orphan.end_by = Some(std::time::Instant::now() + by);
         self.orphan_wait(events, by);
         self.terminate_group(ORPHAN_END_GRACE).await;
