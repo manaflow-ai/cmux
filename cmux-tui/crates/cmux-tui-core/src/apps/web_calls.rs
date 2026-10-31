@@ -40,8 +40,9 @@ fn api(code: &str, message: impl Into<String>) -> ApiError {
 
 /// Whether `manifest` has a web implementation (`implements.<iface>.web`).
 pub(super) fn has_web_pane(manifest: &Value) -> bool {
-    manifest["implements"]
-        .as_object()
+    manifest
+        .get("implements")
+        .and_then(Value::as_object)
         .is_some_and(|implements| implements.values().any(|imp| imp.get("web").is_some()))
 }
 
@@ -141,7 +142,7 @@ impl Supervisor {
         if *count >= MAX_WEB_INFLIGHT {
             return None;
         }
-        *count += 1;
+        *count = count.saturating_add(1);
         Some(WebSlot { supervisor: self.me.clone(), app: app.to_string() })
     }
 

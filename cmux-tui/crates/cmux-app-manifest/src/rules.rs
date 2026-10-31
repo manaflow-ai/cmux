@@ -82,7 +82,7 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
         }
     }
 
-    if let Some(csp) = m["runtime"]["web"]["csp"].as_str()
+    if let Some(csp) = m.pointer("/runtime/web/csp").and_then(Value::as_str)
         && let Some(directive) = csp_refused_directive(csp)
     {
         out.push(Issue::error(

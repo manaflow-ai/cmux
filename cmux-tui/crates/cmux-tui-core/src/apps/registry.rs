@@ -106,7 +106,7 @@ fn decoded(p: &PutParams) -> Result<BTreeMap<String, Vec<u8>>, ApiError> {
         let bytes = STANDARD
             .decode(body)
             .map_err(|_| bad("apps.registry.encoding", format!("{path}: not base64")))?;
-        total += bytes.len();
+        total = total.saturating_add(bytes.len());
         if total > MAX_BYTES {
             return Err(bad("apps.registry.too_large", "the bundle is larger than 2 MiB"));
         }
@@ -182,7 +182,10 @@ impl Supervisor {
             let manifest = report.manifest.as_ref().filter(|_| report.is_valid());
             match manifest {
                 None => Err(bad("apps.registry.invalid", "the bundle is not a valid cmux app")),
-                Some(m) if m["id"] != p.app.as_str() || m["version"] != p.version.as_str() => {
+                Some(m)
+                    if m.get("id").and_then(Value::as_str) != Some(p.app.as_str())
+                        || m.get("version").and_then(Value::as_str) != Some(p.version.as_str()) =>
+                {
                     Err(bad(
                         "apps.registry.mismatch",
                         "the bundle's manifest names another app or version",
