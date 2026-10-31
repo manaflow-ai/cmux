@@ -140,6 +140,17 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
   root.dataset.cmuxPage = "markdown";
   root.dataset.cmuxWebviewKind = "markdown";
   await import("../../pages/markdown/main");
+  // Cmd-F as the app sends it, once the editor has drawn the document.
+  const query = state.find;
+  if (query) {
+    const started = Date.now();
+    const openFind = () => {
+      if (document.querySelector(".md-doc [contenteditable]") || Date.now() - started > 4_000)
+        host.emit("cmux.page.command", { command: "find", text: query });
+      else requestAnimationFrame(openFind);
+    };
+    requestAnimationFrame(openFind);
+  }
 }
 
 function filePatch(file: DiffFixtureFile): string {
@@ -344,6 +355,7 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   const host = installMockHost(operations, [
     CloudOps.machineWatch,
     CloudOps.fileTransferChanged,
+    CloudOps.authWatch,
     "cmux.page.connection",
     CLOUD_PAGE_COMMAND,
   ]);

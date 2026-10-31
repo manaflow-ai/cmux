@@ -259,6 +259,127 @@ async fn a_queued_prompt_never_waits_behind_agent_messages() {
     }
 }
 
+/// Starts a gated turn in a steering chat and queues the person's prompt `p-me` behind it: the
+/// hub, the client, the chat, the running turn's id and request, and both gates.
+async fn turn_with_a_waiting_prompt()
+-> (Arc<Hub>, TestClient, String, String, i64, i64, std::path::PathBuf, std::path::PathBuf) {
+    let env = BTreeMap::from([("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let id = new_session(&mut c, "coord").await;
+    let gate = fifo("gate");
+    let turn = c
+        .send(method::SESSION_PROMPT, prompt(&id, &format!("gate: {}", gate.display()), None))
+        .await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
+    let running = hub.resolve(&id).unwrap().turn().unwrap().turn_id;
+    let next = fifo("next");
+    let text = format!("gate: {}", next.display());
+    let mine = c.send(method::SESSION_PROMPT, prompt(&id, &text, Some("p-me"))).await;
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-me" && p["queued"] == true)
+        .await;
+    (hub, c, id, running, turn, mine, gate, next)
+}
+
+/// Leo, 2026-10-29: "but even if im just queueing, your turn should still be ending". Another
+/// agent's steer that is no inbox item (here a team message; also a peer's forward, a correction
+/// under a supersede key, a `cmux agent message`) follows the notices' rule: while a prompt waits
+/// behind the running turn it never steers in, which kept that turn going past the prompt. It
+/// queues behind the person's prompt and runs after it; a steer-only one is refused.
+#[tokio::test]
+async fn another_agents_steer_waits_behind_a_queued_prompt() {
+    let (hub, mut c, id, running, turn, mine, gate, next) = turn_with_a_waiting_prompt().await;
+    let msg = from_agent(&id, "t-1", "coord", "status of #9?", json!({"teamMessage": true}));
+    let sent = c.send(method::SESSION_PROMPT, msg).await;
+    let accepted = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "t-1").await;
+    assert_eq!(accepted["queued"], true, "behind the person's prompt: {accepted}");
+    assert_ne!(accepted["inbox"], true, "no inbox item: {accepted}");
+    // Sent with interrupt, it stops nothing and goes ahead of no one: it waits too.
+    let stop = from_agent(
+        &id,
+        "t-3",
+        "coord",
+        "stop what you do",
+        json!({"teamMessage": true, "interrupt": true}),
+    );
+    let stop = c.send(method::SESSION_PROMPT, stop).await;
+    let held = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "t-3").await;
+    assert_eq!(held["queued"], true, "{held}");
+    let only = from_agent(&id, "t-2", "coord", "now", json!({"steerOnly": true}));
+    let refused = c.request(method::SESSION_PROMPT, only).await.unwrap_err();
+    assert!(format!("{refused:?}").contains("steer.unavailable"), "{refused:?}");
+    assert!(format!("{refused:?}").contains("a prompt waits"), "{refused:?}");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let all = prompts(&hub, &id);
+    assert!(!all.iter().any(|m| m["steer"] == true), "nothing steered in: {all:?}");
+
+    open(&gate).await;
+    open(&next).await;
+    let answered = answers(&mut c, &[turn, mine, sent, stop]).await;
+    assert_eq!(answered[&turn]["stopReason"], "end_turn", "never stopped: {}", answered[&turn]);
+    assert_eq!(answered[&sent]["stopReason"], "end_turn", "a turn of its own: {}", answered[&sent]);
+    assert_eq!(answered[&stop]["stopReason"], "end_turn", "{}", answered[&stop]);
+    // Each went in after the person's prompt, in a turn of the agents' messages (they may join
+    // one, `digest.rs`), never into the turn that ran or the person's.
+    let all = prompts(&hub, &id);
+    let mine_at = all.iter().position(|m| m["promptId"] == "p-me").unwrap();
+    for words in ["status of #9?", "stop what you do"] {
+        let has = |m: &Value| m["text"].as_str().is_some_and(|t| t.contains(words));
+        let at = all.iter().position(has).unwrap_or_else(|| panic!("{words}: {all:?}"));
+        assert!(mine_at < at, "the person's prompt first: {all:?}");
+        assert_ne!(all[at]["turnId"], running.as_str(), "not in the running turn: {all:?}");
+        assert_ne!(all[at]["turnId"], all[mine_at]["turnId"], "nor the person's: {all:?}");
+    }
+    for path in [gate, next] {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// With nothing waiting behind the running turn, another agent's steer still steers in.
+#[tokio::test]
+async fn another_agents_steer_goes_in_when_no_prompt_waits() {
+    let env = BTreeMap::from([("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let id = new_session(&mut c, "coord").await;
+    let gate = fifo("gate");
+    let turn = c
+        .send(method::SESSION_PROMPT, prompt(&id, &format!("gate: {}", gate.display()), None))
+        .await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
+    let running = hub.resolve(&id).unwrap().turn().unwrap().turn_id;
+    let msg = from_agent(&id, "t-1", "coord", "status of #9?", json!({"teamMessage": true}));
+    let sent = c.send(method::SESSION_PROMPT, msg).await;
+    let only = from_agent(&id, "t-2", "coord", "now", json!({"steerOnly": true}));
+    let only = c.send(method::SESSION_PROMPT, only).await;
+    let answered = answers(&mut c, &[sent, only]).await;
+    for answer in answered.values() {
+        assert_eq!(answer["stopReason"], "steered", "{answer}");
+        assert_eq!(answer["_meta"]["acpmux"]["turnId"], running.as_str(), "{answer}");
+    }
+    open(&gate).await;
+    answers(&mut c, &[turn]).await;
+    let _ = std::fs::remove_file(gate);
+}
+
+/// The person's own steer still goes into the running turn while their prompt waits behind it.
+#[tokio::test]
+async fn the_persons_steer_goes_in_while_a_prompt_waits() {
+    let (hub, mut c, id, running, turn, mine, gate, next) = turn_with_a_waiting_prompt().await;
+    let steer = json!({"sessionId": id, "prompt": [{"type": "text", "text": "also this"}],
+                       "_meta": {"acpmux": {"promptId": "p-steer", "steer": true}}});
+    let steer = c.send(method::SESSION_PROMPT, steer).await;
+    let answered = answers(&mut c, &[steer]).await;
+    assert_eq!(answered[&steer]["stopReason"], "steered", "{}", answered[&steer]);
+    let all = prompts(&hub, &id);
+    let at = |pid: &str| all.iter().position(|m| m["promptId"] == pid).unwrap();
+    assert_eq!(all[at("p-steer")]["turnId"], running.as_str(), "into the running turn: {all:?}");
+    open(&gate).await;
+    open(&next).await;
+    answers(&mut c, &[turn, mine]).await;
+    for path in [gate, next] {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 /// A connection that proved it runs in chat `id`: its agent's tools.
 async fn agent_of(hub: &Arc<Hub>, id: &str) -> TestClient {
     let (tx, in_rx) = mpsc::channel(64);

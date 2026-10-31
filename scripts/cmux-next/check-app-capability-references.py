@@ -92,10 +92,13 @@ ENDPOINT = "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndp
 # The bundled acpmux's capability list: the `id: "..."` of each entry, which its `initialize` advertises.
 ACPMUX_LIST = "cmux-tui/crates/acpmux/src/capabilities.rs"
 
-# Served by cmux-tui only when a sidecar binary sits beside it, so the
-# isolated identify probe of check-daemon-capabilities.sh cannot require it.
+# Served by cmux-tui only under a host condition (a sidecar binary beside it,
+# or a cmux Cloud host), so the isolated identify probe of
+# check-daemon-capabilities.sh cannot require it.
 CONDITIONAL = {
     "apps-v1": "only with cmux-app-host beside the binary (cmux-tui-core apps.rs advertised())",
+    "fs-v1": "only on a cmux Cloud host: a root-owned image stamp and the model plane identity (cmux-tui link/cloud_fs.rs)",
+    "agent-session-start-owner-cloud-v1": "only on a cmux Cloud VM with no team evidence (cmux-tui-core server/capabilities.rs serves_owner_cloud_start)",
 }
 
 # Capabilities of other servers that the app gates on with the same helpers.

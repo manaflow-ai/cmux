@@ -71,7 +71,7 @@ public struct LinkPairing: Sendable {
         case "rate_limited": "the Mac asked about this iPhone recently: \(error.message)"
         case "busy": "the Mac is already pairing this iPhone"
         case "mac_identity_changed": identityChanged
-        case "unavailable": "the Mac isn't ready to pair yet. Retry in a moment"
+        case "unavailable": "the Mac isn't ready to pair. Retry in a moment"
         default: error.message
         }
     }

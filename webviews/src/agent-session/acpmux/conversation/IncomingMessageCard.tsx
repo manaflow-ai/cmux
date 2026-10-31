@@ -38,8 +38,10 @@ import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
 import { CardCopy } from "./CardCopy";
-import { AgentMark, knownMark } from "../../shared/AgentMark";
+import { knownMark } from "../../shared/AgentMark";
 import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
+import { AgentIdentity } from "../subagents/AgentIdentity";
+import { agentTone } from "../subagents/agentTones";
 import { useAgentAvatar } from "../agentAvatar";
 import { useChiefFace } from "../chiefFace";
 import { DisclosureRow } from "../subagents/DisclosureRow";
@@ -72,7 +74,15 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
   const sessionId = message.chief ? undefined : sender.sessionId;
   const avatar = useAgentAvatar(sender.sessionId);
   const from = message.relation ? t(RELATION_LABEL[message.relation], { name }) : name;
-  const harness = knownMark(sender.harness, message.harness, message.name, message.name.split("/")[0]);
+  // The first candidate with a mark today; with none, the sender's own harness id, so a profile icon
+  // that arrives later still replaces the fallback (AgentIdentity stays subscribed to that id).
+  const harness = knownMark(
+    sender.harness,
+    message.harness,
+    message.name,
+    message.name.split("/")[0],
+    sender.harness ?? message.harness,
+  );
   const picture = message.chief ? chief?.src : avatar;
   const icon = picture ? (
     <img className="cv-agent-avatar" src={picture} alt="" width={16} height={16} />
@@ -81,7 +91,13 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
       {chief.text}
     </span>
   ) : (
-    <AgentMark agent={harness} size={14} fallback={<Bot size={16} />} />
+    // A sender with no harness mark keeps the robot in its own stable tone, so two such senders tell apart.
+    <AgentIdentity
+      harness={harness}
+      tone={agentTone(sender.sessionId ?? message.sessionId ?? message.name)}
+      size={14}
+      fallbackNode={<Bot size={16} />}
+    />
   );
   // "Open chief-ui (huge-blue)": the chat the name opens, and the other machine it runs on.
   const openTitle = sender.host
@@ -294,10 +310,8 @@ export function IncomingMessageLine({
             <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${details ? " is-open" : ""}`} />
           </button>
           {envelope.present && (
-            <div {...envelope.bodyProps}>
-              <pre id={rawId} className="cv-tool-output selectable">
-                {raw}
-              </pre>
+            <div id={rawId} {...envelope.bodyProps}>
+              <pre className="cv-tool-output selectable">{raw}</pre>
             </div>
           )}
         </div>

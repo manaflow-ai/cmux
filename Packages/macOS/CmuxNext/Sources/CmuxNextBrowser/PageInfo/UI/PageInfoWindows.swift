@@ -7,6 +7,7 @@ final class PageInfoWindows {
     private var certificate: CertificateViewerWindow?
     private var siteSettings: SiteSettingsWindow?
     private var siteData: SiteDataWindow?
+    var ownedWindows: [NSWindow] { [certificate, siteSettings, siteData].compactMap { $0 } }
     /// The shell window the bubble belongs to (`WindowPlacement`).
     var parentWindow: () -> NSWindow? = { nil }
 
@@ -46,7 +47,10 @@ final class PageInfoWindows {
     }
 
     func closeAll() {
-        [certificate, siteSettings, siteData].forEach { $0?.close() }
+        ownedWindows.forEach { $0.close() }
+        certificate = nil
+        siteSettings = nil
+        siteData = nil
     }
 
     private func present(_ window: NSWindow) {
