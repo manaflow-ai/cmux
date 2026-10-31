@@ -50,7 +50,7 @@ impl Hub {
                 if off.off() {
                     break;
                 }
-                let pending = state.pending.remove(&id).unwrap();
+                let Some(pending) = state.pending.remove(&id) else { continue };
                 let outcome = json!({"outcome": "selected", "optionId": option});
                 state.settled.remember(&id, None, &outcome);
                 approved.push((id, option, pending, outcome));
