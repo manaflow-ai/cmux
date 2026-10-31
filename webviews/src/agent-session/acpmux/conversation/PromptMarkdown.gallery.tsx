@@ -1,14 +1,14 @@
 // l10n-allow-file: gallery fixtures (sample prompts), not shipped UI.
 // Sent prompts in the transcript (PromptText.tsx PromptTyped, promptMarkdown.ts): plain text stays
-// the literal text the person typed, line breaks, `snake_case`, `__init__`, "$5 … $10" and "#123"
-// included; only real Markdown (a list, a code span, a table) goes through the renderer.
+// the literal text the person typed (a backslash, `~~x~~`, `$x$`, an indent, `#123`, `a<b`); only
+// real Markdown (a list, a code span, bold, a table) goes through the renderer.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, user } from "../../../gallery/fixtures/acpmux";
 
 const plain = [
-  user("why does __init__ run twice when I import load_user_profile?", 9),
-  assistant("It is imported under two module names, so Python runs it once for each.", 8),
-  user("the plan costs between $5 and $10 a month, see #123\nkeep a<b and a | b as typed", 6),
+  user("grep for foo\\_bar, not foo_bar, and keep ~~old~~ in the name", 9),
+  assistant("Searching for the escaped name.", 8),
+  user("set $x$ to 5, then:\n    if a<b and #123 is open\n    cost stays $5 | $10", 6),
   assistant("Noted: both stay as you wrote them.", 5),
 ];
 
@@ -30,7 +30,7 @@ export default agentPaneEntry({
   ],
   variants: {
     plain: {
-      note: "Plain prompts stay literal: __init__ is not bold, $5 … $10 is not math, #123 and a<b stay text, and the line break stays.",
+      note: "Plain prompts stay literal: the backslash in foo\\_bar stays, ~~old~~ is not struck through, $x$ is not math, and the indented lines keep their indent.",
       snapshot: chat(plain),
     },
     markdown: {
