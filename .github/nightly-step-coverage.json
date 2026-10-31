@@ -367,11 +367,13 @@
       "nightly-identity-legacy-published": {
         "The old feed published, or had nothing to publish": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next release-ring tags"}},
       "generate-nightly-deltas": {
+        "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Mint the release App token for this job's gh calls": {"nightly_only": "mints release GitHub App token"},
         "Send this job's gh calls as the release App, github.token as the fallback": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publish jobs send gh calls as the release App first"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Select Xcode": {"plumbing": true},
-        "Generate deltas and revised appcast": {"nightly_only": "Sparkle key signs deltas (job env; generate-nightly-deltas.sh tested by tests/test_generate_nightly_deltas.sh)"}},
+        "Generate deltas and revised appcast": {"nightly_only": "Sparkle key signs deltas (step env, after the claim; generate-nightly-deltas.sh tested by tests/test_generate_nightly_deltas.sh)"}},
       "republish-nightly-deltas": {
         "Mint the release App token that reads the Dev ring switch": {"nightly_only": "mints release GitHub App token"},
         "Read the Dev ring switch live": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the Dev ring switch is read live when publishing"},
