@@ -94,7 +94,7 @@ actor TokenRefreshCoordinator {
             await attempt.store.compareAndSet(compareRefreshToken: attempt.refreshToken,
                 newRefreshToken: nil, newAccessToken: nil)
             result = TokenPair(refreshToken: nil, accessToken: nil)
-        case .transientFailure, .rateLimited:
+        case .transientFailure, .rateLimited, .requestRejected:
             result = TokenPair(refreshToken: attempt.refreshToken,
                 accessToken: nil)
         }
