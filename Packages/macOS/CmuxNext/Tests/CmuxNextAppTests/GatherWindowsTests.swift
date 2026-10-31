@@ -222,6 +222,24 @@ struct GatherWindowsTests {
         #expect(other.state.localBrowserTabs["another-pane"] == [tab])
     }
 
+    /// Tabs a window keeps itself never block a move that moves nothing (a plain space switch), and a
+    /// window the registry does not list yet (the launch window) gathers nothing: refused, nothing closes.
+    @Test func noOpAndUnregisteredGathers() throws {
+        let services = try Self.services()
+        defer { Self.closeAll(services) }
+        let here = try Self.open(["k0"], services), there = try Self.open(["k1"], services)
+        here.state.localBrowserTabs["a-pane"] = [LocalBrowserTab.make(url: nil)]
+        try services.windows.bringSpace(Self.rooms[1], into: here.state)
+        #expect(here.state.profileID == Self.rooms[1], "a move with nothing to move did not switch the space")
+
+        let before = services.windows.registry.value
+        let unregistered = WindowState()
+        #expect(throws: ActionFailure.self) { try services.windows.bringSpace(Self.rooms[0], into: unregistered) }
+        #expect(throws: ActionFailure.self) { try services.windows.mergeWindows(into: unregistered) }
+        #expect(services.windows.registry.value == before, "a gather into an unregistered window changed windows")
+        #expect(services.windows.registry.value.window(there.state.id)?.isOpen == true)
+    }
+
     /// A window known incognito only by its space (`incognitoSpaces`, before the registry flag) is
     /// no source either: its workspaces stay and it stays open.
     @Test func aWindowOnAnIncognitoSpaceIsNoSource() throws {
