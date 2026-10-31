@@ -21,8 +21,11 @@ struct CLIVMRunBindingStoreTests {
             Darwin.close(listener)
             unlink(socketPath)
         }
+        let connected = DispatchSemaphore(value: 0)
         let execReceived = DispatchSemaphore(value: 0)
-        let server = Task.detached { Self.serveVMExec(listener: listener, execReceived: execReceived) }
+        let server = Task.detached {
+            Self.serveVMExec(listener: listener, connected: connected, execReceived: execReceived)
+        }
 
         // Play another router mid-update: it holds the store lock and has read
         // the store, then writes back what it read plus its own binding.
@@ -51,9 +54,14 @@ struct CLIVMRunBindingStoreTests {
             )
         }
 
-        // `vm run` records its binding before `vm.exec`. A router that honors
-        // the lock is still waiting for it, so `vm.exec` cannot arrive yet.
-        _ = execReceived.wait(timeout: .now() + 3)
+        // `vm run` connects before it records its binding, and with `--machine`
+        // it sends nothing until `vm.exec`, which follows the record. A router
+        // that honors the lock is still waiting for it, so `vm.exec` cannot arrive.
+        try #require(Self.wait(for: connected, seconds: 15) == .success, "vm run never connected")
+        #expect(
+            Self.wait(for: execReceived, seconds: 2) == .timedOut,
+            "vm run recorded its binding while another router held the store lock"
+        )
         var otherRouterStore = otherRouterSnapshot
         otherRouterStore["other-work"] = ["machine": "pool-2", "updatedAtUnix": Int(Date().timeIntervalSince1970)]
         try JSONSerialization.data(withJSONObject: otherRouterStore).write(to: storeURL, options: .atomic)
@@ -72,13 +80,19 @@ struct CLIVMRunBindingStoreTests {
         )
     }
 
+    /// Blocking waits are unavailable from async contexts, so wrap one.
+    private static func wait(for semaphore: DispatchSemaphore, seconds: Double) -> DispatchTimeoutResult {
+        semaphore.wait(timeout: .now() + seconds)
+    }
+
     /// Answers `vm.exec` (and any other v2 request) on the first connection.
-    private static func serveVMExec(listener: Int32, execReceived: DispatchSemaphore) {
+    private static func serveVMExec(listener: Int32, connected: DispatchSemaphore, execReceived: DispatchSemaphore) {
         var readiness = pollfd(fd: listener, events: Int16(POLLIN), revents: 0)
         guard Darwin.poll(&readiness, 1, 30_000) > 0 else { return }
         let client = Darwin.accept(listener, nil, nil)
         guard client >= 0 else { return }
         defer { Darwin.close(client) }
+        connected.signal()
         var pending = Data()
         var buffer = [UInt8](repeating: 0, count: 4096)
         while true {
