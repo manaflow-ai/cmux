@@ -12,16 +12,24 @@ import { type StartRefusalAction, startRefusalAction } from "./startRefusal";
 export function SwitchNotice({
   switching,
   onRetry,
+  onShared,
   onAction,
   share,
 }: {
   switching: AcpmuxSnapshot["switching"];
   onRetry(): void;
+  /// Share with Me went through: start again and resend the prompt the refusal handed back.
+  onShared?(): void;
   onAction?(action: StartRefusalAction): void;
   share?: MachineShareProps;
 }) {
   const t = useT();
-  const machineShare = useMachineShare(share, switching?.phase === "failed" ? switching : undefined, onRetry);
+  const machineShare = useMachineShare(
+    share,
+    switching?.phase === "failed" ? switching : undefined,
+    onRetry,
+    onShared,
+  );
   if (!switching || switching.phase === "starting") return null;
   if (switching.phase === "deferred")
     return <output className="acpmux-switch-notice">{t("switch.deferred", { agent: switching.name })}</output>;
