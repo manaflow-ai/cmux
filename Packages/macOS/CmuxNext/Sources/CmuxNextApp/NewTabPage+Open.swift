@@ -191,7 +191,7 @@ extension NewTabPage {
     static func opensBeside(_ key: String, in pane: PaneController, kind: AgentPaneTabKind? = nil, mainPane: Bool = true) -> Bool {
         let tabs = pane.services.agentTabs, page = tabs.resolve(key)
         guard AgentPaneTunables.newTabPicksFollowLinks.value, tabs.newTabPages[page]?.page.openTabs == nil, pane.pane.tabs.contains(where: { $0.id != page }) else { return false }
-        return pane.services.linkOpener.target(from: pane, mainPane: mainPane, kind: Self.rightKind(for: kind)) != .pane(pane.layoutPaneID)
+        return pane.services.linkOpener.target(from: pane, mainPane: mainPane, kind: kind?.rightColumnKind) != .pane(pane.layoutPaneID)
     }
 
     /// ``replace(_:with:cwd:in:keep:)`` beside the page: the terminal or browser opens in `strip`, else through
@@ -223,16 +223,7 @@ extension NewTabPage {
                 return false
             }
         }
-        services.linkOpener.open(from: pane, kind: Self.rightKind(for: request.kind), make)
-    }
-
-    private static func rightKind(for kind: AgentPaneTabKind?) -> RightColumnPlacement.Kind? {
-        guard let kind else { return nil }
-        switch kind {
-        case .terminal: .terminal
-        case .browser: .browser
-        case .agent: nil
-        }
+        services.linkOpener.open(from: pane, kind: request.kind.rightColumnKind, make)
     }
 
     /// Whether a pick on a page beside a lone chat (the main pane) docks the chat left once it lands, so the
@@ -250,10 +241,6 @@ extension NewTabPage {
             MainPaneLayout.dockChat(of: page, keeping: surface, focus: true, services: services)
         }
     }
-
-    /// Whether a pick of `kind` on a New Tab page in the main pane goes beside the chat: a terminal or browser
-    /// does, a chat stays (the chat dock holds chats).
-    nonisolated static func picksBeside(_ kind: AgentPaneTabKind) -> Bool { kind != .agent }
 
     /// The address a browser pick of the page goes to: a search, a cmux/Chromium page, or the typed
     /// destination (typos fixed).
@@ -356,9 +343,9 @@ extension NewTabPage {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         // A terminal or browser picked in the main pane opens beside the chat, as on the web page (``replace``):
         // in the strip beside the chat dock, or it takes the page's place beside a lone chat, which then docks left.
-        let strip = picksBeside(kind) ? ChatColumnPlacement.pagePick(from: page) : nil
+        let strip = kind.opensBesideChat ? ChatColumnPlacement.pagePick(from: page) : nil
         let pane = strip ?? page
-        let docks = picksBeside(kind) && strip == nil && docksChat(page)
+        let docks = kind.opensBesideChat && strip == nil && docksChat(page)
         let landed = docks ? docking(page) : nil
         switch (kind, trimmed.isEmpty) {
         case (.terminal, _): pane.newTerminalTab(cwd: cwd, typing: command(trimmed) ?? nil, then: landed)

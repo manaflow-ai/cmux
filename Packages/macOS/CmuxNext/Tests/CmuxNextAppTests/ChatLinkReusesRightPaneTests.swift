@@ -63,9 +63,9 @@ struct ChatLinkReusesRightPaneTests {
     /// The native New Tab page (`tabs.nativeNewTabPage`) sends its picks the same way: a terminal or browser goes
     /// beside the chat, a chat stays in the dock (review of #28544 at a6f8b21a: its picks opened in the main pane).
     @Test func theNativePagesToolPicksGoBesideTheChat() {
-        #expect(NewTabPage.picksBeside(.terminal))
-        #expect(NewTabPage.picksBeside(.browser))
-        #expect(!NewTabPage.picksBeside(.agent))
+        #expect(AgentPaneTabKind.terminal.opensBesideChat)
+        #expect(AgentPaneTabKind.browser.opensBesideChat)
+        #expect(!AgentPaneTabKind.agent.opensBesideChat)
     }
 
     /// A setup action that keeps its page or chat (Log In, Update, Open in Terminal) still opens beside the dock,
