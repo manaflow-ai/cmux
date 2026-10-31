@@ -80,3 +80,15 @@ test("dispose removes the page listeners and a frame already asked for draws not
     scope.window = saved.window;
   }
 });
+
+test("a fed client has no socket, yet every feed reaches its listener", () => {
+  // A client with no socket counts as closed, and a closed one draws nothing (emitNow): a fed
+  // client is the exception until it is disposed, or the guest's transcript stays blank.
+  const shown: AcpmuxSnapshot[] = [];
+  const client = AcpmuxDirectClient.fed("guest-chat", (snapshot) => void shown.push(snapshot));
+  client.feed([prompt(1, "Ask")], "snapshot");
+  client.feed([say(2, "Working")], "live");
+  client.feed([prompt(0, "skipped"), say(-1, "skipped")], "older");
+  expect(shown.length).toBe(3);
+  expect(shown.at(-1)?.rows.map((row) => row.text ?? "").join("|")).toContain("Working");
+});

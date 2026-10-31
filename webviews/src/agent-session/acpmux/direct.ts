@@ -1706,6 +1706,8 @@ export class AcpmuxDirectClient {
   private closed = false;
   /// Replay clients are intentionally detached from a socket but still publish seek snapshots.
   private replayMode = false;
+  /// A `fed` client (the guest page's) has no socket either, but draws what it is fed until `dispose`.
+  private fedMode = false;
   private selectionGeneration = 0;
   /// The last attach sent, and what acpmux last accepted about whether the page shows its chat.
   private attaching: Promise<unknown> = Promise.resolve();
@@ -1805,6 +1807,7 @@ export class AcpmuxDirectClient {
   static fed(sessionId: string, listener: Listener): AcpmuxDirectClient {
     const client = new AcpmuxDirectClient({ protocolVersion: 1, transport: "acpmux-bridge", sessionId }, listener);
     client.closed = true;
+    client.fedMode = true;
     // Not this page's chat to hand over or to read again when shown: no page listeners.
     client.stopPageListeners();
     return client;
@@ -5497,7 +5500,7 @@ export class AcpmuxDirectClient {
   }
 
   private emitNow(connection: string): void {
-    if (this.closed && !this.replayMode) return;
+    if (this.closed && !this.replayMode && !(this.fedMode && !this.disposed)) return;
     if (this.snapshotHold) {
       this.snapshotHold.connection = connection;
       // The release draws everything since: no frame-batched snapshot is left waiting.
@@ -8102,6 +8105,7 @@ export class AcpmuxDirectClient {
     // and a tail left in this page's map would be drawn by whatever client comes after it.
     this.rememberCurrentTail(false);
     this.replayMode = false;
+    this.fedMode = false;
     this.closed = true;
 
     clearTimeout(this.hiddenDraw);

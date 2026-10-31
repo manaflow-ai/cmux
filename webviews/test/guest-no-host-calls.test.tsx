@@ -203,6 +203,15 @@ const ROWS: AcpmuxRow[] = [
   row("user-2", "user", { seq: 2, text: "Fix #12 in acme/app", steer: "waiting", steerPromptId: "p-2" }),
   row("user-3", "user", { seq: 3, text: "Then again", status: "Waiting", queued: "p-3" }),
   row("user-4", "user", { seq: 4, text: "On Linux", failed: true, delivery: { state: "failed" } as never }),
+  // A message a Chief's turn sent: its line would ask the host for the Chief's face (chiefFace.ts).
+  row("user-chief", "user", {
+    seq: 4,
+    text: "Chief -> me: Check the upload retry",
+    incoming: {
+      kind: "message",
+      message: { name: "optchat-home-1", chief: "chief-1", text: "Check the upload retry", raw: "Chief -> me: Check the upload retry" },
+    },
+  }),
   row("assistant-5", "assistant", {
     seq: 5,
     text: [
