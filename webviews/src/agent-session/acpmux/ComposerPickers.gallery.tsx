@@ -309,7 +309,9 @@ const modelPressDragRelease: Play = async (ctx) => {
   // Astra may sit under More models in this fixture: drag to the current model's row, which still
   // exercises the button's press-drag-release path and closes the menu.
   // Onto its name: the row's trailing columns hold its effort item, which opens the levels instead.
-  const row = { selector: ".acpmux-quick-model-effort[data-running] > .acpmux-quick-item .acpmux-quick-label" } as const;
+  const row = {
+    selector: ".acpmux-quick-model-effort[data-running] > .acpmux-quick-item .acpmux-quick-label",
+  } as const;
   await ctx.pointer.move(row);
   await ctx.pointer.up(row);
   await ctx.waitFor(
