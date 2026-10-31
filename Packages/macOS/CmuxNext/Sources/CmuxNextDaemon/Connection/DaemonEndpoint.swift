@@ -308,6 +308,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case agentSessionStartVMKind = "agent-session-start-vm-kind-v1"
     /// `agent-session-start` takes an optional model for the first session/new request.
     case agentSessionStartModel = "agent-session-start-model-v1"
+    /// On a Cloud VM, `agent-session-start` with `vm_kind: "owner"` starts any agent, Codex and
+    /// opencode included: the person's own disposable VM is the boundary. A Mac, an SSH host and a
+    /// team VM keep the asking-mode rule.
+    case agentSessionStartOwnerCloud = "agent-session-start-owner-cloud-v1"
     /// `agent-session-trust` takes `vm_kind`, as `agent-session-start` does: a Cloud VM's daemon
     /// records folder trust only on `vm_kind: "owner"`.
     case agentSessionTrustVMKind = "agent-session-trust-vm-kind-v1"
@@ -522,7 +526,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs,
              .agentSessionAttach, .agentSessionObserve, .agentSessionStart, .agentSessionTrust,
-             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionTrustVMKind,
+             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionStartOwnerCloud,
+             .agentSessionTrustVMKind,
              .agentSessionChildren, .agentSessionPresence, .pageTabs,
              .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,

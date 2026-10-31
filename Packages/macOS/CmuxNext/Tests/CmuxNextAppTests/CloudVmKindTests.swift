@@ -63,5 +63,6 @@ struct CloudVmKindTests {
         #expect(old["model"] == nil)
         #expect(recent["model"] as? String == "m")
         #expect(DaemonCapability.agentSessionStartModel.rawValue == "agent-session-start-model-v1")
+        #expect(DaemonCapability.agentSessionStartOwnerCloud.rawValue == "agent-session-start-owner-cloud-v1")
     }
 }
