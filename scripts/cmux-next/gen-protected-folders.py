@@ -13,6 +13,7 @@ import json, os, sys
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 SOURCE = "cmux-tui/crates/acpmux/data/protected-folders.json"
 SWIFT_COPIES = [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Tree/ProtectedFolderEntry.generated.swift",
     "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/System/ProtectedFolderEntry.generated.swift",
     "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/FolderPicker/ProtectedFolderEntry.generated.swift",
     "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ProtectedFolderEntry.generated.swift",

@@ -63,6 +63,8 @@ toml.workspace = true
 thiserror = "2"
 tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "net", "sync", "time", "fs", "signal"] }
 tokio-tungstenite.workspace = true
+# Compressed frames for large messages on a WebSocket (src/frame_compress.rs).
+flate2.workspace = true
 tokio-util = { version = "0.7", features = ["codec"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
