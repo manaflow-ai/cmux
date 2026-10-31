@@ -364,22 +364,30 @@ public final class HomeNativeTranscriptView: NSView {
     /// Whether ``paste(_:)`` has text, files or pictures for the message box.
     public var canPasteIntoPrimaryInput: Bool { transcript.canPasteIntoPrimaryInput }
 
-    /// The live interface scale applies to the native first-run chrome, times the Chief chat's zoom
+    /// The Chief chat's size at Agent Chat Zoom 100%: MessagesLab's metrics (text, bubbles, field) drawn 1.2 times
+    /// larger, the size 120% drew before (https://github.com/manaflow-ai/cmux/issues/28715). The zoom steps from here,
+    /// and Cmd-0 comes back to it.
+    static let defaultChatScale: CGFloat = 1.2
+
+    /// The Chief chat's scale: its default size times Agent Chat Zoom.
+    private static var chatScale: CGFloat { defaultChatScale * DesignSettings.shared.agentPaneZoom }
+
+    /// The live interface scale applies to the native first-run chrome, times the Chief chat's scale
     /// (`followZoom`), so the empty chat's panel grows with the header and field around it. The
     /// MessagesLab transcript owns its own text and field metrics.
     private func followTextSize() {
         withObservationTracking {
-            applyTextScale(Typography.userScale * DesignSettings.shared.agentPaneZoom)
+            applyTextScale(Typography.userScale * Self.chatScale)
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.followTextSize() }
         }
     }
 
     /// Agent Chat Zoom (`agentPane.zoom`; Cmd-= / Cmd-- / Cmd-0 on Home, `home.zoomIn`): the Chief chat
-    /// is drawn at it, live, as an agent chat is.
+    /// is drawn at it over its default size (`defaultChatScale`), live, as an agent chat is.
     private func followZoom() {
         withObservationTracking {
-            transcript.zoom = DesignSettings.shared.agentPaneZoom
+            transcript.zoom = Self.chatScale
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.followZoom() }
         }
