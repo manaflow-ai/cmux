@@ -30,9 +30,17 @@ final class ApprovalNotificationCaptureUITests: XCTestCase {
     }
 
     @MainActor
-    func testPermissionNotificationCapture() throws {
+    func testPermissionNotificationCaptureDark() throws { try capture(.dark) }
+
+    @MainActor
+    func testPermissionNotificationCaptureLight() throws { try capture(.light) }
+
+    /// One appearance per test: set before the app launches, so iOS and the extension both draw in it.
+    @MainActor
+    private func capture(_ appearance: XCUIDevice.Appearance) throws {
         XCUIDevice.shared.orientation = .portrait
-        XCUIDevice.shared.appearance = .light
+        XCUIDevice.shared.appearance = appearance
+        sleep(3)
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
@@ -47,19 +55,31 @@ final class ApprovalNotificationCaptureUITests: XCTestCase {
         XCUIDevice.shared.press(.home)
         sleep(2)
 
-        for appearance in [XCUIDevice.Appearance.light, .dark] {
-            XCUIDevice.shared.appearance = appearance
-            sleep(2)
+        do {
             let name = appearance == .dark ? "dark" : "light"
-            let cell = openNotificationCenter(springboard)
+            _ = openNotificationCenter(springboard)
+            sleep(2)
             attach(XCUIScreen.main.screenshot(), "banner-\(name)")
-            cell.press(forDuration: 1.5)
-            sleep(4)
-            attach(XCUIScreen.main.screenshot(), "longlook-\(name)")
-            add(XCTAttachment(string: springboard.debugDescription))
-            // Close the long look and Notification Center.
             XCUIDevice.shared.press(.home)
-            sleep(1)
+            sleep(2)
+            // The long look from a banner: the app in front posts the push again (it presents
+            // banners for a chat that is not open), and the banner is pulled down.
+            app.terminate()
+            app.launchEnvironment["CMUX_MOBILE_DEV_SERVICE_PUSH"] = Self.permissionPush()
+            app.launch()
+            let match = NSPredicate(format: "label CONTAINS[c] %@", "Claude Code")
+            let banner = springboard.descendants(matching: .any).matching(identifier: "NotificationShortLookView").matching(match).firstMatch
+            if banner.waitForExistence(timeout: 20) {
+                let from = banner.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                let to = banner.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 6.0))
+                from.press(forDuration: 0.2, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.5)
+                sleep(4)
+                attach(XCUIScreen.main.screenshot(), "longlook-\(name)")
+                note(springboard, "longlook-\(name)")
+            } else {
+                attach(XCUIScreen.main.screenshot(), "no-banner-\(name)")
+                note(springboard, "no-banner-\(name)")
+            }
             XCUIDevice.shared.press(.home)
             sleep(2)
         }
@@ -72,13 +92,31 @@ final class ApprovalNotificationCaptureUITests: XCTestCase {
         let down = springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.6))
         top.press(forDuration: 0.1, thenDragTo: down)
         sleep(2)
-        let cell = springboard.descendants(matching: .any)
-            .matching(NSPredicate(format: "label CONTAINS[c] %@", "rm -rf build")).firstMatch
-        if !cell.waitForExistence(timeout: 10) {
+        // The cmux notification's own platter. A stack (another app's notice on top) is
+        // expanded first by tapping it, so the cmux one is its own cell.
+        let match = NSPredicate(format: "label CONTAINS[c] %@", "Claude Code")
+        let platter = springboard.descendants(matching: .any).matching(identifier: "NotificationShortLookView").matching(match).firstMatch
+        if !platter.waitForExistence(timeout: 6) {
+            let stack = springboard.buttons.matching(identifier: "ListCell").matching(NSPredicate(format: "label != ''")).firstMatch
+            if stack.exists { stack.tap(); sleep(2) }
+        }
+        let cell = platter.waitForExistence(timeout: 6)
+            ? platter : springboard.buttons.matching(identifier: "ListCell").matching(match).firstMatch
+        note(springboard, "cell", extra: cell.debugDescription)
+        if !cell.exists {
             attach(XCUIScreen.main.screenshot(), "no-notification")
             XCTFail("the permission notification is in Notification Center\n\(springboard.debugDescription)")
         }
         return cell
+    }
+
+    /// The element tree, kept with the screenshots.
+    @MainActor
+    private func note(_ app: XCUIApplication, _ name: String, extra: String = "") {
+        let attachment = XCTAttachment(string: extra + "\n" + app.debugDescription)
+        attachment.name = "tree-\(name)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     @MainActor

@@ -28,8 +28,13 @@ struct SimulatedServiceExtension {
     /// test can pass in its launch environment without sharing a file with the app.
     static func deliverIfAsked(environment: [String: String] = ProcessInfo.processInfo.environment) {
         guard let value = environment[variable], !value.isEmpty,
-              let data = value.hasPrefix("{") ? Data(value.utf8) : FileManager.default.contents(atPath: value),
-              let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+              let data = value.hasPrefix("{") ? Data(value.utf8) : FileManager.default.contents(atPath: value) else { return }
+        // A fresh simulator was never asked: ask first (a no-op once answered), so the push shows.
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { _, _ in post(data) }
+    }
+
+    private static func post(_ data: Data) {
+        guard let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         let content = UNMutableNotificationContent()
         let aps = body["aps"] as? [String: Any]
         if let alert = aps?["alert"] as? [String: Any] {
@@ -49,12 +54,8 @@ struct SimulatedServiceExtension {
         let keys = PushKeys.current()
         let opened = ServicePush().opened(content, keys: keys) ?? ServicePush().inert(content, trust: keys?.trust()) ?? content
         let request = UNNotificationRequest(identifier: "dev-service-push-\(UUID().uuidString)", content: opened, trigger: nil)
-        // A fresh simulator was never asked: ask first (a no-op once answered), so the push shows.
-        let center = UNUserNotificationCenter.current()
-        center.requestAuthorization(options: [.alert, .badge, .sound]) { _, _ in
-            center.add(request) { error in
-                if let error { Logger(subsystem: "dev.cmux.mobile", category: "push").error("simulated service push: \(String(describing: error), privacy: .public)") }
-            }
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error { Logger(subsystem: "dev.cmux.mobile", category: "push").error("simulated service push: \(String(describing: error), privacy: .public)") }
         }
     }
 }
