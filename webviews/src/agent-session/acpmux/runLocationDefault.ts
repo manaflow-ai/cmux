@@ -59,6 +59,21 @@ export function cloudFolders(folder: string): Set<string> {
   return paths;
 }
 
+/// A Cloud start's copy goes one level deeper: `<work root>/chats/<send key>/<attempt>/<name>-<hash>`
+/// (AgentPaneCloudStart `remotePlace`, CloudStartChat `place`). This is that path with the start's
+/// own place taken out, so it reads as a Move to Cloud copy; any other path comes back as it was.
+export function withoutStartPlace(cwd: string): string {
+  for (const work of CLOUD_WORK_ROOTS) {
+    const prefix = `${work}/chats/`;
+    if (!cwd.startsWith(prefix)) continue;
+    const rest = cwd.slice(prefix.length).split("/");
+    // The send key and the attempt, then at least the copied folder's name.
+    if (rest.length < 3 || !rest[0] || !rest[1] || !rest[2]) return cwd;
+    return `${work}/${rest.slice(2).join("/")}`;
+  }
+  return cwd;
+}
+
 type Peers = Readonly<Record<string, "ssh" | "cloud">> | undefined;
 
 /// Where a chat of the list runs: this Mac, a Cloud machine, or elsewhere (an SSH machine: never
@@ -88,7 +103,7 @@ export function folderRunLocation(
     const where = placeOf(session, peerKinds);
     const cwd = normalizedFolder(session.cwd);
     if (!where || !cwd) continue;
-    const here = where === "local" ? cwd === local : remote.has(cwd);
+    const here = where === "local" ? cwd === local : remote.has(cwd) || remote.has(withoutStartPlace(cwd));
     if (!here) continue;
     const at = startedAt(session);
     if (!newest || at > newest.at) newest = { at, where };

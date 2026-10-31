@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { cloudFolderName, cloudFolders, folderRunLocation, normalizedFolder } from "./runLocationDefault";
+import {
+  cloudFolderName,
+  cloudFolders,
+  folderRunLocation,
+  normalizedFolder,
+  withoutStartPlace,
+} from "./runLocationDefault";
 import type { AcpmuxSessionEntry } from "./sessionList";
 
 // Expected names computed apart from this code (32-bit FNV-1a over the path's UTF-8 bytes, low 24
@@ -57,6 +63,18 @@ test("the folder's newest chat says where: Cloud when it went to a machine from 
   expect(folderRunLocation(folder, [cloud("/root/work/paint-33f597", 1), local(folder + "/", 2)])).toBe("local");
   // From a folder inside the checkout.
   expect(folderRunLocation(folder, [cloud("/home/cmux/work/src-75be44/paint", 3), local(folder, 2)])).toBe("cloud");
+});
+
+test("a Cloud start's copy, under its own chats/<key>/<attempt> place, is this folder's history too", () => {
+  const folder = "/Users/me/src/paint";
+  const started = "/home/cmux/work/chats/6f1c2a9e-7b1d-4c55-9a0e-2b7f0c1d9e33/a1b2c3d4/paint-33f597";
+  expect(withoutStartPlace(started)).toBe("/home/cmux/work/paint-33f597");
+  expect(folderRunLocation(folder, [local(folder, 1), cloud(started, 2)])).toBe("cloud");
+  // From a folder inside the checkout, under the other work root.
+  expect(folderRunLocation(folder, [local(folder, 1), cloud("/root/work/chats/k/a1/src-75be44/paint", 2)])).toBe("cloud");
+  // Another folder's start is not this one's; a short chats/ path is left as it is.
+  expect(folderRunLocation(folder, [cloud("/home/cmux/work/chats/k/a1/other-123456", 2)])).toBeUndefined();
+  expect(withoutStartPlace("/home/cmux/work/chats/k")).toBe("/home/cmux/work/chats/k");
 });
 
 test("another folder's copy, an SSH machine's chat, side chats and archived chats are not this folder's history", () => {
