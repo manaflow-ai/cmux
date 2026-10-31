@@ -8,6 +8,33 @@ use serde_json::{Value, json};
 
 use crate::exit;
 
+static IN_CMUX: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The program name errors and hints use: `cmux vm` when cmux runs this in
+/// process (an agent types that; `cmux-vm` is usually not on PATH), else
+/// `cmux-vm`.
+pub fn program() -> &'static str {
+    if IN_CMUX.load(std::sync::atomic::Ordering::Relaxed) {
+        "cmux vm"
+    } else {
+        "cmux-vm"
+    }
+}
+
+/// Sets [`program`] from argv[0] (`cmux vm` from cmux's in-process call).
+pub(crate) fn set_program(argv0: Option<&std::ffi::OsStr>) {
+    let in_cmux = program_for(argv0) == "cmux vm";
+    IN_CMUX.store(in_cmux, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn program_for(argv0: Option<&std::ffi::OsStr>) -> &'static str {
+    if argv0.is_some_and(|name| name == "cmux vm") {
+        "cmux vm"
+    } else {
+        "cmux-vm"
+    }
+}
+
 /// Error bodies larger than this are cut; the CLI only shows a message.
 const MAX_ERROR_BODY: usize = 64 * 1024;
 
@@ -43,6 +70,10 @@ impl CliError {
         Self::local(exit::CANCELLED, message)
     }
 
+    pub fn conflict(message: impl Into<String>) -> Self {
+        Self::local(exit::CONFLICT, message)
+    }
+
     /// An error raised by the CLI itself, before or without an HTTP status.
     /// Its tag names the kind, so `--json` callers can branch on `tag` for
     /// every failure, not only API errors.
@@ -52,6 +83,7 @@ impl CliError {
             exit::NETWORK => "NetworkError",
             exit::UNAUTHENTICATED => "MissingCredentials",
             exit::CANCELLED => "Cancelled",
+            exit::CONFLICT => "Conflict",
             _ => "UnexpectedError",
         };
         Self {
@@ -65,6 +97,21 @@ impl CliError {
 
     pub fn exit_code(&self) -> i32 {
         self.code
+    }
+
+    /// What went wrong, for a message that wraps it.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// For HTTP 429, the budget the server named, if any.
+    pub fn budget(&self) -> Option<&str> {
+        self.budget.as_deref()
+    }
+
+    /// The HTTP status, for an API error.
+    pub fn status(&self) -> Option<u16> {
+        self.status
     }
 
     /// Keep the original intent key visible after a resize error, including a partial provider failure.
@@ -89,6 +136,19 @@ impl CliError {
         self
     }
 
+    /// A 404 says what was not found and how to list them, unless the
+    /// message already names a next step.
+    pub fn with_not_found(mut self, what: &str, list: &str) -> Self {
+        if self.status == Some(404) && !self.message.contains("next: `") {
+            self.message = format!(
+                "{what} not found ({}); next: `{} {list}`",
+                self.message,
+                program()
+            );
+        }
+        self
+    }
+
     pub fn with_recovery(mut self, recovery: &str) -> Self {
         self.message.push_str("; ");
         self.message.push_str(recovery);
@@ -98,13 +158,19 @@ impl CliError {
     /// Add the VM and operation to an error from a VM-scoped command.
     pub fn for_vm(mut self, vm_id: &str, operation: &str) -> Self {
         let next = match operation {
-            "client-session create" => format!("cmux-vm client-session list {vm_id}"),
+            "client-session create" => format!(
+                "{p} client-session list {vm_id}",
+                p = crate::error::program()
+            ),
             "client-session list" | "client-session revoke" => {
-                format!("cmux-vm client-session list {vm_id}")
+                format!(
+                    "{p} client-session list {vm_id}",
+                    p = crate::error::program()
+                )
             }
             // A 404 means the VM itself is gone, so `get` would fail too.
-            _ if self.status == Some(404) => "cmux-vm list".to_owned(),
-            _ => format!("cmux-vm get {vm_id}"),
+            _ if self.status == Some(404) => format!("{p} list", p = crate::error::program()),
+            _ => format!("{p} get {vm_id}", p = crate::error::program()),
         };
         self.message = format!(
             "VM {vm_id} {operation} failed: {}; next: `{next}`",
@@ -139,7 +205,8 @@ impl CliError {
                 Self::from_status(status, &body)
             }
             Error::CommunicationError(e) | Error::ResponseBodyError(e) => Self::network(format!(
-                "could not reach the cmux VM API: {e}; check your network; run `cmux-vm list` to check connectivity"
+                "could not reach the cmux VM API: {e}; check your network; run `{p} list` to check connectivity",
+                p = program()
             )),
             Error::InvalidRequest(message) => Self::usage(message),
             Error::InvalidResponsePayload(_, e) => Self::local(
@@ -152,7 +219,7 @@ impl CliError {
         }
     }
 
-    fn from_status(status: u16, body: &[u8]) -> Self {
+    pub(crate) fn from_status(status: u16, body: &[u8]) -> Self {
         let parsed: Option<Value> = serde_json::from_slice(body).ok();
         let field = |name: &str| {
             parsed
@@ -200,7 +267,10 @@ impl CliError {
             message = format!("not available yet: {message}; update cmux-vm and retry");
         }
         if status == 400 {
-            message.push_str("; check the command's flags and run `cmux-vm --help`");
+            message.push_str(&format!(
+                "; check the command's flags and run `{} --help`",
+                program()
+            ));
         }
         if status == 402 {
             message.push_str("; check the team's plan at https://cmux.com/pricing");
@@ -233,12 +303,22 @@ impl CliError {
             };
             match (self.status, &tag) {
                 (Some(status), Some(tag)) => {
-                    writeln!(stderr, "cmux-vm: {} (HTTP {status} {tag})", self.message)
+                    writeln!(
+                        stderr,
+                        "{p}: {} (HTTP {status} {tag})",
+                        self.message,
+                        p = crate::error::program()
+                    )
                 }
                 (Some(status), None) => {
-                    writeln!(stderr, "cmux-vm: {} (HTTP {status})", self.message)
+                    writeln!(
+                        stderr,
+                        "{p}: {} (HTTP {status})",
+                        self.message,
+                        p = crate::error::program()
+                    )
                 }
-                _ => writeln!(stderr, "cmux-vm: {}", self.message),
+                _ => writeln!(stderr, "{p}: {}", self.message, p = crate::error::program()),
             }
         };
     }
@@ -250,7 +330,11 @@ pub fn report_warning(message: &str, json: bool, stderr: &mut dyn Write) {
     let _ = if json {
         writeln!(stderr, "{}", json!({ "warning": message }))
     } else {
-        writeln!(stderr, "cmux-vm: warning: {message}")
+        writeln!(
+            stderr,
+            "{p}: warning: {message}",
+            p = crate::error::program()
+        )
     };
 }
 
@@ -274,6 +358,44 @@ fn append_capped(body: &mut Vec<u8>, chunk: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_program_name_follows_argv0() {
+        assert_eq!(
+            program_for(Some(std::ffi::OsStr::new("cmux vm"))),
+            "cmux vm"
+        );
+        assert_eq!(
+            program_for(Some(std::ffi::OsStr::new("cmux-vm"))),
+            "cmux-vm"
+        );
+        assert_eq!(
+            program_for(Some(std::ffi::OsStr::new("/usr/local/bin/cmux-vm"))),
+            "cmux-vm"
+        );
+        assert_eq!(program_for(None), "cmux-vm");
+        // Tests never call set_program, so errors read cmux-vm here.
+        let mut out = Vec::new();
+        CliError::usage("bad").report(false, &mut out);
+        assert_eq!(String::from_utf8(out).unwrap(), "cmux-vm: bad\n");
+    }
+
+    #[test]
+    fn a_404_names_what_was_not_found_and_how_to_list_them() {
+        let error = CliError::from_status(404, b"").with_not_found("VM vm_x", "list");
+        assert!(
+            error.message().starts_with("VM vm_x not found ("),
+            "{}",
+            error.message()
+        );
+        assert!(error.message().ends_with("list`"), "{}", error.message());
+        // Other statuses, and a message that already names a next step, are kept.
+        let kept = CliError::from_status(409, b"").with_not_found("VM vm_x", "list");
+        assert!(!kept.message().contains("not found"));
+        let scoped = CliError::from_status(404, b"").for_vm("vm_x", "get");
+        let before = scoped.message().to_owned();
+        assert_eq!(scoped.with_not_found("VM vm_x", "list").message(), before);
+    }
 
     #[test]
     fn vm_errors_preserve_server_details_and_status() {

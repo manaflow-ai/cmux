@@ -16,6 +16,31 @@ fn running(prompt: &str) -> Value {
 }
 
 #[test]
+fn sidebar_requires_open_only_marks_agent_started_sessions() {
+    assert_eq!(
+        lane(&json!({"status": "running", "tags": {"lane.reportsTo": "coordinator"}}))["requiresOpen"],
+        true
+    );
+    assert_eq!(
+        lane(&json!({"status": "running", "parentId": "personal-fork"}))["requiresOpen"],
+        false
+    );
+    assert_eq!(lane(&json!({"status": "running", "parent": "coordinator"}))["requiresOpen"], true);
+    assert_eq!(
+        lane(&json!({"status": "running", "spawnedBy": "coordinator"}))["requiresOpen"],
+        true
+    );
+    assert_eq!(
+        lane(&json!({"status": "running", "tags": {"spawnedBy": "coordinator"}}))["requiresOpen"],
+        true
+    );
+    assert_eq!(
+        lane(&json!({"status": "running", "tags": {"mux.parent": "coordinator"}}))["requiresOpen"],
+        true
+    );
+}
+
+#[test]
 fn a_running_turns_step_is_its_prompt_on_one_line() {
     assert_eq!(lane(&running("Run the guard\n  tests"))["step"], "Run the guard tests");
 }
