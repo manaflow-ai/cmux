@@ -73,6 +73,38 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         userDefaultsKey: "agentAutoResumeEnabled"
     )
 
+    /// When a cmux-launched Claude Code pane stops on its account's usage
+    /// limit, switch the pane to the next account in `agents.claudeAccounts`
+    /// and continue the same conversation. Off by default: it restarts the
+    /// pane on another account without asking.
+    public let claudeAccountAutoSwitch = DefaultsKey<Bool>(
+        id: "automation.claudeAccountAutoSwitch",
+        defaultValue: false,
+        userDefaultsKey: "claudeAccountAutoSwitchEnabled"
+    )
+
+    /// Chooses the Claude Code effort (and optionally model) for each
+    /// cmux-launched session from its priority and difficulty. Off by default.
+    public let sessionPriority = DefaultsKey<Bool>(
+        id: "automation.sessionPriority.enabled",
+        defaultValue: false,
+        userDefaultsKey: "sessionPriorityEnabled"
+    )
+
+    /// How many of the highest-priority sessions count as urgent; the rest are slow.
+    public let sessionPriorityUrgentCount = DefaultsKey<Int>(
+        id: "automation.sessionPriority.urgentCount",
+        defaultValue: 3,
+        userDefaultsKey: "sessionPriorityUrgentCount"
+    )
+
+    /// Canonical JSON of the priority matrix overrides; empty uses the shipped matrix.
+    public let sessionPriorityMatrix = DefaultsKey<String>(
+        id: "automation.sessionPriority.matrix",
+        defaultValue: "",
+        userDefaultsKey: "sessionPriorityMatrix"
+    )
+
     /// When enabled, native agent-session panels receive a cmux-owned,
     /// per-session `TMPDIR` under `~/.local/state/cmux/agent-artifacts`.
     /// This gives cmux a bounded ownership boundary for future retention and

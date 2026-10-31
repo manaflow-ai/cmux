@@ -7280,9 +7280,10 @@ struct ContentView: View {
         commandsContext: CommandPaletteCommandsContext
     ) -> [CommandPaletteCommand] {
         let context = commandsContext.snapshot
-        let contributions = commandPaletteCommandContributions()
+        let claudeAccountSwitchTargets = focusedPaneClaudeAccountSwitchTargetNames()
+        let contributions = commandPaletteCommandContributions(claudeAccountSwitchTargets: claudeAccountSwitchTargets)
         var handlerRegistry = CommandPaletteHandlerRegistry()
-        registerCommandPaletteHandlers(&handlerRegistry)
+        registerCommandPaletteHandlers(&handlerRegistry, claudeAccountSwitchTargets: claudeAccountSwitchTargets)
         let cloudCapabilityPolicy = CommandPaletteCloudCapabilityPolicy()
 
         var commands: [CommandPaletteCommand] = []
@@ -7609,6 +7610,7 @@ struct ContentView: View {
                     allowsAgentContinuation: allowsAgentContinuation
                 )
             )
+            snapshot.setBool(CommandPaletteContextKeys.panelHasClaudeAgent, panelIsTerminal && workspace.hasClaudeAgent(panelId: panelId))
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !workspace.isPanelPinned(panelId))
             snapshot.setBool(CommandPaletteContextKeys.panelCanMoveToNewWorkspace, workspace.panels.count > 1)
@@ -7648,7 +7650,7 @@ struct ContentView: View {
 
     /// Builds command-palette contributions from synchronous context and cached async availability.
     /// Builds the complete Cmd-Shift-P contribution list before filtering.
-    private func commandPaletteCommandContributions() -> [CommandPaletteCommandContribution] {
+    private func commandPaletteCommandContributions(claudeAccountSwitchTargets: [String]) -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
         }
@@ -8153,6 +8155,7 @@ struct ContentView: View {
             )
         )
         contributions.append(contentsOf: WorkspaceTodoPaletteCommands.contributions(workspaceSubtitle: workspaceSubtitle))
+        contributions.append(contentsOf: SessionPriorityPaletteCommands.contributions(workspaceSubtitle: workspaceSubtitle))
         for entry in WorkspaceTabColorSettings.palette() {
             contributions.append(
                 CommandPaletteCommandContribution(
@@ -8799,6 +8802,7 @@ struct ContentView: View {
                 }
             )
         )
+        contributions.append(contentsOf: Self.claudeAccountSwitchCommandContributions(targetNames: claudeAccountSwitchTargets, subtitle: terminalPanelSubtitle))
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitDown",
@@ -9009,7 +9013,7 @@ struct ContentView: View {
     }
 
     /// Registers runnable handlers for every built-in command-palette contribution.
-    private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
+    private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry, claudeAccountSwitchTargets: [String]) {
         registry.register(commandId: "palette.browseSidebarTemplates") {
             CmuxExtensionSidebarSelection.browseTemplates()
         }
@@ -9391,6 +9395,7 @@ struct ContentView: View {
             tabManager.selectWorkspace(workspace)
         }
         WorkspaceTodoPaletteCommands.registerHandlers(in: &registry, tabManager: tabManager)
+        SessionPriorityPaletteCommands.registerHandlers(in: &registry, tabManager: tabManager)
         registry.register(commandId: "palette.closeOtherWorkspaces") {
             closeOtherSelectedWorkspaces()
         }
@@ -9718,6 +9723,7 @@ struct ContentView: View {
         registry.register(commandId: "palette.forkAgentConversationNewWorkspace") {
             forkFocusedAgentConversationToNewWorkspace()
         }
+        registerClaudeAccountSwitchHandlers(&registry, targetNames: claudeAccountSwitchTargets)
         registry.register(commandId: "palette.terminalSplitDown") {
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitDown.configID) {
                 tabManager.createSplit(direction: .down)
@@ -12177,11 +12183,15 @@ struct VerticalTabsSidebar: View, Equatable {
             guard isPresented else { return }
             scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
         }
-        // The compact status tooltip reads agent profiles from the live index,
-        // which is not observable; rebuild the rows it reports as changed.
+        // The compact status tooltip and the normal-mode Claude account row read
+        // the live index, which is not observable; rebuild the rows it reports as changed.
         .onReceive(NotificationCenter.default.publisher(for: .sharedLiveAgentIndexDidChange)) { notification in
-            guard isPresented, renderContext.tabItemSettings.compactsAgentStatus else { return }
-            for workspaceId in SidebarAgentProfileLabel.changedWorkspaceIds(notification.userInfo, allWorkspaceIds: renderContext.workspaceIds) {
+            guard isPresented else { return }
+            for workspaceId in SidebarAgentProfileLabel.workspaceIdsToRefresh(
+                afterIndexChange: notification.userInfo,
+                allWorkspaceIds: renderContext.workspaceIds,
+                settings: renderContext.tabItemSettings
+            ) {
                 scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
             }
         }
@@ -15407,7 +15417,8 @@ struct VerticalTabsSidebar: View, Equatable {
             inferredTaskStatus: workspaceSnapshot.taskStatusInput.inferred,
             activeTodoOverride: workspaceSnapshot.taskStatusInput.activeOverride,
             isTodoStatusHidden: workspaceSnapshot.taskStatusInput.isHidden,
-            hasManualCustomColor: workspaceSnapshot.hasManualCustomColor
+            hasManualCustomColor: workspaceSnapshot.hasManualCustomColor,
+            sessionPriorityMenu: SessionPriorityMenuState(workspace: tab)
         )
         return result
     }
@@ -15607,6 +15618,12 @@ struct VerticalTabsSidebar: View, Equatable {
                     tabManager.tabs.first { $0.id == workspaceId }
                 }
                 WorkspaceTodoActions.hideStatus(for: workspaces)
+            },
+            applyClaudeDifficulty: { difficulty, ids in
+                SessionPriorityActions.applyDifficulty(difficulty, to: ids.compactMap { id in tabManager.tabs.first { $0.id == id } })
+            },
+            setSessionPriorityManual: { on, ids in
+                SessionPriorityActions.setManual(on, for: ids.compactMap { id in tabManager.tabs.first { $0.id == id } })
             },
             requestChecklistAdd: {
                 WorkspaceTodoActions.requestChecklistAddField(workspaceId: tabId)
@@ -17452,7 +17469,7 @@ private struct SidebarMetadataRows: View {
     let onFocus: () -> Void
 
     @State private var isExpanded: Bool = false
-    private let collapsedEntryLimit = 3
+    private let collapsedEntryLimit = SidebarWorkspaceSnapshotBuilder.collapsedMetadataEntryLimit
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -17484,8 +17501,7 @@ private struct SidebarMetadataRows: View {
     }
 
     private var visibleEntries: [SidebarStatusEntry] {
-        guard !isExpanded, entries.count > collapsedEntryLimit else { return entries }
-        return Array(entries.prefix(collapsedEntryLimit))
+        SidebarWorkspaceSnapshotBuilder.visibleMetadataEntries(entries, isExpanded: isExpanded)
     }
 
     private var helpText: String {

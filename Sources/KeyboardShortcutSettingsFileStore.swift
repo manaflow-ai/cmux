@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxBrowser
 import Combine
 import CmuxFoundation
@@ -967,6 +968,48 @@ final class CmuxSettingsFileStore {
                 return
             }
             snapshot.managedUserDefaults[AutomationSettings.portRangeKey] = .int(value)
+        }
+        if section.keys.contains("sessionPriority") {
+            parseSessionPriority(section["sessionPriority"], sourcePath: sourcePath, snapshot: &snapshot)
+        }
+    }
+
+    /// Parses `automation.sessionPriority`. Each member is validated on its own: an invalid
+    /// member is logged and skipped while the others still apply.
+    private func parseSessionPriority(
+        _ value: Any?,
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        guard let block = value as? [String: Any] else {
+            logInvalid("automation.sessionPriority", sourcePath: sourcePath)
+            return
+        }
+        let automation = AutomationCatalogSection()
+        if block.keys.contains("enabled") {
+            if let enabled = jsonBool(block["enabled"]) {
+                snapshot.managedUserDefaults[automation.sessionPriority.userDefaultsKey] = .bool(enabled)
+            } else {
+                logInvalid("automation.sessionPriority.enabled", sourcePath: sourcePath)
+            }
+        }
+        if block.keys.contains("urgentCount") {
+            if let count = jsonInt(block["urgentCount"]), count >= 0 {
+                snapshot.managedUserDefaults[automation.sessionPriorityUrgentCount.userDefaultsKey] = .int(count)
+            } else {
+                logInvalid("automation.sessionPriority.urgentCount", sourcePath: sourcePath)
+            }
+        }
+        if block.keys.contains("matrix") {
+            // Only an object may reach JSONSerialization: a scalar top-level value raises an
+            // uncatchable Objective-C exception.
+            if let object = block["matrix"] as? [String: Any],
+               let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]),
+               let matrix = try? SessionPriorityMatrix(json: data) {
+                snapshot.managedUserDefaults[automation.sessionPriorityMatrix.userDefaultsKey] = .string(matrix.canonicalJSONString())
+            } else {
+                logInvalid("automation.sessionPriority.matrix", sourcePath: sourcePath)
+            }
         }
     }
 

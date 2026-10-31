@@ -46,6 +46,8 @@ struct SidebarWorkspaceRowInput {
     let activeTodoOverride: WorkspaceTaskStatus?
     let isTodoStatusHidden: Bool
     let hasManualCustomColor: Bool
+    /// Frozen session-priority menu values; off by default so existing builders compile.
+    var sessionPriorityMenu = SessionPriorityMenuState.disabled
 
     @MainActor
     func rowSnapshot(list: SidebarWorkspaceRowsSnapshot) -> SidebarWorkspaceRowSnapshot {
@@ -94,6 +96,9 @@ struct SidebarWorkspaceRowInput {
                     activeOverride: activeTodoOverride,
                     isHidden: isTodoStatusHidden
                 ),
+                sessionPriorityEnabled: sessionPriorityMenu.enabled,
+                claudeDifficultyOverride: sessionPriorityMenu.difficultyOverride,
+                sessionPriorityAdjustableManual: sessionPriorityMenu.adjustableManual,
                 canMarkRead: targetAggregate.canMarkRead,
                 canMarkUnread: targetAggregate.canMarkUnread,
                 hasLatestNotification: targetAggregate.hasLatestNotification,
