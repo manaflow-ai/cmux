@@ -17,8 +17,17 @@ struct AgentChatFontSizeShortcutTests {
         try await withSettings { services, settings, _ in
             let key = AgentPaneDisplaySetting.fontSizePath
 
-            // The first tab is a terminal. Its shortcut must not write the chat setting.
+            // Startup may land on a chat. Select a real terminal before testing its shortcut,
+            // or an asynchronous chat-font write can leak into the two-press assertion below.
+            let pane = try #require(services.windows.active?.focusedPane)
+            pane.newTerminalTab()
+            try await PasswordManagerRouteTests.until({
+                guard let focused = services.windows.active?.focusedPane,
+                      case .terminal = focused.currentContent else { return false }
+                return true
+            })
             #expect(services.registry.perform("increaseWorkspaceTerminalFontSize", invocation: ActionInvocation(origin: .user)))
+            #expect(services.agentChatFontSizeWrites.latest == nil)
             #expect(settings.fileRoot.value(at: key) == nil)
 
             try await openChat(services)
