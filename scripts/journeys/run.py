@@ -23,6 +23,13 @@ its reused folder). An --out folder that holds an earlier run's results makes ev
 results.jsonl is kept beside as results.jsonl.earlier-<run id>). The driver writes this run's id and start time into
 each result.json; run.py takes no result.json without them ("not run: stale or foreign result"), and a lease whose
 launch or set-up failed before the driver started is "not run" with that reason, whatever the folder holds.
+
+Run fleet rounds from a pinned, reviewed checkout, never from the worktree you edit in (coordinator 2026-10-31):
+`git worktree add --detach DIR REVIEWED_SHA`, start run.py from DIR, and move DIR to a new sha only after that sha's
+review. run.py packs the harness (driver.py, ext_*.py, the journey specs, smoke_hog.py) from disk at each lease, so
+it reads `git status` of the harness paths at the start and at each lease: a result from a checkout with uncommitted
+harness files, or one whose commit moved during the run, is "not run" ("harness: unpinned ..."); its own status stays
+in result.json's "harness" record (commit, uncommitted files, detached, pinned) for debugging.
 Exit 0 when every selected journey passed, 1 when one failed, 75 when none failed but one did not run.
 
 Capture hosts: capture-host reads the fleet registry (~/.ssh/config.d/fleet-registry.json), or
@@ -74,6 +81,8 @@ EARLIER_RUN_FILES = ("run.json", "results.jsonl", "host.json", "summary.json", "
 # A result.json whose journey started this long before the run started is not this run's (the mini's clock may lag).
 CLOCK_SKEW_SECONDS = 300
 STAMP = "%Y-%m-%dT%H:%M:%SZ"
+# What kit_tar packs to the mini and what judges a round: a result counts only when these are committed and unchanged.
+HARNESS_PATHS = ("scripts/journeys", "scripts/cmux-next/build_names.py", "scripts/ci/pr_media_ocr.swift")
 
 
 def log(message):
@@ -267,6 +276,53 @@ def stale_reason(result, ident):
     return None
 
 
+def harness_state():
+    """{"commit", "dirty": [git status lines of HARNESS_PATHS, untracked files too], "detached"} of this checkout, now."""
+    def git(*args):
+        return subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True, timeout=60)
+    try:
+        commit = git("rev-parse", "HEAD").stdout.strip() or None
+        status = git("status", "--porcelain", "--untracked-files=all", "--", *HARNESS_PATHS)
+        dirty = status.stdout.splitlines() if status.returncode == 0 else [f"(git status exited {status.returncode})"]
+        detached = git("symbolic-ref", "-q", "HEAD").returncode != 0
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"commit": None, "dirty": [f"(git: {error})"], "detached": None}
+    return {"commit": commit, "dirty": dirty, "detached": detached}
+
+
+def stamp_harness(results, out, start, lease):
+    """Records the harness (`lease`: its state when this lease packed the kit) in each result and its result.json; a
+    pass or fail from an unpinned harness (uncommitted harness files at the start or at the lease, or the commit moved
+    since the start) becomes "not run", its own status kept in the record. No record when the kit was never packed."""
+    if lease is None:
+        return results
+    start = start or lease
+    why = None
+    if not lease["commit"]:
+        why = "no harness commit: " + "; ".join(lease["dirty"])[:200]
+    elif start["dirty"] or lease["dirty"]:
+        files = sorted(set(start["dirty"]) | set(lease["dirty"]))
+        why = f"{len(files)} uncommitted harness files: " + ", ".join(f.strip() for f in files[:5])
+    elif lease["commit"] != start["commit"]:
+        why = f"the checkout moved from {start['commit'][:12]} to {lease['commit'][:12]} during the run"
+    record = {"commit": lease["commit"], "dirty": sorted(set(start["dirty"]) | set(lease["dirty"])),
+              "detached": lease["detached"], "pinned": why is None}
+    for i, result in results.items():
+        result["harness"] = dict(record, **({"status": result.get("status")} if why else {}))
+        if why and result.get("status") in ("pass", "fail"):
+            result["status"], result["reason"] = "not run", f"harness: unpinned ({why}); was {result['status']}: {result.get('reason') or ''}"[:600]
+        path = out / i / "result.json"
+        if result.get("run_id"):  # only this run's own file (collect checked its run id), never a stale one
+            try:
+                on_disk = json.loads(path.read_text())
+                if on_disk.get("run_id") == result["run_id"]:
+                    on_disk["harness"] = result["harness"]
+                    path.write_text(json.dumps(on_disk, indent=1, default=str) + "\n")
+            except (OSError, ValueError):
+                pass
+    return results
+
+
 # ---- one lease ---------------------------------------------------------------------------
 
 def capture_host():
@@ -407,13 +463,14 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
     lease, deadline = acquired[-1], time.monotonic() + LEASE_SECONDS
     left = lambda cap: max(10.0, min(cap, deadline - time.monotonic()))
     log(f"leased {lease}")
-    facts, host, hog_started, work, drove = {}, None, None, None, None
+    facts, host, hog_started, work, drove, harness = {}, None, None, None, None, None
     try:
         signal.pthread_sigmask(signal.SIG_SETMASK, mask)  # a stop from here on raises inside the try: finally releases
         set_phase(ch, lease, "download")
         info = dict(kv.split("=", 1) for kv in run([ch, "slot-info", lease]).stdout.decode().split() if "=" in kv)
         host, root = info["host"], info["root"]
         work = f"{root}/journeys"
+        harness = harness_state()  # what kit_tar packs now, from disk
         # A slot root the mini reuses (a whole-host lease) may still hold an earlier run's out/: never fetch it.
         remote(host, f"rm -rf {q(work + '/out')} && mkdir -p {q(work + '/kit')} && tar x -C {q(work + '/kit')}",
                input=kit_tar(specs), timeout=left(120))
@@ -504,7 +561,7 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
             # The launch (or a relaunch in a capture-host wrapper) or the set-up failed: no journey started, so no
             # result.json in OUT can be this run's (STATUS 1362: a failed relaunch reported an older round's result).
             return {i: {"status": "not run", "reason": reason, "host": host} for i in ids}
-        return collect(out, ids, host, missing_reason=reason, ident=ident)
+        return stamp_harness(collect(out, ids, host, missing_reason=reason, ident=ident), out, ident.get("harness"), harness)
     finally:
         # The whole clean-up with stops blocked: a second TERM (^C reaches run.py and fuzz.py, which then sends TERM)
         # must not kill the release; a stop that came meanwhile is raised when the mask is restored, after it.
@@ -524,8 +581,9 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         except (OSError, subprocess.TimeoutExpired) as error:
             log(f"release of {lease} failed ({error}); it expires within 10 minutes")
         signal.pthread_sigmask(signal.SIG_SETMASK, mask)
-    return collect(out, ids, host, missing_reason=f"{host}: the driver wrote no result (driver exit {drove.returncode}: "
-                                                  f"{drove.stderr.decode(errors='replace').strip()[-300:]})", ident=ident)
+    return stamp_harness(collect(out, ids, host, missing_reason=f"{host}: the driver wrote no result (driver exit {drove.returncode}: "
+                                                               f"{drove.stderr.decode(errors='replace').strip()[-300:]})",
+                                 ident=ident), out, ident.get("harness"), harness)
 
 
 def take_results(files, out, ids):
@@ -730,6 +788,10 @@ def main(argv=None):
     os.environ["CAPTURE_HOST_EXCLUDE"] = " ".join(x for x in (os.environ.get("CAPTURE_HOST_EXCLUDE", ""), exclude) if x)
 
     this_run = new_run()
+    this_run["harness"] = harness_state()
+    if this_run["harness"]["dirty"] or not this_run["harness"]["commit"]:
+        log(f"harness: unpinned at the start ({len(this_run['harness']['dirty'])} uncommitted harness files): its results will "
+            "be not run. Run fleet rounds from a pinned, reviewed checkout (git worktree add --detach DIR SHA)")
     out_root = ROOT / "artifacts" / "journeys"
     job = opts.build or build_for_commit(opts.commit, out_root)
     status = wait_build(job, opts.build_wait_minutes * 60)
@@ -769,6 +831,7 @@ def main(argv=None):
                 "build_job": build["id"], "commit": build["commit"], "tag": build["tag"], "host": result.get("host"),
                 "path": spec["_path"], "nonce": result.get("nonce"), "seconds": result.get("seconds"),
                 "run_id": this_run["run_id"], "run_started_at": this_run["run_started_at"],
+                "harness": result.get("harness") or {k: this_run["harness"][k] for k in ("commit", "dirty", "detached")},
                 "run_at": result.get("started_at") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         lines.append(line)
     with open(out / "results.jsonl", "w") as f:
