@@ -20,7 +20,8 @@ import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
 import { awaitsPermission, groupId, isDraftCall, isRunning, messageGroupKey, toolGroups } from "./toolGroups";
-import { acpmuxSendCall } from "./acpmuxSends";
+import { acpmuxMcpSends } from "./acpmuxMcpSends";
+import { acpmuxSendCalls } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
@@ -1071,9 +1072,13 @@ function activityLine(
 /// The message a call in flight sends, for the live line: "Sending message to tests", never the
 /// raw `acpmux send …` line (Leo 2026-10-24: "sending message or sent message to X or Y").
 function sendingTo(tool: NonNullable<AcpmuxActivity["tool"]>): Pick<AcpmuxRow, "doingSendTo" | "doingSendSession"> {
-  const send = acpmuxSendCall(tool);
-  // Only a send still going: one that failed in the background is not "Sending" any more.
-  if (send) return send.state === "sending" ? { doingSendTo: send.target } : {};
+  const sends = acpmuxSendCalls(tool) ?? acpmuxMcpSends(tool);
+  // Only a send still going: one that failed in the background is not "Sending" any more. A batch
+  // names the first message still going out.
+  if (sends) {
+    const going = sends.find((send) => send.state === "sending");
+    return going ? { doingSendTo: going.target } : {};
+  }
   if (tool.kind === "execute" && tool.command) return {};
   const call = subsessionCall(tool);
   const short = (id: string) => (id.length > 12 ? `${id.slice(0, 8)}…` : id);

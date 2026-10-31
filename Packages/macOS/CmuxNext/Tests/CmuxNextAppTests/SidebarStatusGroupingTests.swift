@@ -50,12 +50,11 @@ import Testing
             redraw()
         }
 
-        /// The list top to bottom: a header's spoken label, or a workspace's id. A workspace's listed tab rows
-        /// (`sidebar.showWorkspaceTabs`, on by default since f32ee25f5a5) are not sections and are left out.
+        /// The list top to bottom: a header's spoken label, or a workspace's id (the sidebar has no tab rows
+        /// since 8a3af6be8e5 deleted their layout and keys).
         var drawn: [String] {
             view.list.displayed.rows.compactMap { row in
                 if case let .workspace(id) = row.key { return id.rawValue }
-                if case .tab = row.key { return nil }
                 return view.list.rowViews[row.key]?.accessibilityLabel()
             }
         }
