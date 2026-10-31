@@ -33,6 +33,9 @@ function hasTable(text: string): boolean {
 }
 
 /// True when `text` holds Markdown the bubble should render rather than draw literally.
+/// Line endings are read as Markdown.tsx reads them (`src.replace(/\r\n?/g, "\n")`), so a `\r\n` or
+/// lone `\r` paste gates the same as its `\n` form.
 export function isPromptMarkdown(text: string): boolean {
-  return BLOCK.test(text) || INLINE.test(text) || hasTable(text);
+  const src = text.includes("\r") ? text.replace(/\r\n?/g, "\n") : text;
+  return BLOCK.test(src) || INLINE.test(src) || hasTable(src);
 }

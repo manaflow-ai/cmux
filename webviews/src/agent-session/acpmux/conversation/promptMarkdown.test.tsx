@@ -53,6 +53,10 @@ const MARKDOWN: [string, string, string][] = [
   ["table", "| a | b |\n| --- | --- |\n| 1 | 2 |", "<table"],
   ["bare table", "a | b\n---|---\n1 | 2", "<table"],
   ["one column table", "| a |\n|---|\n| 1 |", "<table"],
+  // Markdown.tsx reads `\r\n` and a lone `\r` as line breaks, so the gate does too.
+  ["crlf table", "| a | b |\r\n| --- | --- |\r\n| 1 | 2 |", "<table"],
+  ["cr table", "| a | b |\r| --- | --- |\r| 1 | 2 |", "<table"],
+  ["cr list", "do these:\r- one\r- two", "<li>"],
   ["code span", "run `bun test` now", "<code"],
   ["bold", "this is **really** it", "<strong>really</strong>"],
   ["link", "see [the docs](https://example.com/docs)", 'href="https://example.com/docs"'],
