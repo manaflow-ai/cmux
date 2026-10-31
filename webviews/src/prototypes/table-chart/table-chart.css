@@ -249,8 +249,8 @@
 }
 .proto-picker[data-ready] .proto-picker-highlight {
   transition:
-    transform 250ms cubic-bezier(0.23, 1, 0.32, 1),
-    width 250ms cubic-bezier(0.23, 1, 0.32, 1);
+    transform var(--cmux-motion-large, 240ms) var(--cmux-ease-out, ease-out),
+    width var(--cmux-motion-large, 240ms) var(--cmux-ease-out, ease-out);
 }
 .proto-picker-item {
   position: relative;
