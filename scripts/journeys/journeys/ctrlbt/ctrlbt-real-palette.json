@@ -96,7 +96,7 @@
   {
    "do": "key_outcome",
    "action": "newSurface",
-   "title": "the real Ctrl-` reached cmux and ran New Terminal Tab (action log, keyboard entrypoint)"
+   "title": "the real Ctrl-` reached cmux and ran New Terminal Tab (action log, key entrypoint)"
   },
   {
    "do": "focused_terminal",

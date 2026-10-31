@@ -14,7 +14,7 @@ Steps (`do`):
               CuaDriver's answer, the window it aimed at and the app's action samples since the step began.
   key_outcome {action, entrypoint?, timeout?, as?}
               after a real_key: waits until the app's action log (`debug.action_budget` recent) has `action` with
-              a sequence above the one before the key, from `entrypoint` (default keyboard). Records the outcome;
+              a sequence above the one before the key, from `entrypoint` (default key, the app's name for the keyboard). Records the outcome;
               fails when the action never ran. `as` keeps the sample under that name.
 
   daemon_pause {seconds, background?: false}
@@ -109,7 +109,7 @@ def step_real_key(j, step):
 
 
 def step_key_outcome(j, step):
-    action, entry = step["action"], step.get("entrypoint", "keyboard")
+    action, entry = step["action"], step.get("entrypoint", "key")
     before = int(getattr(j, "realkey_before", 0))
     end = D.now() + float(step.get("timeout", 5))
     seen = []
