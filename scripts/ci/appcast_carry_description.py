@@ -31,6 +31,8 @@ def main(source, target, build):
         return 0
     text = "".join(n.nodeValue for n in descriptions[0].childNodes if n.nodeType in (n.TEXT_NODE, n.CDATA_SECTION_NODE)) if descriptions else None
     doc = minidom.parse(target)
+    if not doc.documentElement.hasAttribute("xmlns:cmux"):
+        doc.documentElement.setAttribute("xmlns:cmux", CMUX)
     item = item_for(doc, build)
     if item is None:
         raise SystemExit(f"{target} has no item for build {build}")
