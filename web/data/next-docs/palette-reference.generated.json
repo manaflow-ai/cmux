@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1229,
+    "entries": 1230,
     "shortcuts": 189
   },
   "sections": [
@@ -3872,6 +3872,12 @@
           "title": "Edit Bookmark…",
           "shortcut": null,
           "command": "cmux bookmark edit"
+        },
+        {
+          "id": "browser.editSource",
+          "title": "Edit Source",
+          "shortcut": null,
+          "command": "cmux browser edit-source"
         },
         {
           "id": "fileEditorZoomReset",
