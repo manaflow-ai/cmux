@@ -385,6 +385,16 @@ typed after the creation hold, every other check runs and is counted per round; 
 must be a new folder. Writes `summary.json` and `summary.txt`. Test:
 `python3 scripts/journeys/test_smoke_gate.py`.
 
+### Rounds by scheduler GO (`--go-spec`)
+
+When the mini scheduler gives one round per GO (lead, STATUS 1354), `--go-spec NAME` keeps all rounds in one
+gate run: before each round the gate waits for a new GO in `mini-queue/rounds/NAME.go`, runs the round on the
+GO's mini (it must be one of `--hosts`), sets capture-host's acquire timeout and exclusive drain so the lease
+starts before the GO's `until` (less 20 s), and writes `NAME.done` after the round, only while that same GO is
+still open. A GO with less than 60 s left, or on another mini, is given back unused; one GO is never two rounds.
+With `--whole-host`, each round leases the GO's whole mini. No GO within `--go-wait-hours` (4): that round is
+not run. The 10-of-10 rule and the `.pass` file are unchanged.
+
 ### Building a smoke candidate (the only way)
 
 ```bash

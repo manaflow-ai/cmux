@@ -10,6 +10,7 @@ or from a used --out folder. The type-at-once check (smoke_new_terminals) fails 
 terminal, a missing tab or the wrong pane. Also: the journey and its step group load (`run.py --check`).
 """
 import json
+import time
 import os
 import subprocess
 import sys
@@ -267,6 +268,64 @@ class Verdicts(unittest.TestCase):
                                        "SMOKE_JOURNEY": str(HERE / "journeys" / "dogfood" / "smoke-dogfood.json")})
             self.assertEqual(done.returncode, 2)
             self.assertIn("not empty", done.stderr)
+
+
+class GoSpec(unittest.TestCase):
+    """--go-spec: one scheduler GO per round, all rounds one gate run (the tip watcher, lead STATUS 1354)."""
+
+    @staticmethod
+    def stamp(t):
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
+
+    def test_a_round_runs_on_the_gos_mini_inside_its_window_and_ends_the_go(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rounds_dir = os.path.join(tmp, "rounds")
+            os.makedirs(rounds_dir)
+            now = time.time()
+            with open(os.path.join(rounds_dir, "spec-x.go"), "w") as f:
+                json.dump({"spec": "spec-x", "host": "cmux99", "go": self.stamp(now - 5), "until": self.stamp(now + 300)}, f)
+            code, summary = gate([{"status": "pass"}], tmp, extra=("--go-spec", "spec-x", "--hosts", "cmux98 cmux99"),
+                                 env_extra={"SMOKE_GATE_SCHED_ROUNDS": rounds_dir})
+            argv = json.load(open(os.path.join(tmp, "out", "round-01", "argv.json")))
+            self.assertEqual(argv[argv.index("--hosts") + 1], "cmux99")
+            env = json.load(open(os.path.join(tmp, "out", "round-01", "env.json")))
+            bound = int(env["CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS"]) + int(env["CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS"])
+            self.assertLessEqual(bound, 300 - 20)  # the lease starts before the GO's until
+            self.assertTrue(os.path.exists(os.path.join(rounds_dir, "spec-x.done")))
+            self.assertEqual(summary["rounds_detail"][0]["go"]["host"], "cmux99")
+
+    def test_a_short_or_foreign_go_is_given_back_and_a_used_go_is_never_reused(self):
+        gate_mod = load_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            gate_mod.SCHED_ROUNDS = Path(tmp)
+            now = time.time()
+            go_file = os.path.join(tmp, "s.go")
+            json.dump({"host": "cmux99", "go": self.stamp(now - 5), "until": self.stamp(now + 30)}, open(go_file, "w"))
+            go, why = gate_mod.await_go("s", ["cmux99"], set(), now + 0.5, poll=0.1)
+            self.assertIsNone(go)  # 30 s left < 60 s: given back
+            self.assertTrue(os.path.exists(os.path.join(tmp, "s.done")))
+            json.dump({"host": "cmux42", "go": self.stamp(now - 3), "until": self.stamp(now + 400)}, open(go_file, "w"))
+            go, _ = gate_mod.await_go("s", ["cmux99"], set(), now + 0.5, poll=0.1)
+            self.assertIsNone(go)  # not one of --hosts
+            json.dump({"host": "cmux99", "go": self.stamp(now - 1), "until": self.stamp(now + 400)}, open(go_file, "w"))
+            used = set()
+            go, _ = gate_mod.await_go("s", ["cmux99"], used, now + 0.5, poll=0.1)
+            self.assertEqual(go["host"], "cmux99")
+            used.add(go["go"])
+            again, _ = gate_mod.await_go("s", ["cmux99"], used, time.time() + 0.3, poll=0.1)
+            self.assertIsNone(again)  # the same GO twice is never two rounds
+            os.remove(os.path.join(tmp, "s.done"))
+            older = dict(go, go=go["go"] - 100)
+            self.assertFalse(gate_mod.go_done("s", older, "x"))  # a .done for an older GO never ends the open one
+            self.assertFalse(os.path.exists(os.path.join(tmp, "s.done")))
+
+
+def load_gate():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("smoke_gate_mod", str(GATE))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 class Hosts(unittest.TestCase):
