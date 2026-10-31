@@ -191,6 +191,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_design_spec_check.py
 
+      - name: Validate the PR cloud backend check
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_pr_cloud_backend_check.py
+
       - name: Validate gh-merge-green --revert
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_gh_merge_green_revert.py
@@ -953,6 +957,10 @@ jobs:
       - name: Validate runner label policy
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_runner_label_policy.py
+
+      - name: Validate no new job takes one Linux runner size
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_linux_single_size.py
 
       - name: Validate the INTERNAL iOS builder decisions
         if: ${{ !cancelled() && matrix.group == 'ci' }}
