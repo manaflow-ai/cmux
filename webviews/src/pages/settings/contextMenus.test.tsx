@@ -12,6 +12,7 @@ const restore = installDom();
 afterAll(() => restore());
 const { renderPage, settle, click, ops, changeValue, fire } = await import("./testing");
 const { act } = await import("react");
+const { installNativeMenu } = await import("../../ui/nativeMenu");
 
 const SET = "cmux.settings.context_menus.set";
 
@@ -127,6 +128,25 @@ test("Move to… takes any row to any submenu at any depth, or out to the top le
   ]);
   expect(keys(saved(page.provider)?.items)).not.toContain("folder:move");
   page.unmount();
+});
+
+// Leo's rule (popup hover reveals, #26399): a hover-revealed control stays revealed and lit while
+// the menu it opened is open. Move to… opens the app's own menu; its row's actions stay shown.
+test("Move to… stays lit while the app's menu it opened is open", async () => {
+  let answer!: (reply: unknown) => void;
+  installNativeMenu(() => new Promise((resolve) => (answer = resolve)));
+  try {
+    const page = await renderPage({ path: "/settings/menus?focus=workspaceRow" });
+    await settle();
+    const button = action(row(page.container, "renameWorkspace"), "move-to");
+    await click(button);
+    expect(button.hasAttribute("data-popup-open")).toBe(true);
+    await act(async () => answer({ picked: null }));
+    expect(button.hasAttribute("data-popup-open")).toBe(false);
+    page.unmount();
+  } finally {
+    installNativeMenu(null);
+  }
 });
 
 test("a submenu never moves into itself", async () => {
