@@ -175,3 +175,53 @@ fn every_store_change_matches_a_fresh_read() {
         "a subagent and a deleted thread go; the unspawned and a new one stay"
     );
 }
+
+/// Changes the row keys do not see: a filter that comes with a column, and a spawn edge that names
+/// a thread through SQLite's type affinity.
+#[test]
+fn a_schema_or_affinity_change_matches_a_fresh_read() {
+    let home = tempfile::tempdir().unwrap();
+    let codex = home.path().join(".codex");
+    let writer = codex_db(&codex);
+    let mut index = ChatIndex::new(vec![root(&codex)]);
+    index.rescan_all();
+    // A thread with no user text, in a database with no `has_user_event` column: it is listed.
+    writer.execute_batch("alter table threads drop column has_user_event").unwrap();
+    writer
+        .execute(
+            "insert into threads (id, rollout_path, created_at, updated_at, cwd, title)
+             values (?1, '', 1759312800, 1759312800, '/work/app', '')",
+            [id(THREADS)],
+        )
+        .unwrap();
+    index.paths_changed(&wal(&codex));
+    assert_eq!(chats(&index), fresh(&codex), "after the column is dropped");
+    // The column comes back, empty: its filter leaves that thread out though no row changed.
+    writer.execute_batch("alter table threads add column has_user_event integer").unwrap();
+    index.paths_changed(&wal(&codex));
+    assert_eq!(chats(&index), fresh(&codex), "after the column is added");
+
+    // Spawn edges whose child column is declared `integer`, so it compares by number.
+    writer
+        .execute_batch(
+            "create table edges (parent_thread_id text, child_thread_id integer, status text);
+             insert into edges select * from thread_spawn_edges;
+             drop table thread_spawn_edges;
+             alter table edges rename to thread_spawn_edges;",
+        )
+        .unwrap();
+    writer
+        .execute(
+            "insert into threads (id, rollout_path, created_at, updated_at, cwd, title)
+             values ('123', '', 1759312800, 1759312800, '/work/app', 'A numbered thread')",
+            [],
+        )
+        .unwrap();
+    index.paths_changed(&wal(&codex));
+    assert_eq!(chats(&index), fresh(&codex), "after a thread with a numeric id");
+    // An edge naming it as the integer 123: `id NOT IN (...)` compares '123' as a number and
+    // drops it.
+    writer.execute("insert into thread_spawn_edges values (?1, 123, 'open')", [id(1)]).unwrap();
+    index.paths_changed(&wal(&codex));
+    assert_eq!(chats(&index), fresh(&codex), "after an integer spawn edge");
+}
