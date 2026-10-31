@@ -36,6 +36,11 @@ public final class OverlaySurfaceView: NSView {
     /// The neutral glass's specular rim; nil for the theme tone and on the opaque material.
     public private(set) var rimView: GlassRimView?
     private let reduceTransparency: ReduceTransparency
+    /// The glass keeps its key-window look while its window is not key (``GlassPanelView``): a
+    /// dialog's card, whose overlay panel gives key back as the dialog starts to fade out; the
+    /// inactive grey frost lit the card up for the whole fade (the close flashed).
+    /// The window's ``ActiveLookScope``; nil follows the key state.
+    private let activeLook: ActiveLookScope?
     /// Pins one material (tests, `debug.drop_highlight`); nil follows this Mac.
     public var materialOverride: OverlayMaterial? {
         didSet { refreshMaterial() }
@@ -61,8 +66,10 @@ public final class OverlaySurfaceView: NSView {
     public init(material: OverlayMaterial? = nil, interactive: Bool = false,
                 cornerRadius: CGFloat = Metrics.panelCornerRadius,
                 card: Bool = false,
-                reduceTransparency: ReduceTransparency = .shared, tone: OverlayTone = .theme) {
+                reduceTransparency: ReduceTransparency = .shared, tone: OverlayTone = .theme,
+                activeLook: ActiveLookScope? = nil) {
         self.tone = tone
+        self.activeLook = activeLook
         materialOverride = material
         isInteractive = interactive
         isCard = card
@@ -131,10 +138,10 @@ public final class OverlaySurfaceView: NSView {
                     contentView.topAnchor.constraint(equalTo: fill.topAnchor),
                     contentView.bottomAnchor.constraint(equalTo: fill.bottomAnchor),
                 ])
-                glass = Glass.makePanel(content: fill, style: .regular, cornerRadius: cornerRadius)
+                glass = Glass.makePanel(content: fill, style: .regular, cornerRadius: cornerRadius, activeLook: activeLook)
                 tintView = fill
             } else {
-                glass = Glass.makePanel(content: contentView, style: .regular, cornerRadius: cornerRadius)
+                glass = Glass.makePanel(content: contentView, style: .regular, cornerRadius: cornerRadius, activeLook: activeLook)
             }
             glass.translatesAutoresizingMaskIntoConstraints = true
             view = glass

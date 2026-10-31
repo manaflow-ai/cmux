@@ -133,6 +133,10 @@ pub struct Peer {
     pub last_error: StdMutex<Option<String>>,
     /// Version and build the peer reported at handshake.
     pub remote_version: StdMutex<Option<(String, String)>>,
+    /// The build of this peer whose watch list the last handshake read in pages of rows
+    /// (`Peer::watch_row_pages`): the next handshake to that build reads it so at once, without
+    /// the two whole lists it would refuse (each a full build, 10-15 s on a busy peer).
+    row_pages_for: StdMutex<Option<String>>,
     /// The origin the peer serves this daemon as (its initialize reply):
     /// `peer` when it accepted the peer token, `remote` (Web) otherwise.
     served_as: StdMutex<Option<String>>,
@@ -171,6 +175,8 @@ pub struct Peer {
     link_epoch: AtomicU64,
     /// Whether the peer serves `_acpmux/subagent_transcript` (`hub/subagent_transcript.rs`).
     subagent_transcript: AtomicBool,
+    /// Whether the peer serves `_acpmux/native_history` (`hub/native_history.rs`).
+    native_history: AtomicBool,
     /// Whether the peer saves a message's attachments (`attach.rs`).
     send_attach: AtomicBool,
     /// The peer lists `promptUploads` (`prompt_uploads.rs`).
@@ -256,6 +262,7 @@ impl Peer {
             open: AtomicBool::new(false),
             last_error: StdMutex::new(None),
             remote_version: StdMutex::new(None),
+            row_pages_for: StdMutex::new(None),
             served_as: StdMutex::new(None),
             person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
@@ -270,6 +277,7 @@ impl Peer {
             media_read: AtomicBool::new(false),
             link_epoch: AtomicU64::new(0),
             subagent_transcript: AtomicBool::new(false),
+            native_history: AtomicBool::new(false),
             send_attach: AtomicBool::new(false),
             prompt_uploads: AtomicBool::new(false),
             upload_resume: AtomicBool::new(false),
@@ -1186,6 +1194,7 @@ impl Peer {
                 .and_then(Value::as_str)
                 .unwrap_or("unknown")
                 .to_owned();
+            let build = (b != "unknown").then(|| b.clone());
             *me.remote_version.lock_or_recover() = Some((v, b));
             *me.served_as.lock().unwrap_or_else(|e| e.into_inner()) =
                 init.pointer("/_meta/acpmux/origin").and_then(Value::as_str).map(str::to_owned);
@@ -1213,6 +1222,7 @@ impl Peer {
             set(&me.file_put_chunks, crate::hub::file_uploads::CHUNKS_FEATURE);
             set(&me.media_read, crate::hub::MEDIA_READ_FEATURE);
             set(&me.subagent_transcript, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE);
+            set(&me.native_history, crate::hub::NATIVE_HISTORY_FEATURE);
             set(&me.send_attach, crate::attach::FEATURE);
             set(&me.prompt_uploads, crate::prompt_uploads::FEATURE);
             set(&me.upload_resume, crate::hub::file_uploads::RESUME_FEATURE);
@@ -1229,27 +1239,35 @@ impl Peer {
             me.session_messages.store(messages, Ordering::SeqCst);
             // The reader published the reply's list (`watch_key`), so Connected follows it.
             let watch = |tools| json!({"enabled": true, "withTools": tools});
-            let first = match me.watch_request_on(method::MUX_WATCH, watch(true), link).await {
-                // A list too large to send with tools (big-red's, 17 MB with 5241 rows, on
-                // 2026-10-30) is read without them: the link connects with its rows' tools
-                // missing rather than never. A peer on this build leaves its peers' rows out
-                // of a link's list (`server/list_reply.rs` `watch`), so its list stays small.
-                Err(e) if too_large(&e) => {
-                    tracing::warn!(peer = %me.name, "the watch list is too large with tools ({}); reading it without them", e.message);
-                    match me.watch_request_on(method::MUX_WATCH, watch(false), link).await {
-                        // A peer from before #28182 sends a whole list in one message or not
-                        // at all (cosmic-gray's NIGHTLY, 16.4 MB without tools, on
-                        // 2026-10-30): it is read in pages of a count of rows, which such a
-                        // peer serves.
-                        Err(e) if too_large(&e) => {
-                            tracing::warn!(peer = %me.name, "the watch list is too large without tools ({}); reading it in pages", e.message);
-                            me.watch_row_pages(link).await?;
-                            None
+            let row_pages = build.is_some() && *me.row_pages_for.lock_or_recover() == build;
+            let first = if row_pages {
+                tracing::info!(peer = %me.name, "the watch list needed pages of rows last time; reading it so");
+                me.watch_row_pages(link).await?;
+                None
+            } else {
+                match me.watch_paced(method::MUX_WATCH, watch(true), link).await {
+                    // A list too large to send with tools (big-red's, 17 MB with 5241 rows, on
+                    // 2026-10-30) is read without them: the link connects with its rows' tools
+                    // missing rather than never. A peer on this build leaves its peers' rows out
+                    // of a link's list (`server/list_reply.rs` `watch`), so its list stays small.
+                    Err(e) if too_large(&e) => {
+                        tracing::warn!(peer = %me.name, "the watch list is too large with tools ({}); reading it without them", e.message);
+                        match me.watch_paced(method::MUX_WATCH, watch(false), link).await {
+                            // A peer from before #28182 sends a whole list in one message or not
+                            // at all (cosmic-gray's NIGHTLY, 16.4 MB without tools, on
+                            // 2026-10-30): it is read in pages of a count of rows, which such a
+                            // peer serves.
+                            Err(e) if too_large(&e) => {
+                                tracing::warn!(peer = %me.name, "the watch list is too large without tools ({}); reading it in pages", e.message);
+                                me.watch_row_pages(link).await?;
+                                *me.row_pages_for.lock_or_recover() = build.clone();
+                                None
+                            }
+                            answer => Some((answer?, false)),
                         }
-                        answer => Some((answer?, false)),
                     }
+                    answer => Some((answer?, true)),
                 }
-                answer => Some((answer?, true)),
             };
             // A list too large for one message comes in pages (a peer served as Web, over
             // plain ws://, gets the whole list): every page is read before the link connects,
@@ -1298,6 +1316,9 @@ impl Peer {
         let mut stale_settled = false;
         let mut handshake_ended = false;
         let mut ticks: u64 = 0;
+        // Moved on by each page of a watch list read in pages, up to `HANDSHAKE_MOST` in all: a
+        // peer that paces its lists still links, one that stops answering does not hold it.
+        let handshake_started = tokio::time::Instant::now();
         let handshake_deadline = tokio::time::sleep(timings.handshake);
         tokio::pin!(handshake_deadline);
         // After this computer slept, the link's monotonic timers say its last frame came moments
@@ -1369,7 +1390,7 @@ impl Peer {
                     }
                 }
                 _ = &mut handshake_deadline, if !self.link().is_ready() => {
-                    break Err(format!("handshake timed out after {}s", timings.handshake.as_secs()));
+                    break Err(timed_out(handshake_started));
                 }
                 _ = ping.tick() => {
                     let silent = last_frame.elapsed();
@@ -1394,6 +1415,11 @@ impl Peer {
                 frame = source.next() => {
                     let Some(frame) = frame else { break Err("peer closed the connection".to_owned()) };
                     let frame = match frame { Ok(f) => f, Err(e) => break Err(e.to_string()) };
+                    // `select!` is unbiased: a frame read as the deadline passes may not finish
+                    // the handshake (or move the deadline on past its cap).
+                    if !self.link().is_ready() && handshake_deadline.is_elapsed() {
+                        break Err(timed_out(handshake_started));
+                    }
                     last_frame = tokio::time::Instant::now();
                     wake_probe = None;
                     self.with_link(|l| l.heard(crate::store::now_ms()));
@@ -1427,7 +1453,12 @@ impl Peer {
                                 rows.extend(watch_sessions(list));
                                 match page_cursor(list) {
                                     // More pages: the handshake asks for them.
-                                    Ok(Some(_)) => paged = Some((rows, held)),
+                                    Ok(Some(_)) => {
+                                        paged = Some((rows, held));
+                                        let until = (tokio::time::Instant::now() + timings.handshake)
+                                            .min(handshake_started + HANDSHAKE_MOST.max(timings.handshake));
+                                        handshake_deadline.as_mut().reset(until);
+                                    }
                                     // A bad cursor: the handshake fails and the link drops.
                                     Err(_) => {}
                                     Ok(None) => {
@@ -1585,11 +1616,14 @@ impl Peer {
     /// Reads the watch list on link `link` in pages of a count of rows, without tools:
     /// `_acpmux/watch {limit}`, then `_acpmux/sessions {limit, cursor}` (the keyset pages every
     /// peer serves, those from before #28182 too). The reader gathers their rows (`watch_key`).
-    /// A page refused as too large is asked for again with half the rows; one the peer paces
-    /// (`list.paced`) is asked for again after the wait it names. A cursor given twice, or one
-    /// that is not a string, ends the handshake.
+    /// Each page after the first is sized from the one before to about [`WATCH_PAGE_BYTES`], so
+    /// a list over the limit takes a few pages: such a peer builds its list again for most
+    /// pages while its sessions change, four back to back and then one per pace window (up to
+    /// 15 s), and many small pages would outlast the handshake. A page refused as too large is
+    /// asked for again with half the rows. A cursor given twice, or one that is not a string,
+    /// ends the handshake.
     async fn watch_row_pages(&self, link: u64) -> Result<(), RpcError> {
-        let (mut rows, mut cursor, mut seen) = (WATCH_PAGE_ROWS, None::<String>, HashSet::new());
+        let (mut rows, mut cursor, mut seen) = (WATCH_FIRST_ROWS, None::<String>, HashSet::new());
         loop {
             let (m, params) = match &cursor {
                 None => {
@@ -1600,13 +1634,9 @@ impl Peer {
                     json!({"withTools": false, "limit": rows, "cursor": after}),
                 ),
             };
-            let page = match self.watch_request_on(m, params, link).await {
+            let page = match self.watch_paced(m, params, link).await {
                 Err(e) if too_large(&e) && rows > 1 => {
                     rows /= 2;
-                    continue;
-                }
-                Err(e) if paced(&e).is_some() => {
-                    tokio::time::sleep(paced(&e).unwrap_or_default()).await;
                     continue;
                 }
                 page => page?,
@@ -1617,16 +1647,55 @@ impl Peer {
                 return Err(RpcError::internal(why));
             }
             cursor = Some(next);
+            rows = next_page_rows(&page).unwrap_or(rows);
+        }
+    }
+
+    /// [`Self::watch_request_on`], asked again after the wait a peer's `list.paced` refusal
+    /// names (a pre-#28182 peer refuses a list it would make wait more than 30 s). The
+    /// handshake's deadline bounds the retries.
+    async fn watch_paced(&self, m: &str, params: Value, link: u64) -> Result<Value, RpcError> {
+        loop {
+            match self.watch_request_on(m, params.clone(), link).await {
+                Err(e) if paced(&e).is_some() => {
+                    tokio::time::sleep(paced(&e).unwrap_or_default()).await;
+                }
+                answer => return answer,
+            }
         }
     }
 }
 
-/// The rows of a watch page read by count (`Peer::watch_row_pages`): about 1 MB without tools
-/// at the incident's row sizes, and few enough pages that a pre-#28182 peer's pace (each page
-/// its share of a list, at least a sixteenth) adds about one list's wait.
-const WATCH_PAGE_ROWS: u64 = 512;
+/// The longest a handshake reading its watch list in pages may take in all: each page moves its
+/// deadline on by the handshake's own (`LinkTimings::handshake`), never past this.
+const HANDSHAKE_MOST: Duration = Duration::from_secs(300);
 
-/// The longest wait a peer's `list.paced` reply may ask of a watch page before it is asked again.
+/// The rows of the first watch page read by count (`Peer::watch_row_pages`): about 5 MB
+/// without tools at the incident's row sizes (2.3 KB).
+const WATCH_FIRST_ROWS: u64 = 2048;
+
+/// The bytes a later watch page read by count is sized to: about half the message limit, so a
+/// page whose rows grow meanwhile still fits.
+const WATCH_PAGE_BYTES: u64 = 8 << 20;
+
+/// The most rows a watch page read by count asks for.
+const WATCH_MAX_ROWS: u64 = 1 << 16;
+
+/// Why a handshake that ran out of time failed.
+fn timed_out(started: tokio::time::Instant) -> String {
+    format!("handshake timed out after {}s", started.elapsed().as_secs())
+}
+
+/// The rows of the next page, from `page`'s: as many as fit in [`WATCH_PAGE_BYTES`] at its
+/// mean row size. None for a page with no rows.
+fn next_page_rows(page: &Value) -> Option<u64> {
+    let rows = u64::try_from(page.get("sessions")?.as_array()?.len()).ok().filter(|n| *n > 0)?;
+    let bytes = u64::try_from(serde_json::to_vec(page).ok()?.len()).ok()?;
+    let fit = rows.saturating_mul(WATCH_PAGE_BYTES).checked_div(bytes)?;
+    Some(fit.clamp(1, WATCH_MAX_ROWS))
+}
+
+/// The longest wait a peer's `list.paced` reply may ask of a watch request before it is asked again.
 const WATCH_PACED_MAX: Duration = Duration::from_secs(30);
 
 /// How long to wait before asking again, when `e` is a peer's `list.paced` refusal.

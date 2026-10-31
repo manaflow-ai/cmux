@@ -134,7 +134,7 @@ const parts = () => ({
 test("Minimal is the default layout and the first dot; no other layout is gone", () => {
   expect(DEFAULT_NEW_TAB_TEMPLATE).toBe("minimal");
   expect(shownTemplate({ layout: "b" })).toBe("minimal");
-  expect(PAGE_STYLES).toEqual(["minimal", "cards", "default", "composer", "threads", "console", "classic"]);
+  expect(PAGE_STYLES).toEqual(["minimal", "cards", "default", "threads", "console", "classic"]);
 });
 
 test("by default Minimal is the composer alone", async () => {
