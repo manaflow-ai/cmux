@@ -145,7 +145,24 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         println!("{USAGE}");
         return Some(0);
     }
-    let request = match parse(rest)? {
+    // `--json` / `--quiet` after the verb, as every scope's own flags (`cmux apps list --json`).
+    let mut global = global;
+    let rest: Vec<String> = rest
+        .iter()
+        .filter(|word| match word.as_str() {
+            "--json" => {
+                global.output = OutputMode::Json;
+                false
+            }
+            "--quiet" => {
+                global.output = OutputMode::Quiet;
+                false
+            }
+            _ => true,
+        })
+        .cloned()
+        .collect();
+    let request = match parse(&rest)? {
         Ok(request) => request,
         Err(usage) => {
             eprintln!("{usage}");
