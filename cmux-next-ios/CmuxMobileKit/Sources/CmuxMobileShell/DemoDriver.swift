@@ -85,13 +85,13 @@ struct DemoDriver {
             // Send button and an armed key, for screenshots of the key row.
             shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
             shell.tab = .workspaces
-            await pause(1.0)
+            await pause(0.6)
             guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
             shell.workspacesPath = [ws]
-            await pause(2.0)
+            await pause(1.2)
             guard let model = shell.terminalTabs.model(forTabID: "t-zsh") else { return }
             model.toggleKeyboard()
-            await pause(1.0)
+            await pause(0.5)
             model.composerText = "ls -la"
             model.demoArm(.control)
         case "ws-terminal-card": await workspaceTerminalCard()
