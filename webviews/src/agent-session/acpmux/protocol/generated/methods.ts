@@ -52,6 +52,7 @@ export interface AcpmuxRequests {
   "_acpmux/mcp/reconnect": { params: unknown; result: unknown };
   "_acpmux/subagent_stop": { params: unknown; result: unknown };
   "_acpmux/subagent_transcript": { params: unknown; result: unknown };
+  "_acpmux/native_history": { params: unknown; result: unknown };
   "_acpmux/workflows": { params: unknown; result: unknown };
   "_acpmux/app_reply": { params: unknown; result: unknown };
   "_acpmux/stats": { params: unknown; result: unknown };
@@ -168,6 +169,9 @@ export interface AcpmuxRequests {
   "_acpmux/chat_settled": { params: unknown; result: unknown };
   "_acpmux/chat_transcript": { params: unknown; result: unknown };
   "_acpmux/chat_fork": { params: unknown; result: unknown };
+  "_acpmux/chat_projects": { params: unknown; result: unknown };
+  "_acpmux/chats_window": { params: unknown; result: unknown };
+  "_acpmux/chats_window_close": { params: unknown; result: unknown };
   "_acpmux/transfer_abort": { params: unknown; result: unknown };
   "_acpmux/transfer_begin": { params: unknown; result: unknown };
   "_acpmux/transfer_commit": { params: unknown; result: unknown };
@@ -235,6 +239,7 @@ export interface AcpmuxRequests {
   "_acpmux/machine_consent_get": { params: unknown; result: unknown };
   "_acpmux/machine_consent_refused": { params: unknown; result: unknown };
   "_acpmux/pair_redeem": { params: unknown; result: unknown };
+  "_acpmux/turn_attestation": { params: unknown; result: unknown };
 }
 
 /** Client to daemon notifications (no response). */
@@ -250,6 +255,7 @@ export interface AcpmuxNotifications {
   "_acpmux/process_update": unknown;
   "_acpmux/chat_changed": unknown;
   "_acpmux/chats_lagged": unknown;
+  "_acpmux/chats_window_changed": unknown;
   "_acpmux/event": SessionEvent;
   "_acpmux/message": MessageEvent;
   "_acpmux/session_changed": SessionChanged;
@@ -331,6 +337,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/mcp/reconnect", kind: "request", acp: false, typed: false },
   { name: "_acpmux/subagent_stop", kind: "request", acp: false, typed: false },
   { name: "_acpmux/subagent_transcript", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/native_history", kind: "request", acp: false, typed: false },
   { name: "_acpmux/workflows", kind: "request", acp: false, typed: false },
   { name: "_acpmux/app_reply", kind: "request", acp: false, typed: false },
   { name: "_acpmux/stats", kind: "request", acp: false, typed: false },
@@ -448,8 +455,12 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/chat_settled", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_transcript", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_fork", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/chat_projects", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_changed", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/chats_lagged", kind: "notification", acp: false, typed: false },
+  { name: "_acpmux/chats_window", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/chats_window_close", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/chats_window_changed", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/transfer_abort", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_begin", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_commit", kind: "request", acp: false, typed: false },
@@ -517,6 +528,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/machine_consent_get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_consent_refused", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_redeem", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/turn_attestation", kind: "request", acp: false, typed: false },
   { name: "_acpmux/event", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/message", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/session_changed", kind: "notification", acp: false, typed: true },

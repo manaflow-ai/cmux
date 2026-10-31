@@ -57,6 +57,7 @@ failure's origin is unknown or the guard run ended without step results.
 | `--all-guards` | Run every guard group after the merge (implies `--guards`). |
 | `--no-guards` | Merge only; the default, kept for older callers. |
 | `--strict` | Run the guards; exit 3 when the branch introduced a failure, 2 when it cannot tell. |
+| `--base <branch>` | Merge that branch instead of main: `--base feat-cmux-next` for a pull request into feat-cmux-next. Only main has CI fast guards verdicts, so any other base merges its tip. |
 
 If your push is rejected because the branch moved, run `git pull --no-rebase`
 and push again. Never force-push over a merge-main commit. The local command
