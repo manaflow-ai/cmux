@@ -80,6 +80,7 @@ members = [
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
     "crates/cmux-rd-engine",
+    "crates/cmux-rd-link",
     "crates/cmux-encode",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
@@ -92,6 +93,7 @@ members = [
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
+    "crates/cmux-chats-mirror",
     "crates/cmux-kitty-media",
 ]
 default-members = [
@@ -146,6 +148,7 @@ default-members = [
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
     "crates/cmux-rd-engine",
+    "crates/cmux-rd-link",
     "crates/cmux-encode",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",

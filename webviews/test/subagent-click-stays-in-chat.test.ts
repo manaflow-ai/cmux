@@ -32,6 +32,22 @@ test("with the switch off, a click shows the subagent in the chat and opens no p
 
 test("with the switch on, a click asks the app for the subagent's pane", async () => {
   expect(await show({ panes: true })).toEqual({ calls: ["tail.handover", "chat.subagentPane"], here: [] });
+  const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+  await showSubagent(
+    async (method, params) => {
+      calls.push({ method, params });
+      return { opened: true };
+    },
+    "reviewer",
+    true,
+    { panes: true, inSubagentPane: false, here: () => {}, title: "Review the tray motion diff" },
+  );
+  expect(calls).toEqual([
+    {
+      method: "chat.subagentPane",
+      params: { subagent: "reviewer", focus: true, title: "Review the tray motion diff" },
+    },
+  ]);
 });
 
 test("with the switch on and a host that opens none, a click shows it in the chat", async () => {

@@ -24,7 +24,13 @@ pub use resource_projection::{
 };
 mod connection_leases;
 pub use connection_leases::{ConnectionLease, PeerClosed};
+mod hook_queue;
 mod write_path;
+pub use hook_queue::{
+    HOOK_SPOOL_DIR, HOOK_SPOOL_DROPPED_EVENTS, HOOK_SPOOL_UNDELIVERABLE_EVENTS, HookQueueSnapshot,
+    JOURNAL_APPEND_LONGEST_WAIT, add_undeliverable_hook_events, drop_session_hook_queues,
+    hook_spool_dir, names_this_file, open_spool_file, queue_prefix, spool_name_part,
+};
 pub(crate) use write_path::writer_took_registry_lock;
 pub use write_path::{WritePathSnapshot, WritePathStats};
 
@@ -492,6 +498,9 @@ pub struct ConnectionStats {
     reclaimed: AtomicU64,
     /// The admitted connections whose client can be watched for a hang-up.
     leases: Mutex<Vec<std::sync::Weak<ConnectionLease>>>,
+    /// The socket these connections come in on, once a server attached the
+    /// session to it.
+    socket: std::sync::OnceLock<std::path::PathBuf>,
 }
 
 impl ConnectionStats {
@@ -527,6 +536,15 @@ impl ConnectionStats {
 
     pub fn active(&self) -> u64 {
         self.active.load(Ordering::Acquire)
+    }
+
+    /// Records the socket the session serves (the first one wins).
+    pub fn note_socket(&self, path: &std::path::Path) {
+        let _ = self.socket.set(path.to_path_buf());
+    }
+
+    pub fn socket(&self) -> Option<&std::path::Path> {
+        self.socket.get().map(std::path::PathBuf::as_path)
     }
 
     pub fn snapshot(&self, limit: u64) -> ConnectionSnapshot {
@@ -573,6 +591,10 @@ pub struct ServerStatsSnapshot {
     /// Present only when the request names `write_path` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub write_path: Option<WritePathSnapshot>,
+    /// Present only when the request names `hook_queue` in `include` and the
+    /// session serves a socket.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hook_queue: Option<HookQueueSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;
