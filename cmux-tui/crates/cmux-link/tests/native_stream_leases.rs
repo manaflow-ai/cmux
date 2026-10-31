@@ -361,3 +361,19 @@ fn native_receiver_stream_model_preserves_revocation_expiry_and_single_use() {
         }
     }
 }
+
+/// A dropped transport lease leaves only a weak verifier handle. Its capacity
+/// must be reusable immediately, without a policy refresh or advancing time.
+#[test]
+fn native_receiver_dropped_handshakes_do_not_exhaust_stream_capacity() {
+    let (verifier, _clock, _policy) = configured();
+    for _ in 0..5_000 {
+        let pending =
+            verifier.begin_handshake("host_00000000000000000002", 4, &[b'a'; 32]).unwrap();
+        drop(pending);
+    }
+    let authenticated = lease(&verifier, Service::Ssh);
+    assert!(authenticated.deadline().is_some());
+    verifier.clear_authority();
+    assert!(authenticated.deadline().is_none(), "cleanup must preserve revocation");
+}
