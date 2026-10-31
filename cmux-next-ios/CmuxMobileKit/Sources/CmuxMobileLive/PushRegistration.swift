@@ -48,6 +48,7 @@ public final class PushRegistration {
     private var pending: Registration?
     private let topic: String?
     private let register: @MainActor (Registration) async throws -> Void
+    private let delete: @MainActor (LiveAPI, String) async throws -> Void
 
     struct Registration {
         let api: LiveAPI
@@ -66,9 +67,13 @@ public final class PushRegistration {
                                                 environment: registration.environment, topic: registration.topic,
                                                 kinds: registration.preferences.kinds, mutedMacs: registration.preferences.mutedMacs,
                                                 previews: registration.preferences.previews)
+         },
+         delete: @escaping @MainActor (LiveAPI, String) async throws -> Void = { api, deviceID in
+             try await api.deletePush(deviceID: deviceID)
          }) {
         self.topic = topic
         self.register = register
+        self.delete = delete
     }
 
     /// The APNs device token (app delegate).
@@ -92,20 +97,27 @@ public final class PushRegistration {
     /// Sign-out: the service stops pushing to this phone. Runs while the
     /// session is still valid.
     public func unregister() async {
-        task?.cancel()
+        let inFlight = task
+        let oldAPI = api
+        let oldDeviceID = deviceID
+        // Disarm registration synchronously, before awaiting the last PUT. Its
+        // completion may still change the server even if the request is cancelled.
         task = nil
         taskID = nil
         pending = nil
-        defer {
-            api = nil
-            deviceID = nil
-            sent = nil
-            acceptedKinds = nil
-            serverStateUncertain = false
-        }
-        guard let api, let deviceID, sent != nil else { return }
+        api = nil
+        deviceID = nil
+        sent = nil
+        acceptedKinds = nil
+        serverStateUncertain = false
+        // Let the in-flight PUT settle before DELETE; otherwise a late PUT can
+        // restore the token after sign-out. The generation guard stops new PUTs.
+        await inFlight?.value
+        // A previous launch may have registered this device even when this
+        // process has never received an APNs token or completed a PUT.
+        guard let oldAPI, let oldDeviceID else { return }
         do {
-            try await api.deletePush(deviceID: deviceID)
+            try await delete(oldAPI, oldDeviceID)
         } catch {
             log.error("push unregister failed: \(String(describing: error), privacy: .public)")
         }
