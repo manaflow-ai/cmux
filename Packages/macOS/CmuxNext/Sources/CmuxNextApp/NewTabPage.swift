@@ -253,7 +253,7 @@ enum NewTabPage {
                 services?.palette.runCommand(ActionID(rawValue: id), relativeTo: services?.windows.active?.window)
             },
             actionStates: { [weak services] ids in (services?.palette.commandStates(Set(ids.map(ActionID.init(rawValue:)))) ?? [:])
-                .reduce(into: [:]) { $0[$1.key.rawValue] = .init(enabled: $1.value.isEnabled, title: $1.value.title) } }
+                .reduce(into: [String: AgentPaneOmnibar.ActionState]()) { $0[$1.key.rawValue] = .init(enabled: $1.value.isEnabled, title: $1.value.title) } }
         )
     }
 

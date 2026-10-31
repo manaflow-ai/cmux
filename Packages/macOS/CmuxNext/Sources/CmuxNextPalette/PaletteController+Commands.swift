@@ -21,7 +21,7 @@ extension PaletteController {
     /// availability or state (``PaletteCommandCatalog``). Built once per binding change, so a surface that lists it
     /// on every open (the New Tab page) builds nothing; its shown rows ask ``commandStates(_:)``.
     public func commandCatalog() -> [PaletteCommandEntry] {
-        commandCatalog.entries(registry, hidden: hiddenActionIDs?() ?? []) {
+        keptCommandCatalog.entries(registry, hidden: hiddenActionIDs?() ?? []) {
             let provider = makeRegistryProvider()
             provider.decidesRows = false
             return provider.makeItems().compactMap { item in
