@@ -715,6 +715,7 @@ final class AppServices {
         _ = resources  // built here, as before
         _ = windows  // built here, as before
         DebugTimings.markLaunch("services.windows")
+        ssh.actingWindow = { [weak self] in self?.windows.active?.state.id } // a connect's "Connecting to…" row lists there (#31490)
         windows.incognitoHistoryReset = { [weak cache, weak self] in
             cache?.resetIncognitoHistory()
             self?.locationTrail.forgetIncognito()
