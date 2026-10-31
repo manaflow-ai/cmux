@@ -809,6 +809,26 @@ async fn a_daemon_whose_socket_ancestor_is_retargeted_stops() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A socket removed on its own (a cleanup of the folder that holds it) leaves nothing that can
+/// reach the daemon: it stops. On a Mac the socket itself cannot be watched (kqueue opens no
+/// socket), and the daemon kept running there (cx-n1nrjk).
+#[tokio::test]
+async fn a_daemon_whose_socket_is_removed_stops() {
+    let dir = scratch("sockgone");
+    let home = dir.join("h");
+    let run = dir.join("run");
+    for path in [&home, &run] {
+        std::fs::create_dir(path).unwrap();
+    }
+    let socket = run.join("s.sock");
+    let mut child = ready_daemon(&dir, &home, &socket).await;
+    std::fs::remove_file(&socket).unwrap();
+    let status = exit_within(&mut child, acpmux::daemon::EXIT_BUDGET).await;
+    assert!(status.expect("removing its socket left the daemon running").success());
+    assert!(home.exists(), "a lost socket removed the home");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The acquired identity is a startup boundary: replacement must not receive config/store writes.
 // The deterministic lock-held marker exists only in debug daemon builds.
 #[cfg(debug_assertions)]

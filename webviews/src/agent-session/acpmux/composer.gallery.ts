@@ -611,7 +611,7 @@ export default agentPaneEntry({
     },
     "agent-home-path": {
       note: "Play: a chat the folder field serves (no folder list from the host): the field reads as a menu row, never a native text box.",
-      ready: { cwd: AGENT_HOME, chooseFolder: true },
+      ready: { newSession: true, cwd: AGENT_HOME, chooseFolder: true },
       snapshot: noChat([], {
         summary: { sessionId: "", cwd: AGENT_HOME, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
