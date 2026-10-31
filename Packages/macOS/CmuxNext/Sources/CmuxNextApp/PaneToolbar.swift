@@ -81,7 +81,8 @@ final class PaneToolbar {
         self.init(registry: { [weak services] in services?.registry },
                   newTabMenu: { [weak pane] in
                       // The plus's rows, without its Chromium warmup: "…" is opened for a split as often.
-                      pane.map { $0.services.registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: $0.paneKey)) }
+                      // Its rows join the "…" menu, so no Customize Menu… of the New Tab menu.
+                      pane.map { $0.services.registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: $0.paneKey), customize: false) }
                   },
                   paneTarget: ActionTargetRef(kind: .pane, id: pane.paneKey),
                   contentMenu: { [weak pane] in (pane?.view.content as? PaneMoreMenuContributing)?.paneMoreMenuItems() ?? [] })

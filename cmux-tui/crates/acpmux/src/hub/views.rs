@@ -518,6 +518,10 @@ impl Hub {
         summary.set("gitBranch", json!(self.git_branch_now(&m)));
         // Since when work it started runs on past its own turn (`work_below.rs`).
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
+        // The usage rules it breaks (`usage_warnings.rs`), read from `usageStats` above.
+        let limits = *self.usage_limits.lock().unwrap_or_else(|e| e.into_inner());
+        let warnings = super::usage_warnings::usage_warnings(&summary, &limits);
+        summary.set("usageWarnings", json!(warnings));
         decide(&mut summary);
         summary
     }
