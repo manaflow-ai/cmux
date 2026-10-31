@@ -22,30 +22,18 @@
    "cmux": [
     "action",
     "run",
-    "newSurface"
+    "splitRight"
    ],
    "wait": 0.4,
    "shot": false,
-   "optional": "extra tab"
-  },
-  {
-   "title": "Browser in bug-412-login",
-   "cmux": [
-    "tab",
-    "new-browser",
-    "--url",
-    "https://example.com"
-   ],
-   "wait": 0.4,
-   "shot": false,
-   "optional": "browser tab"
+   "optional": "split"
   },
   {
    "title": "Split bug-412-login",
    "cmux": [
     "action",
     "run",
-    "splitRight"
+    "splitDown"
    ],
    "wait": 0.4,
    "shot": false,
@@ -56,11 +44,11 @@
    "cmux": [
     "action",
     "run",
-    "splitDown"
+    "newSurface"
    ],
    "wait": 0.4,
    "shot": false,
-   "optional": "split"
+   "optional": "extra tab"
   },
   {
    "title": "Workspace bug-418-crash",
@@ -89,23 +77,11 @@
    "cmux": [
     "action",
     "run",
-    "newSurface"
+    "splitRight"
    ],
    "wait": 0.4,
    "shot": false,
-   "optional": "extra tab"
-  },
-  {
-   "title": "Browser in bug-421-scroll",
-   "cmux": [
-    "tab",
-    "new-browser",
-    "--url",
-    "https://example.com"
-   ],
-   "wait": 0.4,
-   "shot": false,
-   "optional": "browser tab"
+   "optional": "split"
   },
   {
    "title": "Workspace api",
@@ -123,7 +99,7 @@
    "cmux": [
     "action",
     "run",
-    "splitRight"
+    "splitDown"
    ],
    "wait": 0.4,
    "shot": false,
@@ -134,11 +110,11 @@
    "cmux": [
     "action",
     "run",
-    "splitDown"
+    "newSurface"
    ],
    "wait": 0.4,
    "shot": false,
-   "optional": "split"
+   "optional": "extra tab"
   },
   {
    "title": "Workspace docs",
@@ -156,23 +132,11 @@
    "cmux": [
     "action",
     "run",
-    "newSurface"
+    "splitRight"
    ],
    "wait": 0.4,
    "shot": false,
-   "optional": "extra tab"
-  },
-  {
-   "title": "Browser in docs",
-   "cmux": [
-    "tab",
-    "new-browser",
-    "--url",
-    "https://example.com"
-   ],
-   "wait": 0.4,
-   "shot": false,
-   "optional": "browser tab"
+   "optional": "split"
   },
   {
    "title": "Workspace release-1.3",
@@ -201,30 +165,18 @@
    "cmux": [
     "action",
     "run",
-    "newSurface"
+    "splitRight"
    ],
    "wait": 0.4,
    "shot": false,
-   "optional": "extra tab"
-  },
-  {
-   "title": "Browser in landing-page",
-   "cmux": [
-    "tab",
-    "new-browser",
-    "--url",
-    "https://example.com"
-   ],
-   "wait": 0.4,
-   "shot": false,
-   "optional": "browser tab"
+   "optional": "split"
   },
   {
    "title": "Split landing-page",
    "cmux": [
     "action",
     "run",
-    "splitRight"
+    "splitDown"
    ],
    "wait": 0.4,
    "shot": false,
@@ -235,11 +187,11 @@
    "cmux": [
     "action",
     "run",
-    "splitDown"
+    "newSurface"
    ],
    "wait": 0.4,
    "shot": false,
-   "optional": "split"
+   "optional": "extra tab"
   },
   {
    "title": "Workspace infra",
@@ -268,23 +220,11 @@
    "cmux": [
     "action",
     "run",
-    "newSurface"
+    "splitRight"
    ],
    "wait": 0.4,
    "shot": false,
-   "optional": "extra tab"
-  },
-  {
-   "title": "Browser in design-review",
-   "cmux": [
-    "tab",
-    "new-browser",
-    "--url",
-    "https://example.com"
-   ],
-   "wait": 0.4,
-   "shot": false,
-   "optional": "browser tab"
+   "optional": "split"
   },
   {
    "title": "Workspace ios-build",
@@ -302,7 +242,7 @@
    "cmux": [
     "action",
     "run",
-    "splitRight"
+    "splitDown"
    ],
    "wait": 0.4,
    "shot": false,
@@ -313,11 +253,11 @@
    "cmux": [
     "action",
     "run",
-    "splitDown"
+    "newSurface"
    ],
    "wait": 0.4,
    "shot": false,
-   "optional": "split"
+   "optional": "extra tab"
   },
   {
    "title": "Workspace perf",
@@ -335,23 +275,11 @@
    "cmux": [
     "action",
     "run",
-    "newSurface"
+    "splitRight"
    ],
    "wait": 0.4,
    "shot": false,
-   "optional": "extra tab"
-  },
-  {
-   "title": "Browser in perf",
-   "cmux": [
-    "tab",
-    "new-browser",
-    "--url",
-    "https://example.com"
-   ],
-   "wait": 0.4,
-   "shot": false,
-   "optional": "browser tab"
+   "optional": "split"
   },
   {
    "title": "Workspace onboarding",

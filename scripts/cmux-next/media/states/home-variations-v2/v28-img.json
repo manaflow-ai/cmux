@@ -22,23 +22,11 @@
    "cmux": [
     "action",
     "run",
-    "newSurface"
+    "splitRight"
    ],
    "wait": 0.4,
    "shot": false,
-   "optional": "extra tab"
-  },
-  {
-   "title": "Browser in bug-412-login",
-   "cmux": [
-    "tab",
-    "new-browser",
-    "--url",
-    "https://example.com"
-   ],
-   "wait": 0.4,
-   "shot": false,
-   "optional": "browser tab"
+   "optional": "split"
   },
   {
    "title": "Workspace bug-418-crash",
@@ -67,23 +55,11 @@
    "cmux": [
     "action",
     "run",
-    "newSurface"
+    "splitRight"
    ],
    "wait": 0.4,
    "shot": false,
-   "optional": "extra tab"
-  },
-  {
-   "title": "Browser in bug-421-scroll",
-   "cmux": [
-    "tab",
-    "new-browser",
-    "--url",
-    "https://example.com"
-   ],
-   "wait": 0.4,
-   "shot": false,
-   "optional": "browser tab"
+   "optional": "split"
   },
   {
    "title": "Workspace api",
@@ -112,23 +88,11 @@
    "cmux": [
     "action",
     "run",
-    "newSurface"
+    "splitRight"
    ],
    "wait": 0.4,
    "shot": false,
-   "optional": "extra tab"
-  },
-  {
-   "title": "Browser in docs",
-   "cmux": [
-    "tab",
-    "new-browser",
-    "--url",
-    "https://example.com"
-   ],
-   "wait": 0.4,
-   "shot": false,
-   "optional": "browser tab"
+   "optional": "split"
   },
   {
    "title": "Workspace release-1.3",

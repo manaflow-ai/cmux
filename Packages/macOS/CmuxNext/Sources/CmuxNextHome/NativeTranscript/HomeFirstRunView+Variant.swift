@@ -282,19 +282,16 @@ final class DebugUnifiedBackdrop: NSView {
         }
         flattenCards(content)
         if let frame = content.superview { for sibling in frame.subviews where sibling !== content { flattenCards(sibling) } }
-        if image {
-            layer?.backgroundColor = NSColor.clear.cgColor
-            for transcript in Self.transcripts(in: content) where transcript.debugVariantNumber != nil { transcript.applyTheme() }
-            return
-        }
-        guard let color = background.color(dark: dark) else { return }
+        let color = image ? NSColor.clear : background.color(dark: dark)
+        guard let color else { return }
         layer?.backgroundColor = color.cgColor
-        window.backgroundColor = color
+        if !image { window.backgroundColor = color }
         func walk(_ view: NSView) {
             for child in view.subviews where child !== self {
                 // A narrow full-height column (the collapsed list strip) counts as a panel too.
                 let big = child.bounds.width >= wide || child.bounds.height >= tall
-                if big, child is NSVisualEffectView || child is GlassPanelView, child.bounds.height >= 24 {
+                // Over a picture the window's own backdrop views stay: only the panels' fills go.
+                if !image, big, child is NSVisualEffectView || child is GlassPanelView, child.bounds.height >= 24 {
                     child.isHidden = true
                     continue
                 }

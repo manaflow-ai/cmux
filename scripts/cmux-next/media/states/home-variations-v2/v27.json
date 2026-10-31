@@ -22,30 +22,18 @@
    "cmux": [
     "action",
     "run",
-    "newSurface"
+    "splitRight"
    ],
    "wait": 0.4,
    "shot": false,
-   "optional": "extra tab"
-  },
-  {
-   "title": "Browser in bug-412-login",
-   "cmux": [
-    "tab",
-    "new-browser",
-    "--url",
-    "https://example.com"
-   ],
-   "wait": 0.4,
-   "shot": false,
-   "optional": "browser tab"
+   "optional": "split"
   },
   {
    "title": "Split bug-412-login",
    "cmux": [
     "action",
     "run",
-    "splitRight"
+    "splitDown"
    ],
    "wait": 0.4,
    "shot": false,
@@ -56,11 +44,11 @@
    "cmux": [
     "action",
     "run",
-    "splitDown"
+    "newSurface"
    ],
    "wait": 0.4,
    "shot": false,
-   "optional": "split"
+   "optional": "extra tab"
   },
   {
    "title": "Workspace bug-418-crash",
@@ -89,23 +77,11 @@
    "cmux": [
     "action",
     "run",
-    "newSurface"
+    "splitRight"
    ],
    "wait": 0.4,
    "shot": false,
-   "optional": "extra tab"
-  },
-  {
-   "title": "Browser in bug-421-scroll",
-   "cmux": [
-    "tab",
-    "new-browser",
-    "--url",
-    "https://example.com"
-   ],
-   "wait": 0.4,
-   "shot": false,
-   "optional": "browser tab"
+   "optional": "split"
   },
   {
    "title": "Go to Home",

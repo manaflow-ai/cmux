@@ -520,7 +520,7 @@ public final class HomeNativeTranscriptView: NSView {
         #if DEBUG || CMUX_BENCH_HOOKS
         // The variations gallery: the chat paints the variant's shared background, like the rest of the window.
         if let shared = debugVariantBackground()?.usingColorSpace(.sRGB) {
-            active.background = HomeColor(red: shared.redComponent, green: shared.greenComponent, blue: shared.blueComponent, alpha: 1)
+            active.background = HomeColor(red: shared.redComponent, green: shared.greenComponent, blue: shared.blueComponent, alpha: shared.alphaComponent)
         }
         #endif
         // A chosen sent colour replaces MessagesLab's measured blue (and its white text).
