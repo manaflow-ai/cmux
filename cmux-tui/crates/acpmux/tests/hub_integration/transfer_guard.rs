@@ -803,6 +803,11 @@ async fn a_guarded_move_never_replaces_a_moved_away_copy_outside_the_roots() {
     let back = move_chat(&mut b, &mut a, &id, g(), json!({})).await.unwrap();
     assert_eq!(back["sessionId"], id.as_str(), "{back}");
     assert_ne!(back["status"], "closed", "{back}");
+    let returned = a.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(
+        returned["transferBlocked"], false,
+        "returning import clears revocation: {returned}"
+    );
 }
 
 /// A moved-in chat cannot say an agent here sent its prompts: a guarded move drops the

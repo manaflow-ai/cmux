@@ -18,6 +18,9 @@ export function ChatUnavailableState({
   session,
   machine,
   now = Date.now(),
+  onResumeMachine,
+  resuming = false,
+  error,
   onRemove,
   onReconnect,
   onResume,
@@ -29,6 +32,9 @@ export function ChatUnavailableState({
   /// The machine the app says the tab's chat is on (the handshake's `machineName`), for a deleted chat.
   machine?: string;
   now?: number;
+  onResumeMachine?(): void;
+  resuming?: boolean;
+  error?: string;
   onRemove(): void;
   onReconnect(): void;
   onResume?(): void;
@@ -48,7 +54,19 @@ export function ChatUnavailableState({
   let title: string;
   let detail: string | undefined;
   let action: { label: string; run(): void; kind: string } | undefined;
-  if (unavailable.reason === "deleted") {
+  if (unavailable.reason === "paused") {
+    title = t("unavailable.paused.title");
+    detail = t("unavailable.paused.detail", { machine: named ?? machine ?? "" });
+    if (onResumeMachine)
+      action = {
+        label: t("unavailable.resumeMachine"),
+        run: onResumeMachine,
+        kind: "resumeMachine",
+      };
+  } else if (unavailable.reason === "machineDeleted") {
+    title = t("unavailable.machineDeleted.title");
+    detail = t("unavailable.machineDeleted.detail", { machine: named ?? machine ?? "" });
+  } else if (unavailable.reason === "deleted") {
     title = t("unavailable.deleted.title");
     detail = named ? t("unavailable.deleted.detailOn", { machine: named }) : t("unavailable.deleted.detail");
     action = { label: t("unavailable.remove"), run: onRemove, kind: "remove" };
@@ -63,7 +81,9 @@ export function ChatUnavailableState({
     title = `${t("header.reconnecting")}…`;
     detail =
       unavailable.lastSeen !== undefined
-        ? t("unavailable.offline.lastSeen", { time: relativeTime(unavailable.lastSeen, now, currentLanguage()) })
+        ? t("unavailable.offline.lastSeen", {
+            time: relativeTime(unavailable.lastSeen, now, currentLanguage()),
+          })
         : t("unavailable.offline.detail");
     action = { label: t("unavailable.reconnect"), run: onReconnect, kind: "reconnect" };
   }
@@ -101,6 +121,12 @@ export function ChatUnavailableState({
       )}
       <h2 className="acpmux-empty-title acpmux-unavailable-title">{title}</h2>
       <div className="acpmux-unavailable-copy">
+        {resuming && <Spinner size={20} loading />}
+        {error && (
+          <p className="acpmux-unavailable-detail" role="alert">
+            {error}
+          </p>
+        )}
         {detail && <p className="acpmux-unavailable-detail">{detail}</p>}
         {session && (
           <p className="acpmux-unavailable-detail acpmux-unavailable-session">
@@ -114,6 +140,7 @@ export function ChatUnavailableState({
                 type="button"
                 className="acpmux-unavailable-action"
                 data-action={action.kind}
+                disabled={resuming}
                 onClick={action.run}
               >
                 {action.label}

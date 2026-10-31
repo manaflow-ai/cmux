@@ -3,6 +3,7 @@ import { VmDatabaseError } from "./errors";
 import {
   decideVmIdlePause,
   parseVmIdleProbe,
+  vmIdleAutoPauseEnabled,
   vmIdleObservationFromRow,
   vmIdlePauseMinutesFromRow,
   vmIdlePrivateAddressesFromRow,
@@ -40,7 +41,8 @@ type Outcome = "paused" | "idle" | "active" | "unknown" | "off" | "error";
  * The `vm-idle-pause` cron body (services/vms/idlePause.ts): probe each running
  * Freestyle machine, decide, and pause the idle ones through the same pause
  * path the Pause Machine action uses. A machine set to Off, or without a
- * private address, is not probed.
+ * private address, is not probed; with the kill switch off
+ * ({@link vmIdleAutoPauseEnabled}, the default) no machine is.
  */
 export function enforceVmIdlePause(input: { readonly now?: () => number; readonly limit?: number } = {}) {
   return Effect.gen(function* () {
@@ -53,9 +55,10 @@ export function enforceVmIdlePause(input: { readonly now?: () => number; readonl
     const limit = input.limit ?? VM_IDLE_PAUSE_BATCH_LIMIT;
     const startedAt = Date.now();
     const rows = yield* candidates({ limit });
+    const autoPause = vmIdleAutoPauseEnabled();
     const outcomes = yield* Effect.forEach(
       rows,
-      (vm) => checkMachine(vm, input.now ?? Date.now).pipe(
+      (vm) => checkMachine(vm, input.now ?? Date.now, autoPause).pipe(
         Effect.catchAll((error) => Effect.sync((): Outcome => {
           console.error("[VM] idle pause failed", { vmId: vm.id, error });
           return "error";
@@ -88,10 +91,10 @@ function warnIfSaturated(checked: number, limit: number, elapsedMs: number) {
   console.warn("[VM] idle pause run saturated", JSON.stringify({ checked, limit, elapsedMs }));
 }
 
-function checkMachine(vm: CloudVmRow, now: () => number) {
+function checkMachine(vm: CloudVmRow, now: () => number, autoPause: boolean) {
   return Effect.gen(function* () {
     const providerVmId = vm.providerVmId;
-    if (!providerVmId || vm.status !== "running") return "off" as const;
+    if (!providerVmId || vm.status !== "running" || !autoPause) return "off" as const;
     const minutes = vmIdlePauseMinutesFromRow(vm);
     const addresses = vmIdlePrivateAddressesFromRow(vm);
     const probe = minutes > 0 && addresses.length > 0 ? yield* probeMachine(vm, providerVmId, addresses) : null;

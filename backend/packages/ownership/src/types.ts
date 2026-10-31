@@ -79,6 +79,10 @@ export interface Principal {
    * a frame or params; that owner strips it from every principal it receives by RPC.
    */
   readonly approval?: string
+  /** Agent gateway source authentication, retained for live grant revalidation. Server-built only. */
+  readonly source_install?: string
+  readonly source_grant?: string
+  readonly source_agent?: string
 }
 
 export type Origin = "user" | "cli" | "mcp" | "script" | "remote"

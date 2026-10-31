@@ -21,7 +21,13 @@ mod app_browser_route;
 #[cfg(unix)]
 mod app_focus;
 #[cfg(unix)]
+mod apps_list;
+#[cfg(unix)]
 mod apps_run;
+#[cfg(unix)]
+mod automation;
+#[cfg(unix)]
+mod automation_cloud;
 mod beside;
 #[cfg(unix)]
 mod billing;
@@ -51,6 +57,7 @@ mod fix_command;
 mod frontend_browser;
 #[cfg(unix)]
 mod host_mount;
+mod internal;
 mod launch_credential;
 mod lifecycle;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
@@ -98,6 +105,7 @@ mod skew;
 #[cfg(unix)]
 mod status;
 mod surface;
+mod tab_capabilities;
 #[cfg(unix)]
 mod terminal_talk;
 mod topology_help;
@@ -461,6 +469,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| chief::run_if_requested(args))
         .or_else(|| chief::run_avatar_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
+        .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
@@ -468,6 +477,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
+        .or_else(|| apps_list::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
@@ -747,32 +757,9 @@ fn parse_command(
 }
 
 fn unknown_scope(scope: &str, surface: Surface) -> UsageError {
-    let suggestion = classic_command(scope).or_else(|| suggestion(scope, surface.scopes()));
+    let suggestion = internal::classic_verbs::resource_command(scope)
+        .or_else(|| suggestion(scope, surface.scopes()));
     UsageError::new(crate::localization::catalog().local_server.unknown_scope(scope, suggestion))
-}
-
-/// The resource command for a classic cmux verb that agents still run from older
-/// skills (tests/tool-evals r3h: GPT 6 Astra tried `rename-workspace`,
-/// `workspace-action --action rename` and `list-workspaces` before the MCP tools).
-fn classic_command(scope: &str) -> Option<&'static str> {
-    Some(match scope {
-        "list-workspaces" => "cmux workspace list",
-        "new-workspace" => "cmux workspace create --name <name>",
-        "rename-workspace" => "cmux workspace current rename <name>",
-        "workspace-action" => {
-            "cmux workspace current rename <name>` or `cmux workspace current update"
-        }
-        "select-workspace" => "cmux workspace <workspace> focus",
-        "close-workspace" => "cmux workspace <workspace> close",
-        "list-surfaces" | "list-pane-surfaces" => "cmux tab list",
-        "new-surface" => "cmux tab create terminal",
-        "new-pane" | "new-split" => "cmux pane current split --right",
-        "rename-tab" | "rename-surface" | "tab-action" => "cmux tab <tab> rename <name>",
-        "close-surface" => "cmux tab <tab> close",
-        "send" | "send-text" => "cmux terminal <terminal> write --text <text>",
-        "read-screen" | "capture-pane" => "cmux terminal <terminal> screen read",
-        _ => return None,
-    })
 }
 
 /// A `cmux-tui` scope named through `cmux`, which refuses it by name
