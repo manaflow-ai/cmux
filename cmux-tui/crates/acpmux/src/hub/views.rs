@@ -649,6 +649,9 @@ impl Hub {
             "peers": self.peers(),
             "remoteSessions": self.remote_sessions.lock().unwrap().len(),
             "openWaits": self.open_waits.load(Ordering::SeqCst),
+            // Messages this daemon sent near the per-message cap, or refused over it
+            // (`wire_size.rs`): the next one too large to send is seen coming.
+            "largeMessages": crate::wire_size::global().status(),
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),
