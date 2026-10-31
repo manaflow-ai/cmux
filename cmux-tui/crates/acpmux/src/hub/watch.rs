@@ -53,8 +53,8 @@ pub(super) fn read_only() -> RpcError {
 /// The complete lines of `file` from `offset` (at most [`MAX_READ`] bytes), and the offset after
 /// the last complete one. A file shorter than `offset` was cut or replaced: it is followed from its
 /// end, so nothing shown is shown twice. A first read of a big file starts at its newest
-/// [`MAX_BYTES`], after a line break. A line longer than [`MAX_READ`] is skipped: its rest fails
-/// to parse and is dropped.
+/// [`MAX_BYTES`], after a line break. A line longer than [`MAX_READ`] is skipped in
+/// bounded chunks: each continuation checks the preceding byte before accepting a record.
 pub(super) fn read_lines(file: &Path, offset: u64) -> std::io::Result<(Vec<String>, u64)> {
     read_lines_with_limits(file, offset, MAX_BYTES, MAX_READ)
 }
@@ -69,21 +69,35 @@ fn read_lines_with_limits(
     let mut f = std::fs::File::open(file)?;
     let len = f.metadata()?.len();
     let mut start = if offset > len { len } else { offset };
-    let skip_partial = start == 0 && len > max_bytes;
-    if skip_partial {
+    if start == 0 && len > max_bytes {
         start = len - max_bytes;
     }
     if start >= len {
         return Ok((Vec::new(), start));
     }
+    // An initial tail window or a prior overlong chunk can begin inside a JSONL
+    // record. The byte before the cursor survives a restart and tells us whether
+    // we are at a line boundary; no extra mutable or persisted skip flag is needed.
+    let partial = if start == 0 {
+        false
+    } else {
+        f.seek(SeekFrom::Start(start - 1))?;
+        let mut previous = [0u8; 1];
+        f.read_exact(&mut previous)?;
+        previous[0] != b'\n'
+    };
     f.seek(SeekFrom::Start(start))?;
     let mut buf = Vec::new();
     f.take(max_read.min(len - start)).read_to_end(&mut buf)?;
     let mut from = 0;
-    if skip_partial {
+    if partial {
         match buf.iter().position(|&b| b == b'\n') {
             Some(i) => from = i + 1,
-            None => return Ok((Vec::new(), start)),
+            // A giant record may cross several read windows. Advance by only
+            // bytes actually read, then continue skipping until its newline.
+            // The next read checks its preceding byte, so a fragment can never
+            // masquerade as a complete record (also after daemon restart).
+            None => return Ok((Vec::new(), start + buf.len() as u64)),
         }
     }
     // Only complete lines: the app may be halfway through writing the last one.
@@ -141,7 +155,8 @@ impl Hub {
                     // Gone or unreadable for now (the app rotates or rewrites it): try again.
                     _ => (Vec::new(), watching.offset),
                 };
-                let more = offset > watching.offset && !lines.is_empty();
+                // Even an oversized skipped chunk is progress; drain the backlog without a poll delay.
+                let more = offset > watching.offset;
                 if offset != watching.offset {
                     hub.show_watched(&session, &lines, offset);
                 }
@@ -425,6 +440,28 @@ mod tests {
         assert!(after_large > start);
         let (lines, _) = read_lines_with_limits(&file, after_large, 64, 20).unwrap();
         assert_eq!(lines, ["{\"next\":1}"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A normal watched file can also append one huge line that spans several
+    /// chunks. Fragments of it must never appear as independent JSONL records.
+    #[test]
+    fn a_line_at_the_previous_checkpoint_skips_all_overlong_fragments() {
+        let dir = std::env::temp_dir().join(format!("acpmux-watch-fragments-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("fragments.jsonl");
+        let content = format!("{{\"large\":\"{}\"}}\n{{\"next\":2}}\n", "x".repeat(106));
+        std::fs::write(&file, content.as_bytes()).unwrap();
+        let (mut at, mut received) = (0, Vec::new());
+        for _ in 0..12 {
+            let (lines, next) = read_lines_with_limits(&file, at, 4096, 20).unwrap();
+            assert!(next > at || at == content.len() as u64);
+            received.extend(lines);
+            at = next;
+            if at == content.len() as u64 { break; }
+        }
+        assert_eq!(at, content.len() as u64);
+        assert_eq!(received, ["{\"next\":2}"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
