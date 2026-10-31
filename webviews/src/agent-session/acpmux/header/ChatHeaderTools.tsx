@@ -67,12 +67,9 @@ export type ChatMenuItem =
       icon: string;
       /// An app action id whose keycap the row shows.
       shortcutAction?: string;
-      /// A product-level key hint when the action has no registered host shortcut (for example, the
-      /// title menu's Rename R and Fork F, matching Claude Code's session menu). It picks the row too.
-      shortcutLabel?: string;
-      /// The letter that picks the row while the menu is open, as Claude Code desktop's chat menu
-      /// (R Rename, F Fork, A Archive); the row shows it when it has no app shortcut.
-      mnemonic?: string;
+      /// A letter that picks the row while the menu is open (Rename R, Fork F). It is never drawn: a
+      /// bare letter on the row's right reads as meaningless (design/menus.md, Leo 2026-10-31).
+      accelerator?: string;
       disabled?: boolean;
       onSelect?: (event?: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>) => void;
       children?: ChatMenuChild[];
@@ -90,13 +87,22 @@ export type ChatMenuChild = {
   label: string;
   disabled?: boolean;
   shortcutAction?: string;
-  shortcutLabel?: string;
+  accelerator?: string;
   checked?: boolean;
   /// A row that is on or off on its own (Transcript view's Wrap lines), drawn with a check when on.
   on?: boolean;
   separatorBefore?: boolean;
   onSelect: () => void;
 };
+
+/// Modifier glyphs a drawn menu keycap must carry, as in ⌘N or ⇧⌘I.
+const MODIFIER_GLYPHS = /[⌘⌥⌃⇧]/;
+
+/// The keycap a menu row may draw: a real shortcut with a modifier, never a bare letter (a bare
+/// letter only works while the menu is open, so it reads as meaningless on the row's right).
+export function menuKeycap(shortcut: string | undefined): string | undefined {
+  return shortcut && MODIFIER_GLYPHS.test(shortcut) ? shortcut : undefined;
+}
 
 type ShortcutMenuItem = Exclude<ChatMenuItem, "separator"> | ChatMenuChild;
 
@@ -107,7 +113,7 @@ export function menuItemForShortcut(
   const normalized = key.length === 1 ? key.toUpperCase() : "";
   if (!normalized) return undefined;
   return items.find(
-    (item): item is ShortcutMenuItem => item !== "separator" && item.shortcutLabel?.toUpperCase() === normalized,
+    (item): item is ShortcutMenuItem => item !== "separator" && item.accelerator?.toUpperCase() === normalized,
   );
 }
 
@@ -583,7 +589,7 @@ export function ChatMenu({
   };
   const focused = only ? rows.find((row) => row !== "separator" && row.key === only) : undefined;
   const children = focused && focused !== "separator" ? focused.children : undefined;
-  // A row's letter picks it (Claude Code desktop's R, F, A, and the title menu's keycaps), never a
+  // A row's letter (`accelerator`, never drawn) picks it, as Claude Code desktop's R, F, A; never a
   // key that is text (menuLetters.ts: a field, an editor, an IME composition, the typeahead).
   const typing = useRef<MenuTyping>({ last: 0 });
   const shortcutRows = children ?? rows;
@@ -591,14 +597,7 @@ export function ChatMenu({
     if (event.defaultPrevented || !event.currentTarget.contains(event.target as Node)) return;
     const letter = menuLetter(event, typing.current);
     if (!letter) return;
-    const item =
-      menuItemForShortcut(rows, letter) ??
-      menuItemForShortcut(shortcutRows, letter) ??
-      (children
-        ? undefined
-        : rows.find(
-            (each): each is Exclude<ChatMenuItem, "separator"> => each !== "separator" && each.mnemonic === letter,
-          ));
+    const item = menuItemForShortcut(rows, letter) ?? menuItemForShortcut(shortcutRows, letter);
     if (!item || item.disabled || !item.onSelect) return;
     event.preventDefault();
     event.stopPropagation();
@@ -633,7 +632,6 @@ export function ChatMenu({
                     <>
                       <Icon name={row.icon} size={15} />
                       <span className="acpmux-chat-menu-label">{row.label}</span>
-                      {row.shortcutLabel && <kbd className="acpmux-chat-menu-key">{row.shortcutLabel}</kbd>}
                     </>
                   }
                 >
@@ -650,7 +648,7 @@ export function ChatMenu({
 
 function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
   const registeredShortcut = useShortcut(item.shortcutAction ?? "");
-  const shortcut = item.shortcutLabel ?? (registeredShortcut || item.mnemonic);
+  const shortcut = menuKeycap(registeredShortcut);
   return (
     <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={item.onSelect}>
       <Icon name={item.icon} size={15} />
@@ -727,7 +725,7 @@ function ChatMenuToggleRow({ child }: { child: ChatMenuChild }) {
 
 function ChatMenuChildRow({ child }: { child: ChatMenuChild }) {
   const registeredShortcut = useShortcut(child.shortcutAction ?? "");
-  const shortcut = child.shortcutLabel ?? registeredShortcut;
+  const shortcut = menuKeycap(registeredShortcut);
   return (
     <MenuItem className="acpmux-chat-menu-item" disabled={child.disabled} onSelect={child.onSelect}>
       <span className="acpmux-chat-menu-label">{child.label}</span>

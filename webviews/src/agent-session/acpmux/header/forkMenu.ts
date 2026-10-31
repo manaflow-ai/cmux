@@ -14,7 +14,7 @@ export function forkMenuRows(
       key: "fork",
       label: t("chatMenu.fork"),
       icon: "agent.fork",
-      mnemonic: "F",
+      accelerator: "F",
       onSelect: (event) => {
         if (event?.altKey && choose(throughSeq, event.currentTarget)) return;
         fork();
