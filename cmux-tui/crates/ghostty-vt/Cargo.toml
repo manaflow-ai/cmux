@@ -10,6 +10,11 @@ description = "Safe Rust wrapper around libghostty-vt"
 [lints]
 workspace = true
 
+[features]
+# Test readers for other crates' tests (ReadyScreen: what a GHOSTSNP READY
+# holds, as a viewer shows it). Never a product dependency.
+test-support = []
+
 [dependencies]
 base64.workspace = true
 ghostty-vt-sys.workspace = true

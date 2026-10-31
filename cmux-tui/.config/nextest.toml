@@ -114,3 +114,15 @@ slow-timeout = { period = "60s", terminate-after = 4, grace-period = "5s" }
 [[profile.ci.overrides]]
 filter = 'test(=lifecycle_latency_creates_and_closes_in_a_populated_session)'
 success-output = "final"
+
+# The long resize fuzzer (server/tests/resize_fuzz.rs, 5 seeds x 200 steps
+# from 0x1e10 on this scratch branch) prints its seeds and step counts on
+# stderr and takes longer than the default limit, so it gets 20 min.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core) & test(/resize_fuzz::/)'
+success-output = "final"
+slow-timeout = { period = "60s", terminate-after = 20, grace-period = "5s" }
+
+[[profile.default.overrides]]
+filter = 'binary_id(cmux-tui-core) & test(/resize_fuzz::/)'
+slow-timeout = { period = "60s", terminate-after = 20, grace-period = "5s" }

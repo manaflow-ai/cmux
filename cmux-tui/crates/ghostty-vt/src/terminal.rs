@@ -3125,4 +3125,6 @@ impl Drop for Terminal {
 
 #[path = "terminal_history.rs"]
 mod history;
+#[cfg(feature = "test-support")]
+mod ready_reader;
 pub use history::{HistoryPage, HistoryPages, HistorySnapshot, MarkerError};

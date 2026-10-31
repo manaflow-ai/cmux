@@ -23,12 +23,16 @@ mod key;
 mod kitty;
 mod kitty_replay;
 mod mouse;
+#[cfg(feature = "test-support")]
+mod ready_screen;
 mod render;
 mod snapshot;
 mod terminal;
 
 /// Raw bindings, re-exported for key/mode constants.
 pub use ghostty_vt_sys as sys;
+#[cfg(feature = "test-support")]
+pub use ready_screen::ReadyScreen;
 
 pub use key::{KeyAction, KeyEncoder, KeyInput, Mods, key_input_from_chord};
 pub use kitty::{
