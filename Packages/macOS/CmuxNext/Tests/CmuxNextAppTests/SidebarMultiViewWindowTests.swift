@@ -4,6 +4,7 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -15,7 +16,7 @@ import Testing
 /// Each workspace `k0`...`k3` has one pane with a terminal and a browser tab; the window shows `k0`.
 /// The drags need a display: on a host without one the window is clamped to its minimum size and the drop zones
 /// resolve differently (the fleet's display-less minis), so the suite runs where there is a screen.
-@MainActor @Suite(.serialized, .enabled(if: !NSScreen.screens.isEmpty, "the drag tests need a display"))
+@MainActor @Suite(.serialized, .enabled(if: !NSScreen.screens.isEmpty, "the drag tests need a display"), .closesItsWindows)
 struct SidebarMultiViewWindowTests {
     @MainActor final class Fixture {
         let services: AppServices
