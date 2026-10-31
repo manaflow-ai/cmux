@@ -21,6 +21,7 @@ struct SplitOfPendingSplitTests {
             let previous = services.registry.refusalObserver
             services.registry.refusalObserver = { reason, quiet in refusals.append(reason); previous?(reason, quiet) }
             defer { services.registry.refusalObserver = previous }
+            let mark = Self.journalMark()
 
             // One main-actor turn, no await: the first split's reply cannot have come, and its stand-in has the focus.
             #expect(services.registry.perform("splitDown", invocation: terminal))
@@ -58,9 +59,20 @@ struct SplitOfPendingSplitTests {
                                                           isARepeat: false, keyCode: text == "\r" ? 36 : 0))
                 if !services.keyRouter.interceptKeyDown(event, in: window) { window.sendEvent(event) }
             }
-            let screen = try await connection.request(WaitForTextRequest(surface: surface, pattern: "p0x\(nonce)x42", timeoutMs: 20_000),
-                                                      timeout: .seconds(25))
-            #expect(screen.matched == true, "the line typed after the second Cmd-D did not run in its pane: \(screen.text.suffix(300))")
+            // #28436: the daemon's wait throws at its timeout; the miss must still say where the line went.
+            let screen: (matched: Bool, text: String)
+            do {
+                let found = try await connection.request(WaitForTextRequest(surface: surface, pattern: "p0x\(nonce)x42", timeoutMs: 20_000),
+                                                         timeout: .seconds(25))
+                screen = (found.matched == true, found.text)
+            } catch {
+                screen = (false, "wait-for failed: \(error)")
+            }
+            if !screen.matched {
+                let report = await Self.missedLineReport(content: content, second: second, window: window, services: services,
+                                                         connection: connection, since: mark)
+                Issue.record("the line typed after the second Cmd-D did not run in its pane: \(screen.text.suffix(300))\n\(report)")
+            }
         }
     }
 }
