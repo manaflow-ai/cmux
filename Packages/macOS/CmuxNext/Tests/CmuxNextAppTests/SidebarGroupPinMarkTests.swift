@@ -1,3 +1,4 @@
+@testable import CmuxNextApp
 import CmuxNextDesign
 import Foundation
 @testable import CmuxNextSidebar
@@ -11,14 +12,14 @@ import Testing
     typealias Fixture = SidebarDocArchiveTests
 
     /// This Mac: `ws-1`, group `gm` with `ws-2` pinned inside it, `ws-3`.
-    static func projection() -> SidebarDocProjection {
+    static func projection(pinned: Bool = true) -> SidebarDocProjection {
         let machine = Fixture.machine, ref = Fixture.ref
         let records = SidebarDocRecords(sections: [
             machine: SidebarDocSection(id: machine, kind: .machine(session: Fixture.session)),
         ], items: [
             "itm_1": SidebarDocItem(id: "itm_1", section: machine, body: .workspace(ref("ws-1"))),
             "itm_gm": SidebarDocItem(id: "itm_gm", section: machine, body: .group(name: "G", color: nil, icon: nil, collapsed: false)),
-            "itm_2": SidebarDocItem(id: "itm_2", section: machine, parent: "itm_gm", body: .workspace(ref("ws-2")), pinnedInGroup: true),
+            "itm_2": SidebarDocItem(id: "itm_2", section: machine, parent: "itm_gm", body: .workspace(ref("ws-2")), pinnedInGroup: pinned),
             "itm_3": SidebarDocItem(id: "itm_3", section: machine, body: .workspace(ref("ws-3")), pinnedInGroup: true),
         ])
         let rows = [
@@ -30,7 +31,7 @@ import Testing
         return SidebarDocProjection(rows: rows, records: records, revision: 1)
     }
 
-    static func pinned(_ sections: [SidebarSection]) -> [String: Bool] {
+    static func pinned(_ sections: [CmuxNextSidebar.SidebarSection]) -> [String: Bool] {
         var marks: [String: Bool] = [:]
         for workspace in sections.flatMap(\.workspaces) { marks[workspace.id.rawValue] = workspace.isPinnedInGroup }
         return marks
@@ -56,12 +57,12 @@ import Testing
         #expect(SidebarSectionsPreferences.defaults.groupPinMark == .off, "a new look is opt-in until one is picked")
         for mark in SidebarGroupPinMark.allCases {
             var diagnostics: [SettingsDiagnostic] = []
-            let root = JSONValue.object(["sidebar": .object(["groupPinMark": .string(mark.rawValue)])])
+            let root = CmuxNextSettings.JSONValue.object(["sidebar": .object(["groupPinMark": .string(mark.rawValue)])])
             #expect(SidebarSectionsSetting.parse(root, diagnostics: &diagnostics).groupPinMark == mark)
             #expect(diagnostics.isEmpty)
         }
         var diagnostics: [SettingsDiagnostic] = []
-        let bad = JSONValue.object(["sidebar": .object(["groupPinMark": .string("sparkles")])])
+        let bad = CmuxNextSettings.JSONValue.object(["sidebar": .object(["groupPinMark": .string("sparkles")])])
         #expect(SidebarSectionsSetting.parse(bad, diagnostics: &diagnostics).groupPinMark == .off)
         #expect(diagnostics.map(\.path) == ["sidebar.groupPinMark"])
     }
@@ -73,5 +74,23 @@ import Testing
         model.applyListPreferences(preferences)
         #expect(model.groupPinMark == .shelf)
         #expect(preferences.changesList(from: .defaults), "a new look redraws the list")
+    }
+
+    /// Pinning a member where it already sits (the group's first member) moves no row: the daemon's live sections are
+    /// the ones the rows show already. The pass that skips such a list must still show the document's new mark.
+    @Test func aPinThatMovesNoRowStillReachesTheRows() {
+        let store = SidebarDocStore(remote: nil, mirror: nil)
+        let previous = SidebarDocStore.current
+        SidebarDocStore.current = store
+        defer { SidebarDocStore.current = previous }
+        let model = SidebarModel()
+        model.docDrag = Fixture.drag
+        let rows = SidebarRows(model: model)
+        store.shown = Self.projection(pinned: false)
+        rows.show(Fixture.raw(), creating: ([], nil), unlessShown: true)
+        #expect(Self.pinned(model.sections)["ws-2"] == false)
+        store.shown = Self.projection(pinned: true) // the same order: only the mark changed
+        rows.show(Fixture.raw(), creating: ([], nil), unlessShown: true)
+        #expect(Self.pinned(model.sections)["ws-2"] == true, "a pin in place never reached the rows")
     }
 }
