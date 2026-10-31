@@ -70,6 +70,7 @@ def help_options(source: str, member: str, command: str) -> set[str]:
 
 
 def contract_options(document: str) -> dict[str, set[str]]:
+    """Collect flags from command cells, sharing push options with its upload alias."""
     result: dict[str, set[str]] = {}
     in_commands = False
     for line in document.splitlines():
@@ -98,6 +99,7 @@ def contract_options(document: str) -> dict[str, set[str]]:
 
 
 def check_contract(document: str, sources: dict[str, str]) -> list[str]:
+    """Report missing command rows or flags and help sources that cannot be read."""
     documented = contract_options(document)
     expected: dict[str, set[str]] = {}
     errors: list[str] = []
@@ -154,6 +156,7 @@ FIXTURE_DOC = r"""| Command | Contract |
 
 
 def fixture_sources(help_texts: dict[str, str] | None = None) -> dict[str, str]:
+    """Wrap synthetic help in the Swift declaration forms accepted by the parser."""
     sources = {TRANSFER: "", TUI: ""}
     for command, text in (help_texts or FIXTURE_HELP).items():
         path, member = HELP[command]
@@ -168,16 +171,19 @@ def fixture_sources(help_texts: dict[str, str] | None = None) -> dict[str, str]:
 
 class VMOptionContractTests(unittest.TestCase):
     def test_repository_contract_covers_help_options(self):
+        """Check the repository's actual contract against its current help literals."""
         sources = {path: (ROOT / path).read_text() for path, _ in HELP.values()}
         errors = check_contract((ROOT / "docs/cli-contract.md").read_text(), sources)
         self.assertEqual(errors, [], "\n".join(errors))
 
     def test_complete_synopses_aliases_nested_options_and_escaped_pipes(self):
+        """Accept complete rows with aliases, nested flags, and either table spacing."""
         for document in (FIXTURE_DOC, FIXTURE_DOC.replace("| ", "|").replace(" |", "|")):
             with self.subTest(compact=document != FIXTURE_DOC):
                 self.assertEqual(check_contract(document, fixture_sources()), [])
 
     def test_every_missing_option_is_reported(self):
+        """Removing any documented flag must identify the affected command and flag."""
         for command, options in contract_options(FIXTURE_DOC).items():
             for option in options:
                 with self.subTest(command=command, option=option):
@@ -186,12 +192,14 @@ class VMOptionContractTests(unittest.TestCase):
                     self.assertIn(f"vm {command} synopsis missing {option}", "\n".join(errors))
 
     def test_new_usage_option_requires_documentation(self):
+        """A new help flag must fail until it appears in the command synopsis."""
         helps = dict(FIXTURE_HELP)
         helps["exec"] = helps["exec"].replace("<machine>", "[--new-option] <machine>")
         self.assertIn("vm exec synopsis missing --new-option", "\n".join(
             check_contract(FIXTURE_DOC, fixture_sources(helps))))
 
     def test_blank_lines_do_not_hide_option_declarations(self):
+        """Blank lines within Options must not hide later declarations from the check."""
         helps = dict(FIXTURE_HELP)
         helps["run"] = helps["run"].replace("Options:\n", "Options:\n\n")
         helps["run"] = helps["run"].replace(
@@ -206,12 +214,14 @@ class VMOptionContractTests(unittest.TestCase):
             check_contract(document, sources)))
 
     def test_description_and_other_commands_do_not_supply_options(self):
+        """Prose and another command's flags cannot fill a missing synopsis option."""
         document = FIXTURE_DOC.replace("[--timeout <seconds>] <machine>", "<machine>")
         document = document.replace("| Execute. |", "| Use `--timeout <seconds>`. |")
         self.assertIn("vm exec synopsis missing --timeout", "\n".join(
             check_contract(document, fixture_sources())))
 
     def test_missing_command_or_alias_fails(self):
+        """Every checked command, including the upload alias, needs its own name."""
         for command in COMMANDS:
             with self.subTest(command=command):
                 document = FIXTURE_DOC.replace(f"`vm {command}", f"`other {command}")
@@ -219,10 +229,12 @@ class VMOptionContractTests(unittest.TestCase):
                     check_contract(document, fixture_sources())))
 
     def test_non_command_table_cannot_supply_rows(self):
+        """Only a table headed Command supplies documented option coverage."""
         errors = check_contract(FIXTURE_DOC.replace("| Command |", "| Field |"), fixture_sources())
         self.assertEqual(len(errors), len(COMMANDS))
 
     def test_missing_duplicate_or_unreadable_help_fails(self):
+        """Absent files and missing, duplicate, or dynamic help must fail closed."""
         for source in ("", fixture_sources()[TUI] * 2, 'static let vmExecUsage = dynamicHelp'):
             with self.subTest(source=source[:50]):
                 sources = fixture_sources()
@@ -234,12 +246,14 @@ class VMOptionContractTests(unittest.TestCase):
         self.assertTrue(check_contract(FIXTURE_DOC, sources))
 
     def test_empty_or_wrong_command_usage_fails(self):
+        """Reject empty, flag-free, or wrong-command usage instead of passing vacuously."""
         for text in ("", "Usage: cmux vm exec <machine>", "Usage: cmux vm run --timeout 3"):
             with self.subTest(text=text):
                 helps = dict(FIXTURE_HELP, exec=text)
                 self.assertTrue(check_contract(FIXTURE_DOC, fixture_sources(helps)))
 
     def test_examples_and_option_descriptions_are_not_declarations(self):
+        """Incidental flag mentions in examples and descriptions add no requirements."""
         helps = dict(FIXTURE_HELP)
         helps["run"] = helps["run"].replace(
             "Accepted for compatibility.", "Like `vm other --description-only`.")
