@@ -1557,6 +1557,9 @@ export class AcpmuxDirectClient {
   /// Set once an update for this session is applied, so an older fetched list cannot replace it.
   private commandsApplied = false;
   private optimisticPromptRows = new Map<string, string>();
+  /// A prompt's transcript row id survives replay after acpmux accepts it, so an echo never
+  /// becomes a different `user-${seq}` row when a live rebuild happens.
+  private promptRowKeys = new Map<string, string>();
   private optimisticPromptTexts = new Map<string, string>();
   /// Prompts of this pane that wait in acpmux's queue: their bubble went when they were queued,
   /// and comes back (failed, with Retry) if acpmux refuses them when their turn comes.
@@ -4322,7 +4325,7 @@ export class AcpmuxDirectClient {
     const previous = new Map(this.rows);
     this.unknownSenders.clear();
     // A prompt still in flight keeps its optimistic row until an event settles it; a failed one stays to show it was not sent.
-    const inFlight = new Set(this.optimisticPromptRows.values());
+    const inFlight = new Set([...this.optimisticPromptRows.values(), ...this.promptRowKeys.values()]);
     // Those rows keep their place in the order.
     this.rows.retain((row) => row.failed === true || inFlight.has(row.id));
     this.waitingSteers = [];
@@ -5124,7 +5127,11 @@ export class AcpmuxDirectClient {
         const continues = promptId !== undefined && this.continuations.has(promptId);
         if (continues) this.continueTurn(promptId!);
         else if (this.awaiting !== undefined && msg.steer !== true) this.dropContinuation(this.awaiting);
-        const durableRowId = optimisticRowId ?? `user-${event.seq}`;
+        const durableRowId =
+          optimisticRowId ??
+          (fallbackPromptId ? this.promptRowKeys.get(fallbackPromptId) : undefined) ??
+          `user-${event.seq}`;
+        if (fallbackPromptId) this.promptRowKeys.set(fallbackPromptId, durableRowId);
         // A new list, never one changed in place: the snapshot names its rows by the list's identity.
         if (steer === "waiting") this.waitingSteers = [...this.waitingSteers, { rowId: durableRowId, promptId }];
         if (steer === "waiting" && promptId) this.steerRows.set(promptId, durableRowId);
@@ -6080,6 +6087,7 @@ export class AcpmuxDirectClient {
       : shownPrompt(promptText(input, carried, options), carried);
     const rowId = `local-${promptId}`;
     const at = Date.now();
+    this.promptRowKeys.set(promptId, rowId);
     this.optimisticPromptRows.set(promptId, rowId);
     this.optimisticPromptTexts.set(promptId, text);
     if (attachments.length) {
@@ -8221,6 +8229,7 @@ export class AcpmuxDirectClient {
       usage: this.usage,
       forkedAtSeq: this.forkedAtSeq,
       optimisticPromptRows: this.optimisticPromptRows,
+      promptRowKeys: this.promptRowKeys,
       optimisticPromptTexts: this.optimisticPromptTexts,
       promptAccepts: this.promptAccepts,
       compactionHeardAt: this.compactionHeardAt,
@@ -8256,6 +8265,7 @@ export class AcpmuxDirectClient {
     this.heldEdits = new Set();
     // An older prompt never settles one still sending, however alike their text.
     this.optimisticPromptRows = new Map();
+    this.promptRowKeys = new Map();
     this.optimisticPromptTexts = new Map();
     this.promptAccepts = new Map();
     this.compactionHeardAt = new Map();

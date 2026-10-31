@@ -45,6 +45,7 @@ type Row = {
   id: string;
   kind: string;
   text?: string;
+  promptId?: string;
   failed?: boolean;
   delivery?: { state: string; promptId: string; slow?: boolean; hop?: string; code?: string; acceptedAt?: number };
 };
