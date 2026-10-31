@@ -16,7 +16,9 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
-# The measurements this wrapper may run: each is on the controller's measure list (hq build-fleet ci_step.go).
+# The measurements this wrapper may run: each is on the controller's measure list (hq build-fleet ci_step.go). The hq
+# controller admits this wrapper only with a listed inner measurement, and the hq worker pins the inner script's bytes
+# to the reviewed branches exactly as it pins this wrapper's (cmd/worker step_reviewed.go checkWrappedScripts).
 INNER=(instant-new-surfaces.sh split-spring.sh perf-bench.sh perf-idle-power.sh tab-switch.sh palette-open.sh chat-open.sh)
 
 if [ "$#" -lt 1 ]; then
@@ -46,10 +48,12 @@ mkdir -p artifacts
 for dir in "$PWD" "$PWD/artifacts" "${TMPDIR:-/tmp}"; do mark "$dir"; done
 
 seen="$(mktemp)"
-mount | awk '{print $3}' | sort > "$seen.base"
+# A mount line is "DEVICE on MOUNTPOINT (OPTIONS)"; the mount point can hold spaces.
+mount_points() { mount | sed -E 's/^.* on (.*) \([^()]*\)$/\1/'; }
+mount_points | sort > "$seen.base"
 watch_volumes() {
   while :; do
-    mount | awk '$3 ~ /^\/Volumes\// || $3 ~ /^\/private\/var\/folders\// {print $3}' | sort | comm -13 "$seen.base" - |
+    mount_points | grep -E '^/Volumes/|^/private/var/folders/' | sort | comm -13 "$seen.base" - |
       while IFS= read -r vol; do
         grep -qxF "$vol" "$seen" 2>/dev/null && continue
         echo "$vol" >> "$seen"
@@ -65,12 +69,12 @@ watcher=$!
 cleanup() { kill "$watcher" 2>/dev/null || true; wait "$watcher" 2>/dev/null || true; rm -f "$seen" "$seen.base"; }
 trap cleanup EXIT
 
-cpu_record before
+cpu_record before || true
 if [ "${QUIET_HOST_DRY_RUN:-}" = 1 ]; then
   echo "quiet-host.sh: dry run: would run scripts/measure/$inner $*"; status=0
 else
   set +e; bash "scripts/measure/$inner" "$@"; status=$?; set -e
 fi
-cpu_record after
+cpu_record after || true  # never lose the measurement's exit code to a failed ps
 echo "quiet-host.sh: scripts/measure/$inner exited $status"
 exit "$status"
