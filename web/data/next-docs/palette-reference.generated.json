@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1236,
+    "entries": 1237,
     "shortcuts": 189
   },
   "sections": [
@@ -4694,6 +4694,12 @@
           "title": "Show Downloads…",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "browser.showCookieImportBanner",
+          "title": "Show Import Cookies Banner",
+          "shortcut": null,
+          "command": "cmux browser show-cookie-banner"
         },
         {
           "id": "showBrowserJavaScriptConsole",

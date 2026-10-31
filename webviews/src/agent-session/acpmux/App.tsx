@@ -4721,8 +4721,11 @@ const replyToQuestion = (permission: AcpmuxPermission, sent: QuestionReply) =>
   });
 
 /// Answers a secret card in the page (`chat.secret`): the value goes to acpmux only.
-const answerSecret = (ask: AcpmuxSecretAsk) => (value?: string) =>
-  void callNative("chat.secret", { secretId: ask.secretId, ...(value ? { value } : {}) }).catch(() => undefined);
+/// A provided value's failure reaches the card (it keeps the typed secret); a decline stays quiet.
+const answerSecret = (ask: AcpmuxSecretAsk) => (value?: string) => {
+  const sent = callNative("chat.secret", { secretId: ask.secretId, ...(value ? { value } : {}) });
+  return value ? sent : sent.catch(() => undefined);
+};
 
 /// A permission ask: a question card when the request asks a question, else its option buttons.
 function PermissionAsk({
