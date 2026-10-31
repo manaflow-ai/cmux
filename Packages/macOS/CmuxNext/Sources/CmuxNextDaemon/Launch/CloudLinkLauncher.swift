@@ -268,6 +268,13 @@ private final class CloudLinkCredentialServer: Sendable {
 /// registration, socket and key never meet another build's link; it binds
 /// any free UDP port (`--port 0`) and reads no `~/.config/cmux/server.json`
 /// (the tag's own `server.json`, normally absent).
+@MainActor
+public protocol CloudLinkLaunching: Sendable {
+    func ensure(install: String) async throws -> CloudLinkLauncher.Ensured
+    func stop(install: String?) async
+    func archive(install: String?) async
+}
+
 public nonisolated struct CloudLinkLauncher: Sendable {
     /// What `link ensure` answered.
     public struct Ensured: Decodable, Equatable, Sendable {
@@ -275,6 +282,10 @@ public nonisolated struct CloudLinkLauncher: Sendable {
         public var status: String
         public var pid: Int32?
         public var socket: String?
+
+        public init(status: String, pid: Int32?, socket: String? = nil) {
+            self.status = status; self.pid = pid; self.socket = socket
+        }
     }
 
     public enum Failure: Error, Equatable {
@@ -344,7 +355,7 @@ public nonisolated struct CloudLinkLauncher: Sendable {
     }
 
     /// The link's state directory.
-    var stateDirectory: URL? { stateRoot?.appendingPathComponent("link", isDirectory: true) }
+    public var stateDirectory: URL? { stateRoot?.appendingPathComponent("link", isDirectory: true) }
 
     /// The private credential socket passed to `cmux-tui link`; it carries no
     /// token and is only useful while this app's relay is serving.
@@ -452,3 +463,5 @@ public nonisolated struct CloudLinkLauncher: Sendable {
         return Data(line.utf8)
     }
 }
+
+extension CloudLinkLauncher: CloudLinkLaunching {}
