@@ -203,6 +203,9 @@ struct RenderMotionHitTestTests {
             #expect(fixture.root.presentedHitReads > reads, "no press read where the moving hosts are drawn")
             samples.sort()
             let p99 = samples[Int(Double(samples.count - 1) * 0.99)]
+            // Measurement record (no gate): the distribution of this run, for budget comparisons across runs and hosts.
+            let p50 = samples[Int(Double(samples.count - 1) * 0.5)], p95 = samples[Int(Double(samples.count - 1) * 0.95)]
+            print("HIT-TEST-BUDGET p50=\(p50) p95=\(p95) p99=\(p99) max=\(samples[samples.count - 1])")
             #expect(p99 <= .microseconds(100), "hit test p99 \(p99)")
         }
     }
