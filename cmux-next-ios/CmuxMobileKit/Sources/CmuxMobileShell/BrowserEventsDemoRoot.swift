@@ -1,6 +1,7 @@
 #if DEBUG && os(iOS)
 import CmuxTabsKit
 import CmuxMobileBrowserStream
+import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileWorkspaces
 import SwiftUI
@@ -26,6 +27,7 @@ public struct BrowserEventsDemoRoot: View {
     public var body: some View {
         TabsView(source: fixture.source, isShowingOverview: $showingOverview)
             .tabsKitTheme(.mobile)
+            .tint(CmuxMobileTheme.standard.colors.label.color)
             .task {
                 // Bounded choreography for the capture harness, cancelled with the view.
                 do { try await Task.sleep(for: .milliseconds(1_200)) } catch { return }
