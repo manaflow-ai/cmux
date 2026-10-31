@@ -49,9 +49,9 @@ extension DaemonService {
                                                 terminalEnvironment: terminalEnvironment,
                                                 daemonEnvironment: firstPartyAppsEnvironment,
                                                 webSocketPageOrigins: pageOrigins) else { return nil }
-        return DaemonPrestart(launcher: launcher, configuration: localConfiguration(
+        return DaemonPrestart(launcher: launcher, configuration: launcher.handingOffIncompatibleOwners(localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
-            installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift))
+            installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift)))
     }
 
     /// What the local daemon's supervisor needs from this app at launch: the
