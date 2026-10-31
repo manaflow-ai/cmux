@@ -118,7 +118,14 @@ typealias ZoomStripID = CmuxNextTabs.TabID
     final class Toolbar {
         let registry = ActionRegistry.standard()
         private(set) var zooms: [ActionInvocation] = []
-        private(set) lazy var toolbar = PaneToolbar(registry: { [registry] in registry }, newTabMenu: { nil })
+        private(set) lazy var toolbar: PaneToolbar = {
+            let registry = self.registry
+            let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil })
+            // A pane's bar has room for its buttons: a zero-width bar hides every button that does not fit and
+            // "…" offers it instead (#26132), which is not what these cases are about.
+            toolbar.view.frame = NSRect(x: 0, y: 0, width: 240, height: TabStripView.preferredHeight)
+            return toolbar
+        }()
 
         init() {
             registry.bind("toggleSplitZoom", invoke: { [unowned self] in zooms.append($0) })
