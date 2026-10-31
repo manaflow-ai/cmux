@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextTabs
 
 /// A synthetic native-tools page for capture slots with no chat, worktree or pull request.
 /// The provider belongs to one app's page store, and each window gets its own fixture view.

@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextTabs
 import Testing
 
 /// Capture fixtures decode real page payloads and never change the user's native-tools setting.
