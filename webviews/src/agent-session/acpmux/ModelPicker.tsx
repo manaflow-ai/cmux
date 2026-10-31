@@ -1308,6 +1308,8 @@ export function ModelPicker(props: ModelPickerProps) {
                       ...(harnessFixed && fork
                         ? { onLaunch: pickProfile, onFork: pickProfile, forkReady: fork.ready }
                         : {}),
+                      // Each row's star, the full picker's favourites (the Starred tab lists them).
+                      stars: { has: (model) => favorites.has(model.id), toggle: (model) => toggleFavorite(model.id) },
                     },
                   }
                 : {}),

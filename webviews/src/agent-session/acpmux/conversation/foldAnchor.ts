@@ -33,16 +33,18 @@ export const FOLD_TOGGLE = [
   "button.cv-diagram__toggle",
 ].join(", ");
 /// The controls a click lands on: one inside a toggle is its own, not the toggle's.
-const NESTED_CONTROL = 'button, a[href], [role="button"], summary, input, textarea, select, [role="menuitem"]';
+const NESTED_CONTROL =
+  'button, a[href], [role="button"], [role="link"], summary, input, textarea, select, [role="menuitem"]';
 /// What a collapsible's header sends up (bubbling, cancelable) to be held where it is drawn while its
 /// body opens or closes (useAnchoredCollapse.ts); the transcript that holds it cancels it.
 export const ANCHORED_COLLAPSE_EVENT = "cmux:anchored-collapse";
 /// How long a hold outlasts its fold: the last frame's measure, and rows a "Worked for" inserts.
 export const FOLD_SETTLE_MS = 150; // motion-allow: a hold timer after the fold, not an animation
-/// The longest a hold lasts from the press: each pass that puts the line back extends it by
-/// FOLD_SETTLE_MS (a body whose Markdown, images or highlighting settle late, or one that opens with
-/// no fold under Reduce Motion), up to this. The reader's own scroll lets go of it sooner.
-export const FOLD_HOLD_MAX_MS = 1500; // motion-allow: a hold's cap, not an animation
+/// The shortest hold, so a toggle with no fold (Reduce Motion, a body that lays out late) is still
+/// held while what it opened is measured and placed. A hold that kept extending while its line moved
+/// re-placed a tall prompt under the pointer and its Show less missed the click. The reader's own
+/// scroll lets go of it sooner.
+export const FOLD_HOLD_MIN_MS = 400; // motion-allow: a hold timer, not an animation
 
 export type FoldAnchor = {
   toggle: HTMLElement;
@@ -50,8 +52,6 @@ export type FoldAnchor = {
   top: number;
   /// When the hold ends (performance.now()).
   until: number;
-  /// The latest `until` may reach (FOLD_HOLD_MAX_MS after the press).
-  cap: number;
 };
 
 /// The disclosure line `target` is on, inside one of `scroller`'s rows; undefined for anything else.
@@ -85,8 +85,8 @@ export function foldHoldTarget(toggle: HTMLElement, scroller?: HTMLElement): HTM
 
 /// Holds `toggle` where it is drawn now, for its fold and a little after.
 export function holdFold(toggle: HTMLElement, now = performance.now()): FoldAnchor {
-  const cap = now + Math.max(FOLD_HOLD_MAX_MS, foldMs(toggle) + FOLD_SETTLE_MS);
-  return { toggle, top: toggle.getBoundingClientRect().top, until: now + foldMs(toggle) + FOLD_SETTLE_MS, cap };
+  const until = now + Math.max(foldMs(toggle) + FOLD_SETTLE_MS, FOLD_HOLD_MIN_MS);
+  return { toggle, top: toggle.getBoundingClientRect().top, until };
 }
 
 /// The hold for a click on `toggle`: the one its press started (`pressed`, same line, still on), kept
@@ -108,11 +108,7 @@ export function verticalWheel(event: { deltaX: number; deltaY: number }): boolea
 export function keepFold(anchor: FoldAnchor, scroller: HTMLElement, now = performance.now()): boolean {
   if (now > anchor.until || !anchor.toggle.isConnected) return false;
   const moved = anchor.toggle.getBoundingClientRect().top - anchor.top;
-  if (Math.abs(moved) >= 0.5) {
-    scroller.scrollTop += moved;
-    // Still settling: hold a little longer, up to the cap.
-    anchor.until = Math.min(anchor.cap, Math.max(anchor.until, now + FOLD_SETTLE_MS));
-  }
+  if (Math.abs(moved) >= 0.5) scroller.scrollTop += moved;
   return true;
 }
 

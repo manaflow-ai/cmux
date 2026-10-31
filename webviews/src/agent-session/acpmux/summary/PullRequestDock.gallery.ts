@@ -1,5 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample prompts, commands and pull request titles), not shipped UI.
-// Compact PR links in the message row, with one-link and tighter alternatives.
+// Compact PR links in the message row: readable chips (number plus a title, or the number alone),
+// with numbers-only, last-line, one-link and tighter alternatives.
 import { pullRequestComparisons } from "./PullRequestDockComparisons";
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -16,6 +17,27 @@ const four = [
   create("Document retry", 130),
   create("Log retry", 131),
 ];
+const topics = [
+  "Retry uploads on transient failures",
+  "Cover the retry path with a test",
+  "Document the retry settings",
+  "Log each retry with its attempt",
+  "Cap retry delay at two seconds",
+  "Keep the upload progress on retry",
+];
+/// A long run of PRs (55), the case where the row overflowed into a bare count.
+const many = Array.from({ length: 55 }, (_, index) =>
+  create(`${topics[index % topics.length]} (${index + 1})`, 1200 + index),
+);
+const manySnapshot = chat([
+  user("Land the uploader series", 6),
+  activity(many, 5),
+  assistant(
+    "Every part of the series is open. The last few are still waiting on checks, and nothing else needs you right now; the queue will pick them up.",
+    2,
+    { streaming: true },
+  ),
+]);
 const snapshot = chat([
   user("Split the change into four PRs", 6),
   activity(four, 5),
@@ -31,8 +53,22 @@ export default agentPaneEntry({
   variants: {
     ...pullRequestComparisons.variants,
     "inline-pills": {
-      note: "Selected: up to two underlined PR links beside the action row, plus instant overflow.",
+      note: "Selected: up to two PR links beside the action row, each its number and a readable title, plus instant overflow.",
       snapshot,
+    },
+    "readable-titles": {
+      note: "Selected for many PRs: numbers with readable titles (never a stub), on their own right-aligned line under the reply; +N lists the rest with titles.",
+      snapshot: manySnapshot,
+    },
+    "numbers-only": {
+      note: "Alternative: numbers alone; the hover card and the +N list give the titles.",
+      documentAttributes: { "pr-dock": "numbers" },
+      snapshot: manySnapshot,
+    },
+    "inline-last-line": {
+      note: "Alternative: readable chips kept on the reply's last line (the earlier placement).",
+      documentAttributes: { "pr-dock": "inline" },
+      snapshot: manySnapshot,
     },
     "one-first": {
       note: "Alternative: one link and the remainder behind +N, saving more width.",

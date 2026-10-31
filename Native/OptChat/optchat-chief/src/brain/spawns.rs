@@ -2640,9 +2640,10 @@ impl Brain {
     /// (`workspaces::link_subagents`): the user's reply shows them as links
     /// whether or not the model wrote one.
     ///
-    /// Then the last pass (`reply_links::link_refs`): a bare cmux id (`ws_…`, `tab_…`,
-    /// `pane_…`) and a path that exists on this Mac become their `cmux://` and `file://` links
-    /// (Lawrence 2026-10-26: "reply with links to stuff properly").
+    /// Then the last pass (`reply_links::link_refs_named`): a bare cmux id (`ws_…`, `tab_…`,
+    /// `pane_…`), a GitHub reference and a path that exists on this Mac become their
+    /// `cmux://`, `https://github.com` and `file://` links (Lawrence 2026-10-26: "reply with
+    /// links to stuff properly", cmux#25572); a subagent's workspace id is named by its title.
     pub(super) fn link_subagents(&self, text: &str) -> String {
         let linked = crate::workspaces::link_subagents(text, &self.settings.parent, |id| {
             self.state.sub(id).and_then(|(_, s)| s.session_id.clone())
@@ -2653,7 +2654,16 @@ impl Brain {
         // Paths only on a Chief host on the person's Mac: a cloud VM's paths are not files
         // that Home or iOS can open as `file://`.
         let mac = cfg!(target_os = "macos");
-        crate::reply_links::link_refs(&linked, &home, &|p| mac && p.exists())
+        let name_of = |ws: &str| {
+            self.state
+                .spawns
+                .values()
+                .flat_map(|r| &r.subs)
+                .find_map(|s| {
+                    (s.ws_id.as_deref() == Some(ws) && !s.title.is_empty()).then(|| s.title.clone())
+                })
+        };
+        crate::reply_links::link_refs_named(&linked, &home, &|p| mac && p.exists(), &name_of)
     }
 
     /// chief.stop {name}: subagent `name` stops as with chief.stop (its
