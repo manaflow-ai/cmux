@@ -88,13 +88,23 @@ export const encodeBase64 = (bytes: Uint8Array): string => {
   return btoa(bin)
 }
 
+/** Exact precedence of nonnegative decimal identifiers, even beyond Number.MAX_SAFE_INTEGER. */
+const compareDecimalIdentifiers = (a: string, b: string): number => {
+  // Numeric prerelease identifiers cannot have leading zeroes in valid SemVer;
+  // normalize them defensively because the current input regex also accepts those strings.
+  const left = a.replace(/^0+(?=\d)/, "")
+  const right = b.replace(/^0+(?=\d)/, "")
+  if (left.length !== right.length) return left.length < right.length ? -1 : 1
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
 /** Semver precedence (semver.org 11): build metadata is ignored. Inputs must match SEMVER. */
 export const compareSemver = (a: string, b: string): number => {
   const pa = SEMVER.exec(a)!
   const pb = SEMVER.exec(b)!
   for (let i = 1; i <= 3; i++) {
-    const d = Number(pa[i]) - Number(pb[i])
-    if (d !== 0) return Math.sign(d)
+    const d = compareDecimalIdentifiers(pa[i]!, pb[i]!)
+    if (d !== 0) return d
   }
   const ra = pa[4]
   const rb = pb[4]
@@ -107,7 +117,11 @@ export const compareSemver = (a: string, b: string): number => {
     if (x === y) continue
     const nx = /^\d+$/.test(x)
     const ny = /^\d+$/.test(y)
-    if (nx && ny) return Math.sign(Number(x) - Number(y))
+    if (nx && ny) {
+      const d = compareDecimalIdentifiers(x, y)
+      if (d !== 0) return d
+      continue
+    }
     if (nx !== ny) return nx ? -1 : 1
     return x < y ? -1 : 1
   }
