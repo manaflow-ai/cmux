@@ -1555,6 +1555,8 @@ class Nightly(unittest.TestCase):
 
     def test_the_trusted_pool_is_an_owned_label_only_here(self):
         self.assertEqual(rescue.job_pool({"labels": [TRUSTED]}), TRUSTED)
+        # The nightly slot nightly-next's build picker offers first (also when it cannot read the runners).
+        self.assertEqual(rescue.job_pool({"labels": ["glaeda-nightly-std-xcode-26.6"]}), "glaeda-nightly-std-xcode-26.6")
         # nightly.yml asks for the pool and one runner's own label together.
         self.assertEqual(rescue.job_pool({"labels": [TRUSTED, "glaeda-runner-cmux15-glaeda"]}), TRUSTED)
         self.assertEqual(rescue.job_pool({"labels": ["glaeda-root-trusted-std-xcode-26.6"]}),
@@ -2259,7 +2261,7 @@ class Workflow(unittest.TestCase):
              "cmux-next", "cmux-tui artifacts", "cmux NEXT DEV daily",
              "cmux-next", "cmux-tui", "IROH v2", "Relay TLS system trust", "reload-build",
              "SSH remote daemon", "Terminal hang diagnostics", "Feed reply provider verification",
-             "nightly-next launch smoke"},
+             "nightly-next launch smoke", "cmux NEXT Stable"},
         )
         paths = self.doc["env"]["SOURCE_WORKFLOW_PATHS"].split()
         self.assertEqual(
