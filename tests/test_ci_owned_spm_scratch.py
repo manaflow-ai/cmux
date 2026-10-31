@@ -545,6 +545,54 @@ class Scratch(unittest.TestCase):
             self.assertIsNone(self.lease(("root-0", "root-1")))
         self.assertTrue((self.scratch / "root-1").is_symlink())  # not replaced: no room for a root
 
+    def test_a_case_only_rename_respells_the_entry_on_a_case_insensitive_disk(self):
+        # On case-insensitive APFS, Foo.swift renamed to foo.swift finds the old entry under the new name; the
+        # cleanup walk, which lists Foo.swift, must not then delete the file. Simulated: the parent lists only
+        # Foo.swift and both spellings are one file.
+        parent = Path(self.tmp.name) / "ci"
+        parent.mkdir()
+        (parent / "Foo.swift").write_text("x")
+        same = os.lstat(parent / "Foo.swift")
+        renamed = []
+        real_lstat = os.lstat
+
+        def lstat(path, *args, **kwargs):
+            if os.path.basename(path) in ("Foo.swift", "foo.swift"):
+                return same
+            return real_lstat(path, *args, **kwargs)
+        with unittest.mock.patch.object(scratch.os, "lstat", lstat), \
+                unittest.mock.patch.object(scratch.os, "rename", lambda a, b: renamed.append((str(a), str(b)))):
+            listings: dict = {}
+            scratch.respell(parent / "foo.swift", listings)
+        self.assertEqual(renamed, [(str(parent / "Foo.swift"), str(parent / "foo.swift"))])
+        self.assertIn("foo.swift", listings[str(parent)])
+        self.assertNotIn("Foo.swift", listings[str(parent)])
+
+    def test_two_files_that_differ_in_case_on_a_case_sensitive_disk_are_both_kept(self):
+        parent = Path(self.tmp.name) / "cs"
+        parent.mkdir()
+        (parent / "Foo.swift").write_text("a")
+        (parent / "foo.swift").write_text("b")
+        with unittest.mock.patch.object(scratch.os, "rename", side_effect=AssertionError("renamed")):
+            scratch.respell(parent / "foo.swift", {})
+            scratch.respell(parent / "Bar.swift", {})  # absent: nothing to respell
+
+    def test_case_only_renames_keep_every_file_in_the_root(self):
+        probe = Path(self.tmp.name) / "CaseProbe"
+        probe.write_text("x")
+        if not (Path(self.tmp.name) / "caseprobe").exists():
+            self.skipTest("the disk is case-sensitive (macOS minis are not)")
+        self.checkout()
+        source = self.lease()
+        scratch.release_holders()
+        git(self.workspace, "mv", "tool.sh", "Tool.sh")
+        git(self.workspace, "mv", "Packages/macOS/B/Sources", "Packages/macOS/B/sources")
+        git(self.workspace, "commit", "-qm", "case")
+        self.lease()
+        self.assertIn("Tool.sh", os.listdir(source))
+        self.assertIn("sources", os.listdir(source / "Packages/macOS/B"))
+        self.assertEqual((source / "Packages/macOS/B/sources/b.swift").read_text(), "let b = 1\n")
+
     def test_a_directory_replaced_by_a_link(self):
         self.checkout()
         source = self.lease()
