@@ -2047,6 +2047,7 @@ struct AccessoryFloor: ViewModifier {
 /// A tab's card in the grid: the page as it looks at rest.
 struct WorkspaceTabCard: View {
     let source: WorkspaceTabsSource
+    @Environment(\.tabsKitCardPageSize) private var kitPageSize
     let tabID: String
     let insets: EdgeInsets
 
@@ -2082,9 +2083,10 @@ struct WorkspaceTabCard: View {
                     }
                     .padding(.leading, 16).padding(.top, 14)
                 }
-                // The kit lays a card out at the full page size and scales it down: a grid shown
-                // before any page (or rotated with the grid up) gives the cards their page size.
-                .onGeometryChange(for: CGSize.self, of: { $0.size }) { size in source.rememberPageSize(size) }
+                // The page size the kit lays the grid's cards out at (the full page, scaled down):
+                // a grid shown before any page, or rotated with the grid up, gives it. Never the
+                // card's own size, which its long-press and drag previews lay it out at (nil there).
+                .onChange(of: kitPageSize, initial: true) { _, size in if let size { source.rememberPageSize(size) } }
     }
 
     @ViewBuilder
