@@ -197,6 +197,47 @@ import Testing
         backend.releaseSend()
     }
 
+    /// A restarted backend's history no longer holds the kept window: the
+    /// client holds 81-100 and the server now has 1-50. Recovery rebuilds from
+    /// the fetched page (keeping an unsent local send), and new live messages
+    /// 51-80, during the fetch and after it, land instead of being dropped as
+    /// older than the stale window.
+    @Test func laggedReconnectAfterABackendResetRebuildsFromTheFetchedHistory() async throws {
+        let backend = ScriptedBackend(total: 100)
+        let store = ConversationStore(backend: backend, pageSize: 20, makeClientMessageID: { "client-4" })
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        #expect(store.messages.compactMap(\.seq) == Array(81...100))
+        backend.holdSend = true
+        defer { backend.releaseSend() }
+        store.send(text: "in flight")
+        let gate = PreparationGate()
+        defer { gate.open() }
+        backend.nextHistoryGate = gate
+        backend.total = 50
+        let historyBefore = backend.historyCount
+        var rebuilt = false
+        store.addObserver { change in
+            if case .reset = change { rebuilt = true }
+        }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == historyBefore + 1 }
+        // Live traffic from the restarted backend while its history is held.
+        store.apply(.message(backend.makeMessage(seq: 51, sender: "lc"), eventSeq: 1))
+        gate.open()
+        try await waitUntil { rebuilt }
+        #expect(store.messages.compactMap(\.seq) == Array(31...51))
+        #expect(store.messages.last?.clientMessageID == "client-4")
+        #expect(store.older == .idle)
+        for seq in 52...80 {
+            store.apply(.message(backend.makeMessage(seq: seq, sender: "lc"), eventSeq: seq - 50))
+        }
+        #expect(store.messages.compactMap(\.seq) == Array(31...80))
+        #expect(store.message(id: "m100") == nil)
+        #expect(store.messages.last?.clientMessageID == "client-4")
+    }
+
     @Test func reconnectDuringCatchUpDoesNotSkipTheGapBeforeALiveArrival() async throws {
         let backend = ScriptedBackend(total: 50)
         let store = ConversationStore(backend: backend, pageSize: 20)
