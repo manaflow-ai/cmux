@@ -753,9 +753,16 @@ def linux_values(expression: str) -> bool:
         elif re.fullmatch(r"'[^']*'", value):
             if "ubuntu" not in value:
                 return False
-        elif not (re.fullmatch(r"vars\.\w+", value) and "LINUX" in value):
+        elif not (re.fullmatch(r"vars\.\w+", value) and "LINUX" in value) and value not in PORTABLE_RUNNERS:
             return False
     return True
+
+
+# Portable placement (scripts/ci/portable_job_placement.py) puts a job that needs neither Linux nor
+# Blacksmith on fleet Linux or a free mini. The job runs the same scripts either way, none of the
+# app's Mac tiers, so its outputs count as Linux here: an edit to such a job runs no Mac tier.
+PORTABLE_RUNNERS = frozenset(
+    f"needs.portable-placement.outputs.{output}" for output in ("linux_runner", "mini_runner"))
 
 
 def linux_runs_on(value) -> bool:

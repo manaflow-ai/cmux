@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextHome
 @testable import MessagesLabSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The user, 2026-10-20 (refs/imessage-layout/2.png, 3.png): "If the sidebar is too small then we
@@ -9,6 +10,7 @@ import Testing
 /// and a round compose button sits at the chat's top-left, beside the traffic lights; the list with
 /// names keeps its search and Unread toggle, and compose stays in the chat (the user, 2026-10-21).
 @MainActor
+@Suite(.closesItsWindows)
 struct HomeNarrowSidebarTests {
     /// The chat's compose button in `view`'s tree, by its accessibility identifier.
     static func chatCompose(in view: NSView) -> NSButton? {

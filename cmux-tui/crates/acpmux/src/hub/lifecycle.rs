@@ -557,6 +557,8 @@ impl Hub {
             return Err(e);
         }
         self.wake_ended(session, wake, None);
+        // The start is over: its harness runs at its CPU class from now on (`cpu_class.rs`).
+        child.enter_run_class().await;
         Ok(child)
     }
 
@@ -750,8 +752,9 @@ impl Hub {
                             result.map(|()| self.keep_account_home(session, profile, child))
                         }
                         Err(_) => {
+                            let harness = Self::starting_harness(session).await;
                             self.abandon_cold_start(session, budget).await;
-                            Err(RpcError::deadline_exceeded("agent_start", budget))
+                            Err(start_deadline_exceeded(budget, &harness))
                         }
                     };
                 }
@@ -766,12 +769,65 @@ impl Hub {
         // session, forever. Re-adoption and pool adoption above keep their
         // own bounds: they serve agents that may be mid-turn.
         let budget = self.config.read().await.agent_start_timeout();
-        match tokio::time::timeout(budget, self.cold_start(session, profile, stops, off)).await {
-            Ok(result) => result.map(|child| self.keep_account_home(session, profile, child)),
-            Err(_) => {
-                self.abandon_cold_start(session, budget).await;
-                Err(RpcError::deadline_exceeded("agent_start", budget))
+        let mut retried = false;
+        loop {
+            let started = self.cold_start(session, profile, stops, off);
+            let failed = match tokio::time::timeout(budget, started).await {
+                Ok(Ok(child)) => return Ok(self.keep_account_home(session, profile, child)),
+                Ok(Err(e)) => Some(e),
+                Err(_) => None,
+            };
+            // What its harness was doing, read before it is ended (`cpu_class.rs`).
+            let harness = Self::starting_harness(session).await;
+            // A start that failed with its harness at background class anyway (set again during
+            // the start by another process: acpmux clears it at the spawn) runs once more
+            // (`cpu_class.rs`, item 3). Each try has the whole budget: a caller waits up to twice
+            // that (Chief's `SESSION_NEW_DEADLINE`).
+            if let Some(state) = harness.background().filter(|_| !retried) {
+                self.end_cold_start(session).await;
+                let why = if failed.is_some() { "failed" } else { "missed its deadline" };
+                tracing::warn!(session = %session.id, "the agent start {why} at background CPU class ({state}); starting it once more");
+                self.append(
+                    session,
+                    "mux",
+                    "agent_start_retried_at_normal",
+                    json!({"timedOut": failed.is_none(), "harness": state}),
+                );
+                retried = true;
+                continue;
             }
+            return Err(match failed {
+                Some(e) => e,
+                None => {
+                    self.abandon_cold_start(session, budget).await;
+                    start_deadline_exceeded(budget, &harness)
+                }
+            });
+        }
+    }
+
+    /// Its starting harness, as a deadline error says it (`cpu_class::HarnessSeen`).
+    async fn starting_harness(session: &Session) -> crate::cpu_class::HarnessSeen {
+        let child = session.child.lock().await.clone();
+        match child {
+            Some(child) => child.harness_seen().await,
+            None => crate::cpu_class::HarnessSeen::NotStarted,
+        }
+    }
+
+    /// End what a failed cold start left before it is retried: as `abandon_cold_start`, with no
+    /// event of its own (the retry logs one).
+    async fn end_cold_start(self: &Arc<Self>, session: &Arc<Session>) {
+        let started = session.child.lock().await.take();
+        if let Some(child) = &started {
+            child.terminate(super::shutdown::SHUTDOWN_GRACE).await;
+        }
+        if Self::host_record_live(&session.id) {
+            self.end_unadopted_host(session).await;
+        }
+        session.loading.store(false, Ordering::SeqCst);
+        if session.status() != SessionStatus::Closed {
+            self.set_status(session, SessionStatus::Idle);
         }
     }
 
@@ -784,17 +840,7 @@ impl Hub {
         session: &Arc<Session>,
         budget: std::time::Duration,
     ) {
-        let started = session.child.lock().await.take();
-        if let Some(child) = &started {
-            child.terminate(super::shutdown::SHUTDOWN_GRACE).await;
-        }
-        if Self::host_record_live(&session.id) {
-            self.end_unadopted_host(session).await;
-        }
-        session.loading.store(false, Ordering::SeqCst);
-        if session.status() != SessionStatus::Closed {
-            self.set_status(session, SessionStatus::Idle);
-        }
+        self.end_cold_start(session).await;
         self.append(
             session,
             "mux",
@@ -1639,4 +1685,20 @@ impl<'a> ReplayHold<'a> {
             self.session.end_replay(self.agent.generation);
         }
     }
+}
+
+/// `agent_start`'s deadline error, with what its harness was doing (`cpu_class.rs`, item 4).
+/// Its `data.harness` carries the same fields when they were read.
+fn start_deadline_exceeded(
+    budget: std::time::Duration,
+    harness: &crate::cpu_class::HarnessSeen,
+) -> RpcError {
+    let mut e = RpcError::deadline_exceeded("agent_start", budget);
+    e.message.push_str(&harness.detail());
+    if let (crate::cpu_class::HarnessSeen::Running(state), Some(data)) =
+        (harness, e.data.as_mut().and_then(Value::as_object_mut))
+    {
+        data.insert("harness".into(), json!(state));
+    }
+    e
 }
