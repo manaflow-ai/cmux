@@ -414,7 +414,10 @@ def main(argv=None):
                                      "DIR/<--go-spec>.go ({\"host\": MINI, \"until\": ...}) before it acquires, and "
                                      "writes DIR/<--go-spec>.done after the release")
     ap.add_argument("--go-spec", default="fuzz", help="the spec name of the scheduler's go and done files")
-    ap.add_argument("--shrink-tries", type=int, default=10, help="ddmin tries per failure (one short lease each)")
+    ap.add_argument("--shrink-tries", type=int, default=None,
+                    help="ddmin tries per failure (one short lease each); default 10, and 0 for --replay (a replay is "
+                         "the confirmation of a repro; give a number to shrink it further, e.g. a 3-action repro that "
+                         "may need fewer)")
     ap.add_argument("--replay", help="a repro JSON (a sequence list, or a file with `shrunk`/`sequence`): one round")
     ap.add_argument("--plan", action="store_true", help="print the plan of --seed and exit (no fleet)")
     ap.add_argument("--out")
@@ -503,9 +506,12 @@ def main(argv=None):
     # sequence is then confirmed (a try that failed with the same oracle, else one more lease) and written as a
     # regression journey. The same failure is shrunk once (by oracle and signature), not per round.
     repros, done_sigs, k = out / "repros", set(), 0
-    # A --replay plays a sequence that is already a repro: it is the confirmation itself, never shrunk again (each
-    # ddmin try would spend a lease on a sequence already minimal).
-    for r in [r for r in rounds if r["build"] == "test" and r.get("failure") and not opts.replay]:
+    # A --replay plays a sequence that is already a repro: by default it is the confirmation only, not shrunk again
+    # (each ddmin try spends a lease). An explicit --shrink-tries N shrinks it too (a replayed 3-action R3b repro on
+    # cmux20 at 12:3xZ shrank to New Column alone).
+    if opts.shrink_tries is None:
+        opts.shrink_tries = 0 if opts.replay else 10
+    for r in [r for r in rounds if r["build"] == "test" and r.get("failure") and opts.shrink_tries > 0]:
         sig = ext_fuzz.signature(r["failure"]["oracle"], r["failure"]["detail"])
         report = fuzz_report(out / f"round-{r['round']:03d}-test") or {}
         seq = r.get("shrunk") or report.get("sequence") or []

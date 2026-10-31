@@ -343,6 +343,10 @@ class Verdicts(unittest.TestCase):
         done, summary, calls, _ = self.run_fuzz({"jobT": {"fail_sequences": True}}, "--diagnostic", "--replay", str(rp))
         self.assertEqual(summary["verdict"], "RED")
         self.assertEqual(len(calls), 1)  # the replay's own lease only: no ddmin tries, no confirm lease
+        done, summary, calls, _ = self.run_fuzz({"jobT": {"fail_sequences": True}}, "--diagnostic", "--replay", str(rp),
+                                                "--shrink-tries", "4")
+        self.assertGreater(len(calls), 1)  # asked for: the replay is shrunk
+        self.assertEqual(len(summary["failures"][0]["shrunk"]), 1)
 
     def test_cmux17_refused(self):
         tmp = Path(tempfile.mkdtemp())
