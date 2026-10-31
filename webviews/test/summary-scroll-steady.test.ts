@@ -48,6 +48,28 @@ const extra = Array.from({ length: 6 }, (_, index) => {
   ] as [string, string, Record<string, unknown>][];
 }).flat();
 
+/// The chat's first turn, far above what attach sends a paged chat: it ran the background commands
+/// and wrote the file the card lists, so they arrive only once the reader scrolls up to them.
+const firstTurn = [
+  ["mux", "user_message", { text: "Start the watchers" }],
+  ["mux", "turn_started", {}],
+  ...extra,
+  [
+    "in",
+    "tool_call",
+    update({
+      sessionUpdate: "tool_call",
+      toolCallId: "w1",
+      title: "Write notes.md",
+      kind: "edit",
+      status: "completed",
+      locations: [{ path: "/home/dev/cmux/notes.md" }],
+      rawInput: { file_path: "/home/dev/cmux/notes.md", content: "notes" },
+    }),
+  ],
+  ["mux", "turn_result", { status: "completed" }],
+] as [string, string, Record<string, unknown>][];
+
 await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
   setDefaultTimeout(150_000);
   const browsers = new Map<string, Browser>();
@@ -68,14 +90,18 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
 
   let current: Browser | undefined;
   let pane: Awaited<ReturnType<typeof papercutPane>> | undefined;
+  let paged: Awaited<ReturnType<typeof papercutPane>> | undefined;
   beforeAll(async () => {
     pane = await papercutPane(() => current!, { turns: 40, running: true, extra });
+    // A long chat whose attach sends only its newest records: scrolling up pages the rest in.
+    paged = await papercutPane(() => current!, { turns: 60, running: false, lead: firstTurn, attachPage: 40 });
     current = browsers.values().next().value;
     await (await pane.open()).close();
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
     await pane?.close();
+    await paged?.close();
   });
 
   /// Waits for the finite animations (an opening card's slide); a running turn's spinner never ends.
@@ -89,8 +115,8 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
 
   /// Watches `selector` (the card) and the header's summary toggle across 100 frames of wheel scrolling
   /// up then down; returns what changed in them.
-  const scrollAndWatch = (page: Page, selector: string) =>
-    page.evaluate(async (selector) => {
+  const scrollAndWatch = (page: Page, selector: string, step = 60) =>
+    page.evaluate(async ([selector, step]) => {
       const card = document.querySelector<HTMLElement>(selector)!;
       const toggle = document.querySelector<HTMLElement>(".acpmux-summary-button, .acpmux-chat-inspector-toggle");
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -99,8 +125,16 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
         return element ? `${element.tagName.toLowerCase()}.${[...element.classList].join(".")}` : "#text";
       };
       const changes: string[] = [];
+      // A running command's elapsed time ticks once a second by design (useNow): that is a clock,
+      // not the card changing under the scroll.
+      const clock = (node: Node) =>
+        !!(node instanceof Element ? node : node.parentElement)?.closest(
+          ".acpmux-summary-meta, .acpmux-chat-inspector-task__time, .acpmux-chat-inspector-server__time",
+        );
       const observer = new MutationObserver((records) => {
         for (const record of records) {
+          if (record.type === "characterData" && clock(record.target)) continue;
+          if (record.type === "childList" && clock(record.target) && record.target.textContent) continue;
           if (record.type === "attributes")
             changes.push(`attr ${record.attributeName} on ${describe(record.target)}`);
           else if (record.type === "characterData") changes.push(`text in ${describe(record.target)}`);
@@ -118,7 +152,9 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
       const boxes = new Set<string>();
       const opacities = new Set<string>();
       let replaced = false;
+      let lowest = scroller.scrollTop;
       const read = () => {
+        lowest = Math.min(lowest, scroller.scrollTop);
         if (!card.isConnected || (toggle && !toggle.isConnected)) replaced = true;
         const box = card.getBoundingClientRect();
         boxes.add(`${Math.round(box.x)},${Math.round(box.y)},${Math.round(box.width)},${Math.round(box.height)}`);
@@ -147,14 +183,16 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
           },
           () => {
             // Up for the first half, back down for the second: 60px a frame, a quick trackpad flick.
-            scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: frame < frames / 2 ? -60 : 60, bubbles: true }));
-            scroller.scrollTop += frame < frames / 2 ? -60 : 60;
+            const delta = frame < frames / 2 ? -step : step;
+            scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: delta, bubbles: true }));
+            scroller.scrollTop += delta;
           },
         );
       });
       observer.disconnect();
       return {
         start,
+        lowest,
         end: scroller.scrollTop,
         errors,
         changes: [...new Set(changes)],
@@ -163,7 +201,7 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
         opacities: [...opacities],
         replaced: replaced || !parent.contains(card),
       };
-    }, selector);
+    }, [selector, step] as const);
 
   for (const name of browsers.keys()) {
     test(`${name}: the inline Summary card holds still while the chat scrolls`, async () => {
@@ -218,6 +256,65 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
         console.log(`${name} Session Info while scrolling: ${JSON.stringify(seen)}`);
         expect({ changes: seen.changes, boxes: seen.boxes.length, opacities: seen.opacities, replaced: seen.replaced })
           .toEqual({ changes: [], boxes: 1, opacities: ["1"], replaced: false });
+      } finally {
+        await page.close();
+      }
+    });
+
+    test(`${name}: the inline Summary card holds still while older history pages in under it`, async () => {
+      current = browsers.get(name)!;
+      const page = await paged!.open({ width: 1400, height: 760 });
+      try {
+        await settle(page);
+        // A chat whose loaded rows have no summary content reserves the column without drawing it.
+        const selector = "aside.acpmux-summary-card[data-placement=inline]";
+        await page.locator(selector).first().waitFor({ state: "attached", timeout: 10_000 });
+        const before = await page.locator(selector).first().evaluate((card) => ({
+          reserve: card.classList.contains("acpmux-summary-card--reserve"),
+          text: card.textContent,
+        }));
+        const seen = await scrollAndWatch(page, selector, 400);
+        const after = await page.locator(selector).first().evaluate((card) => ({
+          reserve: card.classList.contains("acpmux-summary-card--reserve"),
+          text: card.textContent,
+        }));
+        console.log(
+          `${name} inline summary while history pages in: ${JSON.stringify({ before, after, seen, methods: paged!.methods.filter((method) => method === "_acpmux/events").length })}`,
+        );
+        expect({ changes: seen.changes, boxes: seen.boxes.length, replaced: seen.replaced }).toEqual({
+          changes: [],
+          boxes: 1,
+          replaced: false,
+        });
+      } finally {
+        await page.close();
+      }
+    });
+
+    test(`${name}: Session Info holds still while older history pages in under it`, async () => {
+      current = browsers.get(name)!;
+      const page = await paged!.open({ width: 1200, height: 760 });
+      try {
+        await page.evaluate(() => {
+          (
+            window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
+          ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 });
+        });
+        const toggle = page.locator("button.acpmux-chat-inspector-toggle");
+        await toggle.waitFor({ timeout: 10_000 });
+        const selector = "aside.acpmux-chat-inspector";
+        if ((await page.locator(selector).count()) === 0) await toggle.click({ force: true });
+        await page.locator(`${selector}[data-presence=shown]`).waitFor({ timeout: 10_000 });
+        await settle(page);
+        const seen = await scrollAndWatch(page, selector, 400);
+        console.log(
+          `${name} Session Info while history pages in: ${JSON.stringify({ seen, methods: paged!.methods.filter((method) => method === "_acpmux/events").length })}`,
+        );
+        expect({ changes: seen.changes, boxes: seen.boxes.length, replaced: seen.replaced }).toEqual({
+          changes: [],
+          boxes: 1,
+          replaced: false,
+        });
       } finally {
         await page.close();
       }
