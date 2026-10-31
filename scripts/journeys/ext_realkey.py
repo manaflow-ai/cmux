@@ -281,6 +281,10 @@ def press(j, key, modifiers=()):
         bad, data, raw = _session(j).call("hotkey", dict(args, keys=mods + [key]))
     else:
         bad, data, raw = _session(j).call("press_key", dict(args, key=key))
+    if front_pid() != j.app.pid:
+        # Another app took the front during the key (a host prompt): the key may have gone there. The host's limit.
+        raise D.NotRun(f"real keys: the app lost the front during {mods + [key]} (front pid {front_pid()}): the key may "
+                       "have gone to another app (known gap of the host)")
     if bad or data.get("effect") in ("refused", "failed", "error"):
         text = json.dumps(raw)[:400]
         # A host or grant problem (not the app's answer to the key): never a red of the build.

@@ -380,6 +380,11 @@ class RealKeySteps(unittest.TestCase):
         with self.assertRaises(self.NotRun):
             self.ext.step_smoke_type(j, {"text": "x"})
         self.assertEqual(self.sent, [])
+        fronts = iter([7, 406, 406])  # in front at the check, then a prompt takes the front during the key
+        self.rk.front_pid = lambda: next(fronts)
+        with self.assertRaises(self.NotRun) as no:
+            self.ext.step_smoke_key(j, {"key": "d", "modifiers": ["cmd"]})
+        self.assertIn("lost the front", str(no.exception))
 
     def test_typing_uses_shift_for_shifted_characters_and_return(self):
         self.ext.step_smoke_type(self.journey("real"), {"text": "a$(B", "enter": True})

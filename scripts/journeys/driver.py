@@ -1497,7 +1497,7 @@ class Journey:
                 handler = getattr(self, "step_" + step["do"], None)
                 if handler is None:
                     raise StepError(f"unknown step {step['do']!r}")
-                if step["do"] in ("key", "type", "rpc", "new_terminal"):
+                if step["do"] in ("key", "type", "rpc", "new_terminal", "smoke_key", "smoke_type"):
                     # The terminals on screen before an input: `focused_terminal` waits for one not among them.
                     self.known_views |= {p.get("terminal_id") for p in self.app.panes() if p.get("terminal_id")}
                 t = now()
