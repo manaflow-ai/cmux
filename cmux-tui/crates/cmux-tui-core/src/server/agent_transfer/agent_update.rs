@@ -136,6 +136,7 @@ enum Failure {
     AcpmuxUnavailable,
     Timeout,
     Refused,
+    BadList,
 }
 
 impl Failure {
@@ -149,6 +150,7 @@ impl Failure {
             Self::AcpmuxUnavailable => "agent_update.acpmux_unavailable",
             Self::Timeout => "agent_update.timeout",
             Self::Refused => "agent_update.refused",
+            Self::BadList => "agent_update.bad_list",
         }
     }
 
@@ -164,6 +166,7 @@ impl Failure {
             }
             Self::Timeout => "acpmux did not answer in time",
             Self::Refused => "acpmux refused the request",
+            Self::BadList => "acpmux's session list could not be read whole",
         }
     }
 
@@ -173,6 +176,7 @@ impl Failure {
             LinkError::Timeout => Self::Timeout,
             LinkError::Busy => Self::Busy,
             LinkError::Rpc(..) | LinkError::MethodNotFound(_) => Self::Refused,
+            LinkError::BadList(_) => Self::BadList,
         }
     }
 }
@@ -296,7 +300,8 @@ fn plan(socket: &Path) -> Result<Value, Failure> {
     };
     let health =
         link.call("_acpmux/harness/health", json!({}), HEALTH_TIMEOUT).map_err(Failure::of)?;
-    let sessions = link.call("_acpmux/sessions", json!({}), CALL_TIMEOUT).map_err(Failure::of)?;
+    let sessions =
+        link.call_whole_list("_acpmux/sessions", json!({}), CALL_TIMEOUT).map_err(Failure::of)?;
     // Display names are a nicety: a catalog that does not answer leaves them out.
     let catalog = link.call("_acpmux/harnesses", json!({}), CALL_TIMEOUT).unwrap_or_default();
     drop(link);

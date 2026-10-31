@@ -9337,7 +9337,11 @@ an agent or an MCP server, and every unknown param is
 `agent_session.unavailable` (no acpmux), `agent_session.not_attached`,
 `agent_session.limit` (8 attachments per connection, 64 per daemon, 8 calls in
 flight per attachment), `agent_session.timeout` (5 s), `agent_session.refused`
-(acpmux refused), `agent_session.unknown_permission`,
+(acpmux refused), `agent_session.bad_list` (acpmux's session list could not be
+read whole: a bad or repeated cursor, a page with no `sessions`, or a page after
+the first that failed; an attach whose watch list does so is refused, and
+attaches again),
+`agent_session.unknown_permission`,
 `agent_session.read_only` (a mutation sent to an observation attachment),
 `agent_session.mode_conflict` (an `agent-session-attach` or
 `agent-session-observe` for a surface this connection already has attached in
@@ -9928,7 +9932,8 @@ knows the method is used as it is, so an apply never moves acpmux to an
 older build. The update call waits 15 minutes per named id plus a margin,
 at most two hours. One apply runs at a time per daemon
 (`agent_update.busy`); `agent_update.timeout` and `agent_update.refused`
-report an acpmux that did not answer or refused.
+report an acpmux that did not answer or refused, and `agent_update.bad_list`
+one whose session list could not be read whole.
 
 ## Agent chat transfer
 
