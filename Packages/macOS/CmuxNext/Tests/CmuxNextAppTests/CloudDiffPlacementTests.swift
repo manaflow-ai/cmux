@@ -35,6 +35,7 @@ struct CloudDiffPlacementTests {
         window.showWorkspace(requested: window.state.workspaceID)
         let pane = try #require(window.focusedPane)
         let pages = services.viewers.diffPages
+        services.pages.register(pages)
         let link = services.agentGit.link(for: machine.daemon)
         var finish: CheckedContinuation<Void, Never>?
         var creates = 0
@@ -227,9 +228,12 @@ struct CloudDiffPlacementTests {
             let reply = release
             release = nil
             reply?.resume()
-            for task in work { #expect(await task.value == nil) }
+            for task in work {
+                let failure = await task.value
+                #expect(failure == nil, "\(String(describing: failure)); chat \(chat.id) on \(chat.surface), now \(String(describing: store.tab(surface: chat.surface)?.id))")
+            }
             #expect(creates == 1)
-            let chatPane = try #require(services.locateTab(model: chat).flatMap { services.paneController(for: $0.1) })
+            let chatPane = try #require(services.locateTab(chat.id, onMachine: services.daemon.machineID).flatMap { services.paneController(for: $0.1) })
             let diffs = store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).filter { $0.page == "diff" }
             #expect(diffs.count == 1)
             let diff = try #require(diffs.first)
