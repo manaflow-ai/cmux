@@ -85,13 +85,17 @@ def opted_in(pr: dict[str, Any]) -> bool:
     return login in AGENT_AUTHORS or OPT_IN_LABEL in labels
 
 
+def eligible(pr: dict[str, Any]) -> bool:
+    """Whether the workflow is permitted to touch this PR after mergeability resolves."""
+    return (not pr.get("isDraft") and not pr.get("isCrossRepository")
+            and pr.get("headRefName") not in ("main", "feat-cmux-next") and opted_in(pr))
+
+
 def select(prs: Iterable[dict[str, Any]], *, limit: int = DEFAULT_LIMIT) -> list[dict[str, Any]]:
     """Same-repository, ready, conflicting, opted-in PRs, at most `limit`."""
     chosen = []
     for pr in prs:
-        if pr.get("isDraft") or pr.get("isCrossRepository") or pr.get("mergeable") != "CONFLICTING":
-            continue
-        if pr.get("headRefName") in ("main", "feat-cmux-next") or not opted_in(pr):
+        if not eligible(pr) or pr.get("mergeable") != "CONFLICTING":
             continue
         chosen.append({"number": pr["number"], "branch": pr["headRefName"], "sha": pr["headRefOid"]})
         if len(chosen) >= limit:
@@ -129,7 +133,10 @@ def main(argv: list[str]) -> int:
 
     prs = _list(args.repo, args.base)
     for _ in range(MERGEABLE_POLLS - 1):
-        if not any(pr.get("mergeable") == "UNKNOWN" and not pr.get("isDraft") for pr in prs):
+        # GitHub answers UNKNOWN on unrelated fork, unowned and draft PRs
+        # too. Only a PR this workflow could actually merge warrants a
+        # 20-second wait and another (potentially expensive) gh pr list.
+        if not any(eligible(pr) and pr.get("mergeable") == "UNKNOWN" for pr in prs):
             break
         time.sleep(MERGEABLE_POLL_SECONDS)
         prs = _list(args.repo, args.base)

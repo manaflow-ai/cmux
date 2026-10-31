@@ -1,4 +1,4 @@
-import { PullRequestDock } from "../summary/PullRequestDock";
+import { PullRequestDock, useHasPullRequestDock } from "../summary/PullRequestDock";
 // Turn rows for the pane's transcript: the "Worked for" disclosure, tool rows and the
 // footer under an answer. Markup and metrics from reference prototype (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
@@ -11,7 +11,7 @@ import { MessageGroupRow } from "./MessageGroupRow";
 import { DispatchCard } from "./DispatchCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
-import { AcpmuxSendLine } from "./SentMessageLine";
+import { AcpmuxSendLine, sendKey } from "./SentMessageLine";
 import { mcpNames, McpNamesContext } from "./mcpCalls";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
@@ -150,7 +150,13 @@ function groupNode(
     case "dispatch":
       return <DispatchCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
     case "send":
-      return <AcpmuxSendLine key={group.item.tool!.id || index} tool={group.item.tool!} send={group.send} />;
+      return (
+        <AcpmuxSendLine
+          key={sendKey(group.item.tool!.id, group.send.index) || index}
+          tool={group.item.tool!}
+          send={group.send}
+        />
+      );
     case "subsession":
       return <SubsessionCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
     case "subsessionGroup":
@@ -306,6 +312,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 /// count here first.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
+  const prDock = useHasPullRequestDock();
   const {
     fork,
     forkSeq,
@@ -402,6 +409,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                 ? "cv-turn-actions cv-turn-actions--empty"
                 : "cv-turn-actions"
         }
+        data-pr-dock={prDock ? "" : undefined}
       >
         <MessageFooterRow className="cv-turn-footer-row">
           {label && (
