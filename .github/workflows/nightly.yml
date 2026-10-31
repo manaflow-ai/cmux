@@ -3331,7 +3331,7 @@ jobs:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
       TRACK: ${{ needs.decide.outputs.track }}
       CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
-      PREPARE_FALLBACK: ${{ startsWith(github.job, 'prepare-nightly-variant-fallback') && 'true' || 'false' }}
+      PREPARE_FALLBACK: ${{ github.job == 'prepare-nightly-variant' && 'true' || 'false' }}
     steps:
       - name: Reuse a successful primary preparation
         id: reuse
@@ -3754,7 +3754,12 @@ jobs:
           retention-days: 3
 
 
-  prepare-nightly-variant-fallback:
+  # The fallback preparation, and the preparation result every later job reads
+  # (needs.prepare-nightly-variant): success after a primary success (a no-op leg) or after
+  # its own preparation. Until 2026-10-31 a separate prepare-nightly-variant job only echoed
+  # that result, one more queued hop on the signing path (4.8 min queued for a 0 s job in
+  # run 41187578702 attempt 2).
+  prepare-nightly-variant:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon, resolve-nightly-cmux-tui-client, prepare-nightly-variant-primary]
     # Never skipped: a skipped fallback skips signing and publishing (runs 40154003204,
     # 40155340212). After a primary success it finds that result and does nothing.
@@ -3920,14 +3925,6 @@ jobs:
 
       - *upload-prepared-app-for-signin
 
-
-  prepare-nightly-variant:
-    needs: [prepare-nightly-variant-primary, prepare-nightly-variant-fallback]
-    if: always() && (needs.prepare-nightly-variant-primary.result == 'success' || needs.prepare-nightly-variant-fallback.result == 'success')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
-    steps:
-      - name: Accept primary or fallback preparation
-        run: echo "nightly preparation completed on the primary or fallback route"
 
   # The Blacksmith macOS label the signing jobs take, read right before they queue
   # (scripts/ci/nightly_sign_runner.py): never empty, and its step never fails the job.
@@ -6970,9 +6967,10 @@ jobs:
       dmg_sha256: ${{ steps.handoff.outputs.dmg_sha256 }}
       minimum_system_version: ${{ steps.handoff.outputs.minimum_system_version }}
       stapled_app_fallback_id: ${{ steps.notarize.outputs.stapled_app_fallback == 'true' && steps.notarize.outputs.stapled_app_pending_id || '' }}
-    # Owned Macs before Blacksmith (Leo, 2026-10-28): a drained mini the picker chose on this attempt (sign_owned),
-    # held whole for this job (the claim step below), else the moving Blacksmith label.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER }}
+    # Owned Macs only (Lawrence, 2026-10-30): a drained mini the picker chose on this attempt (sign_owned), held
+    # whole for this job (the claim step below), else the owned nightly slot, the owned side lane, then the owned
+    # std pool, so an unset or retired lane variable never leaves the job on one dead queue.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
     # Apple's wait is 20 min, as for cmux NEXT (#20518). A submission still in
     # Apple's queue is kept (artifacts cmux-nightly-identity-pending-meta and
     # -bundle) and a later run continues that exact submission
@@ -7248,8 +7246,9 @@ jobs:
     permissions:
       contents: read
     # No environment and no secrets, like verify-signed-nightly: a free owned Mac first, then the
-    # owned nightly slot, then the owned side lane. Nightlies never use Blacksmith (Lawrence, 2026-10-30).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER }}
+    # owned nightly slot, the owned side lane, then the owned std pool. Nightlies never use Blacksmith
+    # (Lawrence, 2026-10-30).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
     timeout-minutes: 30
     outputs:
       tested_sha256: ${{ steps.verify.outputs.tested_sha256 }}
@@ -7625,10 +7624,11 @@ jobs:
     permissions:
       contents: read
       actions: read
-    # Nightlies never use Blacksmith (Lawrence, 2026-10-30): an owned Mac, the nightly slot first. Deltas are
-    # optional: a failed or slow delta never fails the run or holds the feed, which already serves the full DMG
-    # (republish-nightly-deltas then republishes nothing). NIGHTLY_DELTAS=off skips them.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER }}
+    # Nightlies never use Blacksmith (Lawrence, 2026-10-30): an owned Mac, the nightly slot first, then the side
+    # lane, then the owned std pool. Deltas are optional: a failed or slow delta never fails the run or holds the
+    # feed, which already serves the full DMG (republish-nightly-deltas then republishes nothing).
+    # NIGHTLY_DELTAS=off skips them.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
     continue-on-error: true
     strategy:
       fail-fast: false

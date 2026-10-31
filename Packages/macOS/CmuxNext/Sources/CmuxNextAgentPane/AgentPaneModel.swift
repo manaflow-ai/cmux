@@ -403,7 +403,9 @@ public final class AgentPaneModel {
             return await notePicked(pick, startFolders.use(cwd, confirm: confirm, transport: transport))
         case .browseProject where remoteChat: return Self.unsupported("project.browse")
         case .listProjects(let query) where remoteChat:
-            return AgentPaneReply.success(["projects": await onListRemoteProjects?(query) ?? []])
+            // `machine`: the folders are the chat's machine's, so its folder menu lists them and a
+            // pick there goes through `workspace.useFolder` (cmux#29213).
+            return AgentPaneReply.success(["projects": await onListRemoteProjects?(query) ?? [], "machine": true])
         case .browseProject:
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
@@ -522,6 +524,7 @@ public final class AgentPaneModel {
         case .composerSetting(let path, let show): return await setComposer(path, show, userGesture: userGesture)
         case .displaySetting(let path, let value): return await setDisplay(path, value)
         case .featureTips(let tips): return featureTipState(tips)
+        case .remoteControl(let on): return await AgentPaneRemoteControl.reply(on: on, in: self, userGesture: userGesture)
         case .toolCard(let card, let action, let value): return AgentPaneToolCard.respond(card: card, action: action, value: value, in: self)
         case .computerUsePreview(let action): return AgentPaneComputerUsePreview.respond(action, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)
