@@ -64,6 +64,10 @@ pub struct Session {
     /// Claim retry recovery once per session object; imports may replace a chat with the
     /// same id and a different journal, which must get its own recovery pass.
     pub(super) auto_resume_restored: AtomicBool,
+    /// What a daemon start restored here waits for the person: the chat's folder is
+    /// privacy-protected, so its queue, cut turn, inbox and retries start no agent until the
+    /// person opens, types into or prompts the chat (`protected_hold.rs`).
+    pub(super) protected_hold: AtomicBool,
     /// A retry task may outlive an imported replacement with the same durable id. Its mark
     /// belongs to this instance, so its wake and cleanup cannot consume the replacement's.
     pub(super) auto_resume: auto_resume::Pending,

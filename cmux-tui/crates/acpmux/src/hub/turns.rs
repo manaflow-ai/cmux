@@ -156,6 +156,11 @@ impl Hub {
         self.session_log(session).await;
         self.wait_adopted(session).await;
         self.pair_logs(opts.provenance.as_ref()).await;
+        // A person's own prompt is the person asking for the chat: what a daemon start held in
+        // its protected folder goes on, ahead of this prompt (`protected_hold.rs`).
+        if opts.agent.is_none() && opts.provenance.is_none() && opts.after_turn.is_none() {
+            self.release_protected_hold(session);
+        }
         let Some(prompt_id) = opts.prompt_id.clone() else {
             // `session/prompt` accepts prompts without a client id.  They still need a
             // durable message id when they came from another session, so wrap the
