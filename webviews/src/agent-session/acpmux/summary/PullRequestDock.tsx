@@ -1,18 +1,21 @@
-// PR shortcuts belong to the message's existing line. Overflow is a portal: opening it never
+// PR shortcuts belong to the message's existing line. Each chip is its number, plus its title when a
+// readable part of it fits (pullRequestChipPlan.ts), never a stub of a few letters. Overflow is a portal: opening it never
 // changes the transcript's measured height. Parsing keeps the producer's PR revision cache.
 import { createContext, useContext, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
-import { useHeaderState } from "../header/headerState";
+import { useHeaderState, type HeaderState } from "../header/headerState";
 import { transcriptPullRequestKey, transcriptPullRequests, type SummaryPullRequest } from "./transcriptPullRequests";
 import { headerStatus, visibleChanges } from "../inspector/ChangesSection";
 import { GitHubMark } from "../conversation/icons";
 import { LinkHoverCard } from "../chips/LinkHoverCard";
 import { useSiteInfo } from "../chips/linkStore";
+import { githubRefTitle } from "../chips/LinkChips";
 import { useHoverCard } from "../chips/useHoverCard";
 import { Popover } from "../../../ui/Popover";
 import { usePopoverTrigger } from "../../../ui/popoverTrigger";
 import { PullRequestHostVisibility } from "./pullRequestPlacement";
+import { planPullRequestChips, type PullRequestChipPlan } from "./pullRequestChipPlan";
 
 /// Existing comparison treatments are opt-in gallery document attributes only.
 export function legacyPullRequestDockMode() {
@@ -48,6 +51,26 @@ export function PullRequestDock() {
   return <PullRequestPills prs={prs} />;
 }
 
+/// The least title a chip draws, in characters: a shorter cut reads as a stub ("cm…"), so the chip
+/// shows its number alone instead and its hover card gives the whole title.
+export const MIN_TITLE_CHARS = 12;
+
+/// The gallery's comparison treatments (document attribute `pr-dock`): `numbers` draws numbers
+/// only, `one` at most one chip, `inline` keeps the row on the reply's last line (InlineTail.tsx).
+export function pullRequestDockVariant(): string | undefined {
+  return typeof document === "undefined" ? undefined : document.documentElement.dataset.prDock;
+}
+
+type LivePullRequest = HeaderState["pullRequest"];
+
+/// A pull request's title as cmux knows it: the header's live one, the title the chat gave it, or
+/// the one GitHub's page title carries.
+function usePullRequestTitle(pr: SummaryPullRequest, live: LivePullRequest) {
+  const site = useSiteInfo(pr.url);
+  const own = live?.url === pr.url ? live.title || pr.title : pr.title;
+  return (own || githubRefTitle(site?.title) || "").trim();
+}
+
 function PullRequestPills({ prs }: { prs: readonly SummaryPullRequest[] }) {
   const t = useT();
   const reportHost = useContext(PullRequestHostVisibility);
@@ -57,69 +80,72 @@ function PullRequestPills({ prs }: { prs: readonly SummaryPullRequest[] }) {
   }, [reportHost]);
   const { pullRequest: live } = useHeaderState();
   const [open, setOpen] = useState(false);
-  const [count, setCount] = useState(Math.min(2, prs.length));
+  const [plan, setPlan] = useState<PullRequestChipPlan>({ count: Math.min(2, prs.length), titled: true });
   const row = useRef<HTMLSpanElement>(null);
   const measure = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const press = usePopoverTrigger(open, setOpen);
-  const mode = typeof document === "undefined" ? undefined : document.documentElement.dataset.prDock;
+  const mode = pullRequestDockVariant();
   const limit = mode === "one" ? 1 : 2;
+  const withTitles = mode !== "numbers";
   useLayoutEffect(() => {
     const node = row.current;
     const sizing = measure.current;
     if (!node || !sizing) return;
     const fit = () => {
-      const widths = [...sizing.children].map((child) => child.getBoundingClientRect().width);
-      const more = widths[2] ?? 0;
-      const gap = parseFloat(getComputedStyle(node).columnGap) || 0;
-      const two = (widths[0] ?? 0) + (widths[1] ?? 0) + gap + (prs.length > 2 ? more + gap : 0);
-      setCount(prs.length > 1 && limit > 1 && two <= node.clientWidth ? 2 : 1);
+      const width = (selector: string) =>
+        [...sizing.querySelectorAll(selector)].map((child) => child.getBoundingClientRect().width);
+      const next = planPullRequestChips({
+        room: node.clientWidth,
+        gap: parseFloat(getComputedStyle(node).columnGap) || 0,
+        numbers: width("[data-measure=number]"),
+        titles: width("[data-measure=title]"),
+        more: width("[data-measure=more]")[0] ?? 0,
+        minTitle: width("[data-measure=min]")[0] ?? 0,
+        limit,
+        total: prs.length,
+        withTitles,
+      });
+      setPlan((previous) => (previous.count === next.count && previous.titled === next.titled ? previous : next));
     };
     fit();
     const observer = new ResizeObserver(fit);
     observer.observe(node);
     observer.observe(sizing);
     return () => observer.disconnect();
-  }, [prs, limit]);
-  const visible = Math.min(count, prs.length);
-  const link = (pr: SummaryPullRequest) => (
-    <PullRequestBar
-      key={pr.url}
-      pr={pr}
-      state={live?.url === pr.url ? live.state : pr.state}
-      title={live?.url === pr.url ? live.title || pr.title || "" : pr.title || ""}
-    >
-      <span className="acpmux-pr-dock__number">#{pr.number}</span>
-      <span className="acpmux-pr-dock__repo">{pr.repo.split("/").pop()}</span>
-    </PullRequestBar>
-  );
+  }, [prs, limit, withTitles]);
+  const visible = Math.min(plan.count, prs.length);
+  const rest = prs.length - visible;
   return (
     <span ref={row} className="acpmux-pr-dock" aria-label={t("prDock.label")}>
       <span ref={measure} className="acpmux-pr-dock__measure" aria-hidden="true">
-        {prs.slice(0, 2).map((pr) => (
-          <span key={pr.url}>
-            #{pr.number} {pr.repo.split("/").pop()}
-          </span>
+        {prs.slice(0, limit).map((pr) => (
+          <MeasureChip key={pr.url} pr={pr} live={live} />
         ))}
-        {prs.length === 1 && <span />}
-        <span>+{prs.length - 1}</span>
+        <span data-measure="more" className="acpmux-pr-dock__more">
+          +{prs.length - 1}
+        </span>
+        <span data-measure="min" className="acpmux-pr-dock__min" />
       </span>
-      {prs.slice(0, visible).map(link)}
-      {prs.length > visible && (
+      {prs.slice(0, visible).map((pr) => (
+        <PullRequestChip key={pr.url} pr={pr} live={live} titled={plan.titled} />
+      ))}
+      {rest > 0 && (
         <button
           ref={trigger}
           type="button"
           className="acpmux-pr-dock__more"
-          aria-label={t("prDock.more", { count: prs.length - visible })}
+          aria-label={t("prDock.more", { count: rest })}
           aria-haspopup="dialog"
           aria-expanded={open}
+          data-open={open || undefined}
           {...press}
         >
-          +{prs.length - visible}
+          +{rest}
         </button>
       )}
       <Popover
-        open={open && prs.length > visible}
+        open={open && rest > 0}
         onOpenChange={setOpen}
         anchor={trigger.current}
         finalFocus={trigger}
@@ -127,9 +153,57 @@ function PullRequestPills({ prs }: { prs: readonly SummaryPullRequest[] }) {
         side="top"
         className="acpmux-pr-dock__popover"
       >
-        {prs.slice(visible).map(link)}
+        <span className="acpmux-pr-dock__list">
+          {prs.slice(visible).map((pr) => (
+            <PullRequestChip key={pr.url} pr={pr} live={live} titled listed />
+          ))}
+        </span>
       </Popover>
     </span>
+  );
+}
+
+/// The hidden sizes the row plans from: the chip's number alone, then its whole title.
+function MeasureChip({ pr, live }: { pr: SummaryPullRequest; live: LivePullRequest }) {
+  const title = usePullRequestTitle(pr, live);
+  return (
+    <>
+      <span data-measure="number" className="acpmux-pr-dock__bar">
+        <span className="acpmux-pr-dock__number">#{pr.number}</span>
+      </span>
+      <span data-measure="title" className="acpmux-pr-dock__title">
+        {title}
+      </span>
+    </>
+  );
+}
+
+/// One chip: its number, and its title when the row has room for a readable one. Its hover card
+/// gives the whole title, repository and state.
+function PullRequestChip({
+  pr,
+  live,
+  titled,
+  listed = false,
+}: {
+  pr: SummaryPullRequest;
+  live: LivePullRequest;
+  titled: boolean;
+  /// A row of the overflow list: with no title, it names the repository instead.
+  listed?: boolean;
+}) {
+  const title = usePullRequestTitle(pr, live);
+  const state = live?.url === pr.url && live.state ? live.state : pr.state;
+  return (
+    <PullRequestBar pr={pr} state={state} title={title}>
+      <span className="acpmux-pr-dock__number">#{pr.number}</span>
+      {titled && title && (
+        <span className="acpmux-pr-dock__title" data-short={title.length <= MIN_TITLE_CHARS || undefined}>
+          {title}
+        </span>
+      )}
+      {listed && !title && <span className="acpmux-pr-dock__repo">{pr.repo}</span>}
+    </PullRequestBar>
   );
 }
 

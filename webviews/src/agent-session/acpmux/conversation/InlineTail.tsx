@@ -1,9 +1,24 @@
-// Keep a trailing control with the final word, so it cannot become a row by itself. Earlier
-// words keep their normal wrapping; unlike a side column this never narrows earlier paragraphs.
+// A reply's trailing control (its pull request row, PullRequestDock.tsx). Under a paragraph it is a
+// line of its own, right-aligned under the last words, never glued onto the prose; earlier words
+// keep their normal wrapping and the paragraph keeps its full width. The gallery's `inline`
+// comparison (document attribute `pr-dock="inline"`) keeps the old treatment: the control shares
+// the line with the final word.
 import { Children, type ReactNode } from "react";
+
+function inlineTreatment(): boolean {
+  return typeof document !== "undefined" && document.documentElement.dataset.prDock === "inline";
+}
 
 export function InlineTail({ children, trailing }: { children: ReactNode; trailing?: ReactNode }) {
   if (!trailing) return children;
+  if (!inlineTreatment())
+    // Two fixed slots, so the row keeps its identity (and an open overflow list) while words stream in.
+    return (
+      <>
+        {children}
+        <span className="cv-tail-line">{trailing}</span>
+      </>
+    );
   const nodes = Children.toArray(children);
   let last = nodes.pop();
   if (typeof last === "string") {

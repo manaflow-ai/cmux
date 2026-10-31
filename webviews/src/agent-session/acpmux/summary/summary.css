@@ -133,7 +133,7 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
   display: inline-flex;
   flex: 1 1 220px;
   min-width: 80px;
-  max-width: 320px;
+  max-width: 360px;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
@@ -159,7 +159,8 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
   white-space: nowrap;
 }
 .acpmux-pr-dock__bar:hover,
-.acpmux-pr-dock__more:hover {
+.acpmux-pr-dock__more:hover,
+.acpmux-pr-dock__more[data-open] {
   color: var(--agent-text);
   background: none;
 }
@@ -172,6 +173,19 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* A chip's title: it truncates, but never below a readable 12 characters (pullRequestChipPlan.ts
+   draws the number alone when that much does not fit). A short title keeps its own width. */
+.acpmux-pr-dock__title {
+  flex: 0 1 auto;
+  min-width: 12ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-pr-dock__title[data-short] {
+  flex-shrink: 0;
+  min-width: auto;
 }
 .acpmux-pr-dock__more {
   flex: none;
@@ -200,21 +214,58 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
   width: max-content;
 }
 .acpmux-pr-dock__measure > span {
-  padding-inline: 4px;
+  flex: none;
+}
+/* The planner's sizes: a title with the 4px gap before it, and the least readable title. */
+.acpmux-pr-dock__measure > [data-measure="title"] {
+  min-width: 0;
+}
+.acpmux-pr-dock__measure > [data-measure="title"]:not(:empty) {
+  padding-inline-start: 4px;
+}
+.acpmux-pr-dock__measure > [data-measure="min"] {
+  width: calc(12ch + 4px);
 }
 .acpmux-pr-dock__popover {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 8px;
-  max-width: min(320px, calc(100vw - 24px));
+  padding: 8px 4px;
+  max-width: min(360px, calc(100vw - 24px));
   transition: none;
   animation: none;
+}
+/* The overflow lists every chip the row left out, each with its title; a long list scrolls
+   inside the popover, which never grows past the pane. */
+.acpmux-pr-dock__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  max-height: min(320px, calc(100vh - 96px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-inline: 4px;
 }
 .acpmux-pr-dock__popover .acpmux-pr-dock__bar {
   height: 24px;
   flex: none;
   font-size: var(--text-detail);
+}
+.acpmux-pr-dock__popover .acpmux-pr-dock__title,
+.acpmux-pr-dock__popover .acpmux-pr-dock__repo {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+/* The row sits on its own line under the reply's last words, right-aligned (InlineTail.tsx). */
+.cv-tail-line {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+  margin-top: 4px;
+}
+.cv-tail-line > .acpmux-pr-dock {
+  flex: 0 1 360px;
+  margin-inline-start: 0;
 }
 .cv-inline-tail{display:inline-flex;align-items:baseline;gap:8px;max-width:100%;vertical-align:baseline}
 .cv-inline-tail>span:first-child{min-width:0;overflow-wrap:anywhere}
