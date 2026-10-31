@@ -1,5 +1,35 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-30: a group's rail keeps its gap and spans its members; a lone warning triangle sits on the status column.
+  Lawrence (NIGHTLY "Sleep alarm" group): "alignment here is bad": the rail sat flush against "New Workspace"'s fill
+  and began part way down it. `SidebarStyle.groupEdgePadding` was `horizontalInset - groupBarWidth`, which ate the
+  rail's `Metrics.space1` gap; it is now `horizontalInset - groupRailReach` (2 pt compact, 4 pt comfortable), so the
+  header bar and the rail share one left edge and the members keep their x. The rail's 6 pt cut under the header is
+  capped at the gap to the row under it (about 2.5 pt), so the rail starts at the first member's top. Lawrence msg
+  18582: "triangle not aligned, not sure if triangle is even centered": a usage-warning triangle on a row with no
+  spinner ended at the row's inset in an `indicatorSize` box; it is now that row's column mark, in the spinner's
+  `statusGlyphSize` box and center (beside a spinner it keeps its place left of it, in the same box). Headers, member
+  x, the name's column, widths and every other row are unchanged. Regression: `SidebarGroupRowAlignmentTests`;
+  shots: `AASidebarRowAlignmentGalleryTests`.
+
+- 2026-10-31: the Tidy Up card no longer pops up on its own. Lawrence (msgs 18515, 18517, a shot of "1 workspaces
+  look idle"): "should have option to turn on auto-archive, think of how to make ui as minimal as possible" and "this
+  thing annoying pls fix faster". `workspaces.autoArchive.style` now defaults to `manual` (nothing in the background;
+  Archive Idle Workspaces in the sidebar menu and palette still archives). With `suggest` the card is one line,
+  "Archive 2 idle workspaces?" (singular for one), the names, **Archive** and **Always Archive** (writes `quiet`);
+  no "Tidy Up" heading, no paragraph; the x is Not Now. Settings > General > Auto-Archive is the one setting.
+  Regression: `AutoArchiveCoordinatorTests.theDefaultStyleNeverPopsACardOrArchivesOnItsOwn`,
+  `theCardIsOneQuestionWithArchiveAndAlwaysArchive`.
+- 2026-10-31: record the terminal cwd-title change in b648fd2d603 (#28059).
+  The reported defect was: "Two terminal tabs in one workspace are both titled
+  \"Terminal\" / \"~\"." Non-home cwd-derived titles remain visible in sidebar
+  tab rows, so terminals in different folders are distinguishable; explicit user
+  names retain precedence. `SidebarTabLineTests`, `SidebarTabLineMappingTests`,
+  and `TerminalTitleTabItemTests` cover the mapping. The implementation at
+  b7b5b367227e488a4afbedc0c083695bbd831a16 received independent code review:
+  https://github.com/manaflow-ai/cmux/pull/28059#issuecomment-6536962266.
+  This record adds no UI change and does not replace the required capture verdict.
+
 - 2026-10-30: `sidebar.textSize` (Settings > Appearance > Sidebar Text Size; palette, `cmux settings set
   sidebar.textSize larger`, MCP `settings_set`). Lawrence msg 17752 (a ChatGPT sidebar screenshot): "we also need
   option for sidebar text to be very significantly bigger. this is how big chatgpt is by default, let's match them".
@@ -308,6 +338,7 @@ the gap, no row left out of place after drop or cancel).
 | [a827fab..463e538](https://github.com/manaflow-ai/cmux/compare/a827fab291cd501ac3a3f77f985e79f88b5f7054...463e538ef941c188d106841ceeb9bf0004146892) | a916: buttons show the default arrow cursor, not the pointing hand. No sidebar file changed, but sidebar icon buttons inherit `ClickableButton`, so they show the arrow too. The resize edge keeps its resize cursor. |
 | [9540c64..9b5232f](https://github.com/manaflow-ai/cmux/compare/9540c64e8c76b6da07a7a0c278aa1358ee81679a~1...9b5232f329b83177b545ae4fab2f82114137ed43) | a897 (9540c64e8c76 red, 41fc3bc37ffb fix, 9b5232f329b8 light-ink fix): an open empty group's row shows a + on the trailing column at rest, and its header shows the hover + too (takes back b2ced020cee's empty-group guard). Both run `workspaceGroup.newWorkspace`, the editor's path. Lawrence msg 17912 ("empty workspace needs plus button"). Shots: `~/fun/cmux-shots/empty-group-plus/`. |
 | [0e15c10..6df0dca](https://github.com/manaflow-ai/cmux/compare/0e15c1009ef004c761bd101a9c8b11e07f8f2b17~1...6df0dca5dcdc3ab9ccd225ec4a6d255eb71eeb84) | a905 (0e15c1009ef0 red, 8620a0bddbce fix, daemon `cmux-tui-core` `state/personal.rs`): a group made with no index (`workspace_group.create` from the CLI, MCP, iOS and the Chief's per-topic groups) forms first, right below Home, under `workspaces.newPlacement` top (the default). An explicit index, bottom and afterCurrent keep the old place; existing groups keep theirs. Root cause of new subagent workspaces listing near the end of the sidebar. Order behavior, no row look change; outside the sidebar package, so no trailer asked. |
+| [09f7631..398144c](https://github.com/manaflow-ai/cmux/compare/09f763196f71c4b4aad5b901d59ea357ea18f3b5~1...398144cc73d5245faf33caed30b3d8cb26f47601) | a926/a927 (09f763196f71 red, c970cd8820bf fix, 398144cc73d5 visibility): sidebar hangs. `SidebarMapping.abbreviate` (CmuxNextBridge) reads the home folder once, not `NSHomeDirectory()` per row (2.7 s NIGHTLY hang in a row flush; `SidebarAbbreviateCostTests`). The Files sidebar (CmuxNextFiles, not the workspace sidebar) reads volumes off the main thread (8.1 s hang); its locations fill in after the first read. The 3.7 s chat-history setter hang was already fixed by #28055 (9962e57684c3). No visual change; outside the sidebar package. |
 | [5846e103ece..d46123a6d79](https://github.com/manaflow-ai/cmux/compare/5846e103ece...d46123a6d79) | a576 churn fix (f533c272408 red, d295dc19007 fix): a reorder rewrites no row; `SidebarRowFeed.fill` writes only new or re-mapped rows (was 31% of main at 400 workspaces). No look change. |
 | [6205b02791b..710e98db4c2](https://github.com/manaflow-ai/cmux/compare/6205b02791b...710e98db4c2) | a576 bench: `scripts/cmux-next/sidebar-churn-typing.py` (`split-spring.sh --suite=sidebar-churn`, cmux8s only, needs a logged-in console); `debug.key` takes the client's send time. At 400 workspaces after the fix: churn p95 70.7 ms, worst hang 258 ms, idle p95 27.8 ms (target 8 ms). Owner continues. |
 | [9dd6cf65a85..04df9ec4a88](https://github.com/manaflow-ai/cmux/compare/9dd6cf65a85~1...04df9ec4a88) | sb-churn-c (9dd6cf65a85 red, 898523f2261 fix): a control snapshot publish maps only the workspaces whose tracking fired and the panes whose app facts can be set (mounted, page tabs); real use pays it on every model change and after every CLI request's work-queue frame. cmux8s, 150 workspaces (suite default), steps fb4201b8e05 before / 94acbd5cc13 after: `topology` 215 to 61 samples idle (23.1% to 6.0% of main), 369 to 147 in churn; churn key-to-frame p95 92.8 to 81.5 ms. Left in `publishNow`: `TabSearchFactsBuilder.facts` (closed tabs, about 10%) and `ControlTopology.tabCount`. 04df9ec4a88: SidebarLagTests' growth check takes the lower p95 of two interleaved passes and scales its 1 ms floor (a576's 4.27 vs 3.56 ms miss was runner noise: 3 runs at cc7a964ef61, step bb8516536f1, at most 1.63 ms at 500). No look change. |
@@ -705,3 +736,7 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Runaway session warning badge (2026-10-30)
 
 - PR [#27899](https://github.com/manaflow-ai/cmux/pull/27899). Leo, verbatim: "that visibility into [one agent host's] guys was (and is?) pretty bad i feel like we can make more improvements to acpmux/cmux-next". A workspace row whose agent chats acpmux finds breaking a usage rule (no autocompact cap, context over 400k, more than 40 subagents an hour; acpmux `usageWarnings`) draws a small `exclamationmark.triangle.fill` in the theme's attention color in the trailing cluster, left of the muted bell's slot, the same size as that bell. Its tooltip is each warning's line, and the row's accessibility label says them. It is its own view (`usageWarningMark`), never the working spinner. It never gives way to the hover controls: while the row is hovered it sits just left of the ⋯ and ×, the title fading before it, so a person can still point at it and read its tooltip (the first fleet capture showed the controls in its place). Rows with no warnings are unchanged. Tests: `SidebarUsageWarningTests`; gallery `AAUsageWarningGalleryTests` (before/after, light and dark).
+
+## No tabs inside the sidebar; cmux Classic Mode removed (2026-10-30)
+
+- Lawrence 2026-10-30 (Chief messages 17538 and 17541), verbatim: "wtf is cmux classic mode get rid of it; i think new people get wieird sidebar that has like expandable stuff, get rid of it" and "like i dont want to see tabs expanded inside of sidebar". Before: a fresh profile listed every workspace's tabs under it with a disclosure chevron (`sidebar.showWorkspaceTabs` defaulted on since f32ee25f, Oct 27), while Lawrence's own sidebar hid them through Minimal Mode. Now no setting lists tabs in the sidebar: `sidebar.showWorkspaceTabs` and `tabs.terminalFirst` (cmux Classic Mode) are retired keys, their Settings rows, the Show Tabs Under Workspaces action and both App Store features are gone, and `SidebarModel.showWorkspaceTabs` is never set by settings (tests still set it to cover the tab-row code). This takes back f32ee25f's default ("show everything by default", Oct 27) and leaves the Oct 29 "Disclosed workspace tab hierarchy" entry above test-only. Test: `ClassicModeRemovedTests`.
