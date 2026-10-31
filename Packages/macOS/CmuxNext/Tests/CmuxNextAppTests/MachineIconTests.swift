@@ -193,7 +193,8 @@ struct MachineIconTests {
         func iconRuns() throws -> [(id: ActionID, target: ActionTargetRef?)] {
             let menu = SidebarContextMenus.machineMenu(MachineRegistry.localID, services: services)
             let background = services.registry.makeContextMenu(for: .sidebarBackground)
-            #expect(menu.items.filter { !$0.isSeparatorItem }.count <= 12, "a menu keeps at most 12 top-level rows")
+            // Customize Menu… (Settings > Menus) ends every menu; the limit counts the menu's own rows.
+            #expect(menu.items.filter { !$0.isSeparatorItem && !ActionRegistry.isCustomizeItem($0) }.count <= 12, "a menu keeps at most 12 top-level rows")
             #expect(menu.items.filter { !$0.isSeparatorItem }.count >= background.items.filter { !$0.isSeparatorItem }.count,
                     "the sidebar's own rows stay")
             return allItems(menu.items).compactMap { ActionRegistry.menuRun(of: $0) }
