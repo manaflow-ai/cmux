@@ -367,5 +367,55 @@ class FinalVerdictTests(unittest.TestCase):
         self.assertTrue(self.verdicts(out)[-1].startswith("BROWSER-FUZZ-VERDICT FAIL 1 finding(s) before HANG"), out.stdout)
 
 
+class EndPhaseTests(unittest.TestCase):
+    """Jobs 78618b4ec57b (cmux24) and 580e82955ed0 (cmux18), seed 368488418: all 150 ops ran in 166 s, then the run
+    printed nothing for 45 min. The op watchdog watched only ops; the end of a seed (a final probe of the app, its quit,
+    the kill, the cleanup) had no deadline and no line."""
+
+    def test_an_end_phase_hang_names_its_step(self):
+        line, finding = model.hang_verdict(368488418, 150, {"op": "end", "step": "quit"}, 181,
+                                           app_alive=True, ping_answered=False, main_stall_ms=5000.0)
+        self.assertTrue(finding)
+        self.assertTrue(line.startswith("FAIL HANG in end:quit after 181 s (seed 368488418)"), line)
+        # The harness's own cleanup steps never blame the app (it is being ended on purpose).
+        for step in ("kill", "cleanup"):
+            line, finding = model.hang_verdict(368488418, 150, {"op": "end", "step": step}, 181,
+                                               app_alive=False, ping_answered=False, main_stall_ms=None)
+            self.assertFalse(finding, step)
+            self.assertTrue(line.startswith(f"NOVERDICT HANG in end:{step} after 181 s (seed 368488418)"), line)
+            self.assertIn("harness", line)
+
+    def test_the_end_of_a_seed_is_watched_and_announced(self):
+        # run_ops with a stand-in Session whose close never returns: the run must end with a HANG verdict that names
+        # the end step, and print a line for each end step it reached.
+        script = ("import sys, threading, time; sys.path.insert(0, %r)\n"
+                  "import browser_fuzz as b, fuzz_model as m\n"
+                  "class O: op_deadline = 5; end_deadline = 0.3; ops = 2; build_config = 'debug'; app = '/nonexistent/x.app'\n"
+                  "b.WATCH_POLL_S = 0.05\n"
+                  "b.LIVE['watch'] = m.OpWatch(5)\n"
+                  "class S:\n"
+                  "    sock = '/nonexistent/cmux-fuzz.sock'; pid = 0; counts = {}; notes = []; stalls = {}\n"
+                  "    opts = O\n"
+                  "    def __init__(self, *a): b.LIVE['session'] = self\n"
+                  "    def settle_launch(self): pass\n"
+                  "    def run_op(self, op, index): self.counts['ops'] = self.counts.get('ops', 0) + 1\n"
+                  "    def end_probe(self): pass\n"
+                  "    def quit_app(self): pass\n"
+                  "    def kill_app(self): time.sleep(60)\n"
+                  "    def cleanup(self): pass\n"
+                  "    def app_gone(self): return False\n"
+                  "b.Session = S\n"
+                  "threading.Thread(target=b.watchdog, args=(O,), daemon=True).start()\n"
+                  "b.run_ops(O, None, [{'op': 'back'}, {'op': 'back'}], 'fz', lambda line: None, 'seed 368488418', seed=368488418)\n"
+                  "print('NOT REACHED')\n") % HERE
+        out = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60)
+        self.assertNotIn("NOT REACHED", out.stdout, out.stdout + out.stderr)
+        for step in ("probe", "quit", "kill"):
+            self.assertIn(f"browser-fuzz: seed 368488418 end:{step}", out.stdout, out.stdout + out.stderr)
+        verdicts = [l for l in out.stdout.splitlines() if l.startswith("BROWSER-FUZZ-VERDICT ")]
+        self.assertEqual(len(verdicts), 1, out.stdout + out.stderr)
+        self.assertTrue(verdicts[0].startswith("BROWSER-FUZZ-VERDICT NOVERDICT HANG in end:kill"), verdicts)
+
+
 if __name__ == "__main__":
     unittest.main()
