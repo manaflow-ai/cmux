@@ -171,6 +171,15 @@ if [[ ${#ui_suites[@]} -gt 0 && ${#kit_only[@]} -eq 0 ]]; then run_kit=0; fi
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
+# listperf needs the rig in the app it measures (ListStressRig reads
+# CMUX_MOBILE_LIST_SCREEN; summarize.py reads its frame log). A tree without it
+# would launch the ordinary app and time out on every case, so refuse up front.
+listperf_rig=(cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/ListStressRig.swift cmux-next-ios/verify/feedperf/summarize.py)
+if [[ "$mode" == listperf ]]; then
+  for f in "${listperf_rig[@]}"; do
+    [[ -f "$f" ]] || { echo "cmux-next-ios-sim.sh: listperf needs $f in the head; this tree has no list frame-rate rig" >&2; exit 2; }
+  done
+fi
 out="$root/artifacts/ios-sim"
 work="$root/.build/ios-sim"
 rm -rf "$out" "$work"
@@ -394,6 +403,10 @@ if [[ "$mode" == listperf && -n "$listperf_base" ]]; then
       { echo "error: could not fetch base $listperf_base" >&2; exit 1; }
   fi
   base_src="$work/base-src"
+  for f in "${listperf_rig[@]:0:1}"; do
+    git cat-file -e "$listperf_base:$f" 2>/dev/null ||
+      { echo "error: base $listperf_base has no $f (graft the rig onto the base first)" >&2; exit 2; }
+  done
   git worktree add --quiet --detach "$base_src" "$listperf_base"
   base_ffi="$("${ffi_cache[@]}" key "$base_src" "$work/ffi-inputs-base.json" 2>>"$ffi_log")" || base_ffi=""
   if [[ -n "$ffi_key" && "$base_ffi" == "$ffi_key" ]]; then
@@ -712,7 +725,7 @@ if [[ "$mode" == listperf ]]; then
         # The rig exits the app after its last pass; bounded at 300 s (rig.sh's WAIT).
         env "${envs[@]}" perl -e 'alarm shift; exec @ARGV' 300 xcrun simctl --set "$sims" launch --console-pty \
           --terminate-running-process "$udid" "$bundle_id" -cmuxMobile.setupComplete YES -cmux-mobile-no-restore \
-          >"$lp/$run.console.txt" 2>&1 || true
+          >"$lp/$run.console.txt" 2>&1 || { echo "$run: launch exited $? (142: the 300 s bound)"; listperf_status=1; }
         simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
         caches="$(simctl get_app_container "$udid" "$bundle_id" data)/Library/Caches"
         cp "$caches/framelog.jsonl" "$lp/$run.jsonl" 2>/dev/null || : >"$lp/$run.jsonl"
@@ -721,7 +734,7 @@ if [[ "$mode" == listperf ]]; then
           grep -E 'list-stress' | sed 's/^/# /' >>"$lp/$run.jsonl" || true
         python3 -I cmux-next-ios/verify/feedperf/summarize.py "$lp/$run.jsonl" >"$lp/$run.txt" 2>&1 || true
         echo "== $run ($(( SECONDS - started )) s)"
-        grep -E 'POOLED|-open' "$lp/$run.txt" || echo "$run: no windows"
+        grep -E 'POOLED|-open' "$lp/$run.txt" || { echo "$run: no windows"; listperf_status=1; }
         python3 -I - "$lp/$run.txt" "$run" >>"$summary" <<'PY'
 import sys
 path, run = sys.argv[1], sys.argv[2]
@@ -742,6 +755,7 @@ PY
   done
   simctl uninstall "$udid" "$bundle_id" >/dev/null 2>&1 || true
   note "- listperf: $((SECONDS - t0)) s; sides: ${sides[*]}; reps: $listperf_reps; logs: listperf/"
+  [[ "${listperf_status:-0}" -eq 0 ]] || note "- listperf: FAILED (a run did not finish or measured no windows; see listperf/)"
 fi
 
 # --- Pairing by QR code ----------------------------------------------------
@@ -800,5 +814,6 @@ cat "$summary"
 if [[ "${test_status:-0}" -ne 0 ]]; then exit "$test_status"; fi
 if [[ "${ui_status:-0}" -ne 0 ]]; then exit "$ui_status"; fi
 if [[ "${pair_status:-0}" -ne 0 ]]; then exit "$pair_status"; fi
+if [[ "${listperf_status:-0}" -ne 0 ]]; then exit "$listperf_status"; fi
 
 if [[ "${perf_status:-0}" -ne 0 ]]; then exit "$perf_status"; fi
