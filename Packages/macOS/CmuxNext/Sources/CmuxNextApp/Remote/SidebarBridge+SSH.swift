@@ -36,14 +36,14 @@ extension SidebarBridge {
         }
     }
 
-    /// What a chat that needs machine `machineID` finds its link doing: only a link that dropped
-    /// or never came up reconnects on use (``MachineLinkState/reconnectsOnUse(_:)``).
+    /// What a chat that needs machine `machineID` finds its link doing: only a link that dropped or never came up
+    /// reconnects on use (``MachineLinkState/reconnectsOnUse(_:)``; for SSH, ``SSHConnectionMachine/Status/reconnectsOnUse``).
     static func paneUse(_ machineID: String, in machines: MachineRegistry) -> AgentPaneMachineLink.Use {
         guard let status = machineHeader(machineID, in: machines)?.status else { return .stuck }
         switch status.linkState {
         case .connected: return .up
         case .connecting: return .coming
-        case .offline, .paused, .attention: return MachineLinkState.reconnectsOnUse(status) ? .down : .stuck
+        case .offline, .paused, .attention: return MachineLinkState.reconnectsOnUse(status) && machines.sshSession(machineID)?.linkStatus.reconnectsOnUse != false ? .down : .stuck
         }
     }
 
@@ -75,7 +75,7 @@ extension SidebarBridge {
         case .needsInstall(.protocolMismatch), .needsInstall(.refused(.protocolOlder)): return .updateRequired
         case .needsInstall(.refused(.protocolNewer)): return .failed
         case .needsInstall, .installFailed: return .installRequired
-        case .failed: return daemonConnected ? .connected : .failed
+        case .failed, .sessionInUse: return daemonConnected ? .connected : .failed
         case .connecting, .connected:
             guard daemonConnected else {
                 if let compatibility, compatibility.level == .incompatible, startupFailed { return .updateRequired }

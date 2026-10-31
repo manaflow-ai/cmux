@@ -166,7 +166,7 @@ public struct RemoteHostVisibilityProjection: Hashable, Sendable {
         case .authFailed(let reason), .hostKeyUntrusted(let reason), .unreachable(let reason): return .failed(reason)
         case .needsInstall(let need): return .failed(String(describing: need))
         case .installing: return .connecting
-        case .installFailed(let reason), .failed(let reason): return .failed(reason)
+        case .installFailed(let reason), .failed(let reason), .sessionInUse(let reason): return .failed(reason)
         }
     }
 }
