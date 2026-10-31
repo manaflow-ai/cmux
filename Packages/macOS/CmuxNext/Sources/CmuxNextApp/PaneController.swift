@@ -401,7 +401,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// hides the old WebContents and shows the new one in one task. A tab that another pane selected
     /// since (it moved there) belongs to that pane: it is not hidden from here.
     private func selectTabNode(_ key: String?) {
-        let next = key.map { services.cache.node(for: $0) }
+        let next = key.map { services.cache.selectedNode(for: $0) }
         if let shown = selectedTabNode, shown !== next, shown.parent === visibilityNode { shown.set(.hidden) }
         selectedTabNode = next
         guard let next else { return }
