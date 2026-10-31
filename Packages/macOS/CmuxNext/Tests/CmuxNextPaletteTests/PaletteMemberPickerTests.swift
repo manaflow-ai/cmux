@@ -67,6 +67,13 @@ struct PaletteMemberPickerTests {
         #expect(removed.tokens.isEmpty)
     }
 
+    @Test func continueHeadingIsTheActionNameWithoutAnEllipsis() throws {
+        let first = try Self.page(try Self.flow(Self.registry()).effect(collected: ActionInvocation()))
+        let page = try Self.page(try Self.choose("Aziz", on: first))
+        let row = try #require(try Self.items(page).first { $0.id == PaletteArgumentFlow.continueRowID })
+        #expect(row.section.title == "New Group Chat")
+    }
+
     @Test func continueSendsTheChosenIdsAsMembers() throws {
         let registry = Self.registry()
         var ran: ActionInvocation?
