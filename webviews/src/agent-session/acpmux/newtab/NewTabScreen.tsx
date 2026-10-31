@@ -660,9 +660,12 @@ export function NewTabScreen(props: Props) {
   const { plainFooter, spellChecking } = useComposerSettings();
   // The quiet row's labels step down with the composer's width, as the chat's (composerRowFit.ts).
   const foot = useRef<HTMLDivElement>(null);
-  // The model picker uses one footer position in every New Tab template and composer look.
+  // Every template with chips draws the chat composer's box. Claude's look splits the mode, model and
+  // effort into the quiet row under it; Codex's keeps them in the box's own row (Leo 2026-10-30: "the
+  // bypass/context/model picker stuff should literally be inside the composer box"; "no just codex").
   const look = useComposerLook();
-  const split = props.chips !== undefined;
+  const chatBox = props.chips !== undefined;
+  const split = chatBox && look !== "codex";
   // Footer look and template can change while this screen stays mounted.
   useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
@@ -1274,8 +1277,8 @@ export function NewTabScreen(props: Props) {
   const Chips = props.chips;
   const chooser = useRef<HTMLInputElement>(null);
   /// The Cards template (u2851): the field is a pill of its own and the chips sit under it. The
-  /// split draws the chat composer's box instead.
-  const pill = template === "cards" && !split;
+  /// chat composer's box replaces it.
+  const pill = template === "cards" && !chatBox;
 
   const onPlusCommand = props.onPlusCommand;
   const plusSearchRows = useMemo(() => composerPlusSearchExtensions(t), [t]);
@@ -1433,7 +1436,13 @@ export function NewTabScreen(props: Props) {
   // this page draws no context ring.
   const pickers = (
     <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
-      <div className="nt-pickers" data-footer-look={plainFooter ? "plain" : undefined} onPointerDownCapture={touch}>
+      {/* Codex's look keeps the chips in this row (no quiet row), so its labels step down here. */}
+      <div
+        ref={chatBox && !split ? foot : undefined}
+        className="nt-pickers"
+        data-footer-look={plainFooter ? "plain" : undefined}
+        onPointerDownCapture={touch}
+      >
         {!split && attachmentPicker}
         {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
         switch is the one Enter reuses. */}

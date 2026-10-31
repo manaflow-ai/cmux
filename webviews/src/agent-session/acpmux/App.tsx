@@ -11166,7 +11166,11 @@ function AcpmuxPane() {
             tier={snapshot.switching?.phase === "deferred" ? "status" : "error"}
             when={snapshot.switching && snapshot.switching.phase !== "starting"}
           >
-            <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
+            <SwitchNotice
+              switching={snapshot.switching}
+              onRetry={() => void callNative("chat.harness.retry")}
+              onAction={(action) => (action === "newCloudMachine" ? connectMachine("cloud") : chooseWorkspaceFolder())}
+            />
           </Notice>
         )}
         {!harnessCard && (
