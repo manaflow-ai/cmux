@@ -3,6 +3,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextHomeEngine
+import Observation
 import Testing
 
 /// Every Cmd-T built the New Tab dropdown's copy of the Commands palette again on the frame
@@ -59,6 +60,19 @@ struct NewTabPaletteActionsCacheTests {
         #expect(list.first { $0.id == "newWindow" }?.title == "After")
     }
 
+    /// A row's availability that reads observable app state: its first change drops the kept list, so the
+    /// dropdown never offers a row that cannot run (the cache watches everything a build read).
+    @Test func aRowThatTurnsUnavailableLeavesTheNextList() {
+        let (services, registry) = Self.services()
+        let gate = PaletteRowGate()
+        registry.bind("newWindow", isEnabled: { gate.open }) {}
+        #expect(NewTabPage.paletteActions(services).contains { $0.id == "newWindow" })
+        gate.open = false
+        #expect(!NewTabPage.paletteActions(services).contains { $0.id == "newWindow" }, "the dropdown still offers a row that cannot run")
+        gate.open = true
+        #expect(NewTabPage.paletteActions(services).contains { $0.id == "newWindow" })
+    }
+
     /// The Chief's Stop All Agents row asks which window is in front on every palette build
     /// (`HomeChiefSettingsPopover.frontToggleTarget`). With a key window that is the answer:
     /// the window server's front-to-back list (a mach round trip, up to 40 ms in the trace) is
@@ -76,4 +90,10 @@ struct NewTabPaletteActionsCacheTests {
         #expect(HomeChiefSettingsPopover.toggleTarget(key: nil, ordered: ordered()) == nil)
         #expect(asked == 1)
     }
+}
+
+/// Observable state a row's availability reads (``NewTabPaletteActionsCacheTests/aRowThatTurnsUnavailableLeavesTheNextList()``).
+@MainActor @Observable
+final class PaletteRowGate {
+    var open = true
 }
