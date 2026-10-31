@@ -2,12 +2,13 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextPalette
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-27: "we need to be able to middle-click and, you know, just deal with the stuff here. Like just closing
 /// tabs fundamentally." A middle-click on a Search Tabs row closes exactly that row's tab (its Cmd-W close). The tab
 /// strip's own middle-click is unchanged. A sidebar workspace row closes its workspace.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarTabMiddleClickTests {
     typealias Fixture = SidebarRowCloseSpotTests
 

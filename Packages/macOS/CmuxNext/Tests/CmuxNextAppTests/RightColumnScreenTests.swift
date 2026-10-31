@@ -1,12 +1,13 @@
 import AppKit
 import CmuxNextAgentPane
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// Review of #28044 at bd2b918d: the right column was read from the active screen's frames, so a
 /// subagent open still queued when the person switched to another screen read the chat's screen as
 /// empty and split again beside panes already there. It reads the chat's own screen now.
-@MainActor struct RightColumnScreenTests {
+@MainActor @Suite(.closesItsWindows) struct RightColumnScreenTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
     }
@@ -22,7 +23,7 @@ import Testing
         let root = LayoutRootView(model: model, contentProvider: Panes())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
         window.contentView = root
         root.layoutSubtreeIfNeeded()
         #expect(RightColumnPlacement.column(beside: PaneID("chat"), frames: root.navigationFrames) == ["diff"])

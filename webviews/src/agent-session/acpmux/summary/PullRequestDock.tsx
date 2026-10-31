@@ -42,6 +42,14 @@ export function useTranscriptPullRequests(rows: readonly AcpmuxRow[], repository
   return useMemo(() => (legacy ? [] : visibleChanges(all, headerStatus(live)).reverse()), [all, live, legacy]);
 }
 
+/// Whether this row's PullRequestDock draws its links. The action row that holds the dock marks
+/// itself with it (`data-pr-dock`, summary.css), rather than a `:has(> .acpmux-pr-dock)` on the row:
+/// a `:has()` there made every node inserted in the pane restyle the whole pane
+/// (pane-has-restyle.browser.test.ts).
+export function useHasPullRequestDock(): boolean {
+  return !!useContext(RowPullRequests)?.length;
+}
+
 export function PullRequestDock() {
   const prs = useContext(RowPullRequests);
   if (!prs?.length) return null;
