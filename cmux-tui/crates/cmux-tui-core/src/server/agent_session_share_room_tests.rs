@@ -1892,3 +1892,32 @@ fn history_asks_past_the_in_flight_cap_get_a_busy_page() {
     assert!(started.elapsed() < Duration::from_secs(4), "answered without waiting on acpmux");
     drop(gate);
 }
+
+/// A prompt the daemon has not answered when the host socket drops is sent again by the guest's
+/// relay on the new host socket, and its state reaches the guest there.
+#[test]
+fn a_prompt_in_flight_across_a_host_reconnect_is_sent_again() {
+    let room = FakeRoom::start(&[]);
+    let (gate, gated) = channel();
+    let fixture = Fixture { prompt_gate: Some(Arc::new(Mutex::new(gated))), ..Fixture::default() };
+    let (fake, _mux, surface, mut owner) = bridged_with("relay-host-inflight", &room, fixture);
+    let (_share, [ann, _bob], conn) = two_guests(&room, &mut owner, surface);
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    while fake.next_frame(Duration::from_millis(300)).is_some() {}
+    room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann, "client_id": "c0",
+        "text": "hello"}));
+    while fake.frame()["method"] != "session/prompt" {}
+    // acpmux has not accepted it when the host socket drops.
+    room.shared.hello.lock().unwrap().push(json!({"guest_id": ann, "name": "Ann", "sockets": 1}));
+    room.drop_host();
+    let (conn, _) = room.host();
+    assert_eq!(room.next(conn, "guests")["t"], "guests");
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    // The first send's acceptance goes to the gone relay; the second is the new relay's.
+    gate.send(()).unwrap();
+    while fake.frame()["method"] != "session/prompt" {}
+    gate.send(()).unwrap();
+    let state = state_of(&room, conn, "c0");
+    assert_eq!(state["state"], "held", "{state}");
+}

@@ -904,10 +904,6 @@ async fn session(
                     }
                     vec![frame]
                 }
-                Some(relay::Out::Replay(guest, generation, ask)) => {
-                    let mux = mux.upgrade()?;
-                    guests.replay(&mux, share_id, &guest, generation, ask)
-                }
                 Some(relay::Out::Ended(guest, generation)) => {
                     let mux = mux.upgrade()?;
                     guests.ended(&mux, share_id, &guest, generation);
@@ -1052,22 +1048,6 @@ impl Guests {
             Ok(()) => Vec::new(),
             Err(full) => refused(mux, share_id, guest, full.into_inner()),
         }
-    }
-
-    /// A prompt an ended relay of `guest` took and did not get answered: the guest's newer
-    /// relay sends it again, or (with none) it is refused.
-    fn replay(
-        &self,
-        mux: &Mux,
-        share_id: &str,
-        guest: &str,
-        generation: u64,
-        ask: relay::Ask,
-    ) -> Vec<Value> {
-        if self.relays.get(guest).is_some_and(|relay| relay.generation != generation) {
-            return self.send(mux, share_id, guest, ask);
-        }
-        refused(mux, share_id, guest, ask)
     }
 
     /// Starts the relay of a guest the daemon holds active, with its sockets (`None`: unknown).
