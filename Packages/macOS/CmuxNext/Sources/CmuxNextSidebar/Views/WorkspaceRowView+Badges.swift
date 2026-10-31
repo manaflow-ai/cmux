@@ -52,7 +52,7 @@ extension WorkspaceRowView {
     /// mark that stands in for the status, else the status glyph (the `trailing` badge style), else a usage warning's
     /// triangle.
     /// Lawrence 2026-10-20: every row's dot and spinner share one line; msg 11914: whatever else the
-    /// row shows (the disclosure, a count, the keycap, the hover close and more) sits left of it,
+    /// row shows (a count, the keycap, the hover close and more) sits left of it,
     /// so a selected row's dot does not move. Never on the leading icon.
     func layoutColumnMark(cy: CGFloat, rowWidth: CGFloat, markReplacesStatus: Bool) -> (view: NSView, trailing: CGFloat)? {
         let column = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)

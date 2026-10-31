@@ -144,8 +144,6 @@ import Testing
         let copy = SidebarModel(sections: model.sections, activeWorkspaceID: model.activeWorkspaceID)
         copy.selectedItem = model.selectedItem
         copy.selection = model.selection
-        copy.showWorkspaceTabs = model.showWorkspaceTabs
-        copy.collapsedWorkspaces = model.collapsedWorkspaces
         copy.revealedMembers = model.revealedMembers
         copy.filterText = model.filterText
         copy.collapsedSections = model.collapsedSections
@@ -189,7 +187,6 @@ import Testing
         case let .section(id): "section \(id)"
         case let .group(id): "group \(id.rawValue)"
         case let .workspace(id): "ws \(id.rawValue)"
-        case let .tab(workspace, tab): "tab \(workspace.rawValue)/\(tab)"
         case let .emptySection(id): "empty section \(id)"
         default: "\(key)"
         }

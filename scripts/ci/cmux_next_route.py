@@ -267,6 +267,11 @@ CI_ONLY = (
     "tests/test_cmux_next_route.py", "tests/test_cmux_next_route_replay.py",
     "tests/test_cmux_next_checks_workflow.py", "tests/test_gh_merge_green*.py",
     "tests/test_base_red_excuse.py", "tests/test_test_reds.py", "tests/fixtures/test_reds/*", "tests/test_ci_*.py",
+    # The unrecognized-selector lint: cmux-next-crash-class.yml runs it on Linux, and its fleet step
+    # wrapper only reads the table. No compile reads any of the three (#29032 changed only the table
+    # and waited on the fleet Release compile).
+    "scripts/cmux-next/objc-selector-table.json", "scripts/cmux-next/check-objc-selectors.py",
+    "scripts/cmux-next/check-objc-selectors.sh",
 )
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")
@@ -748,9 +753,16 @@ def linux_values(expression: str) -> bool:
         elif re.fullmatch(r"'[^']*'", value):
             if "ubuntu" not in value:
                 return False
-        elif not (re.fullmatch(r"vars\.\w+", value) and "LINUX" in value):
+        elif not (re.fullmatch(r"vars\.\w+", value) and "LINUX" in value) and value not in PORTABLE_RUNNERS:
             return False
     return True
+
+
+# Portable placement (scripts/ci/portable_job_placement.py) puts a job that needs neither Linux nor
+# Blacksmith on fleet Linux or a free mini. The job runs the same scripts either way, none of the
+# app's Mac tiers, so its outputs count as Linux here: an edit to such a job runs no Mac tier.
+PORTABLE_RUNNERS = frozenset(
+    f"needs.portable-placement.outputs.{output}" for output in ("linux_runner", "mini_runner"))
 
 
 def linux_runs_on(value) -> bool:
