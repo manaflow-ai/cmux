@@ -259,44 +259,42 @@ class SuiteSkipTest(unittest.TestCase):
         return " ".join(rows[0].split()[1:-1])
 
     def test_a_suite_that_ran_none_of_its_tests_is_no_result_and_fails(self):
-        done = self.suite("SidebarMultiViewHomeTests", "SidebarMultiViewPressTests", "AAGalleryTests")
+        (self.outputs / "NoReasonTests.out").write_text("↷ Test a() skipped.\n✔ Test run with 1 test passed after 0.1 seconds.\n")
+        done = self.suite("NoReasonTests", "SidebarMultiViewPressTests", "AAGalleryTests")
         self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertEqual(self.row(done.stdout, "SidebarMultiViewHomeTests"), "no result (0 ran)")
+        self.assertEqual(self.row(done.stdout, "NoReasonTests"), "no result (0 ran)")
         self.assertEqual(self.row(done.stdout, "SidebarMultiViewPressTests"), "passed")
         self.assertEqual(self.row(done.stdout, "AAGalleryTests"), "passed, 1 skipped")
         self.assertNotIn("suites passed", done.stdout)
         self.assertIn("1 of 3 suites failed or gave no result.", done.stdout)
-        self.assertIn('SidebarMultiViewHomeTests: skipped suite SidebarMultiViewHomeTests: "the drag tests need a display"',
-                      done.stdout)
-        self.assertIn("::error title=Swift suite no result::SidebarMultiViewHomeTests", done.stdout)
+        self.assertIn("::error title=Swift suite no result::NoReasonTests", done.stdout)
         self.assertIn("required tests did not run", done.stdout)
 
-    def test_every_test_skipped_under_a_passed_suite_line_is_no_result(self):
-        done = self.suite("MotionRootSpeedProbeTests", "SidebarMultiViewPressTests")
-        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertEqual(self.row(done.stdout, "MotionRootSpeedProbeTests"), "no result (0 ran)")
-        self.assertIn("::error title=Swift suite no result::MotionRootSpeedProbeTests", done.stdout)
-        self.assertNotIn("suites passed", done.stdout)
-
-    def test_a_suite_skipped_for_want_of_a_display_says_how_to_get_one(self):
-        """The red step tells the lane what to do: the display traits' skips name a display, a screen or a GUI host."""
-        hint = "this suite needs a display; rerun with CMUX_TEST_REQUIRE_GUI=1"
+    def test_a_suite_that_only_needs_a_display_gates_nothing(self):
+        """Leo, 2026-10-31: "i dont like doing display tests anymore". A suite none of whose tests ran because each
+        needs a display (the display traits name a display, a screen or a GUI host) is skipped with a notice, and
+        the step goes on: no lane waits for a display worker. A step that asked for a display still fails."""
         for name in ("SidebarMultiViewHomeTests", "MotionRootSpeedProbeTests"):
             with self.subTest(suite=name):
-                done = self.suite(name)
-                self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
-                line = next(l for l in done.stdout.splitlines() if l.startswith("::error title=Swift suite no result::"))
-                self.assertIn(hint, line)
-        done = self.suite("SidebarMultiViewHomeTests", CMUX_CI_DISPLAY_ROUTED="1")
+                done = self.suite(name, "SidebarMultiViewPressTests")
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertEqual(self.row(done.stdout, name), "skipped (needs a display)")
+                self.assertIn(f"::notice title=Swift suite needs a display::{name} in Packages/macOS/Pkg", done.stdout)
+                self.assertNotIn("::error", done.stdout)
+                self.assertIn("1 of 2 suites passed; 1 skipped (needs a display, not gating).", done.stdout)
+                self.assertNotIn("All 2 suites passed.", done.stdout)
+        done = self.suite("SidebarMultiViewHomeTests", 'SidebarMultiViewPressTests', CMUX_CI_DISPLAY_ROUTED="1")
         self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertNotIn(hint, done.stdout)
+        self.assertEqual(self.row(done.stdout, "SidebarMultiViewHomeTests"), "no result (0 ran)")
         self.assertIn("was sent to a display worker, whose console session was lost", done.stdout)
-        (self.outputs / "NoReasonTests.out").write_text("↷ Test a() skipped.\n✔ Test run with 1 test passed after 0.1 seconds.\n")
-        for name in ("XCSkippedTests", "NoReasonTests", "FirstLaunchTests"):
+        done = self.suite("MotionRootSpeedProbeTests", CMUX_TEST_REQUIRE_GUI="1")
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn("skipped (needs a display)", done.stdout)
+        for name in ("XCSkippedTests", "FirstLaunchTests"):
             with self.subTest(suite=name):
                 done = self.suite(name)
                 self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
-                self.assertNotIn(hint, done.stdout)
+                self.assertNotIn("skipped (needs a display)", done.stdout)
 
     def test_a_live_daemon_suite_without_its_cmux_tui_is_no_result(self):
         for name in ("FirstLaunchTests", "PartlyDaemonTests"):

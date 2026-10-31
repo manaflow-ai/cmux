@@ -373,7 +373,7 @@ impl Supervisor {
             .into_iter()
             .map(|id| {
                 let mut row = entry(id, inner.catalog.packages.get(id), inner.mirror.apps.get(id));
-                row["instance"] = self.instance_json(id);
+                row.set("instance", self.instance_json(id));
                 row
             })
             .collect();

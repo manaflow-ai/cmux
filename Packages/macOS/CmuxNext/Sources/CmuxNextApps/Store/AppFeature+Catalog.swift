@@ -139,11 +139,6 @@ extension AppFeature {
                        name: t("store.feature.priorityView.name", "Priority View"),
                        summary: t("store.feature.priorityView.summary", "A bell atop the sidebar ranks your agent chats on every machine by what needs you."),
                        keywords: ["attention", "agents", "chats", "bell"]),
-            AppFeature(id: "sidebar.workspaceTabs", setting: "sidebar.showWorkspaceTabs", on: .toggle,
-                       category: .sidebar, preview: .window(.sidebar, .tunableTabs),
-                       name: t("store.feature.workspaceTabs.name", "Tabs in the Sidebar"),
-                       summary: t("store.feature.workspaceTabs.summary", "Each workspace lists its tabs under it in the sidebar."),
-                       keywords: ["tabs", "tree"]),
             AppFeature(id: "sidebar.hoverCards", setting: "sidebar.hoverCards.enabled", on: .toggle,
                        category: .sidebar, preview: .window(.sidebar, .agentActivity),
                        name: t("store.feature.hoverCards.name", "Hover Cards"),
@@ -253,11 +248,6 @@ extension AppFeature {
                        name: t("store.feature.focusFollowsMouse.name", "Focus Follows Mouse"),
                        summary: t("store.feature.focusFollowsMouse.summary", "Hovering over a pane or scrolling it focuses that pane."),
                        keywords: ["focus", "hover", "pointer", "panes"]),
-            AppFeature(id: "layout.terminalFirst", setting: "tabs.terminalFirst", on: .toggle,
-                       category: .layout, preview: .window(.tabBar, .terminalNew),
-                       name: t("store.feature.terminalFirst.name", "Terminal First"),
-                       summary: t("store.feature.terminalFirst.summary", "Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic."),
-                       keywords: ["terminal", "classic", "new tab", "split"]),
         ]
     }
 

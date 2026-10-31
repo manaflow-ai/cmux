@@ -1105,6 +1105,10 @@ impl<B: Backend> Server<B> {
             Ok(arguments) => arguments,
             Err(answer) => return answer,
         };
+        let arguments = match self.tab_move_destination(tool, &arguments) {
+            Ok(arguments) => arguments,
+            Err(answer) => return answer,
+        };
         let mut call = match tool.plan(&arguments) {
             Ok(call) => call,
             Err(error) => return tool_error(envelope(error, "not_run", None)),
