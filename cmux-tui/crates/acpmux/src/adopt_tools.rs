@@ -555,7 +555,11 @@ pub fn claude_tool_results(content: &Value, structured: Option<&Value>) -> Vec<T
         .filter(|b| s(b, "type") == Some("tool_result"))
         .filter_map(|block| {
             let failed = block.get("is_error").and_then(Value::as_bool) == Some(true);
-            let content = result_text(block.get("content"));
+            // Its text, then the images it returned (a Read of a PNG), as a live turn sends them.
+            // What is kept is bounded by the transcript tail adopt reads (`adopt_replay::MAX_BYTES`),
+            // which already holds each image.
+            let mut content = result_text(block.get("content"));
+            content.extend(crate::claude_stdio::result_images(block.get("content")));
             Some(ToolResult {
                 id: s(block, "tool_use_id")?.to_owned(),
                 done: json!({

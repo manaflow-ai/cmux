@@ -309,6 +309,15 @@ fn cut_long_strings(value: &mut Value) -> bool {
             true
         }
         Value::Array(items) => items.iter_mut().fold(false, |cut, v| cut_long_strings(v) | cut),
+        // An image's base64 cut short draws as a broken image: it goes whole, so the pane falls
+        // back to the image's path, as before tool results kept their images.
+        Value::Object(fields)
+            if fields.get("type").and_then(Value::as_str) == Some("image")
+                && fields.get("data").and_then(Value::as_str).is_some_and(|d| d.len() > LONG) =>
+        {
+            fields.remove("data");
+            true
+        }
         Value::Object(fields) => {
             fields.values_mut().fold(false, |cut, v| cut_long_strings(v) | cut)
         }

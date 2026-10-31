@@ -82,8 +82,7 @@ async fn images_past_the_budget_or_by_url_are_left_out() {
     ]);
     let out = updates(&t.inbound(&result("toolu_r3", blocks)).await);
     let content = completion(&out)["content"].as_array().unwrap().clone();
-    let images: Vec<&Value> =
-        content.iter().filter(|b| b["content"]["type"] == "image").collect();
+    let images: Vec<&Value> = content.iter().filter(|b| b["content"]["type"] == "image").collect();
     assert_eq!(images.len(), 2, "the big one and the one that still fits: {}", images.len());
     assert_eq!(images[0]["content"]["data"].as_str().map(str::len), Some(big.len()));
     assert_eq!(images[1], &acp_image("QUFB"));
