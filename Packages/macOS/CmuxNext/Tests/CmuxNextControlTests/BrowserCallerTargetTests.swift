@@ -160,6 +160,48 @@ import Testing
         #expect(identity["browser"]?["tab"] == "tab-far")
     }
 
+    @Test(arguments: [false, true]) func aMirroredBrowserStaysInTheCallersSession(duplicateID: Bool) async throws {
+        var snapshot = Self.snapshot(ownBrowser: false)
+        let expectedTab = duplicateID ? "tab-mirror" : "tab-near"
+        let near = try #require(snapshot.topology.workspaces.firstIndex { $0.id == "ws-near" })
+        snapshot.topology.workspaces[near].screens[0].panes[0].tabs = [Self.browser(expectedTab)]
+        snapshot.topology.workspaces[near].screens[0].panes[0].selectedTabID = expectedTab
+        let agent = try #require(snapshot.topology.workspaces.firstIndex { $0.id == "ws-agent" })
+        var mirror = Self.pane("pane-mirror", column: 1, [], selected: "tab-mirror")
+        mirror.mirroredTabIDs = ["tab-mirror"]
+        snapshot.topology.workspaces[agent].screens[0].panes.append(mirror)
+        var remoteTab = Self.browser("tab-mirror")
+        remoteTab.url = "https://remote.example/"
+        var remote = Self.workspace("ws-remote", [Self.pane("pane-remote", column: 0, [remoteTab])])
+        remote.sessionID = "session-remote"
+        // Session-local IDs may repeat. The remote copy appears first in topology order.
+        snapshot.topology.workspaces.insert(remote, at: 0)
+        let (router, executor) = install(snapshot)
+
+        let page = try await state(router, caller: Self.agent).get()
+        #expect(page["tab"] == .string(expectedTab))
+        #expect(page["url"] == .string("https://\(expectedTab).example/"))
+        let identity = try await router.handle(ControlRequest(method: "system.identify", params: ["caller": Self.agent])).get()
+        #expect(identity["browser"]?["workspace"] == "ws-near")
+        #expect(identity["browser"]?["session"] == .null)
+        _ = try await router.handle(ControlRequest(method: "action.run", params: ["action": "browserReload", "caller": Self.agent])).get()
+        #expect(executor.last?.target == ControlTargetRef(kind: "pane", id: duplicateID ? "pane-mirror" : "pane-near"))
+    }
+
+    @Test func anAmbiguousMirroredBrowserDoesNotChooseTheFirstMatchingTab() async throws {
+        var snapshot = Self.snapshot(neighbors: false)
+        var mirror = Self.pane("pane-mirror", column: 1, [], selected: "tab-duplicate")
+        mirror.mirroredTabIDs = ["tab-duplicate"]
+        snapshot.topology.workspaces[1].screens[0].panes.insert(mirror, at: 1)
+        for id in ["ws-duplicate-a", "ws-duplicate-b"] {
+            snapshot.topology.workspaces.append(Self.workspace(id, [Self.pane("pane-" + id, column: 0, [Self.browser("tab-duplicate")])]))
+        }
+        let (router, _) = install(snapshot)
+        #expect(try await state(router, caller: Self.agent).get()["tab"] == "tab-own")
+        let identity = try await router.handle(ControlRequest(method: "system.identify", params: ["caller": Self.agent])).get()
+        #expect(identity["browser"]?["workspace"] == "ws-agent")
+    }
+
     /// `cmux browser page new-tab URL` with no browser near the caller opens its first one, not a
     /// refusal: a terminal's in its own pane behind the terminal, an agent's beside its chat
     /// (`openBrowser` with the caller, placed by `placeBesideCaller`).
