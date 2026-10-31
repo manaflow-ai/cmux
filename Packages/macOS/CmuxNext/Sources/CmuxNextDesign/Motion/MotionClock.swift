@@ -8,6 +8,16 @@ public protocol MotionAnimating: AnyObject {
     /// Advances every spring by `dt` seconds and applies the presented
     /// values (layer frames). Returns true while anything still moves.
     func motionStep(_ dt: Double) -> Bool
+    /// Ends the motion at its final state in one go (the window went out of sight: no frames).
+    func motionSettle()
+}
+
+extension MotionAnimating {
+    /// The fallback settle: steps at the longest frame (1/30 s) until rest, at most 20 s of motion.
+    /// An animator that can jump to its end (springs: `snap()`) implements its own.
+    public func motionSettle() {
+        for _ in 0..<600 where motionStep(1.0 / 30.0) {}
+    }
 }
 
 /// The one chrome animation clock of a window (motion.md, DESIGN P4): every
@@ -27,7 +37,7 @@ public final class MotionClock {
     private var order: [ObjectIdentifier] = []
     private lazy var client = FrameClient(owner: "Motion.clock", scheduler: { [weak self] in
         self?.window.map(FrameScheduler.forWindow) ?? .app
-    }) { [weak self] tick in
+    }, settle: { [weak self] in self?.settleAll() }) { [weak self] tick in
         self?.tick(tick.elapsed) ?? false
     }
     /// The window whose scheduler the clock ticks on (nil: the app clock).
@@ -93,6 +103,17 @@ public final class MotionClock {
 
     /// Animators being stepped now (debug).
     public var running: [String] { order.compactMap { entries[$0]?.trace } }
+
+    /// Ends every animator at its final state now (its window went out of sight; FrameScheduler+Sight).
+    private func settleAll() {
+        let settling = order.compactMap { id in entries[id].map { (id, $0) } }
+        entries.removeAll()
+        order.removeAll()
+        for (id, entry) in settling {
+            entry.animator?.motionSettle()
+            MotionTrace.end(entry.trace, id: id)
+        }
+    }
 
     /// One frame. While `debug.motion` records, the main-thread work of the whole frame
     /// (`clock`) and of each animator (its trace name) is timed (`MotionTrace.measure`).

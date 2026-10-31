@@ -168,6 +168,7 @@ public final class LayoutRootView: NSView {
         layer?.masksToBounds = true
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
+        driver.onSettle = { [weak self] in self?.landMotion() }
         context.overlayNeedsSync = { [weak self] in self?.setNeedsOverlaySync() }
         context.userMotionStepped = { [weak self] in self?.setLayoutInMotion(true) }
         context.userMotionEnded = { [weak self] in
@@ -474,6 +475,17 @@ public final class LayoutRootView: NSView {
 
     // MARK: Frames
 
+    /// The final layout now, in one pass: Reduce Motion turned on mid-flight, or the window went out
+    /// of sight (`DisplayLinkDriver.motionSettle`).
+    func landMotion() {
+        for view in screenViews.values where view.hasMotion || view.resizeGesture == .landing { view.settleMotion() }
+        for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
+        applyScreenFrames()
+        updateVisibility()
+        flushOverlaySync()
+        setLayoutInMotion(false)
+    }
+
     func advanceFrame(_ dt: Double) -> Bool {
         defer { onFramePlaced?() }
         // A released resize drag whose layout the observation has not applied yet: apply it before this
@@ -485,12 +497,7 @@ public final class LayoutRootView: NSView {
         }
         // Reduce Motion (or the no-animation switch) turned on mid-flight: the final layout now, no more frames.
         if context.reduceMotion {
-            for view in screenViews.values where view.hasMotion || view.resizeGesture == .landing { view.settleMotion() }
-            for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
-            applyScreenFrames()
-            updateVisibility()
-            flushOverlaySync()
-            setLayoutInMotion(false)
+            landMotion()
             return false
         }
         // One motion policy per frame (it reads the animation settings), not one per spring.

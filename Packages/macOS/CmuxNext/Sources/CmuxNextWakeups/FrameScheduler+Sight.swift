@@ -1,6 +1,5 @@
 public import AppKit
 import CmuxNextCompat
-import QuartzCore
 
 /// Frames only for what the person can see (Chrome's rule for a hidden tab: no animation frames, and
 /// the page shows its final state when it is shown again). A window out of sight gets no animation
@@ -19,6 +18,9 @@ extension FrameScheduler {
         watchSight()
         guard let note = objc_getAssociatedObject(window, &sightKey) as? SightNote else { return false }
         if window.isMiniaturized { return true }
+        // The window the person works in is in sight, whatever WindowServer last said: after Cmd-Tab
+        // or a Space switch back, its occlusion report comes a moment later.
+        if NSApp.isActive, window.isKeyWindow || window.isMainWindow { return false }
         guard window.isVisible else {
             // Ordered out. Forget a cover seen while it was shown: when it is ordered back in, it is in
             // sight until WindowServer reports otherwise.
@@ -34,23 +36,14 @@ extension FrameScheduler {
         return Self.windowIsOutOfSight(window)
     }
 
-    /// Runs an animation client to its end now, with frames of the longest step a real frame takes,
-    /// and drops it. One that has not ended after ``settleFrameLimit`` frames (an autoscroll, a
-    /// probe: work with no end of its own) is dropped there; its owner starts it again when needed.
+    /// Ends an animation client now: it stops, then its own settle puts its work at its final state
+    /// in one go (the window's Motion clock snaps its springs, the layout lays out its final frames
+    /// once; completions run). A client with no settle (an autoscroll, a probe, a drag ghost: work
+    /// with no end of its own) just stops, and its owner starts it again when needed.
     func settle(_ client: FrameClient) {
-        var tick = FrameTick(timestamp: CACurrentMediaTime(), elapsed: Self.settleStep, rawElapsed: Self.settleStep,
-                             refreshInterval: nil)
-        for _ in 0..<Self.settleFrameLimit {
-            guard client.fire(tick) else { return }
-            tick.timestamp += Self.settleStep
-        }
         client.detach()
+        client.settleNow?()
     }
-
-    /// The step of a settle frame: the longest `elapsed` a real frame delivers.
-    static let settleStep: Double = 1.0 / 30.0
-    /// Settle frames before an animation without an end is dropped: 20 s of motion.
-    static let settleFrameLimit = 600
 
     /// Starts the app's one occlusion observer (idempotent; held by ``app``). It records, per window,
     /// whether WindowServer reported it covered while it was ordered in, and ends the animations of

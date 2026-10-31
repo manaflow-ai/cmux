@@ -271,7 +271,7 @@ public final class FrameScheduler: NSObject {
         lastStall = FrameStall(startedAt: lastLinkFrame, detectedAt: mediaTime())
         ledger.record("FrameScheduler.\(name)", reason: "stalled frame")
         deliver(timestamp: nil, refreshInterval: nil)
-        guard !clients.isEmpty else { return }
+        guard !clients.isEmpty else { return pause() }
         (link ?? makeLink())?.isPaused = false
         armStall()
     }
