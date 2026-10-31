@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextSettings
 
 /// The app's feature tip records (`tips.state`; leo-workspace design/feature-tips.md), kept for the
 /// life of the install. Leo, 2026-10-30: "no this should be very very infrequent like app
@@ -6,7 +7,8 @@ public import Foundation
 ///
 /// - Each tip shows at most once per install: ``claim(_:feature:)`` records it `shown`, and a tip
 ///   with any record never shows again (`closed` with its X, `used` its feature).
-/// - At most one tip every ``minimumDaysBetweenTips`` days, across every tip.
+/// - At most one tip every ``minimumDaysBetweenTips`` days, across every tip, the sidebar's
+///   "Did you know?" card included (one shared record, `FeatureTipBudget`).
 /// - A tip about a feature the person already used never shows: the app notes each use
 ///   (``noteFeatureUsed(_:)``; the browser from `TabContentCache`, where every browser tab gets its
 ///   page), and an install that existed before tips (``settleInstall(launchedBefore:)``) counts as
@@ -23,14 +25,12 @@ public import Foundation
 public final class AgentPaneFeatureTipRecords {
     /// The browser, the feature of the Browser button's tip.
     public static let browserFeature = "browser"
-    /// The fewest days between two tips, whichever they are.
-    public static let minimumDaysBetweenTips = 14
+    /// The fewest days between two tips, whichever they are (``FeatureTipBudget``).
+    public static let minimumDaysBetweenTips = FeatureTipBudget.minimumDaysBetweenTips
     /// The most tips kept; a highlight gets a tip rarely, so this bounds a misbehaving page only.
     static let maxRecords = 256
     static let recordsKey = "agentPane.featureTips"
     static let usedKey = "agentPane.featureTips.usedFeatures"
-    static let lastShownKey = "agentPane.featureTips.lastShownAt"
-    static let installKey = "agentPane.featureTips.install"
 
     private let defaults: UserDefaults
     private let now: () -> Date
@@ -80,8 +80,7 @@ public final class AgentPaneFeatureTipRecords {
     /// and a person who has run cmux has long seen the Browser button. Only a fresh install can see
     /// the Browser tip.
     public func settleInstall(launchedBefore: Bool) {
-        guard defaults.string(forKey: Self.installKey) == nil else { return }
-        defaults.set(launchedBefore ? "existing" : "fresh", forKey: Self.installKey)
+        guard FeatureTipBudget(defaults: defaults).settleInstall(launchedBefore: launchedBefore) else { return }
         if launchedBefore { noteFeatureUsed(Self.browserFeature) }
     }
 
@@ -92,13 +91,13 @@ public final class AgentPaneFeatureTipRecords {
         if records[id] != nil { return false }
         if let feature, usedFeatures.contains(feature) { return false }
         let today = now()
-        if let last = defaults.object(forKey: Self.lastShownKey) as? Date,
-           today.timeIntervalSince(last) < Double(Self.minimumDaysBetweenTips) * 86_400 { return false }
+        let budget = FeatureTipBudget(defaults: defaults)
+        guard budget.isOpen(at: today) else { return false }
         var all = records
         guard all.count < Self.maxRecords else { return false }
         all[id] = "shown"
         defaults.set(all, forKey: Self.recordsKey)
-        defaults.set(today, forKey: Self.lastShownKey)
+        budget.spend(at: today)
         return true
     }
 
