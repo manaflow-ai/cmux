@@ -19,6 +19,7 @@ pub(crate) use super::super::unix::remove_released as remove_released_pty_lock;
 pub(crate) use super::super::unix::serve_pty_custody;
 pub(crate) use super::super::unix::{HostChild, adopt_launch, host_signals};
 mod barrier_sync;
+mod host_reaper;
 mod lease;
 mod listener;
 mod process;
