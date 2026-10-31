@@ -154,21 +154,6 @@ What Cmd-W does on a pinned tab.
 
 A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs false`.
 
-## `tabs.terminalFirst`
-
-What a new tab, split, workspace or window opens. Settings shows it as **cmux Classic Mode**.
-
-```json
-{
-  "tabs": { "terminalFirst": true }
-}
-```
-
-- `false` (default): Cmd-T and Cmd-N open the New Tab page, and a split from a browser tab, the New Tab page or an agent chat opens the New Tab page in the new pane.
-- `true`: new tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic.
-
-With it on, Cmd-T always opens a tab in the focused pane, even with `newTerminal.opensWorkspace` or `layout.newPanePlacement: split`, and a new or emptied workspace starts on a terminal instead of the New Tab page. To open the New Tab page anyway, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P); Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab. Scripts (`cmux tab new`, `cmux pane split-right`, MCP) are not affected. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.terminalFirst true`.
-
 ## `tabs.swapCmdTAndCmdN`
 
 Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
@@ -1072,7 +1057,9 @@ shows the same keys.
       "glassTintStrength": 0.35,
       "cornerRadius": "theme",
       "shadow": false,
-      "backgroundOpacity": 0
+      "backgroundOpacity": 0,
+      "height": "density",
+      "fontSize": "density"
     }
   }
 }
@@ -1119,9 +1106,20 @@ shows the same keys.
   only as far as the bar's text needs to stay readable (4.5:1 over a black or a white desktop).
   `1` makes the bar solid. An opaque window with the theme's toolbar color looks the same at any
   value.
+- `omnibar.height`: the address bar's height, `density` (default) or points from `20` to `56`.
+  `density` follows `appearance.density`: 28 pt at Compact (the default), Chrome's roomier 34 pt
+  at Comfortable, tighter at Ultra-compact and taller at Spacious; the toolbar buttons, their
+  icons and the suggestion rows follow the same density. The bar always grows to fit its text, so
+  a small height with a large `fontSize` never cuts the address off. A number outside the range
+  applies at the nearest end, with a warning.
+- `omnibar.fontSize`: the size of the address, the page-info chip's text and the suggestion rows,
+  `density` (default) or points from `10` to `24`. `density` is 14 pt at Compact and 15 pt at
+  Comfortable, and follows a custom density's `fontSize`. Out-of-range numbers are clamped like
+  `height`. Both keys apply live, like the density.
 
 Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows`, `calculator`, `showFullURLs` and the look
-keys (`glass`, `glassTint`, `glassTintStrength`, `cornerRadius`, `shadow`, `backgroundOpacity`); the search
+keys (`glass`, `glassTint`, `glassTintStrength`, `cornerRadius`, `shadow`, `backgroundOpacity`, `height`,
+`fontSize`); the search
 engine and remote suggestions decide what leaves the Mac, so only you change them.
 
 ## `agentPane.editedFiles.*`

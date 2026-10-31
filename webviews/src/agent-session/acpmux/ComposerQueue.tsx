@@ -46,7 +46,7 @@ import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
-import { ownQueue, queuedAttachments } from "./conversation/queuedMessages";
+import { lacksImageBytes, ownQueue, queuedAttachments } from "./conversation/queuedMessages";
 import { setQueueing, useQueueing } from "./queueing";
 import { AuthorChip } from "./multiplayer/Faces";
 
@@ -377,6 +377,8 @@ export function ComposerQueue({
     onCancelEdit &&
     (async (entry: QueuedEntry) => {
       const attachments = await queuedAttachments(entry.images, readImage);
+      // An image that could not be read would be lost with the row: it stays queued.
+      if (lacksImageBytes(attachments)) return;
       // Its images read, the row may have turned out to be a teammate's (or gone): then it is
       // theirs, and nothing is taken out of the queue.
       const now = drawnRows.current.find((row) => row.id === entry.id);

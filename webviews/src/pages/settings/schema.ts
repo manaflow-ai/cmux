@@ -92,7 +92,16 @@ export type PageCategory = {
   dev_only?: boolean;
 };
 
-export type PageLayout = { default_category: string; categories: PageCategory[] };
+/** A titled run of categories in the page's sidebar (Swift `SettingsPageLayout.SidebarSection`);
+ * the lead run (General, Updates) has a null title. */
+export type PageSidebarSection = { id: string; title: LocalizedText | null; categories: string[] };
+
+export type PageLayout = {
+  default_category: string;
+  categories: PageCategory[];
+  /** The sidebar's sections, every category once in category order. */
+  sidebar_sections: PageSidebarSection[];
+};
 
 type Schema = {
   rows: SchemaRow[];

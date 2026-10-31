@@ -50,7 +50,7 @@ const JOURNAL_DURABLE_WAIT_ENV: &str = "CMUX_TUI_JOURNAL_DURABLE_WAIT_MS";
 #[cfg(not(test))]
 const JOURNAL_DURABLE_WAIT_MIN: Duration = Duration::from_secs(5);
 #[cfg(not(test))]
-const JOURNAL_DURABLE_WAIT_MAX: Duration = Duration::from_secs(5 * 60);
+const JOURNAL_DURABLE_WAIT_MAX: Duration = crate::diagnostics::JOURNAL_APPEND_LONGEST_WAIT;
 const JOURNAL_COMMIT_RESULT_WAIT: Duration = Duration::from_secs(1);
 const JOURNAL_WRITER_SHUTDOWN_WAIT: Duration = Duration::from_secs(1);
 const JOURNAL_SQLITE_RETRY_SLICE: Duration = Duration::from_millis(100);

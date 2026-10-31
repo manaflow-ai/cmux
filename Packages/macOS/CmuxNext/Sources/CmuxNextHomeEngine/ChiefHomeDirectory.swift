@@ -50,16 +50,15 @@ public actor ChiefHomeDirectory {
     private var lastScan: ContinuousClock.Instant?
     private var lookups: [String: Task<OwnAcpmux?, Never>] = [:]
 
+    /// `peerApprover`: the app's approver key, which the default `ownHost` gives each home's daemon it connects.
     public init(parents: [URL], work: BackgroundWork, rescanInterval: Duration = .seconds(10),
-                environment: @escaping @Sendable (ChiefHome) -> AcpmuxEnvironment?,
-                ownHost: @escaping @Sendable (_ environment: AcpmuxEnvironment?, _ startsDaemons: Bool) -> any AgentPaneHostProviding = {
-                    AcpmuxHost(environment: $0, startsDaemons: $1)
-                }) {
+                environment: @escaping @Sendable (ChiefHome) -> AcpmuxEnvironment?, peerApprover: AgentPanePeerApprover? = nil,
+                ownHost: (@Sendable (_ environment: AcpmuxEnvironment?, _ startsDaemons: Bool) -> any AgentPaneHostProviding)? = nil) {
         self.parents = parents
         self.work = work
         self.rescanInterval = rescanInterval
         self.environment = environment
-        self.ownHost = ownHost
+        self.ownHost = ownHost ?? { AcpmuxHost(environment: $0, startsDaemons: $1, peerApprover: peerApprover) }
     }
 
     /// The directories that hold the Chief homes beside `home`: its parent, the Chief root and
@@ -77,9 +76,8 @@ public actor ChiefHomeDirectory {
         guard let own = await ownAcpmux(of: host) else { return nil }
         let home = own.home, owner = own.owner
         guard let owned = try? await work.run(.userVisible, mayBlock: .files, { Self.owned(home: home, owner: owner) }) else { return nil }
-        let tag = "optchat-chief:" + host.dropFirst(ChiefHome.tabHostPrefix.count)
         return AcpmuxChiefSessionRouter(local: fallback, chief: owned ? own.attaching : own.starting, chiefEnvironment: own.environment,
-                                        sessionsHome: own.sessionsHome, parentTag: tag)
+                                        sessionsHome: own.sessionsHome)
     }
 
     private func ownAcpmux(of host: String) async -> OwnAcpmux? {
