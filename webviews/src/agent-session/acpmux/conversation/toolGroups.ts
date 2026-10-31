@@ -5,7 +5,8 @@
 import { pathKey, type AcpmuxActivity } from "../model";
 import type { Translate } from "../i18n";
 import { isBareShellName } from "../toolPaths";
-import { acpmuxSendCall, recordedMessageBodyChangesForTool, type AcpmuxSendCall } from "./acpmuxSends";
+import { acpmuxMcpSends } from "./acpmuxMcpSends";
+import { acpmuxSendCalls, recordedMessageBodyChangesForTool, type AcpmuxSendCallPart } from "./acpmuxSends";
 import { agentMessage, messageDelivery, type AgentMessage } from "./agentMessages";
 import { dispatchCall, type DispatchCall } from "./dispatchCalls";
 import { mcpCall, mcpIsObservational, mcpKey } from "./mcpCalls";
@@ -22,8 +23,10 @@ export type ToolGroup =
   | { type: "message"; item: AcpmuxActivity; message: AgentMessage }
   /// A first-class dispatch/steer/report operation, kept visible beside folded tool work.
   | { type: "dispatch"; item: AcpmuxActivity; call: DispatchCall }
-  /// A shell `acpmux send` (acpmuxSends.ts): the sent-message row (SentMessageLine.tsx).
-  | { type: "send"; item: AcpmuxActivity; send: AcpmuxSendCall }
+  /// A message a shell `acpmux send` (acpmuxSends.ts) or the acpmux MCP send's batch, file or tag
+  /// shape (acpmuxMcpSends.ts) sent: the sent-message row (SentMessageLine.tsx). A call that sent
+  /// several (a batch) is one entry per message, all with the same `item`.
+  | { type: "send"; item: AcpmuxActivity; send: AcpmuxSendCallPart }
   /// A sub-session started, sent a message or waited on (subsessionCalls.ts), each its own card.
   | { type: "subsession"; item: AcpmuxActivity; call: SubsessionCall }
   /// Adjacent start_session calls become one disclosure row with one expandable child per session.
@@ -177,18 +180,20 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     held = [];
   };
   for (const item of mergeThoughts(items)) {
-    if (run && run.kind !== "edits" && isThought(item)) {
-      held.push(item);
-      continue;
-    }
+    // A thought inside an open run of commands, reads or searches waits in `held` for the run's
+    // next call; any other thought (none open, or an edits run) closes what is open and waits in
+    // `lead` to open the next run.
     if (isThought(item)) {
-      close(true);
-      lead.push(item);
+      if (run && run.kind !== "edits") held.push(item);
+      else {
+        close(true);
+        lead.push(item);
+      }
       continue;
     }
     const tool = item.tool;
     const dispatch = tool ? dispatchCall(item) : undefined;
-    let send = tool && !dispatch ? acpmuxSendCall(tool, messageFiles) : undefined;
+    let send = tool && !dispatch ? acpmuxSendCalls(tool, messageFiles) : undefined;
     if (send && messageFiles.size) {
       const startsAt = tool?.startedAt;
       const ordered =
@@ -196,9 +201,10 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       if (!ordered) {
         messageFiles.clear();
         messageFileEndedAt.clear();
-        send = tool && !dispatch ? acpmuxSendCall(tool) : undefined;
+        send = tool && !dispatch ? acpmuxSendCalls(tool) : undefined;
       }
     }
+    if (!send && tool && !dispatch) send = acpmuxMcpSends(tool);
     const message = tool && !dispatch && !send ? agentMessage(tool) : undefined;
     const named = tool && !dispatch && !send && !message ? mcpCall(tool) : undefined;
     const subsession = named && subsessionCall(tool!, named);
@@ -316,7 +322,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     }
     flushLead();
     if (dispatch) groups.push({ type: "dispatch", item, call: dispatch });
-    else if (send) groups.push({ type: "send", item, send });
+    else if (send) for (const part of send) groups.push({ type: "send", item, send: part });
     else if (message) groups.push({ type: "message", item, message });
     else if (subsession) groups.push({ type: "subsession", item, call: subsession });
     else if (key) mcp = { key, items: [item] };
