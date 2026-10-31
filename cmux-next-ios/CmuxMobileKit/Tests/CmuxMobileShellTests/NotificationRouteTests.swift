@@ -24,7 +24,8 @@ import UserNotifications
     }
 
     @Test func chiefOpensChief() {
-        #expect(decide(NotificationRoute(kind: "chief", mac: "m", conversationID: "home")) == .chief)
+        #expect(decide(NotificationRoute(kind: "chief", mac: "m", conversationID: "home")) == .chief(conversationID: "home"))
+        #expect(decide(NotificationRoute(kind: "chief", mac: "m")) == .chief(conversationID: nil))
     }
 
     @Test func anAgentEventOpensItsChat() {
