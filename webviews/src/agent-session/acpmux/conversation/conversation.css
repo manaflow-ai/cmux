@@ -2402,6 +2402,33 @@ pre.cv-math-source {
   margin-left: 6px;
   font-variant-numeric: tabular-nums;
 }
+/* A group row's totals (EditCounts.tsx) come right after its summary, as Claude Code desktop puts
+   them (Leo 2026-10-30: "i like claude code they put the number overarching too"): the summary
+   cuts with an ellipsis and the totals and a failed count stay whole. */
+.cv-tool__text.has-counts {
+  display: flex;
+  align-items: baseline;
+  text-overflow: clip;
+}
+.cv-tool__text.has-counts > .cv-tool__summary {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-tool__text.has-counts > :is(.cv-tool__counts, .cv-tool__failed) {
+  flex: none;
+}
+.cv-tool__text.has-counts > .cv-tool__failed {
+  margin-left: 0.3em;
+}
+.cv-tool__text.has-counts > .cv-tool-error__inline {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* A written file's name (WriteLabel.tsx): it opens the file, so it underlines under the pointer. */
 .cv-tool__file.is-link {
   cursor: default;
