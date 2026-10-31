@@ -93,7 +93,8 @@ struct BrowserCallerTarget: Sendable, Equatable {
             guard let selected = pane.selectedTabID else { continue }
             if let tab = pane.tabs.first(where: { $0.id == selected }), isBrowser(tab) { return found(tab, screen, pane) }
             // A mirrored tab is reported where it lives, so its path names its own pane.
-            if pane.mirroredTabIDs.contains(selected), var shown = locate(selected, in: topology), isBrowser(shown.tab) {
+            if pane.mirroredTabIDs.contains(selected),
+               var shown = locate(selected, sessionID: workspace.sessionID, in: topology), isBrowser(shown.tab) {
                 shown.shownIn = pane
                 return shown
             }
@@ -104,18 +105,20 @@ struct BrowserCallerTarget: Sendable, Equatable {
         return nil
     }
 
-    /// The tab `id` with the workspace, screen and pane it lives in.
-    private static func locate(_ id: String, in topology: ControlTopology) -> Self? {
-        for workspace in topology.workspaces {
+    /// The unique tab `id` in the caller's session, with its owning workspace, screen and pane.
+    private static func locate(_ id: String, sessionID: String?, in topology: ControlTopology) -> Self? {
+        var found: Self?
+        for workspace in topology.workspaces where workspace.sessionID == sessionID {
             for screen in workspace.screens {
                 for pane in screen.panes {
-                    if let tab = pane.tabs.first(where: { $0.id == id }) {
-                        return Self(workspace: workspace, screen: screen, pane: pane, tab: tab, shownIn: pane.selectedTabID == id ? pane : nil)
+                    for tab in pane.tabs where tab.id == id {
+                        guard found == nil else { return nil }
+                        found = Self(workspace: workspace, screen: screen, pane: pane, tab: tab, shownIn: pane.selectedTabID == id ? pane : nil)
                     }
                 }
             }
         }
-        return nil
+        return found
     }
 
     /// A browser tab the app shows a web page in (an internal page such as the Home chat is not one).
