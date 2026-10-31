@@ -9,7 +9,10 @@ members = ["crates/cmux-vm", "crates/cmux-vm-client", "crates/cmux-vm-codegen"]
 edition = "2024"
 license = "GPL-3.0-or-later"
 publish = false
-rust-version = "1.95"
+# The cmux CLI links these crates in process, so they keep its minimum Rust
+# (cmux-tui/Cargo.toml, checked by cmux-tui.yml's MSRV job), not the newer
+# toolchain both workspaces build with.
+rust-version = "1.91"
 
 [workspace.dependencies]
 # Code generator. Pinned exactly: a generator upgrade changes the checked-in
