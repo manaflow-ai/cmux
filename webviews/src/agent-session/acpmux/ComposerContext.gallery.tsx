@@ -631,35 +631,6 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
     },
-    // TEMPORARY (removed before review): base's behaviour, This Mac titled with the chat's Cloud machine.
-    "environment-picker-cloud-chat-before": {
-      // The whole list, down to the Cloud section, past the entry's 180px stage.
-      height: 420,
-      note: "Before: This Mac titled with the Cloud machine the chat was seeded onto (the host's machineName), and this Mac missing.",
-      props: {
-        ...baseProps,
-        environments: true,
-        summary: { sessionId: "", harness: "claude", host: "kind-aqua-sandpiper", hostKind: "cloud" as const },
-        sessions: [
-          {
-            sessionId: "gallery-sandpiper",
-            displayTitle: "Set up the repo",
-            cwd: "/root/work",
-            host: "kind-aqua-sandpiper",
-            hostKind: "cloud" as const,
-            updatedAt: 0,
-          },
-        ],
-        peers: ["gpu-box"],
-        peerKinds: { "gpu-box": "ssh" },
-        peerConnected: { "gpu-box": true },
-        localName: "kind-aqua-sandpiper",
-      },
-      play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
-      },
-    },
     "environment-picker-sandboxed-option": {
       note: "Labs (hq#3367): Sandboxed is New Cloud Machine's other face, with no row of its own. Holding ⌥ while the list is open shows it, as a Mac menu's alternate: a pick runs the new chat's first message once on a throwaway Cloud VM.",
       props: {
