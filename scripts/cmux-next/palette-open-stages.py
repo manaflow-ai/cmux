@@ -16,7 +16,14 @@ main-thread stall during the open (`debug.hangs`). Builds without the input stag
 
 The budget: a warm open commits within one 60 Hz frame (key p90 <= 16 ms).
 
+--search-keys WORD times typed keys on Search instead (palette-key, PaletteModel.search): from the terminal tab it
+opens Search (Cmd-Shift-A) --rounds times and types WORD one key at a time through `debug.key` (target palette).
+Per key: rpc_ms, the synchronous `debug.key` round trip (the main thread's whole handling of the key, its search()
+turn included), and the longest main-thread stall while the word is typed (`debug.hangs`). Budget: key p95 <= 4 ms
+(the `// perf-hot: 4ms palette-key` budget of PaletteModel.search) is reported, never gated.
+
 Usage: palette-open-stages.py --tag <tag> --app PATH [--rounds 10] [--interval 0.35] [--out DIR] [--json PATH]
+                              [--search-keys WORD]
 """
 import argparse, glob, json, os, re, signal, socket, statistics, subprocess, sys, tempfile, time
 
@@ -32,6 +39,7 @@ parser.add_argument("--budget-ms", type=float, default=16.0)
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json", help="write the samples here")
 parser.add_argument("--no-gate", action="store_true", help="report only; exit 0 when every open was timed")
+parser.add_argument("--search-keys", help="time typed keys of this word on Search (Cmd-Shift-A), not palette opens")
 opts = parser.parse_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
@@ -152,6 +160,46 @@ def one_open(params):
     return sample, reply
 
 
+def search_typing(word):
+    """Opens Search and types WORD a key at a time: each key's debug.key round trip (ms) and the typing's longest stall."""
+    rpc("debug.key", {"key": "a", "modifiers": ["command", "shift"]})
+    time.sleep(opts.interval)  # test harness: Search opens and its first rows land
+    rpc("debug.hangs", {"clear": True})
+    keys = []
+    for char in word:
+        started = time.monotonic()
+        rpc("debug.key", {"key": "space" if char == " " else char, "target": "palette"})
+        keys.append(round((time.monotonic() - started) * 1000, 3))
+        time.sleep(0.12)  # test harness: a typing pace; the key's rank and answers land between keys
+    hangs = rpc("debug.hangs") or {}
+    closed = rpc("debug.key", {"key": "escape", "target": "palette"})
+    if isinstance(closed, dict) and closed.get("error"):
+        rpc("debug.key", {"key": "escape"})
+    rpc("debug.key", {"key": "escape", "target": "palette"})
+    time.sleep(0.25)  # test harness: the close animation ends before the next open
+    return keys, hangs.get("max_ms")
+
+
+def search_report(word):
+    print(f"\n== Search typed keys: {word!r}, {opts.rounds} rounds", flush=True)
+    search_typing(word)  # warm
+    keys, stalls = [], []
+    for _ in range(opts.rounds):
+        times, stall = search_typing(word)
+        keys += times
+        if stall is not None:
+            stalls.append(stall)
+    if not keys:
+        row("Search typed keys", "keys timed", "none", False)
+        return {}
+    line = {"n": len(keys), "p50": round(pct(keys, 0.5), 3), "p95": round(pct(keys, 0.95), 3), "max": round(max(keys), 3),
+            "stall_max_ms": max(stalls) if stalls else None}
+    print(f"  Search key rpc ms: n={line['n']} p50={line['p50']} p95={line['p95']} max={line['max']} "
+          f"stall_max={line['stall_max_ms']}", flush=True)
+    row("Search typed keys", "key rpc p95 <= 4 ms (report only)", f"p95 {line['p95']} ms, {line['n']} keys", True)
+    return {"table": line, "samples": keys, "stalls": stalls}
+
+
 def summarize(label, samples):
     line = {}
     for stage in STAGES:
@@ -224,6 +272,12 @@ def main():
         row("setup", "a focused terminal", json.dumps(panes())[:400], False)
         return
     time.sleep(2)  # test harness: shell prompt
+    if opts.search_keys:
+        report = {"tag": TAG, "search_keys": search_report(opts.search_keys)}
+        if opts.json:
+            with open(opts.json, "w") as handle:
+                json.dump(report, handle, indent=1)
+        return
     page = os.path.join(SCRATCH, "page.html")
     open(page, "w").write("<!doctype html><title>palette page</title><body style='background:#2980b9;color:white;font:40px "
                           "-apple-system'><input autofocus>" + "<p>palette page row</p>" * 60)
