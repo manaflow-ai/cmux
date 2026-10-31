@@ -230,6 +230,9 @@ const liveSubagentRows = [
   }),
 ];
 
+/// A record from before acpmux reported subagents: Claude's Task tool as a titled `think` call.
+const legacySubagentRows = [...rows, activity([tool("Audit the retry callers", "think", "in_progress")], 2)];
+
 const background = (list: InspectorProcess[]) => ({
   processes: list,
   listed: true,
@@ -250,6 +253,10 @@ export default componentEntry<Props>({
     "popover-environment": {
       note: "The toolbar popover begins with Environment and keeps activity counts in Subagents, without a title row.",
       props: { popover: true, rows, background: background(processes), sessions: { list: sessions, onOpen: none } },
+    },
+    "popover-legacy-subagents": {
+      note: "An older record's Task-tool subagent beside a running command: the popover lists Subagents once.",
+      props: { popover: true, rows: legacySubagentRows, background: background(processes.slice(0, 2)) },
     },
     "popover-subagents": {
       note: "A narrow pane's popover with live subagents: Environment first, and the Subagents title still opens the Subagents tab.",

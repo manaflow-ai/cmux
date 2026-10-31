@@ -218,6 +218,8 @@ export function SummaryCard({
   const foldLabel = card.collapsed ? t("summary.expand") : t("summary.collapse");
   const onSubagents = tab === "subagents";
   const hasSubagents = agents.length > 0 || children.length > 0 || subsessionRows.length > 0;
+  // SummaryBody draws its own Subagents fallback only when the list above is not on screen.
+  const subagentList = hasSubagents || (!card.column && counts.length > 0);
   return (
     <>
       <aside
@@ -335,7 +337,7 @@ export function SummaryCard({
               </section>
             )}
             {/* The subagents, sub-sessions and started chats first: they are what the card follows while a turn runs. */}
-            {(hasSubagents || (!card.column && counts.length > 0)) && (
+            {subagentList && (
               <SubagentStatusList
                 agents={agents}
                 counts={!card.column ? counts.join(" · ") : undefined}
@@ -363,7 +365,7 @@ export function SummaryCard({
                 }}
                 changes={changes}
                 onOpenChanges={onOpenChanges}
-                subagents={hasSubagents ? <></> : undefined}
+                subagents={subagentList ? <></> : undefined}
                 onOpenOutput={onOpenOutput}
                 onAttach={onAttach}
                 tools={tools}

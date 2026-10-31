@@ -284,6 +284,46 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
       await page.close();
     }
   });
+  test("an older record's Task-tool subagent beside a running command lists Subagents once", async () => {
+    const page = await browser.newPage({ viewport: { width: 480, height: 720 }, reducedMotion: "reduce" });
+    try {
+      const port = (server.httpServer!.address() as { port: number }).port;
+      await page.goto(
+        `http://127.0.0.1:${port}${galleryFrame("agent-pane.summary-card", { variant: "popover-legacy-subagents" })}`,
+      );
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      const panel = page.locator('.acpmux-summary-card[data-placement="popover"]');
+      await panel.waitFor();
+      const titles = await panel.locator("h3").allTextContents();
+      expect(titles.filter((title) => title.startsWith("Subagents"))).toHaveLength(1);
+      expect(await panel.getByText("Audit the retry callers").count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+  // One Stop per running task read as a column of repeated controls: it shows for the task under
+  // the pointer and stays hidden on the others.
+  test("a running task's Stop shows only for the task under the pointer", async () => {
+    const page = await browser.newPage({ viewport: { width: 480, height: 720 }, reducedMotion: "reduce" });
+    try {
+      const port = (server.httpServer!.address() as { port: number }).port;
+      await page.goto(
+        `http://127.0.0.1:${port}${galleryFrame("agent-pane.summary-card", { variant: "popover-environment" })}`,
+      );
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      const stops = page.locator(".acpmux-summary-task > .acpmux-chat-inspector-stop");
+      expect(await stops.count()).toBeGreaterThan(1);
+      const opacities = () => stops.evaluateAll((all) => all.map((stop) => getComputedStyle(stop).opacity));
+      await page.mouse.move(0, 0);
+      expect(new Set(await opacities())).toEqual(new Set(["0"]));
+      await page.locator(".acpmux-summary-task").first().hover();
+      const shown = await opacities();
+      expect(shown[0]).toBe("1");
+      expect(shown.slice(1).every((opacity) => opacity === "0")).toBe(true);
+    } finally {
+      await page.close();
+    }
+  });
   // The Subagents title opens the Subagents tab in both placements: beside a wide chat (inline
   // column) and over a narrow one (popover, which has no title row of its own).
   for (const [placement, variant, width] of [
