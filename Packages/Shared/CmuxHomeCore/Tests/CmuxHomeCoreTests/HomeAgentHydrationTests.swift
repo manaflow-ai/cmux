@@ -4,6 +4,45 @@ import CmuxHomeCoreTestSupport
 @testable import CmuxHomeCore
 
 @MainActor struct HomeAgentHydrationTests {
+    @Test func aThreeHundredReportHistoryPageInvalidatesOnceAndRetainsEveryResult() async throws {
+        let source = DeferredAgentSnapshotSource()
+        let store = HomeStore(source: source)
+        store.start()
+        defer { store.stop() }
+        await waitUntil { store.isOnline && !store.rows.isEmpty }
+        let conversation = ConversationID("conv_aziz")
+        await store.open(conversation)
+        await waitUntil { store.agentMessageReads[conversation] == nil }
+        let question = try #require(store.transcript(for: conversation).first?.messageID)
+        let chief = ParticipantID("agent_mux")
+        let reports: [HomeAgentRun] = (0..<300).map { index in
+            .init(conversation: conversation, id: "reports:\(index)", author: chief, turn: nil,
+                  answers: [question], revision: 1, messages: [
+                    .init(id: "report:a\(index):1", sequence: 1, revision: 1,
+                          peer: "a\(index)", outgoing: false, text: "Result \(index)",
+                          date: Date(timeIntervalSince1970: 100))
+                  ])
+        }
+        await source.prepare(reports, deferred: false)
+        let baseline = store.transcriptVersion[conversation, default: 0]
+        store.requestAgentMessages(conversation)
+        let read = try #require(store.agentMessageReads[conversation])
+        await read.value
+
+        #expect(store.transcriptVersion[conversation, default: 0] == baseline + 1)
+        let rows = store.transcript(for: conversation).filter(\.isReadOnly)
+        #expect(rows.count == 300)
+        #expect(Set(rows.map(\.plainText)).count == 300)
+        #expect(rows.contains { $0.plainText.contains("Result 299") })
+
+        // Replaying the same snapshot must leave the visible transcript unchanged.
+        await source.prepare(reports, deferred: false)
+        store.requestAgentMessages(conversation)
+        let replay = try #require(store.agentMessageReads[conversation])
+        await replay.value
+        #expect(store.transcriptVersion[conversation, default: 0] == baseline + 1)
+    }
+
     @Test func deferredCloudSnapshotPreservesLiveRefusalAndFillsMissingSteps() async throws {
         let source = DeferredAgentSnapshotSource()
         let store = HomeStore(source: source)
