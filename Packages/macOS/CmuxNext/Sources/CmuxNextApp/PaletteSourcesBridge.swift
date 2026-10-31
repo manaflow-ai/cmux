@@ -203,9 +203,9 @@ enum PaletteSourcesBridge {
 
 extension AgentChatDestinations {
     init(services: AppServices) {
-        let host = services.agentTabs.host
+        let (host, machines) = (services.agentTabs.host, services.agentTabs.cloudMachines)
         self.init(localTitle: WorkspaceVerbStrings.thisMac, peers: { try await host.chatPeers() }, cloud: {
-            await AgentPaneCloudMachines.shared.list?() ?? .init(signedIn: false, loaded: false, machines: [])
+            await machines.list?() ?? .init(signedIn: false, loaded: false, machines: [])
         })
     }
 }
