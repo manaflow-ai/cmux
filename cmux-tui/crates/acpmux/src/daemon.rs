@@ -674,6 +674,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    // A home loss must request forced agent cleanup before the shutdown fence refuses changes
+    // to the plan. A restart handoff keeps durable provider retries for the next daemon.
+    recheck_home();
+    let home_lost = crate::config::home_lost();
+    if home_lost {
+        let _ = hub.end_agents_at_shutdown(Default::default());
+    }
+    // Fence automatic continuations before any transport or metadata drain can yield to them.
+    hub.begin_shutdown();
     // Fence tailnet supervision first: its ingress then ends through the
     // WebSocket shutdown below (1012 on restart), never as a listener failure.
     // A supervisor action under way finishes first, within its own bounds.
@@ -682,11 +691,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Its home is gone (`daemon/home_watch.rs`): no later daemon can adopt its agents from
     // there, so they end; and this shutdown removes nothing at the old paths, which may be
     // another daemon's now (`config::mark_home_lost` refuses its writes there).
-    recheck_home();
-    let home_lost = crate::config::home_lost();
-    if home_lost {
-        let _ = hub.end_agents_at_shutdown(Default::default());
-    }
     startup.abort();
     let _ = startup.await;
     // Its last heartbeat empties this daemon's rows in the hub's address book.
@@ -695,7 +699,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     // SIGTERM handoff and explicit updates/restarts use 1012. Explicit ordinary RPC
     // shutdown and interactive interrupt use a normal WebSocket close.
-    if hub.restart_requested.swap(false, std::sync::atomic::Ordering::SeqCst) {
+    let restarting = hub.restart_requested.load(std::sync::atomic::Ordering::SeqCst);
+    if restarting {
         ws_shutdown.restart();
     } else {
         ws_shutdown.normal_shutdown();
@@ -746,7 +751,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         // A signal can arrive while metadata loads. Snapshot every stored session before
         // detaching or ending hosts. A timeout conservatively keeps their router below.
         let _ = metadata.await;
-        hub.shutdown_all().await
+        if restarting {
+            hub.shutdown_all_with_auto_resume(true).await
+        } else {
+            hub.shutdown_all().await
+        }
     })
     .await
     {
@@ -754,6 +763,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         Err(_) => {
             tracing::warn!("agents did not stop within {SHUTDOWN_BUDGET:?}; exiting anyway");
             hub.flush();
+            // As a shutdown that ends in time (`Hub::shutdown_all`): no write after this one.
+            hub.seal();
             usize::MAX
         }
     };

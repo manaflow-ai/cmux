@@ -4,6 +4,7 @@ import Metal
 import QuartzCore
 import Testing
 import CmuxNextDesignTokens
+import CmuxNextTestSupport
 
 /// `cmux window|pane|tab screenshot` reads the app's own window without the
 /// Screen Recording grant (`NSWindow.screenshotImage`). The window here has
@@ -12,7 +13,7 @@ import CmuxNextDesignTokens
 /// be the window's full pixel size and show both colors, Metal included, not
 /// a blank or covered image. Each capture path is checked on its own, so a
 /// red run says which one gives real Metal pixels.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct WindowScreenshotTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(1))) struct WindowScreenshotTests {
     /// A layer-hosting view whose CAMetalLayer is cleared to red once.
     private final class MetalView: NSView {
         let metal = CAMetalLayer()

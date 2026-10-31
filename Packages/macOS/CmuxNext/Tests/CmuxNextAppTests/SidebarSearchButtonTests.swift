@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The sidebar's Search button (plans/cmux-next/sidebar-search.md; Lawrence 2026-10-20: "in sidebar
 /// bottom left we should add a search icon button for search"): a magnifying glass at the footer row's
 /// right end (Lawrence 2026-10-27), the profile avatar at its left, a full hit target, labeled for VoiceOver, that hands its own view
 /// to the App as the palette's anchor. `sidebar.showSearchButton` off hides it.
-@MainActor @Suite(.serialized) struct SidebarSearchButtonTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarSearchButtonTests {
     struct Harness {
         let model: SidebarModel
         let design: DesignSettings

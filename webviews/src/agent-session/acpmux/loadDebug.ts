@@ -1,3 +1,4 @@
+import { userScrollIntent } from "./conversation/userScroll";
 // `debug.agent_pane load_seed` and `load_run`: the chat under load, through the real client.
 // load_seed records a session of thousands of heavy turns (loadFixture.ts) in the mock daemon
 // and opens it, so the whole transcript comes in through attach, the reducer and the snapshot
@@ -116,6 +117,7 @@ export async function loadRun(
   const seconds = Math.max(1, options.seconds ?? 8);
   const speed = Math.max(0, options.scroll_speed ?? 3000);
   const depth = Math.max(0.5, options.scroll_depth ?? 40);
+  const requested = userScrollIntent(scroller).request();
   scroller.scrollTop = scroller.scrollHeight;
   const warmup: number[] = [];
   for (let index = 0; index < 30; index += 1) warmup.push(await frame());
@@ -156,7 +158,7 @@ export async function loadRun(
       }
     }
     previous = now;
-    if (!streamDone) scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight - offset;
+    if (!streamDone && requested()) scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight - offset;
     const blankNow = isBlank(acpmuxPerf.mounted, scroller.scrollTop, scroller.clientHeight, scroller.scrollHeight);
     if (blankNow) blank += 1;
     acpmuxPerf.markFrame(now, blankNow);

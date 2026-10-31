@@ -11,6 +11,7 @@ import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, u
 import { flushSync } from "react-dom";
 import { type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
+import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { useRailPlacement } from "./useRailPlacement";
 import { usePromptMarks } from "./promptMarks";
@@ -79,6 +80,7 @@ function keyboardFocused(node: HTMLElement): boolean {
 }
 
 type Jump = "click" | "step" | "scrub" | "bookmark";
+const EMPTY_EARLIER: readonly AcpmuxRow[] = [];
 
 /// A row the rail's state names: the index the state holds for it, and its prompt's key.
 type KeyedRow = { index: number; key: string };
@@ -120,6 +122,8 @@ const bubbleOf = (row: HTMLElement | undefined) => row?.querySelector<HTMLElemen
 
 export function ThreadMinimap({
   rows,
+  earlier = EMPTY_EARLIER,
+  loadThrough,
   sessionId,
   layout,
   scroller,
@@ -133,6 +137,9 @@ export function ThreadMinimap({
   change,
 }: {
   rows: readonly AcpmuxRow[];
+  /// The chat's prompts older than `rows` (VirtualTranscript `earlier`): ticks from the first frame.
+  earlier?: readonly AcpmuxRow[];
+  loadThrough?: (seq: number) => Promise<void>;
   sessionId?: string;
   layout: ConversationLayout;
   scroller: React.RefObject<HTMLElement | null>;
@@ -153,6 +160,7 @@ export function ThreadMinimap({
   change?: RowsChange;
 }) {
   const t = useT();
+  const earlierRows = earlier;
   /// The full-height map (ScrollMap.tsx), the compact Codex rail below, or none (`off`: the turn
   /// steps below still run), read once per pane. The Chat Minimap setting
   /// (`agentPane.display.minimap`) wins when set, live.
@@ -170,11 +178,16 @@ export function ThreadMinimap({
   const lastTurns = useRef<MinimapTurns | undefined>(undefined);
   // Every streamed token is a new `rows`: `turns` then changes with the live reply (the card reads
   // it), while `ticks` stays as long as the prompts do, so the tick list below renders nothing.
-  const read = useMemo(() => minimapTurns(rows, sessionId, lastTurns.current, change), [rows, sessionId, change]);
+  const read = useMemo(
+    () => minimapTurns(rows, sessionId, lastTurns.current, change, earlierRows),
+    [rows, sessionId, change, earlierRows],
+  );
   useLayoutEffect(() => {
     lastTurns.current = read;
   }, [read]);
   const { turns, ticks } = read;
+  const loadedTurns = read.loadedTurns ?? turns.filter((turn) => turn.index >= 0);
+  const loadedStart = read.loadedStart ?? 0;
   /// The row under the pointer, or the one a scrub is on.
   const [hovered, setHovered] = useState<number | undefined>(undefined);
   /// When the pane is too narrow for the rail beside the text, the edge strip can reveal it over the
@@ -289,7 +302,7 @@ export function ThreadMinimap({
     restoring.current = { from: seen, by: (layout.tops[anchored.index] ?? 0) - anchor.current!.layoutTop };
   const shift = restoring.current && restoring.current.from === seen ? restoring.current.by : 0;
   const top = (seen ?? scrollTop) + shift;
-  const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight);
+  const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight, loadedStart);
   /// Never shorter than the prompts on screen, so the band always draws whole (model.ts railHeight).
   const height = railHeight(
     turns.length,
@@ -330,6 +343,7 @@ export function ThreadMinimap({
     sessionId,
     shown,
     hovered,
+    loadedStart,
   });
   useLayoutEffect(() => {
     live.current = {
@@ -343,6 +357,7 @@ export function ThreadMinimap({
       sessionId,
       shown,
       hovered,
+      loadedStart,
     };
   });
 
@@ -353,11 +368,11 @@ export function ThreadMinimap({
     if (!node) return;
     const scrolled = () => {
       const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
-      domTop.current = { sessionId: session, top: node.scrollTop };
+      domTop.current = { sessionId: session, top: layoutScrollTop(node) };
       restoring.current = undefined;
       // The full-height map moves its own bar; no band to draw here.
       if (!live.current.shown) return;
-      const next = visibleTurns(all, tops, total, node.scrollTop, height);
+      const next = visibleTurns(all, tops, total, layoutScrollTop(node), height, live.current.loadedStart);
       // Synchronously: a scroll event or a motion's frame callback is outside React's batch, which
       // would draw the band after this frame paints. Only a scroll that moves the band renders.
       if (next.first !== drawn.first || next.last !== drawn.last) flushSync(() => setBandMoves((count) => count + 1));
@@ -397,10 +412,10 @@ export function ThreadMinimap({
       const node = scroller.current;
       if (!node) return;
       const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
-      domTop.current = { sessionId: session, top: node.scrollTop };
+      domTop.current = { sessionId: session, top: layoutScrollTop(node) };
       restoring.current = undefined;
       if (!live.current.shown) return;
-      const next = visibleTurns(all, tops, total, node.scrollTop, height);
+      const next = visibleTurns(all, tops, total, layoutScrollTop(node), height, live.current.loadedStart);
       if (next.first !== drawn.first || next.last !== drawn.last) setBandMoves((count) => count + 1);
     };
     return () => {
@@ -424,12 +439,33 @@ export function ThreadMinimap({
   /// lands at once when its row is not drawn, or under Reduce Motion. It lands the top of the
   /// prompt's row (its sent images, else its bubble) LANDING_OFFSET down. A click or a bookmark jump
   /// flashes the prompt's bubble where it lands. Returns where the scroll goes.
+  /// A click on a prompt not loaded yet: the jump that runs once its row is held, in that chat.
+  const waiting = useRef<{ id: string; how: Jump; sessionId?: string } | undefined>(undefined);
+  const loadThroughNow = useRef(loadThrough);
+  loadThroughNow.current = loadThrough;
   const [jump] = useState(() => (index: number, how: Jump): number | undefined => {
     const node = scroller.current;
     const turn = live.current.turns[index];
     if (!node || !turn) return undefined;
+    if (turn.index < 0) {
+      const seq = Number(turn.id.slice(turn.id.indexOf("-") + 1));
+      const load = loadThroughNow.current;
+      if (!Number.isFinite(seq) || !load) return undefined;
+      const pending = { id: turn.id, how, sessionId: live.current.sessionId };
+      waiting.current = pending;
+      void load(seq).then(
+        () => undefined,
+        () => {
+          if (waiting.current === pending) waiting.current = undefined;
+        },
+      );
+      return undefined;
+    }
     const target = () =>
-      Math.min(turnScrollTop(turn, live.current.tops), Math.max(0, live.current.total - node.clientHeight));
+      physicalScrollTop(
+        node,
+        Math.min(turnScrollTop(turn, live.current.tops), Math.max(0, live.current.total - node.clientHeight)),
+      );
     let row = mountedRow(node, turn.id);
     // Keep the mounted target through the settle. Virtualization may replace it, so a stale
     // element is looked up again; ordinary frames never scan all mounted transcript rows.
@@ -455,13 +491,15 @@ export function ThreadMinimap({
           return box.top - node.getBoundingClientRect().top - LANDING_OFFSET;
         },
         SETTLE_FRAMES,
+        { explicit: true },
       );
     if (how === "scrub" || how === "click" || !row || reducedMotion()) {
       stopScroll(node);
       node.scrollTop = to;
       if (how !== "scrub") settle();
-    } else if (how === "step") animateScroll(node, target, STEP_MS, STEP_CURVE, settle);
-    else animateScroll(node, target, jumpDuration(to - node.scrollTop), JUMP_CURVE, settle);
+    } else if (how === "step") animateScroll(node, target, STEP_MS, STEP_CURVE, settle, undefined, { explicit: true });
+    else
+      animateScroll(node, target, jumpDuration(to - node.scrollTop), JUMP_CURVE, settle, undefined, { explicit: true });
     if (how === "click" || how === "bookmark") {
       if (row) highlightBubble(bubbleOf(row));
       // An unmounted row mounts once the transcript draws its new place.
@@ -469,6 +507,18 @@ export function ThreadMinimap({
     }
     return to;
   });
+  useLayoutEffect(() => {
+    const pending = waiting.current;
+    if (!pending) return;
+    if (pending.sessionId !== sessionId) {
+      waiting.current = undefined;
+      return;
+    }
+    const index = turns.findIndex((turn) => turn.id === pending.id && turn.index >= 0);
+    if (index < 0) return;
+    waiting.current = undefined;
+    jump(index, pending.how);
+  }, [turns, jump, sessionId]);
 
   // Previous Turn and Next Turn (the app's Ctrl-Opt-Up and Ctrl-Opt-Down) and Previous and Next
   // Bookmarked Prompt (palette actions) are bridge commands that raise these events. They work
@@ -486,7 +536,7 @@ export function ThreadMinimap({
       if (!node || !all.length) return undefined;
       const stepping =
         pending.tick !== undefined && performance.now() < pending.until ? tickIndex(keys, pending.tick) : -1;
-      const top = Math.min(node.scrollTop, Math.max(0, total - node.clientHeight));
+      const top = Math.min(layoutScrollTop(node), Math.max(0, total - node.clientHeight));
       let reading = 0;
       if (stepping >= 0) reading = stepping;
       else
@@ -794,7 +844,7 @@ export function ThreadMinimap({
     return (
       <ScrollMap
         rows={rows}
-        turns={turns}
+        turns={loadedTurns}
         layout={layout}
         scroller={scroller}
         viewportHeight={viewportHeight}
@@ -934,8 +984,17 @@ export function ThreadMinimap({
             }}
             onScroll={(event) => {
               listOffset.current = event.currentTarget.scrollTop;
-              setListTop(listOffset.current);
-              followPointer(event.currentTarget);
+              // Committed in the scroll event, before the frame paints: a scroll is a continuous
+              // event, whose update React renders in a task after the frame, so the frame showed the
+              // list at its new offset with the rows of the old one (blank at the edge it scrolled
+              // toward on a fast wheel, Leo 2026-10-31: "it can flicker and disapper at the edges").
+              // The row under a still pointer (and so the card's row) moves in the same commit, so the
+              // card never shows its old row at the list's new offset.
+              const node = event.currentTarget;
+              flushSync(() => {
+                setListTop(listOffset.current);
+                followPointer(node);
+              });
             }}
             onPointerOver={(event) => {
               pointerY.current = event.clientY;

@@ -97,7 +97,15 @@ extension HostView {
     }
 
     /// The edge shadow shows only while rows sit above the cut (scrolled up from the oldest row).
+    /// The glass band likewise shows only while a row is under it: at rest the avatar and the name
+    /// pill sit on the chat's own colour, so the header is the same veil as the rest of Home (the
+    /// user, 2026-10-31: "chief header bg needs to be same as rest of the bgs"; the band was a
+    /// lighter strip even with nothing under it), and the glass comes in as a row scrolls up.
     func updateTopFadeScrollEdge() {
+        if let headerGlass {
+            let under = demo.map { $0.windowY(contentY: $0.layout.rowsTop) < HeaderGlassView.height } ?? false
+            if headerGlass.isHidden == under { headerGlass.isHidden = !under }
+        }
         guard let topFadeView, topFadeView.style == .edgeShadow, let demo else { return }
         let oldestRowY = demo.windowY(contentY: demo.layout.rowsTop)
         topFadeView.setScrolledUnder(oldestRowY < HomeTopFadeView.pillBottom - 0.5)

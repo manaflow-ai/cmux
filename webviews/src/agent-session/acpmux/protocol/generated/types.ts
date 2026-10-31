@@ -181,6 +181,11 @@ export interface EventsParams {
   /** Default 5000. */
   limit?: (number | null);
   maxBytes?: (number | null);
+  /**
+   * Every prompt before `beforeSeq`, oldest first, each cut to its id and the start of its text,
+   * in one reply (`Hub::prompt_index`): `kinds`, `limit` and `maxBytes` are not read.
+   */
+  promptIndex?: (boolean | null);
   sessionId: string;
 }
 
@@ -604,6 +609,8 @@ export type QueuedImage = {
   mimeType: string;
   /** Its file name, when the client gave one. */
   name: (string | null);
+  /** The app it came from (`{name, bundleId?, site?}`), as the prompt's display metadata named it. Absent otherwise. */
+  source?: unknown;
 } & Record<string, unknown>;
 
 /** A prompt waiting for the running turn to end. */
@@ -651,7 +658,24 @@ export type QueuedPromptSummary = {
   prompt: string;
   promptId: string;
   queuedAt: number;
+  /**
+   * acpmux's own ask that the chat's agent resume a subagent that failed on a transient error
+   * (`_meta.provenance` `subagent_retry`, `hub/subagent_retry.rs`): an app draws it as that
+   * subagent's resume, not as the person's prompt. Null for any other prompt, and once edited
+   * (an edit drops the provenance).
+   */
+  subagentRetry: (QueuedSubagentRetry | null);
   turnId: string;
+} & Record<string, unknown>;
+
+/** The subagent a queued resume asks the agent to resume (`QueuedPromptSummary.subagentRetry`). */
+export type QueuedSubagentRetry = {
+  /** The Agent tool's id for it, which the agent resumes it by. */
+  agentId: string;
+  /** The transient error it failed on. */
+  error: (string | null);
+  /** Its task or name, when acpmux knew one. */
+  name: (string | null);
 } & Record<string, unknown>;
 
 export interface RequestMeta {
@@ -896,6 +920,12 @@ export type SessionDetail = {
   queuePaused: boolean;
   queued: number;
   /**
+   * The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
+   * a Codex chat's earlier roots, which its older records still name, so a client folding
+   * them never reads one as a subagent. Absent when none, and from a peer on an older acpmux.
+   */
+  retiredAgentSessionIds?: string[];
+  /**
    * The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null
    * when none waits.
    */
@@ -1114,6 +1144,12 @@ export type SessionSummary = {
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
   queued: number;
+  /**
+   * The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
+   * a Codex chat's earlier roots, which its older records still name, so a client folding
+   * them never reads one as a subagent. Absent when none, and from a peer on an older acpmux.
+   */
+  retiredAgentSessionIds?: string[];
   /**
    * The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null
    * when none waits.
