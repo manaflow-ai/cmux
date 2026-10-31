@@ -122,31 +122,27 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
 }
 
 fn parse_exec(args: &[String]) -> Result<Command, UsageError> {
-    let separator = args.iter().position(|a| a == "--").ok_or_else(|| {
+    let mut parts = args.splitn(2, |a| a == "--");
+    let flags = parts.next().unwrap_or_default();
+    let argv = parts.next().ok_or_else(|| {
         UsageError::new(
             "cmux vault exec needs `--` before the command: cmux vault exec --env NAME -- COMMAND",
         )
     })?;
-    let (flags, argv) = (&args[..separator], &args[separator + 1..]);
     if argv.is_empty() {
         return Err(UsageError::new("cmux vault exec: no command after `--`"));
     }
     let mut env = Vec::new();
     let mut mask = true;
-    let mut index = 0;
-    while index < flags.len() {
-        let flag = flags[index].as_str();
+    let mut flags = flags.iter();
+    while let Some(flag) = flags.next() {
+        let flag = flag.as_str();
         let spec = if flag == "--env" {
-            index += 1;
-            flags
-                .get(index)
-                .cloned()
-                .ok_or_else(|| UsageError::new("--env needs VAR or VAR=NAME"))?
+            flags.next().cloned().ok_or_else(|| UsageError::new("--env needs VAR or VAR=NAME"))?
         } else if let Some(spec) = flag.strip_prefix("--env=") {
             spec.to_owned()
         } else if flag == "--no-mask" {
             mask = false;
-            index += 1;
             continue;
         } else {
             return Err(UsageError::new(format!("cmux vault exec: unknown option {flag:?}")));
@@ -158,7 +154,6 @@ fn parse_exec(args: &[String]) -> Result<Command, UsageError> {
             return Err(UsageError::new(format!("--env {var} is given twice")));
         }
         env.push((var, name));
-        index += 1;
     }
     if env.is_empty() {
         return Err(UsageError::new("cmux vault exec needs at least one --env VAR[=NAME]"));
@@ -169,16 +164,13 @@ fn parse_exec(args: &[String]) -> Result<Command, UsageError> {
 /// `--key value` / `--key=value` pairs, each key at most once, from `allowed`.
 fn options_of(args: &[String], allowed: &[&str]) -> Result<Vec<(String, String)>, UsageError> {
     let mut out: Vec<(String, String)> = Vec::new();
-    let mut index = 0;
-    while index < args.len() {
-        let arg = &args[index];
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
         let (key, value) = match arg.split_once('=') {
             Some((key, value)) if allowed.contains(&key) => (key.to_owned(), value.to_owned()),
             _ if allowed.contains(&arg.as_str()) => {
-                index += 1;
-                let value = args
-                    .get(index)
-                    .ok_or_else(|| UsageError::new(format!("{arg} needs a value")))?;
+                let value =
+                    args.next().ok_or_else(|| UsageError::new(format!("{arg} needs a value")))?;
                 (arg.clone(), value.clone())
             }
             _ => return Err(UsageError::new(format!("unexpected {arg:?}\n{USAGE}"))),
@@ -187,7 +179,6 @@ fn options_of(args: &[String], allowed: &[&str]) -> Result<Vec<(String, String)>
             return Err(UsageError::new(format!("{key} is given twice")));
         }
         out.push((key, value));
-        index += 1;
     }
     Ok(out)
 }
@@ -349,26 +340,29 @@ fn run(global: &GlobalArgs, command: Command) -> i32 {
                     );
                 }
             };
-            let mut params = json!({ "name": name, "value": value.as_str() });
+            let mut params = serde_json::Map::from_iter([
+                ("name".into(), json!(name)),
+                ("value".into(), json!(value.as_str())),
+            ]);
             drop(value);
             if let Some(scope) = scope {
-                params["scope"] = json!(scope);
+                params.insert("scope".into(), json!(scope));
             }
             if let Some(note) = note {
-                params["note"] = json!(note);
+                params.insert("note".into(), json!(note));
             }
-            let result = call(global, "vault.set", params.take(), REQUEST_TIMEOUT);
+            let result = call(global, "vault.set", Value::Object(params), REQUEST_TIMEOUT);
             done(result)
         }
         Command::Request { name, reason } => {
             if output == OutputMode::Human {
                 eprintln!("Waiting for the person to enter {name} in cmux…");
             }
-            let mut params = json!({ "name": name });
+            let mut params = serde_json::Map::from_iter([("name".into(), json!(name))]);
             if let Some(reason) = reason {
-                params["reason"] = json!(reason);
+                params.insert("reason".into(), json!(reason));
             }
-            done(call(global, "vault.request", params, REQUEST_TIMEOUT))
+            done(call(global, "vault.request", Value::Object(params), REQUEST_TIMEOUT))
         }
         Command::Exec { env, mask, argv } => exec(global, env, mask, argv),
     }
@@ -438,8 +432,11 @@ fn exec(global: &GlobalArgs, env: Vec<(String, String)>, mask: bool, argv: Vec<S
                 .collect(),
         )
     });
-    let mut command = cmux_process::Command::new(&argv[0]);
-    command.args(&argv[1..]).stdin(cmux_process::Stdio::inherit());
+    let Some((program, arguments)) = argv.split_first() else {
+        return super::app::failure("vault.exec", "cmux: no command after `--`", output, 2);
+    };
+    let mut command = cmux_process::Command::new(program);
+    command.args(arguments).stdin(cmux_process::Stdio::inherit());
     for (var, value) in &secrets {
         command.env(var, value.as_str());
     }
@@ -453,7 +450,7 @@ fn exec(global: &GlobalArgs, env: Vec<(String, String)>, mask: bool, argv: Vec<S
         Err(error) => {
             return super::app::failure(
                 "vault.exec",
-                &format!("cmux: cannot run {}: {error}", argv[0]),
+                &format!("cmux: cannot run {program}: {error}"),
                 output,
                 127,
             );
@@ -495,7 +492,8 @@ fn pump(
             match input.read(&mut buffer) {
                 Ok(0) => break,
                 Ok(n) => {
-                    let shown = masker.push(&buffer[..n]);
+                    let Some(bytes) = buffer.get(..n) else { break };
+                    let shown = masker.push(bytes);
                     if output.write_all(&shown).and_then(|()| output.flush()).is_err() {
                         break;
                     }
@@ -541,9 +539,8 @@ impl Masker {
     fn drain(&mut self, end: bool) -> Vec<u8> {
         let data = std::mem::take(&mut self.pending);
         let mut out = Vec::with_capacity(data.len());
-        let mut index = 0;
-        'scan: while index < data.len() {
-            let rest = &data[index..];
+        let mut rest = data.as_slice();
+        'scan: while let Some((byte, tail)) = rest.split_first() {
             // The tail may be the start of a value the next read completes: wait for it before
             // taking any match, so a shorter value never wins over a longer one that starts the
             // same way (that would show the longer one's tail).
@@ -557,14 +554,14 @@ impl Masker {
                 break;
             }
             for (value, name) in &self.secrets {
-                if rest.starts_with(value) {
+                if let Some(tail) = rest.strip_prefix(value.as_slice()) {
                     out.extend_from_slice(format!("[vault:{name}]").as_bytes());
-                    index += value.len();
+                    rest = tail;
                     continue 'scan;
                 }
             }
-            out.push(data[index]);
-            index += 1;
+            out.push(*byte);
+            rest = tail;
         }
         // The copy of the input goes; only masked text leaves.
         let mut data = data;
