@@ -282,15 +282,19 @@ struct SidebarWorkspaceTabHierarchyTests {
         var oldX = Self.listX(list, tab, title.frame.minX)
         var oldWidth = title.frame.width
         // Every mutation leaves the tab model unchanged. Include icon removal, the smaller
-        // swatch well, a full icon, and both sources of the optional leading agent mark.
-        for step in 0..<6 {
+        // swatch well, a full icon, both sources of the optional leading agent mark, and a harness
+        // workspace with no registered mark, which draws its kind's symbol there instead.
+        let kind = workspace.kind
+        for step in 0..<8 {
             switch step {
             case 0: workspace.icon = nil
             case 1: workspace.icon = .swatch(.blue)
             case 2: workspace.icon = .emoji("🧭")
             case 3: workspace.agentIcon = .symbol("terminal")
             case 4: workspace.agentIcon = nil; workspace.agentBrand = "claude"
-            default: workspace.agentBrand = nil
+            case 5: workspace.agentBrand = nil
+            case 6: workspace.kind = .harness
+            default: workspace.kind = kind == .harness ? .terminal : kind
             }
             if reload {
                 list.model.setSections(SidebarSection.patching([workspace], in: list.model.sections))
