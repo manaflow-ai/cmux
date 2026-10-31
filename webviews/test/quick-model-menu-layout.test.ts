@@ -312,7 +312,9 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       await inChat.locator(".acpmux-quick-model-effort[data-running]").first().waitFor();
       const edges = await inChat.locator(".acpmux-quick-model-effort").evaluateAll((rows) =>
         rows.map((row) => {
-          const key = row.querySelector(":scope > .ui-menu-item .ui-menu-shortcut, :scope > .ui-menu-item .ui-menu-check:not(:empty)");
+          const key = row.querySelector(
+            ":scope > .ui-menu-item .ui-menu-shortcut, :scope > .ui-menu-item .ui-menu-check:not(:empty)",
+          );
           const effort = row.querySelector(":scope > .acpmux-quick-effort-trigger");
           const star = row.querySelector(":scope > .acpmux-quick-star");
           const box = key?.getBoundingClientRect();
