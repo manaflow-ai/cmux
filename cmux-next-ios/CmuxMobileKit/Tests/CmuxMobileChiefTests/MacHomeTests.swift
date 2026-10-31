@@ -162,31 +162,62 @@ final class FakeHomeOwner: @unchecked Sendable {
         await eventually(condition)
     }
 
-    /// A wait wakes on the change it watches, not on a timer: its only other wake-up is
-    /// at the watchdog (the tick is longer), so ending well before that is the change.
+    // The wait tests below measure no time: each gives every wake-up but the one it
+    // tests an hour, so only that one can end the wait within the suite's time limit.
+    // A wall-clock bound failed when another suite held the main thread 25 s.
+
+    /// A wait wakes on the change it watches, not on a tick or the watchdog.
     @Test func aWaitWakesOnTheChangeItWatches() async {
         let flag = WaitFlag()
-        let start = ContinuousClock.now
         Task { flag.done = true }
-        #expect(await eventually(watchdog: .seconds(60), tick: .seconds(120)) { flag.done })
-        #expect(ContinuousClock.now - start < .seconds(30))
+        #expect(await eventually(watchdog: .seconds(3600), tick: .seconds(3600)) { flag.done })
     }
 
-    /// The watchdog holds whatever the tick: a condition that never holds ends at it.
+    /// The watchdog ends a wait whatever the tick.
     @Test func theWatchdogEndsAWaitWhateverTheTick() async {
-        let start = ContinuousClock.now
-        #expect(await !eventually(watchdog: .milliseconds(100), tick: .seconds(30)) { false })
-        #expect(ContinuousClock.now - start < .seconds(20))
+        #expect(await !eventually(watchdog: .milliseconds(100), tick: .seconds(3600)) { false })
     }
 
-    /// A cancelled wait ends at once: before, its loop ignored cancellation, so a
-    /// timed-out wait kept its task group from finishing.
+    /// A wait cancelled before it starts ends at once: before, the loop ignored
+    /// cancellation, so a timed-out wait kept its task group from finishing.
     @Test func aCancelledWaitEnds() async {
-        let wait = Task { await eventually { false } }
+        let wait = Task { await eventually(watchdog: .seconds(3600), tick: .seconds(3600)) { false } }
         wait.cancel()
         #expect(await wait.value == false)
-        // And a condition that never holds ends at the watchdog.
-        #expect(await !eventually(watchdog: .milliseconds(50)) { false })
+    }
+
+    /// A wait cancelled while it is suspended (its condition checked, waiting on a
+    /// change or a tick) ends at once too: the cancellation wakes it.
+    @Test func aWaitCancelledWhileSuspendedEnds() async {
+        let checks = CheckCount()
+        let wait = Task {
+            await eventually(watchdog: .seconds(3600), tick: .seconds(3600)) { checks.count += 1; return false }
+        }
+        // Checked once: it is now suspended until a change, a tick or a cancel.
+        #expect(await eventually { checks.count > 0 })
+        wait.cancel()
+        #expect(await wait.value == false)
+    }
+
+    /// Time the main thread is held does not use up a wait: the work it waits on was
+    /// held too. Before, a wait that woke past its wall-clock deadline gave up on its
+    /// first look, before that work had its turn (the full kit held the main thread
+    /// over a minute, and four Chief waits failed that way at once).
+    @Test func aHeldMainThreadDoesNotUseUpAWait() async {
+        let flag = WaitFlag()
+        Task {
+            // Starts once the wait below is asleep on a tick, so the tick runs out during
+            // the hold: hold the main thread past its watchdog, then finish a few
+            // main-actor turns after the wait gets its next look.
+            try? await Task.sleep(for: .milliseconds(50))
+            holdTheMainThread(seconds: 0.5)
+            Task {
+                await Task.yield()
+                await Task.yield()
+                flag.done = true
+            }
+        }
+        #expect(await eventually(watchdog: .milliseconds(200)) { flag.done })
     }
 
     @Test func readsTheMacsHomeListOverTheChiefChannel() async throws {
@@ -353,6 +384,16 @@ final class PushLink: MacLink, @unchecked Sendable {
 /// Set by a main-actor task in the wait tests; observable, as the feed is.
 @MainActor @Observable final class WaitFlag {
     var done = false
+}
+
+/// Blocks the calling thread: synchronous, as a UIKit suite holding the main thread is.
+func holdTheMainThread(seconds: TimeInterval) {
+    Thread.sleep(forTimeInterval: seconds)
+}
+
+/// How often a wait checked its condition: plain state, so counting never wakes it.
+@MainActor final class CheckCount {
+    var count = 0
 }
 
 final class PushChannel: LinkChannel, @unchecked Sendable {

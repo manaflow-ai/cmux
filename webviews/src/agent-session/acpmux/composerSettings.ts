@@ -28,7 +28,10 @@
 // `showMachineLoadWarnings` is the user setting for the Computer menu's cached host-health detail.
 import { useSyncExternalStore } from "react";
 
-export type HarnessPlacement = "left" | "top" | "compact";
+// `symbols`: one row of harness symbols at the top of the model picker, each name on hover (Leo
+// 2026-10-30: "honestly we had a pretty good thing going with teh symbols of the harneses at the
+// top :("). The others stay as choices.
+export type HarnessPlacement = "symbols" | "left" | "top" | "compact";
 export type ReasoningSliderStyle = "accent" | "minimal";
 export type AttachmentView = "inline" | "strip";
 export type ComposerSettings = {
@@ -55,7 +58,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   reasoningSlider: false,
   reasoningSliderStyle: "accent",
   plainFooter: true,
-  harnessPlacement: "left",
+  harnessPlacement: "symbols",
   harnessSwitch: false,
   escapeDoublePress: true,
   showMachineLoadWarnings: true,
@@ -88,7 +91,9 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     reasoningSliderStyle,
     plainFooter: flag("plainFooter"),
     harnessPlacement:
-      raw.harnessPlacement === "top" || raw.harnessPlacement === "compact" ? raw.harnessPlacement : "left",
+      raw.harnessPlacement === "left" || raw.harnessPlacement === "top" || raw.harnessPlacement === "compact"
+        ? raw.harnessPlacement
+        : "symbols",
     harnessSwitch: flag("harnessSwitch"),
     escapeDoublePress: flag("escapeDoublePress"),
     showMachineLoadWarnings: flag("showMachineLoadWarnings"),

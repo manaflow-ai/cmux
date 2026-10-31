@@ -4,7 +4,6 @@
 
 use std::ops::{Deref, DerefMut};
 use std::sync::{Condvar, LockResult, Mutex, MutexGuard, PoisonError};
-#[cfg(test)]
 use std::sync::{TryLockError, TryLockResult};
 use std::time::Instant;
 
@@ -311,7 +310,8 @@ impl StateMutex {
         }
     }
 
-    #[cfg(test)]
+    /// The state lock if it is free now (the accept loop, which never waits
+    /// for it). A try cannot deadlock, so it skips the rank check `lock` makes.
     #[track_caller]
     pub(crate) fn try_lock(&self) -> TryLockResult<StateGuard<'_>> {
         let site = std::panic::Location::caller();

@@ -19,6 +19,8 @@ struct Fake {
     actions: Value,
     fail_resources: bool,
     fail_apps: bool,
+    /// The app refuses every `action.run`, as for a path it cannot open.
+    refuse_actions: bool,
     daemon_snapshot: Option<Value>,
     /// The answer to every daemon request but `session.snapshot`; else
     /// `daemon_snapshot`.
@@ -41,6 +43,8 @@ struct Fake {
     caller: Option<Value>,
     /// The app's `beside` with `caller`: the column right of the chat.
     beside: Value,
+    /// Every `.list` read answers no items (with `resource_result` set).
+    empty_lists: bool,
     /// `Backend::identity` fails, as with no app on the socket.
     identity_fails: bool,
     /// What `Backend::caller_terminal` answers (none by default, whatever
@@ -209,8 +213,12 @@ impl Backend for Fake {
         if request["operation"] != "session.snapshot"
             && let Some(result) = &self.resource_result
         {
-            // A list answers an array: the record as its one item.
+            // A list answers an array: the record as its one item, or none when the
+            // test says lists are empty.
             let list = request["operation"].as_str().is_some_and(|op| op.ends_with(".list"));
+            if list && self.empty_lists {
+                return Ok(json!([]));
+            }
             return Ok(if list && result.is_object() { json!([result]) } else { result.clone() });
         }
         let mut live = self.live.borrow_mut();
@@ -265,6 +273,13 @@ impl Backend for Fake {
             return Err(CallFailure {
                 kind: FailureKind::NotRun,
                 error: json!({"code": "transport.unavailable", "message": "app is down"}),
+                idempotency_key: None,
+            });
+        }
+        if self.refuse_actions && method == "action.run" {
+            return Err(CallFailure {
+                kind: FailureKind::Rejected,
+                error: json!({"code": "invalid_argument", "message": "no such file"}),
                 idempotency_key: None,
             });
         }
@@ -1896,6 +1911,123 @@ fn a_tab_moves_to_a_pane_named_alone() {
     let second = &moves[1]["request"]["params"];
     assert_eq!(second["destination_screen"], "current", "{}", moves[1]);
     assert_eq!(second["destination_pane"], "current", "{}", moves[1]);
+    drop(sent);
+
+    // A workspace made empty has no pane: the move is refused before it is sent, and
+    // the message names how to make one.
+    let empty = Fake {
+        resource_result: Some(json!({"id": workspace})),
+        empty_lists: true,
+        ..Fake::default()
+    };
+    let mut server = Server::new(empty, None);
+    let result = server
+        .call(&json!({"name": "tab_move",
+                       "arguments": {"tab": tab, "destination_workspace": workspace}}))
+        .expect("a tool result");
+    assert_eq!(result["isError"], true, "{result}");
+    assert!(result.to_string().contains("pane_create"), "{result}");
+    let sent = server.backend.sent.borrow();
+    assert!(!sent.iter().any(|s| s["request"]["operation"] == "tab.move"), "{sent:?}");
+}
+
+/// `open` puts a file in one call: below this chat it splits this pane down and opens the
+/// file with that pane as the target; without the app it says so instead of opening
+/// nothing (tests/tool-evals open-r16b: 2 to 4 steps an open before).
+#[test]
+fn open_splits_and_opens_in_one_call() {
+    let pane = "pane_00000000000000000000000000000007";
+    let mut actions = fixture_actions();
+    actions["actions"].as_array_mut().unwrap().push(json!({
+        "id": "file.open", "title": "Open File", "cli_name": "file open", "cli": true,
+        "targets": ["pane"], "arguments": [{"name": "path", "kind": "string", "required": false}],
+        crate::app_identity::ACTION_SURFACE_PLAN: {"cli": "offered", "mcp": "offered"},
+    }));
+    actions["actions"].as_array_mut().unwrap().push(json!({
+        "id": "openBrowser", "title": "New Browser Tab", "cli_name": "tab new-browser",
+        "cli": true, "targets": ["tab"],
+        "arguments": [{"name": "url", "kind": "string", "required": false}],
+        crate::app_identity::ACTION_SURFACE_PLAN: {"cli": "offered", "mcp": "offered"},
+    }));
+    // One record answers every daemon read: the split's new pane, the pane's one tab
+    // (`tab_list`) and the chat terminal's process (`terminal_process_get`).
+    let tab = "tab_0000000000000000000000000000000b";
+    let created = json!({"pane_id": pane, "id": tab, "focused": true, "cwd": "/work/chat"});
+    let fake = Fake {
+        actions: actions.clone(),
+        resource_result: Some(created.clone()),
+        caller_terminal: Some("term_1".into()),
+        ..Fake::default()
+    };
+    let mut server = Server::new(fake, None);
+    let result = server
+        .call(&json!({"name": "open",
+                       "arguments": {"kind": "file", "path": "./docs/notes.md", "where": "below"}}))
+        .expect("a tool result");
+    assert_ne!(result["isError"], true, "{result}");
+    let sent = server.backend.sent.borrow();
+    let split = sent.iter().find(|s| s["request"]["operation"] == "pane.split");
+    let split = split.unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(split["request"]["params"]["direction"], "down", "{split}");
+    let run = sent.iter().find(|s| s["method"] == "action.run");
+    let run = run.unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(run["params"]["target"], pane, "{run}");
+    // The app opens only an absolute path: a relative one is the chat's folder's.
+    assert!(run["params"].to_string().contains("\"/work/chat/docs/notes.md\""), "{run}");
+    drop(sent);
+
+    // A page opens beside a tab (`tab new-browser` takes a tab, not a pane).
+    server.backend.sent.borrow_mut().clear();
+    let result = server
+        .call(&json!({"name": "open",
+                       "arguments": {"kind": "page", "url": "https://example.com", "where": "below"}}))
+        .expect("a tool result");
+    assert_ne!(result["isError"], true, "{result}");
+    let sent = server.backend.sent.borrow();
+    let run = sent.iter().find(|s| s["method"] == "action.run");
+    let run = run.unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(run["params"]["target"], tab, "{run}");
+    drop(sent);
+
+    // A refused open closes the pane it split for the viewer.
+    let refusing = Fake {
+        actions: actions.clone(),
+        resource_result: Some(created),
+        refuse_actions: true,
+        ..Fake::default()
+    };
+    let mut refused = Server::new(refusing, None);
+    let result = refused
+        .call(&json!({"name": "open",
+                       "arguments": {"kind": "file", "path": "/nope.md", "where": "left"}}))
+        .expect("a tool result");
+    assert_eq!(result["isError"], true, "{result}");
+    let sent = refused.backend.sent.borrow();
+    let close = sent.iter().find(|s| s["request"]["operation"] == "pane.close");
+    let close = close.unwrap_or_else(|| panic!("the split stays: {sent:?}"));
+    assert!(close["request"].to_string().contains(pane), "{close}");
+    drop(sent);
+
+    // `where` as an object names its workspace: the page goes there, not to the right.
+    let docs = "ws_00000000000000000000000000000009";
+    let result = server
+        .call(&json!({"name": "open", "arguments": {"kind": "file", "path": "a.md",
+                                                     "where": {"workspace": docs}}}))
+        .expect("a tool result");
+    assert_ne!(result["isError"], true, "{result}");
+    let sent = server.backend.sent.borrow();
+    let listed = sent.iter().rev().find(|s| s["request"]["operation"] == "pane.list");
+    let listed = listed.unwrap_or_else(|| panic!("{sent:?}"));
+    assert!(listed["request"].to_string().contains(docs), "{listed}");
+    drop(sent);
+
+    // No app: `open` says so, where an agent would otherwise try a terminal.
+    let mut server = Server::new(Fake { fail_apps: true, ..Fake::default() }, None);
+    let result = server
+        .call(&json!({"name": "open", "arguments": {"kind": "page", "url": "https://example.com"}}))
+        .expect("a tool result");
+    assert_eq!(result["isError"], true, "{result}");
+    assert!(result.to_string().contains("needs the cmux app"), "{result}");
 }
 
 /// A history read answers the scrollback as lines of plain text, unstyled, where the

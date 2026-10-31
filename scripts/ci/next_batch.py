@@ -1490,8 +1490,10 @@ class Controller:
         for that job, so it never hides an older red. A red the base head fixed shows as inherited.
         """
         runs = self.gh.runs(HEAVY_WORKFLOW, f"branch={BASE}&event=workflow_dispatch&status=completed&per_page=50")
+        # A cancelled base tier run (the kick cancels superseded ones before a Mac job starts) has no verdict:
+        # it never counts toward the lookback.
         tiers = [run for run in runs if (run.get("display_title") or "").startswith(BASE_TIER_TITLE)
-                 and run.get("conclusion") != "skipped"][:BASE_TIER_LOOKBACK]
+                 and run.get("conclusion") not in ("skipped", "cancelled")][:BASE_TIER_LOOKBACK]
         failed: set[str] = set()
         pending = set(BASE_TIER_JOBS)
         for tier in tiers:
