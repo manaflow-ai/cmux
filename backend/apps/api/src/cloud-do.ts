@@ -23,6 +23,8 @@ import { acpmuxKeyedStartOn, acpmuxPersonHoldsOn, type AcpmuxHost, type AcpmuxRe
 import type { MachineExecReply } from "./automation-machine.ts"
 import { ClientIdentityStore, mintClientSessionOn, sweepClientIdentities, type ClientSessionReply } from "./cloud-client-session.ts"
 import { teamPlan } from "./domains/cloud-plan.ts"
+import { TEAM_MEMBER_AUTHORITY_CHANGED, TEAM_AUTHORITY_CHANGED } from "./domains/team-authority.ts"
+import { VmReceiverGenerations } from "./cloud-vm-receiver-generations.ts"
 import { CloudNetworkObservation } from "./cloud-network-observation.ts"
 import type { NativeLinkAuthority } from "./cloud-connect.ts"
 import { vmApiConnection } from "./cloud-vm-api-config.ts"
@@ -122,9 +124,29 @@ export class CloudDO extends CloudIdle {
         await this.sweepClientIdentities(Date.now(), theirs).catch(() => this.retryClientIdentities())
       }
     }
+    // Membership and policy authority notices are durable fences, not trusted payloads. Read the
+    // current machine rows and close every affected receiver generation so delayed READY frames
+    // cannot revive a grant after an A→B→A membership transition.
+    const memberAuthority = items.filter((i) => i.op === TEAM_MEMBER_AUTHORITY_CHANGED)
+    const teamAuthority = items.filter((i) => i.op === TEAM_AUTHORITY_CHANGED)
+    const validAuthority = source === `team:${entity}` && this.isBound(entity)
+    if (validAuthority && (memberAuthority.length || teamAuthority.length)) {
+      const users = new Set(memberAuthority.flatMap((i) => {
+        const user = (i.params as { user?: unknown })?.user
+        return typeof user === "string" ? [user] : []
+      }))
+      const all = teamAuthority.length > 0
+      const store = new VmReceiverGenerations(this.sqlStore)
+      for (const entry of this.bind(entity).rows.range<MachineRow>(TABLE_MACHINE, { limit: 10_000 })) {
+        const row = entry.row
+        if (all || (row.creator !== undefined && users.has(row.creator))) store.close(row.id, () => undefined)
+      }
+      for (const user of users) this.closeSockets((p) => p.user === user, "team membership authority changed")
+    }
     const answers = items.filter((i) => i.op === "integration.approval.answered")
-    const rest = items.filter((i) => i.op !== "integration.approval.answered" && i.op !== TEAM_MEMBER_LEFT_SOCKETS)
-    const done = [...left.map((i) => i.id), ...(rest.length ? (await super.systemDeliver(entity, source, rest)).done : [])]
+    const rest = items.filter((i) => i.op !== "integration.approval.answered" && i.op !== TEAM_MEMBER_LEFT_SOCKETS && i.op !== TEAM_MEMBER_AUTHORITY_CHANGED && i.op !== TEAM_AUTHORITY_CHANGED)
+    const authorityDone = validAuthority ? [...memberAuthority, ...teamAuthority].map((i) => i.id) : []
+    const done = [...left.map((i) => i.id), ...authorityDone, ...(rest.length ? (await super.systemDeliver(entity, source, rest)).done : [])]
     if (answers.length) done.push(...(await deliverCloudAnswers(this.approvalHost(entity), source, answers, (p, f) => this.submitAs(entity, p, f), (e) => this.audit.record(e))).done)
     return { done }
   }
