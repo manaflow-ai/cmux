@@ -720,10 +720,12 @@
 }
 .acpmux-quick-model-effort > .ui-menu-item.acpmux-quick-item:first-child > .acpmux-quick-label { grid-column: 1; grid-row: 1; }
 .acpmux-quick-model-effort > .ui-menu-item.acpmux-quick-item:first-child > :is(.ui-menu-shortcut, .ui-menu-check) { grid-column: 3; grid-row: 1; }
-.acpmux-quick-model-effort > .acpmux-quick-star { grid-area: 1 / 3; z-index: 1; }
+.acpmux-quick-model-effort > .acpmux-quick-star { position: relative; grid-area: 1 / 3; }
 .ui-menu-item.acpmux-quick-effort-trigger {
+  /* Positioned and after the model's item in the row, so it paints over the item's empty column and
+     takes the pointer (no z-index: the layer scale is for surfaces, not a row's parts). */
+  position: relative;
   grid-area: 1 / 2;
-  z-index: 1;
   justify-content: flex-end;
   gap: var(--ds-space-1);
   /* One width on every row (the width probe's), so the effort items line up in a column whatever
