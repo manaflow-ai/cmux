@@ -1468,17 +1468,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-remote-transcript"
-version = "0.1.0"
-dependencies = [
- "base64",
- "flate2",
- "serde",
- "serde_json",
- "sha2 0.10.9",
-]
-
-[[package]]
 name = "cmux-sdk"
 version = "1.0.0"
 dependencies = [

@@ -54,7 +54,6 @@ members = [
     "crates/cmux-holder-v3",
     "crates/cmux-process",
     "crates/cmux-remote-protocol",
-    "crates/cmux-remote-transcript",
     "crates/cmux-build-identity",
     "crates/cmux-remote",
     "crates/cmux-terminal-client",
@@ -94,7 +93,6 @@ members = [
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
-    "crates/cmux-kitty-media",
 ]
 default-members = [
     "crates/acpmux",
