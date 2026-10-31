@@ -474,6 +474,7 @@ impl Hub {
             full_access_device: opts.full_access_device.as_deref(),
             replaced: &replaced,
             no_queue: opts.no_queue,
+            after_turn: after_turn.is_some(),
         };
         let (turn_id, waiting, mut guard, run) =
             match self.queue_slot(session, slot, &mut accept).await {
@@ -649,7 +650,7 @@ impl Hub {
                     replaced.set(self.supersede_queued(session, key, agent.as_deref(), &prompt_id));
             }
             accept(
-                json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false}),
+                json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "state": "started"}),
             );
         }
         // The prompt is recorded and acknowledged above before the agent is started again (it
@@ -1288,7 +1289,7 @@ impl Hub {
                     let stopped =
                         stop.as_str() == Some("cancelled") || (was_stopping && !carries_on);
                     let status = if stopped { "cancelled" } else { "completed" };
-                    let mut msg = json!({"status": status, "stopReason": stop, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
+                    let mut msg = json!({"status": status, "stopReason": stop, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn});
                     if let Some(o) = msg.as_object_mut() {
                         o.extend(self.turn_error_fields(session, None));
                         // acpmux ended a turn whose agent did not answer the cancel (`cancel`).
@@ -1321,7 +1322,7 @@ impl Hub {
                     if !detached {
                         self.pause_queue(session, turn_id);
                     }
-                    let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
+                    let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn});
                     if let Some(o) = msg.as_object_mut() {
                         let agent_error =
                             (!harness_failed).then(|| (e.message.as_str(), json!(e.code)));
@@ -1453,7 +1454,7 @@ impl Hub {
                 "turn_end",
                 json!({"stopReason": stop, "turnId": turn_id, "turnSeq": 0}),
             );
-            let msg = json!({"status": "cancelled", "stopReason": stop, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
+            let msg = json!({"status": "cancelled", "stopReason": stop, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn});
             self.record_last_turn(session, &msg);
             self.append(session, "mux", "turn_result", msg);
             self.reset_stream(session);
@@ -1479,7 +1480,7 @@ impl Hub {
         self.append(session, "mux", "turn_error", record);
         // `errorText` as a started turn's failure has it: its `lastTurn` and its parent's
         // `turn_ended` say why.
-        let mut msg = json!({"status": "failed", "error": e.message, "errorText": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
+        let mut msg = json!({"status": "failed", "error": e.message, "errorText": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn});
         if let Some(o) = msg.as_object_mut() {
             o.extend(typed);
         }
@@ -1521,6 +1522,12 @@ impl Hub {
             }
         }
         last.insert("endedAt".into(), json!(now_ms()));
+        for key in ["turnCount", "turnSeq"] {
+            if let Some(value) = turn_result.get(key) {
+                last.insert(key.into(), value.clone());
+            }
+        }
+        self.lane_report_record_result(&session.id, turn_result);
         session.meta.lock().unwrap().last_turn = Some(Value::Object(last));
         // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
         self.subsession_turn_ended(session, turn_result);
