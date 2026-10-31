@@ -89,7 +89,7 @@ struct PanesScreen: View {
             .scrollContentBackground(.hidden)
         } else {
             ContentUnavailableView("No Panes Yet", systemImage: "rectangle.split.2x1",
-                                   description: Text("\(source.macName) hasn't listed this workspace's panes yet."))
+                                   description: Text("\(source.macName) hasn't listed this workspace's panes."))
         }
     }
 

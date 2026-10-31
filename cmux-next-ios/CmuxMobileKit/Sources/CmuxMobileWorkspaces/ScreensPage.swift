@@ -77,7 +77,7 @@ struct ScreensPage: View {
             .scrollContentBackground(.hidden)
         } else {
             ContentUnavailableView("No Screens Yet", systemImage: "rectangle.stack",
-                                   description: Text("\(source.macName) hasn't listed this workspace's screens yet."))
+                                   description: Text("\(source.macName) hasn't listed this workspace's screens."))
         }
     }
 
