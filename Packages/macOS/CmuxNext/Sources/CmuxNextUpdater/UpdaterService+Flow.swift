@@ -16,7 +16,7 @@ extension UpdaterService {
         // A found update nobody asked about (downloads wait for a click) is the sidebar footer's quiet
         // Update Available button (``availableButton``), not this card; a check they asked for shows here.
         if let newestCard { return newestCard }
-        guard let card = flow.card(downloadsAutomatically: true) else { return nil }
+        guard !stagedPulledHeld, let card = flow.card(downloadsAutomatically: true) else { return nil }
         if card == .installing, installCardDismissed { return nil }
         if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return nil }
         return card
@@ -35,7 +35,7 @@ extension UpdaterService {
 
     /// The footer's update pill, or nil when it does not show.
     public var footerPill: UpdateFooterPill? {
-        flow.footerPill(preferences: preferences)
+        stagedPulledHeld ? nil : flow.footerPill(preferences: preferences)
     }
 
     /// The answer to the update-found step (the notice card's Update, the sidebar footer's Update
@@ -66,15 +66,24 @@ extension UpdaterService {
         send(.installRequested)
     }
 
-    /// The quit is decided: with `updates.installOnQuit` off, cancel the
-    /// staged update's installer before the app exits.
+    /// The quit is decided: with `updates.installOnQuit` off, or a staged build known pulled
+    /// (``stagedPulledHeld``), cancel the staged update's installer before the app exits. A pulled
+    /// build whose installer this app does not hold (Sparkle's silent cycle still resuming) cannot
+    /// be cancelled: the quit proceeds and says so.
     @discardableResult
     public func prepareForQuit() -> UpdateQuitAction {
         syncFlowPhase()
-        let action = flow.handle(.quitRequested, preferences: preferences).lazy.compactMap { effect -> UpdateQuitAction? in
+        var action = flow.handle(.quitRequested, preferences: preferences).lazy.compactMap { effect -> UpdateQuitAction? in
             if case .quit(let action) = effect { action } else { nil }
         }.first ?? .proceed
-        if action == .cancelPendingInstall {
+        if action == .proceed, stagedPulledHeld {
+            if cancelStaged() {
+                log.append("quit: the staged build was pulled, cancelled it instead of installing on quit")
+                action = .cancelPendingInstall
+            } else {
+                log.append("quit: the staged build was pulled, but no installer was held to cancel; Sparkle installs it on quit")
+            }
+        } else if action == .cancelPendingInstall {
             log.append("quit: install on quit is off, cancelling the staged update")
             _ = cancelStaged()
         }
@@ -136,7 +145,6 @@ extension UpdaterService {
             return
         }
         recordBeforeInstall()
-        willInstallStaged?()
         installStaged()
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_handed_to_sparkle")
@@ -188,6 +196,8 @@ extension UpdaterService {
         stagedRefresh.follow(phase, updater: self)
         tipCheck.refresh(self)
         followReleasePush()
+        // A pulled running build read while a check ran is followed once the check ends.
+        if case .hidden = phase { followPulled() } else if case .note = phase { followPulled() }
         switch phase {
         case .ready:
             recordStagedUpdate()
@@ -201,6 +211,7 @@ extension UpdaterService {
             automaticInstallInFlight = false
             automaticInstallFrontmost = nil
             log.append("automatic install ended without a relaunch (not shown)")
+            installAbandoned?()
         case .note where wasInstalling || (wasReady && clickedInstall):
             // The install failed: no relaunch comes. The windows come back and the failure's
             // sheet opens with Retry and Download Manually, so the click never ends in silence.
