@@ -58,12 +58,19 @@ name: CI queue janitor
 # 300 s old, the case where a requested CI run has just stood in for it. A
 # full sweep costs about one API request per in-flight run (its job listing)
 # plus one per 100 runs listed: about 1,170 for the 1,160 runs in flight at
-# 15:30Z on 2026-10-30, at most MAX_JOB_LISTINGS (2,000) job listings a sweep
-# (scripts/ci/queue_janitor.py). In 2026-10 that was 130 to 170 requests from
+# 15:30Z on 2026-10-30, at most MAX_JOB_LISTINGS (2,000) job
+# listings a sweep (scripts/ci/queue_janitor.py). In 2026-10 that was 130 to 170 requests from
 # the GITHUB_TOKEN budget every workflow in the repository shares. With a 240 s skip for requested runs and
 # none for the cron, CI being requested hundreds of times an hour drove about
 # 12 sweeps an hour, and the budget ran out on 2026-10-06. Now there are about
 # 6. The concurrency group keeps one sweep running and one waiting.
+#
+# A run follows its own branch's copy of its workflow, so feat-cmux-next's
+# workflow files are checked out too (over git, which spends no API budget),
+# and a feat-cmux-next run of a workflow that copy runs only on Linux is not
+# listed: 573 of the 1,324 runs a sweep listed on 2026-10-31. A sweep that runs
+# out of API budget stops, as before, but ends green with a warning (an infra
+# skip); the first sweep after the reset reads the whole queue again.
 #
 # Since the budget ran out again on 2026-10-21, the sweep reads and cancels with the
 # manaflow-glaeda-route App's token, which has its own budget (minted first, so the
@@ -182,6 +189,21 @@ jobs:
         with:
           persist-credentials: false
 
+      # Only read as text: which of feat-cmux-next's workflows can schedule a macOS job, since a
+      # feat-cmux-next run follows that branch's copy (queue_janitor.needs_jobs()). A git fetch spends
+      # no API budget. If it fails, that branch's runs are all listed, as before.
+      - name: Check out feat-cmux-next's workflow files
+        if: steps.fresh.outputs.skip != 'true'
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          path: branch-workflows/feat-cmux-next
+          sparse-checkout: .github/workflows
+          filter: blob:none
+          persist-credentials: false
+
       - name: Cancel wasted macOS runs
         if: steps.fresh.outputs.skip != 'true'
         env:
@@ -192,6 +214,8 @@ jobs:
           # category e cancel a lost job at an open PR's head and re-run it as cmux-bot (open_head_lost()).
           CMUX_BOT_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
           GH_REPO: ${{ github.repository }}
+          # BRANCH=DIR: another branch's workflow files, read for its linux-only runs (needs_jobs()).
+          BRANCH_WORKFLOWS: feat-cmux-next=branch-workflows/feat-cmux-next/.github/workflows
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || vars.CI_JANITOR_DRY_RUN == 'true' && 'true' || 'false' }}
           QUEUE_THRESHOLD: ${{ vars.CI_JANITOR_QUEUE_THRESHOLD }}
           CI_PULL_REQUEST_SUITE: ${{ vars.CI_PULL_REQUEST_SUITE || 'compile-only' }}
