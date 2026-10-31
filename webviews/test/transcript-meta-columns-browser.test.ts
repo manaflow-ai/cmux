@@ -79,7 +79,9 @@ await requireBrowserLane("transcript-meta-columns-browser.test.ts", async () => 
         const [first] = rows;
         const off = rows.flatMap((row) => [
           ...(Number.isFinite(row.icon) && Number.isFinite(row.label) ? [] : [`${row.kind}: not drawn`]),
-          ...(Math.abs(row.icon - first!.icon) > 0.5 ? [`${row.kind} icon at ${row.icon}, tool at ${first!.icon}`] : []),
+          ...(Math.abs(row.icon - first!.icon) > 0.5
+            ? [`${row.kind} icon at ${row.icon}, tool at ${first!.icon}`]
+            : []),
           ...(Math.abs(row.iconWidth - first!.iconWidth) > 0.5
             ? [`${row.kind} icon slot ${row.iconWidth}px, tool ${first!.iconWidth}px`]
             : []),

@@ -44,7 +44,14 @@ function App() {
     <main
       className="acpmux-shell"
       data-theme={theme}
-      style={{ display: "flex", flexDirection: "column", alignItems: "stretch", padding: 24, width: 640, height: "auto" }}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "stretch",
+        padding: 24,
+        width: 640,
+        height: "auto",
+      }}
     >
       <div data-meta-row="tool" className="cv-tools">
         <ToolRow item={read} />
