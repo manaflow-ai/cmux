@@ -17,6 +17,7 @@ mod grok_cli;
 mod kimi;
 mod muse;
 mod opencode;
+pub use codex::forget as forget_codex_reads;
 pub use opencode::find_session as find_opencode_session;
 mod openhands;
 mod pi;
