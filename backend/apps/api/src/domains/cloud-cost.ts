@@ -23,11 +23,11 @@ export const hourlyRateUsd = (size: MachineRow["size"] | undefined): number | nu
 }
 
 /**
- * The cost fields of one public machine. `running_since` is when the machine last became running (a start
- * or a bind), null while it is not running: a paused machine costs no compute, and the app shows only its
- * rate "when running".
+ * The cost fields of one public machine. `running_since` is when the machine last became running (a bind,
+ * or a start the provider confirmed), null while it is not running: a paused machine costs no compute, and
+ * the app shows only its rate "when running". A row from before `running_at` uses its last power time.
  */
 export const machineCost = (row: MachineRow): { hourly_rate_usd: number | null; running_since: number | null } => ({
   hourly_rate_usd: hourlyRateUsd(row.size),
-  running_since: row.status === "running" ? (row.last_power_at ?? null) : null
+  running_since: row.status === "running" ? (row.running_at ?? row.last_power_at ?? null) : null
 })

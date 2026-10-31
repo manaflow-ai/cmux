@@ -81,6 +81,8 @@ export interface MachineRow extends Omit<CloudMachineView, "revision"> {
   readonly vm_install?: string
   /** When the machine last became running by a start or a bind (private): idle counts from no earlier (review P2). */
   readonly last_power_at?: number
+  /** When the machine last became running: a bind, or a start the provider confirmed (private; public `running_since`). */
+  readonly running_at?: number
   /** A restore: the recorded snapshot slug the create boots (the pass branches on this, never on the image id). */
   readonly from_snapshot?: string
   /** The creator's SSO team at create (private): the VM install counts as registered from that SSO. */
@@ -149,7 +151,7 @@ const counted = (status: string) => (COUNTED.has(status) ? 1 : 0)
 export const countedRow = (row: MachineRow) => (row.delete_failed ? 1 : counted(row.status))
 
 export const publicMachine = (row: MachineRow): CloudMachineView => {
-  const { transport: _t, provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, last_power_at: _l, from_snapshot: _fs, env_setup: _es, platform: _pf, ...machine } = row
+  const { transport: _t, provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, last_power_at: _l, running_at: _ra, from_snapshot: _fs, env_setup: _es, platform: _pf, ...machine } = row
   return { ...machine, ...machineCost(row) }
 }
 

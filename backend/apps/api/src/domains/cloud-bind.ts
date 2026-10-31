@@ -42,6 +42,7 @@ export const bindMachine = (state: CloudState, params: unknown, ctx: ReduceConte
     keyset_version: p.keyset_version,
     vm_install: p.vm_install,
     last_power_at: ctx.now,
+    running_at: m.status === "running" ? (m.running_at ?? ctx.now) : ctx.now,
     revision: String(rev)
   }
   const writes: Array<RowWrite> = [{ table: TABLE_MACHINE, op: "upsert", key: row.id, n: stored.n, row }]

@@ -38,6 +38,12 @@ describe("Cloud machine cost fields", () => {
     expect("last_power_at" in m).toBe(false)
   })
 
+  it("running_since is the confirmed start (running_at), not the start request (last_power_at)", () => {
+    const m = publicMachine(row({ last_power_at: 5_000, running_at: 9_000 }))
+    expect(m.running_since).toBe(9_000)
+    expect("running_at" in m).toBe(false)
+  })
+
   it("a paused machine carries its rate and no running start", () => {
     const m = publicMachine(row({ status: "paused" }))
     expect(m.hourly_rate_usd).toBe(0.2645)
