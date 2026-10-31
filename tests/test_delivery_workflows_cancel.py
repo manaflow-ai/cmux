@@ -309,6 +309,38 @@ def replay_40752120475(*, signer=True):
     return run("14b20f800934bc61c9b162e76df164693b795fe3", created="2026-10-28T19:11:58Z", ident=40752120475), jobs
 
 
+class DeliveryRunTests(unittest.TestCase):
+    """delivers(): dep-fleet's ruling (#27521) protects runs that publish, sign, roll back or file things, never a
+    pull request's test run of a nightly-named workflow."""
+
+    CANARY = ".github/workflows/nightly-next-canary.yml"
+    SMOKE = ".github/workflows/nightly-next-launch-smoke.yml"
+
+    def test_a_pull_request_run_of_a_post_publish_check_is_no_delivery_run(self):
+        for path in (self.CANARY, self.SMOKE):
+            for event in ("pull_request", "pull_request_target", "merge_group"):
+                with self.subTest(path=path, event=event):
+                    self.assertTrue(dw.is_delivery_run(path))
+                    self.assertFalse(dw.delivers(path, event))
+
+    def test_scheduled_dispatched_and_pushed_delivery_runs_still_deliver(self):
+        for path in (self.CANARY, self.SMOKE, ".github/workflows/nightly.yml", ".github/workflows/nightly-sign.yml",
+                     ".github/workflows/nightly-next-rollback.yml", ".github/workflows/cmux-next-dev-daily.yml"):
+            for event in ("schedule", "workflow_dispatch", "push", "workflow_run"):
+                with self.subTest(path=path, event=event):
+                    self.assertTrue(dw.delivers(path, event))
+
+    def test_an_unread_event_keeps_the_protection(self):
+        for event in (None, ""):
+            self.assertTrue(dw.delivers(self.CANARY, event))
+
+    def test_the_dev_build_counts_by_run_name_and_ordinary_workflows_never_do(self):
+        dev = "cmux NEXT DEV daily · abc"
+        self.assertTrue(dw.delivers(".github/workflows/cmux-next.yml", "workflow_dispatch", dev))
+        self.assertFalse(dw.delivers(".github/workflows/cmux-next.yml", "workflow_dispatch", "cmux-next"))
+        self.assertFalse(dw.delivers(".github/workflows/ci.yml", "schedule"))
+
+
 class StaleRuleTests(unittest.TestCase):
     """sr2, 2026-10-28: "count a nightly, dev or promote run as stale, and so cancellable, only when all of these
     hold: 1. every job except light control jobs and decide jobs is still queued for a runner; 2. it has waited at

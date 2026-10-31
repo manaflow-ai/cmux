@@ -681,6 +681,10 @@ path = "tests/test_ci_health_report.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_actions_cache_report.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_runner_label_policy.py"
 lane = "linux-guard"
 
@@ -1043,6 +1047,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_preflight_trust.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_preflight_gui_activation.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1791,6 +1799,10 @@ path = "tests/test_ci_fast_checks_failover.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_runner_set.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fast_checks_receipt.py"
 lane = "linux-guard"
 
@@ -2164,6 +2176,10 @@ path = "tests/test_ci_runs_on_values.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_warm_sources.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fleet_rule_lints.py"
 lane = "linux-guard"
 
@@ -2174,4 +2190,8 @@ reason = "Run by hand before changing the Cloud capture provision scripts (docs/
 
 [[test]]
 path = "tests/test_devbox_bubblewrap.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fast_checks_swiftpm_artifacts.py"
 lane = "linux-guard"

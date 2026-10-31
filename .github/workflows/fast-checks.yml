@@ -45,7 +45,13 @@ jobs:
     # inputs.runner: the broker's re-dispatch off a stalled label (HQ tools/lane-gh-broker ci_reroute). GitHub binds
     # a job's label when it creates the job, so a run stuck on a label that starts nothing is dispatched again on
     # another size; only the Blacksmith Linux labels listed are taken.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    # Otherwise the linux pool's live member (.github/runners.json pools.linux, which scripts/ci/runner_pools.py keeps
+    # on a size that starts jobs, from the overflow probe's per-size health), never a size named here: one stalled
+    # size moves the pool to the next, which the overflow switch (it trips only when every size stalls) never did.
+    # tests/test_ci_runner_set.py fails any job whose label comes only from literals.
+    # The fork pull request branch is never taken (this workflow is dispatch-only); it is the shape
+    # tests/test_ci_repo_variable_defaults.py asks of every RUNNER_POOLS read, which has no literal fallback.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 195
     defaults:
       run:
@@ -290,6 +296,34 @@ jobs:
       - name: Set up pinned Rust
         if: inputs.setup == 'rust'
         uses: ./.fast-checks-checkout/.github/actions/setup-cmux-tui-rust
+
+      # Linux SwiftPM (6.2, 6.3) crashes with signal 4 (`try!` in FoundationNetworking's EasyHandle.swift,
+      # libcurl code 43) when it downloads several redirected binary artifacts at once:
+      # swiftlang/swift-corelibs-foundation#5445. Every GitHub release URL redirects, so each
+      # `swift test --package-path Packages/macOS/CmuxNext` died in "Downloading binary artifact" before it
+      # compiled anything (runs 41049880540, 41046951228). Before a `swift build|test`, curl fetches each
+      # binary target the package graph declares into a checksum-keyed store on the cache disk, checks the
+      # checksum, and puts it at SwiftPM's shared cache name, so SwiftPM copies it instead of downloading.
+      # The script comes from this workflow's own commit, never from the source snapshot.
+      - name: Check out the SwiftPM artifact prefetch
+        if: contains(inputs.command, 'swift')
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .fast-checks-tools
+          persist-credentials: false
+          sparse-checkout: scripts/ci/swiftpm_prefetch_binary_artifacts.py
+          sparse-checkout-cone-mode: false
+
+      - name: Prefetch SwiftPM binary artifacts
+        if: contains(inputs.command, 'swift')
+        env:
+          FAST_CHECKS_COMMAND: ${{ inputs.command }}
+          FAST_CHECKS_DIRECTORY: ${{ inputs.directory }}
+        run: |
+          python3 "$GITHUB_WORKSPACE/.fast-checks-tools/scripts/ci/swiftpm_prefetch_binary_artifacts.py" \
+            --store /home/runner/.cache/fast-checks/swiftpm-artifacts \
+            --command "$FAST_CHECKS_COMMAND" --directory "$FAST_CHECKS_DIRECTORY"
 
       # FAST_CHECKS_OUT is an empty directory the command may write files to (screenshots,
       # reports, logs); whatever is there when it ends, passed or not, is uploaded as the
