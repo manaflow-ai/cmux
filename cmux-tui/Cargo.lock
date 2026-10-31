@@ -27,6 +27,7 @@ dependencies = [
  "cmux-worktree-care",
  "crossterm",
  "dirs",
+ "flate2",
  "futures",
  "futures-util",
  "getrandom 0.3.4",
@@ -964,6 +965,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-automations"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
@@ -994,14 +1005,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
-]
-
-[[package]]
-name = "cmux-chats-mirror"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -1635,6 +1638,7 @@ dependencies = [
  "bytes",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
+ "cmux-automations",
  "cmux-build-identity",
  "cmux-chat-index",
  "cmux-config",
