@@ -3,7 +3,7 @@
 // chat's…'. Use one consistent gap, group related controls, and right-align the trailing cluster").
 //
 // The controls sit in two rows (Leo 2026-10-19, Claude Code's split): the box holds [+] beside the
-// prompt and [mic · Send or Stop] after it, on the prompt's last line (Leo 2026-10-20, the Claude desktop
+// prompt and [Send or Stop · mic] after it, on the prompt's last line (Leo 2026-10-20, the Claude desktop
 // composer); the quiet row under it is [permission mode · Plan] ……… [model]. The model button names
 // its effort too ("Opus 5.5  Medium", Leo 2026-10-20): there is no effort chip.
 // Each row keeps the rhythm on its own.
@@ -184,7 +184,7 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
   };
 
   // The leading groups, then the trailing cluster (last) of each row.
-  const GROUPS = [["plus"], ["mode", "plan"], ["model"], ["mic", "send"]];
+  const GROUPS = [["plus"], ["mode", "plan"], ["model"], ["send", "mic"]];
   const TRAILING = new Set([2, 3]);
   const group = (name: string) => GROUPS.findIndex((members) => members.includes(name));
   const drawn = (control: Control): Span => ({
@@ -298,7 +298,7 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
           if (!names(rows.foot).includes(name)) problems.push(`${name} is not in the quiet row`);
         // The box's columns (composer-alignment-centers.test.ts, Leo's report 2026-10-27, which
         // replaced Claude desktop's 16 px + glyph inset of 2026-10-20): the + button and the last
-        // control (Send, or Stop mid-turn with an empty prompt) are 28 px boxes 8 px in from the box's sides, so
+        // control (the mic; Send or Stop sits left of it) are 28 px boxes 8 px in from the box's sides, so
         // the + glyph's center and the last control's center both sit 22 px in. Their distance off
         // the bottom centers them on the prompt's last line, which follows the chat's font size
         // (#26523), so it no longer equals the side inset.

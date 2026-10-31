@@ -79,6 +79,9 @@ export type ComposerBoxProps = {
   /// What ends the quiet row (the context ring); the plain footer draws it there, Codex's look
   /// before the model in the box's row.
   ring?: React.ReactNode;
+  /// The one send control (Send or Stop) where Claude's look draws it, before the mic, which keeps
+  /// the right edge; Codex's look puts it last (`trailing`).
+  actionsLead?: React.ReactNode;
   /// The mic, which keeps every width (composerRowFit.ts).
   accessory?: React.ReactNode;
   /// The row's last control: Send or Stop.
@@ -124,6 +127,7 @@ export function ComposerBox({
   leading,
   chips,
   ring,
+  actionsLead,
   accessory,
   trailing,
   chromeItems,
@@ -304,6 +308,7 @@ export function ComposerBox({
             {/* Codex's look: the context ring before the model, where Codex shows its own. */}
             {!quietRow && ring}
             <span className="acpmux-composer-actions">
+              {actionsLead}
               {/* The mic stays at every width; the prompt shrinks instead (composerRowFit.ts). */}
               {accessory && (
                 <span className="acpmux-fit-mic" data-fit-part="mic" data-fit-forms="full">

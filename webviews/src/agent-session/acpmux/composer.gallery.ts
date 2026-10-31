@@ -1469,7 +1469,7 @@ export default agentPaneEntry({
       snapshot: chat(working, { isWorking: true, stopping: true }),
     },
     "working-steer": {
-      note: "A prompt typed while the turn runs: Stop's slot after the mic turns into the one Send, which puts the prompt into the turn as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn. No second ↵ control (Leo 2026-10-31).",
+      note: "A prompt typed while the turn runs: Stop's slot before the mic turns into the one Send (↵ in Claude's look), which puts the prompt into the turn as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn. No second ↵ control (Leo 2026-10-31).",
       snapshot: steering(true),
       ready: { draft: "Use the new tokenizer instead" },
       play: async (ctx) => {
@@ -1478,7 +1478,7 @@ export default agentPaneEntry({
           return (
             sends.length === 1 &&
             sends[0]!.getAttribute("title") === "Send now; the agent reads it mid-turn (Return)" &&
-            ctx.document.querySelector(".acpmux-composer-actions > .acpmux-fit-mic + .acpmux-send")
+            ctx.document.querySelector(".acpmux-composer-actions > .acpmux-send + .acpmux-fit-mic")
           );
         });
       },

@@ -1998,6 +1998,12 @@ export const ArrowUpIcon = () => (
     <path d="M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1" />
   </Icon>
 );
+/** Steer's return glyph (↵): a prompt typed during a turn goes in now, as Codex and Claude draw it. */
+export const ReturnIcon = () => (
+  <Icon>
+    <path d="M12.6 3.6v4.1a1.8 1.8 0 0 1-1.8 1.8H3.6M6.6 6.4 3.4 9.5l3.2 3.1" />
+  </Icon>
+);
 /** Stop: a plain outline square with the mic's stroke, Claude Code desktop's, never a disc. */
 export const StopIcon = () => (
   <Icon>

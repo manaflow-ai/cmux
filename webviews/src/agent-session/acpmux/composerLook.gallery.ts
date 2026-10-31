@@ -162,21 +162,20 @@ const ALT_TEXT_ROW = `
 :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-access .acpmux-icon { display: none; }
 :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-model, .acpmux-effort) .acpmux-picker-button { color: var(--agent-soft); }`;
 
-/// The send control's designs (Leo 2026-10-31: "THE F***ING TWO SEND BUTTONS", then "WE CAN THINK
-/// ABOUT WHAT'S BEST"). The pick, shipped in both looks: one slot after the mic that is Stop while a
-/// turn runs and the prompt is empty, and Send (steer or queue, as Return does) from the first letter.
-/// The alternates are gallery-only CSS over it: Claude desktop's ↵ before the mic, and Codex's filled
-/// disc after it (not picked: no discs, Leo 2026-10-21). Stop beside a second send control is never
-/// drawn (the two-button state this replaced).
+/// The send control's designs (Leo 2026-10-31: "THE F***ING TWO SEND BUTTONS", then "THIS IS THE
+/// BUTTON FOR CLAUDE BUT / WE CAN THINK ABOUT WHAT'S BEST"). The pick, one control in both looks: a
+/// slot that is Stop while a turn runs and the prompt is empty, and Send (steer or queue, as Return
+/// does) from the first letter. Claude's look draws it before the mic with Claude desktop's ↵ (the
+/// mic keeps the right edge through a turn); Codex's draws Send's ↑ after the mic, as Codex does.
+/// The alternates are gallery-only CSS over it. Stop beside a second send control (the two-button
+/// state this replaced) is never drawn.
 const runningChat = () => {
   const snapshot = startedChat();
   return { ...snapshot, isWorking: true, summary: { ...snapshot.summary!, steering: true } };
 };
 const DRAFT = { draft: "Also cover the 503 path" };
-const ALT_RETURN_BEFORE_MIC = `
-.acpmux-composer-actions > .acpmux-send:not(.acpmux-cancel) { order: -1; }
-.acpmux-composer-actions > .acpmux-send:not(.acpmux-cancel) svg { display: none; }
-.acpmux-composer-actions > .acpmux-send:not(.acpmux-cancel)::before { content: "\\21B5"; font-size: 16px; line-height: 1; }`;
+const ALT_AFTER_MIC = `
+.acpmux-composer-actions > :is(.acpmux-send, .acpmux-cancel) { order: 1; }`;
 const ALT_FILLED_DISC = `
 .acpmux-composer-actions > .acpmux-send.acpmux-send-ready:not(.acpmux-cancel) {
   border-radius: 999px; background: var(--agent-text); color: var(--agent-bg, Canvas);
@@ -296,12 +295,12 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "codex", ALT_TEXT_ROW),
     },
     "send-one-slot-claude-running": {
-      note: "The pick, Claude's look: a turn running with an empty prompt, the one send slot after the mic is Stop.",
+      note: "The pick, Claude's look: a turn running with an empty prompt, the one send slot before the mic is Stop; the mic keeps the right edge.",
       snapshot: runningChat(),
       play: (ctx) => look(ctx, "claude"),
     },
     "send-one-slot-claude-typed": {
-      note: "The pick, Claude's look: the first letter turns Stop's slot into Send, which steers the turn as Return does (⌘Return queues). One send control, never two.",
+      note: "The pick, Claude's look: the first letter turns Stop's slot into Send, Claude desktop's ↵, which steers the turn as Return does (⌘Return queues). One send control, never two.",
       snapshot: runningChat(),
       ready: DRAFT,
       play: (ctx) => look(ctx, "claude"),
@@ -317,11 +316,11 @@ export default agentPaneEntry({
       ready: DRAFT,
       play: (ctx) => look(ctx, "codex"),
     },
-    "send-alt-return-before-mic": {
-      note: "Alternate (not shipped): Claude desktop's ↵ before the mic. Stop and Send would trade places with the mic as the prompt fills, so the right edge would not hold still.",
+    "send-alt-after-mic-claude": {
+      note: "Alternate (not shipped): Claude's look with the slot after the mic, as Codex's. Not picked: the mic would step left each time a turn starts or a prompt is typed.",
       snapshot: runningChat(),
       ready: DRAFT,
-      play: (ctx) => look(ctx, "claude", ALT_RETURN_BEFORE_MIC),
+      play: (ctx) => look(ctx, "claude", ALT_AFTER_MIC),
     },
     "send-alt-filled-disc": {
       note: "Alternate (not shipped): Codex's filled disc after the mic. Not picked: the composer draws plain glyphs, no discs (Leo 2026-10-21).",

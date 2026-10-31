@@ -367,8 +367,9 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
   for (const width of [420, 720, 1100])
     test(`at ${width} px Stop takes Send's slot as a plain glyph in the secondary text color`, async () => {
       // One send control (Leo 2026-10-31: "THE F***ING TWO SEND BUTTONS"): no Send until there is
-      // a draft, so the idle row Stop is held against has a prompt typed; there Send comes after
-      // the mic. While a turn runs with an empty prompt, Stop stands in that same slot.
+      // a draft, so the idle row Stop is held against has a prompt typed; there Send comes before
+      // the mic, which keeps the right edge (Claude desktop's ↵). While a turn runs with an empty
+      // prompt, Stop stands in that same slot.
       const idle = await row("claude-auto", width, "Add a test for the 429 path");
       const running = await row("queued", width);
       const send = idle.send!;
@@ -376,8 +377,8 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       expect(stop).toBeDefined();
       const off = (["width", "left", "top", "bottom"] as const).filter((side) => Math.abs(send[side] - stop[side]) > 0.5);
       expect(off.map((side) => `${side} ${send[side].toFixed(1)} -> ${stop[side].toFixed(1)}`)).toEqual([]);
-      expect(idle.trailing.slice(-2)).toEqual(["mic", "send"]);
-      expect(running.trailing.slice(-2)).toEqual(["mic", "stop"]);
+      expect(idle.trailing.slice(-2)).toEqual(["send", "mic"]);
+      expect(running.trailing.slice(-2)).toEqual(["stop", "mic"]);
       // A plain glyph, as the mic is (Leo 2026-10-21: "no solid discs"; then the secondary text
       // color, only a hover background): no fill, the square in the secondary text color, a step
       // above an empty draft's 45% Send.

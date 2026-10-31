@@ -17,6 +17,7 @@
     "agent-session/acpmux/ComposerPickers.tsx#PaperclipIcon",
     "agent-session/acpmux/ComposerPickers.tsx#PlanIcon",
     "agent-session/acpmux/ComposerPickers.tsx#PlusIcon",
+    "agent-session/acpmux/ComposerPickers.tsx#ReturnIcon",
     "agent-session/acpmux/ComposerPickers.tsx#SearchIcon",
     "agent-session/acpmux/ComposerPickers.tsx#ShieldIcon",
     "agent-session/acpmux/ComposerPickers.tsx#SlashIcon",

@@ -27,6 +27,7 @@ import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
 import {
   ArrowUpIcon,
+  ReturnIcon,
   AtIcon,
   BuildIcon,
   ContextRing,
@@ -1954,7 +1955,7 @@ export function Composer({
   ) : keepLocationSlot ? (
     <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
   ) : null;
-  // Stop, while a turn runs and the prompt is empty, in the one send slot after the mic (both looks).
+  // Stop, while a turn runs and the prompt is empty, in the one send slot (sendControl, below).
   // Once sent, Stop turns until the turn ends, so a press (or Esc) is seen to take (Leo 2026-10-21:
   // "IDK IF IM ACTUALLY STOPPING YOU"); pressed again it sends Stop again.
   const stopLabel = t(
@@ -1977,6 +1978,42 @@ export function Composer({
       {stopping ? <Spinner loading size={14} /> : <StopIcon />}
     </button>
   ) : null;
+  const sendControl =
+    stop ? (
+      stopButton
+    ) : remote.canSend && (!quietActions || shell || hasDraft) ? (
+      // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
+      // BUTTONS"): mid-turn the empty prompt's slot is Stop, and the first letter turns it
+      // into Send, which does what Return does: it steers an agent that steers, else queues.
+      // Claude's box draws no Send at rest until there is a draft, the mic alone on the right;
+      // its one slot sits before the mic with Claude desktop's ↵, so the mic keeps the right
+      // edge through a turn. Codex's look keeps Send's ↑ last, after the mic.
+      <button
+        key="send"
+        ref={sendButton}
+        type="submit"
+        disabled={Boolean(authBlock || authBlocked || blockSend || blocked?.reason) && !shell}
+        className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && hasDraft) ? " acpmux-send-ready" : ""}`}
+        aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
+        title={
+          shell
+            ? t("composer.shellRun")
+            : authBlock
+              ? authBlock
+              : blocked?.reason
+                ? t(blocked.reason)
+                : t(
+                    !snapshot.isWorking
+                      ? "composer.sendTooltip"
+                      : steersAlways || returnSteers
+                        ? "composer.steerTooltip"
+                        : "composer.queueTooltip",
+                  )
+        }
+      >
+        {quietActions && !shell ? <ReturnIcon /> : <ArrowUpIcon />}
+      </button>
+    ) : null;
   // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
   const pauseReason = snapshot.summary?.queuePaused === true ? queuePauseReason(snapshot.rows) : undefined;
   return (
@@ -2333,42 +2370,9 @@ export function Composer({
             />
           )
         }
+        actionsLead={quietActions ? sendControl : undefined}
         accessory={accessory}
-        trailing={
-          stop ? (
-            stopButton
-          ) : remote.canSend && (!quietActions || shell || hasDraft) ? (
-            // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
-            // BUTTONS"): mid-turn the empty prompt's slot is Stop, and the first letter turns it
-            // into Send, which does what Return does: it steers an agent that steers, else queues.
-            // Claude's box draws no Send at rest until there is a draft, the mic alone on the right.
-            <button
-              key="send"
-              ref={sendButton}
-              type="submit"
-              disabled={Boolean(authBlock || authBlocked || blockSend || blocked?.reason) && !shell}
-              className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && hasDraft) ? " acpmux-send-ready" : ""}`}
-              aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
-              title={
-                shell
-                  ? t("composer.shellRun")
-                  : authBlock
-                    ? authBlock
-                    : blocked?.reason
-                      ? t(blocked.reason)
-                      : t(
-                          !snapshot.isWorking
-                            ? "composer.sendTooltip"
-                            : steersAlways || returnSteers
-                              ? "composer.steerTooltip"
-                              : "composer.queueTooltip",
-                        )
-              }
-            >
-              <ArrowUpIcon />
-            </button>
-          ) : null
-        }
+        trailing={quietActions ? undefined : sendControl}
         chromeItems={chrome.all}
         // The look dots in the bottom area, on hover (LookSwitch.tsx); the Quick Composer has none.
         {...(onOpenInWindow ? {} : { bottom: <LookSwitch onDone={focusPrompt} /> })}
