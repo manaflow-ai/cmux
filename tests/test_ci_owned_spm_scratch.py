@@ -493,6 +493,16 @@ class Scratch(unittest.TestCase):
         self.assertFalse((self.scratch / "xcode-a").is_symlink())
         self.assertTrue((self.workspace / "Packages/macOS/B/.build").resolve().is_relative_to(self.scratch.resolve()))
 
+    def test_a_package_directory_in_the_scratch_that_is_a_link_is_replaced(self):
+        outside = Path(self.tmp.name) / "outside-package"
+        (outside / "arm64-apple-macosx/debug/B.bundle").mkdir(parents=True)
+        (outside / "arm64-apple-macosx/debug/description.json").write_text("{}")
+        (self.scratch / "xcode-a").mkdir(parents=True)
+        os.symlink(str(outside), self.scratch / "xcode-a/Packages__macOS__B")
+        scratch.link(self.workspace, self.store, RUNNER, fingerprint="xcode-a")
+        self.assertTrue((outside / "arm64-apple-macosx/debug/B.bundle").is_dir())
+        self.assertFalse((self.scratch / "xcode-a/Packages__macOS__B").is_symlink())
+
     def test_a_directory_replaced_by_a_link(self):
         self.checkout()
         source = self.lease()

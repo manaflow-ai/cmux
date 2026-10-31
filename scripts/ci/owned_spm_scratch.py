@@ -244,7 +244,8 @@ def sweep_trash(scratch: Path) -> None:
 
 def entries(scratch: Path) -> list[Path]:
     try:
-        return [path for path in scratch.iterdir() if path.is_dir() and not path.name.startswith(TRASH)]
+        return [path for path in scratch.iterdir()
+                if path.is_dir() and not path.is_symlink() and not path.name.startswith(TRASH)]
     except OSError:
         return []
 
@@ -383,6 +384,12 @@ def warm_start(scratch_existed: bool, lock_existed: bool, kept: bool, existed: b
     return "cold", "new fingerprint" if scratch_existed else "first on host"
 
 
+def no_link_at(entry: Path) -> None:
+    """Only this script makes scratch directories: a link or a file at ENTRY's path is removed, never followed."""
+    if entry.is_symlink() or (entry.exists() and not entry.is_dir()):
+        entry.unlink()
+
+
 def link(workspace: Path, store: Path, runner: str, fingerprint: str | None = None,
          verdict: dict[str, object] | None = None) -> list[str]:
     """VERDICT, when given, gets the warm-start state, reason and kept bytes."""
@@ -397,6 +404,7 @@ def link(workspace: Path, store: Path, runner: str, fingerprint: str | None = No
     with open(lock_path(target_root), "a") as own:
         # Held from here, so prune skips this job's directory; the holder keeps it for the job.
         fcntl.flock(own, fcntl.LOCK_SH)
+        no_link_at(target_root)
         existed, kept = target_root.is_dir(), kept_build(target_root)
         os.utime(lock_path(target_root))  # its last use, for prune's order
         prune(scratch, sizes=sizes)
@@ -416,6 +424,7 @@ def link_packages(workspace: Path, target_root: Path, strict: bool = False) -> l
         target = target_root / relative.replace("/", "__")
         build = package / ".build"
         try:
+            no_link_at(target)
             target.mkdir(parents=True, exist_ok=True)
             drop_resource_bundles(target)
             if build.is_symlink():
@@ -641,8 +650,7 @@ def lease(workspace: Path, store: Path, runner: str, verdict: dict[str, object] 
         return None
     target, fd = held
     try:
-        if target.is_symlink() or (target.exists() and not target.is_dir()):
-            target.unlink()  # only this script makes roots: a link or a file here is never built through
+        no_link_at(target)
         existed, kept = target.is_dir(), kept_build(target)
         os.utime(lock_path(target))
         prune(scratch, sizes=sizes)
