@@ -290,6 +290,10 @@ jobs:
   # tip-dmg-build, also secret-free, takes `dmg_label`: the same owned pool,
   # but only when it has two machines free now, so it never queues behind
   # verify on one mini; otherwise it stays on Blacksmith macOS.
+  # Only the std class (--owned-classes std): both jobs download the 188 MB
+  # signed app, which took 736-974 s on the light pool's minis (24 h to
+  # 2026-10-30), so verify ran 895 s median there against 41 s on std and
+  # 71 of 90 light runs hit its 15 minute limit.
   runner:
     needs: sign
     if: needs.sign.outputs.signed == 'true'
@@ -396,6 +400,7 @@ jobs:
               --owned-slots "$OWNED_SLOTS" \
               --pr-xcode-app "$PR_XCODE_APP" \
               --blacksmith-labels "$BLACKSMITH_LABELS" \
+              --owned-classes std \
               "${@:2}"
           }
           # Two machines free: verify and tip-dmg-build both take the owned
