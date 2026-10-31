@@ -124,7 +124,7 @@ extension WindowManager {
             preferred[state.id] = lastShown(in: profile, recency: value.recency, here: state).filter(candidates.contains)
             state.enterProfile(profile)
         }
-        carryLocalBrowserTabs(of: moving, from: sources.map(\.id), to: state)
+        carryLocalBrowserTabs(of: moving, from: sources, to: state)
         transition(select: preferred) { $0.move(moving, to: state.id) }
         recordSaver.stateDidChange(state)
     }
@@ -149,21 +149,21 @@ extension WindowManager {
             if let workspaceID = other.workspaceID { shown[other.profileID] = workspaceID }
             for (space, id) in shown where space != state.profileID && state.profileWorkspaces[space] == nil { state.profileWorkspaces[space] = id }
         }
-        carryLocalBrowserTabs(of: moving, from: sources.map(\.id), to: state)
+        carryLocalBrowserTabs(of: moving, from: sources, to: state)
         transition { registry in
-            let changes = registry.move(moving, to: state.id)
-            for source in sources where registry.window(source.id)?.isOpen == true { _ = registry.close(source.id) }
-            return changes
+            defer { for source in sources where registry.window(source.id)?.isOpen == true { _ = registry.close(source.id) } }
+            return registry.move(moving, to: state.id)
         }
         recordSaver.stateDidChange(state)
     }
 
     private func isWindowHome(_ id: String) -> Bool { services.workspace(id: id)?.isWindowHome == true }
 
-    /// A moved workspace's panes take their window-kept browser tabs (`localBrowserTabs`) along.
-    private func carryLocalBrowserTabs(of moving: [String], from sources: [String], to state: WindowState) {
-        let panes = Set(moving.compactMap { services.workspace(id: $0) }.flatMap { $0.screens.flatMap(\.panes).map(\.id) })
-        for source in sources.compactMap({ states[$0] }) { source.localBrowserTabs.move(panes: panes, to: state.localBrowserTabs) }
+    /// A moved workspace's panes take their window-kept browser tabs (`localBrowserTabs`) along, from its own window only.
+    private func carryLocalBrowserTabs(of moving: [String], from sources: [WindowRegistry.Window], to state: WindowState) {
+        for source in sources { let workspaces = moving.filter(source.workspaceIDs.contains).compactMap { services.workspace(id: $0) }
+            states[source.id]?.localBrowserTabs.move(panes: Set(workspaces.flatMap { $0.screens.flatMap(\.panes).map(\.id) }), to: state.localBrowserTabs)
+        }
     }
 
     /// Refuses closing a window still creating a workspace (claim, placement, lane, provisional row): it would reopen it.
