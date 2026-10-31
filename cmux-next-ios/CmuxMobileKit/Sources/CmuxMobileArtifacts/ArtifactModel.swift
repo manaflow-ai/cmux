@@ -108,6 +108,8 @@ public enum ArtifactContent: Sendable {
     /// A local copy for Quick Look (audio, Office and iWork documents, and
     /// anything else it can show); a share sheet when it can't.
     case quickLook(URL)
+    /// A downloaded snapshot retained for exactly as long as its consumers need it.
+    case ownedFile(ManagedPreviewFile, isVideo: Bool)
 }
 
 extension ArtifactContent {

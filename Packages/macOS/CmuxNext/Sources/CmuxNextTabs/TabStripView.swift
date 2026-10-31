@@ -253,6 +253,10 @@ public final class TabStripView: NSView {
             guard let newTabButton else { return }
             self?.noteAccessibilityFocus(ObjectIdentifier(newTabButton), focused)
         }
+        newTabMenuButton.onAccessibilityFocus = { [weak self, weak newTabMenuButton] focused in
+            guard let newTabMenuButton else { return }
+            self?.noteAccessibilityFocus(ObjectIdentifier(newTabMenuButton), focused)
+        }
         reveal.install()
         groupEditor.onCommand = { [weak self] command in self?.model.send(.group(command)) }
         groupEditor.onMore = { [weak self] id in self?.showGroupMenu(for: id) }

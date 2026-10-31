@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1223,
+    "entries": 1237,
     "shortcuts": 189
   },
   "sections": [
@@ -68,6 +68,12 @@
           "title": "Close All Windows",
           "shortcut": null,
           "command": "cmux app close-all-windows"
+        },
+        {
+          "id": "home.closeNewMessage",
+          "title": "Close New Message",
+          "shortcut": null,
+          "command": "cmux home close-new-message"
         },
         {
           "id": "window.closeOthers",
@@ -170,6 +176,12 @@
           "title": "Invite to cmux-next…",
           "shortcut": null,
           "command": "cmux home invite"
+        },
+        {
+          "id": "home.inviteToTeam",
+          "title": "Invite to Team…",
+          "shortcut": null,
+          "command": "cmux home invite-to-team"
         },
         {
           "id": "keepMacAwake",
@@ -1982,6 +1994,12 @@
           "title": "Open Find as Pane",
           "shortcut": null,
           "command": "cmux pane open-find-as"
+        },
+        {
+          "id": "file.openRecoveredDraft",
+          "title": "Open Recovered Draft…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "palette.openVaultPane",
@@ -3856,6 +3874,12 @@
           "command": "cmux bookmark edit"
         },
         {
+          "id": "browser.editSource",
+          "title": "Edit Source",
+          "shortcut": null,
+          "command": "cmux browser edit-source"
+        },
+        {
           "id": "fileEditorZoomReset",
           "title": "Editor: Actual Size",
           "shortcut": "⌘0",
@@ -4670,6 +4694,12 @@
           "title": "Show Downloads…",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "browser.showCookieImportBanner",
+          "title": "Show Import Cookies Banner",
+          "shortcut": null,
+          "command": "cmux browser show-cookie-banner"
         },
         {
           "id": "showBrowserJavaScriptConsole",
@@ -5626,6 +5656,12 @@
           "command": null
         },
         {
+          "id": "chief.screenShare.look",
+          "title": "Chief: Look at Screen Now",
+          "shortcut": null,
+          "command": "cmux chief look-at-screen"
+        },
+        {
           "id": "chief.openMemoryInspector",
           "title": "Chief: Open Memory Inspector",
           "shortcut": null,
@@ -5638,6 +5674,12 @@
           "command": null
         },
         {
+          "id": "chief.screenShare.toggle",
+          "title": "Chief: Toggle Screen Sharing",
+          "shortcut": null,
+          "command": "cmux chief toggle-screen-share"
+        },
+        {
           "id": "agentPane.git.commit",
           "title": "Commit Changes…",
           "shortcut": null,
@@ -5648,6 +5690,12 @@
           "title": "Computer Use Setup",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "agentPane.continueAfterError",
+          "title": "Continue After Error",
+          "shortcut": null,
+          "command": "cmux agent continue-after-error"
         },
         {
           "id": "agentPane.continueIn",
@@ -6016,6 +6064,12 @@
           "command": "cmux agent set-model"
         },
         {
+          "id": "chief.screenShare.start",
+          "title": "Share Screen with Chief",
+          "shortcut": null,
+          "command": "cmux chief share-screen"
+        },
+        {
           "id": "stats.show",
           "title": "Show Agent Stats",
           "shortcut": null,
@@ -6044,6 +6098,18 @@
           "title": "Stop Computer Use",
           "shortcut": null,
           "command": "cmux agent stop-computer-use"
+        },
+        {
+          "id": "agentPane.stopReadingAloud",
+          "title": "Stop Reading Aloud",
+          "shortcut": null,
+          "command": "cmux agent stop-reading-aloud"
+        },
+        {
+          "id": "chief.screenShare.stop",
+          "title": "Stop Sharing Screen with Chief",
+          "shortcut": null,
+          "command": "cmux chief stop-sharing-screen"
         },
         {
           "id": "home.stopChief",
@@ -6730,6 +6796,12 @@
           "command": null
         },
         {
+          "id": "settings.customizeMenus",
+          "title": "Customize Right-Click Menus…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "appearance.uiScale.decrease",
           "title": "Decrease Interface Scale",
           "shortcut": "⌃⇧⌘-",
@@ -6830,6 +6902,12 @@
           "title": "Increase Interface Size",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "app.install",
+          "title": "Install App…",
+          "shortcut": null,
+          "command": "cmux apps install"
         },
         {
           "id": "palette.applyUpdateIfAvailable",
@@ -6950,6 +7028,12 @@
           "title": "Reload Configuration",
           "shortcut": "⇧⌘,",
           "command": "cmux settings reload-configuration"
+        },
+        {
+          "id": "app.remove",
+          "title": "Remove App…",
+          "shortcut": null,
+          "command": "cmux apps remove"
         },
         {
           "id": "appearance.reset",

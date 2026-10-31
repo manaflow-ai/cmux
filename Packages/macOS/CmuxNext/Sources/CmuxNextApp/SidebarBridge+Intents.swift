@@ -183,7 +183,8 @@ extension SidebarBridge {
     /// Puts daemon truth back after a refused or rejected intent.
     func resync() {
         guard let state else { return }
-        model.ungroupedFirst = !usesMixedOrder
+        model.ungroupedFirst = !SidebarDocWiring.isActive && !usesMixedOrder
+        let shownAt = SidebarDocStore.current?.shownChanges
         var sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
                                      hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
                                      newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store), muted: services.notifications.preferences.mutedWorkspaces,
@@ -192,7 +193,7 @@ extension SidebarBridge {
             .applying(to: sections)
         // A connecting SSH machine keeps its pending row through a resync (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
-        rows.show(sections)
+        rows.show(sections, shownAt: shownAt)
         model.profiles = SidebarSpaceBar.profiles(services.machines.local)
         groupFlow.openPendingEditor()
     }

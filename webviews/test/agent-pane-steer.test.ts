@@ -192,12 +192,20 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
 
   let socket: { send(data: string): void } | undefined;
   /// An acpmux record, as the attached page gets it.
-  const record = (kind: string, msg: Record<string, unknown>) =>
+  const record = (kind: string, msg: Record<string, unknown>, hostSeq?: number) =>
     socket?.send(
       JSON.stringify({
         jsonrpc: "2.0",
         method: "_acpmux/event",
-        params: { sessionId: SESSION, seq: ++seq, at: Date.now(), dir: "mux", kind, msg },
+        params: { sessionId: SESSION, seq: ++seq, at: Date.now(), dir: "mux", kind, msg, hostSeq },
+      }),
+    );
+  const recordInbound = (kind: string, msg: Record<string, unknown>) =>
+    socket?.send(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "_acpmux/event",
+        params: { sessionId: SESSION, seq: ++seq, at: Date.now(), dir: "in", kind, msg },
       }),
     );
 
@@ -401,11 +409,63 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
 
     test("acpmux's end of a turn whose agent ignored Stop says so", async () => {
       const page = await openChat();
+      recordInbound("compaction", {
+        method: "session/update",
+        params: { update: { sessionUpdate: "compaction", state: "running" } },
+      });
+      await page.locator('.cv-compaction[data-state="running"]').waitFor();
       await page.getByRole("button", { name: "Stop" }).click();
       await until(() => cancels.length > 0, "Stop's session/cancel");
+      record("compaction_metadata_fenced", { sourceKind: "compaction" }, 40);
+      await drawn(page);
+      expect(await page.getByRole("button", { name: "Continue", exact: true }).count()).toBe(0);
+      expect(await page.locator('.cv-compaction[data-state="running"]').count()).toBe(1);
       record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
       record("turn_result", { status: "cancelled", stopReason: "cancelled", turnId: "turn-1", cancelForced: true });
+      record("status", { status: "idle" });
       await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").waitFor({ timeout: 5_000 });
+      expect(await page.getByRole("button", { name: "Continue", exact: true }).count()).toBe(1);
+      // The cancelled compaction can report its boundary after a new explicit prompt. It must not
+      // revive the old row; a fresh running update still gets its own row.
+      record("user_message", { text: "next prompt", promptId: "p-next", turnId: "turn-2" });
+      record("turn_started", { promptId: "p-next", turnId: "turn-2" });
+      recordInbound("compaction", {
+        method: "session/update",
+        params: { update: { sessionUpdate: "compaction", state: "completed" } },
+      });
+      await drawn(page);
+      expect(await page.locator('.cv-compaction[data-state="completed"]').count()).toBe(0);
+      recordInbound("compaction", {
+        method: "session/update",
+        params: { update: { sessionUpdate: "compaction", state: "running" } },
+      });
+      await page.locator('.cv-compaction[data-state="running"]').last().waitFor();
+      const compactionRows = await page.locator(".cv-compaction").count();
+      record("compaction_metadata_fenced", { sourceKind: "compaction_summary" }, 41);
+      record("compaction_metadata_fenced", { sourceKind: "compaction" }, 42);
+      await drawn(page);
+      expect(await page.locator(".cv-compaction").count()).toBe(compactionRows);
+      expect(await page.locator('.cv-compaction[data-state="running"]').count()).toBe(1);
+      recordInbound("compaction", {
+        method: "session/update",
+        params: { update: { sessionUpdate: "compaction", state: "completed" } },
+      });
+      // Even after fresh running, these ambiguous boundaries could belong to the stopped turn.
+      record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
+      record("turn_end", { stopReason: "cancelled" });
+      record("turn_result", { status: "cancelled" });
+      await drawn(page);
+      expect(await page.locator('.cv-compaction[data-state="completed"]').count()).toBe(0);
+      expect(await page.locator('.cv-compaction[data-state="running"]').count()).toBe(1);
+      record("turn_result", { status: "completed", turnId: "turn-2" });
+      await drawn(page);
+      expect(await page.locator('.cv-compaction[data-state="running"]').count()).toBe(0);
+      recordInbound("compaction", {
+        method: "session/update",
+        params: { update: { sessionUpdate: "compaction", state: "completed" } },
+      });
+      await drawn(page);
+      expect(await page.locator('.cv-compaction[data-state="completed"]').count()).toBe(0);
       await page.close();
     });
 
@@ -421,6 +481,26 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
       await drawn(page);
       expect(await page.getByRole("button", { name: "Stopping…", exact: true }).count()).toBe(0);
+      await page.close();
+    });
+
+    test("a pending Stop leaves a distinct new turn working and able to send now", async () => {
+      const page = await openChat({ clock: true });
+      await page.getByRole("button", { name: "Stop" }).click();
+      await until(() => cancels.length > 0, "Stop's session/cancel");
+      await page.clock.runFor(6_000);
+      await drawn(page);
+      expect(await page.getByRole("button", { name: "Stop", exact: true }).count()).toBe(0);
+      record("user_message", { text: "new work", turnId: "turn-2" });
+      record("turn_started", { turnId: "turn-2" });
+      await drawn(page);
+      expect(await page.getByRole("button", { name: "Stop", exact: true }).count()).toBe(1);
+      record("queued", { text: "send now", promptId: "p-now" });
+      record("queue_order", { promptId: "p-now", next: true, order: ["p-now"] });
+      record("turn_result", { status: "cancelled", turnId: "turn-2" });
+      await drawn(page);
+      // Send-now ended the current turn as a continuation, not as the older Stop.
+      expect(await page.getByRole("button", { name: "Continue", exact: true }).count()).toBe(0);
       await page.close();
     });
 

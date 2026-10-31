@@ -20,11 +20,13 @@
 #   scripts/ci/cmux_tui_tree_key.py (`pin-cmux-tui.sh key`). That is key v2.
 #   Key v1 also hashed the classic `ghostty` gitlink, which no cmux-tui binary
 #   builds from since 0c9d74bc3ea (CMUX-TUI-TREE-KEY-V2). Until v1 goes away,
-#   fetch and resolve-commit take the v2 publication, else the v1 publication
-#   of the same commit (`key --version v1`), and the workflow publishes both.
+#   fetch and resolve-commit take the v2 publication, else the compatibility
+#   publications of the same commit (v2-legacy, then v1).
 #   The `cmux-tui artifacts` workflow runs on every trusted push to
-#   feat-cmux-next and feat-cmux-next-acpmux that touches cmux-tui, ghostty or
-#   ghostty-next. Untrusted synthetic merge refs are refused.
+#   feat-cmux-next and feat-cmux-next-acpmux that changes a runtime input.
+#   GitHub filters pushes containing only cmux-tui/docs prose, so consumers
+#   never wait for an unpublished docs-only key. Untrusted synthetic merge
+#   refs are refused.
 #   After the hosted build and the cmux_next_ daemon tests pass on that commit,
 #   it publishes https://files.cmux.com/cmux-tui/tree/<key>/ with
 #   cmux-tui-aarch64-apple-darwin, cmux-tui-aarch64-apple-darwin.sha256 and
@@ -101,7 +103,7 @@
 #
 # No mode needs GitHub credentials: downloads are public and sha256-checked.
 #
-# Usage: pin-cmux-tui.sh fetch [--tree|--pin] | fetch-acpmux | path [--tree|--pin] | key [--version v1|v2] [--rev <rev>]
+# Usage: pin-cmux-tui.sh fetch [--tree|--pin] | fetch-acpmux | path [--tree|--pin] | key [--version v1|v2|v2-legacy] [--rev <rev>]
 #        | app-host-path [--tree|--pin] (where fetch puts the app host)
 #        | cloud-server-path [--tree|--pin] (where fetch puts cmux-cloud)
 #        | browser-host-path [--tree|--pin] (where fetch puts cmux-browser-host)
@@ -116,6 +118,9 @@
 #          CMUX_TUI_TREE_TIP_WAIT_SECONDS (3000), for the tip's active publisher; CMUX_TUI_TREE_SAME_PATHS, space-separated
 #          paths, skips a commit whose copy of any of them differs from the tip's;
 #          no Mac Release compile is required: the nightly compiles the app itself)
+#        | runs-state <commit> (its cmux-tui artifacts runs: active, none, unknown, or "ended <conclusions>")
+#        | active-publisher <key> (the head commit of an active cmux-tui artifacts run whose
+#          commit has tree <key>; nothing when none; "unknown" when the runs cannot all be read)
 #        | verify-key <key> (commit=<publishing commit> when tree <key> is published and its
 #          manifest sha256 verifies; exit 1 not published (a 404), 3 a read failure or unverifiable)
 #        | wait (wait for the tree; superseded=true output for a superseded commit)
@@ -200,10 +205,10 @@ download() {
 tree_key() {
   python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "${1:-HEAD}"
 }
-# The v1 key of <rev> (with the classic ghostty gitlink): trees published
-# before CMUX-TUI-TREE-KEY-V2 exist only under it.
-# Empty when <rev> has no v1 key (a revision without the classic gitlink).
+# The compatibility key of <rev> using the pre-docs v2 algorithm. Trees
+# published before docs-only filtering may exist only under this key.
 legacy_tree_key() {
+  python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2-legacy "${1:-HEAD}" 2>/dev/null || true
   python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v1 "${1:-HEAD}" 2>/dev/null || true
 }
 # The tree this checkout fetches and bundles: its own, or CMUX_TUI_TREE_KEY.
@@ -218,7 +223,7 @@ checkout_tree_key() {
     tree_key HEAD
   fi
 }
-# The checkout's v1 key; none for a CMUX_TUI_TREE_KEY tree (always v2).
+# The checkout's compatibility keys; none for an explicit CMUX_TUI_TREE_KEY.
 checkout_legacy_tree_key() {
   [[ -n "${CMUX_TUI_TREE_KEY:-}" ]] || legacy_tree_key HEAD
 }
@@ -299,10 +304,11 @@ require_target_in_tree() {
   fi
 }
 
-# B2 evidence (CMUX-TUI-TREE-KEY-V2): "<key> (v2)" or "<key> (v1 fallback)"
+# B2 evidence (CMUX-TUI-TREE-KEY-V2): "<key> (v2)" or
+# "<key> (compatibility fallback)" for the compatibility publication actually read.
 # for the publication actually read. <key> is published_key, <v2 key> the
 # checkout's key.
-tree_source_label() { [[ "$1" == "$2" ]] && echo "$1 (v2)" || echo "$1 (v1 fallback)"; }
+tree_source_label() { [[ "$1" == "$2" ]] && echo "$1 (v2)" || echo "$1 (compatibility fallback)"; }
 
 # Refuses a checkout whose cmux-tui source differs from the committed tree:
 # the published binary would not contain those edits.
@@ -323,21 +329,105 @@ refuse_dirty_source() {
   exit 1
 }
 
+# GitHub API rate limits wait instead of failing. The installation's REST
+# budget is shared by every workflow; when it hit 0 (2026-10-30, 06:48Z to
+# 07:25Z), every feat-cmux-next push's path routing read the artifacts runs as
+# unreadable and failed its same-tree cmux-tui job, run 41018375309. A refused
+# read now waits for the reset GitHub names (Retry-After, else
+# x-ratelimit-reset) and reads again, within CMUX_TUI_TREE_RATE_LIMIT_WAIT_SECONDS
+# (default 60) for this whole invocation. A reset further off than that is
+# reported as rate-limited, never as "no run" (the probe defers on it).
+rate_limit_budget="${CMUX_TUI_TREE_RATE_LIMIT_WAIT_SECONDS:-60}"
+[[ "$rate_limit_budget" =~ ^(0|[1-9][0-9]*)$ ]] || rate_limit_budget=60
+rate_limit_deadline=$(( $(date +%s) + rate_limit_budget ))
+
+# rate_limit_wait <status> <headers file>: with the response body on stdin,
+# prints the seconds until GitHub accepts the call again when the response is a
+# rate-limit refusal: HTTP 429, or 403 with x-ratelimit-remaining: 0, a
+# Retry-After, or a body naming a rate limit (the secondary limit sends no
+# reset; 60 s then). Exit 1 for any other response (a permission 403 included).
+rate_limit_wait() {
+  python3 -c '
+import re, sys
+status, path, now = sys.argv[1], sys.argv[2], int(sys.argv[3])
+body = sys.stdin.read()
+headers = {}
+for line in open(path, encoding="latin-1"):
+    if line.upper().startswith("HTTP/"):
+        headers = {}  # a redirect: only the last response counts
+        continue
+    name, sep, value = line.partition(":")
+    if sep:
+        headers[name.strip().lower()] = value.strip()
+retry = headers.get("retry-after", "")
+remaining = headers.get("x-ratelimit-remaining", "")
+reset = headers.get("x-ratelimit-reset", "")
+named = re.search(r"rate limit|abuse detection|too many requests", body, re.IGNORECASE)
+if status != "429" and not (status == "403" and (remaining == "0" or retry.isdigit() or named)):
+    sys.exit(1)
+if retry.isdigit():
+    wait = int(retry)
+elif remaining == "0" and reset.isdigit():
+    wait = int(reset) - now + 1
+else:
+    wait = 60
+print(max(1, wait))
+' "$1" "$2" "$(date +%s)"
+}
+
+# github_get <url>: one GitHub REST GET (with GH_TOKEN when set), the body on
+# stdout. Exit 0 read; 1 any other failure, as a plain `curl -f` read; 4 still
+# refused for the rate limit because its reset is past rate_limit_deadline.
+github_get() {
+  local url="$1" headers body rc status wait auth=()
+  [[ -n "${GH_TOKEN:-}" ]] && auth=(-H "Authorization: Bearer $GH_TOKEN")
+  headers="$(mktemp "${TMPDIR:-/tmp}/cmux-tui-api.XXXXXX")" || return 1
+  while :; do
+    : > "$headers"
+    rc=0
+    body="$(curl -sSL --connect-timeout 10 --max-time 30 -D "$headers" ${auth[@]+"${auth[@]}"} \
+      -H "Accept: application/vnd.github+json" \
+      -H "X-GitHub-Api-Version: 2022-11-28" "$url" 2>/dev/null)" || rc=$?
+    status="$(awk '{ sub(/\r$/, "") } toupper($1) ~ /^HTTP\// { code = $2 } END { print code }' "$headers" 2>/dev/null)"
+    # No status line: a non-HTTP URL (the tests' file://) read by curl itself.
+    if (( rc == 0 )) && [[ -z "$status" || "$status" == 2?? ]]; then
+      rm -f "$headers"; printf '%s\n' "$body"; return 0
+    fi
+    if (( rc != 0 )) || ! wait="$(rate_limit_wait "$status" "$headers" <<<"$body")"; then
+      rm -f "$headers"; return 1
+    fi
+    if (( $(date +%s) + wait > rate_limit_deadline )); then
+      echo "note: GitHub API rate limit (HTTP $status) on ${url%%\?*}: it resets in ${wait}s, past this check's rate-limit wait (CMUX_TUI_TREE_RATE_LIMIT_WAIT_SECONDS=$rate_limit_budget)" >&2
+      rm -f "$headers"; return 4
+    fi
+    echo "note: GitHub API rate limit (HTTP $status) on ${url%%\?*}; waiting ${wait}s for the reset, then reading again" >&2
+    sleep "$wait"
+  done
+}
+
 # Prints the state of the cmux-tui artifacts runs for commit <sha>, one line:
 #   active               a run is queued, waiting or in progress
 #   ended <runs>         every run completed; <runs> lists conclusion: url
 #   none                 no run exists for the commit
-#   unknown              the API could not be read (the caller keeps waiting)
+#   unknown              the API could not be read (the caller keeps waiting),
+#                        a rate limit past this invocation's wait included
 artifacts_runs_state() {
-  local sha="$1" url body
+  local state
+  state="$(artifacts_runs_state_or_limited "$1")"
+  [[ "$state" != rate-limited ]] || state=unknown
+  echo "$state"
+}
+
+# artifacts_runs_state, except that a rate limit whose reset is past this
+# invocation's wait prints rate-limited instead of unknown (the probe defers on it).
+artifacts_runs_state_or_limited() {
+  local sha="$1" url body rc=0
   url="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha=$sha&per_page=20"
   # manaflow-ai/cmux is public: without GH_TOKEN (a fleet host) the read is unauthenticated,
   # 60 an hour per address, and the wait checks at most every CMUX_TUI_TREE_RUN_CHECK_SECONDS.
-  local auth=()
-  [[ -n "${GH_TOKEN:-}" ]] && auth=(-H "Authorization: Bearer $GH_TOKEN")
-  body="$(curl -fsSL --connect-timeout 10 --max-time 30 ${auth[@]+"${auth[@]}"} \
-    -H "Accept: application/vnd.github+json" \
-    -H "X-GitHub-Api-Version: 2022-11-28" "$url" 2>/dev/null)" || { echo unknown; return 0; }
+  body="$(github_get "$url")" || rc=$?
+  if (( rc == 4 )); then echo rate-limited; return 0; fi
+  (( rc == 0 )) || { echo unknown; return 0; }
   python3 -c '
 import json, sys
 try:
@@ -369,10 +459,7 @@ sys.exit(0 if parts and all(re.match(r"(cancelled|success): ", p) for p in parts
 ' "$state" || return 0
   [[ "${GITHUB_REF:-}" == refs/heads/* ]] || return 0
   branch="${GITHUB_REF#refs/heads/}"
-  head="$(curl -fsSL --connect-timeout 10 --max-time 30 \
-    -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-    -H "X-GitHub-Api-Version: 2022-11-28" \
-    "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/git/ref/heads/$branch" 2>/dev/null \
+  head="$(github_get "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/git/ref/heads/$branch" \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["object"]["sha"])' 2>/dev/null)" || return 0
   [[ "$head" =~ ^[0-9a-f]{40}$ && "$head" != "$sha" ]] && echo "$head"
   return 0
@@ -382,17 +469,6 @@ sys.exit(0 if parts and all(re.match(r"(cancelled|success): ", p) for p in parts
 github_token() {
   if [[ -n "${GH_TOKEN:-}" ]]; then printf '%s\n' "$GH_TOKEN"; return 0; fi
   command -v gh >/dev/null 2>&1 && gh auth token 2>/dev/null
-}
-
-# github_api <method> <repository path> [json body]: one REST call with GH_TOKEN.
-github_api() {
-  local method="$1" path="$2" body="${3:-}" auth=()
-  # A GET works without a token (public repository); a write needs GH_TOKEN.
-  [[ -n "${GH_TOKEN:-}" ]] && auth=(-H "Authorization: Bearer $GH_TOKEN")
-  curl -fsSL --connect-timeout 10 --max-time 30 -X "$method" ${auth[@]+"${auth[@]}"} \
-    -H "Accept: application/vnd.github+json" \
-    -H "X-GitHub-Api-Version: 2022-11-28" ${body:+-d "$body"} \
-    "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/$path"
 }
 
 # Prints the head_sha of an active (not completed) cmux-tui artifacts run whose
@@ -415,7 +491,7 @@ active_publisher_for_key() {
   local budget="${CMUX_TUI_TREE_RUN_FETCH_SECONDS:-60}" public
   [[ "$budget" =~ ^(0|[1-9][0-9]*)$ ]] || budget=60
   public="${CMUX_TUI_PUBLIC_GIT_URL:-https://github.com/${GITHUB_REPOSITORY:-manaflow-ai/cmux}.git}"
-  body="$(github_api GET "actions/workflows/cmux-tui-artifacts.yml/runs?per_page=50" 2>/dev/null)" || {
+  body="$(github_get "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/actions/workflows/cmux-tui-artifacts.yml/runs?per_page=50")" || {
     echo "note: could not list cmux-tui artifacts runs (rate limit or network): a same-tree run is unknown" >&2; echo unknown; return 0; }
   python3 -c '
 import json, sys
@@ -614,19 +690,33 @@ report_tree_miss() {
   echo "no published cmux-tui tree for $key (head ${head:0:12}); nearest published tree: ${nearest:-none in the last $limit commits}" >&2
 }
 
+# Read the preferred key, then the exact historical keys of this commit.
+# The compatibility list contains only git-produced hex object IDs.
+read_tree_digest() {
+  local key="$1" out="$2" legacy="${3:-}" candidate url
+  for candidate in "$key" $legacy; do
+    [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || return 1
+    url="$BASE/tree/$candidate/$(tree_asset).sha256"
+    if curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$out" "$url?t=$(date +%s)" 2>/dev/null; then
+      published_key="$candidate"
+      sha_url="$url"
+      return 0
+    fi
+  done
+  return 1
+}
+
 # Downloads the published sha256 file of tree <key> to <file>, waiting up to
 # CMUX_TUI_TREE_WAIT_SECONDS while the artifacts workflow publishes it. With
 # CMUX_TUI_TREE_PUBLISHER_SHA and GH_TOKEN set, it fails fast when two run
 # checks in a row find no active artifacts run for that commit.
-# Waits until tree <key> (v2) or <legacy> (the v1 key of the same commit) is
+# Waits until tree <key> (v2) or <legacy> (the v2-legacy key of the same commit) is
 # published, writes its sha256 file to <out>, and sets published_key to the
 # key that was found and published to its sha256.
 wait_for_tree() {
-  local key="$1" out="$2" legacy="${3:-}" sha_url legacy_url wait_seconds poll_seconds started elapsed
+  local key="$1" out="$2" legacy="${3:-}" sha_url wait_seconds poll_seconds started elapsed
   local publisher="${CMUX_TUI_TREE_PUBLISHER_SHA:-}" check_seconds next_check=0 ended_checks=0 state="" active_cap extended=false
   sha_url="$BASE/tree/$key/$(tree_asset).sha256"
-  legacy_url=""
-  [[ -n "$legacy" && "$legacy" != "$key" ]] && legacy_url="$BASE/tree/$legacy/$(tree_asset).sha256"
   published_key="$key"
   wait_seconds="${CMUX_TUI_TREE_WAIT_SECONDS:-2700}"
   poll_seconds="${CMUX_TUI_TREE_POLL_SECONDS:-30}"
@@ -666,10 +756,7 @@ wait_for_tree() {
   started="$(date +%s)"
   local dispatched=false reported=false dispatch_sha
   # The query string bypasses a cached 404 at the CDN edge.
-  until curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$out" "$sha_url?t=$(date +%s)" 2>/dev/null \
-    || { [[ -n "$legacy_url" ]] \
-      && curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$out" "$legacy_url?t=$(date +%s)" 2>/dev/null \
-      && published_key="$legacy" && sha_url="$legacy_url"; }; do
+  until read_tree_digest "$key" "$out" "$legacy"; do
     elapsed=$(( $(date +%s) - started ))
     if [[ "$reported" == false ]]; then
       reported=true
@@ -947,7 +1034,7 @@ fetch_tree() {
   dir="$(tree_dir "$key")"
   binary="$dir/$file"
   # The cache dir carries the v2 key's name even when the binary came from the
-  # v1 publication, so fetched-key records the source; a cache without that
+  # compatibility publication, so fetched-key records the source; a cache without that
   # record is fetched again rather than reported as an unknown source.
   if [[ -f "$binary" && -f "$dir/$file.sha256" && -s "$dir/fetched-key" &&
         "$(sha256_of "$binary")" == "$(cat "$dir/$file.sha256")" ]]; then
@@ -976,7 +1063,7 @@ fetch_tree() {
   require_target_in_tree "$wait_key" "$(checkout_legacy_tree_key)"
   wait_for_tree "$wait_key" "$temp_dir/sha256" "$(checkout_legacy_tree_key)"
   if [[ "$published_key" != "$key" ]]; then
-    echo "same-tree cmux-tui $key: using its v1 publication $published_key (CMUX-TUI-TREE-KEY-V2)" >&2
+    echo "same-tree cmux-tui $key: using its compatibility publication $published_key (CMUX-TUI-TREE-KEY-V2)" >&2
     url="$BASE/tree/$published_key/$(tree_asset)"
   fi
   download "$url" "$temp_dir/$file" || { echo "error: could not download $url" >&2; exit 1; }
@@ -988,7 +1075,7 @@ fetch_tree() {
   mv -f "$temp_dir/source.json" "$dir/source.json"
   mv -f "$temp_dir/$file" "$binary"
   printf '%s\n' "$published" > "$dir/$file.sha256"
-  if [[ "$published_key" == "$key" ]]; then echo "$published_key v2"; else echo "$published_key v1"; fi > "$dir/fetched-key"
+  if [[ "$published_key" == "$key" ]]; then echo "$published_key v2"; else echo "$published_key compatibility"; fi > "$dir/fetched-key"
   echo "fetched same-tree cmux-tui $key to $binary"
   echo "fetched cmux-tui tree $(tree_source_label "$published_key" "$key")"
   fetch_tree_companions "$key" "$dir"
@@ -1066,12 +1153,13 @@ wait_for_checkout_tree() {
   return 0
 }
 
-# Prints whether tree <key> (v2) or <legacy> (v1 of the same commit) is
+# Prints whether tree <key> (v2) or <legacy> (historical keys of the same commit) is
 # published now: one request each, no wait.
 tree_published() {
-  local key="$1" legacy="${2:-}" url
-  for url in "$BASE/tree/$key/$(tree_asset).sha256" \
-             ${legacy:+"$BASE/tree/$legacy/$(tree_asset).sha256"}; do
+  local key="$1" legacy="${2:-}" url candidate
+  for candidate in "$key" $legacy; do
+    [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || return 1
+    url="$BASE/tree/$candidate/$(tree_asset).sha256"
     # The query string bypasses a cached 404 at the CDN edge.
     if curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 "$url?t=$(date +%s)" 2>/dev/null \
         | awk 'NR==1 && $1 ~ /^[0-9a-f]{64}$/ { found=1 } END { exit !found }'; then
@@ -1109,7 +1197,10 @@ tree_published() {
 # A missing or
 # unreadable run list is re-checked once
 # after CMUX_TUI_TREE_RECHECK_SECONDS (default 20): a push's runs can appear a
-# moment after the push. Exit 0 for every state.
+# moment after the push. A GitHub API rate limit is waited out within
+# CMUX_TUI_TREE_RATE_LIMIT_WAIT_SECONDS (github_get); one that resets later
+# defers (the publisher's end starts or fails the tree jobs), never fails.
+# Exit 0 for every state.
 probe_checkout_tree() {
   local key legacy publisher="${CMUX_TUI_TREE_PUBLISHER_SHA:-}"
   local base_key="" source="" state="" reason="" recheck="${CMUX_TUI_TREE_RECHECK_SECONDS:-20}" superseded=""
@@ -1129,7 +1220,7 @@ probe_checkout_tree() {
   probe_state() {
     if tree_published "$key" "$legacy"; then echo ready; return; fi
     case "$source" in
-      commit:*) artifacts_runs_state "${source#commit:}" ;;
+      commit:*) artifacts_runs_state_or_limited "${source#commit:}" ;;
       *) echo none ;;
     esac
   }
@@ -1196,6 +1287,13 @@ probe_checkout_tree() {
         reason="no cmux-tui artifacts run exists for ${source#*:}, so nothing publishes tree $key. $(pin_push_hint)"
         state=failed
       fi ;;
+    rate-limited)
+      # Fails open, never red: the API refused the read for its rate limit and
+      # resets after this check's wait (github_get above). The publisher's
+      # artifacts run, when it ends, starts the tree jobs through the wait
+      # marker (published) or reports the miss (cmux_next_tree_notify.py).
+      state=deferred
+      reason="the GitHub API rate limit refused reading the cmux-tui artifacts runs for ${source#*:} and resets after this check's wait, so this run does not wait for tree $key: its publisher's artifacts run starts the tree jobs when it publishes, or reports the miss when it ends without publishing" ;;
     *) state=failed
       reason="could not read the cmux-tui artifacts runs for ${source#*:} (GitHub API), so no publisher of tree $key is known; re-run this check" ;;
   esac
@@ -1355,7 +1453,7 @@ verify_key_command() {
 # fb384d011b85's, had no such job. Every skipped commit and its reason is
 # listed on a miss.
 resolve_newest_published_tree() {
-  local limit max_age temp_dir rev rev_time tip_time behind_hours key commit vrc tip tip_key behind=0 checked=0 distinct=0
+  local limit max_age temp_dir rev rev_time tip_time behind_hours key candidate commit vrc tip tip_key behind=0 checked=0 distinct=0
   local bad_keys=" " good_keys=" " skips=""
   local i same_path skewed skipped_skew=0 same_paths=() tip_blobs=()
   if [[ -n "${CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN:-}" ]]; then
@@ -1416,27 +1514,35 @@ resolve_newest_published_tree() {
       skipped_skew=$((skipped_skew + 1)); behind=$((behind + 1)); continue
     fi
     key="$(tree_key "$rev" 2>/dev/null)" || { skips+="  ${rev:0:12}: no tree key"$'\n'; behind=$((behind + 1)); continue; }
-    if [[ "$bad_keys" == *" $key "* ]]; then
-      skips+="  ${rev:0:12}: tree ${key:0:12} not published or unverifiable"$'\n'; behind=$((behind + 1)); continue
-    fi
-    # A verified tree is checked once.
-    commit="$(tr ' ' '\n' <<<"$good_keys" | awk -F= -v k="$key" '$1 == k { print $2; exit }')"
-    if [[ -z "$commit" ]]; then
+    # The v2 key first, then this commit's compatibility keys (v2-legacy, v1):
+    # trees published before docs-only filtering exist only under those, and
+    # they stay valid fallbacks for the nightly. key becomes the key actually
+    # published, as fetch and resolve-commit report it.
+    commit=""
+    for candidate in "$key" $(legacy_tree_key "$rev"); do
+      [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || continue
+      [[ "$bad_keys" == *" $candidate "* ]] && continue
+      # A verified tree is checked once.
+      commit="$(tr ' ' '\n' <<<"$good_keys" | awk -F= -v k="$candidate" '$1 == k { print $2; exit }')"
+      [[ -n "$commit" ]] && { key="$candidate"; break; }
       distinct=$((distinct + 1))
       vrc=0
-      verify_published_key "$key" "$temp_dir" || vrc=$?
+      verify_published_key "$candidate" "$temp_dir" || vrc=$?
       if (( vrc == 1 )); then
-        echo "tree $key (${rev:0:12}): not published" >&2
-        skips+="  ${rev:0:12}: tree ${key:0:12} not published"$'\n'
-        bad_keys+="$key "; behind=$((behind + 1)); continue
+        echo "tree $candidate (${rev:0:12}): not published" >&2
+        bad_keys+="$candidate "; continue
       fi
       if (( vrc != 0 )); then
-        echo "warning: tree $key (${rev:0:12}) is published, but the manifest of its commit ${verified_commit:0:12} does not carry its sha256 ${verified_sha:0:12} (manifest: ${verified_manifest_sha:-none}); skipping" >&2
-        skips+="  ${rev:0:12}: tree ${key:0:12} unverifiable (manifest sha256 mismatch)"$'\n'
-        bad_keys+="$key "; behind=$((behind + 1)); continue
+        echo "warning: tree $candidate (${rev:0:12}) is published, but the manifest of its commit ${verified_commit:0:12} does not carry its sha256 ${verified_sha:0:12} (manifest: ${verified_manifest_sha:-none}); skipping" >&2
+        skips+="  ${rev:0:12}: tree ${candidate:0:12} unverifiable (manifest sha256 mismatch)"$'\n'
+        bad_keys+="$candidate "; continue
       fi
       commit="$verified_commit"
-      good_keys+="$key=$commit "
+      good_keys+="$candidate=$commit "
+      key="$candidate"; break
+    done
+    if [[ -z "$commit" ]]; then
+      skips+="  ${rev:0:12}: tree ${key:0:12} not published or unverifiable"$'\n'; behind=$((behind + 1)); continue
     fi
     echo "resolved cmux-tui tree $key from ${rev:0:12} ($behind commits and $behind_hours h behind the tip ${tip:0:12}, tip tree ${tip_key:-unknown}); published by $commit" >&2
     printf 'commit=%s\nkey=%s\nsource_commit=%s\ntip_key=%s\nbehind=%s\nbehind_hours=%s\n' "$commit" "$key" "$rev" "$tip_key" "$behind" "$behind_hours"
@@ -1714,6 +1820,14 @@ PY
     ;;
   verify-key)
     verify_key_command "${1:-}"
+    ;;
+  runs-state)
+    [[ "${1:-}" =~ ^[0-9a-f]{40}$ ]] || { echo "error: runs-state takes a 40-hex commit" >&2; exit 2; }
+    artifacts_runs_state "$1"
+    ;;
+  active-publisher)
+    [[ "${1:-}" =~ ^[0-9a-f]{40}$ ]] || { echo "error: active-publisher takes a 40-hex tree key" >&2; exit 2; }
+    active_publisher_for_key "$1"
     ;;
   resolve-exact)
     resolve_exact_tree
