@@ -1,0 +1,151 @@
+{
+ "id": "focus-bottom-drag",
+ "priority": "P0",
+ "title": "Focus: a drag of the window's bottom edge (under the left pane) leaves the focus on the right pane",
+ "why": "Review of #29262: the corner press may reach the layout's column-edge handle, not the window frame. The bottom edge has no column-edge handle, so this press reaches the frame view only.",
+ "source": "cmux-ad P0 2026-10-31 08:15Z (typed text goes to the wrong pane)",
+ "budget_seconds": 120,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-focus-drag"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo base-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "base-${nonce}",
+   "as": "main"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 70% x 70% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.7,
+    0.7
+   ]
+  },
+  {
+   "do": "key",
+   "title": "Cmd-D: a split; the new right pane has the focus",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "split"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "right"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo right-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "right-${nonce}",
+   "as": "right"
+  },
+  {
+   "do": "use_pane",
+   "pane": "main",
+   "click": true,
+   "title": "click into the left pane"
+  },
+  {
+   "do": "use_pane",
+   "pane": "right",
+   "click": true,
+   "title": "click into the right pane"
+  },
+  {
+   "do": "expect",
+   "title": "the right pane has the focus before the drag",
+   "timeout": 5,
+   "all": [
+    {
+     "pane_state": {
+      "pane": "right",
+      "fields": {
+       "focused": true
+      }
+     }
+    }
+   ]
+  },
+  {
+   "do": "window_drag",
+   "title": "drag the bottom edge (at the window's horizontal middle) 160 down",
+   "by": [
+    0,
+    160
+   ],
+   "events": 30,
+   "mark": "grow",
+   "edge": "bottom"
+  },
+  {
+   "do": "use_pane",
+   "pane": "right"
+  },
+  {
+   "do": "type",
+   "text": "echo fdb-${nonce}",
+   "enter": true,
+   "mark": "fdb-typed"
+  },
+  {
+   "do": "expect",
+   "title": "after the bottom-edge drag (the press lies under the left pane): the right pane keeps the focus, and the typed line is in it",
+   "since": "grow",
+   "timeout": 10,
+   "settle": 1,
+   "all": [
+    {
+     "pane_state": {
+      "pane": "right",
+      "fields": {
+       "focused": true
+      }
+     }
+    },
+    {
+     "pane_state": {
+      "pane": "main",
+      "fields": {
+       "focused": false
+      }
+     }
+    },
+    {
+     "daemon_line": "fdb-${nonce}"
+    },
+    {
+     "pane_frame_text": {
+      "text": "fdb-${nonce}",
+      "pane": "right"
+     }
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}
