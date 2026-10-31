@@ -3283,6 +3283,88 @@ def nightly_build_unfinished(jobs: Sequence[Mapping[str, Any]]) -> bool:
     return bool(builds) and any(job.get("conclusion") != "success" for job in builds)
 
 
+# A nightly build's deterministic compile error (compile_error()). The Release compile step of build-nightly-app, the
+# shell's exit status GitHub records when xcodebuild exits 65 (EX_DATAERR: the build failed, as opposed to a signal,
+# a lost runner or a timeout), and the swiftc diagnostic xcodebuild's output leaves as a failure annotation on a
+# Swift source line.
+NIGHTLY_COMPILE_STEP = "Build nightly app (Release)"
+XCODEBUILD_FAILED = "Process completed with exit code 65."
+COMPILE_SOURCE = re.compile(r"[^\s]+\.swift")
+
+
+def nightly_build_jobs(jobs: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """The attempt's build-nightly-app jobs (one, or a matrix's legs)."""
+    return [job for job in jobs if str(job.get("name") or "") == NIGHTLY_APP_BUILD
+            or str(job.get("name") or "").startswith(NIGHTLY_APP_BUILD + " (")]
+
+
+def compile_error(job: Mapping[str, Any], annotations: Sequence[Mapping[str, Any]]) -> str:
+    """Why a finished build-nightly-app job failed on a compile error its source will repeat, or "".
+
+    Conservative: only a job that failed (not cancelled or timed out), whose first failed step is the Release compile
+    (NIGHTLY_COMPILE_STEP), with GitHub's "exit code 65" annotation and a failure annotation on a .swift line (the
+    swiftc `error:` xcodebuild printed). A lost runner (no steps), a refusal at setup, a signal (exit 128 and up), a
+    timeout, an unreadable job or any other failure is "": it may pass on another runner, so it stays retryable."""
+    if job.get("status") != "completed" or job.get("conclusion") != "failure":
+        return ""
+    steps = [step for step in job.get("steps") or [] if isinstance(step, Mapping)]
+    failed = [step for step in steps if step.get("conclusion") == "failure"]
+    if not failed or failed[0].get("name") != NIGHTLY_COMPILE_STEP:
+        return ""
+    failures = [note for note in annotations if isinstance(note, Mapping) and note.get("annotation_level") == "failure"]
+    if not any(str(note.get("message") or "").strip() == XCODEBUILD_FAILED for note in failures):
+        return ""
+    for note in failures:
+        path = str(note.get("path") or "")
+        line = note.get("start_line")
+        if COMPILE_SOURCE.fullmatch(path) and isinstance(line, int) and not isinstance(line, bool) and line >= 1:
+            message = " ".join(str(note.get("message") or "").split())[:200]
+            return f"{job.get('name') or NIGHTLY_APP_BUILD} failed to compile: {path}:{line}: {message}"
+    return ""
+
+
+def nightly_compile_red(api: Any, target: "Target", sleep: Callable[[float], None],
+                        log: Callable[[str], None]) -> str:
+    """For a nightly, why its head cannot compile (compile_error() on the newest attempt that ran build-nightly-app),
+    else "".
+
+    A re-run of the same commit compiles the same source, so it fails the same way and only burns a Mac: on
+    2026-10-30 run 40989498281 (00c873b5, with #27223's `'async' call in a function that does not support
+    concurrency`) was re-run to attempt 4 by this rescue, each attempt rebuilding the broken commit. The fix is a
+    newer commit, which the nightly-next tick promotes (its rolling rule) once it lands.
+
+    Attempts are read from the newest down: one whose build was skipped, cancelled or not yet created says nothing,
+    so the next older one is read; the first build that succeeded or failed decides. Any read error is "": a failed
+    read never stops a re-run (the classification is conservative)."""
+    if not target.nightly:
+        return ""
+    try:
+        for attempt in range(target.attempt, 0, -1):
+            builds = nightly_build_jobs(read(lambda: api.jobs(target.run_id, attempt), sleep, log))
+            ran = [job for job in builds if job.get("conclusion") in ("success", "failure")]
+            if not ran:
+                continue
+            for job in ran:
+                if job.get("conclusion") != "failure" or not job.get("id"):
+                    continue
+                why = compile_error(job, read(lambda: api.annotations(int(job["id"])), sleep, log))
+                if why:
+                    return f"attempt {attempt}'s {why}"
+            return ""
+    except (*READ_ERRORS, AnnotationsCapped) as error:
+        log(f"could not read whether run {target.run_id}'s build failed to compile ({error}); treated as retryable")
+    return ""
+
+
+# rescue()'s and resume_rerun()'s answer for a nightly whose head does not compile (nightly_compile_red()).
+COMPILE_RED = "not rescued: the run's head does not compile, so a re-run would fail the same way"
+
+
+def compile_red_answer(why: str) -> str:
+    return (f"{COMPILE_RED} ({why}); the nightly-next tick builds the next landing that fixes it, "
+            "and nothing of this run is cancelled")
+
+
 def rerun_failed_or_repick(api: GitHub, target: Target, sleep: Callable[[float], None],
                            log: Callable[[str], None], *, refusal: bool = False) -> str:
     """Re-run a finished attempt's failed jobs; for a nightly-next run, re-run its build picker and the jobs that
@@ -3889,6 +3971,10 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         return f"cancelled run {target.run_id}, not re-run: {moved}"
     if moved:
         return f"not rescued: {moved}"
+    # Before any cancel or re-run: a nightly whose build failed to compile is never cancelled or re-run for it.
+    red = nightly_compile_red(api, target, sleep, log)
+    if red:
+        return compile_red_answer(red)
     run = read(lambda: api.run(target.run_id), sleep, log)
     if int(run.get("run_attempt") or 0) != target.attempt:
         return "not rescued: someone else already re-ran the run"
@@ -3999,7 +4085,12 @@ def settled_here(api: Any, target: Target, log: Callable[[str], None]) -> None:
 def resume_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
                  log: Callable[[str], None], every_job: bool, only_job: int | None = None) -> str:
     """The re-run a stopped rescue meant after its cancel (rerun_intended()), with its own CANCEL_SETTLED mark.
-    `only_job` (a settled-sibling failover's mark) re-runs that job and its dependents, never the failed jobs."""
+    `only_job` (a settled-sibling failover's mark) re-runs that job and its dependents, never the failed jobs.
+    A nightly whose head does not compile (nightly_compile_red()) is settled without it."""
+    red = nightly_compile_red(api, target, sleep, log)
+    if red:
+        settled_here(api, target, log)
+        return compile_red_answer(red)
     try:
         result = settle_and_rerun(api, target, now=now, sleep=sleep, log=log, failed_only=not every_job,
                                   keep_main=False, only_job=only_job)
