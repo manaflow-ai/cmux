@@ -15,6 +15,7 @@ import { chromium, webkit, type Browser, type BrowserType, type Page } from "pla
 import { papercutPane } from "./support/papercutChat";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { PNG } from "pngjs";
 
 await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -168,11 +169,15 @@ await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
     // The frame a compositor scroll shows before the list's scroll event reaches the page: the list at
     // its new offset, its drawn rows still the old offset's. A window capture listener holds the
     // scroll event back from the page (React listens at its root), so that frame stays on screen to
-    // read and photograph. CMUX_RAIL_STILLS=1 prints its 2x crop, light and dark, as base64 PNGs.
-    test(`${name}: the list moved past its drawn rows still shows its ticks`, async () => {
+    // read and photograph. The rows past the drawn ones must look like the resting ticks they stand
+    // for: a band of resting rows in mid-rail, photographed at rest and in that frame, matches pixel
+    // for pixel (within antialiasing). CMUX_RAIL_STILLS=1 prints the frame's 2x crop, light and dark,
+    // as base64 PNGs.
+    test(`${name}: the list moved past its drawn rows still shows its resting ticks`, async () => {
       const browser = browsers.get(name);
       if (!browser) return;
       current = browser;
+      const results: Array<{ scheme: string; undrawn: number; rows: number; differing: number; pixels: number }> = [];
       for (const scheme of ["dark", "light"] as const) {
         const opened = await pane!.open({ width: 1280, height: 900 }, undefined, { deviceScaleFactor: 2 });
         try {
@@ -190,11 +195,16 @@ await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
           await opened.evaluate(() =>
             Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))),
           );
+          const box = (await list.boundingBox())!;
+          // Twenty resting rows from a third of the way down (the lit band is at the list's foot).
+          const band = { x: box.x, y: box.y + Math.round(box.height / 3), width: box.width, height: 200 };
+          const atRest = await opened.screenshot({ clip: band, scale: "device" });
           const shown = await list.evaluate(async (node) => {
             const hold = (event: Event) => event.stopImmediatePropagation();
             window.addEventListener("scroll", hold, { capture: true });
-            // Half a view and a bit past the drawn rows, as one fast wheel step moves it.
-            node.scrollTop = Math.max(0, node.scrollTop - node.clientHeight * 1.5);
+            // A view and a half, in whole rows (so the rows land where rows were), past the drawn
+            // rows, as one fast wheel step moves it.
+            node.scrollTop -= Math.round((node.clientHeight * 1.5) / 10) * 10;
             await window.cmuxPaintFrame();
             await window.cmuxPaintFrame();
             const top = node.scrollTop;
@@ -205,30 +215,39 @@ await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
             );
             let undrawn = 0;
             for (let row = first; row < last; row++) if (!drawn.has(row)) undrawn += 1;
-            const gaps = [...node.querySelectorAll(".acpmux-minimap__gap")];
-            return {
-              undrawn,
-              rows: last - first,
-              painted:
-                gaps.length > 0 && gaps.every((gap) => getComputedStyle(gap).backgroundImage.includes("gradient")),
-            };
+            return { undrawn, rows: last - first };
           });
+          const moved = await opened.screenshot({ clip: band, scale: "device" });
+          const was = PNG.sync.read(atRest);
+          const now = PNG.sync.read(moved);
+          let differing = 0;
+          for (let index = 0; index < was.data.length; index += 4) {
+            const step = Math.max(
+              Math.abs(was.data[index]! - now.data[index]!),
+              Math.abs(was.data[index + 1]! - now.data[index + 1]!),
+              Math.abs(was.data[index + 2]! - now.data[index + 2]!),
+            );
+            if (step > 24) differing += 1;
+          }
+          results.push({ scheme, ...shown, differing, pixels: was.data.length / 4 });
           if (process.env.CMUX_RAIL_STILLS) {
-            const box = (await list.boundingBox())!;
             const still = await opened.screenshot({
               clip: { x: Math.max(0, box.x - 8), y: box.y, width: box.width + 120, height: box.height },
               scale: "device",
             });
             console.log(`RAIL_STILL ${name} ${scheme} ${still.toString("base64")}`);
           }
-          // The frame does show rows past the drawn ones (the case this covers)...
-          expect(shown.undrawn).toBeGreaterThan(shown.rows / 4);
-          // ...and they paint their resting ticks, not a blank strip.
-          expect(shown.painted).toBe(true);
         } finally {
           await opened.close();
         }
         if (!process.env.CMUX_RAIL_STILLS) break;
+      }
+      console.log(`${name} stale frame: ${JSON.stringify(results)}`);
+      for (const result of results) {
+        // The frame does show rows past the drawn ones (the case this covers)...
+        expect(result.undrawn).toBeGreaterThan(result.rows / 2);
+        // ...and they look like the resting ticks they stand for, not a blank strip or longer lines.
+        expect(result.differing / result.pixels).toBeLessThan(0.005);
       }
     });
   }

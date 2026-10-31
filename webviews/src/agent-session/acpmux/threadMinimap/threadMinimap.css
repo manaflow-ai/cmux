@@ -520,11 +520,12 @@
   opacity: var(--acpmux-minimap-mark, 0.7);
 }
 /* The rows the rail does not draw (tickWindow.ts): one block as tall as they are, painted as their
-   resting ticks (the bar's 2 px at 4 px down each 10 px row, its width, the rest tone at its 40%). A
-   fast wheel or fling can move the list past the drawn rows for a frame before its scroll event
-   draws them (Chromium scrolls on its compositor); that frame shows ticks at rest, not a blank strip
-   (Leo, 2026-10-31: "if i scroll too fast in the left scroll rail it can flicker and disapper at the
-   edges"). It is a static background: no animation, no timer. */
+   resting ticks: the bar's 2 px at 4 px down each 10 px row, at its resting length (model.ts
+   tickLength(0), 0.2308 of the bar's box) in the rest tone at its 40%. A fast wheel or fling can move
+   the list past the drawn rows for a frame before its scroll event draws them (Chromium scrolls on
+   its compositor); that frame shows ticks at rest, not a blank strip (Leo, 2026-10-31: "if i scroll
+   too fast in the left scroll rail it can flicker and disapper at the edges"). A lit or bookmarked
+   row among them shows at rest for that frame. It is a static background: no animation, no timer. */
 .acpmux-minimap__gap {
   flex: none;
   background: linear-gradient(
@@ -533,7 +534,7 @@
       color-mix(in srgb, var(--acpmux-minimap-rest) 40%, transparent) 4px 6px,
       transparent 6px
     )
-    0 0 / min(26px, 100%) 10px repeat-y;
+    0 0 / calc(min(26px, 100%) * 0.2308) 10px repeat-y;
 }
 /* A tick's list item (its place among every prompt for assistive tech): a plain block around its
    tick, so it takes the tick's 10 px and the list's rows stay where they were. */
