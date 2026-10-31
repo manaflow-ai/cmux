@@ -51,6 +51,25 @@ struct CloudFileRoutingTests {
         return Fixture(services: services, controller: controller, pane: shown, root: root)
     }
 
+    @Test func terminalPathOnAnOfflineMachineStillOpensItsRemoteErrorPage() async throws {
+        let fixture = try Self.fixture()
+        defer { fixture.close() }
+        let services = fixture.services
+        let daemon = fixture.pane.daemon
+        daemon.store.noteHandshake(DaemonIdentity(capabilities: ["fs-v1"], generation: "offline-file-link"))
+        let terminal = try #require(fixture.pane.pane.tabs.first)
+        let delegate = TerminalHostDelegate()
+        delegate.services = services
+        let path = "/home/cmux/\(UUID().uuidString)/notes.md"
+        await delegate.openMachineLink(path, cwd: "/home/cmux", on: daemon,
+            (option: false, other: false, tab: ActionTargetRef(kind: .tab, id: terminal.id)))
+        let pages = services.viewers.markdownPages
+        let key = try #require(pages.debugTabs.first { $0.file?.path == path }?.key,
+                               "an offline path must show the remote page's machine-specific error")
+        #expect(pages.location(key)?.machine === daemon)
+        #expect(pages.localFile(key) == nil)
+    }
+
     @Test(arguments: ["file.open", "openMarkdownFile"])
     func explicitFileActionsOpenOnThePaneMachine(_ action: String) async throws {
         let fixture = try Self.fixture()

@@ -105,7 +105,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// text may name (``TerminalLinkResolver/remoteCandidates(_:cwd:)``) that the machine says is a
     /// file opens in its page, read from that machine; else a web link opens as anywhere. Nothing of
     /// this Mac's disk is read, and a folder opens nothing (Finder shows this Mac).
-    private func openMachineLink(_ text: String, cwd: String?, on machine: DaemonService,
+    func openMachineLink(_ text: String, cwd: String?, on machine: DaemonService,
                                  _ request: (option: Bool, other: Bool, tab: ActionTargetRef?)) async {
         guard let services else { return }
         let files = services.agentGit.link(for: machine)
