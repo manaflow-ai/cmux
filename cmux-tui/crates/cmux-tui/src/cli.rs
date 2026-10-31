@@ -26,6 +26,8 @@ mod apps_list;
 mod apps_run;
 #[cfg(unix)]
 mod automation;
+#[cfg(unix)]
+mod automation_cloud;
 mod beside;
 #[cfg(unix)]
 mod billing;
