@@ -63,6 +63,40 @@ struct ClosedPendingSplitFocusTests {
         }
     }
 
+    /// The same cancel path: Cmd-W on the pending split's stand-in cancels its creation, and the stand-in's tab leaves the
+    /// close list in that turn. On feat it stayed in it: the close still asked the daemon what runs in the stand-in's
+    /// terminal (`TabCloseGuard`, the close warning's read) and then sent a close for the stand-in's own surface, which the
+    /// daemon never made; a close hold armed on that read would hold the next keys of the burst.
+    @Test func cmdWOnAPendingSplitNeitherAsksNorClosesItsStandIn() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let content = try #require(services.windows.active?.workspaceContent)
+            let window = try #require(content.layoutView.window)
+            _ = try await Self.startingTerminal(services: services, content: content, window: window)
+            let before = Set(content.panes.keys)
+
+            // One main-actor turn: Cmd-D, then Cmd-W on its stand-in.
+            _ = try Self.press("d", .command, keyCode: 2, services: services, window: window)
+            let standIn = try #require(content.panes.first { !before.contains($0.key) }?.value,
+                                       "Cmd-D shows no pane in its turn: \(Self.describe(content, services))")
+            let tab = try #require(standIn.pane.tabs.first, "the stand-in has no tab: \(standIn.pane.tabs)")
+            try #require(ProvisionalTab.isProvisional(surface: tab.surface), "the split already confirmed: \(Self.describe(content, services))")
+            _ = try Self.press("w", .command, keyCode: 13, services: services, window: window)
+
+            @MainActor func closesStandIn() -> Bool {
+                services.daemon.store.intentLog.entries.contains { entry in
+                    if case .closeTabs(let surfaces) = entry.kind { surfaces.contains(tab.surface) } else { false }
+                }
+            }
+            #expect(!TabCloseGuard.asking.contains(tab.id), "the close of the cancelled stand-in still asks what runs in it (tab \(tab.id))")
+            #expect(!closesStandIn(), "the close of the cancelled stand-in sends a close for its surface \(tab.surface.rawValue), which the daemon never made")
+            // A close that waited for the warning's read sends it after the read: still none.
+            try? await Task.sleep(for: .seconds(2))
+            #expect(!TabCloseGuard.asking.contains(tab.id), "the cancelled stand-in's close is still asking after 2 s (tab \(tab.id))")
+            #expect(!closesStandIn(), "after the read, the close of the cancelled stand-in sent a close for its surface \(tab.surface.rawValue)")
+            #expect(!content.panes.values.contains { $0.paneKey == standIn.paneKey }, "the cancelled split still shows: \(Self.describe(content, services))")
+        }
+    }
+
     /// A terminal pane split from the test app's first pane (an agent chat), confirmed, focused with the keyboard, and the
     /// window's creation hold ended: the burst starts from a terminal, as a person's does.
     private static func startingTerminal(services: AppServices, content: WorkspaceContentController, window: NSWindow) async throws -> PaneController {
