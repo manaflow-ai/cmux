@@ -67,6 +67,7 @@ members = [
     "crates/cmux-weft",
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
+    "crates/cmux-automations",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
     "crates/cmux-server-core",
@@ -93,7 +94,6 @@ members = [
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
-    "crates/cmux-chats-mirror",
     "crates/cmux-kitty-media",
 ]
 default-members = [
@@ -135,6 +135,7 @@ default-members = [
     "crates/cmux-weft",
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
+    "crates/cmux-automations",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
     "crates/cmux-server-core",
@@ -188,6 +189,7 @@ redundant_clone = "warn"
 
 [workspace.dependencies]
 cmux-coderouter = { path = "crates/cmux-coderouter" }
+cmux-automations = { path = "crates/cmux-automations" }
 cmux-tailnet = { path = "crates/cmux-tailnet" }
 ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }

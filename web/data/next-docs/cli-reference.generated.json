@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 757,
-    "mcp": 675
+    "verbs": 760,
+    "mcp": 678
   },
   "nouns": [
     {
@@ -526,6 +526,20 @@
           "mcpTool": "app_apps_hide"
         },
         {
+          "command": "cmux apps install",
+          "title": "Install App…",
+          "id": "app.install",
+          "mcp": true,
+          "mcpTool": "app_apps_install"
+        },
+        {
+          "command": "cmux apps remove",
+          "title": "Remove App…",
+          "id": "app.remove",
+          "mcp": true,
+          "mcpTool": "app_apps_remove"
+        },
+        {
           "command": "cmux apps unhide",
           "title": "Show Hidden App…",
           "id": "app.unhide",
@@ -688,6 +702,13 @@
           "id": "palette.disableBrowser",
           "mcp": false,
           "mcpTool": null
+        },
+        {
+          "command": "cmux browser edit-source",
+          "title": "Edit Source",
+          "id": "browser.editSource",
+          "mcp": true,
+          "mcpTool": "app_browser_edit_source"
         },
         {
           "command": "cmux browser enable",
