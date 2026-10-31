@@ -5,7 +5,9 @@ import type { PageClient } from "../shared/pageClient";
 import {
   AppsOps,
   type AppContribution,
+  type AppDeploy,
   type AppDetail,
+  type AppInstance,
   type AppIconRef,
   type AppSource,
   type AppTier,
@@ -53,6 +55,8 @@ export interface WireDetail extends WireListing {
   screenshots?: string[];
   /** The manifest's contributions; the owner's `catalog.get` does not send them yet. */
   contributes?: AppContribution[];
+  /** Absent for an app with no `deploy` block. */
+  deploy?: AppDeploy | null;
 }
 
 export interface WireCatalogPage {
@@ -68,6 +72,8 @@ export interface WireInstalledApp {
   hide_only: boolean;
   state: WireInstallState;
   grants: unknown[];
+  /** The deployed instance; null or absent for an app with none. */
+  instance?: AppInstance | null;
 }
 
 export interface WireInstalledList {
