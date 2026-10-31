@@ -296,6 +296,43 @@ fn a_child_completion_projected_after_its_parents_stop_releases_the_finish() {
     assert_eq!(mux.resource_notifications(16).len(), 1, "a retry still posts once");
 }
 
+#[test]
+fn a_committed_child_start_holds_a_later_stop_before_its_own_projection() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal = surface.terminal_public_id().cloned().unwrap();
+    let ingress = |event: &str| {
+        crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal.to_string()),
+            serde_json::json!({"session_id": "session", "agent_id": "child"}),
+        )
+        .unwrap()
+    };
+    for event in ["SessionStart", "UserPromptSubmit"] {
+        mux.append_journal_ingress(&ingress(event), "test", event).unwrap();
+    }
+    // The writer committed this ingress, but its caller has not projected it yet (or
+    // received an indeterminate result after commit admission). Its retry row is durable.
+    let child = ingress("SubagentStart");
+    let validated = mux.journal_kernel.validate_ingress(&child).unwrap();
+    let child_commit = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .append_journal_ingress(&child, &validated, "test", "child-start")
+        .unwrap();
+    mux.append_journal_ingress(&ingress("Stop"), "test", "parent-stop").unwrap();
+    assert!(mux.resource_notifications(16).is_empty(), "the committed child still runs");
+    mux.finish_journal_ingress(&child, "test", "child-start", child_commit).unwrap();
+    assert!(mux.resource_notifications(16).is_empty(), "late projection changes nothing");
+    mux.append_journal_ingress(&ingress("SubagentStop"), "test", "child-stop").unwrap();
+    assert_eq!(mux.resource_notifications(16).len(), 1);
+    mux.append_journal_ingress(&ingress("SubagentStop"), "test", "child-stop").unwrap();
+    assert_eq!(mux.resource_notifications(16).len(), 1, "a retry still posts once");
+}
+
 fn assert_held_agent_finish_retries(release_event: &str) {
     let root = std::env::temp_dir()
         .join(format!("cmux-held-finish-retry-{}", WorkspacePublicId::random().unwrap()));
