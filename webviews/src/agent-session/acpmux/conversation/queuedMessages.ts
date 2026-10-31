@@ -83,3 +83,9 @@ export function queuedAttachments(
     }),
   );
 }
+
+/// Whether an image of the prompt could not be read back (no local copy, and the read failed): taking
+/// the prompt into the composer then would lose it, so Edit message leaves it in the queue.
+export function lacksImageBytes(attachments: readonly ComposerAttachment[]): boolean {
+  return attachments.some((attachment) => attachment.kind === "image" && !attachment.data);
+}
