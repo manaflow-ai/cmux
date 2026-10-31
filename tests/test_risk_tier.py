@@ -53,6 +53,56 @@ class ClassifyTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(self.tier(path), "normal")
 
+    def test_peer_identity_and_code_signature_trust_are_high(self):
+        # #29072 changed which time a moved acpmux's signing chain must be valid at, and graded normal.
+        for path in (
+            "Native/OptChat/optchat-chief/src/code_signature.rs",
+            "Native/OptChat/optchat-chief/src/acpmux_peer.rs",
+            NEXT + "CmuxNextAgentPane/AcpmuxServerPeer.swift",
+            "cmux-tui/crates/cmux-link/src/caller.rs",
+            "cmux-tui/crates/cmux-link/src/caller_macos.rs",
+            "cmux-tui/crates/cmux-link/src/app_caller.rs",
+            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HostVerifier.swift",
+            NEXT + "CmuxNextAgentActivity/CuaHelperIdentity.swift",
+            NEXT + "CmuxNextBrowser/CEF/SecCodeCEFCodeSignatureChecker.swift",
+            NEXT + "CmuxNextBrowser/CEF/CEFCodeSignatureChecking.swift",
+            NEXT + "CmuxNextChromiumRuntime/SecCodeChromiumRuntimeSignatureChecker.swift",
+            NEXT + "CmuxNextChromiumRuntime/ChromiumRuntimeSignatureChecking.swift",
+            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/Admission.swift",
+            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/AdmissionState.swift",
+            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HelperController.swift",
+            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HelperSocketServer.swift",
+            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HostConsentServer.swift",
+            NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Secret.swift",
+            NEXT + "CmuxNextApp/AgentTabs+PaneSource.swift",
+            NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+Resolve.swift",
+            NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+DebugOverride.swift",
+            "cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs",
+            "scripts/cmux-cua-helper-trust.sh",
+            NEXT + "CmuxNextComputerUse/ComputerUseHelperStaging.swift",
+            NEXT + "CmuxNextServerHelper/ServerHelperListener.swift",
+            NEXT + "CmuxNextServerHelper/ServerHelperProtocol.swift",
+            NEXT + "CmuxNextComputerUse/ComputerUseHelperV2HostLink.swift",
+            NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Admission.swift",
+            NEXT + "CmuxNextApp/Server/ServerHelperClient.swift",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(risk.classify_path(path), ("high", "peer identity or code-signature trust"))
+        # Their tests and fixtures stay low; a file that only mentions a signature stays normal.
+        for path, tier in (
+            ("Native/OptChat/optchat-chief/tests/acpmux_peer_moved.rs", "low"),
+            ("Native/OptChat/optchat-chief/tests/fixtures/nightly-acpmux-signature.bin", "low"),
+            ("cmux-tui/crates/cmux-link/src/caller_macos_sign_clone_tests.rs", "low"),
+            ("cmux-tui/crates/cmux-pane-protocol/src/token.rs", "normal"),
+            ("Native/OptChat/optchat-chief/src/cloud/signature_cache.rs", "normal"),
+            # The launcher itself: its acpmux admission rule lives in ComputerUseHelperV2+Admission.swift.
+            (NEXT + "CmuxNextComputerUse/ComputerUseHelperV2.swift", "normal"),
+            # Where the daemon lives and its environment: the executable choice is in +Resolve.
+            (NEXT + "CmuxNextAgentPane/AcpmuxEnvironment.swift", "normal"),
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(risk.classify_path(path)[0], tier)
+
     def test_size_alone_never_raises_the_tier(self):
         path = NEXT + "CmuxNextSidebar/A.swift"
         patch = "\n".join(f"+let line{i} = {i}" for i in range(5000))
