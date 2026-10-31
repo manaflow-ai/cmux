@@ -1,6 +1,6 @@
 // The thread minimap as the Codex desktop app's prompt rail (minimap-ref SPEC): it shows from four
 // prompts at any pane width (a narrow one: thread-minimap-narrow.test.tsx); hover magnifies like
-// the Dock and opens a preview card on Codex's timing; every row is a tab stop whose focus opens
+// the Dock and opens a preview card at once; every row is a tab stop whose focus opens
 // the card at once; a click or Return jumps; a drag scrubs; bookmarks show as a dot past the tick,
 // toggle from the dot, the card and the prompt's own row, and the Previous and Next Bookmarked
 // Prompt actions step through them. Scroll motion and the landing highlight run under Reduce
@@ -147,9 +147,11 @@ const pointer = (type: string, target: Element, init: Record<string, unknown> = 
 const enter = (index: number) => pointer("pointerover", tick(index), { relatedTarget: document.body });
 const leave = (index: number) => pointer("pointerout", tick(index), { relatedTarget: document.body });
 const advance = (ms: number) => act(async () => void jest.advanceTimersByTime(ms));
-/// The place of a mounted row in the thread: its `top` less the thread's 16 px top padding.
-const rowTop = (id: string) =>
-  Number.parseFloat(document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${id}"]`)!.style.top) - 16;
+/// The place of a mounted row in the thread: its CSS offset less the thread's 16 px top padding.
+const rowTop = (id: string) => {
+  const row = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${id}"]`)!;
+  return Number.parseFloat(row.style.top) + (Number.parseFloat(row.style.marginTop) || 0) - 16;
+};
 /// Where a jump to turn `index` leaves the scroller: the prompt's bubble 35 px below the viewport
 /// top (the thread pads its rows 16 px down).
 const landing = (index: number) => {
@@ -201,14 +203,12 @@ test("rows are 10 px tab stops; every prompt on screen is current; hover magnifi
   }
 });
 
-test("the card waits Codex's 250 ms, follows the pointer at once while warm, and goes as the pointer leaves", async () => {
+test("the card opens with the hover, follows the pointer at once, and goes as the pointer leaves", async () => {
   const view = await mount(8);
   jest.useFakeTimers();
   try {
+    // No dwell (Leo, 2026-10-29: "faster scrttoll/hover over"): the card is there on the pointer's commit.
     await enter(3);
-    await advance(230);
-    expect(card()).toBeNull();
-    await advance(30);
     expect(card()).not.toBeNull();
     expect(card()!.textContent).toContain("Question 3");
     // Moving to another row moves the card with it, on the same frame.
@@ -218,7 +218,7 @@ test("the card waits Codex's 250 ms, follows the pointer at once while warm, and
     // Leaving the rail (not for the card): the card goes at once.
     await leave(4);
     expect(card()).toBeNull();
-    // Back while the rail is warm: at once.
+    // Back: at once.
     await advance(300);
     await enter(2);
     expect(card()!.textContent).toContain("Question 2");
@@ -229,10 +229,8 @@ test("the card waits Codex's 250 ms, follows the pointer at once while warm, and
     await pointer("pointerout", card()!, { relatedTarget: document.body });
     expect(card()).toBeNull();
     await advance(600);
-    // Cooled: the 250 ms again.
+    // Cooled: still at once.
     await enter(6);
-    expect(card()).toBeNull();
-    await advance(260);
     expect(card()).not.toBeNull();
   } finally {
     await view.unmount();

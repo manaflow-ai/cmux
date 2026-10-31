@@ -61,6 +61,9 @@ public struct LocalFileArtifactSource: ArtifactSource {
         self.scope = scope
     }
 
+    /// Decoding budget only: larger files still open from disk and upload in full.
+    static let inMemoryPreviewBytes = 24 << 20
+
     public func load(_ artifact: TerminalArtifact) async throws -> ArtifactContent {
         guard let file = files[artifact.reference] else { return try await fallback.load(artifact) }
         if let url = file.fileURL, file.data == nil {
@@ -69,7 +72,24 @@ public struct LocalFileArtifactSource: ArtifactSource {
             guard accesses.open(ScopedFile(url, scope: scope), for: artifact.reference) else {
                 throw ArtifactUnavailable("\(file.name) isn't on this iPhone anymore.")
             }
-            return artifact.kind == .video ? .file(url) : .quickLook(url)
+            switch artifact.kind {
+            case .text, .code, .markdown, .html, .image, .pdf:
+                // Keep the custom rendered/source previews for small picked files.
+                // Read at most the preview budget plus one byte, even if the file grows.
+                let handle = try FileHandle(forReadingFrom: url)
+                defer { try? handle.close() }
+                let limit = Self.inMemoryPreviewBytes
+                if try handle.seekToEnd() <= UInt64(limit) {
+                    try handle.seek(toOffset: 0)
+                    let bytes = try handle.read(upToCount: limit + 1) ?? Data()
+                    if bytes.count <= limit {
+                        return try LinkFileArtifactSource.content(for: artifact, data: bytes)
+                    }
+                }
+                return .quickLook(url)
+            case .video: return .file(url)
+            default: return .quickLook(url)
+            }
         }
         var data = file.data
         if data == nil, let fetch {

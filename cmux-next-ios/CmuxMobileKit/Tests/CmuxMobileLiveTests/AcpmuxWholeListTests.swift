@@ -14,7 +14,8 @@ final class SentRequests: @unchecked Sendable {
 
 /// `AcpmuxConnection.wholeList`: a session list acpmux sends in pages (`nextCursor`, acpmux
 /// `Client::whole_list`) is read whole, a list that fits is one request, and a cursor sent
-/// twice ends the read with an error rather than a loop or a list cut short.
+/// twice, a cursor that is not a string, or a page with no `sessions` ends the read with an
+/// error rather than a loop or a list cut short.
 @Suite struct AcpmuxWholeListTests {
     static func row(_ id: String) -> String {
         #"{"sessionId":"\#(id)","name":"\#(id)","harness":"fake","cwd":"/tmp/w","status":"idle"}"#
@@ -48,7 +49,7 @@ final class SentRequests: @unchecked Sendable {
             pages: ["c1": #"{"sessions":[\#(Self.row("s3"))]}"#],
             sent: sent
         )
-        let rows = try await connection.wholeList("_acpmux/watch", ["enabled": .bool(true), "includeTools": .bool(false)])
+        let rows = try await connection.wholeList("_acpmux/watch", ["enabled": .bool(true), "includeTools": .bool(false)], timeout: .seconds(5))
         #expect(Self.ids(rows) == ["s1", "s2", "s3"])
 
         let calls = sent.all
@@ -63,7 +64,7 @@ final class SentRequests: @unchecked Sendable {
     @Test func aListThatFitsIsOneRequest() async throws {
         let sent = SentRequests()
         let connection = try await Self.connection(watch: #"{"sessions":[\#(Self.row("s1"))]}"#, pages: [:], sent: sent)
-        let rows = try await connection.wholeList("_acpmux/watch", ["enabled": .bool(true)])
+        let rows = try await connection.wholeList("_acpmux/watch", ["enabled": .bool(true)], timeout: .seconds(5))
         #expect(Self.ids(rows) == ["s1"])
         #expect(sent.all.map(\.0) == ["_acpmux/watch"])
     }
@@ -78,21 +79,47 @@ final class SentRequests: @unchecked Sendable {
             sent: sent
         )
         await #expect(throws: AcpmuxConnection.RPCError.self) {
-            _ = try await connection.wholeList("_acpmux/watch", ["enabled": .bool(true)])
+            _ = try await connection.wholeList("_acpmux/watch", ["enabled": .bool(true)], timeout: .seconds(5))
         }
         #expect(sent.all.map(\.0) == ["_acpmux/watch", "_acpmux/sessions"])
     }
 
-    /// A page with no rows ends the list even if it names a cursor: there is nothing to page past.
-    @Test func anEmptyPageEndsTheList() async throws {
+    /// A page with no rows but a string cursor is not the end: acpmux may skip past rows it
+    /// cannot send, so the read follows the cursor as `Client::whole_list` does.
+    @Test func anEmptyPageWithACursorIsFollowed() async throws {
         let sent = SentRequests()
         let connection = try await Self.connection(
             watch: #"{"sessions":[\#(Self.row("s1"))],"nextCursor":"c1"}"#,
-            pages: ["c1": #"{"sessions":[],"nextCursor":"c2"}"#],
+            pages: ["c1": #"{"sessions":[],"nextCursor":"c2"}"#, "c2": #"{"sessions":[\#(Self.row("s2"))],"nextCursor":null}"#],
             sent: sent
         )
-        let rows = try await connection.wholeList("_acpmux/watch", ["enabled": .bool(true)])
-        #expect(Self.ids(rows) == ["s1"])
-        #expect(sent.all.map(\.0) == ["_acpmux/watch", "_acpmux/sessions"])
+        let rows = try await connection.wholeList("_acpmux/watch", ["enabled": .bool(true)], timeout: .seconds(5))
+        #expect(Self.ids(rows) == ["s1", "s2"])
+        #expect(sent.all.map(\.0) == ["_acpmux/watch", "_acpmux/sessions", "_acpmux/sessions"])
+    }
+
+    /// A cursor that is not a string cannot be sent back: the read fails instead of ending early.
+    @Test func aCursorThatIsNotAStringFailsTheRead() async throws {
+        let sent = SentRequests()
+        let connection = try await Self.connection(
+            watch: #"{"sessions":[\#(Self.row("s1"))],"nextCursor":7}"#, pages: [:], sent: sent
+        )
+        await #expect(throws: AcpmuxConnection.RPCError.self) {
+            _ = try await connection.wholeList("_acpmux/watch", ["enabled": .bool(true)], timeout: .seconds(5))
+        }
+        #expect(sent.all.map(\.0) == ["_acpmux/watch"])
+    }
+
+    /// A page with no `sessions` array, first or later, is not a page of the list.
+    @Test func aPageWithNoSessionsFailsTheRead() async throws {
+        for (watch, pages) in [
+            (#"{"nextCursor":"c1"}"#, [String: String]()),
+            (#"{"sessions":[\#(Self.row("s1"))],"nextCursor":"c1"}"#, ["c1": #"{"rows":[]}"#]),
+        ] {
+            let connection = try await Self.connection(watch: watch, pages: pages, sent: SentRequests())
+            await #expect(throws: AcpmuxConnection.RPCError.self) {
+                _ = try await connection.wholeList("_acpmux/watch", ["enabled": .bool(true)], timeout: .seconds(5))
+            }
+        }
     }
 }
