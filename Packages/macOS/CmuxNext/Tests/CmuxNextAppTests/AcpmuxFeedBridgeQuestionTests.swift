@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextFeed
 import Foundation
 import Testing
 
@@ -46,19 +47,79 @@ struct AcpmuxFeedBridgeQuestionTests {
         return try #require(body["params"] as? [String: Any])
     }
 
-    @Test func aQuestionIsNeverPostedAsAPermission() throws {
-        let params = try Self.params(Self.question)
-        #expect(params["kind"] as? String != "approve")
-        #expect(params["type"] as? String == "notice")
-        #expect(params["prompt"] == nil)
+    /// The question posts as a `choice` the person answers in the feed, with every option shown
+    /// and the agent named, never as a permission and never as a bare "asks:" notice.
+    @Test func aQuestionPostsAsAnAnswerableChoice() throws {
+        let body = AcpmuxPermissionFeedBridge.postBody(session: "sess-1", permission: "perm-1", request: Self.question,
+                                                       host: "inst_mac", agent: "claude")
+        let params = try #require(body["params"] as? [String: Any])
+        #expect(params["kind"] as? String == "choice")
+        #expect(params["type"] as? String == "request")
         let title = try #require(params["title"] as? String)
         #expect(!title.hasPrefix("Allow"))
-        #expect(title.contains("Claude Code"))
-        #expect(title.contains("Which database should I use?"))
+        #expect(title == "Which database should I use?")
+        #expect((params["poster"] as? [String: Any])?["label"] as? String == "claude")
+        let questions = try #require((params["prompt"] as? [String: Any])?["questions"] as? [[String: Any]])
+        #expect(questions.count == 1)
+        #expect(questions[0]["id"] as? String == "q0")
+        #expect(questions[0]["header"] as? String == "Database")
+        #expect((questions[0]["options"] as? [[String: Any]])?.map { $0["label"] as? String } == ["Postgres", "SQLite"])
+        #expect((questions[0]["options"] as? [[String: Any]])?.map { $0["id"] as? String } == ["o0", "o1"])
+        #expect(questions[0]["allow_other"] as? Bool == true)
+        let text = try #require(params["body"] as? String)
+        #expect(text.contains("Which database should I use?") && text.contains("- Postgres") && text.contains("- SQLite"))
         // It still opens the chat that asks, and reaches the phone as fast as a permission did.
         #expect((params["context"] as? [String: Any])?["acp_session"] as? String == "sess-1")
         #expect(params["priority"] as? String == "high")
         #expect(params["expires_in_ms"] as? Int == 86_400_000)
+    }
+
+    /// A feed answer maps back onto the question's own option ids, as acpmux's reply.
+    @Test func aChoiceAnswerAnswersTheQuestion() throws {
+        func params(_ answers: [String: FeedChoiceSelection]) -> [String: Any]? {
+            AcpmuxPermissionFeedBridge.respondParams(request: Self.question, session: "sess-1", permission: "perm-1", answers: answers)
+        }
+        let reply = try #require(params(["q0": FeedChoiceSelection(selected: ["o1"])]))
+        #expect(reply["permissionId"] as? String == "perm-1")
+        #expect(reply["sessionId"] as? String == "sess-1")
+        let picked = try JSONSerialization.data(withJSONObject: reply)
+        #expect(String(data: picked, encoding: .utf8)?.contains("SQLite") == true)
+        // An option or question the posted choice never had answers nothing.
+        #expect(params(["q0": FeedChoiceSelection(selected: ["o7"])]) == nil)
+        #expect(params(["q3": FeedChoiceSelection(selected: ["o0"])]) == nil)
+    }
+
+    /// From the owner, only another install answers a question (as a deny): never a session answer
+    /// (a browser, or a process holding the person's session), never this Mac's own install.
+    @Test func aSessionAnswerNeverAnswersAQuestion() {
+        func refusal(_ by: String) -> AcpmuxPermissionFeedBridge.Refusal? {
+            if case .failure(let refusal) = AcpmuxPermissionFeedBridge.admits(by: by, ownInstall: "inst_mac") { return refusal }
+            return nil
+        }
+        #expect(refusal("session:usr_1") == .sessionAnswer)
+        #expect(refusal("inst_phone") == nil)
+        // This Mac's own install never answers through the owner: the person answers here
+        // through the bridge directly (`answeredHere`), as in the chat.
+        #expect(refusal("inst_mac") == .ownInstall)
+    }
+
+    /// A question that does not fit a choice (one option) stays a notice naming the agent.
+    @Test func aQuestionThatDoesNotFitAChoiceStaysANotice() throws {
+        var request = Self.question
+        var call = try #require(request["toolCall"] as? [String: Any])
+        var meta = try #require(call["_meta"] as? [String: Any])
+        var acpmux = try #require(meta["acpmux"] as? [String: Any])
+        var normalized = try #require(acpmux["question"] as? [String: Any])
+        normalized["items"] = [["id": "q0", "prompt": "Proceed?", "options": [["id": "o0", "label": "Yes"]],
+                                "multiSelect": false, "allowsOther": false]]
+        acpmux["question"] = normalized
+        meta["acpmux"] = acpmux
+        call["_meta"] = meta
+        call["rawInput"] = ["questions": [["question": "Proceed?", "options": [["label": "Yes"]]]]]
+        request["toolCall"] = call
+        let params = try Self.params(request)
+        #expect(params["type"] as? String == "notice")
+        #expect((params["title"] as? String ?? "").contains("asks"))
     }
 
     @Test func aQuestionWithNoTextStillReadsAsAQuestion() throws {

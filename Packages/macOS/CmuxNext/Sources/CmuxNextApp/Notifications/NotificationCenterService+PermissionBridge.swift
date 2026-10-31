@@ -20,9 +20,11 @@ extension NotificationCenterService {
                         presenceKeys: { try await principal.presenceKeys() })
                     self.permissionBridge = bridge
                     feed?.onConfirmedItems = { [weak bridge] items in bridge?.itemsChanged(items) }
+                    feed?.model.onAnswer = { [weak bridge] id, value in bridge?.answeredHere(id, value) }
                     bridge.start()
                 } else if !on, self.permissionBridge != nil {
                     feed?.onConfirmedItems = nil
+                    feed?.model.onAnswer = nil
                     self.permissionBridge = nil
                 }
             }

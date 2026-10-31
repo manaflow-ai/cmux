@@ -53,6 +53,9 @@ public final class FeedModel {
     /// Refreshes integration sources such as GitHub. The owner remains the
     /// authority for feed state; this is only a user-triggered source wakeup.
     public var onRefresh: (@MainActor () -> Void)?
+    /// Told each answer the person gives in this client, as it is sent (the agent question feed
+    /// bridge answers its own items here, the way the chat would, not through the owner's echo).
+    public var onAnswer: (@MainActor (String, FeedAnswerValue) -> Void)?
     /// Routes a supported GitHub action to the host. Unsupported actions stay hidden.
     public var onGitHubAction: (@MainActor (FeedItem, FeedGitHubAction, String?) -> Void)?
     /// Host capability check keeps unsupported actions out of the detail pane.
@@ -183,7 +186,10 @@ public final class FeedModel {
             return nil
         }
         let intent = send(.answer(item: id, value: value))
-        if intent != nil { drafts.clear(id) }
+        if intent != nil {
+            drafts.clear(id)
+            onAnswer?(id, value)
+        }
         return intent
     }
 
