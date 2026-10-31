@@ -140,10 +140,12 @@ struct CloseThenTypeKeysTests {
                                             report: { "waiting for the right terminal to close: reading \(TabCloseGuard.reading), asking \(TabCloseGuard.asking)" })
             let ran = await Self.shows("cw\(nonce)x42", on: p.left.surface, within: 10_000, in: p)
             let left = await Self.screen(p.left.surface, in: p)
+            // The shell ran "cho cw..." (the "e" went elsewhere): "echo cw..." contains "cho cw" too, so look for the prompt's line.
+            let firstKeyLost = left.contains("$ cho cw\(nonce)") || left.contains("command not found: cho")
             let outcome = inClosing ? "the line ran in the closing pane" : ran ? "the left pane ran it" :
-                left.contains("cho cw\(nonce)") ? "first key lost" : left.contains("cw\(nonce)") ? "the line reached the left pane incomplete" : "the line reached no pane"
+                firstKeyLost ? "first key lost" : left.contains("cw\(nonce)") ? "the line reached the left pane incomplete" : "the line reached no pane"
             #expect(!inClosing, "the line ran in the closing pane (typed inside the close warning's read): \(closing.suffix(300))")
-            #expect(!left.contains("cho cw\(nonce)"), "first key lost: \(left.suffix(300))")
+            #expect(!firstKeyLost, "first key lost: \(left.suffix(300))")
             #expect(ran, "the line did not run whole in the left pane (\(outcome)): \(left.suffix(400))")
             #expect(p.content.focus.state.resolved == .terminal(pane: p.left.pane.paneKey, tab: p.left.tab))
         }
