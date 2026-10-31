@@ -27,6 +27,12 @@ pub fn coalesce(entries: &mut Vec<OutboxEntry>) {
             // A message in a voice and a turn's reply stay two messages (voice.rs).
             && crate::voice::of(&entries[i].idempotency_key)
                 == crate::voice::of(&entries[i + 1].idempotency_key)
+            // Cards stay on the message they came with (brain/cards.rs), and
+            // a browser card's text is its own message.
+            && !crate::brain::is_card_key(&entries[i].idempotency_key)
+            && !crate::brain::is_card_key(&entries[i + 1].idempotency_key)
+            && entries[i].cards.is_empty()
+            && entries[i + 1].cards.is_empty()
             && plain_text(&entries[i].op).is_some()
             && plain_text(&entries[i + 1].op).is_some();
         if !mergeable {

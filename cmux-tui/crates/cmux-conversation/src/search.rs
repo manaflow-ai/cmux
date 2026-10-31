@@ -78,12 +78,15 @@ pub fn message_text(message: &Message) -> String {
     let joined = message
         .parts
         .iter()
-        .filter_map(|part| match part {
-            Part::Text { text, .. } => Some(text.as_str()),
+        .flat_map(|part| match part {
+            Part::Text { text, .. } => vec![text.as_str()],
             // A link preview is found by its title (the URL is in the text part that carries it).
-            Part::LinkPreview { title, .. } => title.as_deref(),
-            Part::Question(question) => question.items.first().map(|item| item.prompt.as_str()),
-            Part::Work { .. } | Part::Attachment { .. } | Part::Unknown(_) => None,
+            Part::LinkPreview { title, .. } => title.as_deref().into_iter().collect(),
+            Part::Question(question) => {
+                question.items.first().map(|item| item.prompt.as_str()).into_iter().collect()
+            }
+            Part::Card(card) => card.search_words(),
+            Part::Work { .. } | Part::Attachment { .. } | Part::Unknown(_) => Vec::new(),
         })
         .collect::<Vec<_>>()
         .join(" ");

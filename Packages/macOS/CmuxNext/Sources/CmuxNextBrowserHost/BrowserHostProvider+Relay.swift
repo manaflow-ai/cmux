@@ -47,7 +47,14 @@ extension BrowserHostProvider {
         }
         session.deadline = deadline
         let relay = relay
+        let gate = scriptGate
         session.preparing = Task { [weak self] in
+            // The Secure Store login guard (ProviderScriptGate): no relay on a site holding a filled
+            // sign-in, and a relayed tab never gets a fill.
+            if let gate, let refusal = await gate.admitRawDevTools(targetID: targetID) {
+                self?.prepareFailed(targetID, gen, refusal)
+                return
+            }
             let ready = await relay?.prepareRelay(targetID: targetID) ?? false
             self?.prepared(targetID, gen, ready)
         }
@@ -108,6 +115,11 @@ extension BrowserHostProvider {
         case .relaying:
             break
         }
+        // Each message, in order: refused while the tab is on a site holding a filled sign-in.
+        if let refusal = scriptGate?.rawDevToolsMessage(targetID: targetID) {
+            replyError(targetID, to: message, refusal)
+            return
+        }
         guard let out = session.table.outbound(message) else {
             logger.notice("browser host provider: cdp message without an integer id dropped (\(targetID, privacy: .public))")
             return
@@ -138,6 +150,7 @@ extension BrowserHostProvider {
     private func relayClosedByBrowser(_ targetID: String, _ gen: Int) {
         guard let session = relays[targetID], session.generation == gen else { return }
         relays[targetID] = nil
+        scriptGate?.rawDevToolsEnded(targetID: targetID)
         session.deadline?.cancel()
         // Every command still waiting is answered before the host hears the close, after the
         // replies already queued (the drain runs on the write queue, behind them).
@@ -159,6 +172,8 @@ extension BrowserHostProvider {
     /// still holds the relay).
     func endRelay(_ targetID: String, answering: Bool = false) {
         guard let session = relays.removeValue(forKey: targetID) else { return }
+        // No relay on the tab now: a fill in its profile is no longer held back by it.
+        scriptGate?.rawDevToolsEnded(targetID: targetID)
         session.deadline?.cancel()
         session.preparing?.cancel()
         if case .relaying = session.phase { relay?.stopRelay(targetID: targetID) }

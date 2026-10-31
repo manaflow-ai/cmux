@@ -1345,6 +1345,12 @@
       "title" : "Agent Pointer Motion",
       "type" : "string"
     },
+    "browser.agentSecureStoreFill" : {
+      "default" : false,
+      "description" : "When an agent's page needs a sign-in you saved in the Secure Store, cmux fills it into the agent's own tab. The agent never sees the password, and its scripts are refused on that site from then on.",
+      "title" : "Let Agents Sign In from the Secure Store",
+      "type" : "boolean"
+    },
     "browser.builtInAdBlocker" : {
       "default" : true,
       "description" : "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts.",
@@ -3881,6 +3887,12 @@
       "default" : false,
       "description" : "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too.",
       "title" : "Mark This Mac's Workspaces",
+      "type" : "boolean"
+    },
+    "sidebar.showNewWorkspaceChooser" : {
+      "default" : false,
+      "description" : "A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu.",
+      "title" : "Show New Workspace Menu Button",
       "type" : "boolean"
     },
     "sidebar.showProfileControl" : {

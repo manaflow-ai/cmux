@@ -1574,13 +1574,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextBrowserAutomationTests",
-            dependencies: ["CmuxNextBrowserAutomation"],
+            dependencies: ["CmuxNextBrowserAutomation", "CmuxNextBrowser", "CmuxNextControl", "CmuxNextDesign"],
             swiftSettings: uiSwiftSettings
         ),
         // The app's provider bridge to the browser host (plans/cmux-next/browser-host.md, step c3).
         .target(
             name: "CmuxNextBrowserHost",
-            dependencies: ["CmuxNextCompat", "CmuxNextBrowser", "CmuxNextBrowserAutomation", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextBrowser", "CmuxNextBrowserAutomation", "CmuxNextControl", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(

@@ -432,7 +432,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     BrowserPageService(engine: AppBrowserPageEngine(services: services), passkeys: passkeys,
                                        agentMouse: { [weak settings] in
                                            await MainActor.run { settings?.snapshot.browserAgentMouse } ?? AgentMouseSetting().fallback
-                                       }, mirrors: services).install(on: router)
+                                       }, mirrors: services,
+                                       // `browser.page.fill_login`: the person's Secure Store logins.
+                                       logins: BrowserPageService.secureStoreLogins,
+                                       // The app's one login guard, shared with the browser host.
+                                       loginGuards: services.loginGuards,
+                                       // `browser.agentSecureStoreFill`, off by default.
+                                       secureStoreFillEnabled: { [weak settings] in
+                                           await MainActor.run { settings?.snapshot.browserAgentSecureStoreFill } ?? false
+                                       })
+                        .install(on: router)
                     services.apps.attach(router: router)
                 }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")

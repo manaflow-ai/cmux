@@ -19,6 +19,13 @@ import Testing
         }
 
         func run(_ operation: BrowserPageOperation, tabID: String, url: String?) async throws -> JSONValue {
+            // The login guard's origin reads around a `--function` wait (BrowserLoginGuards): not the
+            // wait's own operations, so not recorded.
+            switch operation {
+            case .state: return ["url": "https://example.com/"]
+            case .evaluateIsolated: return ["value": ["origin": "https://example.com", "opener": false]]
+            default: break
+            }
             let index = calls.withLock { calls in
                 calls.append(operation)
                 return calls.count - 1
