@@ -42,6 +42,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// Codex or opencode chat send (`ownerCloud`, remoteEditing.ts).
     public typealias OwnerCloud = @Sendable () async -> Bool
 
+    /// `agent-session-start-owner-cloud-v1`: on a Cloud VM, `vm_kind: "owner"` starts any agent (the
+    /// person's own disposable VM is the boundary). Only a Cloud VM's daemon serves it, so it is no
+    /// `DaemonCapability` case (check-app-capability-references.py `CONDITIONAL`, like `fs-v1`).
+    public static let ownerCloudCapability = "agent-session-start-owner-cloud-v1"
+
     /// A Cloud machine's ``OwnerCloud`` from its link's owner answer (the running link id while the
     /// Cloud API says the caller owns it, else nil), when its daemon serves the owner start
     /// (`served`). Nil for a machine that is not a Cloud one, or a daemon that does not serve it.

@@ -49,6 +49,10 @@ struct RemoteAcpmuxOwnerCloudTests {
     }
 
     /// The link's owner answer decides, and only through a daemon that serves the owner start.
+    @Test func theCapabilityIsTheCloudDaemonsName() {
+        #expect(RemoteAcpmuxWire.ownerCloudCapability == "agent-session-start-owner-cloud-v1")
+    }
+
     @Test func theOwnerAnswerAndTheDaemonDecide() async throws {
         // Built outside the macros: #require's expansion passes its call's arguments on without
         // the parameter's @Sendable.

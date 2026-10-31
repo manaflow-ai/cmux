@@ -344,7 +344,7 @@ extension AgentTabStore {
             // it is sent, through any daemon (the legacy link's or the app link's own answer).
             let ownerLink = services.machines.session(daemon.machineID).map { CloudLinkSession.ownerAnswer(appLink: $0.appLink, link: $0.link) }
             host.ownerLink = ownerLink
-            host.ownerCloud = RemoteAcpmuxWire.ownerCloud(ownerLink, served: daemon.supports(DaemonCapability.agentSessionStartOwnerCloud.rawValue))
+            host.ownerCloud = RemoteAcpmuxWire.ownerCloud(ownerLink, served: daemon.supports(RemoteAcpmuxWire.ownerCloudCapability))
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
                 host.existing = { [weak tabs] in
