@@ -219,8 +219,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
     /// `tabs.cmdWClosesPinnedTabs`; on when unset or invalid.
     public var cmdWClosesPinnedTabs: Bool = CmdWClosesPinnedTabsSetting.fallback
-    /// `tabs.terminalFirst`; off when unset or invalid.
-    public var terminalFirst: Bool = TerminalFirstSetting.fallback
     /// `tabs.nativeNewTabPage`: the native (Swift) New Tab page instead of the web one; off when unset or invalid.
     public var nativeNewTabPage: Bool = NativeNewTabPageSetting.fallback
     /// `tabs.overflow`; shrink when unset or invalid.
@@ -426,9 +424,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (cmdWClosesPinnedTabs, cmdWClosesPinnedTabsDiagnostic) = CmdWClosesPinnedTabsSetting.parse(root)
         snapshot.cmdWClosesPinnedTabs = cmdWClosesPinnedTabs
         if let cmdWClosesPinnedTabsDiagnostic { snapshot.diagnostics.append(cmdWClosesPinnedTabsDiagnostic) }
-        let (terminalFirst, terminalFirstDiagnostic) = TerminalFirstSetting.parse(root)
-        snapshot.terminalFirst = terminalFirst
-        if let terminalFirstDiagnostic { snapshot.diagnostics.append(terminalFirstDiagnostic) }
         snapshot.take(NativeNewTabPageSetting.parse(root), \.nativeNewTabPage)
         snapshot.take(TabOverflowSetting.parse(root), \.tabOverflow)
         let (swapCmdTAndCmdN, swapCmdTAndCmdNDiagnostic) = SwapCmdTAndCmdNSetting.parse(root)

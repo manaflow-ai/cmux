@@ -134,6 +134,12 @@ enum CmuxStrings {
     }
 
     static var playVideo: String { String(localized: "home.video.play", defaultValue: "Play Video", table: "CmuxHome", bundle: .module) }
+    static var viewVideoLarger: String {
+        String(localized: "home.video.viewLarger", defaultValue: "View Larger", table: "CmuxHome", bundle: .module)
+    }
+    static var closeVideoViewer: String {
+        String(localized: "home.video.closeViewer", defaultValue: "Close Video", table: "CmuxHome", bundle: .module)
+    }
     static var pauseVideo: String { String(localized: "home.video.pause", defaultValue: "Pause Video", table: "CmuxHome", bundle: .module) }
     /// An attachment's Copy (the file and an image's pixels): Messages' own Copy title.
     static var copyAttachment: String { Strings.menuCopy }

@@ -705,6 +705,21 @@ public final class MessagesLabHomeView: NSView {
         return false
     }
 
+    /// Automation: opens the newest video bubble in the large viewer through the double-click's
+    /// path (`ChatIntents.openVideo`).
+    public func debugOpenNewestVideo() -> Bool {
+        guard let store = controller.store else { return false }
+        for m in store.state.conversation.messages.reversed() {
+            for (i, part) in m.parts.enumerated() {
+                if case let .attachment(a) = part, a.kind == "video" {
+                    projection.openVideo(PartRef(messageId: m.id, partIndex: i), a.id)
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     /// Automation (DEBUG socket): clicks the first shown link whose URL starts with `prefix`,
     /// through the click's path (`ChatController.openLink`, so an app link goes to
     /// `onAppLink`); the clicked URL, or nil when no shown link matches.
