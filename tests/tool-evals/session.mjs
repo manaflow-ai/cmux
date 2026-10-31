@@ -82,6 +82,12 @@ export async function openSession({ cli, name, dir, allTools, setup = [], noApp 
   // threw after the spawn left the daemon running (1,115 daemons after one overloaded panel).
   const stopDaemon = async () => {
     await pexec(cli, ["daemon", "stop", "--socket", socket, "--end-terminals", "--force"], { env }).catch(() => {});
+    // A remote daemon outlives a stop sent through a closed forward (1,000+ daemons of old
+    // runs were still up on the remote host, 2026-10-31): stop it there by its session name.
+    if (remote) {
+      const stop = `${remote.cli} daemon stop --socket ${socket} --end-terminals --force; pkill -f "[d]aemon start --session ${name} "`;
+      await pexec("ssh", [...SSH_OPTS, "-n", remote.host, stop]).catch(() => {});
+    }
     try { process.kill(-daemon.pid, "SIGTERM"); } catch {}
     try { if (launcher) process.kill(-launcher.pid, "SIGTERM"); } catch {}
     for (const f of readdirSync("/tmp/cte")) if (f.startsWith(`${name}.sock`)) rmSync(join("/tmp/cte", f), { force: true });
