@@ -19,6 +19,10 @@ fn check_local_resize_order(add_later_output: bool) {
     const WAIT: Duration = Duration::from_secs(5);
     let mux = Mux::new_for_test("local-resize-order", SurfaceOptions::default());
     let events = mux.subscribe();
+    // A second subscriber that the test drains first: once it has the last
+    // title, every title was published, and `events` has not been read yet,
+    // as a busy subscriber under the full suite's load had not.
+    let pace = mux.subscribe();
     let (reader, mut child) = UnixStream::pair().unwrap();
     let master = File::from(OwnedFd::from(reader.try_clone().unwrap()));
     let geometry = PtyGeometry { cols: 20, rows: 4, cell_width: 8, cell_height: 16 };
@@ -84,7 +88,15 @@ fn check_local_resize_order(add_later_output: bool) {
     release_tx.send(()).unwrap();
     // No new output or EOF: the resize's wake must publish the drained title
     // without trying a blocking read on the readiness it already consumed.
+    let last_title = if add_later_output { "after-resize" } else { "resize-drained" };
     let deadline = Instant::now() + WAIT;
+    loop {
+        match pace.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(MuxEvent::TitleChanged { title, .. }) if title.as_ref() == last_title => break,
+            Ok(_) => continue,
+            Err(_) => break,
+        }
+    }
     let mut title_published = false;
     let later_output_published = loop {
         match events.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
