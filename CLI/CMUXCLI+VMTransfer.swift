@@ -32,7 +32,7 @@ extension CMUXCLI {
     static var vmPushUsage: String {
         """
         Usage: cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-default-excludes] [--allow-large]
-               cmux vm push <id> <local-path> [remote-path] --watch [--interval <seconds>] [--exclude <pattern>]...
+               cmux vm push <id> <local-path> [remote-path] --watch [--interval <seconds>] [--exclude <pattern>]... [--no-default-excludes] [--allow-large]
                cmux vm push --secret <id> <local-file> [remote-path] [--mode <octal>]
 
         Copy a local file or directory onto a cloud machine over its private
@@ -1792,7 +1792,7 @@ extension CMUXCLI {
 
     static var vmAgentUsage: String {
         """
-        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--focus|--no-focus] [--remote-workspace <ws>] [--wait [--output] [--timeout <seconds>]] [--new] [--size <4g|8g|16g|24g|32g|64g|MB>] [--json] -- <prompt or args...>
+        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--focus|--no-focus] [--remote-workspace <ws>] [--wait] [--output] [--timeout <seconds>] [--new] [--size <4g|8g|16g|24g|32g|64g|MB>] [--json] -- <prompt or args...>
 
         Short forms:
           cmux agent <claude|codex|opencode|pi> [vm-agent-options] -- <prompt or args...>
