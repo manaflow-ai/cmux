@@ -1448,6 +1448,15 @@ jobs:
           # An empty gui_runner is meaningful: no online runner carries the
           # GUI label, so preserve the picker/placement fallback instead of
           # synthesizing a label that may not exist in the fleet.
+          # A placement that names neither a GUI route nor a GUI overflow (a
+          # trusted base that predates the sized gui_overflow, or one whose
+          # runner read failed closed) vouches for no owned GUI queue: the GUI
+          # jobs take Blacksmith 6 vCPU, the last resort, as the synthesized
+          # runner above sent them before, never the owned GUI queue unmeasured.
+          gui="$(awk -F= '($1 == "gui_runner" || $1 == "gui_overflow") && substr($0, index($0, "=") + 1) != "" { found=1 } END { print found + 0 }' "$GITHUB_OUTPUT")"
+          if [ "$gui" = 0 ] && [[ "$SIDE_LABEL" == glaeda-side-* ]] && [ "$GITHUB_RUN_ATTEMPT" = 1 ]; then
+            printf 'gui_overflow=blacksmith-6vcpu-macos-26\n' >> "$GITHUB_OUTPUT"
+          fi
 
       # Fail-safe: without the marker the run is only not watched. Skipped
       # when every macOS job took its fallback, and on a push: the push Mac

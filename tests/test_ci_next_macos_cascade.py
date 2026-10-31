@@ -1238,6 +1238,39 @@ class Rerun(unittest.TestCase):
                                         "GITHUB_RUN_ATTEMPT": attempt, "SIDE_LABEL": SIDE})
                     self.assertEqual(output.read_text(), written)
 
+    def test_a_placement_with_no_gui_decision_sends_the_gui_jobs_to_the_last_resort(self):
+        """Review of #28605 at 69c89e2c982: removing the `runner != ''` leg let a placement that names no GUI route
+        and no GUI overflow (a trusted base predating the sized gui_overflow, or a runner read that failed closed)
+        send attempt 1's GUI jobs to the owned GUI queue. The step's shell names Blacksmith 6 vCPU for them then."""
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        place = next(step for step in workflow["jobs"]["macos-placement"]["steps"] if step.get("id") == "place")
+        outputs = workflow["jobs"]["macos-placement"]["outputs"]
+        cases = (("runner=\ngui_runner=\ngui_overflow=\n", SMALL), ("", SMALL),
+                 (f"gui_runner={GUI}\n", GUI), (f"gui_overflow={LARGE}\n", LARGE))
+        with tempfile.TemporaryDirectory() as tmp:
+            scripts = Path(tmp) / "scripts/ci"
+            scripts.mkdir(parents=True)
+            output = Path(tmp) / "out"
+            for written, expected in cases:
+                with self.subTest(written=written):
+                    (scripts / "side_lane_placement.py").write_text(
+                        f"import os\nopen(os.environ['GITHUB_OUTPUT'], 'a').write({written!r})\n")
+                    output.write_text("")
+                    subprocess.run(["bash", "-e", "-c", place["run"]], check=True, cwd=tmp, capture_output=True,
+                                   env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "GITHUB_OUTPUT": str(output),
+                                        "GITHUB_RUN_ATTEMPT": "1", "SIDE_LABEL": SIDE})
+                    # GitHub keeps an output's last value.
+                    step = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                    context = self.route_context("1", "teamleaderleo")
+                    context["needs"] = {"macos-placement": {"outputs": {
+                        key: step.get(key, "") for key in ("runner", "gui_runner", "session_runner", "gui_overflow",
+                                                           "free_gui_runner", "free_session_runner",
+                                                           "session_lane_runner")}}}
+                    context["needs"]["macos-placement"]["outputs"]["placed_attempt"] = evaluate(
+                        outputs["placed_attempt"], context)
+                    for name in ("swift-test", "daemon-test", "generated-files"):
+                        self.assertEqual(evaluate(workflow["jobs"][name]["runs-on"], context), expected, name)
+
     def test_a_rerun_of_failed_jobs_never_takes_a_carried_blacksmith_reading(self):
         """Run 40398277457 (2026-10-26, #25446): the rescue re-ran the failed jobs as attempt 2 by
         github-actions[bot], so macos-placement was carried from attempt 1 (started 20:44:52) with its
