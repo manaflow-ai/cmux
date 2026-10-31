@@ -179,7 +179,11 @@ def wait_go(opts, what):
             go.unlink()
         except FileNotFoundError:
             pass
-        host, until = data.get("host"), data.get("until")
+        host, until, stamp = data.get("host"), data.get("until"), data.get("go")
+        if stamp is not None and stamp == getattr(opts, "last_go", None):
+            # The same GO again (a copy the scheduler left, or a re-read): one GO is one lease, never two.
+            print(f"fuzz: dropped a go file that repeats the last GO ({stamp})", flush=True)
+            continue
         expired = False
         if isinstance(until, (int, float)):
             expired = until < time.time()
@@ -192,6 +196,7 @@ def wait_go(opts, what):
             print(f"fuzz: dropped a go file ({data}): host not in {allowed} or past its until", flush=True)
             continue
         print(f"fuzz: {what} goes on {host} (scheduler hold until {until})", flush=True)
+        opts.last_go = stamp
         if isinstance(until, str):
             until = calendar.timegm(time.strptime(until[:19], "%Y-%m-%dT%H:%M:%S"))
         return host, (float(until) if isinstance(until, (int, float)) else None)
@@ -199,8 +204,11 @@ def wait_go(opts, what):
 
 def signal_done(opts, what, host, status):
     """After the round released its lease: DIR/NAME.done (the scheduler gives the mini back to its queue)."""
+    # "go": the GO this lease used, so the scheduler ends that GO's hold only (STATUS 1590): a .done written after the
+    # scheduler already wrote the next GO must not end the next one.
     (Path(opts.go_dir) / f"{opts.go_spec}.done").write_text(json.dumps({"spec": opts.go_spec, "what": what, "host": host,
-                                                                        "status": status, "at": time.time()}) + "\n")
+                                                                        "status": status, "at": time.time(),
+                                                                        "go": getattr(opts, "last_go", None)}) + "\n")
 
 
 def replay_options(seq, opts):

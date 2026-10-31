@@ -314,6 +314,25 @@ class Verdicts(unittest.TestCase):
         self.assertTrue(150 <= int(env["CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS"]) <= 200, env)
         self.assertEqual(env["CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS"], "0")
 
+    def test_a_repeated_go_is_one_lease_and_done_names_its_go(self):
+        import types, threading
+        tmp = Path(tempfile.mkdtemp())
+        until = time.time() + 300
+        (tmp / "fz.go").write_text(json.dumps({"host": "cmux19", "until": until, "go": "2026-10-31T12:53:32Z"}))
+        opts = types.SimpleNamespace(go_dir=str(tmp), go_spec="fz", host=None, hosts="cmux19", whole_host=None)
+        self.assertEqual(fuzz.wait_go(opts, "r1")[0], "cmux19")
+        fuzz.signal_done(opts, "r1", "cmux19", None)
+        self.assertEqual(json.loads((tmp / "fz.done").read_text())["go"], "2026-10-31T12:53:32Z")
+        def later():
+            (tmp / "fz.go").write_text(json.dumps({"host": "cmux19", "until": until, "go": "2026-10-31T12:53:32Z"}))
+            time.sleep(6)
+            (tmp / "fz.go").write_text(json.dumps({"host": "cmux19", "until": until, "go": "2026-10-31T12:59:00Z"}))
+        threading.Thread(target=later, daemon=True).start()
+        t = time.time()
+        fuzz.wait_go(opts, "r2")
+        self.assertGreater(time.time() - t, 4)  # the repeat was dropped; the new GO was taken
+        self.assertEqual(opts.last_go, "2026-10-31T12:59:00Z")
+
     def test_iso_until_is_utc(self):
         import types
         tmp = Path(tempfile.mkdtemp())
