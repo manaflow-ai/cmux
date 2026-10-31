@@ -16,6 +16,7 @@ import Testing
 /// before the migration's work, and classic's files byte for byte unchanged.
 @MainActor
 final class ClassicUpgradeSimulator {
+    nonisolated(unsafe) static var diagProbed = false
     /// The scratch Mac: Application Support with classic's `cmux` folder, the
     /// daemon's state and cmux-next's migration folder.
     final class Mac {
@@ -173,6 +174,22 @@ final class ClassicUpgradeSimulator {
             let ws = services.daemon.store.workspaces.map { "\($0.id.prefix(6)):\($0.kind ?? "-"):tabs=\($0.screens.flatMap(\.panes).flatMap(\.tabs).count)" }
             let live = WindowManager.orderedIDs(of: services.daemon, machines: services.machines)
             print("CLASSIC-DIAG3 screens=\(NSScreen.screens.count) asleepOverride=\(String(describing: DisplaySleep.asleepOverride)) restored=\(wm.restored) restoring=\(wm.restoring) launch=\(wm.launchWindowID?.prefix(6) ?? "nil") closedLaunch=\(wm.closedLaunchWindowID?.prefix(6) ?? "nil") closedDuringRestore=\(wm.closedDuringRestore.map { $0.prefix(6) }) claims=\(wm.pendingClaims.count) held=\(FirstTabHold.held(live).count) awaiting=\(wm.awaitingContent.count) registry=\(wm.registry.value.windows.map { "\($0.id.prefix(6)):\($0.isOpen):\($0.workspaceIDs.count)" }) provisional=\(wm.registry.provisional.count) controllers=\(ctl) live=\(live.map { $0.prefix(6) }) workspaces=\(ws) background=\(services.background.isBackground)")
+            print("CLASSIC-DIAG4 atOnce=\(services.agentTabs.showsWorkspaceAtOnce(on: services.daemon)) canHostChat=\(services.agentTabs.canHostChat) localHost=\(services.agentTabs.localHost != nil) local=\(services.daemon.isLocal) home=\(services.home.homeWorkspaceID?.rawValue.prefix(6) ?? "nil") claimKeys=\(wm.pendingClaims.map { "\($0.key.prefix(6))->\($0.value.prefix(6))" })")
+            if !Self.diagProbed {
+                Self.diagProbed = true
+                for argv in [["/usr/sbin/system_profiler", "-json", "SPDisplaysDataType"], ["/usr/sbin/ioreg", "-n", "Root", "-d1"], ["/usr/bin/id", "-un"], ["/bin/launchctl", "managername"]] {
+                    let process = Process(), pipe = Pipe()
+                    process.executableURL = URL(fileURLWithPath: argv[0])
+                    process.arguments = Array(argv.dropFirst())
+                    process.standardOutput = pipe
+                    process.standardError = pipe
+                    try? process.run()
+                    process.waitUntilExit()
+                    let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                    let kept = argv[0].hasSuffix("ioreg") ? text.split(separator: "\n").filter { $0.contains("IOConsole") }.joined(separator: "\n") : text
+                    print("CLASSIC-DIAG5 \(argv.joined(separator: " ")):\n\(kept.prefix(4000))")
+                }
+            }
         }
         launchMade = Set(made().keys)
         watch(from: migrating)
