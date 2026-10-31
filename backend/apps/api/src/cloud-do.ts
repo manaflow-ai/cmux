@@ -8,7 +8,7 @@ import { parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
 import { parseSigningKeys, publicKeyset } from "./link-token.ts"
 import { connectInfo, machineBySelector, mintLinkToken, type MintReply } from "./cloud-connect.ts"
 import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
-import { TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, TABLE_TOMBSTONE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
+import { PLATFORM_IDENTITY_PREFIX, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, TABLE_TOMBSTONE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
 import type { SnapshotRow } from "./domains/cloud-snapshot.ts"
 import { platformCall, type PlatformCall, type PlatformReply } from "./cloud-platform.ts"
 import { statusApplied } from "./cloud-do-core.ts"
@@ -19,6 +19,7 @@ import { acpmuxKeyedStartOn, acpmuxPersonHoldsOn, type AcpmuxHost, type AcpmuxRe
 import type { MachineExecReply } from "./automation-machine.ts"
 import { ClientIdentityStore, mintClientSessionOn, sweepClientIdentities, type ClientSessionReply } from "./cloud-client-session.ts"
 import { teamPlan } from "./domains/cloud-plan.ts"
+import { DriverError } from "./providers/contract.ts"
 
 /** How often connect_info and link_token may read a machine's real state from the provider. */
 const STATE_CHECK_EVERY_MS = 30_000
@@ -266,7 +267,14 @@ export class CloudDO extends CloudIdle {
     if (row.status !== "running") return { ok: false, refusal: "not_running" }
     const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)
     if (!driver) return { ok: false, refusal: "provider_failed" }
-    const r = await driver.execStdin(row.provider_name, { team: entity, machine: row.id }, command, stdin, timeoutMs).catch(() => null)
+    // An answer too large to read is final: the same command answers the same way, so never "retry".
+    const r = await driver.execStdin(row.provider_name, { team: entity, machine: row.id }, command, stdin, timeoutMs).catch((error: unknown) =>
+      error instanceof DriverError && error.code === "cloud.exec.output_limit" ? ("output_limit" as const) : null
+    )
+    if (r === "output_limit") {
+      this.audit.record({ action: audit.action, machine, who: audit.who, at: Date.now(), outcome: "output_limit" })
+      return { ok: false, refusal: "output_limit" }
+    }
     // Never the command or its stdin (a credential or a file's content may be on it).
     this.audit.record({ action: audit.action, machine, who: audit.who, at: Date.now(), outcome: r ? `exit ${r.exitCode}` : "provider_failed" })
     return r ? { ok: true, exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr } : { ok: false, refusal: "provider_failed" }
@@ -354,10 +362,37 @@ export class CloudDO extends CloudIdle {
       machine: (id) => rows()?.get<MachineRow>(TABLE_MACHINE, id)?.row,
       ledger: (key) => rows()?.get<LedgerRow>(TABLE_LEDGER, key)?.row,
       snapshot: (id) => rows()?.get<SnapshotRow>(TABLE_SNAPSHOT, id)?.row,
+      platformSnapshot: (u, id) => {
+        const reader = rows()
+        if (!reader) return undefined
+        let after: number | undefined
+        for (;;) {
+          const page = reader.range<LedgerRow>(TABLE_LEDGER, { after, limit: 1000 })
+          const creation = page.find((l) => l.row.op === "snapshot" && l.row.snapshot === id)
+          if (creation) return creation.row.key.startsWith(`${PLATFORM_IDENTITY_PREFIX}${u}|platform-env:snapshot:`)
+          if (page.length < 1000) return undefined
+          after = page[page.length - 1]!.n!
+        }
+      },
+      platformSnapshotDeleted: (u, id) => {
+        const reader = rows()
+        if (!reader) return false
+        const prefix = `${PLATFORM_IDENTITY_PREFIX}${u}|platform-env:deleteSnapshot:${id}:`
+        let after: number | undefined
+        for (;;) {
+          const page = reader.range<LedgerRow>(TABLE_LEDGER, { after, limit: 1000 })
+          if (page.some((l) => l.row.op === "snapshot_delete" && l.row.state === "done" && l.row.snapshot === id && l.row.key.startsWith(prefix))) return true
+          if (page.length < 1000) return false
+          after = page[page.length - 1]!.n!
+        }
+      },
       tombstoned: (machine) => rows()?.get(TABLE_TOMBSTONE, machine) !== undefined,
       exec: async (row, command, stdin, timeoutMs) => {
         const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)
-        return driver ? driver.execStdin(row.provider_name, { team: entity, machine: row.id }, command, stdin, timeoutMs).catch(() => null) : null
+        return driver ? driver.execStdin(row.provider_name, { team: entity, machine: row.id }, command, stdin, timeoutMs).catch((error: unknown) => {
+          if (error instanceof DriverError && error.code === "cloud.exec.output_limit") throw error
+          return null
+        }) : null
       },
       audit: (e) => this.audit.record(e)
     }, user, call)
@@ -439,13 +474,13 @@ export class CloudDO extends CloudIdle {
       const t = { cmux_next_team: cmd.add_vm.team, cmux_next_machine: cmd.add_vm.machine }
       this.sqlStore.exec(`INSERT INTO cloud_fake_vm (name, id, tag, idle) VALUES (?, ?, ?, NULL)`, cmd.add_vm.name, `fs-${cmd.add_vm.name}`, JSON.stringify(t))
     }
-    const ctl = this.sqlStore.exec<{ creates: number; deletes: number; pauses: number; starts: number; resizes: number; state_reads: number; power_calls: number }>(`SELECT creates, deletes, pauses, starts, resizes, state_reads, power_calls FROM cloud_fake_ctl WHERE id = 1`)[0]!
+    const ctl = this.sqlStore.exec<{ creates: number; deletes: number; pauses: number; starts: number; resizes: number; state_reads: number; power_calls: number; snapshot_deletes: number }>(`SELECT creates, deletes, pauses, starts, resizes, state_reads, power_calls, snapshot_deletes FROM cloud_fake_ctl WHERE id = 1`)[0]!
     const vms = this.sqlStore.exec<{ name: string; id: string; idle: number | null; cpu: number; memory: number; snapshot: string | null }>(`SELECT name, id, idle, cpu, memory, snapshot FROM cloud_fake_vm ORDER BY name`).map((v) => ({ ...v, cpu: Number(v.cpu), memory: Number(v.memory) }))
     const snapshots = this.sqlStore.exec<{ slug: string; source: string }>(`SELECT slug, source FROM cloud_fake_snapshot ORDER BY slug`)
     const files = this.sqlStore.exec<{ vm: string; path: string; content: string; mode: number }>(`SELECT vm, path, content, mode FROM cloud_fake_file ORDER BY vm`).map((f) => ({ ...f, mode: Number(f.mode) }))
     const tls = this.sqlStore.exec<{ vm: string; domain: string; rule: string }>(`SELECT vm, domain, rule FROM cloud_fake_tls ORDER BY vm`).map((r) => ({ vm: r.vm, domain: r.domain, rule: JSON.parse(r.rule) as unknown }))
     const execs = this.sqlStore.exec<{ vm: string; kind: string }>(`SELECT vm, kind FROM cloud_fake_exec ORDER BY n`).map((e) => ({ vm: e.vm, kind: e.kind }))
     const guest_calls = this.sqlStore.exec<{ command: string; stdin: string | null }>(`SELECT command, stdin FROM cloud_fake_guest_call ORDER BY n`).map((c) => ({ command: c.command, stdin: c.stdin }))
-    return { execs, guest_calls, tls, files, audit: this.audit.list(), creates: ctl.creates, deletes: ctl.deletes, pauses: Number(ctl.pauses), starts: Number(ctl.starts), resizes: Number(ctl.resizes), state_reads: Number(ctl.state_reads), power_calls: Number(ctl.power_calls), vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), vm_revokes: this.vmRevokes.pending(), snapshots, now: Date.now() + this.skewMs }
+    return { execs, guest_calls, tls, files, audit: this.audit.list(), creates: ctl.creates, deletes: ctl.deletes, pauses: Number(ctl.pauses), starts: Number(ctl.starts), resizes: Number(ctl.resizes), state_reads: Number(ctl.state_reads), power_calls: Number(ctl.power_calls), snapshot_deletes: Number(ctl.snapshot_deletes), vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), vm_revokes: this.vmRevokes.pending(), snapshots, now: Date.now() + this.skewMs }
   }
 }

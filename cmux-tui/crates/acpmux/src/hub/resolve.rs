@@ -292,6 +292,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         schema: META_SCHEMA.into(),
         id: d.id,
         name: String::new(),
+        name_given: false,
         harness: d.agent.into(),
         harness_argv: d.profile.argv.clone(),
         spawn_argv: None,
@@ -301,6 +302,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         cwd: d.cwd,
         agent_session_id: d.agent_session_id,
         previous_agent_session_ids: Vec::new(),
+        retired_agent_session_ids: Vec::new(),
         agent_session_family: Some(d.family.to_owned()),
         status: SessionStatus::Idle,
         created_at: now,
@@ -368,5 +370,6 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         subagent_retry_open: false,
         turn_cap_ms: None,
         turn_cap_noticed: None,
+        delegator: None,
     }
 }

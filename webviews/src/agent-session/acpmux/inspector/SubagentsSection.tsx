@@ -11,7 +11,7 @@
 // 2026-10-21: the row of identical avatars it replaces opened nothing anyone could tell apart.
 import { memo, useState } from "react";
 import { formatDuration } from "../conversation/turns";
-import { useT, type Translate } from "../i18n";
+import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { waveIndices } from "../../../ui/wave";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -19,6 +19,8 @@ const ROW_ICON = rowIconSize(12);
 
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
+import { isRepeatedAgentKind } from "../subagents/AgentIdentity";
+import { subagentProgress } from "../subagents/subagentProgress";
 import { nestAgents } from "../subagents/AgentsPill";
 import { Avatar, elapsed, running, useNow } from "../subagents/SubagentGroup";
 import { agentTone } from "../subagents/agentTones";
@@ -77,6 +79,7 @@ type Line = {
   agent?: Subagent;
   name: string;
   detail?: string;
+  progress?: string;
   status: SubagentStatus;
   state: string;
   /// acpmux retries it: its line shows the turning ring (retryState.ts).
@@ -164,6 +167,7 @@ export function SubagentsSection({
   harness?: string;
 }) {
   const t = useT();
+  const language = usePaneLanguage();
   const now = useNow(agents.some(running));
   const [more, setMore] = useState(false);
   const [endedOpen, setEndedOpen] = useState(false);
@@ -174,7 +178,12 @@ export function SubagentsSection({
       identity: agent.id,
       agent,
       name: agent.name,
-      detail: live(status) ? (agent.action ?? agent.kind) : agent.kind,
+      progress: subagentProgress(t, language, agent).join(" · "),
+      detail: live(status)
+        ? (agent.action ?? (isRepeatedAgentKind(agent.kind) ? undefined : agent.kind))
+        : isRepeatedAgentKind(agent.kind)
+          ? undefined
+          : agent.kind,
       status,
       state: subagentStateText(t, agent, waiting),
       working: Boolean(retrying(agent)),
@@ -226,6 +235,7 @@ export function SubagentsSection({
       <AgentLine
         name={item.name}
         detail={item.detail}
+        progress={item.progress}
         status={item.status}
         state={item.state}
         working={item.working}
@@ -240,7 +250,12 @@ export function SubagentsSection({
           <span className="acpmux-agent-card">
             <span className="acpmux-agent-card__name">{item.name}</span>
             <span className="acpmux-agent-card__state" data-status={item.status}>
-              {[item.state, item.time, item.status === "running" || item.status === "waiting" ? item.detail : undefined]
+              {[
+                item.state,
+                item.time,
+                item.progress,
+                item.status === "running" || item.status === "waiting" ? item.detail : undefined,
+              ]
                 .filter(Boolean)
                 .join(" · ")}
             </span>

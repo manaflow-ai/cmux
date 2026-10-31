@@ -280,6 +280,27 @@ class AppWindowCaptureTests(unittest.TestCase):
         self.assertEqual(step["postcondition"]["status"], "passed")
         self.assertIn("matched windows.0.frame", step["postcondition"]["detail"])
 
+    def test_a_shot_no_expect_checked_is_reported_unchecked(self) -> None:
+        # "ok" on a shot step only says the step ran: without an `expect` nothing read the screen it
+        # shows (a palette still with an empty field passed as "the command is selected", #28323).
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Launch", "wait": 0, "shot": False},
+            {"title": "Unchecked shot", "cmux": ["action", "run", "splitRight"], "wait": 0},
+            {"title": "Checked shot", "wait": 0,
+             "expect": {"method": "debug.layers", "fields": {"windows.0.frame": [100, 100, 800, 600]}}},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(manifest["result"], "pass")
+        launch, unchecked, checked = manifest["steps"]
+        self.assertEqual([step["status"] for step in manifest["steps"]], ["ok", "ok", "ok"])
+        self.assertEqual([step["checked"] for step in manifest["steps"]], [False, False, True])
+        self.assertNotIn("shot", launch)
+        self.assertIn("shot", unchecked)
+        self.assertRegex(done.stdout, r"02 unchecked +Unchecked shot")
+        self.assertRegex(done.stdout, r"03 ok +Checked shot")
+        self.assertRegex(done.stdout, r"01 ok +Launch")
+
     def test_required_rendered_state_mismatch_fails(self) -> None:
         self.tour.write_text(json.dumps({"title": "Demo", "steps": [
             {"title": "Split right", "cmux": ["action", "run", "splitRight"], "wait": 0,
@@ -662,6 +683,53 @@ class CheckedInToursTests(unittest.TestCase):
         for path in tours:
             with self.subTest(tour=path.name):
                 tour.load_tour(path)
+
+
+class FocusAfterCloseTests(unittest.TestCase):
+    """A directional focus right after a pane close is refused at load: the close already focused a
+    neighbour, and with one pane left the move fails ("no pane left of the focused pane") and fails
+    the whole capture, as the main-pane tour's "Focus the chat" did on #27839."""
+
+    def setUp(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        self.tour_module = tour
+        self.scratch = Path(tempfile.mkdtemp(prefix="tour-focus-close-"))
+        self.addCleanup(shutil.rmtree, self.scratch, ignore_errors=True)
+
+    def load(self, steps: list[dict]) -> dict:
+        path = self.scratch / "demo.json"
+        path.write_text(json.dumps({"title": "Demo", "steps": steps}), encoding="utf-8")
+        return self.tour_module.load_tour(path)
+
+    @staticmethod
+    def run_action(action: str) -> dict:
+        return {"title": action, "cmux": ["action", "run", action], "shot": False}
+
+    def test_a_directional_focus_right_after_a_close_is_refused(self) -> None:
+        for focus in ("focusLeft", "focusRight", "focusUp", "focusDown"):
+            with self.subTest(focus=focus), self.assertRaisesRegex(self.tour_module.TourError, "step 3 runs " + focus):
+                self.load([{"title": "Launch"}, self.run_action("closePane"), self.run_action(focus)])
+
+    def test_steps_that_open_no_pane_do_not_hide_the_close(self) -> None:
+        tunable = {"title": "Tunable", "rpc": {"method": "debug.tunables", "params": {"key": "x", "value": "off"}}}
+        setting = {"title": "Setting", "cmux": ["settings", "set", "sidebar.density", "compact"]}
+        with self.assertRaisesRegex(self.tour_module.TourError, "step 5 runs focusLeft after closePane"):
+            self.load([self.run_action("closePane"), tunable, setting, {"title": "Wait", "wait": 1},
+                       self.run_action("focusLeft")])
+
+    def test_other_focus_moves_do_not_hide_the_close(self) -> None:
+        for move in ("focusPaneByNumber", "focusNextPane", "focusPreviousPane", "pane.focus",
+                     "column.focusLeft", "focusHistoryBack"):
+            with self.subTest(move=move), self.assertRaisesRegex(
+                    self.tour_module.TourError, "step 3 runs focusLeft after closePane"):
+                self.load([self.run_action("closePane"), self.run_action(move), self.run_action("focusLeft")])
+
+    def test_a_pane_opened_after_the_close_allows_the_focus(self) -> None:
+        link = {"title": "Link", "rpc": {"method": "debug.terminal.links", "params": {"agentLink": "https://example.com"}}}
+        self.load([self.run_action("closePane"), link, self.run_action("focusLeft")])
+        self.load([self.run_action("closePane"), self.run_action("splitRight"), self.run_action("focusLeft")])
+        self.load([self.run_action("focusRight"), self.run_action("closePane"), self.run_action("focusPaneByNumber")])
 
 
 if __name__ == "__main__":

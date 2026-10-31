@@ -33,6 +33,7 @@ struct BackgroundAccessoryPolicyTests {
         let settings: SettingsController
         let configURL: URL
         let root: URL
+        let owner: AppTestDaemonOwner
         let presented = Presented()
 
         init() async throws {
@@ -40,16 +41,22 @@ struct BackgroundAccessoryPolicyTests {
             root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-bg-\(UUID().uuidString.prefix(8))")
             let session = "cn-bg-\(UUID().uuidString.prefix(8).lowercased())"
             let launcher = DaemonLauncher(
-                configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
+                configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state"), exitWithProcess: ProcessInfo.processInfo.processIdentifier),
                 environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+            owner = AppTestDaemonOwner(launcher)
+            // Finish throwing filesystem setup before adopting services into the process.
+            configURL = root.appendingPathComponent("cmux.json")
+            do {
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+                try Data("{}".utf8).write(to: configURL)
+            } catch {
+                try? FileManager.default.removeItem(at: root)
+                throw error
+            }
             // As `CmuxNextApp.main` and `AppDelegate` launch: regular, and these services are the process's.
             NSApplication.shared.setActivationPolicy(.regular)
             services = AppServices(environment: AppEnvironment.current([:]))
             AppProcessRoot.shared.adopt(services)
-            // A cmux.json of its own (Settings needs one loaded), with the setting unset: on.
-            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            configURL = root.appendingPathComponent("cmux.json")
-            try Data("{}".utf8).write(to: configURL)
             settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: configURL,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
             await settings.reload()
@@ -60,20 +67,41 @@ struct BackgroundAccessoryPolicyTests {
             // The policy each window is presented under (the hook runs after it is ordered in).
             let presented = presented
             services.windows.onPresent = { _ in presented.policies.append(NSApp.activationPolicy()) }
-            services.daemon.start {
-                DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
+            services.daemon.start { [owner] in
+                DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: owner.endpointProvider)
             }
         }
 
-        func shutDown() async {
-            if let connection = services.daemon.connection, let identity = services.daemon.identity {
-                _ = try? await connection.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
-                                                  timeout: .seconds(10))
-            }
-            services.daemon.shutdownConnection()
+        @discardableResult
+        func shutDown() async -> Bool {
+            let reaped = await owner.stop(services)
+            for controller in services.windows.controllers { controller.window?.close() }
+            for key in Array(services.cache.browsers.keys) { services.cache.release(key) }
+            let panels = NSApp.windows.filter { services.palette.owns($0) }
+            services.palette.hide()
+            for panel in panels { panel.close() }
             // Leave background mode as a window opening does: its menu bar item goes.
             services.background.windowWillAppear(activates: false)
+            return reaped
         }
+    }
+
+    /// Always await daemon shutdown and close the app's windows/status item, including when
+    /// a requirement or file write throws. The caller's activation-policy defer runs afterward.
+    private static func withLaunch(_ body: (Launch) async throws -> Void) async throws {
+        // A test process may have no root yet. Its inert replacement owns no windows or actions.
+        let previous = AppProcessRoot.shared.services ?? AppServices(environment: AppEnvironment.current([:]))
+        let launch = try await Launch()
+        var reaped = false
+        defer { if reaped { try? FileManager.default.removeItem(at: launch.root) } }
+        let result: Result<Void, any Error>
+        do { result = .success(try await body(launch)) }
+        catch { result = .failure(error) }
+        // Disable this launch's background eligibility before closing windows: a queued settle
+        // must not recreate the status item after shutDown or change the restored activation policy.
+        AppProcessRoot.shared.adopt(previous)
+        reaped = await launch.shutDown()
+        try result.get()
     }
 
     /// The window closed while the restore still runs stays closed: the restore neither opens it
@@ -82,77 +110,74 @@ struct BackgroundAccessoryPolicyTests {
         let app = NSApplication.shared
         let policyBefore = app.activationPolicy()
         defer { app.setActivationPolicy(policyBefore) }
-        let launch = try await Launch()
-        defer { try? FileManager.default.removeItem(at: launch.root) }
-        let windows = launch.services.windows
-        windows.restoreWhenLoaded()
-        try #require(!windows.restored, "the restore finished before the launch window could close")
-        try #require(windows.controllers.count == 1, "no launch window")
-        _ = launch.services.registry.perform("closeAllWindows", invocation: ActionInvocation(origin: .user))
-        #expect(windows.controllers.isEmpty)
-        launch.presented.policies = []
-        await Self.wait(within: .seconds(90)) { windows.restored && !windows.registry.isLaunching }
-        try #require(windows.restored, "the restore never finished")
-        // A reopened window would land on the next main-actor turns; test-only wait.
-        try? await Task.sleep(for: .milliseconds(500))
-        #expect(launch.presented.policies.isEmpty, "the restore presented a closed window, even if only for a moment")
-        #expect(windows.controllers.isEmpty, "the restore opened \(windows.controllers.count) window(s) after the user closed the launch window")
-        await launch.shutDown()
+        try await Self.withLaunch { launch in
+            let windows = launch.services.windows
+            windows.restoreWhenLoaded()
+            try #require(!windows.restored, "the restore finished before the launch window could close")
+            try #require(windows.controllers.count == 1, "no launch window")
+            _ = launch.services.registry.perform("closeAllWindows", invocation: ActionInvocation(origin: .user))
+            #expect(windows.controllers.isEmpty)
+            launch.presented.policies = []
+            await Self.wait(within: .seconds(90)) { windows.restored && !windows.registry.isLaunching }
+            try #require(windows.restored, "the restore never finished")
+            // A reopened window would land on the next main-actor turns; test-only wait.
+            try? await Task.sleep(for: .milliseconds(500))
+            #expect(launch.presented.policies.isEmpty, "the restore presented a closed window, even if only for a moment")
+            #expect(windows.controllers.isEmpty, "the restore opened \(windows.controllers.count) window(s) after the user closed the launch window")
+        }
     }
 
     @Test func noWindowIsAMenuBarAppAndAnOpeningWindowComesBackRegular() async throws {
         let app = NSApplication.shared
         let policyBefore = app.activationPolicy()
         defer { app.setActivationPolicy(policyBefore) }
-        let launch = try await Launch()
-        defer { try? FileManager.default.removeItem(at: launch.root) }
-        let services = launch.services
-        let settings = launch.settings
-        let configURL = launch.configURL
-        let presented = launch.presented
-        services.windows.restoreWhenLoaded()
-        let windows = services.windows
-        let hasWindow = { windows.active.flatMap { windows.registry.members(of: $0.state.id).first } != nil }
-        await Self.wait(within: .seconds(90), until: hasWindow)
-        try #require(hasWindow(), "the launch window never showed a workspace")
-        #expect(app.activationPolicy() == .regular, "a window is open")
+        try await Self.withLaunch { launch in
+            let services = launch.services
+            let settings = launch.settings
+            let configURL = launch.configURL
+            let presented = launch.presented
+            services.windows.restoreWhenLoaded()
+            let windows = services.windows
+            let hasWindow = { windows.active.flatMap { windows.registry.members(of: $0.state.id).first } != nil }
+            await Self.wait(within: .seconds(90), until: hasWindow)
+            try #require(hasWindow(), "the launch window never showed a workspace")
+            #expect(app.activationPolicy() == .regular, "a window is open")
 
-        // The user closes the last window (Close All Windows): the app keeps running, off the Dock.
-        _ = services.registry.perform("closeAllWindows", invocation: ActionInvocation(origin: .user))
-        await Self.wait(within: .seconds(5)) { app.activationPolicy() == .accessory }
-        #expect(windows.controllers.isEmpty)
-        #expect(app.activationPolicy() == .accessory, "no window open: no Dock icon and no Cmd-Tab entry")
+            // The user closes the last window (Close All Windows): the app keeps running, off the Dock.
+            _ = services.registry.perform("closeAllWindows", invocation: ActionInvocation(origin: .user))
+            await Self.wait(within: .seconds(5)) { app.activationPolicy() == .accessory }
+            #expect(windows.controllers.isEmpty)
+            #expect(app.activationPolicy() == .accessory, "no window open: no Dock icon and no Cmd-Tab entry")
 
-        // Show cmux (the Dock click's and the menu bar item's path): the window comes back, regular first.
-        presented.policies = []
-        _ = services.registry.perform("showMainWindow", invocation: ActionInvocation(origin: .user))
-        await Self.wait(within: .seconds(30)) { !presented.policies.isEmpty }
-        #expect(windows.controllers.count == 1, "Show cmux opened no window")
-        #expect(app.activationPolicy() == .regular)
-        #expect(presented.policies == [.regular], "a window was ordered in under \(presented.policies)")
+            // Show cmux (the Dock click's and the menu bar item's path): the window comes back, regular first.
+            presented.policies = []
+            _ = services.registry.perform("showMainWindow", invocation: ActionInvocation(origin: .user))
+            await Self.wait(within: .seconds(30)) { !presented.policies.isEmpty }
+            #expect(windows.controllers.count == 1, "Show cmux opened no window")
+            #expect(app.activationPolicy() == .regular)
+            #expect(presented.policies == [.regular], "a window was ordered in under \(presented.policies)")
 
-        // Settings opened while in the background opens it in a window, so the app is regular again.
-        _ = services.registry.perform("closeAllWindows", invocation: ActionInvocation(origin: .user))
-        await Self.wait(within: .seconds(5)) { app.activationPolicy() == .accessory }
-        #expect(app.activationPolicy() == .accessory)
-        presented.policies = []
-        _ = services.registry.perform("openSettings", invocation: ActionInvocation(origin: .user))
-        await Self.wait(within: .seconds(30)) { !presented.policies.isEmpty }
-        #expect(windows.controllers.count == 1, "Settings opened no window")
-        #expect(app.activationPolicy() == .regular)
-        #expect(presented.policies == [.regular], "the Settings window was ordered in under \(presented.policies)")
+            // Settings opened while in the background opens it in a window, so the app is regular again.
+            _ = services.registry.perform("closeAllWindows", invocation: ActionInvocation(origin: .user))
+            await Self.wait(within: .seconds(5)) { app.activationPolicy() == .accessory }
+            #expect(app.activationPolicy() == .accessory)
+            presented.policies = []
+            _ = services.registry.perform("openSettings", invocation: ActionInvocation(origin: .user))
+            await Self.wait(within: .seconds(30)) { !presented.policies.isEmpty }
+            #expect(windows.controllers.count == 1, "Settings opened no window")
+            #expect(app.activationPolicy() == .regular)
+            #expect(presented.policies == [.regular], "the Settings window was ordered in under \(presented.policies)")
 
-        // `app.hideDockIconWithoutWindows: false` keeps the old behavior: regular with no window.
-        try Data(#"{"app":{"hideDockIconWithoutWindows":false}}"#.utf8).write(to: configURL)
-        await settings.reload()
-        #expect(settings.snapshot.hideDockIconWithoutWindows == false)
-        _ = services.registry.perform("closeAllWindows", invocation: ActionInvocation(origin: .user))
-        await Self.wait(within: .seconds(5)) { windows.controllers.isEmpty }
-        // A background switch would land on the next main-actor turn; test-only wait.
-        try? await Task.sleep(for: .milliseconds(500))
-        #expect(windows.controllers.isEmpty)
-        #expect(app.activationPolicy() == .regular, "the setting is off: the Dock icon stays with no window")
-
-        await launch.shutDown()
+            // `app.hideDockIconWithoutWindows: false` keeps the old behavior: regular with no window.
+            try Data(#"{"app":{"hideDockIconWithoutWindows":false}}"#.utf8).write(to: configURL)
+            await settings.reload()
+            #expect(settings.snapshot.hideDockIconWithoutWindows == false)
+            _ = services.registry.perform("closeAllWindows", invocation: ActionInvocation(origin: .user))
+            await Self.wait(within: .seconds(5)) { windows.controllers.isEmpty }
+            // A background switch would land on the next main-actor turn; test-only wait.
+            try? await Task.sleep(for: .milliseconds(500))
+            #expect(windows.controllers.isEmpty)
+            #expect(app.activationPolicy() == .regular, "the setting is off: the Dock icon stays with no window")
+        }
     }
 }

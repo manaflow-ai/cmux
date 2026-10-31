@@ -80,6 +80,12 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     "_acpmux/peer_snapshot",
 ];
 
+/// Whether `m` names a session that a peer's session forwards for: not one this daemon answers
+/// itself (`SESSION_SCOPED_EXCLUDED`).
+pub(super) fn names_a_session(m: &str) -> bool {
+    !SESSION_SCOPED_EXCLUDED.contains(&m)
+}
+
 /// The reply when `m` is for a peer's session (forwarded there), else None
 /// (this daemon handles it).
 /// `_meta.acpmux.fromAgent` for a forwarded `session/prompt` with no sender of its own, from the
@@ -110,7 +116,7 @@ fn name_sender(hub: &Arc<Hub>, conn: &Arc<Conn>, p: &mut Value) {
         },
     });
     if p.pointer("/_meta/acpmux/fromAgent").is_none_or(Value::is_null) {
-        meta["fromAgent"] = json!(hub.session_name(caller));
+        meta.set("fromAgent", json!(hub.session_name(caller)));
     }
     // Always replace a client-provided sender identity with the session proven by
     // this connection.  `fromAgent` remains caller-declared for display, but it
@@ -161,10 +167,27 @@ pub(super) async fn forward(
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
     let reply = forward_inner(hub, conn, m, params).await.transpose();
+    // A client waits on a peer that is down (a chat it opens): the peer reconnects within
+    // seconds (`peer_wanted.rs`). A peer daemon's connection is no client waiting here.
+    if conn.origin != Origin::Peer
+        && let Some(Err(e)) = &reply
+        && let Some(peer) = unreachable_peer(hub, e)
+    {
+        peer.want();
+    }
     if conn.origin == Origin::Peer {
         return reply.map(|r| r.map_err(super::redact::hide_unreachable_peer));
     }
     reply
+}
+
+/// The peer of this daemon that `e` refused a request for because its link is down.
+fn unreachable_peer(hub: &Hub, e: &RpcError) -> Option<Arc<crate::peer::Peer>> {
+    let data = e.data.as_ref()?;
+    if data.get("reason").and_then(Value::as_str) != Some("peer_unreachable") {
+        return None;
+    }
+    hub.peer_by_name(data.get("peer").and_then(Value::as_str)?)
 }
 
 async fn forward_inner(
@@ -201,6 +224,11 @@ async fn forward_inner(
     {
         if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
             return Err(super::trust_gate::peer_unsupported(&peer.name));
+        }
+        // A conditional stop runs only where the session lives: an older peer would ignore the
+        // condition and stop it anyway (`hub/stop_if_idle.rs`).
+        if m == method::MUX_KILL && crate::hub::stop_if_idle::StopCondition::asked(params) {
+            return Err(crate::hub::stop_if_idle::remote_refusal(&peer.name));
         }
         // A dropped file crosses the link as one frame: checked here, and only to a peer that
         // takes it (`hub/file_uploads.rs`).
@@ -256,8 +284,29 @@ async fn forward_inner(
         {
             return Err(crate::hub::media_read::peer_unsupported(&peer, m));
         }
+        // A peer on an older build replays the chat for `session/resume`, as for a load, and
+        // the replay would reach this client: the resume `initialize` advertises would not hold.
+        // The resume then goes on the link that listed it, or fails (`Peer::session_resume_link`).
+        let resume_link = (m == method::SESSION_RESUME).then(|| peer.session_resume_link());
+        // A link that is down says nothing of the peer's build: the client hears it is down.
+        if resume_link == Some(None) && !peer.ready() {
+            return Err(peer.unreachable_error());
+        }
+        if resume_link == Some(None) {
+            let build = peer.remote_build().unwrap_or_else(|| "unknown".into());
+            return Err(RpcError::method_not_found(&format!(
+                "{m} (peer {} runs acpmux build {build}, whose resume replays the chat; run `acpmux host update {}`)",
+                peer.name, peer.name
+            ))
+            .with_data(json!({"reason": "sessionResume.unsupported", "peer": peer.name})));
+        }
         // So does a subagent's transcript (`hub/subagent_transcript.rs`).
         if m == method::MUX_SUBAGENT_TRANSCRIPT && !peer.supports_subagent_transcript() {
+            return Err(crate::hub::media_read::peer_unsupported(&peer, m)
+                .with_data(json!({"reason": "transcriptRead.unsupported"})));
+        }
+        // And a chat's older native turns (`hub/native_history.rs`): a pane stops paging on it.
+        if m == method::MUX_NATIVE_HISTORY && !peer.supports_native_history() {
             return Err(crate::hub::media_read::peer_unsupported(&peer, m)
                 .with_data(json!({"reason": "transcriptRead.unsupported"})));
         }
@@ -274,6 +323,9 @@ async fn forward_inner(
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+        if m == method::SESSION_CANCEL {
+            super::requests::person_stop::mark(conn, params, &peer, &mut p);
+        }
         bound_page(m, params, &mut p);
         // This connection's own reopen hears the chat's messages again; the replay comes over
         // the link every viewer here shares (`MessageNotices`).
@@ -320,8 +372,10 @@ async fn forward_inner(
                 let attach = tokio::spawn({
                     let (peer, id) = (peer.clone(), id.clone());
                     async move {
-                        let _ =
-                            peer.request(method::MUX_ATTACH, crate::peer::hidden_attach(&id)).await;
+                        // A failed attach is logged there, and unmarked when the peer refused
+                        // it; the prompt still goes, and answers with the peer's own error if
+                        // the chat is gone.
+                        let _ = peer.attach_hidden(&id).await;
                     }
                 });
                 tokio::select! {
@@ -469,7 +523,7 @@ async fn forward_inner(
         // request keeps its deadline and always goes out: an attach the marker above stands for
         // must reach the peer even when its client is gone.
         // A page goes on the link it is labelled with, or fails.
-        let on = pages.then_some(link);
+        let on = pages.then_some(link).or(resume_link.flatten());
         let result = if crate::peer::waits_on_turn(m) {
             tokio::select! {
                 result = peer.request_on(m, p, on) => result,
@@ -665,6 +719,26 @@ fn count_hop(forwarded: &mut Value) -> Result<(), RpcError> {
     }
     crate::hub::merge_mux_meta(forwarded, json!({PEER_HOPS_FIELD: hops + 1}));
     Ok(())
+}
+
+/// The `_meta.acpmux` fields of a `session/new` that stay on this daemon when it is forwarded
+/// to a peer (`_meta.acpmux.peer`).
+pub(super) fn strip_new_meta(p: &mut Value) {
+    if let Some(m) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+        m.remove("peer");
+        // A family lives on one daemon: this daemon's caller is no session there.
+        m.remove(crate::hub::lineage::PARENT_FIELD);
+        m.remove(crate::hub::lineage::TOOL_CALL_FIELD);
+        // The peer would tie it to this daemon's long-lived connection, never to the
+        // client's: the client's own kill purges it (`ephemeral.rs`).
+        m.remove("ephemeral");
+        // Retry hints use the original params here; the peer does not need the
+        // CLI argv or a second copy of the prompt file to create the session.
+        m.remove("argv");
+        m.remove("promptFileText");
+        // Only this daemon decides the VM boundary, never its caller.
+        m.remove(crate::hub::vm_boundary::FIELD);
+    }
 }
 
 #[cfg(test)]

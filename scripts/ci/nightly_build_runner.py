@@ -26,8 +26,12 @@ A Linux job runs this right before the macOS job queues and prints its labels:
   vars.CI_SIDE_LANE_RUNNER) that the rescue watches, or the same label on a wider class
   (side_lane_placement.compatible_labels()), while an online runner carrying it
   is idle now (pr_runner_pool.live_owned_free(), the rule side lanes are placed
-  with). Empty when no label is one the rescue watches, or when the runners
-  cannot be read (no routing token). A busy fleet is waited on only while every
+  with). When the runners cannot be read (no routing token, or its API budget
+  spent) and the caller sets UNREAD_OWNED_FALLBACK=1 (nightly.yml's build pick,
+  only while vars.CI_PR_POOL_OWNED is on and the rescue watches the build), it is
+  the first watched label itself, so the build still queues on the owned pool
+  before Blacksmith (unread_owned_route()). Empty when no label is one the
+  rescue watches, or when unread without that opt-in. A busy fleet is waited on only while every
   Blacksmith macOS label is stalled (owned_queue_route()): then the first of those
   labels an online runner carries, else one any registered runner carries, since
   the rescue watches a job there and re-runs this picker once a label moves.
@@ -36,6 +40,12 @@ A Linux job runs this right before the macOS job queues and prints its labels:
   past any stalled one). Never empty. EXCLUDE (a label another leg already
   waits on) is skipped while another candidate moves.
 
+- `helper`: the owned route for build-nightly-ghostty-cli-helper, which the dedicated
+  builder never admits: `owned` when that is not the dedicated builder, else a fresh
+  owned_route() read (an idle side or nightly-slot Mac), else empty. Until 2026-10-30 the
+  helper took `blacksmith` whenever the app build took the dedicated builder, and run
+  40990112293 (373ec0cfaa2f, the first green tip after a two-hour Release compile red) queued
+  its helper on blacksmith-6vcpu-macos-26 for 39 minutes until the run was cancelled unpublished.
 - `attempt`: GITHUB_RUN_ATTEMPT, the attempt this pick was made for.
 
 `owned` is `dedicated` when that is set. The workflow takes `owned` only while
@@ -208,6 +218,16 @@ def owned_queue_route(labels: str | Sequence[str], runners: Sequence[Mapping[str
     return "", f"no registered runner carries {', '.join(f'`{c}`' for c in candidates)}"
 
 
+def unread_owned_route(labels: str | Sequence[str]) -> tuple[str, str]:
+    """(the first watched owned label, or "", why) for a pick that could not read the runners."""
+    wanted = [label for label in (labels.split() if isinstance(labels, str) else labels) if label]
+    watched = [label for label in wanted if owned_label(label)]
+    if not watched:
+        return "", f"no owned label the rescue watches among {wanted or 'none'}"
+    return watched[0], (f"owned runners could not be read live, so the build queues on the owned pool "
+                        f"`{watched[0]}`, which the rescue watches, before Blacksmith")
+
+
 def blacksmith_stalled_everywhere(variable: str, snapshot: Mapping[str, Any] | None, now: dt.datetime) -> bool:
     """Whether a fresh snapshot sees every Blacksmith macOS 26 candidate stalled."""
     labels = blacksmith_picker.candidates(variable)
@@ -221,7 +241,8 @@ def blacksmith_route(variable: str, snapshot: Mapping[str, Any] | None, now: dt.
     label, why = blacksmith_picker.pick(variable, snapshot, now)
     if exclude and label == exclude:
         others = [other for other in blacksmith_picker.candidates(variable) if other != exclude]
-        stuck = blacksmith_picker.stalled(snapshot, others, now) or set()
+        # A stale snapshot still shows a dead label (blacksmith_picker.dead()): it is no moving alternative.
+        stuck = (blacksmith_picker.stalled(snapshot, others, now) or set()) | blacksmith_picker.dead(snapshot, now)
         moving = [other for other in others if other not in stuck]
         if moving:
             return moving[0], f"`{moving[0]}`, since `{exclude}` already holds a waiting leg"
@@ -297,6 +318,18 @@ def main(env: Mapping[str, str] = os.environ,
             print(f"::warning title=nightly build runner::could not read the pool snapshot ({str(error)[:200]})")
     candidate = (env.get("CANDIDATE") or "").strip()
     blacksmith, blacksmith_why = blacksmith_route(candidate, snapshot, now, (env.get("EXCLUDE") or "").strip())
+    if not owned and runners is None and (env.get("UNREAD_OWNED_FALLBACK") or "").strip() == "1":
+        # Only where the caller opts in (UNREAD_OWNED_FALLBACK=1): nightly.yml's build pick sets it while
+        # vars.CI_PR_POOL_OWNED is on, and the owned-pool rescue watches that build. Off (the kill switch), no
+        # owned label is offered; the train (nightly-next-train.yml) has no rescue, so it keeps Blacksmith.
+        # Fleet first (Leo, 2026-10-30: Blacksmith is capped, paid overflow): runners the picker cannot read (its
+        # token's API budget spent, or no routing token) are not a reason to send the build to Blacksmith macOS.
+        # On 2026-10-31 run 41203691245's picker got a 403 rate limit on /actions/runners and queued the first tip
+        # build after a three-hour red on blacksmith-6vcpu-macos-26, which started nothing, while the nightly slot
+        # pool had nine minis. The watched owned pool is a many-runner label the rescue watches and moves.
+        pooled, pooled_why = unread_owned_route(labels)
+        if pooled:
+            owned, owned_why = pooled, pooled_why
     if not owned and runners is not None and blacksmith_stalled_everywhere(candidate, snapshot, now):
         # Owned Macs before Blacksmith (Leo, 2026-10-24): queue on the busy owned pool, not a stalled label.
         queued, queued_why = owned_queue_route(labels, runners)
@@ -307,11 +340,19 @@ def main(env: Mapping[str, str] = os.environ,
                                              f"blacksmith otherwise: {blacksmith} ({blacksmith_why})"])
         return 0
 
+    # The Ghostty helper never takes the dedicated builder (its hook admits only build-nightly-app),
+    # so while the app build holds it the helper gets its own owned pick, as the verify jobs do.
+    helper, helper_why = owned, owned_why
+    if dedicated:
+        helper_runners = read() if any(owned_label(label) for label in labels) else None
+        helper, helper_why = owned_route(labels, helper_runners)
     runner = owned or blacksmith
     write_output(env, {"dedicated": dedicated, "owned": owned, "blacksmith": blacksmith, "runner": runner,
-                       "attempt": attempt or "1"},
+                       "helper": helper, "attempt": attempt or "1"},
                  [f"dedicated: {dedicated or 'none'} ({dedicated_why})", f"owned: {owned or 'none'} ({owned_why})",
-                  f"blacksmith: {blacksmith} ({blacksmith_why})", f"route: {runner}", f"attempt: {attempt or '1'}"])
+                  f"blacksmith: {blacksmith} ({blacksmith_why})", f"route: {runner}",
+                  f"helper: {helper or blacksmith} ({helper_why if helper else 'no idle owned Mac besides the dedicated builder, so Blacksmith'})",
+                  f"attempt: {attempt or '1'}"])
     return 0
 
 

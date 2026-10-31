@@ -208,3 +208,73 @@ export const ThoughtRow = memo(function ThoughtRow({
     </>
   );
 });
+
+/// A thought as one step of an opened group (ToolGroupRow.tsx). The thought that led into the run
+/// (`lead`) starts open, its whole text in that place with the disclosure at the top of the row's
+/// end, as Claude Code desktop lists a run's; closed, its words on one line cut with an ellipsis and
+/// the disclosure right after them. A later thought is one quiet row like ThoughtRow's, "Thought" or
+/// "Thought for 12s" with none of its text inline, that opens to its whole text under it (Leo
+/// 2026-10-20, agent-pane-step-rows.test.ts). The reader's choice is kept by `id` with ThoughtRow's,
+/// so a thought that drew on its own keeps it once a call joins it to the group. Find in Chat opens
+/// one that holds its match.
+export function StepThought({ item, id, lead = false }: { item: AcpmuxActivity; id: string; lead?: boolean }) {
+  const t = useT();
+  const text = item.text.trim();
+  // The reader's choice for this `id` is state, so a click draws again under the React Compiler
+  // (a render that only read the kept choices was memoized on `id` and never changed); a row React
+  // reuses for another `id` reads that one's kept choice.
+  const [chosen, setChosen] = useState<{ id: string; open: boolean } | undefined>(undefined);
+  const open = chosen?.id === id ? chosen.open : (choices.get(id) ?? lead);
+  const bodyId = useId();
+  const choose = (next: boolean) => {
+    choices.set(id, next);
+    setChosen({ id, open: next });
+  };
+  useFindReveal(
+    useMemo(() => [item], [item]),
+    () => choose(true),
+  );
+  // One line of its words, its headings' marks left out (thoughtPreview), its breaks as spaces.
+  const line = useMemo(
+    () => (open || !lead ? "" : text.split("\n").map(thoughtPreview).filter(Boolean).join(" ")),
+    [open, lead, text],
+  );
+  // A later thought's quiet label, as ThoughtRow's folded line reads.
+  const ms = lead || thoughtLayout.header() !== "duration" ? undefined : thoughtDuration(item);
+  const label =
+    ms !== undefined && ms >= 1000 ? t("tools.thoughtFor", { time: formatDuration(ms) }) : t("tools.thought");
+  return (
+    <>
+      <button
+        type="button"
+        className={`cv-tool is-toggle cv-thought cv-step-thought${open && lead ? " is-open" : ""}`}
+        aria-expanded={open}
+        aria-controls={open ? bodyId : undefined}
+        aria-label={open && lead ? t("tools.thought") : undefined}
+        onClick={() => choose(!open)}
+      >
+        {!lead ? (
+          <span className="cv-tool__text cv-thought__label" data-find-skip>
+            {label}
+          </span>
+        ) : (
+          !open && (
+            <span className="cv-tool__text cv-thought__preview" dir="auto" data-find-skip>
+              {line}
+            </span>
+          )
+        )}
+        <ChevronRight
+          size={14}
+          strokeWidth={1.2}
+          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
+        />
+      </button>
+      {open && (
+        <div id={bodyId} className="cv-thought__text cv-thought__body cv-step-thought__body selectable" dir="auto">
+          <ThoughtText text={text} />
+        </div>
+      )}
+    </>
+  );
+}

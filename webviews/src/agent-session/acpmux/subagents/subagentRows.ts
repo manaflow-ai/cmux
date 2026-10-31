@@ -6,6 +6,8 @@ import { SUBAGENTS, type Subagent } from "./subagentFold";
 export const SUBAGENT_ROW = "subagent";
 /// The child view's "Subagent of" pill (SubagentOfRow in SubagentGroup.tsx).
 export const SUBAGENT_OF = "subagentOf";
+/// The known child has no recorded messages or tool calls yet.
+export const SUBAGENT_EMPTY = "subagentEmpty";
 /// A subagent's one line where it ended, while running ones sit in the tray (SubagentDoneLine.tsx,
 /// runningTray.ts).
 export const SUBAGENT_DONE = "subagentDone";
@@ -51,7 +53,12 @@ export function childView(
     subagents: [agent],
     text: parent,
   };
-  return [pill, ...withSubagentRows(views?.[id] ?? [], expanded)];
+  const content = withSubagentRows(views?.[id] ?? [], expanded);
+  // Views are populated by recorded child events, not a separate fetch. An absent entry does
+  // not mean a request is pending; describe the empty transcript without claiming it is loading.
+  return content.length
+    ? [pill, ...content]
+    : [pill, { id: `${id}:empty`, version: 1, at: agent.startedAt, kind: SUBAGENT_EMPTY }];
 }
 
 export const isSubagentGroup = (row: AcpmuxRow) => row.kind === SUBAGENTS;

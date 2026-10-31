@@ -93,6 +93,29 @@ pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, U
     Ok(plan)
 }
 
+/// [`plan`] with the global options `cmux-vm` needs back. `parse_globals` takes a
+/// `--idempotency-key` before `vm` (it is also the daemon mutations' global), and
+/// [`prepared`] takes one after it, so without this a retried
+/// `cmux vm new --idempotency-key K` reached `cmux-vm` with no key, which then made
+/// a fresh one and a second VM. Only the verbs that take a key get it (`create`,
+/// `fork`, `snapshot create`, `creation …`); for any other verb it is dropped, as
+/// before, rather than refused as an unknown option.
+fn plan_with_globals(rest: &[String], global: &GlobalArgs) -> Result<Vec<String>, UsageError> {
+    let mut plan = plan(rest, global.output)?;
+    if let Some(key) = global.idempotency_key.as_deref() {
+        let words: Vec<&str> = plan.iter().map(String::as_str).filter(|w| *w != "--json").collect();
+        if matches!(
+            words.as_slice(),
+            ["create" | "fork" | "creation", ..] | ["snapshot", "create", ..]
+        ) {
+            // After the verb's own words, before any `--`.
+            let at = plan.iter().position(|word| word == "--").unwrap_or(plan.len());
+            plan.splice(at..at, ["--idempotency-key".to_owned(), key.to_owned()]);
+        }
+    }
+    Ok(plan)
+}
+
 /// The global options before `vm` and the words after it, verbatim. The
 /// words after `vm` are cmux-vm's own (its flags, `--`, the guest command):
 /// the global scanner reads an unknown `--flag` as taking a value, so
@@ -137,8 +160,37 @@ pub(super) fn without_json(words: &[String]) -> (Vec<String>, bool) {
     (kept, json)
 }
 
-/// `cmux vm …`. `None` for any other command.
-pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
+/// The words after `vm` without an `--idempotency-key K` (or `=K`) before any
+/// `--`, and that key: like `--json`, it is read wherever it was typed and
+/// [`plan_with_globals`] hands it to the verbs that take one.
+fn without_idempotency_key(words: Vec<String>) -> (Vec<String>, Option<String>) {
+    let mut key = None;
+    let mut kept = Vec::with_capacity(words.len());
+    let mut words = words.into_iter();
+    while let Some(word) = words.next() {
+        if word == "--" {
+            kept.push(word);
+            kept.extend(words);
+            break;
+        }
+        if let Some(value) = word.strip_prefix("--idempotency-key=") {
+            key = Some(value.to_owned());
+        } else if word == "--idempotency-key" {
+            match words.next() {
+                Some(value) => key = Some(value),
+                // No value: cmux-vm reports it.
+                None => kept.push(word),
+            }
+        } else {
+            kept.push(word);
+        }
+    }
+    (kept, key)
+}
+
+/// The global options and the words after `vm` for a `cmux vm …` command line,
+/// with `--json` and `--idempotency-key` typed after `vm` moved into the globals.
+fn prepared(args: &[String]) -> Option<(GlobalArgs, Vec<String>)> {
     let (mut global, raw) = split_raw(args)?;
     // `--json` anywhere after `vm` (before `--`) sets the output mode, like
     // `--json` before it; `plan` then hands it to cmux-vm first.
@@ -146,6 +198,16 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if json {
         global.output = OutputMode::Json;
     }
+    let (rest, key) = without_idempotency_key(rest);
+    if key.is_some() {
+        global.idempotency_key = key;
+    }
+    Some((global, rest))
+}
+
+/// `cmux vm …`. `None` for any other command.
+pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
+    let (global, rest) = prepared(args)?;
     let rest = rest.as_slice();
     if rest.len() == 1
         && rest.first().is_some_and(|word| matches!(word.as_str(), "-h" | "--help" | "help"))
@@ -153,7 +215,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         println!("{VM_HELP}");
         return Some(0);
     }
-    let plan = match plan(rest, global.output) {
+    let plan = match plan_with_globals(rest, &global) {
         Ok(plan) => plan,
         Err(error) => {
             return Some(super::app::failure(

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
@@ -99,7 +100,7 @@ final class ChatsOpenCoordinator {
                 guard let plan = try await environment.chatOpenPlan(key: key) else { return }
                 await dispatch(plan, key: key, environment: environment, inTerminal: inTerminal, watch: watch, replacing: page)
             } catch {
-                services.refusalHUD.show(error.localizedDescription, in: services.windows.active?.window ?? NSApp.keyWindow)
+                services.refusalHUD.show(error.localizedDescription, in: services.windows.active?.window ?? services.keyWindowSource())
             }
         }
     }
@@ -152,7 +153,7 @@ final class ChatsOpenCoordinator {
         // The page's store id (it may have been provisional at the click). The New Tab page is an
         // agent tab, not an internal page tab: its pane is found by its tab model.
         let page = services.agentTabs.resolve(page)
-        guard services.agentTabs.isNewTabPage(page), let (slot, model) = services.locateTab(page),
+        guard services.agentTabs.isNewTabPage(page), let (slot, model) = services.locateTab(page, onMachine: services.machines.local.machineID),
               let pane = services.paneController(for: model) else { return false }
         // A page of another machine never becomes a chat of this Mac (cx-k21v): the chat opens in a
         // new workspace of this Mac instead, as before open-here.
@@ -161,7 +162,7 @@ final class ChatsOpenCoordinator {
             let closePage = NewTabPage.closingPage(page, in: pane)
             return services.linkOpener.open(from: pane, mainPane: false) { [services] target, placed in
                 services.agentTabs.openTab(in: target, seed: AgentPaneSeedSource(seed), select: placed == nil) { key in
-                    if let placed, let surface = services.locateTab(key)?.0.surface { placed(surface) }
+                    if let placed, let surface = services.locateTab(key, onMachine: target.daemon.machineID)?.0.surface { placed(surface) }
                     closePage()
                 }
             }

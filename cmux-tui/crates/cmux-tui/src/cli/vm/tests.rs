@@ -224,3 +224,46 @@ fn app_mint_errors_keep_the_vm_cli_exit_codes() {
     assert_eq!(mint_exit("method_not_found", None), 5);
     assert_eq!(mint_exit("internal", None), cmux_vm::exit::UNEXPECTED);
 }
+
+/// The words `run_if_requested` hands `cmux-vm` for a whole `cmux …` command line.
+fn forwarded(words: &[&str]) -> Vec<String> {
+    let (global, rest) = prepared(&args(words)).expect("a vm command");
+    plan_with_globals(&rest, &global).expect("a plan")
+}
+
+#[test]
+fn an_idempotency_key_reaches_cmux_vm_wherever_it_was_typed() {
+    let want = args(&["create", "--name", "t", "--idempotency-key", "k-1"]);
+    assert_eq!(forwarded(&["vm", "new", "--name", "t", "--idempotency-key", "k-1"]), want);
+    assert_eq!(forwarded(&["vm", "new", "--name", "t", "--idempotency-key=k-1"]), want);
+    assert_eq!(forwarded(&["--idempotency-key", "k-1", "vm", "new", "--name", "t"]), want);
+    assert_eq!(
+        forwarded(&["vm", "snapshot", "create", "vm_1", "--idempotency-key", "k-2"]),
+        args(&["snapshot", "create", "vm_1", "--idempotency-key", "k-2"])
+    );
+    assert_eq!(
+        forwarded(&["vm", "creation", "get", "--idempotency-key", "k-3"]),
+        args(&["creation", "get", "--idempotency-key", "k-3"])
+    );
+}
+
+#[test]
+fn a_forwarded_key_stays_before_the_double_dash_and_words_after_it_are_the_commands() {
+    assert_eq!(
+        forwarded(&["vm", "exec", "vm_1", "--", "tool", "--idempotency-key", "x"]),
+        args(&["exec", "vm_1", "--", "tool", "--idempotency-key", "x"])
+    );
+    assert_eq!(forwarded(&["vm", "ls"]), args(&["list"]));
+}
+
+#[test]
+fn a_key_on_a_verb_that_takes_none_is_dropped_as_before() {
+    assert_eq!(
+        forwarded(&["vm", "pause", "vm_1", "--idempotency-key", "k"]),
+        args(&["pause", "vm_1"])
+    );
+    assert_eq!(
+        forwarded(&["vm", "fork", "vm_1", "--idempotency-key", "k"]),
+        args(&["fork", "vm_1", "--idempotency-key", "k"])
+    );
+}

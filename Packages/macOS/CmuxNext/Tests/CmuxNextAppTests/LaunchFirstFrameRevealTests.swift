@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Leo's first-frame call (BACKLOG "Ideas"): a cold launch with a saved layout paints it in its first
@@ -9,7 +10,7 @@ import Testing
 /// until their data lands (`LaunchReveal`). A relaunch has that data before the window's first frame
 /// (the saved tabs, an agent page's last image), so they must draw in that frame, not fade in from
 /// clear after it. Data that lands after the first frame still fades in. A real pane in a window.
-@MainActor @Suite(.serialized) struct LaunchFirstFrameRevealTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct LaunchFirstFrameRevealTests {
     final class LaunchWindow {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -89,6 +90,17 @@ import Testing
                 "the previous tab's delayed reveal took back the next tab's frame")
         launch.pane.clearLaunchImage(ifShowing: current)
         #expect(launch.pane.launchImageView == nil)
+    }
+
+    @Test func resizingThePaneDropsTheOldSizeFrame() {
+        let launch = LaunchWindow()
+        defer { launch.tearDown() }
+        launch.pane.showLaunchImage(Self.lastFrame())
+        #expect(launch.pane.launchImageView != nil)
+        launch.pane.setFrameSize(NSSize(width: 700, height: 600))
+        launch.pane.layoutSubtreeIfNeeded()
+        #expect(launch.pane.launchImageView == nil,
+                "a launch snapshot from the old pane width remained visible after resize")
     }
 
     @Test(arguments: [false, true])

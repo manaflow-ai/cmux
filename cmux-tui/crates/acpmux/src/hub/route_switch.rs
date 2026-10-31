@@ -194,6 +194,11 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
     ) -> Result<(), RpcError> {
+        // A shutdown began: no agent starts here any more, and the one it left running is the
+        // next daemon's to adopt (`shutdown.rs`). The binding is written; nothing moved yet.
+        if self.shutting_down() {
+            return Err(super::shutdown::shutting_down_error());
+        }
         session.route_switch.store(false, Ordering::SeqCst);
         if session.child.lock().await.is_none() {
             return Ok(());

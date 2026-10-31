@@ -10,6 +10,7 @@ import { powerIntent, powerResult, providerStateResult, resizeIntent } from "./c
 import { snapshotCreate, snapshotDelete, snapshotRestore, snapshotResult, type SnapshotRow } from "./cloud-snapshot.ts"
 import { environmentBoot, environmentBuild, environmentBuildResult, environmentDelete, environmentSet } from "./cloud-environment.ts"
 import { createConfigProblem, limitDetails, DEFAULT_IDLE_SECONDS, DEFAULT_SIZE, providerName, sizeLocked, teamPlan, type CloudConfig, type CloudMachineView, DEFAULT_MEMORY_MB } from "./cloud-plan.ts"
+import { machineCost } from "./cloud-cost.ts"
 
 /**
  * CloudDO's reducer (plans/cmux-next/state-placement.md 5.1-5.3). Pure: provider calls run in the
@@ -80,6 +81,8 @@ export interface MachineRow extends Omit<CloudMachineView, "revision"> {
   readonly vm_install?: string
   /** When the machine last became running by a start or a bind (private): idle counts from no earlier (review P2). */
   readonly last_power_at?: number
+  /** When the machine last became running: a bind, or a start the provider confirmed (private; public `running_since`). */
+  readonly running_at?: number
   /** A restore: the recorded snapshot slug the create boots (the pass branches on this, never on the image id). */
   readonly from_snapshot?: string
   /** The creator's SSO team at create (private): the VM install counts as registered from that SSO. */
@@ -96,7 +99,7 @@ export interface LedgerRow {
   readonly capture_protocol?: 1
   readonly transport?: import("../cloud-vm-api-config.ts").CloudTransport
   readonly key: string
-  readonly op: "create" | "delete" | "pause" | "start" | "resize" | "snapshot" | "snapshot_delete" | "env_build"
+  readonly op: "create" | "delete" | "pause" | "start" | "resize" | "snapshot" | "snapshot_delete" | "env_build" | "env_cleanup"
   /** env_build: the environment, the build digest, and the warm-boot machine's provider name (cloud-environment.ts). */
   readonly environment?: string
   readonly env_digest?: string
@@ -148,8 +151,8 @@ const counted = (status: string) => (COUNTED.has(status) ? 1 : 0)
 export const countedRow = (row: MachineRow) => (row.delete_failed ? 1 : counted(row.status))
 
 export const publicMachine = (row: MachineRow): CloudMachineView => {
-  const { transport: _t, provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, last_power_at: _l, from_snapshot: _fs, env_setup: _es, platform: _pf, ...machine } = row
-  return machine
+  const { transport: _t, provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, last_power_at: _l, running_at: _ra, from_snapshot: _fs, env_setup: _es, platform: _pf, ...machine } = row
+  return { ...machine, ...machineCost(row) }
 }
 
 export const isAgent = (p: Principal) => p.kind === "agent" || p.agent !== undefined
@@ -386,9 +389,10 @@ const driverResult = (config: CloudConfig, state: CloudState, params: unknown, c
   const machine = machineRow(ctx.rows, l.machine)
   const pending = withoutPending(state, r.key)
   const retainedCapture = l.transport === "vm-api" && !r.ok && (l.op === "snapshot_delete" || (l.op === "snapshot" && r.snapshot_outcome === undefined))
-  if (retainedCapture) {
+  // Cleanup only stops cost. A refusal or exhausted retry budget must never forget a running builder.
+  if (retainedCapture || (l.op === "env_cleanup" && !r.ok)) {
     const attempts = l.attempts + 1
-    const error = { code: r.error?.code ?? "cloud.provider.unavailable", message: r.error?.message ?? "snapshot capture is still being confirmed" }
+    const error = { code: r.error?.code ?? "cloud.provider.unavailable", message: r.error?.message ?? "provider cleanup is still being confirmed" }
     return { ok: true, state: next(state, { pending: { ...state.pending, [r.key]: { machine: l.machine, due_at: ctx.now + retryDelayMs(attempts) } } }),
       value: { applied: true, final: false }, writes: [upsertLedger({ ...l, attempts, error, updated_at: ctx.now }, stored.n)] }
   }
@@ -418,6 +422,7 @@ const driverResult = (config: CloudConfig, state: CloudState, params: unknown, c
     return { ok: true, state: next(state, { pending, active }, { machine: row.id, removed: false }), value: { applied: true, final: true }, writes }
   }
   const done = upsertLedger({ ...l, state: "done", provider_id: r.provider_id ?? l.provider_id, error: null, updated_at: ctx.now }, stored.n)
+  if (l.op === "env_cleanup") return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done] }
   // The VM exists and holds its bind token; the machine stays provisioning until its bind agent
   // binds it (5.8). The token expires 15 minutes after the provider reported the VM running.
   if (l.op === "create" && machine && r.bind_token_sha256) {
@@ -458,7 +463,15 @@ const prune = (state: CloudState, params: unknown, ctx: ReduceContext): ReduceRe
   }
   for (const l of ctx.rows?.range<LedgerRow>(TABLE_LEDGER, { limit: 100 }) ?? []) {
     // Abandoned rows stay: the orphan report keeps flagging their recorded name for a person.
-    if (l.row.state !== "pending" && l.row.state !== "abandoned" && !state.watch?.[l.key] && l.row.updated_at <= d.value.now - LEDGER_KEEP_MS) writes.push({ table: TABLE_LEDGER, op: "delete", key: l.key })
+    if (l.row.state !== "pending" && l.row.state !== "abandoned" && !state.watch?.[l.key] && l.row.updated_at <= d.value.now - LEDGER_KEEP_MS) {
+      // Older platform snapshots predate the private row marker. Preserve their creation evidence
+      // on the snapshot in the same transaction that retires the ledger, never from machine ownership.
+      const snap = l.row.op === "snapshot" && l.row.snapshot ? ctx.rows?.get<SnapshotRow>(TABLE_SNAPSHOT, l.row.snapshot) : undefined
+      if (snap && !snap.row.platform && snap.row.creator && l.key.startsWith(`${PLATFORM_IDENTITY_PREFIX}${snap.row.creator}|platform-env:snapshot:`)) {
+        writes.push({ table: TABLE_SNAPSHOT, op: "upsert", key: snap.key, n: snap.n, row: { ...snap.row, platform: true } })
+      }
+      writes.push({ table: TABLE_LEDGER, op: "delete", key: l.key })
+    }
   }
   if (writes.length === 0) return noChange(state, { pruned: 0 })
   return { ok: true, state: next(state, {}), value: { pruned: writes.length }, writes }

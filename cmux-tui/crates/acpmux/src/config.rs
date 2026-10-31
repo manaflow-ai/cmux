@@ -31,6 +31,131 @@ pub fn default_home() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".acpmux")
 }
 
+/// Whether a command may start a daemon in `home`, given this process's `ACPMUX_HOME` and
+/// `ACPMUX_SOCKET` (`explicit_home`, `configured_socket`) and `home`'s own socket
+/// (`own_socket`, [`socket_path_for`] with no configured path). `None` when it may, else why
+/// not. A daemon's lock and socket always come from one home:
+///
+/// - A missing home is created only when it is the default one or this build's own
+///   ([`set_home_override`]). Any other missing `ACPMUX_HOME` is most likely a test's removed
+///   temporary folder: recreating it started a second daemon beside one still running on the
+///   deleted files (cosmic-gray, 2026-10-29).
+/// - `ACPMUX_SOCKET` pairs only with an explicit `ACPMUX_HOME`, as in the app
+///   (`AcpmuxEnvironment.swift`). Without one, a socket that is not the home's own names
+///   another home's daemon: a start here would take this home's lock for that socket, and the
+///   command waited out the whole handover budget on a lock another daemon held.
+pub(crate) fn autostart_refusal(
+    home: &Path,
+    explicit_home: bool,
+    configured_socket: Option<&Path>,
+    own_socket: &Path,
+) -> Option<String> {
+    let built_in =
+        home == default_home() || HOME_OVERRIDE.get().is_some_and(|own| own.as_path() == home);
+    if !built_in && std::fs::symlink_metadata(home).is_err() {
+        return Some(format!(
+            "the acpmux home {} does not exist, and acpmux never creates a missing ACPMUX_HOME to start a daemon there (a removed test folder looks the same); create it, or unset ACPMUX_HOME",
+            home.display()
+        ));
+    }
+    match configured_socket {
+        Some(socket) if !explicit_home && socket != own_socket => Some(format!(
+            "no acpmux daemon answers at {} (ACPMUX_SOCKET), and it is not the socket of this command's home {} ({}): acpmux starts a daemon only where its lock and socket share one home; set ACPMUX_HOME to that daemon's home, or unset ACPMUX_SOCKET",
+            socket.display(),
+            home.display(),
+            own_socket.display()
+        )),
+        _ => None,
+    }
+}
+
+/// Set once this daemon's home is gone (`daemon/home_watch.rs`); never cleared.
+// 0: present, 1: the home or lock was lost, 2: only the socket was lost. A
+// socket disappearing still fences writes, but the home remains ours, so the
+// shutdown may safely end hosts whose records were not adopted yet.
+static HOME_LOST: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// This daemon's home was removed or replaced: from now on it makes no folder and creates or
+/// opens no state file for writing under that path, which may be another daemon's home now.
+pub(crate) fn mark_home_lost() {
+    HOME_LOST.store(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Mark only the bound socket as lost. The state fence is still active, but
+/// the home and its host records remain this daemon's, so shutdown can clean
+/// up an unadopted host.
+pub(crate) fn mark_socket_lost() {
+    let _ = HOME_LOST.compare_exchange(
+        0,
+        2,
+        std::sync::atomic::Ordering::SeqCst,
+        std::sync::atomic::Ordering::SeqCst,
+    );
+}
+
+/// Whether the home or socket is lost, including an identity change awaiting event delivery.
+pub(crate) fn home_lost() -> bool {
+    HOME_LOST.load(std::sync::atomic::Ordering::SeqCst) != 0
+}
+
+/// Whether the home or lock itself was lost. A socket-only loss leaves the
+/// host records owned by this daemon and may be cleaned during shutdown.
+pub(crate) fn home_path_lost() -> bool {
+    HOME_LOST.load(std::sync::atomic::Ordering::SeqCst) == 1
+}
+
+/// The home this daemon holds, as the folder it locked: its device and inode (`daemon.rs`).
+static HELD_HOME: std::sync::OnceLock<(u64, u64)> = std::sync::OnceLock::new();
+
+/// The device and inode of `path` itself (never a link's target).
+#[cfg(unix)]
+fn folder_identity(path: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::symlink_metadata(path).ok().map(|m| (m.dev(), m.ino()))
+}
+
+#[cfg(not(unix))]
+fn folder_identity(_path: &Path) -> Option<(u64, u64)> {
+    None
+}
+
+/// Records [`home`] as the folder this daemon holds, once it holds its lock. A process that
+/// never calls it (a CLI command) checks no identity.
+pub fn hold_home() {
+    if let Some(identity) = folder_identity(&home()) {
+        let _ = HELD_HOME.set(identity);
+    }
+}
+
+/// Whether the held home ([`hold_home`]) is gone or another folder now: read from the folder
+/// itself, so it does not wait for the home watch to hear of it.
+fn held_home_replaced(home: &Path) -> bool {
+    HELD_HOME.get().is_some_and(|held| folder_identity(home) != Some(*held))
+}
+
+/// Refuses a write under a lost home: one [`mark_home_lost`] marked, or one no longer the folder
+/// this daemon holds ([`hold_home`]), which it then marks. Every write under the home goes
+/// through it, so a write after the home was replaced never lands in the replacement, however
+/// late the home watch hears of it; a shutdown's last saves never make a removed home again.
+/// A replacement between this check and the write itself is not ruled out (by path, POSIX has
+/// no write-if-same-folder).
+pub(crate) fn refuse_lost_home(path: &Path) -> Result<()> {
+    let home = home();
+    if !path.starts_with(&home) {
+        return Ok(());
+    }
+    if !home_path_lost() && held_home_replaced(&home) {
+        mark_home_lost();
+    }
+    anyhow::ensure!(
+        !home_lost(),
+        "the acpmux home {} is gone; {} is not written",
+        home.display(),
+        path.display()
+    );
+    Ok(())
+}
+
 /// Make one acpmux state directory owner-only, including an existing directory
 /// created by an older build under a permissive umask. Refuse links and a
 /// directory owned by another user before changing its permissions.
@@ -38,6 +163,7 @@ pub fn default_home() -> PathBuf {
 pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 
+    refuse_lost_home(dir)?;
     validate_private_state_ancestors(dir)?;
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
     validate_private_state_ancestors(dir)?;
@@ -191,6 +317,7 @@ fn validate_private_state_file(file: &std::fs::File, path: &Path) -> Result<()> 
 #[cfg(unix)]
 pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
+    refuse_lost_home(path)?;
 
     let file = std::fs::OpenOptions::new()
         .read(true)
@@ -209,6 +336,7 @@ pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
 #[cfg(unix)]
 pub(crate) fn private_state_append(path: &Path) -> Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
+    refuse_lost_home(path)?;
 
     let file = std::fs::OpenOptions::new()
         .append(true)
@@ -381,6 +509,45 @@ fn socket_inputs(
     };
     let configured = configured.map(|c| absolute(Path::new(c)).to_string_lossy().into_owned());
     (configured, absolute(home))
+}
+
+#[cfg(all(test, unix))]
+mod autostart_pair_tests {
+    use super::*;
+
+    /// A removed test home is never made again for a daemon; the default home still is.
+    #[test]
+    fn only_the_default_home_is_created_for_a_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let gone = dir.path().join("removed-test-home");
+        let own = gone.join("acpmux.sock");
+        let why = autostart_refusal(&gone, true, None, &own).expect("a missing home is refused");
+        assert!(why.contains("does not exist"), "{why}");
+        assert!(!gone.exists());
+        let default = default_home();
+        let own = default.join("acpmux.sock");
+        assert_eq!(autostart_refusal(&default, false, None, &own), None);
+        assert_eq!(autostart_refusal(dir.path(), true, None, &dir.path().join("s.sock")), None);
+    }
+
+    /// `ACPMUX_SOCKET` pairs only with an explicit `ACPMUX_HOME` (or is the home's own): the
+    /// Chief's socket with no home must not start a daemon under `~/.acpmux`'s lock.
+    #[test]
+    fn a_socket_pairs_only_with_an_explicit_home_or_its_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        let own = home.join("acpmux.sock");
+        // Another home's socket, as the Chief's would be.
+        let elsewhere = tempfile::tempdir().unwrap();
+        let chief_socket = elsewhere.path().join("acpmux.sock");
+        let chief = chief_socket.as_path();
+        let why = autostart_refusal(home, false, Some(chief), &own).expect("unpaired");
+        assert!(why.contains(&chief.display().to_string()), "{why}");
+        assert!(why.contains(&own.display().to_string()), "{why}");
+        assert_eq!(autostart_refusal(home, true, Some(chief), &own), None);
+        assert_eq!(autostart_refusal(home, false, Some(&own), &own), None);
+        assert_eq!(autostart_refusal(home, false, None, &own), None);
+    }
 }
 
 #[cfg(all(test, unix))]
@@ -857,8 +1024,8 @@ pub struct SessionResourceConfig {
     /// kernel's `threads-max`, between 16384 and 262144.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sessions_tasks_max: Option<u64>,
-    /// `cpuClass`: the CPU class a macOS session's harness starts at,
-    /// `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
+    /// `cpuClass`: the CPU class a macOS session's harness runs at once its
+    /// start is over (it starts at normal), `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
     /// overrides it, a profile's env overrides both. Unset: `background`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_class: Option<crate::cpu_class::CpuClass>,
@@ -955,6 +1122,11 @@ pub struct Config {
     /// (`recovery.rs`; 1 GiB when unset).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disk_low_bytes: Option<u64>,
+    /// `agentInbox` (default true): another agent's plain send goes into the chat's inbox, never
+    /// a turn or a steer of its own (`hub/inbox.rs`). false puts it back on the queue as before:
+    /// a switch to roll the inbox back without a new build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_inbox: Option<bool>,
     /// `silentTurnMs`: how long a turn may go with no sign of its model at work
     /// (no message, thought, tool call, plan, request or model harness line;
     /// the agent's own bookkeeping does not count) before the chat logs
@@ -1014,6 +1186,9 @@ pub struct Config {
     /// `titles`: short titles for chats their harness never titles (`hub/titles.rs`).
     #[serde(default, skip_serializing_if = "TitlesConfig::is_default")]
     pub titles: TitlesConfig,
+    /// `usageWarnings`: when a session's usage gets a visible warning (`hub/usage_warnings.rs`).
+    #[serde(default, skip_serializing_if = "UsageWarningsConfig::is_default")]
+    pub usage_warnings: UsageWarningsConfig,
     /// Labs-only transport switches (`transport.wireguard`).
     #[serde(default)]
     pub transport: TransportConfig,
@@ -1156,6 +1331,11 @@ impl Config {
             })?),
         };
         Ok(())
+    }
+
+    /// `agentInbox`, or its default: on.
+    pub fn agent_inbox(&self) -> bool {
+        self.agent_inbox.unwrap_or(true)
     }
 
     /// `agentStartTimeoutMs`, or its 90 s default.
@@ -1344,16 +1524,26 @@ impl Config {
     }
 
     /// Without a configured default, the first harness that runs an ACP
-    /// session (a terminal harness, an installed `muse` say, never does).
+    /// session (a terminal harness, an installed `muse` say, never does), and
+    /// never the Chief harness: a new chat is a coding agent unless the person
+    /// picks their Chief.
     fn pick_auto_default(&mut self) {
         if self.default_harness.is_none() {
             self.auto_default = true;
             self.default_harness = self
                 .harnesses
                 .iter()
-                .find(|(_, profile)| profile.kind != HarnessKind::Terminal)
+                .find(|(_, profile)| {
+                    profile.kind != HarnessKind::Terminal
+                        && profile.family.as_deref() != Some(CHIEF_FAMILY)
+                })
                 .map(|(name, _)| name.clone());
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pick_auto_default_for_tests(&mut self) {
+        self.pick_auto_default();
     }
 
     /// A capture fixture's harnesses join as discovered ones would
@@ -1505,6 +1695,7 @@ fn is_default_kind(k: &HarnessKind) -> bool {
 }
 
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    refuse_lost_home(path)?;
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
@@ -1578,10 +1769,10 @@ mod codex_adapter;
 mod discover;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
 pub use discover::{
-    CMUX_ROUTER_MODEL_SETTING, CMUX_ROUTER_PROFILE, CODEROUTER_CLAUDE_PROFILE,
-    CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_cmux_router, add_cmux_router_with,
-    add_coderouter_route, cmux_router_model_setting, coderouter_claude_route, discover_harnesses,
-    discover_harnesses_from,
+    CHIEF_FAMILY, CHIEF_PROFILE, CMUX_ROUTER_MODEL_SETTING, CMUX_ROUTER_PROFILE,
+    CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_chief,
+    add_cmux_router, add_cmux_router_with, add_coderouter_route, cmux_router_model_setting,
+    coderouter_claude_route, discover_harnesses, discover_harnesses_from,
 };
 mod peer;
 pub use peer::PeerConfig;
@@ -1589,6 +1780,8 @@ mod pool;
 pub use pool::PoolConfig;
 mod btw;
 pub use btw::BtwConfig;
+mod usage_warnings;
+pub use usage_warnings::{UsageLimits, UsageWarningsConfig};
 pub mod folder_profiles;
 pub mod harness_icon;
 pub mod profiles;

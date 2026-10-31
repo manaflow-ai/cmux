@@ -55,7 +55,7 @@ struct ChiefWorkspaceRowsTests {
 
     /// The Chief's daemon holding one subagent workspace `name` (`ws_…0011` in session
     /// `cmux-chief-6b68ac4a`), an agent chat in it when `harness` is set, pinned to the top.
-    static func pinnedChiefWorkspace(_ name: String, harness: String?) -> (SidebarLayoutDocument, WorkspaceLayoutRefs, LayoutItemRef) {
+    static func pinnedChiefWorkspace(_ name: String, harness: String?, pinned: Bool = false) -> (SidebarLayoutDocument, WorkspaceLayoutRefs, LayoutItemRef) {
         _ = NSApplication.shared
         let machines = MachineRegistry(local: DaemonService())
         let session = ServerMachineSession(reach: chief, binary: nil, paths: .init(root: URL(fileURLWithPath: "/private/tmp/cn-chief-top-unused")),
@@ -64,7 +64,7 @@ struct ChiefWorkspaceRowsTests {
         var tab = TabSnapshot(surface: 1, kind: harness == nil ? .pty : .conversation, cwd: nil)
         tab.conversation = harness.map { ConversationTabRef(agentSession: AgentSessionRef(host: "install:chief-top", session: "s1", harness: $0)) }
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [tab])])
-        let workspace = WorkspaceSnapshot(id: 1, key: nil, resourceID: "ws_00000000000000000000000000000011", name: name, screens: [screen])
+        let workspace = WorkspaceSnapshot(id: 1, key: nil, resourceID: "ws_00000000000000000000000000000011", name: name, screens: [screen], pinned: pinned)
         session.daemon.store.apply(snapshot: DaemonTree(registryID: "cmux-chief-6b68ac4a", workspaces: [workspace]))
         let ref = LayoutItemRef.workspace("cmux-chief-6b68ac4a:ws_00000000000000000000000000000011")
         let top = LayoutSection(id: LayoutSectionID("sec_top"), region: .top, items: [LayoutItem(id: LayoutItemID("itm_pin"), ref: ref)])

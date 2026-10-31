@@ -102,6 +102,10 @@ if "needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.
     failures.append("legacy identity publication must match the exact NEXT build selected for the compatibility feed")
 if "needs.publish-nightly.result == 'skipped' && needs.legacy-identity-target.outputs.action == 'continue'" not in legacy_publish:
     failures.append("legacy identity continuation must remain available when publish-nightly is intentionally skipped")
+# Run 41126559170 (2026-10-30): the rescue's full re-runs skipped publish-nightly (the build was already on the
+# NEXT feed), so a legacy sign there could never publish. A target from the live feed publishes from any run.
+if "|| needs.legacy-identity-target.outputs.source_run == '')" not in legacy_publish:
+    failures.append("a legacy target from the live NEXT feed (source_run empty) must publish whatever this run's publish-nightly did")
 
 if failures:
     print("FAIL: NEXT post-publication dependency contract\n  " + "\n  ".join(failures))

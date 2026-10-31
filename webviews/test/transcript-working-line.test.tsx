@@ -11,6 +11,7 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { ActivityLine } from "../src/agent-session/acpmux/conversation/ActivityLine";
+import { pageClocks } from "../src/ui/pageClock";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor";
 import { turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
@@ -176,6 +177,50 @@ test("the activity line names the work with no dots before it", () => {
   );
   expect(text(html)).toMatch(/^Edit grid\.css \d+s$/);
   expect(stillMarkup(html)).toBe(true);
+});
+
+test("live activity lines share the page's one second and rest while the page is hidden", () => {
+  const scope = globalThis as Record<string, unknown>;
+  const keys = ["window", "document", "IS_REACT_ACT_ENVIRONMENT", "setInterval"];
+  const saved = keys.map((key) => [key, scope[key]] as const);
+  const dom = new JSDOM("<!doctype html><main id=root></main>", { url: "http://localhost/", pretendToBeVisual: true });
+  let visibility = "visible";
+  Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, get: () => visibility });
+  let intervals = 0;
+  const realInterval = globalThis.setInterval;
+  Object.assign(scope, {
+    window: dom.window,
+    document: dom.window.document,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    setInterval: ((handler: () => void, ms?: number) => {
+      intervals += 1;
+      return realInterval(handler, ms);
+    }) as unknown as typeof setInterval,
+  });
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const lines = Array.from({ length: 5 }, (_, index) =>
+    row(`act-${index}`, "activity-line", { text: `Edit grid-${index}.css` }),
+  );
+  try {
+    act(() => root.render(lines.map((line) => <ActivityLine key={line.id} row={line} now={() => at + 26_000} />)));
+    expect(dom.window.document.querySelectorAll(".cv-activity__time")).toHaveLength(5);
+    // Five live lines, one timer: none of their own, and the page clock's one for all of them.
+    expect(intervals).toBe(0);
+    expect(pageClocks(dom.window.document)).toMatchObject({ running: 1, subscribers: 5 });
+    act(() => {
+      visibility = "hidden";
+      dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+    });
+    expect(pageClocks(dom.window.document)).toMatchObject({ running: 0, subscribers: 5 });
+  } finally {
+    act(() => root.unmount());
+    dom.window.close();
+    for (const [key, value] of saved) {
+      if (value === undefined) delete scope[key];
+      else scope[key] = value;
+    }
+  }
+  expect(pageClocks(dom.window.document)).toEqual({ running: 0, subscribers: 0, items: [] });
 });
 
 test("a call whose title is its raw input reads as a label, not JSON", () => {
