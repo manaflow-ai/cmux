@@ -115,89 +115,92 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
   /// Watches `selector` (the card) and the header's summary toggle across 100 frames of wheel scrolling
   /// up then down; returns what changed in them.
   const scrollAndWatch = (page: Page, selector: string, step = 60) =>
-    page.evaluate(async ([selector, step]) => {
-      const card = document.querySelector<HTMLElement>(selector)!;
-      const toggle = document.querySelector<HTMLElement>(".acpmux-summary-button, .acpmux-chat-inspector-toggle");
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const describe = (node: Node) => {
-        const element = node instanceof Element ? node : node.parentElement;
-        return element ? `${element.tagName.toLowerCase()}.${[...element.classList].join(".")}` : "#text";
-      };
-      const changes: string[] = [];
-      // A running command's elapsed time ticks once a second by design (useNow): that is a clock,
-      // not the card changing under the scroll.
-      const clock = (node: Node) =>
-        !!(node instanceof Element ? node : node.parentElement)?.closest(
-          ".acpmux-summary-meta, .acpmux-chat-inspector-task__time, .acpmux-chat-inspector-server__time",
-        );
-      const observer = new MutationObserver((records) => {
-        for (const record of records) {
-          if (record.type === "characterData" && clock(record.target)) continue;
-          if (record.type === "childList" && clock(record.target) && record.target.textContent) continue;
-          if (record.type === "attributes")
-            changes.push(`attr ${record.attributeName} on ${describe(record.target)}`);
-          else if (record.type === "characterData") changes.push(`text in ${describe(record.target)}`);
-          else {
-            for (const node of record.addedNodes) changes.push(`added ${describe(node)}`);
-            for (const node of record.removedNodes) changes.push(`removed ${describe(node)}`);
-          }
-        }
-      });
-      const watch = { attributes: true, childList: true, characterData: true, subtree: true };
-      observer.observe(card, watch);
-      if (toggle) observer.observe(toggle, watch);
-      // The card's own node, and the toggle's, must survive (a remount reads as a blink).
-      const parent = card.parentElement!;
-      const boxes = new Set<string>();
-      const opacities = new Set<string>();
-      let replaced = false;
-      let lowest = scroller.scrollTop;
-      const read = () => {
-        lowest = Math.min(lowest, scroller.scrollTop);
-        if (!card.isConnected || (toggle && !toggle.isConnected)) replaced = true;
-        const box = card.getBoundingClientRect();
-        boxes.add(`${Math.round(box.x)},${Math.round(box.y)},${Math.round(box.width)},${Math.round(box.height)}`);
-        opacities.add(getComputedStyle(card).opacity);
-      };
-      read();
-      const start = scroller.scrollTop;
-      const frames = 100;
-      const errors: string[] = [];
-      await new Promise<void>((done) => {
-        let frame = 0;
-        window.cmuxAfterPaint(
-          () => {
-            try {
-              read();
-            } catch (error) {
-              errors.push(String(error));
+    page.evaluate(
+      async ([selector, step]) => {
+        const card = document.querySelector<HTMLElement>(selector)!;
+        const toggle = document.querySelector<HTMLElement>(".acpmux-summary-button, .acpmux-chat-inspector-toggle");
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const describe = (node: Node) => {
+          const element = node instanceof Element ? node : node.parentElement;
+          return element ? `${element.tagName.toLowerCase()}.${[...element.classList].join(".")}` : "#text";
+        };
+        const changes: string[] = [];
+        // A running command's elapsed time ticks once a second by design (useNow): that is a clock,
+        // not the card changing under the scroll.
+        const clock = (node: Node) =>
+          !!(node instanceof Element ? node : node.parentElement)?.closest(
+            ".acpmux-summary-meta, .acpmux-chat-inspector-task__time, .acpmux-chat-inspector-server__time",
+          );
+        const observer = new MutationObserver((records) => {
+          for (const record of records) {
+            if (record.type === "characterData" && clock(record.target)) continue;
+            if (record.type === "childList" && clock(record.target) && record.target.textContent) continue;
+            if (record.type === "attributes")
+              changes.push(`attr ${record.attributeName} on ${describe(record.target)}`);
+            else if (record.type === "characterData") changes.push(`text in ${describe(record.target)}`);
+            else {
+              for (const node of record.addedNodes) changes.push(`added ${describe(node)}`);
+              for (const node of record.removedNodes) changes.push(`removed ${describe(node)}`);
             }
-            frame += 1;
-            if (frame < frames) return true;
-            done();
-            return false;
-          },
-          () => {
-            // Up for the first half, back down for the second: 60px a frame, a quick trackpad flick.
-            const delta = frame < frames / 2 ? -step : step;
-            scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: delta, bubbles: true }));
-            scroller.scrollTop += delta;
-          },
-        );
-      });
-      observer.disconnect();
-      return {
-        start,
-        lowest,
-        end: scroller.scrollTop,
-        errors,
-        changes: [...new Set(changes)],
-        changeCount: changes.length,
-        boxes: [...boxes],
-        opacities: [...opacities],
-        replaced: replaced || !parent.contains(card),
-      };
-    }, [selector, step] as const);
+          }
+        });
+        const watch = { attributes: true, childList: true, characterData: true, subtree: true };
+        observer.observe(card, watch);
+        if (toggle) observer.observe(toggle, watch);
+        // The card's own node, and the toggle's, must survive (a remount reads as a blink).
+        const parent = card.parentElement!;
+        const boxes = new Set<string>();
+        const opacities = new Set<string>();
+        let replaced = false;
+        let lowest = scroller.scrollTop;
+        const read = () => {
+          lowest = Math.min(lowest, scroller.scrollTop);
+          if (!card.isConnected || (toggle && !toggle.isConnected)) replaced = true;
+          const box = card.getBoundingClientRect();
+          boxes.add(`${Math.round(box.x)},${Math.round(box.y)},${Math.round(box.width)},${Math.round(box.height)}`);
+          opacities.add(getComputedStyle(card).opacity);
+        };
+        read();
+        const start = scroller.scrollTop;
+        const frames = 100;
+        const errors: string[] = [];
+        await new Promise<void>((done) => {
+          let frame = 0;
+          window.cmuxAfterPaint(
+            () => {
+              try {
+                read();
+              } catch (error) {
+                errors.push(String(error));
+              }
+              frame += 1;
+              if (frame < frames) return true;
+              done();
+              return false;
+            },
+            () => {
+              // Up for the first half, back down for the second: 60px a frame, a quick trackpad flick.
+              const delta = frame < frames / 2 ? -step : step;
+              scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: delta, bubbles: true }));
+              scroller.scrollTop += delta;
+            },
+          );
+        });
+        observer.disconnect();
+        return {
+          start,
+          lowest,
+          end: scroller.scrollTop,
+          errors,
+          changes: [...new Set(changes)],
+          changeCount: changes.length,
+          boxes: [...boxes],
+          opacities: [...opacities],
+          replaced: replaced || !parent.contains(card),
+        };
+      },
+      [selector, step] as const,
+    );
 
   for (const name of browsers.keys()) {
     test(`${name}: the inline Summary card holds still while the chat scrolls`, async () => {
@@ -209,8 +212,12 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
         await settle(page);
         const seen = await scrollAndWatch(page, "aside.acpmux-summary-card[data-placement=inline]");
         console.log(`${name} inline summary while scrolling: ${JSON.stringify(seen)}`);
-        expect({ changes: seen.changes, boxes: seen.boxes.length, opacities: seen.opacities, replaced: seen.replaced })
-          .toEqual({ changes: [], boxes: 1, opacities: ["1"], replaced: false });
+        expect({
+          changes: seen.changes,
+          boxes: seen.boxes.length,
+          opacities: seen.opacities,
+          replaced: seen.replaced,
+        }).toEqual({ changes: [], boxes: 1, opacities: ["1"], replaced: false });
       } finally {
         await page.close();
       }
@@ -226,8 +233,12 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
         await settle(page);
         const seen = await scrollAndWatch(page, selector);
         console.log(`${name} summary popover while scrolling: ${JSON.stringify(seen)}`);
-        expect({ changes: seen.changes, boxes: seen.boxes.length, opacities: seen.opacities, replaced: seen.replaced })
-          .toEqual({ changes: [], boxes: 1, opacities: ["1"], replaced: false });
+        expect({
+          changes: seen.changes,
+          boxes: seen.boxes.length,
+          opacities: seen.opacities,
+          replaced: seen.replaced,
+        }).toEqual({ changes: [], boxes: 1, opacities: ["1"], replaced: false });
       } finally {
         await page.close();
       }
@@ -250,8 +261,12 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
         await settle(page);
         const seen = await scrollAndWatch(page, selector);
         console.log(`${name} Session Info while scrolling: ${JSON.stringify(seen)}`);
-        expect({ changes: seen.changes, boxes: seen.boxes.length, opacities: seen.opacities, replaced: seen.replaced })
-          .toEqual({ changes: [], boxes: 1, opacities: ["1"], replaced: false });
+        expect({
+          changes: seen.changes,
+          boxes: seen.boxes.length,
+          opacities: seen.opacities,
+          replaced: seen.replaced,
+        }).toEqual({ changes: [], boxes: 1, opacities: ["1"], replaced: false });
       } finally {
         await page.close();
       }
@@ -265,20 +280,26 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
         // A chat whose loaded rows have no summary content reserves the column without drawing it.
         const selector = "aside.acpmux-summary-card[data-placement=inline]";
         await page.locator(selector).first().waitFor({ state: "attached", timeout: 10_000 });
-        const before = await page.locator(selector).first().evaluate((card) => ({
-          reserve: card.classList.contains("acpmux-summary-card--reserve"),
-          text: card.textContent,
-        }));
+        const before = await page
+          .locator(selector)
+          .first()
+          .evaluate((card) => ({
+            reserve: card.classList.contains("acpmux-summary-card--reserve"),
+            text: card.textContent,
+          }));
         const seen = await scrollAndWatch(page, selector, 400);
         // Once the scroll settles, what it paged in reaches the card, in one change.
         await page.waitForFunction(
           (selector) => document.querySelector(selector)?.textContent?.includes("watch:0"),
           selector,
         );
-        const after = await page.locator(selector).first().evaluate((card) => ({
-          reserve: card.classList.contains("acpmux-summary-card--reserve"),
-          text: card.textContent,
-        }));
+        const after = await page
+          .locator(selector)
+          .first()
+          .evaluate((card) => ({
+            reserve: card.classList.contains("acpmux-summary-card--reserve"),
+            text: card.textContent,
+          }));
         console.log(
           `${name} inline summary while history pages in: ${JSON.stringify({ before, after, seen, methods: paged!.methods.filter((method) => method === "_acpmux/events").length })}`,
         );
