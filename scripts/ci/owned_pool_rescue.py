@@ -265,6 +265,9 @@ NIGHTLY_EVENTS = frozenset({"push", "schedule"})
 # app build asks for one through this watch.
 TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 SIDE_WORKFLOW_PATHS = frozenset({
+    # cmux NEXT Stable: its UI tests, suites, perf and dry-run signing take the owned gui pool on attempt 1
+    # and Blacksmith macOS on a re-run (stable-next.yml).
+    ".github/workflows/stable-next.yml",
     ".github/workflows/agent-brands.yml",
     ".github/workflows/auth-refresh-tests.yml",
     ".github/workflows/cmux-next-base-autofix.yml",
