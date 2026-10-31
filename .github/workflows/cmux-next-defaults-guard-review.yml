@@ -15,17 +15,11 @@ on:
     types: [submitted, dismissed, edited]
   issue_comment:
     types: [created, edited]
-  workflow_run:
-    workflows: ["cmux-next defaults guard"]
-    types: [completed]
-
-env:
-  SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-next-defaults-guard.yml
 
 permissions: {}
 
 concurrency:
-  group: cmux-next-defaults-guard-review-${{ github.event.issue.number || github.event.pull_request.number || github.event.workflow_run.id }}
+  group: cmux-next-defaults-guard-review-${{ github.event.issue.number || github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -36,13 +30,6 @@ jobs:
           github.event.pull_request.base.ref == 'feat-cmux-next' &&
           github.event.pull_request.head.repo.full_name == github.repository) ||
         (github.event_name == 'issue_comment' && github.event.issue.pull_request != null)
-        ||
-        (github.event_name == 'workflow_run' &&
-          github.event.workflow_run.conclusion == 'failure' &&
-          github.event.workflow_run.run_attempt == 1 &&
-          github.event.workflow_run.event == 'pull_request_target' &&
-          github.event.workflow_run.head_repository.full_name == github.repository &&
-          github.event.workflow_run.pull_requests[0].number != null)
       }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted actions-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 5
@@ -53,12 +40,11 @@ jobs:
     steps:
       - name: Resolve an exact-head SHIP receipt comment
         id: receipt
-        if: ${{ github.event_name == 'issue_comment' || github.event_name == 'workflow_run' }}
+        if: ${{ github.event_name == 'issue_comment' }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          EVENT_NAME: ${{ github.event_name }}
-          PR_NUMBER: ${{ github.event_name == 'issue_comment' && github.event.issue.number || github.event.workflow_run.pull_requests[0].number }}
+          PR_NUMBER: ${{ github.event.issue.number }}
           COMMENT_ID: ${{ github.event.comment.id }}
         run: |
           set -euo pipefail
@@ -66,16 +52,7 @@ jobs:
           base_ref="$(jq -r '.base.ref' <<<"$pr_json")"
           head_repo="$(jq -r '.head.repo.full_name // empty' <<<"$pr_json")"
           head_sha="$(jq -r '.head.sha' <<<"$pr_json")"
-          if [[ "$EVENT_NAME" == issue_comment ]]; then
-            comment_json="$(gh api "repos/$REPO/issues/comments/$COMMENT_ID")"
-          else
-            comment_json="$(gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" | jq -s '
-              add
-              | map(select((.author_association // "") | test("^(OWNER|MEMBER|COLLABORATOR)$")))
-              | map(select((.body // "" | split("\\n")[0]) | test("^Review \\([^)]*\\): SHIP at [0-9a-f]{40}$")))
-              | last // {}
-            ')"
-          fi
+          comment_json="$(gh api "repos/$REPO/issues/comments/$COMMENT_ID")"
           association="$(jq -r '.author_association // empty' <<<"$comment_json")"
           first_line="$(jq -r '.body // "" | split("\\n")[0]' <<<"$comment_json")"
           receipt_re='^Review \([^)]*\): SHIP at ([0-9a-f]{40})$'
@@ -110,22 +87,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
           HEAD_SHA: ${{ steps.receipt.outputs.head_sha || steps.review.outputs.head_sha }}
         run: |
           error_file="$(mktemp)"
           trap 'rm -f "$error_file"' EXIT
-          if [[ "$EVENT_NAME" == workflow_run ]]; then
-            run_id="$EVENT_RUN_ID"
-          elif ! run_id="$(gh api "repos/$REPO/actions/workflows/cmux-next-defaults-guard.yml/runs?event=pull_request_target&head_sha=$HEAD_SHA&per_page=20" \
-              --jq '.workflow_runs[0].id // empty' 2>"$error_file")"; then
-              if grep -Eq 'HTTP 404|404 Not Found' "$error_file"; then
-                echo "No defaults guard run on $HEAD_SHA yet; the runs endpoint returned 404."
-                exit 0
-              fi
-              cat "$error_file" >&2
-              exit 1
+          if ! run_id="$(gh api "repos/$REPO/actions/workflows/cmux-next-defaults-guard.yml/runs?event=pull_request_target&head_sha=$HEAD_SHA&per_page=20" \
+            --jq '.workflow_runs[0].id // empty' 2>"$error_file")"; then
+            if grep -Eq 'HTTP 404|404 Not Found' "$error_file"; then
+              echo "No defaults guard run on $HEAD_SHA yet; the runs endpoint returned 404."
+              exit 0
+            fi
+            cat "$error_file" >&2
+            exit 1
           fi
           if [[ -z "$run_id" ]]; then
             echo "No defaults guard run on $HEAD_SHA yet; it reads the reviews when it runs."
@@ -133,7 +106,7 @@ jobs:
           fi
           run_status="$(gh api "repos/$REPO/actions/runs/$run_id" --jq '.status')"
           if [[ "$run_status" != completed ]]; then
-            echo "Defaults guard run $run_id is still $run_status; its completion trigger will retry the receipt."
+            echo "Defaults guard run $run_id is still $run_status; a later receipt or push can retry it."
             exit 0
           fi
           gh api -X POST "repos/$REPO/actions/runs/$run_id/rerun" >/dev/null
