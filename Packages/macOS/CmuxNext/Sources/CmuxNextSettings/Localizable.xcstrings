@@ -79303,6 +79303,268 @@
         }
       }
     },
+    "settings.updates.showFeatureTips": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Feature Tips"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار تلميحات الميزات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži savjete o funkcijama"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis tip om funktioner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Funktionstipps anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar consejos de funciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les astuces sur les fonctionnalités"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra suggerimenti sulle funzioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機能のヒントを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញគន្លឹះមុខងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기능 팁 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis funksjonstips"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuj wskazówki o funkcjach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar dicas de recursos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать подсказки о функциях"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงเคล็ดลับฟีเจอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özellik ipuçlarını göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати підказки про функції"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện mẹo tính năng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示功能提示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示功能提示"
+          }
+        }
+      }
+    },
+    "settings.updates.showFeatureTips.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "من حين لآخر، يشير تلميح صغير إلى ميزة أضافها تحديث. أغلقه أو استخدم الميزة ولن يظهر مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povremeno mali savjet pokazuje na funkciju koju je dodalo ažuriranje. Zatvorite ga ili koristite funkciju i više se neće pojaviti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nu og da peger et lille tip på en funktion, som en opdatering har tilføjet. Luk det, eller brug funktionen, så kommer det aldrig igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ab und zu weist ein kleiner Tipp auf eine Funktion hin, die ein Update hinzugefügt hat. Schließe ihn oder nutze die Funktion, und er erscheint nie wieder."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De vez en cuando, un pequeño consejo señala una función que añadió una actualización. Ciérralo o usa la función y no volverá a aparecer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De temps en temps, une petite astuce signale une fonctionnalité ajoutée par une mise à jour. Fermez-la ou utilisez la fonctionnalité et elle ne reviendra plus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni tanto un piccolo suggerimento indica una funzione aggiunta da un aggiornamento. Chiudilo o usa la funzione e non tornerà più."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートで追加された機能を小さなヒントでお知らせすることがあります。閉じるか機能を使うと、二度と表示されません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម្ដងម្កាល គន្លឹះតូចមួយចង្អុលទៅមុខងារដែលការអាប់ដេតបានបន្ថែម។ បិទវា ឬប្រើមុខងារនោះ ហើយវានឹងមិនបង្ហាញម្ដងទៀតទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가끔 업데이트로 추가된 기능을 작은 팁으로 알려 드립니다. 닫거나 기능을 사용하면 다시 나타나지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av og til peker et lite tips på en funksjon en oppdatering har lagt til. Lukk det eller bruk funksjonen, så kommer det aldri tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Od czasu do czasu mała wskazówka pokazuje funkcję dodaną przez aktualizację. Zamknij ją lub użyj funkcji, a już nie wróci."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De vez em quando, uma pequena dica aponta um recurso que uma atualização adicionou. Feche-a ou use o recurso e ela não volta mais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время от времени небольшая подсказка указывает на функцию, добавленную обновлением. Закройте её или воспользуйтесь функцией, и она больше не появится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บางครั้งจะมีเคล็ดลับเล็ก ๆ ชี้ไปที่ฟีเจอร์ที่การอัปเดตเพิ่มเข้ามา ปิดหรือใช้ฟีเจอร์นั้นแล้วจะไม่แสดงอีก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ara sıra küçük bir ipucu, bir güncellemenin eklediği bir özelliği gösterir. Kapatın ya da özelliği kullanın, bir daha görünmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Іноді невелика підказка вказує на функцію, яку додало оновлення. Закрийте її або скористайтеся функцією, і вона більше не з’явиться."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thỉnh thoảng, một mẹo nhỏ chỉ vào tính năng mà bản cập nhật đã thêm. Đóng mẹo hoặc dùng tính năng đó và mẹo sẽ không xuất hiện lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "偶尔会有一条小提示指向更新新增的功能。关闭提示或使用该功能后，它将不再出现。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "偶爾會有一則小提示指向更新新增的功能。關閉提示或使用該功能後，它將不再出現。"
+          }
+        }
+      }
+    },
     "settings.layout.newPanePlacement": {
       "extractionState": "manual",
       "localizations": {
