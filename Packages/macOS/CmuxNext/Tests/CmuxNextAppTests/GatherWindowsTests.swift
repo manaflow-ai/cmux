@@ -226,6 +226,21 @@ struct GatherWindowsTests {
         #expect(there.state.workspaceID == "k2")
     }
 
+    /// A pane id the receiving window already keeps tabs under (another machine on an older daemon)
+    /// is never mixed into: those tabs stay as they are.
+    @Test func carriedBrowserTabsNeverMixIntoACollidingPane() throws {
+        let services = try Self.services()
+        defer { Self.closeAll(services) }
+        let here = try Self.open(["k0"], services), there = try Self.open(["k2"], services)
+        let pane = try #require(services.workspace(id: "k2")?.screens.first?.panes.first?.id)
+        let mine = LocalBrowserTab.make(url: nil), theirs = LocalBrowserTab.make(url: nil)
+        here.state.localBrowserTabs[pane] = [mine]
+        there.state.localBrowserTabs[pane] = [theirs]
+
+        try services.windows.bringSpace(Self.rooms[1], into: here.state)
+        #expect(here.state.localBrowserTabs[pane] == [mine], "another machine's pane took the moved pane's tabs")
+    }
+
     /// A window known incognito only by its space (`incognitoSpaces`, before the registry flag) is
     /// no source either: its workspaces stay and it stays open.
     @Test func aWindowOnAnIncognitoSpaceIsNoSource() throws {
