@@ -1314,7 +1314,7 @@ export default agentPaneEntry({
       },
     },
     "create-strip-narrow": {
-      note: "The create strip in a narrow pane (capture at 320px in French): the three actions go icon-only, each named by its tooltip and accessible label, never three cut labels (\"Nouv…\"). Wide, every shipped locale's labels show whole.",
+      note: 'The create strip in a narrow pane (capture at 320px in French): the three actions go icon-only, each named by its tooltip and accessible label, never three cut labels ("Nouv…"). Wide, every shipped locale\'s labels show whole.',
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
