@@ -17,10 +17,10 @@
 //   included, and its wakeups (TasksSection).
 //
 // Open, it floats under the header's toggle in the pane's right gutter, beside the transcript's
-// centered column, so opening, closing or updating it never reflows the chat. When that gutter has
-// no room for it, it pushes the chat aside and the chat reflows, so it never lies over the
-// transcript's text (Leo, 2026-10-21: "a popup ... that DOESN'T shift the layout. OR it shifts the
-// layout if there isn't enough space"). Settings > Agent Chat > Inspector: Push always pushes.
+// centered column, so opening, closing or updating it never moves or reflows the chat. When that
+// gutter has no room for it, it floats over the chat and stops above the composer (Leo, 2026-10-29:
+// "it's not supposed to be a fucking sidebar that pushes the fucking layout"). Settings > Agent Chat >
+// Inspector: Push always pushes.
 // It shows only over the chat, where its toggle is: while a view takes the pane in the chat's place
 // (a turn's diff in place, the event Inspector) it steps aside and comes back when that view closes,
 // and with the side panel open beside the chat it floats in the chat's gutter, never over the
@@ -120,40 +120,27 @@ export const pushes = (placement: InspectorPlacement) => placement === "push";
 export const pushedWidth = (paneWidth: number, width: number) =>
   paneWidth <= 0 ? width : Math.min(width, Math.max(INSPECTOR_WIDTH.min, paneWidth - PUSH_MIN_CHAT - FLOAT_MARGIN));
 
-/// How far the chat's column moves left for the floating panel. Leo, 2026-10-24: "making it not a
-/// part of the true agent pane area except in the case when both would fit if only the agent pane
-/// shifted left". When the right gutter (model.ts transcriptColumn) holds the panel and its margins,
-/// nothing moves; when the two gutters together hold it, the column moves left by what the right one
-/// lacks; otherwise nothing moves and the panel floats over the chat. The pane's left edge is
-/// independent of this shift. The thread rail is pinned to that edge and
-/// keeps its own inset, so the column can use the full left gutter when it needs to move.
-/// A handoff review's form (handoff/styles.css: 760px, 18px from each edge) is wider than the column:
-/// with `wide`, the gutter is the form's. The form takes the transcript's place, so no thread rail
-/// draws beside it: the shift keeps the form's own edge clearance instead of the rail's room.
+/// A handoff review's form (handoff/styles.css: 760px, 18px from each edge) takes the transcript's
+/// place and is wider than the column.
 export const HANDOFF_FORM_WIDTH = 760;
 /// The form's clearance from each pane edge (handoff/styles.css `min(760px, calc(100% - 36px))`).
 export const HANDOFF_FORM_EDGE = 18;
-export const inspectorChatShift = (paneWidth: number, width: number, column?: ChatColumn, wide = false) => {
-  if (paneWidth <= 0 || width <= 0) return 0;
+/// The floating panel's right gutter: the transcript's (model.ts transcriptColumn), or with `wide` the
+/// handoff review form's.
+const gutterOf = (paneWidth: number, column?: ChatColumn, wide = false) => {
   const columnInset = transcriptColumn(paneWidth, column).inset;
-  const inset = wide
+  return wide
     ? Math.min(columnInset, (paneWidth - Math.min(HANDOFF_FORM_WIDTH, paneWidth - 2 * HANDOFF_FORM_EDGE)) / 2)
     : columnInset;
-  const lacks = width + 2 * FLOAT_MARGIN - inset;
-  const room = inset - (wide ? HANDOFF_FORM_EDGE : 0);
-  return lacks > 0 && lacks <= room ? lacks : 0;
 };
 
-/// Whether the floating panel lies over the chat's column: the right gutter cannot hold it and the
-/// column cannot move left far enough (inspectorChatShift is 0 though it lacks room). Then the card,
-/// full length otherwise, stops above the composer's stack so it never covers the composer.
+/// Whether the floating panel lies over the chat's column: the right gutter cannot hold it and its
+/// margins. Opening it never moves the chat (Leo, 2026-10-29: "it's not supposed to be a fucking
+/// sidebar that pushes the fucking layout"), so then the card, full length otherwise, stops above the
+/// composer's stack so it never covers the composer.
 export const inspectorOverChat = (paneWidth: number, width: number, column?: ChatColumn, wide = false) => {
   if (paneWidth <= 0 || width <= 0) return false;
-  const columnInset = transcriptColumn(paneWidth, column).inset;
-  const inset = wide
-    ? Math.min(columnInset, (paneWidth - Math.min(HANDOFF_FORM_WIDTH, paneWidth - 2 * HANDOFF_FORM_EDGE)) / 2)
-    : columnInset;
-  return width + 2 * FLOAT_MARGIN - inset > 0 && inspectorChatShift(paneWidth, width, column, wide) === 0;
+  return width + 2 * FLOAT_MARGIN > gutterOf(paneWidth, column, wide);
 };
 
 /// Whether the Inspector shows: on (Debug Settings `agent.inspector`), open (the viewer's, in every
@@ -171,8 +158,10 @@ export const inspectorShown = ({
   covered?: boolean;
 }) => on && open && !suppressed && !covered;
 
-/// The side panel beside the chat (conversation/ArtifactPanel.tsx), a child of the pane's shell.
-const SIDE_PANEL = ":scope > .acpmux-artifact";
+/// The side panel beside the chat (conversation/ArtifactPanel.tsx), a child of the pane's shell, or
+/// the Background tasks column (backgroundTasks/BackgroundTasksPanel.tsx), which docks under it or
+/// stands in its place at the same width.
+const SIDE_PANEL = ":scope > .acpmux-artifact, :scope > .acpmux-bg";
 
 /// The Inspector starts right below the header: the pane's tab row when the header is in it.
 export function inspectorTopOffset(tabRowHeight: number): string {
@@ -232,29 +221,13 @@ export function paneRoom(shell: HTMLElement): PaneRoom {
 /// the new width: the observer runs after that frame's layout and before its paint, and `flushSync`
 /// renders the panel's place there (state set plainly drew a frame or more later, the panel floating
 /// over the narrowed transcript before the chat jumped aside: "WHY DOES IT FLICKER").
-type PaneRoomState = PaneRoom & { shellWidth: number; suppressShiftTransition: boolean };
-
-function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, beside: unknown): PaneRoomState {
-  const [room, setRoom] = useState<PaneRoomState>({ ...UNMEASURED, shellWidth: 0, suppressShiftTransition: false });
+function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, beside: unknown): PaneRoom {
+  const [room, setRoom] = useState<PaneRoom>(UNMEASURED);
   useLayoutEffect(() => {
     if (!shell || !live) return;
-    let lastShellWidth = shell.clientWidth;
     const measure = () => {
       const next = paneRoom(shell);
-      const shellWidth = shell.clientWidth;
-      const suppressShiftTransition = lastShellWidth !== shellWidth;
-      setRoom((current) =>
-        current.width === next.width && current.side === next.side && current.shellWidth === shellWidth
-          ? current
-          : {
-              ...next,
-              shellWidth,
-              // A native pane changes the shell's own width. An artifact only changes `side`, so it
-              // keeps the Session Info shift transition and its normal floating motion.
-              suppressShiftTransition,
-            },
-      );
-      lastShellWidth = shellWidth;
+      setRoom((current) => (current.width === next.width && current.side === next.side ? current : next));
     };
     measure();
     if (typeof ResizeObserver !== "function") return;
@@ -264,15 +237,6 @@ function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, besid
     if (side) observer.observe(side);
     return () => observer.disconnect();
   }, [shell, live, beside]);
-  useLayoutEffect(() => {
-    if (!room.suppressShiftTransition) return;
-    const frame = requestAnimationFrame(() =>
-      setRoom((current) =>
-        current.suppressShiftTransition ? { ...current, suppressShiftTransition: false } : current,
-      ),
-    );
-    return () => cancelAnimationFrame(frame);
-  }, [room]);
   return room;
 }
 
@@ -321,7 +285,7 @@ export function useChatInspector({
   /// the panel measures the chat's room without it.
   beside?: unknown;
   /// What the chat shows under its header is a handoff review's form, wider than the transcript's
-  /// column (App.tsx): the chat's shift left is measured against the form. It never pushes.
+  /// column (App.tsx): whether the panel lies over the chat is measured against the form. It never pushes.
   wide?: boolean;
   /// This Mac's name from the handshake, for a local chat.
   machineName?: string;
@@ -334,7 +298,7 @@ export function useChatInspector({
   onOpenSourceFile?: (path: string) => unknown;
   /// Opens a web address in the browser beside the chat (a server's port, a pull request).
   onOpenUrl?: (url: string) => void;
-  onOpenImage?: (src: string, alt: string) => void;
+  onOpenImage?: (src: string, alt: string, path?: string) => void;
   /// Opens a document the chat produced in the side panel beside the chat (App.tsx openArtifact).
   onOpenDocument?: (artifact: Artifact) => void;
   /// acpmux's background-process registry for the chat: the App's one (App.tsx `processRegistry`),
@@ -564,7 +528,7 @@ function InspectorPresence({
   shell?: HTMLElement | null;
   /// The side panel beside the chat, as it opens or closes: the chat's room is measured again.
   beside?: unknown;
-  /// A handoff review's form shows: the shift is measured against it.
+  /// A handoff review's form shows: whether the panel lies over the chat is measured against it.
   wide?: boolean;
   /// When an output's diff was last opened (Date.now()).
   openedOutputAt: { readonly current: number };
@@ -590,7 +554,7 @@ function InspectorPresence({
   onOpenOutput?: (path: string) => void;
   onOpenSourceFile?: (path: string) => unknown;
   onOpenUrl?: (url: string) => void;
-  onOpenImage?: (src: string, alt: string) => void;
+  onOpenImage?: (src: string, alt: string, path?: string) => void;
   onOpenFolder?: (path: string) => void;
   onSaveEnvironment?: () => Promise<unknown>;
   onReconnectMcp?: (server: string) => Promise<unknown>;
@@ -609,43 +573,34 @@ function InspectorPresence({
   const drawn = presence.present;
   // The chat's room: the pane less the side panel beside it (a document), whose edge the floating
   // panel keeps clear of, so it never lies over the document.
-  const { width: paneWidth, side, suppressShiftTransition } = usePaneRoom(shell, drawn, beside);
+  const { width: paneWidth, side } = usePaneRoom(shell, drawn, beside);
   const push = pushes(display.inspector);
-  const chatShift = push ? 0 : inspectorChatShift(paneWidth, width, column, wide);
   const overChat = !push && inspectorOverChat(paneWidth, width, column, wide);
   // Over the chat, the card stops above the composer's stack: its height, followed while it lies over
   // the chat (one ResizeObserver on the dock, disconnected when it no longer does or the panel goes).
   const dockHeight = useDockHeight(shell, drawn && overChat);
   const tabRowHeight = useTabRow().height;
   const inspectorTop = inspectorTopOffset(tabRowHeight);
-  // The overlay handoff is a layout assist, not panel motion. Set the placement marker before the
-  // shift so the overlay transition is disabled for the one frame where flex layout takes the panel's
-  // room; otherwise the old overlay shift would animate back and briefly move the chat right again.
+  // The placement marker: Push always's column narrows the transcript and not the header
+  // (inspector.css). Overlay moves nothing.
   useLayoutEffect(() => {
     if (!shell) return;
     if (!drawn) {
       delete shell.dataset.inspectorChatPlacement;
-      delete shell.dataset.inspectorChatResizing;
-      shell.style.removeProperty("--acpmux-chat-shift");
       shell.style.removeProperty("--acpmux-header-room");
       shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
       return;
     }
     shell.dataset.inspectorChatPlacement = push ? "push" : "overlay";
-    if (suppressShiftTransition) shell.dataset.inspectorChatResizing = "true";
-    else delete shell.dataset.inspectorChatResizing;
-    shell.style.setProperty("--acpmux-chat-shift", `${chatShift}px`);
     shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
     // Push always narrows the transcript, not the header: native tabs reserve the tools at the
     // pane's trailing edge. Reuse the measured room (excluding an artifact beside the chat).
     if (paneWidth > 0) shell.style.setProperty("--acpmux-header-room", `${paneWidth}px`);
-  }, [shell, drawn, push, chatShift, paneWidth, suppressShiftTransition]);
+  }, [shell, drawn, push, paneWidth]);
   useLayoutEffect(() => {
     if (!shell) return;
     return () => {
       delete shell.dataset.inspectorChatPlacement;
-      delete shell.dataset.inspectorChatResizing;
-      shell.style.removeProperty("--acpmux-chat-shift");
       shell.style.removeProperty("--acpmux-header-room");
       shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
     };
@@ -1019,7 +974,7 @@ export function ChatInspector({
   onOpenOutput?: (path: string) => void;
   onOpenSourceFile?: (path: string) => unknown;
   onOpenUrl?: (url: string) => void;
-  onOpenImage?: (src: string, alt: string) => void;
+  onOpenImage?: (src: string, alt: string, path?: string) => void;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   onSaveEnvironment?: () => Promise<unknown> | void;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
@@ -1296,9 +1251,9 @@ export function ChatInspector({
           onClose={() => setGallery(false)}
           onOpenImage={
             onOpenImage &&
-            ((src, alt) => {
+            ((src, alt, path) => {
               setGallery(false);
-              onOpenImage(src, alt);
+              onOpenImage(src, alt, path);
             })
           }
         />

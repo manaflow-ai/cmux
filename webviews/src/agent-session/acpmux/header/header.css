@@ -143,3 +143,5 @@
 .acpmux-status.acpmux-status--inline{position:static;inset:auto;flex:0 1 auto;max-width:160px;height:26px;padding:0 4px}
 .acpmux-header[data-tab-row] .acpmux-handoff-header-tools{pointer-events:auto}
 .acpmux-header[data-tab-row]::after{content:none}
+
+.acpmux-worktree-apply>output{font-variant-numeric:tabular-nums}

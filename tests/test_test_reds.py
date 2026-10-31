@@ -94,6 +94,18 @@ class KnownIssueSuiteCompletion(unittest.TestCase):
 
 
 class PerTest(unittest.TestCase):
+    def test_swift_test_summary_fixture_signal_text_is_not_a_crash(self):
+        fixture = log(
+            "scripts/cmux-next/tests/swift-test-summary.test.sh:148: "
+            '"exception":{"type":"EXC_BREAKPOINT","signal":"SIGTRAP"}',
+            "scripts/cmux-next/tests/swift-test-summary.test.sh:157: "
+            "error: Process '/x/swiftpm-testing-helper' exited with unexpected signal code 5",
+        )
+        shared = fixture + "\n" + log(failed("a()"), SUMMARY)
+        self.assertEqual(reds.read(shared).crashes, [])
+        verdict = reds.classify(shared, log(failed("a()"), SUMMARY), "cmux-next checks")
+        self.assertFalse(verdict.own, verdict.reasons)
+
     def test_signal_exit_after_a_complete_summary_is_never_a_base_red(self):
         whole = log("◇ Test run started.", failed("a()"),
                     "✘ Test a() failed after 0.1 seconds with 1 issue.",

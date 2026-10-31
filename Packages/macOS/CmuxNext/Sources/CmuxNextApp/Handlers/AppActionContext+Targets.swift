@@ -26,13 +26,13 @@ extension AppActionContext {
             guard Self.showsNotice(quiet: quiet, hasCaller: registry.refusalHasCaller) else { return }
             // Keyed by the key event that ran the refused action, so the burst bench matches it to its press.
             services.burstTrace.mark(.refusal, input: registry.dispatchingInputEvent()?.timestamp)
-            services.refusalHUD.show(reason, in: services.windows.active?.window ?? NSApp.keyWindow)
+            services.refusalHUD.show(reason, in: services.windows.active?.window ?? services.keyWindowSource())
         }
         // An action's local change was rolled back because the daemon refused it: say so where
         // refusals show, so the change does not just vanish.
         registry.remoteFailureObserver = { action, notice in
             Self.logger.notice("action \(action.rawValue, privacy: .public) rolled back: \(notice, privacy: .public)")
-            services.refusalHUD.show(notice, in: services.windows.active?.window ?? NSApp.keyWindow)
+            services.refusalHUD.show(notice, in: services.windows.active?.window ?? services.keyWindowSource())
         }
     }
 
@@ -88,7 +88,7 @@ extension AppActionContext {
             registry.track(task)
         } else {
             // task-owner: a run nobody awaits; the refusal shows when the work ends.
-            Task { @MainActor [weak registry] in if let failure = await task.value { registry?.refuse(failure.message) } }
+            Task { @MainActor [weak registry] in if let failure = await task.value, !failure.shown { registry?.refuse(failure.message) } }
         }
     }
 
@@ -175,6 +175,13 @@ extension AppActionContext {
     /// The targeted daemon tab, found in any workspace (shown or not).
     func daemonTab(_ invocation: ActionInvocation) -> (tab: TabModel, pane: PaneModel)? {
         if let target = explicitTarget(invocation, kinds: [.tab]) {
+            if let machine = invocation.targetMachineID {
+                guard let store = services.machines.daemon(machine: machine)?.store,
+                      let tab = store.tab(idOrResource: target.id), let pane = store.pane(holding: tab) else {
+                    return notFound(RefusalStrings.noTab(target.id))
+                }
+                return (tab, pane)
+            }
             return services.locateTab(target.id) ?? notFound(RefusalStrings.noTab(target.id))
         }
         guard let (pane, id) = tab(invocation) else { return nil }

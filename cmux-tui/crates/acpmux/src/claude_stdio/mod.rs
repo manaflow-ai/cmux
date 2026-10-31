@@ -241,6 +241,9 @@ mod hook_callback;
 #[cfg(test)]
 mod hook_callback_tests;
 mod inbound;
+// What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
+mod logged_bodies;
+pub use logged_bodies::leave_out_bodies;
 mod outbound;
 #[cfg(test)]
 mod steer_now_tests;
@@ -733,6 +736,12 @@ impl Translator {
                 shell.asked = false;
             }
         }
+    }
+
+    /// Whether Claude Code runs a subagent or a background shell: work an agent host whose
+    /// daemon is gone keeps its harness for (`agent_host::OrphanExit`).
+    pub async fn runs_background_work(&self) -> bool {
+        self.interrupt_ends_work().await
     }
 
     pub async fn take_stdin_replies(&self) -> Vec<Value> {
