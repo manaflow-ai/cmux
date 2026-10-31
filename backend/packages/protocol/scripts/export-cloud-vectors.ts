@@ -54,6 +54,9 @@ const machine = (
   last_active_at: 1790000600000 + n * 1000,
   idle_policy: { idle_seconds: idle },
   error: null,
+  // Freestyle's vCPU and memory list price for the size (backend/apps/api/src/domains/cloud-cost.ts).
+  hourly_rate_usd: Math.round((size[0]! * 0.04032 + (size[1]! / 1024) * 0.0129) * 10_000) / 10_000,
+  running_since: status === "running" ? 1790000300000 + n * 1000 : null,
   revision: String(rev)
 })
 
