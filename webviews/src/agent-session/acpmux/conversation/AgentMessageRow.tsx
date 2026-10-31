@@ -97,7 +97,7 @@ export function AgentMessageRow({
         {onOpenName ? (
           <button
             type="button"
-            className="cv-agentmsg__name"
+            className="cv-agentmsg__name cv-recipient"
             aria-label={openNameLabel}
             title={nameTitle}
             onClick={onOpenName}
@@ -106,7 +106,7 @@ export function AgentMessageRow({
           </button>
         ) : (
           <span
-            className="cv-agentmsg__name is-plain"
+            className="cv-agentmsg__name cv-recipient is-plain"
             data-interactive=""
             aria-hidden
             title={nameTitle}
@@ -131,7 +131,9 @@ export function AgentMessageRow({
           <span className="cv-agentmsg__preview">{open ? "" : preview}</span>
           <ChevronRight size={14} strokeWidth={1.2} className={`cv-tool__chevron cv-rotor${open ? " is-open" : ""}`} />
         </button>
-        {meta}
+        {/* The status sits at the line's end and only draws: the toggle's hit area
+            (AgentMessageRow.css `.cv-agentmsg__toggle::before`) reaches it. */}
+        {meta && <span className="cv-tool__trail">{meta}</span>}
         {actions}
       </div>
       {open && (

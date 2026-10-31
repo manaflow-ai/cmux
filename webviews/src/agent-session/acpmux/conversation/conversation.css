@@ -2587,6 +2587,19 @@ pre.cv-math-source {
 .cv-tool__meta {
   margin-left: auto;
 }
+/* A row's status or duration (design/chat-transcript.md "One row grammar"): never part of the
+   sentence, at the row's right edge, after the chevron that follows the label inline (#28018). */
+.cv-tool__trail {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: inherit;
+  margin-inline-start: auto;
+}
+.cv-tool:not(.cv-agentmsg__line) > .cv-tool__trail {
+  order: 4;
+}
 .cv-command__bg-state {
   display: flex;
 }
