@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { Popover } from "../../ui/Popover";
+import { BrowseFailure, browseFailureMessage } from "./BrowseFailure";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import {
@@ -31,6 +32,7 @@ import {
   type OffloadKind,
 } from "./environments";
 import { FolderPopover } from "./FolderPopover";
+import type { BrowseRequest, BrowseResult } from "./AddProjectPanel";
 import type { Project } from "./ProjectChooser";
 import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
@@ -121,6 +123,7 @@ export function ComposerContext({
   cloudMachines,
   onCloudMachine = (machine) => void runCloudMachine(machine),
   runMode,
+  closeOnTrustAsk = false,
   showMachineLoadWarnings,
 }: {
   summary?: Summary;
@@ -141,7 +144,7 @@ export function ComposerContext({
   started?: boolean;
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
-  onBrowseProject?(): void;
+  onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
   onNewWorktree?(cwd: string): void;
   /// A new chat's Do not work in a project (FolderPopover); `noProject` while it is the choice.
@@ -185,6 +188,8 @@ export function ComposerContext({
   onCloudMachine?(machine: CloudMachine): void;
   /// A new chat's Run as in the environment picker (Persistent or Sandboxed, hq#3367).
   runMode?: RunModeRows;
+  /// A trust question takes precedence over an open destination picker.
+  closeOnTrustAsk?: boolean;
   /// Gallery seam; the persisted composer setting is used when omitted.
   showMachineLoadWarnings?: boolean;
 }) {
@@ -273,6 +278,14 @@ export function ComposerContext({
   // so a pick on one new chat never carries into the next.
   const pickKey = `${summary?.sessionId ?? ""}\u0000${initialComputer}`;
   const [picked, setPicked] = useState<{ key: string; computer?: string }>({ key: pickKey });
+  const [browseError, setBrowseError] = useState<string>();
+  const browseRequest = useRef(0);
+  useEffect(
+    () => () => {
+      browseRequest.current += 1;
+    },
+    [],
+  );
   if (picked.key !== pickKey) setPicked({ key: pickKey });
   const selectedComputer = picked.key === pickKey && picked.computer ? picked.computer : initialComputer;
   const setSelectedComputer = (computer: string) => setPicked({ key: pickKey, computer });
@@ -353,13 +366,21 @@ export function ComposerContext({
       : projectLabel(currentLocation.id)
     : undefined;
   // A started chat's Choose folder…: the host's folder panel, then a new chat there.
-  const browseNewChat = onBrowseFolder
-    ? () => {
-        void onBrowseFolder().then((cwd) => {
-          if (cwd) onNewChat?.(cwd);
-        });
-      }
-    : undefined;
+  const browseNewChat =
+    onBrowseFolder && onNewChat
+      ? () => {
+          const request = ++browseRequest.current;
+          setBrowseError(undefined);
+          void Promise.resolve()
+            .then(() => onBrowseFolder())
+            .then((cwd) => {
+              if (request === browseRequest.current && cwd) onNewChat(cwd);
+            })
+            .catch((error: unknown) => {
+              if (request === browseRequest.current) setBrowseError(browseFailureMessage(error));
+            });
+        }
+      : undefined;
   // An account Cloud machine acpmux does not list runs its machine action (resume or open); the
   // chat cannot start there until acpmux links it. The pick waits for that (`waiting`): the
   // control names the machine as starting, and the chat moves there once its row is ready, so a
@@ -474,14 +495,19 @@ export function ComposerContext({
                       {
                         id: "newChatHere",
                         label: t(CONTEXT_LABELS.newChatHere),
-                        onSelect: () => onNewChat?.(currentFolder),
+                        onSelect: () => {
+                          browseRequest.current += 1;
+                          onNewChat?.(currentFolder);
+                        },
                       },
                     ]
                   : undefined
               }
               onPick={(cwd) => {
-                if (newChats) onNewChat?.(cwd);
-                else if (!readOnly) onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
+                if (newChats) {
+                  browseRequest.current += 1;
+                  onNewChat?.(cwd);
+                } else if (!readOnly) onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
               }}
             />
           )}
@@ -532,6 +558,7 @@ export function ComposerContext({
               {...(savedRows ? { saved: savedRows } : {})}
               {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
               {...(runMode && !started && !readOnly ? { runMode } : {})}
+              closeOnTrustAsk={closeOnTrustAsk}
             />
           ) : (
             <LocationPicker
@@ -576,10 +603,14 @@ export function ComposerContext({
                       ]
                     : undefined
               }
+              closeOnTrustAsk={closeOnTrustAsk}
               onPick={pickComputer}
             />
           )}
         </div>
+        {browseError && browseNewChat && (
+          <BrowseFailure error={browseError} onRetry={browseNewChat} onDismiss={() => setBrowseError(undefined)} />
+        )}
         {branch && <BranchPicker branch={branch} />}
       </div>
     </div>
@@ -793,6 +824,7 @@ function LocationPicker({
   extras,
   onPick,
   onOpen,
+  closeOnTrustAsk = false,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -815,9 +847,15 @@ function LocationPicker({
   onPick(id: string): void;
   /// The list opened, and every few seconds while it stays open (useMachineRefresh).
   onOpen?(): void;
+  /// A trust question takes precedence over an open destination picker.
+  closeOnTrustAsk?: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const { control, anchor, open, setOpen, side, flip } = useLocationPopover();
+  const { control, anchor, open, setOpen: setPopoverOpen, side, flip } = useLocationPopover();
+  const setOpen = (next: boolean) => {
+    if (next && closeOnTrustAsk) return;
+    setPopoverOpen(next);
+  };
   const changeOpen = (next: boolean) => {
     setOpen(next);
     if (!next) setQuery("");
@@ -825,6 +863,11 @@ function LocationPicker({
   const press = usePopoverTrigger(open, changeOpen);
   const trigger = useRef<HTMLButtonElement>(null);
   useLocationOpener(disabled ? undefined : menu, () => setOpen(true));
+  useEffect(() => {
+    if (!closeOnTrustAsk || !open) return;
+    setPopoverOpen(false);
+    setQuery("");
+  }, [closeOnTrustAsk, open, setPopoverOpen]);
   useMachineRefresh(open && !disabled, onOpen);
   // A folder list names duplicates apart by a short suffix, its path only on hover (projectSuffix.ts).
   const suffixes = useMemo(

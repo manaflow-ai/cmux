@@ -40,6 +40,7 @@ let root: Root | undefined;
 let host: HTMLElement;
 /// How often the picker asked the host to read the machines again (`onRefreshMachines`).
 let refreshes = 0;
+let updateProps: (extra: Record<string, unknown>) => Promise<void>;
 
 beforeAll(() => {
   dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -137,14 +138,18 @@ async function mount(environments: boolean, extra: Record<string, unknown> = {})
   } as unknown as Parameters<typeof ComposerContext>[0];
   root = createRoot(host);
   // The composer this row heads: ⌥⌘1–9 work while its field has focus.
-  await act(async () =>
-    root!.render(
-      <form className="acpmux-composer">
-        <ComposerContext {...props} />
-        <textarea aria-label="Prompt" />
-      </form>,
-    ),
-  );
+  updateProps = async (extra) => {
+    Object.assign(props, extra);
+    await act(async () =>
+      root!.render(
+        <form className="acpmux-composer">
+          <ComposerContext {...props} />
+          <textarea aria-label="Prompt" />
+        </form>,
+      ),
+    );
+  };
+  await updateProps({});
   return calls;
 }
 
@@ -249,6 +254,63 @@ test("previews off: the row keeps its plain Computer menu", async () => {
   expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
 });
 
+for (const environments of [false, true]) {
+  // Base UI retains a closed popup during its exit transition; only an open popup can cover the ask.
+  const menu = () =>
+    doc().querySelector(
+      environments ? ".acpmux-env-popover:not([data-closed])" : ".acpmux-location-menu:not([data-closed])",
+    );
+  test(`trust question closes an open destination picker (previews ${environments})`, async () => {
+    await mount(environments);
+    await openPicker();
+    expect(menu()).not.toBeNull();
+    await updateProps({ closeOnTrustAsk: true });
+    expect(menu()).toBeNull();
+    expect(computerButton()?.getAttribute("aria-expanded")).toBe("false");
+    await openPicker();
+    expect(menu()).toBeNull();
+    await updateProps({ closeOnTrustAsk: false });
+    await openPicker();
+    expect(menu()).not.toBeNull();
+  });
+  for (const via of ["trigger", "opener"] as const) {
+    test(`trust question prevents destination picker mounting via ${via} (previews ${environments})`, async () => {
+      await mount(environments, { closeOnTrustAsk: true });
+      const { flushSync } = await import("react-dom");
+      const { openPicker: openRegisteredPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
+      const selector = environments ? ".acpmux-env-popover" : ".acpmux-location-menu";
+      // Record even a node inserted and removed in the same commit/effect flush. Checking only
+      // the final open state misses the popup stealing focus and refreshing before it closes.
+      const observer = new dom.window.MutationObserver(() => {});
+      observer.observe(doc().body, { childList: true, subtree: true });
+      try {
+        await act(async () => {
+          flushSync(() => {
+            if (via === "trigger") computerButton()!.click();
+            else expect(openRegisteredPicker("Computer")).toBe(true);
+          });
+          // Assert before the outer act flush; mutation records also catch anything flushSync flushed.
+          expect(Boolean(doc().querySelector(selector))).toBe(false);
+          expect(refreshes).toBe(0);
+          const insertedPopup = observer
+            .takeRecords()
+            .some((record) =>
+              [...record.addedNodes].some(
+                (node) =>
+                  node instanceof dom.window.Element && (node.matches(selector) || node.querySelector(selector)),
+              ),
+            );
+          expect(insertedPopup).toBe(false);
+        });
+        expect(Boolean(doc().querySelector(selector))).toBe(false);
+        expect(refreshes).toBe(0);
+      } finally {
+        observer.disconnect();
+      }
+    });
+  }
+}
+
 // A fresh home must offer setup without enabling the environments preview. The same
 // plain Computer menu is usable from an existing local chat; its machine stays fixed.
 for (const started of [false, true]) {
@@ -339,6 +401,58 @@ test("previews on: one list in This Mac, My machines and Cloud and VMs sections,
     null,
     null,
   ]);
+});
+
+// Leo, 2026-10-30, on a chat seeded onto a Cloud machine: "the ui is so ass in general for this tho".
+// The host's `machineName` named the Cloud machine (`kind-aqua-sandpiper`), the page titled This Mac
+// with it, and this Mac (cosmic-gray) was listed nowhere. This Mac is always this Mac's own name.
+test("a Cloud machine is never listed under This Mac, and This Mac keeps this Mac's name", async () => {
+  const { thisMacName } = await import("../src/agent-session/acpmux/environments");
+  const cloudChat = { sessionId: "", harness: "claude", host: "kind-aqua-sandpiper", hostKind: "cloud" };
+  for (const [host, localMachineName, expected] of [
+    ["current", "cosmic-gray", "cosmic-gray"],
+    // A host that predates `localMachineName` sends the chat's machine as `machineName`.
+    ["older", undefined, t("composer.thisMac")],
+  ] as const) {
+    act(() => root?.unmount());
+    await mount(true, {
+      summary: cloudChat,
+      sessions: [{ sessionId: "c", cwd: "/root/work", host: "kind-aqua-sandpiper", hostKind: "cloud", updatedAt: 0 }],
+      localName: thisMacName(localMachineName, "kind-aqua-sandpiper", cloudChat),
+    });
+    await openPicker();
+    const shown = machineRows();
+    const section = (label: string) => {
+      let current: string | null = null;
+      for (const row of shown) {
+        current = row.querySelector(".acpmux-env-row")!.getAttribute("data-section") ?? current;
+        if (row.querySelector(".acpmux-menu-label")?.textContent === label) return current;
+      }
+      return undefined;
+    };
+    const thisMacRows = shown.filter(
+      (row) => section(row.querySelector(".acpmux-menu-label")!.textContent!) === t("composer.thisMac"),
+    );
+    expect(
+      thisMacRows.map((row) => row.querySelector(".acpmux-menu-label")?.textContent),
+      host,
+    ).toEqual([expected]);
+    expect(section("kind-aqua-sandpiper"), host).toBe(t("composer.envFleet"));
+    await press(doc().querySelector(".acpmux-env-popover input")!, { key: "Escape" });
+  }
+});
+
+test("This Mac's name is the host's own name, never the machine a seeded chat runs on", async () => {
+  const { thisMacName } = await import("../src/agent-session/acpmux/environments");
+  expect(thisMacName("cosmic-gray", "kind-aqua-sandpiper", { peer: "kind-aqua-sandpiper" })).toBe("cosmic-gray");
+  // An older host: `machineName` is the chat's peer or Cloud host, so it is not this Mac's.
+  expect(thisMacName(undefined, "kind-aqua-sandpiper", { peer: "kind-aqua-sandpiper" })).toBeUndefined();
+  expect(
+    thisMacName(undefined, "kind-aqua-sandpiper", { hostKind: "cloud", host: "kind-aqua-sandpiper" }),
+  ).toBeUndefined();
+  // An older host with a chat on this Mac: its `machineName` is this Mac's.
+  expect(thisMacName(undefined, "cosmic-gray", { hostKind: "local", host: "cosmic-gray" })).toBe("cosmic-gray");
+  expect(thisMacName(undefined, undefined)).toBeUndefined();
 });
 
 test("with no cloud machine yet, New Cloud Machine heads its own Cloud section and opens the create flow", async () => {

@@ -414,6 +414,7 @@ impl Hub {
         let mut carried_ids: Vec<String> = Vec::new();
         let mut control_ended = false;
         let mut floor_cancelled = false;
+        let mut stopped = false;
         let mut tool_start = None;
         let mut tool_end = None;
         let _ = self.store.scan_heads(&session.id, &mut |head: &RecordHead<'_>| {
@@ -429,6 +430,7 @@ impl Hub {
                     | "remote_control_restored"
                     | "remote_floor_cancel"
                     | "turn_result"
+                    | "turn_stop_requested"
             );
             if !needs_record {
                 return true;
@@ -469,6 +471,7 @@ impl Hub {
                         steered.insert(id, (text, named.cloned().unwrap_or_default()));
                     }
                 }
+                "turn_stop_requested" if is_turn => stopped = true,
                 "user_message" if is_turn => {
                     let named = e.msg.get("images").and_then(Value::as_array);
                     let shown = named.map_or(0, Vec::len);
@@ -502,6 +505,9 @@ impl Hub {
         let prompts = carried_prompts;
         carried_images.append(&mut images);
         let images = carried_images;
+        if stopped {
+            return None;
+        }
         let prompt_id = prompt_id.filter(|p| !p.is_empty())?;
         let own_session_id = session.meta().agent_session_id;
         let (unfinished, omitted_tools) = collect_unfinished(|page| {
@@ -550,8 +556,10 @@ impl Hub {
             return None;
         }
         let id = format!("{root}{SUFFIX}{attempt}");
-        // Logged by a daemon that crashed before it settled the turn: once is enough.
-        if self.logged_prompt(session, &id).is_some() {
+        // Logged by a daemon that crashed before it settled the turn: once is enough. Its
+        // `queued` record counts though it never started (`logged_prompt` leaves such a prompt
+        // to recovery): the restored queue runs it.
+        if self.logged_prompt(session, &id).is_some() || self.queued_logged(session, &id) {
             return Some(id);
         }
         let msg = json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": 0, "reason": "daemon_restart"});
@@ -580,6 +588,18 @@ impl Hub {
         let queued = crate::prompt_provenance::marked(queued, Some(&provenance));
         self.append(session, "mux", "queued", queued);
         Some(id)
+    }
+}
+
+impl Hub {
+    /// Whether the chat's log holds a `queued` record of prompt `id`.
+    fn queued_logged(&self, session: &Session, id: &str) -> bool {
+        let mut found = false;
+        let _ = self.store.scan_kinds(&session.id, &["queued"], &mut |e: EventRecord| {
+            found = e.msg.get("promptId").and_then(Value::as_str) == Some(id);
+            !found
+        });
+        found
     }
 }
 
@@ -636,6 +656,22 @@ mod tests {
         hub.shutdown_all().await;
         let _ = std::fs::remove_dir_all(&root);
         (id, gave_up)
+    }
+
+    /// A daemon that crashed after it queued the continuation and before it settled the cut turn
+    /// finds the turn open again: the next one queues the continuation once, not twice.
+    #[tokio::test]
+    async fn a_crash_before_the_cut_turn_settles_queues_its_continuation_once() {
+        let (root, hub, session) = cut_turn(Some(vec![10_000]), 0);
+        let first = hub.log_restart_continuation(&session, "t1");
+        let again = hub.log_restart_continuation(&session, "t1");
+        assert_eq!(first, Some(format!("p1{SUFFIX}1")));
+        assert_eq!(again, first);
+        let events = hub.events("c1", 0, 10_000).unwrap();
+        let queued = events.iter().filter(|e| e.kind == "queued").count();
+        assert_eq!(queued, 1, "{events:?}");
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// One continuation per configured wait, for a chain of restarts as for a transport cut:

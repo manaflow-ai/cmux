@@ -170,12 +170,43 @@ fn a_classic_verb_names_its_resource_command() {
         (&["new-surface"][..], "cmux tab create terminal"),
         (&["rename-surface", "x"][..], "cmux tab <tab> rename <name>"),
         (&["close-surface"][..], "cmux tab <tab> close"),
+        (&["rpc", "action.list", "{}"][..], "cmux action list"),
+        (&["rpc", "snapshot.get"][..], "cmux action list"),
     ] {
         let output = names.run("cmux", args);
         let stderr = text(&output.stderr);
         assert!(!output.status.success(), "{args:?}");
         assert!(stderr.contains(command), "{args:?}: {stderr}");
     }
+}
+
+/// An app action the CLI offers (`cmux pane screenshot`) with no app to run it says it
+/// needs the app, not "unknown or incomplete pane action", which sent agents looking
+/// for another way (tests/tool-evals r13d).
+#[test]
+fn an_app_action_with_no_app_says_it_needs_the_app() {
+    let names = Names::new("no-app-action");
+    let dir = cmux_unix_socket::short_test_dir("cmux-noapp");
+    let missing = dir.path().join("app.sock");
+    let socket = missing.display().to_string();
+    let output = names.run(
+        "cmux",
+        &[
+            "--app-socket",
+            socket.as_str(),
+            "pane",
+            "screenshot",
+            "--target",
+            "pane_1",
+            "--out",
+            "x.png",
+        ],
+    );
+    let stderr = text(&output.stderr);
+    assert!(!output.status.success(), "{stderr}");
+    // `--app-socket` names a socket where nothing listens: the error says so.
+    assert!(stderr.contains("nothing is listening at"), "{stderr}");
+    assert!(!stderr.contains("unknown or incomplete"), "{stderr}");
 }
 
 /// A one-connection app socket that answers every request with `result`.

@@ -184,10 +184,11 @@ public final class DaemonService {
         updateHandOff = { await launcher.handOffForUpdate(identity: $1, using: $0) }
         launchSnapshotSession = launcher.configuration.session
         showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
-        let configuration = Self.localConfiguration(terminalEnvironment: terminalEnvironmentProvider,
-                                                    resolvesShellIntegration: resolvesShellIntegration,
-                                                    installKey: launcher.configuration.installKey,
-                                                    echoesPlacementShift: echoesPlacementShift, retryWake: retryWake)
+        // An owner the handshake refuses (an older protocol, a missing capability) is handed off to
+        // the bundled build like one of another build; only a failed handoff shows the refusal.
+        let configuration = launcher.handingOffIncompatibleOwners(Self.localConfiguration(
+            terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
+            installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift, retryWake: retryWake))
         var first: (@Sendable () async -> DaemonPrestart.Outcome)?
         if let prestart {
             // Cancelling the startup (shutdown) cancels the attempt too.
@@ -232,7 +233,15 @@ public final class DaemonService {
         runTask = Task { [weak self, drainScheduler, logger] in
             let clock = self?.startupClock ?? ContinuousClock()
             weak let weakSelf = self
-            let onFailure: @Sendable (DaemonError) async -> Void = { error in await weakSelf?.noteStartupFailure(error) }
+            let onFailure: @Sendable (DaemonError) async -> Void = { error in
+                // An incompatible owner is exiting for a handoff to the bundled build: as after a
+                // version handoff (below), no failure shows and the deadline covers the successor.
+                guard error != .incompatibleOwnerHandedOff else {
+                    await weakSelf?.noteIncompatibleOwnerHandoff()
+                    return
+                }
+                await weakSelf?.noteStartupFailure(error)
+            }
             var connected = await DaemonStartup.shared.connect(wake: wake, clock: clock, first: first,
                                                                makeConnection: makeConnection, onFailure: onFailure)
             if let (exiting, identity) = connected, let handOff, await handOff(exiting, identity) {
@@ -253,6 +262,7 @@ public final class DaemonService {
                 await connection.close()
                 return
             }
+            await connection.observePaneNotReady(self.paneNotReadyReporter)
             self.didConnect(connection, identity: identity)
             self.windowState = WindowStateStore(connection: connection)
             logger.info("cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
@@ -336,6 +346,7 @@ public final class DaemonService {
                     await connection.close()
                     return
                 }
+                await connection.observePaneNotReady(self.paneNotReadyReporter)
                 self.didConnect(connection, identity: identity)
                 logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
                 await store.run(connection: connection, scheduler: drainScheduler)
@@ -349,6 +360,18 @@ public final class DaemonService {
     private func didConnect(_ connection: DaemonConnection, identity: DaemonIdentity) {
         Self.launchMark("daemon_connected")
         self.connection = connection
+        let recovery = recovery
+        connection.observeAnswering { [weak connection] answering in
+            // task-owner: one hop to main per heartbeat edge or unanswered ask; nothing to cancel. On main it reads the
+            // connection's answering again, so hops that land out of order never leave a stale state; an unanswered
+            // ask that still holds probes the owner once more.
+            Task { @MainActor in
+                guard let connection else { return }
+                let now = connection.daemonAnswering
+                if now == answering || now { recovery.noteDaemonAnswering(now) }
+            }
+        }
+        recovery.noteDaemonAnswering(connection.daemonAnswering)
         rememberLaunchSnapshot(identity)
         resumeConnectionWaiters()
         store.noteHandshake(identity)
@@ -370,6 +393,20 @@ public final class DaemonService {
             startup = .unavailable(error)
             resumeConnectionWaiters()
         }
+    }
+
+    /// The handshake handed an incompatible owner off to the bundled build
+    /// (`DaemonLauncher.handOffIncompatible`); the next connect reaches its successor.
+    /// The handoff can come after the first deadline already showed a failure, so the
+    /// successor gets a fresh `.connecting` window and the old failure is dropped.
+    func noteIncompatibleOwnerHandoff() {
+        Self.launchMark("daemon_version_handoff")
+        logger.info("cmux-tui daemon handoff: the running owner is incompatible; starting the bundled build")
+        if startup != .connected {
+            startup = .connecting
+            lastStartupError = nil
+        }
+        armStartupDeadline()
     }
 
     private func armStartupDeadline() {
@@ -469,13 +506,41 @@ public final class DaemonService {
         } catch {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             await closeTicket(ticket, label: label, error: error)
-            return ActionWorkFailure(label, error)
+            return workFailure(label, error)
         }
     }
 
     /// Receives every command task `send` starts, so an action run from the
     /// control socket can await it (`ActionRegistry.track`).
     @ObservationIgnored public var workTracker: ((ActionWork) -> Void)?
+    /// Shows a request refused because it names a pane still opening (``PaneNotReady``) when no open action scope
+    /// answers it; the app sets it (the refusal path: log + HUD). Gets the localized reason.
+    @ObservationIgnored public var onPaneNotReady: ((_ reason: String) -> Void)?
+
+    /// What each connection calls when it refuses a request that names a pane still opening, from any sender
+    /// (`DaemonConnection.observePaneNotReady`): the notice shows on the next frame (the drain batcher: work a person's
+    /// action caused), once.
+    /// The service stays on the main actor: the hook carries only a main-actor closure (Sendable because it runs
+    /// there), never the service itself.
+    var paneNotReadyReporter: @Sendable (PaneNotReady) -> Void {
+        let batcher = drainScheduler
+        let show: @MainActor @Sendable (PaneNotReady) -> Void = { [weak self] notReady in self?.showPaneNotReady(notReady) }
+        return { notReady in batcher.scheduleFrame { show(notReady) } }
+    }
+
+    private func showPaneNotReady(_ notReady: PaneNotReady) {
+        onPaneNotReady?(paneNotReadyText?() ?? notReady.reason)
+    }
+
+    /// ``PaneNotReady``'s text in the app's language (the app sets it; its string catalog). Nil: the English text.
+    @ObservationIgnored public var paneNotReadyText: (() -> String)?
+
+    /// The failure of command `label` as the person reads it: ``PaneNotReady`` as a typed refusal in the app's language.
+    public func workFailure(_ label: String, _ error: any Error) -> ActionWorkFailure {
+        var failure = ActionWorkFailure(label, error)
+        if error is PaneNotReady, let text = paneNotReadyText?() { failure.message = text }
+        return failure
+    }
 
     public func shutdownConnection() {
         // Nothing may start an owner again behind the shutdown (the unresponsive owner's restart).

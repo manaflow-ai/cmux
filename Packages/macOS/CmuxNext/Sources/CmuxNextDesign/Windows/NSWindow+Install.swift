@@ -4,9 +4,11 @@ public import CmuxNextDesignTokens
 /// A content view that paints its window's one backdrop (material, tint,
 /// window opacity and blur: `WindowBackdrop`): ``WindowSurfaceView`` and
 /// the main window's root. It repaints on its own theme changes;
-/// ``NSWindow/install(kind:content:scope:)`` calls it once before the
+/// ``NSWindow/install(kind:content:scope:activeLook:)`` calls it once before the
 /// content view is installed.
 public protocol WindowSurfacePainting: NSView {
+    /// The window's one material and tint.
+    var backdropView: WindowMaterialView { get }
     func paintWindowSurface(of window: NSWindow)
 }
 
@@ -22,9 +24,14 @@ extension NSWindow {
     /// fixed here and nowhere else.
     ///
     /// ```swift
-    /// window.install(kind: .settings, content: hostingView, scope: scope)
+    /// window.install(kind: .settings, content: hostingView, scope: scope, activeLook: services.activeLook)
     /// ```
-    public func install(kind: WindowKind, content: NSView, scope: ThemeScope) {
+    ///
+    /// `activeLook` is the app's one ``ActiveLookScope`` (its composition root makes it and its
+    /// owners pass it down; a child window passes its owner's ``backdropActiveLook``): the window's
+    /// backdrop glass keeps its key look while the window is not key. Nil follows the key state. A
+    /// kind whose content paints its own backdrop (`.main`) ignores it.
+    public func install(kind: WindowKind, content: NSView, scope: ThemeScope, activeLook: ActiveLookScope?) {
         WindowKindRegistry.setKind(kind, of: self)
         let traits = kind.traits
         styleMask.formUnion([.titled, .closable])
@@ -33,8 +40,12 @@ extension NSWindow {
             standardWindowButton(.zoomButton)?.isHidden = true
         }
         scope.adopt(self)
-        let root: NSView = traits.surface == .backdrop ? WindowSurfaceView(content: content) : content
+        let root: NSView = traits.surface == .backdrop ? WindowSurfaceView(content: content, activeLook: activeLook) : content
         (root as? any WindowSurfacePainting)?.paintWindowSurface(of: self)
         contentView = root
     }
+
+    /// The ``ActiveLookScope`` this window's backdrop was given, for a child window (DevTools, page
+    /// info) to pass to its own `install`; nil when the window paints no window-kit backdrop.
+    public var backdropActiveLook: ActiveLookScope? { (contentView as? any WindowSurfacePainting)?.backdropView.activeLook }
 }

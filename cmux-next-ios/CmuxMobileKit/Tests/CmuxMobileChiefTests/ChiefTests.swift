@@ -3,6 +3,7 @@ import CmuxMobileAgentChat
 import CmuxMobileModel
 import CmuxMobileTransport
 import Foundation
+import Observation
 import Testing
 @testable import CmuxMobileChief
 
@@ -314,7 +315,11 @@ final class FakeDaemon: @unchecked Sendable {
         let sent = try await backend.send(ConversationOutgoingDraft(clientMessageID: "c-1", text: "run the tests", replyToID: nil, attachmentIDs: []))
         #expect(sent.seq == 1)
         #expect(sent.clientMessageID == "c-1")
-        #expect(sent.delivery == .delivered)
+        // Chief's read cursor follows the reply at once and can be applied first: read then.
+        switch sent.delivery {
+        case .delivered, .read: break
+        default: Issue.record("expected delivered or read, got \(sent.delivery)")
+        }
 
         var sawTyping = false
         var sawRead = false
@@ -354,18 +359,66 @@ func within<T: Sendable>(_ limit: Duration, _ work: @escaping @Sendable () async
     }
 }
 
-/// Waits on the main actor until `condition` holds; past `limit` it records
-/// an issue and throws instead of spinning forever.
-@MainActor func waitUntil(_ what: String, within limit: Duration = .seconds(20),
+/// Waits on the main actor until `condition` holds; past the watchdog, or when the
+/// test is cancelled, it records an issue and throws instead of spinning forever.
+@MainActor func waitUntil(_ what: String, within watchdog: Duration = waitWatchdog,
                           sourceLocation: SourceLocation = #_sourceLocation,
                           _ condition: @MainActor () -> Bool) async throws {
-    let deadline = ContinuousClock.now.advanced(by: limit)
-    while !condition() {
-        if ContinuousClock.now >= deadline {
-            Issue.record("timed out waiting for \(what)", sourceLocation: sourceLocation)
-            throw CancellationError()
+    guard await eventually(watchdog: watchdog, condition) else {
+        Issue.record("timed out waiting for \(what)", sourceLocation: sourceLocation)
+        throw CancellationError()
+    }
+}
+
+/// How long a wait may take before it gives up: a watchdog against a hang, not a
+/// time the work is expected to take. In the full target a synchronous UIKit suite
+/// held the main thread 11.6 s on a cold simulator, and work waited on here (main-actor
+/// tasks) waits behind such a hold however fast it is, so a short limit failed tests
+/// that had nothing wrong with them.
+let waitWatchdog: Duration = .seconds(60)
+
+/// Whether `condition` came to hold before `watchdog` passed or the task was cancelled.
+/// It waits on the condition's own state rather than on time: it wakes when observable
+/// state the condition read changes (Observation), and checks again every `tick` for
+/// state that isn't observable, such as a test double's log of requests.
+@MainActor func eventually(watchdog: Duration = waitWatchdog, tick: Duration = .milliseconds(20),
+                           _ condition: @MainActor () -> Bool) async -> Bool {
+    let deadline = ContinuousClock.now.advanced(by: watchdog)
+    while true {
+        let wake = Wake()
+        let met = withObservationTracking { condition() } onChange: {
+            Task { @MainActor in wake.fire() }
         }
-        await Task.yield()
+        if met { return true }
+        if Task.isCancelled || ContinuousClock.now >= deadline { return false }
+        // Never past the deadline, however long the tick.
+        let nap = min(tick, deadline - ContinuousClock.now)
+        let ticker = Task { @MainActor in
+            try? await Task.sleep(for: nap)
+            wake.fire()
+        }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { wake.wait($0) }
+        } onCancel: {
+            Task { @MainActor in wake.fire() }
+        }
+        ticker.cancel()
+    }
+}
+
+/// One wake-up of ``eventually``: the first of a change, a tick or a cancel resumes it.
+@MainActor private final class Wake {
+    private var fired = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func wait(_ continuation: CheckedContinuation<Void, Never>) {
+        if fired { continuation.resume() } else { self.continuation = continuation }
+    }
+
+    func fire() {
+        fired = true
+        continuation?.resume()
+        continuation = nil
     }
 }
 
@@ -609,6 +662,8 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
 }
 
 #if os(iOS)
+import UIKit
+
 @Suite @MainActor struct ChiefDirectoryTests {
     func directory() -> ChiefDirectory {
         let chief = ChiefDirectory.recipients(store: AppStore(teams: [], activeTeamID: "", workspaces: [], feed: []), identity: .standard, place: .mac)
@@ -707,6 +762,50 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
         #expect(prompt.attachments[0].name.hasSuffix(".png"))
         #expect(prompt.attachments[1].name.hasSuffix(".jpg"))
         #expect(Set(prompt.attachments.map(\.id)).count == 2)
+    }
+
+    @Test func encodedImageBytesOverrideDeclaredMimeType() throws {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2))
+        let validPNG = renderer.pngData { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        }
+        let image = ConversationComposeImage(data: validPNG, width: 2, height: 2, mimeType: "image/heic")
+        let attachment = try #require(ChiefComposer.attachments([image]).first)
+        #expect(attachment.name.hasSuffix(".png"))
+        #expect(attachment.imageMIMEType == "image/png")
+        #expect(attachment.data == validPNG)
+    }
+
+    @Test func imageBytesWinOverTheDeclaredMimeType() throws {
+        let image = ConversationComposeImage(data: Self.png, width: 1, height: 1, mimeType: "image/heic")
+        let attachment = try #require(ChiefComposer.attachments([image]).first)
+        #expect(attachment.kind == .image)
+        #expect(attachment.name.hasSuffix(".png"))
+        #expect(attachment.imageMIMEType == "image/png")
+    }
+
+    @Test func unsupportedDecodedImageIsConvertedToJpeg() throws {
+        // A complete 1x1, 24-bit BMP (red pixel, padded four-byte row).
+        let bmp = try #require(Data(base64Encoded: "Qk06AAAAAAAAADYAAAAoAAAAAQAAAAEAAAABABgAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAD/AA=="))
+        try #require(UIImage(data: bmp) != nil)
+        #expect(AgentAttachment(kind: .image, name: "source", data: bmp).imageMIMEType == nil)
+        let attachment = try #require(ChiefComposer.attachments([
+            ConversationComposeImage(data: bmp, width: 1, height: 1, mimeType: "image/jpeg")
+        ]).first)
+        #expect(attachment.kind == .image)
+        #expect(attachment.name.hasSuffix(".jpg"))
+        #expect(attachment.imageMIMEType == "image/jpeg")
+        #expect(attachment.data != bmp)
+        let jpeg = try #require(attachment.data)
+        #expect(UIImage(data: jpeg) != nil)
+    }
+
+    @Test func undecodableImageIsSentAsAFile() throws {
+        let image = ConversationComposeImage(data: Data([0x01, 0x02, 0x03]), width: 1, height: 1, mimeType: "image/png")
+        let attachment = try #require(ChiefComposer.attachments([image]).first)
+        #expect(attachment.kind == .file)
+        #expect(attachment.imageMIMEType == nil)
     }
 
     @Test func anImageOnlyMessageStillSends() throws {

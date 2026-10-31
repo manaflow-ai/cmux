@@ -17,6 +17,10 @@ import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+# The review fields every arch-ratchet.json exception needs (reward-hacking audit 2026-10-30): an author, an
+# owner, an independent receipt and an expiry.
+RATCHET_REVIEW = {"author": "agent-a", "owner": "PL-arch", "expiry": "2026-11-06",
+                  "receipt": "Review (reviewer-b): SHIP at " + "a" * 40}
 SOURCES = "Packages/macOS/CmuxNext/Sources"
 SCRIPT = HERE.parent / "arch_rules" / "layer_gate.py"
 RATCHET = HERE.parent / "arch-ratchet.py"
@@ -595,7 +599,7 @@ class ThroughTheRatchetTests(unittest.TestCase):
         deps = {name: list(entries) for name, entries in BASE_DEPS.items()}
         deps["CmuxNextService"] = ['"CmuxNextCore"', '"CmuxNextDomain"']
         why = {"date": "2026-10-23", "reason": "the schema moves to core in the Settings split"}
-        allowance = {"date": "2026-10-23", "row": "layer_soft", "allow": 1, "why": why["reason"]}
+        allowance = {"date": "2026-10-23", "row": "layer_soft", "allow": 1, "why": why["reason"], **RATCHET_REVIEW}
         head = self.repo.commit({
             gate.PACKAGE_SWIFT: manifest(deps),
             gate.LAYERS_JSON: layers(LAYERS, [{"from": "CmuxNextService", "to": "CmuxNextDomain", **why}]),
@@ -608,13 +612,13 @@ class ThroughTheRatchetTests(unittest.TestCase):
         deps = {name: list(entries) for name, entries in BASE_DEPS.items()}
         deps["CmuxNextService"] = ['"CmuxNextCore"', '"CmuxNextUI"']
         why = "moving the type next push"
-        count_only = [{"date": "2026-10-23", "row": "layer_hard", "allow": 1, "why": why}]
+        count_only = [{"date": "2026-10-23", "row": "layer_hard", "allow": 1, "why": why, **RATCHET_REVIEW}]
         rows, refused = self.run_push(deps, count_only)
         self.assertEqual(rows, ["layer-gate"])
         self.assertTrue(refused)
         # One new edge, one escape: the gate's entry alone passes it (the count rule does not refuse the
         # layer_hard rise the gate's refusal answers), and its text asks for no second entry.
-        gate_only = [{"date": "2026-10-23", "row": "layer-gate", "allow": 1, "why": why}]
+        gate_only = [{"date": "2026-10-23", "row": "layer-gate", "allow": 1, "why": why, **RATCHET_REVIEW}]
         rows, refused = self.run_push(deps, gate_only)
         self.assertEqual(rows, [])
         self.assertFalse(refused)
@@ -627,8 +631,8 @@ class ThroughTheRatchetTests(unittest.TestCase):
         deps["CmuxNextService"] = ['"CmuxNextCore"', '"CmuxNextUI"']
         deps["CmuxNextOtherService"] = BASE_DEPS["CmuxNextOtherService"] + ['"CmuxNextApp"']
         why = "moving both types next push"
-        exceptions = [{"date": "2026-10-23", "row": "layer_hard", "allow": 2, "why": why},
-                      {"date": "2026-10-23", "row": "layer-gate", "allow": 1, "why": why}]
+        exceptions = [{"date": "2026-10-23", "row": "layer_hard", "allow": 2, "why": why, **RATCHET_REVIEW},
+                      {"date": "2026-10-23", "row": "layer-gate", "allow": 1, "why": why, **RATCHET_REVIEW}]
         rows, refused = self.run_push(deps, exceptions)
         self.assertEqual(rows, ["layer-gate", "layer-gate"])
         self.assertTrue(refused)
