@@ -45,8 +45,10 @@ const MAX_WAITING: usize = 64;
 pub(super) const MAX_ASKS: usize = 64;
 const MAX_PENDING: usize = 32;
 const MAX_PAGES: usize = 2;
-/// The records the daemon sends before the attach answer, kept for after the snapshot.
+/// The records the daemon sends before the attach answer, kept for after the snapshot (each
+/// cut first), by count and by bytes.
 const MAX_EARLY: usize = 256;
+const MAX_EARLY_BYTES: usize = 4 * 1024 * 1024;
 
 /// The prompt states that never change again.
 fn decided(state: &str) -> bool {
@@ -160,8 +162,11 @@ impl Ledger {
 
     fn remember(&mut self, prompt: &str, client_id: String) {
         if !self.clients.contains_key(prompt) && self.clients.len() >= MAX_CLIENTS {
-            let oldest =
-                self.clients.keys().min_by_key(|p| self.states.get(*p).map_or(0, |s| s.at));
+            // Never a prompt still counted (held, or sent and unanswered: at most MAX_HELD of
+            // MAX_CLIENTS), whose later state the guest must hear.
+            let oldest = (self.clients.keys())
+                .filter(|p| !self.open.contains(*p))
+                .min_by_key(|p| self.states.get(*p).map_or(0, |s| s.at));
             if let Some(oldest) = oldest.cloned() {
                 self.clients.remove(&oldest);
             }
@@ -346,6 +351,8 @@ struct Link {
     waiting: VecDeque<Ask>,
     /// The records the daemon sent before the attachment answered, sent after the snapshot.
     early: VecDeque<Value>,
+    /// The bytes of `early` (at most [`MAX_EARLY_BYTES`]).
+    early_bytes: usize,
     /// This guest's prompts (kept by the bridge across relays and host sockets).
     held: Held,
 }
@@ -369,6 +376,7 @@ impl Link {
             attached: false,
             waiting: VecDeque::new(),
             early: VecDeque::new(),
+            early_bytes: 0,
             held,
         }
     }
@@ -403,8 +411,10 @@ impl Link {
                 }
                 // Before the snapshot nothing reaches the room; too many and the relay ends
                 // (the guest's next one starts from a fresh snapshot).
+                let record = cut(record);
+                self.early_bytes = self.early_bytes.saturating_add(record.to_string().len());
                 self.early.push_back(record);
-                return self.early.len() <= MAX_EARLY;
+                return self.early.len() <= MAX_EARLY && self.early_bytes <= MAX_EARLY_BYTES;
             }
             // share_ended, detached, overflow: the guest's page reconnects for a fresh snapshot.
             Some("agent-session-closed") => return false,
@@ -427,6 +437,7 @@ impl Link {
             Pending::Attach => {
                 self.attached = true;
                 let watermark = self.snapshot(frame.get("data").unwrap_or(&Value::Null));
+                self.early_bytes = 0;
                 for record in std::mem::take(&mut self.early) {
                     if record.get("seq").and_then(Value::as_u64).is_none_or(|s| s > watermark) {
                         self.record(record);
@@ -701,5 +712,85 @@ mod tests {
             }
             assert_eq!(kinds, vec![json!("snapshot"), json!("records")]);
         });
+    }
+
+    /// Records before the attach answer are cut and bounded by bytes: big ones end the relay
+    /// (its next one starts from a fresh snapshot) instead of filling memory.
+    #[test]
+    fn records_before_the_attach_answer_are_bounded_by_bytes() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let (ours, _theirs) = tokio::net::UnixStream::pair().unwrap();
+            let (_read, write) = ours.into_split();
+            let (out, _frames) = mpsc::unbounded_channel();
+            let mut link = link(out, write);
+            link.pending.insert(1, Pending::Attach);
+            let big = "x".repeat(MAX_RECORD - 1024);
+            let mut open = true;
+            let mut sent = 0;
+            while open && sent < MAX_EARLY {
+                let record = json!({"event": "agent-session-record",
+                    "record": {"seq": sent, "kind": "agent_message", "text": big}});
+                open = link.inbound(&record.to_string()).await;
+                sent += 1;
+            }
+            assert!(!open, "the relay ends past the byte budget");
+            assert!(sent < MAX_EARLY, "by bytes, before the count: {sent}");
+            assert!(link.early_bytes > MAX_EARLY_BYTES);
+            // A huge record is kept cut, never whole.
+            let (ours, _theirs) = tokio::net::UnixStream::pair().unwrap();
+            let (_read, write) = ours.into_split();
+            let (out, _frames) = mpsc::unbounded_channel();
+            let mut link = super::tests::link(out, write);
+            let huge = json!({"event": "agent-session-record",
+                "record": {"seq": 1, "kind": "agent_message", "text": "y".repeat(2 * MAX_RECORD)}});
+            assert!(link.inbound(&huge.to_string()).await);
+            assert!(link.early_bytes < 1024);
+            assert_eq!(link.early[0]["truncated"], json!(true));
+        });
+    }
+
+    /// A prompt the room sends before the attachment, past the cap, is refused and said.
+    #[test]
+    fn a_prompt_before_the_attachment_past_the_cap_is_refused() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let (ours, _theirs) = tokio::net::UnixStream::pair().unwrap();
+            let (_read, write) = ours.into_split();
+            let (out, mut frames) = mpsc::unbounded_channel();
+            let mut link = link(out, write);
+            for n in 0..MAX_HELD {
+                assert!(link.take(format!("c{n}"), "hi".into()).is_some());
+            }
+            assert!(link.take("over".into(), "hi".into()).is_none());
+            let mut states = Vec::new();
+            while let Ok(Out::Frame(_, _, frame)) = frames.try_recv() {
+                states.push((
+                    frame["client_id"].clone(),
+                    frame["state"].clone(),
+                    frame["reason"].clone(),
+                ));
+            }
+            assert_eq!(
+                states,
+                vec![(json!("over"), json!("refused"), json!("share.too_many_held"))]
+            );
+        });
+    }
+
+    /// The client ids the ledger forgets first are never a prompt still counted (held, or sent
+    /// and unanswered), so its later state still reaches the guest.
+    #[test]
+    fn the_client_id_of_a_counted_prompt_is_kept() {
+        let mut ledger = Ledger::default();
+        assert!(ledger.take("g-held", "c-held".into(), "hi".into()));
+        for n in 0..(MAX_CLIENTS * 2) {
+            ledger.remember(&format!("g-asked{n}"), format!("c{n}"));
+        }
+        assert_eq!(ledger.clients.len(), MAX_CLIENTS);
+        assert!(ledger.note("g-held", "approved", None));
+        let frame = ledger.frame("g", "g-held").expect("its client id is kept");
+        assert_eq!(frame["client_id"], json!("c-held"));
+        assert_eq!(frame["state"], json!("approved"));
     }
 }
