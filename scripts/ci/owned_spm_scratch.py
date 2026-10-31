@@ -96,6 +96,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import unicodedata
 from typing import Mapping
 
 DEFAULT_STORE = Path("/Users/Shared/cmux-build-fleet/ci")
@@ -469,7 +470,45 @@ def source_files(workspace: Path) -> list[str]:
     return list(names)
 
 
-def real_directory(source: Path, relative: str, made: set[str]) -> None:
+def fold(name: str) -> str:
+    return unicodedata.normalize("NFC", name).casefold()
+
+
+def respell(path: Path, listings: dict[str, set[str]]) -> None:
+    """Give PATH's entry the spelling PATH asks for. On a case-insensitive disk (APFS on the minis) a
+    checkout that renamed Foo.swift to foo.swift finds the root's old entry under the new name, and the
+    cleanup walk, which lists the entry's real spelling, would then delete it. An entry whose name differs
+    only in case (or Unicode normalization) and that is the same file as PATH is renamed to PATH's
+    spelling; on a case-sensitive disk the two names are two files and nothing is renamed. LISTINGS caches
+    each directory's names for this mirror."""
+    parent, name = str(path.parent), path.name
+    names = listings.get(parent)
+    if names is None:
+        try:
+            names = set(os.listdir(parent))
+        except FileNotFoundError:
+            return
+        listings[parent] = names
+    if name in names:
+        return
+    try:
+        wanted = os.lstat(path)
+    except FileNotFoundError:
+        names.add(name)  # made from here on with this spelling
+        return
+    for other in sorted(names):
+        if other == name or fold(other) != fold(name):
+            continue
+        with contextlib.suppress(FileNotFoundError):
+            info = os.lstat(os.path.join(parent, other))
+            if (info.st_dev, info.st_ino) == (wanted.st_dev, wanted.st_ino):
+                os.rename(os.path.join(parent, other), path)
+                names.discard(other)
+                break
+    names.add(name)
+
+
+def real_directory(source: Path, relative: str, made: set[str], listings: dict[str, set[str]] | None = None) -> None:
     """Make SOURCE/RELATIVE and every directory between it and SOURCE a real directory. A link (to a directory
     or anywhere else, inside the root or outside it) or a file in the way is removed and replaced, never
     followed: the last checkout's link at a path that is now a directory must not take this checkout's
@@ -480,6 +519,8 @@ def real_directory(source: Path, relative: str, made: set[str]) -> None:
         path = path / part
         if walked in made:
             continue
+        if listings is not None:
+            respell(path, listings)
         try:
             info = path.lstat()
         except FileNotFoundError:
@@ -523,6 +564,7 @@ def mirror(workspace: Path, source: Path) -> dict[str, int]:
             source.unlink()  # a link or a file where the root's source belongs is never followed
     source.mkdir(exist_ok=True)
     made: set[str] = set()
+    listings: dict[str, set[str]] = {}
     for name in source_files(workspace):
         origin, target = workspace / name, source / name
         try:
@@ -533,7 +575,8 @@ def mirror(workspace: Path, source: Path) -> dict[str, int]:
             continue  # a submodule gitlink: the job checks out no submodule
         wanted.add(name)
         # Before reading or writing TARGET: every directory above it in SOURCE is a real one.
-        real_directory(source, os.path.dirname(name), made)
+        real_directory(source, os.path.dirname(name), made, listings)
+        respell(target, listings)
         if stat.S_ISLNK(info.st_mode):
             link_to = os.readlink(origin)
             if target.is_symlink() and os.readlink(target) == link_to:
