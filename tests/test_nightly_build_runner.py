@@ -175,12 +175,12 @@ class TrustedRoute(unittest.TestCase):
         self.assertEqual(selector, f'["{TRUSTED_POOL}","{TRUSTED_RUNNER}"]')
         self.assertIn("idle", why)
 
-    def test_unread_trusted_pair_stays_on_the_reserved_route(self) -> None:
+    def test_unread_trusted_pair_falls_through_to_a_watched_route(self) -> None:
         selector, why = picker.trusted_route(
             TRUSTED_POOL, TRUSTED_RUNNER, None,
             event="push", ref="refs/heads/nightly-next",
         )
-        self.assertEqual(selector, f'["{TRUSTED_POOL}","{TRUSTED_RUNNER}"]')
+        self.assertEqual(selector, "")
         self.assertIn("unread", why)
 
     def test_trusted_pair_never_leaks_to_other_events(self) -> None:

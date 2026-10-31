@@ -225,10 +225,11 @@ def trusted_route(pool_label: str, runner_label: str, runners: Sequence[Mapping[
 
     The trusted runner is the configured dedicated nightly Mac.  It is
     selected with both its pool and runner-name labels so seed
-    work cannot claim the same runner.  If the routing API is temporarily
-    unreadable, the pair is still safe to queue: the runner hook admits only
-    nightly-next's app build and the owned-pool rescue moves it after its
-    bounded hold.  Other events never inherit the NEXT reservation.
+    work cannot claim the same runner.  A trusted pair is emitted only after
+    the routing API confirms an idle matching runner; an unread API must fall
+    through to the watched owned pool or bounded Blacksmith route rather than
+    queue indefinitely on a single Mac.  Other events never inherit the NEXT
+    reservation.
     """
     pool_label = (pool_label or "").strip()
     runner_label = (runner_label or "").strip()
@@ -238,7 +239,7 @@ def trusted_route(pool_label: str, runner_label: str, runners: Sequence[Mapping[
         return "", f"event {event or '<unset>'} on {ref or '<unset>'} is not a nightly-next push"
     selector = json.dumps([pool_label, runner_label], separators=(",", ":"))
     if runners is None:
-        return selector, f"trusted NEXT selector {selector} (runner listing unread; queue under rescue watch)"
+        return "", f"trusted NEXT selector {selector} is unavailable because runner listing is unread"
     matching = [runner for runner in runners
                 if runner.get("status") == "online"
                 and not runner.get("busy")
