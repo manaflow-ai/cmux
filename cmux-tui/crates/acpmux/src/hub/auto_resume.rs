@@ -609,11 +609,15 @@ impl Hub {
         let deciding = last.as_ref().is_some_and(|t| {
             let field = |key: &str| t.get(key).and_then(Value::as_str);
             let error = field("errorText").unwrap_or_default();
-            field("status") == Some("failed") && field("turnId") == Some(turn_id) && retry_decided_on(error)
+            field("status") == Some("failed")
+                && field("turnId") == Some(turn_id)
+                && retry_decided_on(error)
         });
         if deciding {
             let mut msg = json!({"turnId": turn_id, "why": why});
-            if let Some(prompt_id) = last.as_ref().and_then(|t| t.get("promptId").and_then(Value::as_str)) {
+            if let Some(prompt_id) =
+                last.as_ref().and_then(|t| t.get("promptId").and_then(Value::as_str))
+            {
                 msg.set("promptId", json!(prompt_id));
             }
             self.append_retry(session, "auto_resume_settled", msg);
