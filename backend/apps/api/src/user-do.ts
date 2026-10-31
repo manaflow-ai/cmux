@@ -151,7 +151,13 @@ export class UserDO extends OwnerDO<UserState> {
   override acceptSubscriber(server: WebSocket, entity: string, principal: Principal): void {
     if (principal.kind !== "install") return super.acceptSubscriber(server, entity, principal)
     const state = this.bind(entity).currentState, grant = liveInstallGrant(state, principal, Date.now())
-    if (!grant || !principal.install) throw new Error("install authority changed before socket admission")
+    if (!grant || !principal.install) {
+      // The self-hosted caller may have awaited between mayAccept and this
+      // synchronous seam. Close the accepted socket without a welcome frame.
+      this.ctx.acceptWebSocket(server)
+      server.close(4401, "install authority changed")
+      return
+    }
     const expires_at = Math.min(principal.expires_at ?? Infinity, grant.expires_at ?? Infinity)
     super.acceptSubscriber(server, entity, { ...principal, install_authority: installAuthorityVersion(state, principal.install),
       ...(Number.isFinite(expires_at) ? { expires_at } : {}) })
