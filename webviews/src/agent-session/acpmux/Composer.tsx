@@ -237,6 +237,8 @@ export type ComposerHandle = {
   /// typed after it, and puts the caret at the end. A prompt that already starts with it only
   /// takes focus.
   prefill(prefix: string): void;
+  /// Quote in Reply: append after the draft, regardless of focus, ready to type below it.
+  quoteReply(markdown: string): void;
   /// What it holds that acpmux's draft does not, for a page about to let go (`pane.wakeState`):
   /// file chips and shell mode's unrun command. Shell runs and move chips stay with their page.
   wakeState(): ComposerWake;
@@ -307,6 +309,9 @@ type Props = {
   /// Receives the composer's handle, which puts a prompt a harness switch held back (its text
   /// and attachments) into the composer.
   handle?: React.Ref<ComposerHandle>;
+  /// Quotes the composer took (`quoteReply`) while its editor was still being made, when it goes
+  /// before the editor is: the host holds them for the next composer, so none is lost.
+  onUnplacedQuotes?(quotes: string[]): void;
   /// The context menu's Cut, Copy, Paste and Paste as Plain Text: the host runs the web view's own
   /// editing command (`pane.edit`). Without it those items are disabled.
   onEdit?(command: ComposerEditCommand): void;
@@ -470,6 +475,7 @@ export function Composer({
   onEmptyCommandReturn,
   onShellChange,
   handle,
+  onUnplacedQuotes,
   sessionId,
   switching,
   blocked,
@@ -550,6 +556,8 @@ export function Composer({
   const promptKeyDown = useRef<NonNullable<MarkdownFieldProps["onKeyDown"]>>(() => {});
   const promptReturnInput = useRef<NonNullable<MarkdownFieldProps["onReturnInput"]>>(() => {});
   const promptComposition = useRef<NonNullable<MarkdownFieldProps["onCompositionChange"]>>(() => {});
+  const promptUnplacedQuotes = useRef(onUnplacedQuotes);
+  promptUnplacedQuotes.current = onUnplacedQuotes;
   const stablePromptCallbacks = useMemo(
     () => ({
       onBeforeInput: (...args: Parameters<NonNullable<MarkdownFieldProps["onBeforeInput"]>>) =>
@@ -559,6 +567,7 @@ export function Composer({
       onKeyDown: (event: KeyboardEvent) => promptKeyDown.current(event),
       onReturnInput: () => promptReturnInput.current(),
       onCompositionChange: (value: boolean) => promptComposition.current(value),
+      onUnplacedQuotes: (quotes: string[]) => promptUnplacedQuotes.current?.(quotes),
     }),
     [],
   );
@@ -776,6 +785,18 @@ export function Composer({
           setCaret(next.length);
         }
         field.current?.focus();
+      },
+      quoteReply(markdown) {
+        notTyped();
+        if (!field.current?.quoteReply(markdown)) {
+          const typed = textRef.current;
+          const next = typed ? typed + "\n\n" + markdown : markdown;
+          textRef.current = next;
+          pendingCaret.current = next.length;
+          setText(next);
+          setCaret(next.length);
+          field.current?.focus();
+        }
       },
       wakeState: () => ({
         attachments: attachmentsRef.current.filter((chip) => !chip.shellRun),
@@ -2091,6 +2112,7 @@ export function Composer({
           onKeyDown: stablePromptCallbacks.onKeyDown,
           onReturnInput: stablePromptCallbacks.onReturnInput,
           onCompositionChange: stablePromptCallbacks.onCompositionChange,
+          onUnplacedQuotes: stablePromptCallbacks.onUnplacedQuotes,
         }}
         attachments={attachments}
         pending={pending}
