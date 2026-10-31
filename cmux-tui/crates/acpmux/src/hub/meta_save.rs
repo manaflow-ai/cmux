@@ -96,9 +96,9 @@ impl MetaWriter {
 
     /// Until `version` is durable (or, `Wait::No`, handed to a writer): as the writer when none
     /// is at work.
-    fn reach(
-        &self,
-        mut state: std::sync::MutexGuard<'_, WriterState>,
+    fn reach<'a>(
+        &'a self,
+        mut state: std::sync::MutexGuard<'a, WriterState>,
         version: u64,
         wait: Wait,
         write: &dyn Fn() -> Result<()>,
