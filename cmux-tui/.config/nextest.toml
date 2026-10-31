@@ -114,3 +114,12 @@ slow-timeout = { period = "60s", terminate-after = 4, grace-period = "5s" }
 [[profile.ci.overrides]]
 filter = 'test(=lifecycle_latency_creates_and_closes_in_a_populated_session)'
 success-output = "final"
+
+# Fuzz row g (the acpmux crash fuzz, tests/fuzz_crash_durable.rs) prints its FUZZ-G lines on
+# stdout; a fleet step shows them only when a passing test's output is kept. One test fuzzes
+# for up to 110 s and shrinks a failure for up to 90 s more. It does nothing outside a fleet
+# step keyed fuzz-g.
+[[profile.ci.overrides]]
+filter = 'binary_id(acpmux::fuzz_crash_durable)'
+success-output = "final"
+slow-timeout = { period = "60s", terminate-after = 5, grace-period = "5s" }
