@@ -1875,10 +1875,6 @@ impl Hub {
         Ok(latest)
     }
 
-    /// Saves the session's record; never a purged session's. A late save (a generated title after
-    /// the turn, a tag) would write its record back after the purge deleted it, and the next daemon
-    /// start loaded it as a closed session: the Chief's compactor, which purges each node's session
-    /// when the node is built, left about 450 of them in two hours (2026-10-20).
     /// Lists the temporary folders of sessions this daemon no longer has
     /// (`agent/session_tmp.rs`) and removes them on a thread of their own.
     /// The daemon calls it after metadata loads and before startup releases spawns.

@@ -174,7 +174,10 @@ impl Hub {
         session.meta_writer.commit(wait, &|| self.write_snapshot(session))
     }
 
-    /// One copy of the metadata, written. A purged chat writes nothing.
+    /// One copy of the metadata, written; never a purged chat's. A late save (a generated title
+    /// after the turn, a tag) would write its record back after the purge deleted it, and the next
+    /// daemon start loaded it as a closed session: the Chief's compactor, which purges each node's
+    /// session when the node is built, left about 450 of them in two hours (2026-10-20).
     fn write_snapshot(&self, session: &Session) -> Result<()> {
         if session.purged.load(Ordering::SeqCst) {
             return Ok(());
