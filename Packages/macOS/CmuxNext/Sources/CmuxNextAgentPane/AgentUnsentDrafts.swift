@@ -15,6 +15,7 @@ public final class AgentUnsentDrafts {
     /// Reads through the shared file seam, including any saves made by its legacy queue.
     private let store: AgentPaneStateFile?
     private var drafts: [String: String]
+    private var finishing = false
 
     /// - Parameters:
     ///   - file: The JSON file; nil keeps nothing.
@@ -43,7 +44,7 @@ public final class AgentUnsentDrafts {
     /// Keeps the typed text of `model`'s chat for the tab `key` names when it runs, until the chat
     /// has a session. Call it after the tab's own `onSessionChange` is set.
     public func wire(_ model: AgentPaneModel, key: @escaping () -> String) {
-        model.onUnsentDraft = { [weak self] text in self?.set(text, for: key()) }
+        model.onUnsentDraft = { [weak self] text in self?.set(text, for: key()) ?? false }
         let started = model.onSessionChange
         model.onSessionChange = { [weak self] session in
             self?.set("", for: key())
@@ -55,17 +56,20 @@ public final class AgentUnsentDrafts {
     public func hasDraft(_ key: String) -> Bool { drafts[key] != nil }
 
     /// Keeps `text` as tab `key`'s draft; blank text forgets it.
-    public func set(_ text: String, for key: String) {
+    @discardableResult
+    public func set(_ text: String, for key: String) -> Bool {
+        guard !finishing else { return false }
         let keep = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text.count <= Self.maximumCharacters
         let value = keep ? text : nil
-        guard drafts[key] != value else { return }
+        guard drafts[key] != value else { return true }
         drafts[key] = value
         save()
+        return true
     }
 
     /// The store gave provisional tab `key` its id `real`.
     public func move(_ key: String, to real: String) {
-        guard key != real, let text = drafts.removeValue(forKey: key) else { return }
+        guard !finishing, key != real, let text = drafts.removeValue(forKey: key) else { return }
         drafts[real] = text
         save()
     }
@@ -74,6 +78,9 @@ public final class AgentUnsentDrafts {
     public func flushed() async {
         await writer?.flushed()
     }
+
+    /// Quit's last accepted save: no later model or session callback may queue another write.
+    func finishSaving() { finishing = true }
 
     /// Hands the drafts to the writer: encoded and written on the files lane, never on the main thread
     /// (a draft holds up to a million characters); an empty set removes the file.

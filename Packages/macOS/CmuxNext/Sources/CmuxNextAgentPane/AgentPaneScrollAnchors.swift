@@ -36,6 +36,7 @@ public final class AgentPaneScrollAnchors {
     private let store: AgentPaneStateFile?
     /// Oldest first; read from the file on first use.
     private var entries: [Entry]?
+    private var finishing = false
 
     /// - Parameters:
     ///   - directory: The tag's state directory; nil keeps nothing.
@@ -52,13 +53,16 @@ public final class AgentPaneScrollAnchors {
     }
 
     /// Keeps chat `sessionId`'s place; nil (at the latest message) forgets it.
-    public func remember(_ anchor: AgentPaneScrollAnchor?, for sessionId: String) {
+    @discardableResult
+    public func remember(_ anchor: AgentPaneScrollAnchor?, for sessionId: String) -> Bool {
+        guard !finishing else { return false }
         var kept = loaded().filter { $0.sessionId != sessionId }
         if let anchor { kept.append(Entry(sessionId: sessionId, anchor: anchor)) }
         kept = Array(kept.suffix(Self.limit))
-        guard kept != entries else { return }
+        guard kept != entries else { return true }
         entries = kept
         save()
+        return true
     }
 
     private func loaded() -> [Entry] {
@@ -73,6 +77,9 @@ public final class AgentPaneScrollAnchors {
     public func flushed() async {
         await writer?.flushed()
     }
+
+    /// Quit's last accepted save, shared by the WebKit bridge and page-provider path.
+    func finishSaving() { finishing = true }
 
     /// Hands the places to the writer: encoded and written on the files lane, never on the main thread;
     /// none left removes the file.
