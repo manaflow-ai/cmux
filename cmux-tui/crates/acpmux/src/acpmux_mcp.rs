@@ -226,7 +226,9 @@ pub(crate) async fn call(daemon: &Arc<Client>, params: &Value) -> Value {
                 Err(e) => refusal(e),
             }
         }
-        other => error_result(format!("unknown tool: {other}")),
+        other => {
+            error_result(crate::mcp_hint::unknown_tool(other, crate::mcp_hint::names(&tools())))
+        }
     }
 }
 

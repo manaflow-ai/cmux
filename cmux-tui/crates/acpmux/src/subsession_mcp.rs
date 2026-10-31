@@ -336,7 +336,9 @@ async fn call(daemon: &Client, params: &Value) -> Value {
             Err(e) => refusal(e),
         },
         "wait_for_sessions" => wait(daemon, &args).await,
-        other => error_result(format!("unknown tool: {other}")),
+        other => {
+            error_result(crate::mcp_hint::unknown_tool(other, crate::mcp_hint::names(&tools())))
+        }
     }
 }
 

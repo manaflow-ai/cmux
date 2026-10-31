@@ -132,6 +132,8 @@ async fn call(daemon: &Client, params: &Value) -> Value {
             Ok(r) => ok("Acknowledged.".to_owned(), r),
             Err(e) => error_result(format!("{e:#}")),
         },
-        other => error_result(format!("unknown tool: {other}")),
+        other => {
+            error_result(crate::mcp_hint::unknown_tool(other, crate::mcp_hint::names(&tools())))
+        }
     }
 }
