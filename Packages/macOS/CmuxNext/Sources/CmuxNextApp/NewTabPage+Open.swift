@@ -332,6 +332,10 @@ extension NewTabPage {
     /// URL or `!command` typed there).
     private static func submitNative(_ text: String, kind: AgentPaneTabKind, search: Bool, cwd: String?, in page: PaneController) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let refusal = MacScreenPages.pairingLinkRefusal(for: trimmed) {
+            page.services.registry.refuse(refusal)
+            return
+        }
         // Native terminal and browser picks use the same right-column decision as web picks, including
         // same-kind reuse and a lower split for the opposite kind.
         let chatPlacement = ChatColumnPlacement.keepsNewTabPage(in: page) || Self.docksChat(page)
