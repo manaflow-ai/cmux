@@ -38,9 +38,11 @@
 .nt-row.is-selected .nt-row-action,.nt-row:hover .nt-row-action{opacity:1}
 .nt-row-action kbd{padding:2px 6px;border-radius:5px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft);font:11.5px/1 var(--font-ui)}
 /* The create actions the rows don't list (screenModel.ts createStrip): one quiet line under them, never three rows (Leo 2026-10-24: "the new terminal, new browser tab, new tab ... less annoying"). Shows with the rows, no fade. */
-.nt-create-strip{display:flex;gap:4px;margin-top:4px;padding-top:4px;border-top:1px solid color-mix(in srgb,var(--agent-text) 8%,transparent);overflow:hidden}
-.nt-create-strip-item{display:flex;flex:1 1 0;align-items:center;gap:8px;min-width:0;height:24px;padding:0 8px;border-radius:var(--ui-row-radius);color:var(--acpmux-composer-dim);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
-.nt-create-strip-item .nt-row-title{flex:1;min-width:0;max-width:none;overflow:hidden;text-overflow:ellipsis}
+.nt-create-strip{display:flex;gap:4px;margin-top:4px;padding-top:4px;border-top:1px solid color-mix(in srgb,var(--agent-text) 8%,transparent);overflow:hidden;container:nt-create-strip/inline-size}
+.nt-create-strip-item{display:flex;flex:0 1 auto;align-items:center;gap:8px;min-width:0;height:24px;padding:0 8px;border-radius:var(--ui-row-radius);color:var(--acpmux-composer-dim);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
+.nt-create-strip-item .nt-row-title{min-width:0;max-width:none;overflow:hidden}
+/* A strip too narrow for every shipped locale's three labels (French needs the most) shows the actions icon-only, never a cut label ("Nouv…" three times); the title and aria-label name each one. One width for every locale; NewTabScreen.gallery.ts checks each shipped locale's labels fit just above it. */
+@container nt-create-strip (max-width:520px){.nt-create-strip-item{flex:none;justify-content:center;width:28px;padding:0}.nt-create-strip-item .nt-row-title{display:none}}
 .nt-create-strip-item.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
 .nt-chats{margin-top:20px}
 .nt-chats-head{display:flex;align-items:center;gap:14px;height:28px;font-size:13px}

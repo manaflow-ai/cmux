@@ -1258,6 +1258,54 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
       },
     },
+    "create-strip-narrow": {
+      note: "The create strip in a narrow pane (capture at 320px in French): the three actions go icon-only, each named by its tooltip and accessible label, never three cut labels (\"Nouv…\"). Above the strip's one width rule every shipped locale's labels show whole.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("localhost:3000", { selector: ".nt-field" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-create-strip-item"));
+        const popover = ctx.document.querySelector<HTMLElement>(".nt-popover");
+        const strip = ctx.document.querySelector<HTMLElement>(".nt-create-strip");
+        if (!popover || !strip) throw new Error("the create strip did not render");
+        const items = [...strip.querySelectorAll<HTMLElement>(".nt-create-strip-item")];
+        if (items.length !== 3) throw new Error(`the create strip shows ${items.length} actions, not 3`);
+        // Every action is named whether or not its label shows.
+        for (const item of items) {
+          const name = item.querySelector(".nt-row-title")?.textContent ?? "";
+          if (!name || item.getAttribute("aria-label") !== name || item.getAttribute("title") !== name)
+            throw new Error(`a create action is not named by its aria-label and tooltip (${name})`);
+        }
+        // A label either shows whole or not at all: never cut.
+        const cut = () =>
+          items
+            .map((item) => item.querySelector<HTMLElement>(".nt-row-title")!)
+            .filter((title) => title.getClientRects().length > 0 && title.scrollWidth > title.clientWidth + 1)
+            .map((title) => title.textContent);
+        const shown = () =>
+          items.filter((item) => item.querySelector(".nt-row-title")!.getClientRects().length > 0).length;
+        if (cut().length) throw new Error(`create action labels are cut: ${cut().join(", ")}`);
+        // Just above the icon-only width (screen.css @container nt-create-strip) this locale's labels show
+        // whole; well under it the actions are icons that stay inside the strip. Put back after.
+        const width = popover.style.width;
+        const chrome = popover.getBoundingClientRect().width - strip.clientWidth;
+        try {
+          popover.style.width = `${524 + chrome}px`;
+          if (shown() !== 3) throw new Error(`just above the icon-only width only ${shown()} labels show`);
+          if (cut().length) throw new Error(`just above the icon-only width labels are cut: ${cut().join(", ")}`);
+          popover.style.width = "260px";
+          if (shown() !== 0) throw new Error(`a narrow strip still shows ${shown()} labels`);
+          const box = strip.getBoundingClientRect();
+          for (const item of items) {
+            const rect = item.getBoundingClientRect();
+            if (rect.left < box.left - 1 || rect.right > box.right + 1)
+              throw new Error(`an icon-only action leaves the strip (${rect.left}..${rect.right})`);
+          }
+        } finally {
+          popover.style.width = width;
+        }
+      },
+    },
     "suggestions-ff": {
       note: 'Leo 2026-10-24 ("Search the web. Do you really want that first?"): "ff" asks the agent first, offers no workspace that only holds ff inside a word, and keeps the web search last; nothing in the text names a create row.',
       ready: newTab({ omnibar: FF_OMNIBAR }),
