@@ -234,10 +234,14 @@ export function ComposerQueue({
   const resized = useRef<{ id: string; row: number; list: number }>(undefined);
   // The row whose pointer toggle holds the list: the hold is that row's, and goes with it.
   const heldId = useRef<string>(undefined);
+  // While a hold lasts: the observers that give room back when the stack around the list grows.
+  const holding = useRef<{ disconnect(): void }>(undefined);
   /** Ends the hold now: the list fits its rows again. */
   const release = (current: HTMLElement | null) => {
     held.current = false;
     heldId.current = undefined;
+    holding.current?.disconnect();
+    holding.current = undefined;
     if (!current) return;
     // Fit while [data-held] still turns the max-height transition off, and have the browser take
     // the new height (a style read) before the transition comes back: the list shrinks at once,
@@ -304,6 +308,79 @@ export function ComposerQueue({
     const need = last ? offsets(current, last).bottom + pad : 0;
     if (need < parseFloat(current.style.minHeight || "0") - 0.5) release(current);
   });
+  // A held list gives room back when the stack around it grows (a permission card or a question
+  // arrives under the pointer, the pane shortens): past the room the pane leaves the stack, or by
+  // what a part above it has had to give up since the hold began (bottomStack.css shrinks those
+  // first, so a card would otherwise sit cut to one row over a held queue), it shrinks and scrolls.
+  // While a hold lasts, a ResizeObserver on the dock, the pane, the parts above the list and their
+  // contents, and a MutationObserver for parts that arrive; both disconnect when the hold ends or
+  // the list goes.
+  useLayoutEffect(() => {
+    const current = list.current;
+    if (!held.current || !current) {
+      holding.current?.disconnect();
+      holding.current = undefined;
+      return;
+    }
+    if (holding.current || typeof ResizeObserver === "undefined") return;
+    const view = current.ownerDocument.defaultView;
+    const dock = current.closest<HTMLElement>(".acpmux-dock");
+    const main = current.closest<HTMLElement>(".acpmux-main");
+    /// The parts of the stack drawn above the list (a question, a permission card, notices).
+    const above = () =>
+      dock
+        ? [...dock.querySelectorAll<HTMLElement>(":scope > *, :scope > .acpmux-composer > *")].filter(
+            (part) =>
+              part !== current &&
+              !part.contains(current) &&
+              (part.compareDocumentPosition(current) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+          )
+        : [];
+    /// How much of its own height (to its own max-height) the stack has squeezed out of a part.
+    const squeezed = (part: HTMLElement) => {
+      const max = parseFloat(view?.getComputedStyle(part).maxHeight ?? "");
+      return Math.max(0, Math.min(part.scrollHeight, Number.isFinite(max) ? max : Infinity) - part.clientHeight);
+    };
+    // What each part had given up when the hold began: only what it gives up after is handed back,
+    // so the hold itself never moves the list under the pointer.
+    const before = new WeakMap(above().map((part) => [part, squeezed(part)]));
+    const shrinkToRoom = () => {
+      if (!held.current || !current.isConnected) return;
+      const box = current.getBoundingClientRect();
+      let room = heldCap(current, box.height);
+      for (const part of above()) room = Math.min(room, box.height - (squeezed(part) - (before.get(part) ?? 0)));
+      if (room >= box.height - 0.5) return;
+      const min = parseFloat(view?.getComputedStyle(current).getPropertyValue("--acpmux-stack-row-min") ?? "") || 34;
+      const height = `${Math.max(min, room)}px`;
+      current.style.maxHeight = height;
+      current.style.minHeight = height;
+    };
+    const observer = new (view?.ResizeObserver ?? ResizeObserver)(shrinkToRoom);
+    const watch = () => {
+      for (const part of above()) for (const box of [part, ...part.children]) observer.observe(box);
+      for (const box of [dock, main]) if (box) observer.observe(box);
+    };
+    watch();
+    // A part that arrives later (the card), or a card a part gains, is watched too and measured at once.
+    const arrivals = new (view?.MutationObserver ?? MutationObserver)(() => {
+      watch();
+      shrinkToRoom();
+    });
+    if (dock) arrivals.observe(dock, { childList: true, subtree: true });
+    holding.current = {
+      disconnect() {
+        observer.disconnect();
+        arrivals.disconnect();
+      },
+    };
+  });
+  useEffect(
+    () => () => {
+      holding.current?.disconnect();
+      holding.current = undefined;
+    },
+    [],
+  );
   /** Fits the list to its rows, unless a row the pointer opened holds its height. */
   const fit = (current: HTMLElement) => {
     if (!held.current) fitList(current);

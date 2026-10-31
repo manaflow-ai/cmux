@@ -750,6 +750,42 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       await page.close();
     });
 
+    test("in a short pane a held long row gives room back when a permission card arrives under the pointer", async () => {
+      // Review (Codex astra) at 5918647: the hold kept its min-height while the stack around it grew,
+      // so a card arriving under the pointer could not take room from it and drew over the queue.
+      const long = "a very long queued prompt that wraps across many lines once it is opened whole ".repeat(10);
+      const page = await openChat([long], { width: 900, height: 420 });
+      await openHeld(page, "q-1");
+      // acpmux asks for a permission while the pointer rests on the opened row.
+      event(lastSocket!, "permission_request", {
+        permissionId: "perm-held",
+        request: {
+          toolCall: { toolCallId: "t-held", title: "gh pr merge", kind: "execute" },
+          options: [
+            { optionId: "allow", name: "Allow once", kind: "allow_once" },
+            { optionId: "deny", name: "Deny", kind: "reject_once" },
+          ],
+        },
+      });
+      await page.locator(".acpmux-permission-card").waitFor({ timeout: 10_000 });
+      await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
+      const drawn = await page.evaluate(() => {
+        const box = document.querySelector<HTMLElement>(".acpmux-composer-box")!.getBoundingClientRect();
+        const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
+        const card = document.querySelector<HTMLElement>(".acpmux-permission-card")!.getBoundingClientRect();
+        const l = list.getBoundingClientRect();
+        return {
+          composerInside: box.top >= 0 && box.bottom <= innerHeight + 0.5,
+          cardInside: card.top >= 0 && card.bottom <= innerHeight + 0.5,
+          // The card sits above the queue, never over it: the held list gave it the room.
+          cardClearOfList: card.bottom <= l.top + 0.5,
+          listScrolls: list.scrollHeight > list.clientHeight + 1,
+        };
+      });
+      expect(drawn).toEqual({ composerInside: true, cardInside: true, cardClearOfList: true, listScrolls: true });
+      await page.close();
+    });
+
     test("a reopened chat whose resume record is off the attach's page still draws the labelled row", async () => {
       // review-28042-ux-4: the listing's subagentRetry names it with no `queued` record read.
       recordsOnPage = false;
