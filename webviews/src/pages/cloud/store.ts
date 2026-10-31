@@ -139,7 +139,7 @@ export class CloudStore {
   /** The lifetime whose account subscribe is in flight, if any. */
   private watchingAuth?: number;
   /** The account stream's last event. */
-  private account?: AccountEvent;
+  private lastAccount?: AccountEvent;
   /**
    * Bumped by stop, sign-out, team switch and retry. Every async load captures it and drops its
    * result (and closes its watch) when it changed, so an old account or team never writes state.
@@ -254,7 +254,7 @@ export class CloudStore {
     this.unwatchAuth?.();
     this.unwatchAuth = undefined;
     this.watchingAuth = undefined;
-    this.account = undefined;
+    this.lastAccount = undefined;
     clearTimeout(this.restart);
     this.restart = undefined;
     this.restartAttempts = 0;
@@ -576,8 +576,8 @@ export class CloudStore {
     try {
       const unwatch = await this.client.subscribe<AccountEvent>(CloudOps.authWatch, (event) => {
         if (lifetime !== this.lifetime) return;
-        const previous = this.account;
-        this.account = event;
+        const previous = this.lastAccount;
+        this.lastAccount = event;
         // Another signed-in account (a user switch): its auth status may read the same, so it reloads.
         const switched = !!previous?.signedIn && !!event?.signedIn && (previous.user ?? null) !== (event.user ?? null);
         void this.accountChanged(switched);
