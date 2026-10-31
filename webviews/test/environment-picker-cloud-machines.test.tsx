@@ -149,10 +149,14 @@ test("signed out keeps existing Cloud actions and adds a sign-in row", async () 
   expect(rows.map(label)).toContain(t("composer.newCloudMachine"));
   expect(rows.map(label)).toContain(t("composer.connectSSH"));
   await act(async () => rows.find((row) => label(row) === "Sign in for Cloud")!.click());
-  expect(calls).toEqual(["cloud"]);
+  // Sign-in only: New Cloud Machine (`cloud`) would start creating a machine (review BLOCK at
+  // 5a8e7ea9 and 44c1712d).
+  expect(calls).toEqual(["cloudSignIn"]);
 });
 
-test("an absent Cloud account state still offers sign-in, while an explicit signed-in state does not", async () => {
+// Unknown is not signed out (review BLOCK at 5a8e7ea9): before the app's reply, a signed-in person
+// would see Sign in for Cloud. Only the app's explicit signed-out answer shows it.
+test("only an explicit signed-out state offers sign-in: unknown and signed in do not", async () => {
   const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
   const rows = async () => {
     await openPicker();
@@ -161,6 +165,13 @@ test("an absent Cloud account state still offers sign-in, while an explicit sign
     );
   };
   setCloudMachinesForTestAccount(undefined);
+  await mount(true, { cloudMachines: [], onConnect: () => undefined });
+  expect((await rows()).map(label)).not.toContain("Sign in for Cloud");
+
+  act(() => root?.unmount());
+  root = undefined;
+  host.replaceChildren();
+  setCloudMachinesForTestAccount(false);
   await mount(true, { cloudMachines: [], onConnect: () => undefined });
   expect((await rows()).map(label)).toContain("Sign in for Cloud");
 
@@ -172,15 +183,23 @@ test("an absent Cloud account state still offers sign-in, while an explicit sign
   expect((await rows()).map(label)).not.toContain("Sign in for Cloud");
 });
 
-test("the plain Computer picker offers Cloud sign-in before the account reply", async () => {
+test("the plain Computer picker offers Cloud sign-in when the app says signed out", async () => {
   const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
-  setCloudMachinesForTestAccount(undefined);
-  await mount(false, { peers: [], cloudMachines: [], onConnect: () => undefined });
+  setCloudMachinesForTestAccount(false);
+  const calls: string[] = [];
+  await mount(false, { peers: [], cloudMachines: [], onConnect: (kind: string) => calls.push(kind) });
   await openPicker();
-  const labels = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].map(label);
+  const items = () => [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")];
+  const labels = items().map(label);
   expect(labels).toContain("Sign in for Cloud");
   expect(labels).toContain(t("composer.addComputer"));
   expect(labels).toContain(t("composer.newCloudMachine"));
+  await act(async () =>
+    items()
+      .find((row) => label(row)?.includes("Sign in for Cloud"))!
+      .click(),
+  );
+  expect(calls).toEqual(["cloudSignIn"]);
 
   act(() => root?.unmount());
   root = undefined;
@@ -193,8 +212,10 @@ test("the plain Computer picker offers Cloud sign-in before the account reply", 
   );
 });
 
+// A signed-out answer drops the previous account's machines and offers sign-in. A refused read says
+// nothing about the account, so the list and its state stay as they were (cloudMachines.ts).
 for (const result of ["failed", "signed out"] as const) {
-  test(`a ${result} revalidation removes the previous account's machines and offers sign-in`, async () => {
+  test(`a ${result} revalidation ${result === "failed" ? "keeps" : "removes"} the previous account's machines`, async () => {
     const { refreshCloudMachines } = await import("../src/agent-session/acpmux/cloudMachines");
     const posted: { method: string; params: unknown }[] = [];
     answerAsTheApp(posted);
@@ -210,8 +231,13 @@ for (const result of ["failed", "signed out"] as const) {
       return { ok: true, value: { signedIn: false, loaded: false, machines: [] } };
     });
     await act(async () => refreshCloudMachines());
-    expect(labels()).not.toContain("build box");
-    expect(labels()).toContain("Sign in for Cloud");
+    if (result === "failed") {
+      expect(labels()).toContain("build box");
+      expect(labels()).not.toContain("Sign in for Cloud");
+    } else {
+      expect(labels()).not.toContain("build box");
+      expect(labels()).toContain("Sign in for Cloud");
+    }
     expect(labels()).toContain(t("composer.newCloudMachine"));
   });
 }
@@ -517,6 +543,19 @@ test("a started chat lists no account machine", async () => {
   await mount(true, { started: true, onOffload: () => undefined, offloads: ["move"] });
   await openPicker();
   expect(pickerRows().map(label)).not.toContain("build box");
+});
+
+test("an older chat's plain picker reads the Cloud account as it opens, so a signed-in person gets no sign-in row", async () => {
+  const posted: { method: string; params: unknown }[] = [];
+  answerAsTheApp(posted);
+  // No `onProject`: not a new chat, so its machine list never reads the account's machines; the
+  // connect rows still need the account state.
+  await mount(false, { peers: [], onProject: undefined, cloudMachines: undefined });
+  await openPicker();
+  await act(async () => undefined);
+  expect(posted.map((message) => message.method)).toContain("cloudMachine.list");
+  const labels = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].map(label);
+  expect(labels).not.toContain("Sign in for Cloud");
 });
 
 function answerAsTheApp(

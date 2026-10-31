@@ -312,8 +312,8 @@ export function createAcpmuxDebug(
             subagentOf: document.querySelector(".cv-subagent-of__parent")?.textContent ?? null,
             // The composer's chips as drawn (model, effort, access), keyed by their menu label.
             composer: composerChips(),
-            // The Cloud auth state consumed by EnvironmentPicker; undefined is the fresh-home
-            // absent/unknown state that still offers the sign-in action.
+            // The Cloud auth state consumed by EnvironmentPicker: false offers Sign in for Cloud;
+            // undefined (no reply yet, or a refused read) offers nothing.
             cloudSignedIn: cloudSignedInForDebug(),
             focused: document.hasFocus(),
           }

@@ -128,9 +128,8 @@ export function EnvironmentPicker({
   current: string;
   onPick(id: string): void;
   onConnect?(kind: ConnectKind): void;
-  /// The app's Cloud account state; only an explicit signed-in reply hides the sign-in action.
-  /// A fresh home can have no Cloud section or no reply from the host yet, and is still signed out
-  /// for the purpose of offering the existing sign-in entry point.
+  /// The app's Cloud account state (`cloudMachine.list` `signedIn`): only an explicit signed-out
+  /// reply shows Sign in for Cloud; `undefined` (no reply yet, or a refused read) shows nothing.
   cloudSignedIn?: boolean;
   saved?: SavedEnvironmentRows;
   /// The list opened, and every few seconds while it stays open: the host reads the machines
@@ -274,13 +273,13 @@ export function EnvironmentPicker({
       : []),
     ...(onConnect
       ? [
-          ...(cloudSignedIn !== true
+          ...(cloudSignedIn === false
             ? [
                 {
                   value: ACTION + "cloudSignIn",
                   text: t("composer.cloudSignIn"),
                   kind: "cloud" as const,
-                  run: () => onConnect("cloud"),
+                  run: () => onConnect("cloudSignIn"),
                 },
               ]
             : []),

@@ -231,14 +231,16 @@ export function ComposerContext({
     t,
   ]);
   // The list opened, and every few seconds while it is open: acpmux's peers and, for a new chat,
-  // the app's Cloud machines are read again.
-  const onRefreshMachines =
-    newChat && !cloudMachines
-      ? () => {
-          onRefreshPeers?.();
-          void refreshCloudMachines();
-        }
-      : onRefreshPeers;
+  // the app's Cloud machines are read again. A menu with connect rows reads the Cloud account too,
+  // so Sign in for Cloud goes away once the app says the person is signed in (an older chat's
+  // menu otherwise never asks, and would offer sign-in to someone already signed in).
+  const readsCloudAccount = !cloudMachines && (newChat || onConnect !== undefined);
+  const onRefreshMachines = readsCloudAccount
+    ? () => {
+        onRefreshPeers?.();
+        void refreshCloudMachines();
+      }
+    : onRefreshPeers;
   // The plain Computer menu lists them in the picker's sections and order (environments.ts), one
   // line each; a machine a chat cannot start on yet says its state on a second line.
   const menuComputers = useMemo(() => {
@@ -534,8 +536,8 @@ export function ComposerContext({
               onPick={pickEnvironment}
               {...(offload && onOffload ? { offload, onOffload } : {})}
               {...(!started && onConnect ? { onConnect } : {})}
-              // A fresh home may not have a Cloud list reply at all. EnvironmentPicker treats only
-              // an explicit true as signed in, so it can offer the existing sign-in action there.
+              // Sign in for Cloud shows only once the app says signed out; before its reply (or
+              // after a refused read) the state is unknown, and a signed-in person must not see it.
               cloudSignedIn={cloudSignedIn}
               {...(savedRows ? { saved: savedRows } : {})}
               {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
@@ -565,12 +567,12 @@ export function ComposerContext({
                         label: t(CONTEXT_LABELS.addComputer),
                         onSelect: () => onboardingConnect?.("addMachine"),
                       },
-                      ...(cloudSignedIn !== true
+                      ...(cloudSignedIn === false
                         ? [
                             {
                               id: "cloudSignIn",
                               label: t("composer.cloudSignIn"),
-                              onSelect: () => onboardingConnect?.("cloud"),
+                              onSelect: () => onboardingConnect?.("cloudSignIn"),
                             },
                           ]
                         : []),
@@ -584,15 +586,15 @@ export function ComposerContext({
                     ]
                   : !started && onConnect && !connectOnlyWhenEmpty
                     ? [
-                          ...(cloudSignedIn !== true
-                            ? [
-                                {
-                                  id: "cloudSignIn",
-                                  label: t("composer.cloudSignIn"),
-                                  onSelect: () => onConnect("cloud"),
-                                },
-                              ]
-                            : []),
+                        ...(cloudSignedIn === false
+                          ? [
+                              {
+                                id: "cloudSignIn",
+                                label: t("composer.cloudSignIn"),
+                                onSelect: () => onConnect("cloudSignIn"),
+                              },
+                            ]
+                          : []),
                         { id: "ssh", label: t(CONTEXT_LABELS.connectSSH), onSelect: () => onConnect("ssh") },
                         {
                           id: "cloud",

@@ -1,15 +1,16 @@
 extension AgentPaneModel {
     /// The app actions any agent tab may run: the location row's SSH…, New Cloud Machine and Open
     /// Cloud…, which opens the Cloud page at its storefront (`#/get`: the plan's sizes; the pane
-    /// knows no plan), Connect Phone…, which opens the Mobile Pairing page, Add Machine… (the Add
+    /// knows no plan), Connect Phone…, which opens the Mobile Pairing page, Sign in for Cloud
+    /// (`palette.auth.signIn`: sign-in only, never a new machine), Add Machine… (the Add
     /// Device card: a computer on the tailnet or in ~/.ssh/config, enrolled with its daemon kept
     /// current, or a new Cloud VM), and a started chat's Move to Cloud and Bring Back Local (the tab
     /// menu's same actions, on this tab). webviews environments.ts CONNECT_ACTIONS names the same
-    /// seven. Also the machine header's Reconnect (`machine.reconnect`), which the host runs on
+    /// eight. Also the machine header's Reconnect (`machine.reconnect`), which the host runs on
     /// this tab's own machine only (the strip's red machine, picked).
     static let connectActions: Set<String> = [
-        "remote.connect", "newCloudMachine", "palette.openCloudPane", "palette.mobileConnect", "device.add", "cloudMove",
-        "cloudBringBack", "machine.reconnect",
+        "remote.connect", "newCloudMachine", "palette.auth.signIn", "palette.openCloudPane", "palette.mobileConnect",
+        "device.add", "cloudMove", "cloudBringBack", "machine.reconnect",
     ]
     /// The arguments a connect action runs with.
     static let connectArguments: [String: [String: String]] = ["palette.openCloudPane": ["route": "/get"]]

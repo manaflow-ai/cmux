@@ -12,13 +12,15 @@ export type Environment = { id: string; label: string; kind: EnvironmentKind; co
 /// these; AgentPaneModel.connectActions): SSH… connects a machine, New Cloud Machine creates one on
 /// the plan's default size, and Open Cloud… opens the Cloud page, whose storefront lists
 /// the plan's sizes (the pane knows no plan), Connect Phone… opens the Mobile Pairing page (cmux
-/// on iPhone reaches this Mac), and Add Machine… opens the Add Device card: a computer on the
+/// on iPhone reaches this Mac), Sign in for Cloud signs in only (it never creates a machine; signed
+/// in already, the app refuses it), and Add Machine… opens the Add Device card: a computer on the
 /// tailnet or in ~/.ssh/config (the app installs its agent daemon and keeps it current), or a new
 /// Cloud VM. A started chat's picker offers its one move instead: Move to Cloud on this Mac, Bring
 /// Back Local on a Cloud machine (the tab menu's same actions).
 export const CONNECT_ACTIONS = {
   ssh: "remote.connect",
   cloud: "newCloudMachine",
+  cloudSignIn: "palette.auth.signIn",
   cloudPage: "palette.openCloudPane",
   addMachine: "device.add",
   move: "cloudMove",

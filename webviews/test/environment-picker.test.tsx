@@ -467,6 +467,8 @@ test("each connect choice runs its own host action", async () => {
   expect(CONNECT_ACTIONS).toEqual({
     ssh: "remote.connect",
     cloud: "newCloudMachine",
+    // Sign in for Cloud only signs in (review BLOCK at 44c1712d: it ran New Cloud Machine).
+    cloudSignIn: "palette.auth.signIn",
     cloudPage: "palette.openCloudPane",
     addMachine: "device.add",
     move: "cloudMove",
