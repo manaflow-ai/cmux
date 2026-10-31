@@ -100,14 +100,20 @@ extension AgentTabStore {
                      created: (@MainActor (_ key: String, _ decision: RightColumnPlacement.Decision<String>) -> Void)? = nil,
                      finished: (@MainActor (_ moved: Bool) -> Void)? = nil) -> Bool {
         var opened = true
+        var ran = true // the turn ran in this call (false once it waits for another open)
         let now = serially(resolve(provisional)) { [weak self] done in
             guard let self else { finished?(false); return done() }
             let decision = RightColumnPlacement.decide(rightColumn(resolve(provisional)))
             // A created hook is always passed, so openBeside and main pane layout call `finished` on every path once they opened.
             opened = place(decision, of: provisional, origin: origin, open: open, created: { key in created?(key, decision) },
                            finished: { moved in done(); finished?(moved) })
-            if !opened { done() }
+            guard !opened else { return }
+            done()
+            // Its caller already heard true (it waited its turn), so it hears the refusal here: else the
+            // tracker that asked stays "opening" (review of the #28044 carry at 1eb458cf).
+            if !ran { finished?(false) }
         }
+        ran = false
         return now ? opened : true
     }
 

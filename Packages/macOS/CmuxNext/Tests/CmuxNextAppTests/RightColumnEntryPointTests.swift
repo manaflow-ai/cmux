@@ -64,6 +64,45 @@ import Testing
         withExtendedLifetime(state) {}
     }
 
+    /// Review of the #28044 carry at 1eb458cf: a file a tab already shows is selected where it is and
+    /// never reports to `placed`, so its turn held the source until the 30 s backstop and the next open waited.
+    @Test func anOpenShownWhereItAlreadyWasEndsItsTurn() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let store = services.daemon.store
+        let identity = try JSONDecoder().decode(DaemonIdentity.self,
+            from: Data(#"{"app":"cmux-tui","protocol":1,"session":"right-turn-inplace","generation":"g1"}"#.utf8))
+        store.connectionState = .connected(identity)
+        store.apply(snapshot: Self.tree())
+        let workspace = try #require(store.workspaces.first)
+        let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w2","workspace_key":"w1"}"#.utf8))
+        let state = WindowState(record: record)
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 1600, height: 900), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil) }
+        let content = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
+        content.contentView.frame = NSRect(x: 0, y: 0, width: 1600, height: 900)
+        window.contentView = content.contentView
+        window.orderFrontRegardless()
+        content.applyCurrent()
+        content.contentView.layoutSubtreeIfNeeded()
+        let panes = try #require(content.layoutModel.screens.first?.layout.panes)
+        let chat = try #require(content.panes[panes[0]])
+        services.linkOpener.placement = { .splitRight }
+        var gotPlaced = false
+        // One pane on the right: the open splits below it, so `make` gets `placed`, and shows an existing tab instead.
+        let opened = services.linkOpener.open(from: chat) { _, placed in
+            gotPlaced = placed != nil
+            services.linkOpener.openedInPlace()
+            return true
+        }
+        #expect(opened)
+        #expect(gotPlaced, "fixture: the open was asked to place a new tab")
+        #expect(!services.linkOpener.turns.isBusy(beside: chat.layoutPaneID), "a tab shown in place kept its turn")
+        withExtendedLifetime(state) {}
+    }
+
     @Test func anAgentOpenWaitsForTheOpenUnderWayBesideItsChat() {
         let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), environment: [:], showcase: true)
         let source = LayoutPaneID("agent-turn-chat")

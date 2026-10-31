@@ -45,6 +45,12 @@ final class LinkOpener {
     /// Every open on the right of a pane takes its turn here, one at a time per source pane, with
     /// ``AgentTabStore/openOnRight(of:origin:open:created:finished:)``'s (``RightColumnTurns``).
     let turns = RightColumnTurns()
+    /// Set by an open's `make` that showed an existing tab instead of making one, read right after it
+    /// returns (``moved(from:to:background:_:done:)``): synchronous, one open at a time.
+    private var shownInPlace = false
+
+    /// Called by a `make` that was given `placed` but showed a tab already there instead of making one.
+    func openedInPlace() { shownInPlace = true }
 
     init(services: AppServices) {
         self.services = services
@@ -149,22 +155,35 @@ final class LinkOpener {
             // left out of the dock's strip on the way (``OutboundTab``): it first shows on the right.
             guard source.isOpenPinnedDockPane else { defer { done() }; return make(source, nil) }
             let outbound = OutboundTab.begin(in: source)
+            shownInPlace = false
             let made = outbound.started(make(source) { [weak self, weak source] surface in
                 guard let self, let source else { done(); return outbound.finish(moved: false) }
                 self.moveBeside(surface, from: source, focus: !background, outbound: outbound, then: done)
             })
-            if !made { done() }
-            return made
+            return ended(made, outbound, done)
         case .dockChat:
             let outbound = OutboundTab.begin(in: source)
+            shownInPlace = false
             let made = outbound.started(make(source) { [weak source] surface in
                 guard let source else { done(); return outbound.finish(moved: false) }
                 outbound.made(surface)
                 MainPaneLayout.dockChat(of: source, keeping: surface, focus: !background, services: source.services, outbound: outbound) { _ in done() }
             })
-            if !made { done() }
-            return made
+            return ended(made, outbound, done)
         }
+    }
+
+    /// After an open's `make`: a refusal, or a tab shown where it already was (``shownInPlace``), moves
+    /// nothing, so its turn ends now; else the move ends it.
+    private func ended(_ made: Bool, _ outbound: OutboundTab, _ done: @MainActor () -> Void) -> Bool {
+        if made, shownInPlace {
+            shownInPlace = false
+            outbound.finish(moved: false)
+        } else if made {
+            return true
+        }
+        done()
+        return made
     }
 
     /// `make`'s tab, made unselected in `pane` and kept out of its strip (``OutboundTab``), moved to
@@ -172,12 +191,12 @@ final class LinkOpener {
     private func moved(from pane: PaneController, to destination: Destination, background: Bool, _ make: Make,
                        done: @escaping @MainActor () -> Void) -> Bool {
         let outbound = OutboundTab.begin(in: pane)
+        shownInPlace = false
         let made = outbound.started(make(pane) { [weak self, weak pane] surface in
             guard let self, let pane else { done(); return outbound.finish(moved: false) }
             self.move(surface, from: pane, to: destination, focus: !background, outbound: outbound, then: done)
         })
-        if !made { done() }
-        return made
+        return ended(made, outbound, done)
     }
 
     /// A web link in a cmux browser tab (``LinkRouter/openInCmux``), as Chrome opens a clicked
@@ -272,7 +291,10 @@ final class LinkOpener {
     func openFile(_ file: URL, from source: PaneController?, markdown: Bool = false, asText: Bool = false,
                   at position: FilePosition? = nil) -> Bool {
         open(from: source) { pane, placed in
-            pane.services.viewers.openFile(file, in: pane, markdown: markdown, asText: asText, at: position, placed: placed)
+            // A tab that already shows the file is selected where it is and never reports to `placed`:
+            // it says so, so its turn ends now (review of the #28044 carry at 1eb458cf).
+            pane.services.viewers.openFile(file, in: pane, markdown: markdown, asText: asText, at: position, placed: placed,
+                                           shownInPlace: placed == nil ? nil : { [weak self] in self?.openedInPlace() })
         }
     }
 
@@ -285,7 +307,8 @@ final class LinkOpener {
         turns.serially(beside: source.layoutPaneID) { [weak self, weak source] done in
             guard let self, let source else { return done() }
             let terminal: Make = { pane, placed in
-                pane.newTerminalTab(cwd: path, then: placed)
+                // The move owns selection, so the terminal never shows in the source first (as a link's browser tab).
+                pane.newTerminalTab(cwd: path, placementOwner: placed != nil, then: placed)
                 return true
             }
             switch self.target(from: source) {
