@@ -486,10 +486,15 @@ final class TabCell {
             // The marquee fades glyphs out across the icon-title gap.
             let textWidth = titleWidth()
             let visibleWidth = visibleEnd - titleX
-            let restWidth = textWidth > visibleWidth + 0.5 ? visibleWidth : span
+            let isMiddleTruncated = textWidth > visibleWidth + 0.5
+            let restWidth = isMiddleTruncated ? visibleWidth : span
             let geometry = TitleFadeGeometry(
                 textWidth: textWidth, span: span, visibleWidth: visibleWidth,
-                leadingPadding: m.iconTitleSpacing, trailingPadding: 0, fadeWidth: m.titleFadeWidth,
+                leadingPadding: m.iconTitleSpacing, trailingPadding: 0,
+                // The ellipsis is the clipping cue for middle truncation. Keep
+                // the retained suffix opaque instead of fading it under the
+                // close button/badge mask.
+                fadeWidth: isMiddleTruncated ? 0 : m.titleFadeWidth,
                 restWidth: restWidth
             )
             let frame = CGRect(x: pixel(titleX), y: pixel(midY - lineHeight / 2), width: span, height: lineHeight)
