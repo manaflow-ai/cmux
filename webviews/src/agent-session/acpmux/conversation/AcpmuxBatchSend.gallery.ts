@@ -123,7 +123,7 @@ export default agentPaneEntry({
       play: openRaw,
     },
     "batch-sending": {
-      note: "A loop batch in flight: each message's row has the working spinner.",
+      note: "A loop batch in flight: each message is its own row and reads Sending to, with no spinner on the row.",
       theme: { codexToolRuns: false },
       snapshot: turn([RUNNING], true),
     },
