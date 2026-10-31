@@ -184,7 +184,7 @@ class Runner:
                "CAPTURE_HOST_POOL": os.environ.get("CAPTURE_HOST_POOL", self.gate.OWNER_POOL),
                "JOURNEYS_EXCLUDE_HOSTS": " ".join(x for x in (os.environ.get("JOURNEYS_EXCLUDE_HOSTS", "cmux16"),
                                                                 "" if opts.allow_cmux17 else "cmux17") if x)}
-        hosts = host or opts.host or self.gate.idle_first(opts.hosts)
+        hosts = opts.whole_host or host or opts.host or self.gate.idle_first(opts.hosts)
         env["CAPTURE_HOST_HOSTS"] = env["CAPTURE_HOST_SLOT_HOSTS"] = hosts
         argv = [sys.executable, opts.runner, "--build", build, "--journey", JOURNEY, "--exclusive", "--hosts", hosts,
                 "--out", str(out)]
@@ -194,6 +194,8 @@ class Runner:
             argv += ["--journey-option", f"{key}={value}"]
         if opts.diagnostic:
             argv += ["--journey-option", "fuzz_mode=diagnostic"]
+        if opts.whole_host:
+            argv += ["--whole-host"]  # the whole mini, the app launched active: its window is key (normal mode)
         out.mkdir(parents=True, exist_ok=True)
         with open(out / "run.log", "w") as log:  # live, so a long round can be followed
             proc = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT, text=True, env=env)
@@ -324,6 +326,9 @@ def main(argv=None):
     ap.add_argument("--hosts", default=DEFAULT_HOSTS)
     ap.add_argument("--host", help="pin every round to this mini (the A/B is then on one host for the whole run)")
     ap.add_argument("--allow-cmux17", action="store_true", help="only after STATUS says CUA GRANTED cmux17")
+    ap.add_argument("--whole-host", metavar="HOST",
+                    help="normal mode: lease this whole mini (exclusive) and launch the app active, so its window is key "
+                         "and keys are typed at once (needs CuaDriver's grants and its direct-capture Allow on HOST)")
     ap.add_argument("--shrink-tries", type=int, default=10, help="ddmin tries per failure (one short lease each)")
     ap.add_argument("--replay", help="a repro JSON (a sequence list, or a file with `shrunk`/`sequence`): one round")
     ap.add_argument("--plan", action="store_true", help="print the plan of --seed and exit (no fleet)")
@@ -338,7 +343,11 @@ def main(argv=None):
         return 0
     if not opts.build:
         ap.error("--build JOB is required")
-    if opts.host and opts.host == "cmux17" and not opts.allow_cmux17:
+    if not opts.diagnostic and not opts.whole_host and not opts.plan:
+        ap.error("normal mode needs a key window: --whole-host HOST (a granted mini), else --diagnostic (a slot)")
+    if opts.whole_host and opts.diagnostic:
+        ap.error("--whole-host is the normal mode: drop --diagnostic")
+    if "cmux17" in (opts.host, opts.whole_host) and not opts.allow_cmux17:
         ap.error("cmux17 is reserved for the Cua grant: --allow-cmux17 only after STATUS says CUA GRANTED cmux17")
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     out = Path(opts.out) if opts.out else ROOT / "artifacts" / "fuzz" / f"{opts.build[:12]}-{stamp}"

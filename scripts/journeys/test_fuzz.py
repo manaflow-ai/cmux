@@ -35,7 +35,8 @@ plan = json.loads(os.environ["FUZZ_PLAN"])
 side = plan.get(build, {})
 os.makedirs(os.path.join(out, "action-fuzz"), exist_ok=True)
 with open(os.path.join(os.environ["FUZZ_LOG"]), "a") as f:
-    f.write(json.dumps({"build": build, "opts": opts, "hosts": args[args.index("--hosts") + 1]}) + "\n")
+    f.write(json.dumps({"build": build, "opts": opts, "hosts": args[args.index("--hosts") + 1],
+                        "whole_host": "--whole-host" in args}) + "\n")
 seed = int(opts.get("fuzz_seed", 0))
 seq = json.loads(opts["fuzz_sequence"]) if "fuzz_sequence" in opts else [{"a": "split_right", "t": "pair"}] * 4
 fail = seed in side.get("fail_seeds", []) or ("fuzz_sequence" in opts and side.get("fail_sequences"))
@@ -122,6 +123,8 @@ class Pure(unittest.TestCase):
 
 class Verdicts(unittest.TestCase):
     def run_fuzz(self, plan, *extra):
+        if "--diagnostic" not in extra and "--whole-host" not in extra:
+            extra = extra + ("--whole-host", "cmux99")  # normal mode needs a whole-host lease
         tmp = Path(tempfile.mkdtemp())
         fake = tmp / "fake_run.py"
         fake.write_text(FAKE)
@@ -201,6 +204,19 @@ class Verdicts(unittest.TestCase):
         seq = json.loads(calls[0]["opts"]["fuzz_sequence"])
         self.assertEqual({i["corpus"] for i in seq}, set(ext_fuzz.CORPUS_SETS["layout"]))
         self.assertEqual(sum(1 for i in seq if i["a"] == "close_all"), len(ext_fuzz.CORPUS_SETS["layout"]) - 1)
+
+    def test_normal_mode_needs_whole_host(self):
+        tmp = Path(tempfile.mkdtemp())
+        done = subprocess.run([sys.executable, str(HERE / "fuzz.py"), "--build", "j", "--base", "b", "--out", str(tmp / "o")],
+                              capture_output=True, text=True)
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("--whole-host", done.stderr)
+
+    def test_whole_host_is_passed_and_pins_the_host(self):
+        done, summary, calls, _ = self.run_fuzz({"jobT": {}, "jobB": {}}, "--base", "jobB", "--whole-host", "cmux18")
+        self.assertTrue(calls)
+        self.assertTrue(all(c["hosts"] == "cmux18" and c.get("whole_host") for c in calls), calls[:2])
+        self.assertTrue(all("fuzz_mode" not in c["opts"] for c in calls))
 
     def test_cmux17_refused(self):
         tmp = Path(tempfile.mkdtemp())

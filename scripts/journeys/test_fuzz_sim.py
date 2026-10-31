@@ -257,6 +257,7 @@ class SimJourney:
         self.app, self.out, self.nonce, self.deadline = app, Path(out), "424242", driver.now() + 120
         self.spec = {"options": {}}
         self.marks, self.key_window = {}, None
+        self.smoke_key_ok = True  # the sim's window is key (normal mode)
 
     def key(self, key, mods, window=None):
         self.last_key_at = driver.now()
@@ -294,6 +295,15 @@ def run(bugs=(), seq=None, seed=5, count=40, shrink=True, actions="full"):
 
 
 class Sim(unittest.TestCase):
+    def test_normal_mode_without_a_key_window_is_not_run(self):
+        j = SimJourney(FakeApp(), tempfile.mkdtemp())
+        j.smoke_key_ok = False
+        with self.assertRaises(driver.NotRun):
+            ext_fuzz.Fuzz(j, {"seed": 1, "count": 5})
+        j.spec = {"options": {"fuzz_mode": "diagnostic"}}
+        ext_fuzz.Fuzz(j, {"seed": 1, "count": 5})  # diagnostic: runs
+
+
     def test_correct_app_is_clean(self):
         for seed in (1, 2, 3):
             report, error = run(seed=seed)

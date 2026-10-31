@@ -139,7 +139,7 @@ class FuzzStop(unittest.TestCase):
                           "args = sys.argv[1:]; os.makedirs(args[args.index('--out') + 1], exist_ok=True)\n"
                           "open(%r + '.started', 'w').write('1')\n"
                           "time.sleep(60)\n" % (str(mark), str(mark)))
-        p = subprocess.Popen([sys.executable, str(HERE / "fuzz.py"), "--build", "jobT", "--base", "jobB", "--minutes", "1",
+        p = subprocess.Popen([sys.executable, str(HERE / "fuzz.py"), "--build", "jobT", "--base", "jobB", "--minutes", "1", "--diagnostic",
                               "--out", str(tmp / "out"), "--handoff", str(tmp / "h"), "--runner", str(runner)],
                              env={**os.environ, "SMOKE_GATE_CMUX_CI": "/nonexistent"},
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)

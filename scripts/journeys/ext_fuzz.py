@@ -358,6 +358,13 @@ class Fuzz:
         self.j = j
         opts = j.spec.get("options") or {}
         self.diagnostic = opts.get("fuzz_mode") == "diagnostic" or opts.get("smoke_mode") == "diagnostic"
+        if not self.diagnostic and not getattr(j, "smoke_key_ok", False):
+            # Normal mode types at once after each create and reads focus against AppKit's first responder: both need
+            # the app's window to be key (smoke_make_key, a whole-host lease with the app active). Without it the run
+            # would report the slot's limit as product reds: "not run", never a pass or a red.
+            raise D.NotRun("known gap: the window did not become key (debug.window.focus "
+                           f"{json.dumps(getattr(j, 'smoke_key_reply', None))[:200]}); run --diagnostic or on a granted "
+                           "mini with --whole-host")
         self.seed = int(opts.get("fuzz_seed") or step.get("seed") or random.randrange(1 << 30))
         self.count = int(opts.get("fuzz_count") or step.get("count", 300))
         budget = float(opts.get("fuzz_budget_s") or step.get("budget_s", 200))
