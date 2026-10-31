@@ -238,7 +238,7 @@ extension CloudStrings {
     /// An agent's `cloud set-network-access` that would let the machine reach more than it can now.
     static var networkAccessAgentWidens: String {
         String(localized: "cloud.cli.networkAccessAgentWidens",
-               defaultValue: "An agent can narrow a machine's internet access but not widen it. Choose Internet Access… from the machine's menu.",
+               defaultValue: "An agent can only turn a machine's internet access off. To choose another level, use Internet Access… in the machine's menu.",
                table: "Cloud", bundle: .module)
     }
 }

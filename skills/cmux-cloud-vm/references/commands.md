@@ -117,7 +117,7 @@ resumes it. `set-idle-pause` changes the timeout per machine.
 A machine reaches the whole internet by default. `set-network-access` narrows it, live and with no
 restart: `trusted` allows only GitHub, the package registries and the model providers the server
 lists as presets, and `none` only the hosts cmux itself needs. The machine's own allowed ranges
-and domains (set in the dashboard) are kept. An agent may narrow access but never widen it.
+and domains (set in the dashboard) are kept. An agent may only choose `none` (turn access off).
 
 ## Shell, commands and files
 

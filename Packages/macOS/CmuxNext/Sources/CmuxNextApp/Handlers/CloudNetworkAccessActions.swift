@@ -10,7 +10,7 @@ enum CloudNetworkAccessActions {
     /// `cloud set-network-access --target machine:<id> --access full|trusted|none`. It reads the
     /// stored policy, changes only its mode (and, for `trusted`, adds the server's presets), and
     /// writes it back, so the machine's own ranges and domains stay. An agent's run that would
-    /// widen access is refused: an agent may close its machine off, never open it up. A CLI, agent
+    /// choose anything but `none` is refused: an agent may close its machine off, never open it up. A CLI, agent
     /// or script run gets `machine_id`, `network_access`, `mode` and `applied` back; a person's run
     /// reports a failure in a sheet.
     static func set(_ invocation: ActionInvocation, _ context: AppActionContext,
@@ -22,12 +22,14 @@ enum CloudNetworkAccessActions {
         let access = try level(invocation)
         // The run's effective origin counts: an action an MCP run nests carries a .user origin of its own.
         let machineID = session.machineID, isAgent = CloudStartSession.isAgent(invocation)
+        // An agent may only choose `none`: the PUT replaces the policy unconditionally, so a level
+        // judged against a read that a person's newer edit (the dashboard, another Mac) made stale
+        // could reopen what they closed. `none` is the narrowest whatever the server holds by then.
+        // Lifting this needs a conditional PUT on the server (#28706).
         let work: @MainActor () async throws -> [String: ActionResultValue] = { try await serialized(machineID) {
+            if isAgent, access != .noInternet { throw ActionFailure(message: CloudStrings.networkAccessAgentWidens) }
             let current = try await read(machineID)
             let policy = access.applied(to: current.policy, presets: current.presets.map(\.id))
-            if isAgent, CloudNetworkAccess.widens(from: current.policy, to: policy) {
-                throw ActionFailure(message: CloudStrings.networkAccessAgentWidens)
-            }
             // The same policy is written again unless it is applied: a PUT retries a failed apply.
             if policy == current.policy, current.applied?.state == "applied" { return fields(machineID, current) }
             return fields(machineID, try await write(machineID, policy))

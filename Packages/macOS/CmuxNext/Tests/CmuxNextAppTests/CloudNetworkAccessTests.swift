@@ -7,7 +7,7 @@ import Testing
 /// Internet Access… (`cloud set-network-access`) sets a Cloud machine's outbound level over the
 /// server's stored policy (web/services/vms/networkPolicy.ts): full, trusted (every preset the
 /// server serves) or none. It changes only the mode and the presets, so the machine's own ranges
-/// and domains stay, and an agent may narrow access but never widen it.
+/// and domains stay, and an agent may only turn access off.
 @MainActor @Suite(.serialized)
 struct CloudNetworkAccessTests {
     static let catalog = ["anthropic", "openai", "github", "npm"]
@@ -163,9 +163,14 @@ struct CloudNetworkAccessTests {
         #expect(retried.written == [none], "a PUT retries a failed apply")
     }
 
-    @Test func anAgentMayNarrowButNeverWiden() async throws {
+    @Test func anAgentMayOnlyTurnAccessOff() async throws {
         let narrowed = try await run("none", from: CloudNetworkPolicy(mode: .full), origin: .mcp)
         #expect(narrowed.written.map(\.mode) == [.none])
+        // Even a narrowing to trusted is refused: judged against a read a newer edit made stale,
+        // it could reopen what a person closed (the PUT is unconditional).
+        let trusted = try await run("trusted", from: CloudNetworkPolicy(mode: .full), origin: .mcp)
+        #expect(trusted.written.isEmpty)
+        guard case .failure = trusted.result else { Issue.record("an agent chose trusted"); return }
         let widened = try await run("full", from: CloudNetworkPolicy(mode: .none), origin: .mcp)
         #expect(widened.written.isEmpty)
         guard case .failure(let failure) = widened.result else { Issue.record("an agent widened access"); return }

@@ -246,7 +246,7 @@ nonisolated enum CloudActionDescriptions {
             Sets what the machine (--target machine:<id>) may reach on the internet: --access full (every \
             public address), trusted (only GitHub, the package registries and the model providers the server \
             lists as presets) or none (only the hosts cmux itself needs). Applies live, with no restart, and \
-            keeps the machine's own allowed ranges and domains. An agent may narrow access, never widen it. \
+            keeps the machine's own allowed ranges and domains. An agent may only choose none (turn access off). \
             Returns machine_id, network_access, mode and applied (applied, pending or failed).
             """,
         "palette.cloud.deleteSnapshot": """
