@@ -141,7 +141,7 @@
     {"do": "smoke_snapshot", "name": "before_cmdt"},
     {"do": "smoke_key", "key": "t", "modifiers": ["cmd"], "mark": "cmdt"},
     {"do": "expect", "title": "Cmd-T opens a New Tab page as one more tab", "since": "cmdt", "timeout": 15,
-     "all": [{"smoke_tabs": {"since": "before_cmdt", "new": 1}}, {"smoke_key_window": {}}]},
+     "all": [{"smoke_tabs": {"since": "before_cmdt", "new": 1}}, {"smoke_key_window": {"page": true}}]},
     {"do": "smoke_key", "key": "w", "modifiers": ["cmd"], "mark": "cmdw"},
     {"do": "expect", "title": "Cmd-W closes that tab: the tab count is back, and the browser page shows again", "since": "cmdw", "timeout": 15,
      "all": [{"smoke_tabs": {"since": "before_cmdt", "new": 0}}, {"frame_text": "documentation examples"}]},

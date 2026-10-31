@@ -38,7 +38,8 @@ Conditions (inside `expect.all`; evidence kind app):
                                       (text recognition reads at least MIN_LINES, default 3, lines) and shows none of
                                       LACKS. The screenshot of a step whose state the app's reads prove
   smoke_panes        {line, count}    the workspace whose terminal shows LINE has COUNT panes
-  smoke_key_window   {}               a main window of the app is its key window (debug.window_list; a read only)
+  smoke_key_window   {page?}          a main window of the app is its key window (debug.window_list; a read only);
+                                      PAGE: or a visible Chromium page window that is a main window's child (a page step)
   smoke_new_terminals {since, lines, focused, placement, order?}
                                       the keys went to the new terminals, not to an old one: exactly len(LINES) new
                                       daemon terminals since the snapshot SINCE; each line is on exactly one terminal
@@ -539,9 +540,21 @@ def cond_smoke_frame(j, want, cache):
 def _main_key(j):
     """(a main window is the app's key window, the app's windows): a read (debug.window_list), never a focus."""
     report = j.app.rpc("debug.window_list") or {}
-    windows = [{"id": w.get("id"), "kind": w.get("kind"), "key": w.get("key"), "visible": w.get("visible")}
+    windows = [{"id": w.get("id"), "kind": w.get("kind"), "key": w.get("key"), "visible": w.get("visible"),
+                "parent": w.get("parent")}
                for w in report.get("windows", []) if isinstance(w, dict)]
     return any(w["key"] is True and w["kind"] == "main" for w in windows), windows
+
+
+def _page_holds_key(windows):
+    """{"page": id, "of_main": id} when the key window is a visible Chromium page window (`CefNSWindow`) that is the child
+    of a main window of the app, else None. That is how the app gives a page the keyboard: the page window sits in the
+    cmux window as a child and takes key, and the cmux window stays main (ChromiumPageWindowMain, WindowKeyFamily)."""
+    mains = {w["id"] for w in windows if w["kind"] == "main"}
+    for w in windows:
+        if w["key"] is True and w["kind"] == "CefNSWindow" and w["visible"] is True and w["parent"] in mains:
+            return {"page": w["id"], "of_main": w["parent"]}
+    return None
 
 
 def cond_smoke_panes(j, want, cache):
@@ -609,8 +622,14 @@ def cond_smoke_key_window(j, want, cache):
     window of the app is key because a foreign app that was frontmost before the journey is front again (a system
     prompt left on the mini's console), the check is not judged: it holds for this step (so the step's other checks
     are still judged) and records the gap; smoke-gate.py then makes a passed round "not run", never a pass. A non-main
-    app window key, the app front with no key window, or a foreign app that appeared during the journey fails."""
+    app window key, the app front with no key window, or a foreign app that appeared during the journey fails.
+    {"page": true}: a step that leaves a Chromium page focused (Cmd-T's New Tab page) also holds when that page's window,
+    a visible child of a main window, is key (_page_holds_key); every other step wants the main window itself key."""
     key_now, windows = _main_key(j)
+    if not key_now and (want or {}).get("page"):
+        holder = _page_holds_key(windows)
+        if holder:
+            return True, {"windows": windows, "holder": holder}
     if not key_now and _diagnostic(j) \
             and not any(w["key"] is True for w in windows) and any(w["kind"] == "main" for w in windows):
         # Diagnostic on a slot: the app is never the active app there, so its window may be key for a moment

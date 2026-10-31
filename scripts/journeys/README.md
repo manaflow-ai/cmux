@@ -404,6 +404,9 @@ reaches only the key window. So the journey first makes its window key without a
 app (`smoke_make_key`: `debug.window.focus`, which calls `makeKey()` and reports the key window),
 and each check and each type-at-once step reads that a main window is still key
 (`smoke_key_window`, `debug.window_list`; not key before typing: known gap).
+A step that leaves a Chromium page focused (Cmd-T's New Tab page) says `smoke_key_window {"page": true}`:
+the page's `CefNSWindow`, a visible child of the cmux window, then holds the keys, as the app is built to do
+(`ChromiumPageWindowMain`). Every other step wants the main window itself key.
 If the window did not become key, the round is "not run: known gap", which never passes the gate.
 `smoke-gate.py --whole-host HOST` takes that mini whole (exclusive) and launches the app active
 (`capture-host launch --activate`; the driver's relaunch then opens it in front too), so its window
