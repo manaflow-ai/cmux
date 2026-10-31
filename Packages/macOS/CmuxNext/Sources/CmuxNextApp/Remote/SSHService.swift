@@ -30,6 +30,10 @@ final class SSHService {
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.ssh")
     /// Runs `remote.install` through the registry's confirmation (set by the handlers).
     @ObservationIgnored var offerInstall: ((SSHMachineSession) -> Void)?
+    /// Removes the acpmux peers whose ssh `[user@]host` the predicate picks (set by the handlers:
+    /// `DeviceDirectory.removePeers`). A written Forget takes out the peer enroll added for the same
+    /// host, so the machine leaves the agent list too (HQ #4877 break 8).
+    @ObservationIgnored var removePeers: (((String) -> Bool) async -> Void)?
     /// Forgotten machines, so a stale registry echo does not bring them back.
     @ObservationIgnored private var forgotten: Set<String> = []
     /// Saved hosts on the home daemon's current connection (`SSHService+SavedHosts`).
@@ -265,6 +269,8 @@ final class SSHService {
     struct PendingForget {
         let machineID: String
         let label: String
+        /// Where it was reached: a written Forget also removes the acpmux peer at this route.
+        let destination: SSHDestination
         /// The registry transport, with its `connect` flag.
         let fields: [String: String]
         let sessionID: String?
@@ -280,7 +286,7 @@ final class SSHService {
     /// writes wait for `commitForget` (the undo toast's end, `RemoteForgetUndo`).
     func hide(_ session: SSHMachineSession) -> PendingForget {
         forgotten.insert(session.machineID)
-        let pending = PendingForget(machineID: session.machineID, label: session.host.label,
+        let pending = PendingForget(machineID: session.machineID, label: session.host.label, destination: session.host.destination,
                                     fields: Self.fields(Self.transport(session)) ?? [:],
                                     sessionID: session.daemon.identity?.sessionID ?? recordID(for: session.host))
         session.close()
@@ -301,6 +307,11 @@ final class SSHService {
         // A connect to the same machine while the toast showed took it back.
         guard forgotten.contains(pending.machineID), machines.sshSession(pending.machineID) == nil else { return }
         forgetSavedHost(pending.machineID)
+        // The peer goes only when no machine still in the list reaches the same route (another session there).
+        let route = pending.destination
+        if !machines.ssh.contains(where: { Self.sameRoute($0.host.destination, route) }) {
+            await removePeers?({ Self.reaches(route, peer: $0) })
+        }
         guard let sessionID = pending.sessionID, machines.local.supports(DaemonCapability.profiles.rawValue),
               let home = machines.local.connection else { return }
         do {
@@ -308,6 +319,28 @@ final class SSHService {
         } catch {
             logger.error("forget-session \(sessionID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    /// Settings > Devices removed the acpmux peer at `peer` (`[user@]host`): the SSH machines that
+    /// reach the same route leave too, written at once (Remove for Good was confirmed already).
+    func forgetMachines(reachingPeer peer: String) async {
+        for session in machines.ssh where Self.reaches(session.host.destination, peer: peer) {
+            await forget(session)
+        }
+    }
+
+    /// Whether an SSH machine at `destination` and an acpmux peer whose `ssh://` URL dials `peer`
+    /// (`[user@]host`, as enroll adds it for that machine) are the same route: the same host (any
+    /// case) and the same user, and no ssh port on the machine (a peer URL's port is its daemon's,
+    /// never ssh's, so a machine on another ssh port is never taken for it).
+    static func reaches(_ destination: SSHDestination, peer: String) -> Bool {
+        guard destination.port == nil, let target = try? SSHDestination(parsing: peer), target.port == nil else { return false }
+        return sameRoute(destination, target)
+    }
+
+    /// The same host (any case), user and port.
+    static func sameRoute(_ a: SSHDestination, _ b: SSHDestination) -> Bool {
+        a.host.caseInsensitiveCompare(b.host) == .orderedSame && a.user == b.user && a.port == b.port
     }
 
     /// The registry record's session id for `host`, when it was saved.

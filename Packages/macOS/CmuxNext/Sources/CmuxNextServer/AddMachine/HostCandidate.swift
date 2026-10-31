@@ -74,7 +74,14 @@ public nonisolated struct HostCandidate: Equatable, Sendable, Identifiable, Deco
     /// `daemonPort` on that machine's loopback. The URL's port is that daemon port, never the ssh
     /// port. Nil for no peer, another transport, or a URL acpmux would refuse.
     public var peerSSHTarget: (destination: String, daemonPort: Int)? {
-        guard alreadyPeer, let peerURL, peerURL.lowercased().hasPrefix("ssh://") else { return nil }
+        guard alreadyPeer, let peerURL else { return nil }
+        return Self.sshTarget(peerURL: peerURL)
+    }
+
+    /// Any acpmux peer URL read as ``peerSSHTarget`` reads it; nil for another transport or a URL
+    /// acpmux would refuse.
+    public static func sshTarget(peerURL: String) -> (destination: String, daemonPort: Int)? {
+        guard peerURL.lowercased().hasPrefix("ssh://") else { return nil }
         var rest = String(peerURL.dropFirst("ssh://".count))
         if rest.hasSuffix("/") { rest.removeLast() }
         let at = rest.firstIndex(of: "@")
