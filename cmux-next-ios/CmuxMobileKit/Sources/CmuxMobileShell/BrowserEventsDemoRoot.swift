@@ -150,14 +150,28 @@ private final class BrowserEventsDemoFixture {
                 }
             }
         }
-        var children = object.accessibilityElements ?? []
-        let count = object.accessibilityElementCount()
-        if count > 0, count < 512 {
-            for index in 0..<count {
-                if let child = object.accessibilityElement(at: index) { children.append(child) }
+        var children: [Any] = []
+        if let view = object as? UIView {
+            children.append(contentsOf: view.accessibilityElements ?? [])
+            children.append(contentsOf: view.subviews)
+        }
+        // SwiftUI exposes virtual accessibility containers as NSObject subclasses.
+        // Ask only objects implementing the public container selectors for children.
+        let countSelector = NSSelectorFromString("accessibilityElementCount")
+        let elementSelector = NSSelectorFromString("accessibilityElementAtIndex:")
+        if object.responds(to: countSelector), object.responds(to: elementSelector),
+           let countMethod = object.method(for: countSelector),
+           let elementMethod = object.method(for: elementSelector) {
+            typealias Count = @convention(c) (AnyObject, Selector) -> Int
+            typealias Element = @convention(c) (AnyObject, Selector, Int) -> AnyObject?
+            let count = unsafeBitCast(countMethod, to: Count.self)(object, countSelector)
+            let element = unsafeBitCast(elementMethod, to: Element.self)
+            if count > 0, count < 512 {
+                for index in 0..<count {
+                    if let child = element(object, elementSelector, index) { children.append(child) }
+                }
             }
         }
-        if let view = object as? UIView { children.append(contentsOf: view.subviews) }
         for case let child as NSObject in children {
             if activatePageMenu(in: child, visited: &visited) { return true }
         }
