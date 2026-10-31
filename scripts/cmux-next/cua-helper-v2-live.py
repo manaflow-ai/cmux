@@ -257,8 +257,8 @@ try:
     remote = None
     if helper is None and os.path.isdir(os.path.join(APP, "Contents/Library/cmux Remote (dev).app")):
         # cmux Remote (docs/cmux-remote.md): the worker is the host's child, the host the daemon's.
-        rows = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,command="], capture_output=True, text=True).stdout.splitlines()
-        procs = [r.strip().split(None, 2) for r in rows if "cmux-remote " in r]
+        listing = subprocess.run(["ps", "-Aww", "-o", "pid=,ppid=,command="], capture_output=True, text=True).stdout.splitlines()
+        procs = [r.strip().split(None, 2) for r in listing if "MacOS/cmux-remote " in r]
         hosts = [p for p in procs if len(p) == 3 and " host " in f" {p[2]} "]
         workers = [p for p in procs if len(p) == 3 and "worker computer-use" in p[2]]
         host = hosts[0] if hosts else None
