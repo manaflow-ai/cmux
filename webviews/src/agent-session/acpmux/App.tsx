@@ -5078,9 +5078,7 @@ function AcpmuxPane() {
   const { scrollToBottomOnSend } = useComposerSettings();
   const scrollToBottomOnSendRef = useRef(scrollToBottomOnSend);
   scrollToBottomOnSendRef.current = scrollToBottomOnSend;
-  /// Labs preview features are off until the host explicitly enables them.
-  const [preview, setPreview] = useState(false);
-  /// A new chat's Run as (preview, hq#3367): Persistent is the chat as before; Sandboxed runs the
+  /// A new chat's Run as (hq#3367): Persistent is the chat as before; Sandboxed runs the
   /// first message once on a throwaway Cloud VM and shows its receipt instead. The host holds this
   /// tab's one Sandboxed send and the page renders what it says (sandboxRun.ts SandboxTab). A refused
   /// send's prompt goes back to the composer, or waits for it (`heldBack`).
@@ -7160,13 +7158,12 @@ function AcpmuxPane() {
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
-  /// Run as is a new chat's choice, behind Labs, in a pane with tabs (not the floating chat).
+  /// Run as is a new chat's choice, in a pane with tabs (not the floating chat).
   /// Not once a chat is starting here (a harness pick, a deferred start): its session would replace
   /// the sandbox's result. The host refuses `sandbox.run` then too (AcpmuxPaneReplacements). Not
   /// before the host said what this tab already sent (`sandbox.checked`): a run it holds takes the
   /// chat view, so a send picked before that could only be refused, its prompt with it.
   const sandboxOffered =
-    preview &&
     sandbox.checked &&
     freshChat &&
     !snapshot.sessionId &&
@@ -7181,17 +7178,17 @@ function AcpmuxPane() {
   /// composer, so nothing here can start a chat over it or send a second.
   const sandboxHoldsChat = !snapshot.sessionId && sandboxView !== undefined && !sandboxRetryable(sandboxView);
   const sandboxing = sandboxOffered && !sandbox.spent() && sandbox.mode === "sandboxed";
-  /// Sandboxed is picked but can't run now (Labs went off, a chat is starting or being opened, the
-  /// tab's one send is used): a send then is refused, never sent as a Persistent chat instead.
+  /// Sandboxed is picked but can't run now (a chat is starting or being opened, the tab's one send
+  /// is used): a send then is refused, never sent as a Persistent chat instead.
   const sandboxPickedNotOffered = sandbox.mode === "sandboxed" && !snapshot.sessionId && !sandboxing;
-  const sandboxNotNow = sandbox.spent() ? "sandbox_spent" : preview ? "unavailable_now" : "labs_off";
+  const sandboxNotNow = sandbox.spent() ? "sandbox_spent" : "unavailable_now";
   const sandboxModeRows = { mode: sandbox.mode, onMode: (mode: RunMode) => sandbox.setMode(mode) };
   /// A Sandboxed send: text only, by an agent a sandbox runs. A page-side refusal comes back as its
   /// code (the prompt stays where it was typed); false: nothing was sent.
   const startSandbox = (text: string, attachmentCount: number, harness: string | undefined): string | boolean =>
     sandboxPageRefusal(attachmentCount, harness) ?? sandbox.send(text, sandboxAgent(harness));
   /// A chat shows here while the tab's run is out or ended: a notice offers it, and Show opens it in
-  /// place of the chat until Back. Whatever Labs says now: a paid run's receipt stays reachable.
+  /// place of the chat until Back: a paid run's receipt stays reachable.
   const sandboxElsewhere =
     snapshot.sessionId && sandboxView && !sandboxRetryable(sandboxView) ? sandboxView : undefined;
   const [sandboxViewing, setSandboxViewing] = useState(false);
@@ -7205,11 +7202,6 @@ function AcpmuxPane() {
     setSandboxViewing(false);
     sandboxWake.current = undefined;
   }, [snapshot.sessionId, newTabGeneration]);
-  /// Labs went off: Sandboxed is no longer offered or shown, so the composer is Persistent again
-  /// (a send from it isn't refused as Sandboxed). A run already out stays the tab's.
-  useEffect(() => {
-    if (!preview && sandbox.mode === "sandboxed") sandbox.setMode("persistent");
-  }, [preview, sandbox]);
   const viewedSandbox = sandboxViewing && snapshot.sessionId ? sandboxView : undefined;
   /// The chat view shows the tab's run as a card (SandboxRunView), which offers its own Check again.
   const sandboxCard =
@@ -7217,7 +7209,7 @@ function AcpmuxPane() {
     (sandboxView !== undefined && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed"));
   /// The newest read didn't answer and no card says so: a notice does (the chat's, or the New Tab
   /// page's, where Sandboxed waits for a read that answers).
-  const sandboxUncheckedNotice = sandbox.unread && !sandboxCard && (preview || sandboxView !== undefined);
+  const sandboxUncheckedNotice = sandbox.unread && !sandboxCard;
   const sandboxUnchecked = (
     <output className="acpmux-switch-notice acpmux-folder-choice">
       <span>{t("sandbox.unchecked")}</span>{" "}
@@ -8483,7 +8475,10 @@ function AcpmuxPane() {
         setShortcuts(readShortcuts(labels));
       },
       applyPreview(on) {
-        setPreview(on === true);
+        // The environment picker, Cloud (Move to Cloud, the account's Cloud machines) and Sandboxed
+        // runs are not behind Labs (Leo, 2026-10-30: "i dont like putting so much stuff in labs").
+        // Cloud's own checks stay: Cloud allowed by policy, a signed-in account, and an explicit
+        // pick; nothing creates a paid VM without one.
         setPromptSurfaces(on === true);
         // The host's existing Advanced > Labs event is the only producer today. Keep workflow
         // visibility as its own state so the summary never changes environment rendering rules;
@@ -9964,7 +9959,7 @@ function AcpmuxPane() {
   // account's list is read when such a chat shows (and after each pick), never on a timer.
   const accountMachines = useCloudMachines();
   const chatMachine = chatCloudMachine(summary, accountMachines);
-  const cloudChat = preview && summary?.hostKind === "cloud";
+  const cloudChat = summary?.hostKind === "cloud";
   useEffect(() => {
     if (cloudChat) void refreshCloudMachines();
   }, [cloudChat, snapshot.sessionId]);
@@ -10242,28 +10237,27 @@ function AcpmuxPane() {
   const newBrowser = () => runSplitAction(HEADER_ACTIONS.browser, undefined, "open");
   const chatMenu = (): ChatMenuItem[] => {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
-    // Pause or Resume the chat's Cloud machine (cloudMachineMenu.ts), with Labs > Preview features
-    // as the account's machines in the composer's machine list are.
-    const machine =
-      preview && !quick
-        ? cloudMachineRows(
-            chatMachine,
-            snapshot.isWorking,
-            t,
-            (method, params) => callNative(method, params),
-            (picked) => void readUntilMoved(picked),
-            () => {
+    // Pause or Resume the chat's Cloud machine (cloudMachineMenu.ts), as the account's machines in
+    // the composer's machine list are.
+    const machine = !quick
+      ? cloudMachineRows(
+          chatMachine,
+          snapshot.isWorking,
+          t,
+          (method, params) => callNative(method, params),
+          (picked) => void readUntilMoved(picked),
+          () => {
+            const client = directClient.current;
+            return { session: client?.shownSession()?.sessionId, running: client?.turnRunning() ?? false };
+          },
+          (session) =>
+            stopWaiter.wait(() => {
               const client = directClient.current;
-              return { session: client?.shownSession()?.sessionId, running: client?.turnRunning() ?? false };
-            },
-            (session) =>
-              stopWaiter.wait(() => {
-                const client = directClient.current;
-                return client !== undefined && client.shownSession()?.sessionId === session && client.turnRunning();
-              }),
-            snapshot.sessionId,
-          )
-        : [];
+              return client !== undefined && client.shownSession()?.sessionId === session && client.turnRunning();
+            }),
+          snapshot.sessionId,
+        )
+      : [];
     const copy = copyRow(
       { link, rows: snapshot.rows, sessionId: snapshot.sessionId },
       (text) => ignoreFailure(copyText(text)),
@@ -11495,7 +11489,7 @@ function AcpmuxPane() {
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={handleCmuxCommand}
             onSend={(text, chips, steer) => {
-              // A Sandboxed new chat (preview): the message runs once on a throwaway VM, through the
+              // A Sandboxed new chat: the message runs once on a throwaway VM, through the
               // host, and the chat shows its receipt; no acpmux chat starts.
               // While the tab's run holds the chat nothing else sends as Sandboxed (the composer keeps
               // the prompt); a composer kept for a refused draft sends as Persistent once picked.
@@ -11717,7 +11711,7 @@ function AcpmuxPane() {
                     })
             }
             localName={thisMacName(localMachineName, machineName, composerSnapshot.summary)}
-            environments={preview}
+            environments
             {...(sandboxOffered ? { runMode: sandboxModeRows } : {})}
             onBrowseFolder={
               canMove ? () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd) : undefined
@@ -12070,7 +12064,7 @@ function AcpmuxPane() {
                     );
                   }}
                   key={newTabGeneration}
-                  environments={preview}
+                  environments
                   // The tab's run, found by a read, takes the chat view: the page's draft goes to its composer.
                   onLeaveDraft={(text, attachments) => {
                     // A Sandboxed send from the page already took its prompt (or held it back).
