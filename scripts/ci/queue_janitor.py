@@ -3286,6 +3286,12 @@ def open_head_jobs_moved(
         others = [job for job in now if job.get("status") != "completed" and job.get("id") != rerun_job]
         if others:
             return f"job {others[0].get('name')!r} is unfinished beside the lost job"
+    elif already_failed:
+        # A failed run cancelled because every unfinished job was lost (open_head_lost(), #29392): a job created
+        # or started since the inventory is not lost, and the cancel would kill it (#29405).
+        fresh = [job for job in now if job.get("status") != "completed" and _job_key(job) not in lost]
+        if fresh:
+            return f"job {fresh[0].get('name')!r} is unfinished beside the lost jobs"
     return None
 
 
