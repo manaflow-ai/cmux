@@ -14,7 +14,6 @@
 // when it's in here"). A line that opens something ends in a chevron. A line with nothing to open is
 // a disabled button with no hover at all (subagents.css).
 import type { CSSProperties, ReactNode } from "react";
-import { useAgentProgress } from "./agentProgressStore";
 import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { Tooltip } from "../../../ui/Tooltip";
 import { waveProps } from "../../../ui/wave";
@@ -30,8 +29,7 @@ const ROW_ICON = rowIconSize(12);
 export function AgentLine({
   name,
   detail,
-  progress: fallbackProgress,
-  progressAgent,
+  progress,
   status,
   state,
   time,
@@ -59,7 +57,6 @@ export function AgentLine({
   detail?: string;
   /// Reported agent counts, warnings and usage; separate from the current action.
   progress?: string;
-  progressAgent?: import("./subagentFold").Subagent;
   status: SubagentStatus;
   /// Its state in words ("Running", "Waiting", "Done").
   state: string;
@@ -103,8 +100,6 @@ export function AgentLine({
   /// Use the running tray's fixed trailing columns; other AgentLine consumers keep their flow.
   trayColumns?: boolean;
 }) {
-  const liveProgress = useAgentProgress(progressAgent);
-  const progress = liveProgress ?? fallbackProgress;
   const shimmer = waveProps(wave);
   const brand = mark ? knownMark(mark, mark.split(/[-_/]/)[0]) : undefined;
   const glyph = <TonedIcon name={icon} size={iconSize} tone={tone} row />;
@@ -155,24 +150,29 @@ export function AgentLine({
       </span>
       {trayColumns ? (
         <>
-          {/* Fixed trailing grammar: status, duration, then disclosure as sibling columns. */}
-          <span className="acpmux-agent-line__status">
-            <Tick className="acpmux-summary-meta acpmux-summary-agent__state" text={state} />
-          </span>
           <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
             {time}
           </span>
-          {chevron && onOpen && (
+          <span className="acpmux-agent-line__status">
+            {/* Running turns to Waiting or Done with a tick, never a jump (trayMotion.tsx). */}
+            <Tick className="acpmux-summary-meta acpmux-summary-agent__state" text={state} />
+          </span>
+          {/* Stop's track (the stop slot, outside this button, lies over it), then the chevron's,
+              last at the line's end: the column the header's and View all's chevrons end in. */}
+          <span className="acpmux-agent-line__stop-track" aria-hidden="true" />
+          {chevron && onOpen ? (
             <span className="acpmux-agent-line__chevron" aria-hidden="true">
               <Icon name="disclosure.collapsed" size={ROW_ICON} row />
             </span>
+          ) : (
+            <span className="acpmux-agent-line__chevron-track" aria-hidden="true" />
           )}
         </>
       ) : (
         <>
-          {/* Keep every AgentLine family in the same status, duration, disclosure order. */}
-          <Tick className="acpmux-summary-meta acpmux-summary-agent__state" text={state} />
           {time !== undefined && <span className="acpmux-summary-meta acpmux-agent-line__time">{time}</span>}
+          {/* Running turns to Waiting or Done with a tick, never a jump (trayMotion.tsx). */}
+          <Tick className="acpmux-summary-meta acpmux-summary-agent__state" text={state} />
           {chevron && onOpen && (
             <span className="acpmux-agent-line__chevron" aria-hidden="true">
               <Icon name="disclosure.collapsed" size={ROW_ICON} row />
