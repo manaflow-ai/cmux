@@ -379,7 +379,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(initialRest.every((row) => row.stop.left === initialFirst!.stop.left)).toBe(true);
         expect(initial.head.time.left).toBeGreaterThanOrEqual(initial.head.title.right - 0.5);
         expect(initial.head.time.left - initial.head.title.right).toBeLessThanOrEqual(8.5);
-        expect(initial.rows.every((row) => !row.chevron || row.chevron.right === initial.head.chevron.right)).toBe(true);
+        expect(initial.rows.every((row) => !row.chevron || row.chevron.right === initial.head.chevron.right)).toBe(
+          true,
+        );
         expect(initial.rows.some((row) => row.hasStop)).toBe(true);
         expect(initial.rows.some((row) => !row.hasStop)).toBe(true);
         expect(initial.rows.every((row) => row.summary.width >= 60)).toBe(true);
@@ -467,7 +469,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           expect(narrow.rows.every((row) => row.status.left >= row.time.right - 0.5)).toBe(true);
           expect(narrow.head.time.left).toBeGreaterThanOrEqual(narrow.head.title.right - 0.5);
           expect(narrow.head.time.right).toBeLessThanOrEqual(narrow.head.chevron.left + 0.5);
-          expect(narrow.rows.every((row) => !row.chevron || row.chevron.right === narrow.head.chevron.right)).toBe(true);
+          expect(narrow.rows.every((row) => !row.chevron || row.chevron.right === narrow.head.chevron.right)).toBe(
+            true,
+          );
           await page.waitForFunction(
             (previous) =>
               [...document.querySelectorAll<HTMLElement>(".acpmux-agent-line__time")].some(

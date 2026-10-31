@@ -9,8 +9,7 @@ import { defineExperiment } from "../../../experiments/experiment";
 export const trayHeadLook = defineExperiment({
   id: "subagent-tray-head",
   title: "Running tray header",
-  description:
-    "The header's fixed mark: a running-work glyph, no mark at all, or the chat bubble it used to draw.",
+  description: "The header's fixed mark: a running-work glyph, no mark at all, or the chat bubble it used to draw.",
   arms: {
     glyph: {
       label: "Running glyph",

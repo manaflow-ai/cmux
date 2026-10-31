@@ -74,9 +74,12 @@ export default agentPaneEntry({
   experiment: {
     definition: trayHeadLook,
     script: [
-      { name: "the folded header", run: async (ctx) => {
-        await ctx.waitFor(() => head(ctx));
-      } },
+      {
+        name: "the folded header",
+        run: async (ctx) => {
+          await ctx.waitFor(() => head(ctx));
+        },
+      },
       { name: "open the tray", run: open },
     ],
   },

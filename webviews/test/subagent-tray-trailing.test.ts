@@ -103,19 +103,21 @@ await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
             expect(Math.abs(middle(stop) - middle(line.state))).toBeLessThanOrEqual(1);
             if (width > 400) expect(Math.abs(middle(stop) - middle(line.row))).toBeLessThanOrEqual(1);
             // In its own track, between the state and the chevron.
-            expect(Math.abs((stop.left + stop.right) / 2 - (line.track.left + line.track.right) / 2)).toBeLessThanOrEqual(1);
+            expect(
+              Math.abs((stop.left + stop.right) / 2 - (line.track.left + line.track.right) / 2),
+            ).toBeLessThanOrEqual(1);
             expect(stop.left).toBeGreaterThanOrEqual(line.state.right - 0.5);
             if (line.chevron) expect(line.chevron.left).toBeGreaterThanOrEqual(stop.right - 0.5);
           }
           // Each Stop, scrolled into the list's view, is the thing under the pointer at its centre.
           const hits = await page.evaluate(() =>
-            [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line__stop-slot > button")].map(
-              (stop) => {
-                stop.scrollIntoView({ block: "nearest" });
-                const rect = stop.getBoundingClientRect();
-                return stop.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
-              },
-            ),
+            [
+              ...document.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line__stop-slot > button"),
+            ].map((stop) => {
+              stop.scrollIntoView({ block: "nearest" });
+              const rect = stop.getBoundingClientRect();
+              return stop.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+            }),
           );
           expect(hits.length).toBe(stopped.length);
           expect(hits.every(Boolean)).toBe(true);
