@@ -553,6 +553,30 @@ import Testing
         #expect(await target.currentBuild() == Self.bundled)
     }
 
+    /// A refusal that arrives while the machine's update already runs waits for that update and
+    /// never queues a second one, also when it fails (review of #29497).
+    @Test(.timeLimit(.minutes(1))) func updateNowJoiningARunningUpdateNeverRunsItTwice() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let started = UpdateSignal()
+        let release = UpdateSignal()
+        let target = fixture.target("vm", build: Self.older,
+                                    outcomes: [.failed(reason: "disk full"), .updated(build: Self.bundled)],
+                                    started: started, release: release)
+        let policy = fixture.policy([])
+        await policy.offer(target)
+        await started.wait()
+        // task-owner: this test; awaited below
+        let waiter = Task { await policy.updateNow(target) }
+        while !(await policy.awaitsTurn("vm")) { await Task.yield() }
+        release.fire()
+        await waiter.value
+        await policy.drained()
+
+        #expect(fixture.calls == ["vm"])
+        #expect(await target.currentBuild() == Self.older)
+    }
+
     @Test(.timeLimit(.minutes(1))) func updateNowWithTheToggleOffReturnsAtOnce() async throws {
         let fixture = try PolicyFixture()
         defer { fixture.remove() }

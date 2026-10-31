@@ -106,6 +106,9 @@ public actor DaemonUpdatePolicy {
     private var queue: [Pending] = []
     /// The id of the target whose update runs now.
     private var running: String?
+    /// The id of the target inside its `update(to:whileBusy:)` call now: a turn ``updateNow``
+    /// joins without marking it, since that update answers the refusal (review of #29497).
+    private var updating: String?
     /// The loop that drains ``queue``; nil while it is empty.
     private var drain: Task<Void, Never>?
     /// The drain's backoff wait; ``offer(_:)`` cuts it short.
@@ -179,6 +182,12 @@ public actor DaemonUpdatePolicy {
     public func updateNow(_ target: any DaemonUpdateTarget) async {
         guard dependencies.enabled() else { return }
         let id = target.id
+        // Its update already runs: that update answers this refusal, so only wait for it. Marking
+        // it would queue a second update once the turn ends.
+        if updating == id {
+            await turnEnded(id)
+            return
+        }
         // As the person's click: neither the ledger nor this run's memory holds the next turn back.
         // A turn that already reached its update takes this mark (``attempt``); one still reading
         // the machine (its `cannotUpdate` check) leaves it, and ``drainQueue()`` queues it again.
@@ -198,6 +207,9 @@ public actor DaemonUpdatePolicy {
         // the update; wait for that one too.
         if retried.contains(id) { await turnEnded(id) }
     }
+
+    /// Whether an ``updateNow`` waits on a turn of target `id` (tests order a join against it).
+    func awaitsTurn(_ id: String) -> Bool { turnWaiters[id] != nil }
 
     /// Waits until a turn of target `id` ends, or the queue drops it, or the task is cancelled.
     private func turnEnded(_ id: String) async {
@@ -409,7 +421,9 @@ public actor DaemonUpdatePolicy {
         await deps.report(DaemonUpdateEvent(target, .updating))
         // A click until now is answered by this update.
         retried.remove(target.id)
+        updating = target.id
         let outcome = await target.update(to: local, whileBusy: whileBusy)
+        updating = nil
         Self.logger.info("\(Self.logLine(target.displayName, to: local.hash, whileBusy: whileBusy, outcome), privacy: .public)")
         if outcome == .busy || outcome == .unreachable {
             var again = pending

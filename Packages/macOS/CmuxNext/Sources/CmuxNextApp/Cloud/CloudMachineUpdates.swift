@@ -94,7 +94,7 @@ final class CloudMachineUpdates {
     static func updateNow(_ machineID: String, services: AppServices) async -> Bool {
         guard let target = target(machineID, services: services) else { return false }
         logger.info("cloud machine \(machineID, privacy: .public): a start was refused by its daemon; updating it before starting again")
-        await DaemonUpdatePolicy.shared.updateNow(target)
+        await services.daemonUpdates.policy.updateNow(target)
         return true
     }
 
