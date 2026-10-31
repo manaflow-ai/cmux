@@ -58,6 +58,7 @@ public final class FakeChromiumPage: PageChromiumPage {
         calls.append((method, params))
         defer { onCall?() }
         if let answered = answer?(method, params) { return answered }
+        if method == "Page.addScriptToEvaluateOnNewDocument" { return #"{"identifier":"test-script"}"# }
         if method == "Runtime.evaluate", params["expression"] as? String == "[location.href, window === window.top]" {
             return #"{"result":{"type":"object","value":["\#(senderURL)",\#(senderIsTop)]}}"#
         }

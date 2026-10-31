@@ -253,11 +253,11 @@ export default agentPaneEntry({
       native: { "agent.avatar": { src: UPLOADED_AVATAR } },
       play: async (ctx) => {
         avatarsChanged(ctx.document, ["parent-1"]);
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-received .cv-disclosure__icon img.cv-agent-avatar"));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received .cv-received__mark img.cv-agent-avatar"));
       },
     },
     chief: {
-      note: "A Chief's message to this chat (acpmux `fromChief`): the line and its From: line name the Chief and draw its avatar as the sidebar does, never the turn's session name (optchat-…) with a robot (manaflow-ai/cmux#27914).",
+      note: "A Chief's message to this chat (acpmux `fromChief`): the line names the Chief and draws its avatar as the sidebar does, never the turn's session name (optchat-…) with a robot (manaflow-ai/cmux#27914).",
       snapshot: chat([
         user("Ship the sidebar fix and tell the Chief when CI is green.", 9),
         assistant("On it.", 8.5),
@@ -273,10 +273,8 @@ export default agentPaneEntry({
       native: { "chief.face": { name: "Ops Chief", src: UPLOADED_AVATAR } },
       play: async (ctx) => {
         for (const toggle of ctx.document.querySelectorAll<HTMLButtonElement>(RECEIVED_LINE)) toggle.click();
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-received .cv-disclosure__icon img.cv-agent-avatar"));
-        await ctx.waitFor(() =>
-          ctx.document.querySelector(".cv-received__from-line")?.textContent?.includes("Ops Chief"),
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received .cv-received__mark img.cv-agent-avatar"));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received__from")?.textContent?.includes("Ops Chief"));
       },
     },
     links: {
@@ -389,7 +387,7 @@ export default agentPaneEntry({
       ]),
     },
     "sender-hover": {
-      note: "A lane on another machine (studio-mac) messages this chat. Hovering its line shows Open chat at the line's end; a click opens that chat beside this one, or focuses its tab when one shows it.",
+      note: "A lane on another machine (studio-mac) messages this chat. Hovering its name lights the name alone; a click opens that chat beside this one, or focuses its tab when one shows it.",
       snapshot: chat(
         [
           user("Ask chief-ui where the sidebar fix stands", 9),
@@ -413,8 +411,8 @@ export default agentPaneEntry({
         },
       ),
       play: async (ctx) => {
-        await ctx.hover({ selector: ".cv-received > .cv-disclosure__line" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-received .cv-disclosure__open"));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received__from--open"));
+        await ctx.hover({ selector: ".cv-received__from--open" });
       },
     },
     files: {

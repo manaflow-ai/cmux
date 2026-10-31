@@ -52,24 +52,51 @@
   --accent: var(--polish-ink);
   --on-accent: var(--polish-base);
   --accent-soft: var(--polish-pressed);
-  --column: 800px;
-  --sidebar-width: 208px;
+  /* One centered reading column, as desktop settings windows lay it out (user, 2026-10-30). */
+  --column: 680px;
+  --sidebar-width: 220px;
   font-size: var(--text-body);
   letter-spacing: var(--text-body--letter-spacing);
 }
 
 :root[data-settings-look="refined"] .settings > .sidebar {
-  padding: 18px 10px;
-  border-right: 1px solid var(--polish-edge);
+  padding: 16px 12px;
+  border-right: 0;
   background: transparent;
-  gap: 18px;
+  gap: 12px;
 }
+
+/* One background for the whole page (user, 2026-10-30: "everything cohesive with same bg color"):
+   the sidebar and the content pane paint nothing of their own and no divider runs between them;
+   only the cards and controls take a fill. */
+:root[data-settings-look="refined"] .settings .sidebar-title {
+  margin: 0;
+  padding: 0 8px 4px;
+  color: var(--polish-ink);
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+  font-weight: 600;
+  letter-spacing: var(--text-heading--letter-spacing);
+}
+
+:root[data-settings-look="refined"] .settings .search-input {
+  border-color: transparent;
+  background: var(--polish-hover);
+}
+
+:root[data-settings-look="refined"] .settings .search-input:focus {
+  border-color: var(--polish-edge);
+  box-shadow: none;
+  background: var(--polish-hover);
+}
+
+:root[data-settings-look="refined"] .settings .search-input::placeholder { color: var(--polish-placeholder); }
 
 :root[data-settings-look="refined"] .settings .section-link {
   min-height: 30px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  color: var(--polish-muted);
+  padding: 4px 8px;
+  border-radius: 8px;
+  color: color-mix(in srgb, var(--polish-ink) 82%, var(--polish-base));
   font-size: var(--text-control);
   letter-spacing: var(--text-control--letter-spacing);
 }
@@ -80,6 +107,9 @@
 }
 
 :root[data-settings-look="refined"] .settings .section-link:hover { background: var(--polish-hover); }
+:root[data-settings-look="refined"] .settings .section-icon { color: var(--polish-muted); }
+:root[data-settings-look="refined"] .settings .sidebar-section-title { color: var(--polish-muted); }
+:root[data-settings-look="refined"] .settings .section-link[aria-current] .section-icon { color: var(--polish-ink); }
 :root[data-settings-look="refined"] .settings .section-icon svg { width: 16px; height: 16px; }
 
 /* The content pane is a fill, not an outlined card: its scroll fade (styles.css .content) masks
@@ -88,8 +118,8 @@
 :root[data-settings-look="refined"] .settings > .content {
   --content-pad-end: 64px;
   padding: 32px clamp(24px, 4vw, 64px) var(--content-pad-end);
-  margin: 6px 6px 6px 0;
-  background: var(--polish-content);
+  margin: 0;
+  background: transparent;
 }
 
 /* The one left edge of every section header ("Window", "Tabs", ...) and the Density lead-in: the
@@ -99,7 +129,7 @@
 :root[data-settings-look="refined"] .settings { --settings-header-inset: 0px; --settings-row-inset: 16px; }
 
 :root[data-settings-look="refined"] .settings .section-title {
-  margin-bottom: 28px;
+  margin-bottom: 24px;
   font-size: var(--text-heading);
   line-height: var(--text-heading--line-height);
   font-weight: 600;
@@ -111,10 +141,10 @@
 :root[data-settings-look="refined"] .settings .group.collapse:not([data-open]) { margin-bottom: 0; }
 :root[data-settings-look="refined"] .settings .group-title {
   margin: 0 0 10px var(--settings-header-inset);
-  color: var(--polish-muted);
-  font-size: var(--text-detail);
-  font-weight: 500;
-  letter-spacing: var(--text-detail--letter-spacing);
+  color: var(--polish-ink);
+  font-size: var(--text-control);
+  font-weight: 600;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 /* A lead-in starts on its title. */
 :root[data-settings-look="refined"] .settings .density-help { margin-left: var(--settings-header-inset); }
@@ -122,11 +152,11 @@
 :root[data-settings-look="refined"] .settings .rows {
   border: 1px solid var(--polish-edge);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--polish-ink) 2%, var(--polish-content));
+  background: color-mix(in srgb, var(--polish-ink) 2.5%, transparent);
 }
 
 :root[data-settings-look="refined"] .settings .row {
-  min-height: 58px;
+  /* A row's height comes from its 12 px padding around a 28 px control: 52 px, as in the reference. */
   padding: 12px var(--settings-row-inset);
   box-shadow: inset 0 -1px var(--polish-edge);
 }
@@ -149,10 +179,26 @@
   background: transparent;
   box-shadow: inset 0 1px var(--polish-edge);
 }
-:root[data-settings-look="refined"] .settings .row-main { gap: 24px; }
+:root[data-settings-look="refined"] .settings { --row-main-gap: 24px; }
+:root[data-settings-look="refined"] .settings .row-main { gap: var(--row-main-gap); }
+/* One text column (design/settings.md, "Columns"): a row's label sits one gap after its mark and
+   takes the free space itself, so space-between never pushes it right. A mark and a label with no
+   control (Accounts, Machines, Spaces) put the label wherever the leftover split fell, 40 to 90 px
+   past the mark, and a row with an active dot started its title elsewhere than its neighbours'. */
+:root[data-settings-look="refined"] .settings .row-main > .row-label { margin-right: auto; }
+/* An account's buttons and linked accounts start on its title's column: the mark and one gap with
+   a mark, the row's own edge without one (the cmux Account row has none). */
+:root[data-settings-look="refined"] .settings .accounts-row > .accounts-body {
+  padding-left: calc(var(--accounts-mark-width) + var(--row-main-gap));
+}
+:root[data-settings-look="refined"] .settings .accounts-row:not(:has(> .row-main > .accounts-mark)) > .accounts-body {
+  padding-left: 0;
+}
+/* The title and its description keep to the card's left ~60%; the control owns the right. */
+:root[data-settings-look="refined"] .settings .rows .row-label { max-width: 60%; }
 :root[data-settings-look="refined"] .settings .row-title { font-size: var(--text-body); font-weight: 500; letter-spacing: var(--text-body--letter-spacing); }
 :root[data-settings-look="refined"] .settings .row-help {
-  margin-top: 4px;
+  margin-top: 2px;
   color: var(--polish-muted);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
@@ -162,7 +208,21 @@
 
 :root[data-settings-look="refined"] .settings .row-control { margin-left: auto; justify-content: flex-end; }
 :root[data-settings-look="refined"] .settings :is(.field, .button, .theme-button) { min-height: 28px; border-radius: 7px; }
-:root[data-settings-look="refined"] .settings .search-input { min-height: 32px; border: 1px solid var(--polish-edge); border-radius: 8px; }
+:root[data-settings-look="refined"] .settings .search-input { min-height: 32px; border-radius: 8px; }
+/* Pills: popups and buttons sit on a soft fill with no outline, the chevron at the end. */
+:root[data-settings-look="refined"] .settings .row-control :is(.ui-select-button, .button) {
+  border-color: transparent;
+  background: var(--polish-hover);
+}
+:root[data-settings-look="refined"] .settings .row-control .ui-select-button:hover { background: var(--polish-pressed); }
+/* An off switch reads as a filled track with a light knob, as on macOS, not an empty outline. */
+:root[data-settings-look="refined"] .settings .switch {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--polish-ink) 16%, transparent);
+}
+:root[data-settings-look="refined"] .settings .switch .knob { border-color: #fff; box-shadow: var(--elevation-1); border-radius: 50%; }
+:root[data-settings-look="refined"] .settings .switch[aria-checked="true"] { background: var(--accent); }
+:root[data-settings-look="refined"] .settings .switch[aria-checked="true"] .knob { border-color: var(--on-accent); }
 :root[data-settings-look="refined"] .settings .segmented { padding: 2px; border-radius: 8px; background: var(--polish-hover); }
 :root[data-settings-look="refined"] .settings .segment { padding: 3px 10px; border-radius: 5px; }
 
@@ -193,8 +253,10 @@
   }
 
   :root[data-settings-look="refined"] .settings > .content {
-    margin: 0 6px 6px;
+    margin: 0;
   }
+
+  :root[data-settings-look="refined"] .settings .sidebar-title { display: none; }
 }
 
 @media (max-width: 640px) {
@@ -202,7 +264,9 @@
   :root[data-settings-look="refined"] .settings > .content { --content-pad-end: 32px; padding: 20px 12px var(--content-pad-end); }
   :root[data-settings-look="refined"] .settings { --settings-row-inset: 10px; }
   :root[data-settings-look="refined"] .settings .row { padding: 10px; }
-  :root[data-settings-look="refined"] .settings .row-main { gap: 8px; flex-wrap: wrap; }
+  :root[data-settings-look="refined"] .settings { --row-main-gap: 8px; }
+  :root[data-settings-look="refined"] .settings .row-main { flex-wrap: wrap; }
+  :root[data-settings-look="refined"] .settings .rows .row-label { max-width: none; }
 }
 
 /* Icon-only and text buttons (play a sound, reset, reveal): the base hover fills with the field
