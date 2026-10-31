@@ -10,9 +10,7 @@ import type { StringKey } from "./i18n";
 export type RunMode = "persistent" | "sandboxed" | "cloud";
 
 /// The picker's Run as rows (EnvironmentPicker `runMode`).
-/// `cloudOnly`: Cloud is offered but Sandboxed is not (Labs off, Settings' Start New Chats In says
-/// Cloud): the picker shows no Sandboxed face, since the host refuses `sandbox.run` without Labs.
-export type RunModeRows = { mode: RunMode; onMode(mode: RunMode): void; cloudOnly?: boolean };
+export type RunModeRows = { mode: RunMode; onMode(mode: RunMode): void };
 
 /// The parts of a receipt the chat shows; every field may be missing from an older server.
 export type SandboxReceipt = {

@@ -69,17 +69,7 @@ async function settle() {
 }
 
 /// A new chat's composer: its prompt, and the picker with Run as rows the test can read back.
-function Composer({
-  modes,
-  picks,
-  start,
-  cloudOnly,
-}: {
-  modes: RunMode[];
-  picks: string[];
-  start: RunMode;
-  cloudOnly?: boolean;
-}) {
+function Composer({ modes, picks, start }: { modes: RunMode[]; picks: string[]; start: RunMode }) {
   const [mode, setMode] = useState<RunMode>(start);
   return (
     <div className="nt-composer">
@@ -97,7 +87,6 @@ function Composer({
         onPick={(id) => picks.push(id)}
         runMode={{
           mode,
-          ...(cloudOnly ? { cloudOnly } : {}),
           onMode: (next) => {
             modes.push(next);
             setMode(next);
@@ -108,13 +97,13 @@ function Composer({
   );
 }
 
-async function render(start: RunMode, cloudOnly?: boolean) {
+async function render(start: RunMode) {
   const container = installDom();
   const modes: RunMode[] = [];
   const picks: string[] = [];
   await act(async () => {
     root = createRoot(container);
-    root.render(<Composer modes={modes} picks={picks} start={start} cloudOnly={cloudOnly} />);
+    root.render(<Composer modes={modes} picks={picks} start={start} />);
   });
   return { container, modes, picks };
 }
@@ -157,14 +146,4 @@ test("a machine picked while Cloud is the mode makes the chat a chat here again"
   await choose('[data-kind="ssh"]');
   expect(modes).toEqual(["persistent"]);
   expect(picks).toEqual(["gpu-box"]);
-});
-
-test("Cloud only (Labs off, Start New Chats In: Cloud): the Cloud row, never a Sandboxed face", async () => {
-  const { container } = await render("cloud", true);
-  await open(container);
-  expect(document.querySelector('.acpmux-env-popover [data-mode="cloud"]')).not.toBeNull();
-  const view = container.ownerDocument.defaultView!;
-  await act(async () => view.dispatchEvent(new view.KeyboardEvent("keydown", { altKey: true, key: "Alt" })));
-  await settle();
-  expect(document.querySelector('.acpmux-env-popover [data-mode="sandboxed"]')).toBeNull();
 });
