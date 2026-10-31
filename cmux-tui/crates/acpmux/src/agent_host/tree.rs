@@ -325,6 +325,33 @@ mod census_tests {
         assert!(under_in("104 1 104 Z claude\n", 104, 1).is_none(), "a zombie leader");
     }
 
+    /// An app update swaps the file a running MCP server was started from; the census must still
+    /// know the server (it was "unknown" before, so its idle harness never hibernated).
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn exe_still_names_a_program_whose_file_was_replaced() {
+        let dir = std::env::temp_dir().join(format!("acpmux-exe-replaced-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let program = dir.join("server");
+        std::fs::copy("/bin/sleep", &program).unwrap();
+        let mut child = std::process::Command::new(&program).arg("30").spawn().unwrap();
+        let canonical = std::fs::canonicalize(&program).unwrap();
+        // The update: the old file goes, a new one takes its path.
+        std::fs::remove_file(&program).unwrap();
+        std::fs::copy("/bin/sleep", &program).unwrap();
+        let seen = super::exe(child.id());
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = std::fs::remove_dir_all(&dir);
+        let seen = seen.expect("a replaced program still has an executable");
+        assert!(
+            seen == program || seen == canonical,
+            "exe {} is not {}",
+            seen.display(),
+            program.display()
+        );
+    }
+
     #[test]
     fn argv_keeps_each_word_whole() {
         use super::{cmdline_argv, procargs2_argv};
