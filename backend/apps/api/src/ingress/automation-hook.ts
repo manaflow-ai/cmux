@@ -18,7 +18,7 @@ import { freshTimestamp, hmacHex, readRawBody, sha256Hex, timingSafeEqual } from
  */
 
 export const MAX_AUTOMATION_HOOK_BYTES = 256 * 1024
-const TEAM = /^team_[a-z0-9]{20}$/
+export const TEAM = /^team_[a-z0-9]{20}$/
 const TRIGGER = /^trg_[a-z0-9]{20}$/
 const DELIVERY = /^[A-Za-z0-9_.:-]{1,100}$/
 
@@ -57,29 +57,36 @@ export interface DeliverResult {
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
 
-export const handleAutomationHook = async (request: Request, env: Env, team: string, trigger: string): Promise<Response> => {
-  if (request.method !== "POST") return json(405, { ok: false, code: "method.not_allowed" })
-  if (!TEAM.test(team) || !TRIGGER.test(trigger)) return json(404, { ok: false, code: "selector.not_found" })
+/** A signed delivery that passed the checks: its dedupe id (signed content only), the run input and the sender's label. */
+export type SignedHook = { readonly ok: true; readonly delivery: string; readonly input: { content_type: string; body: unknown; received_at: number; delivery_label?: string }; readonly label: string | null }
+
+/**
+ * The signature scheme above, for any trigger whose secret is `automationHookSecret(env, team, id)`:
+ * the method, the body size, a fresh timestamp and a valid `v1=` signature, else the refusal to send.
+ */
+export const verifyCmuxHook = async (request: Request, env: Env, team: string, id: string): Promise<SignedHook | { readonly ok: false; readonly response: Response }> => {
+  const no = (status: number, body: unknown) => ({ ok: false as const, response: json(status, body) })
+  if (request.method !== "POST") return no(405, { ok: false, code: "method.not_allowed" })
   const body = await readRawBody(request, MAX_AUTOMATION_HOOK_BYTES)
-  if (!body.ok) return json(body.status, { ok: false, code: "validation.invalid", message: body.message })
+  if (!body.ok) return no(body.status, { ok: false, code: "validation.invalid", message: body.message })
 
   const ts = request.headers.get("x-cmux-timestamp")
-  if (!freshTimestamp(ts, Date.now())) return json(401, { ok: false, code: "auth.unauthenticated", message: "missing or stale x-cmux-timestamp" })
+  if (!freshTimestamp(ts, Date.now())) return no(401, { ok: false, code: "auth.unauthenticated", message: "missing or stale x-cmux-timestamp" })
   const sigs = (request.headers.get("x-cmux-signature") ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter((s) => s.startsWith("v1="))
     .map((s) => s.slice(3))
-  const expected = await hmacHex(await automationHookSecret(env, team, trigger), `${ts}.${body.text}`)
+  const expected = await hmacHex(await automationHookSecret(env, team, id), `${ts}.${body.text}`)
   // Check every candidate so the time does not depend on which one matched.
   let valid = false
   for (const s of sigs) valid = timingSafeEqual(s, expected) || valid
-  if (!valid) return json(401, { ok: false, code: "auth.unauthenticated", message: "bad signature" })
+  if (!valid) return no(401, { ok: false, code: "auth.unauthenticated", message: "bad signature" })
 
   // Dedupe only on what the signature covers: an unsigned header could be changed to replay a
   // captured request inside the window. x-cmux-delivery is kept as a label in the run input.
   const header = request.headers.get("x-cmux-delivery")
-  if (header !== null && !DELIVERY.test(header)) return json(400, { ok: false, code: "validation.invalid", message: "x-cmux-delivery must be 1-100 of [A-Za-z0-9_.:-]" })
+  if (header !== null && !DELIVERY.test(header)) return no(400, { ok: false, code: "validation.invalid", message: "x-cmux-delivery must be 1-100 of [A-Za-z0-9_.:-]" })
   const delivery = `sha256:${(await sha256Hex(`${ts}.${body.text}`)).slice(0, 40)}`
 
   const contentType = request.headers.get("content-type") ?? ""
@@ -88,10 +95,20 @@ export const handleAutomationHook = async (request: Request, env: Env, team: str
     try {
       payload = JSON.parse(body.text)
     } catch {
-      return json(400, { ok: false, code: "validation.invalid", message: "body is not JSON" })
+      return no(400, { ok: false, code: "validation.invalid", message: "body is not JSON" })
     }
   }
   const input = { content_type: contentType.slice(0, 100), body: payload, received_at: Date.now(), ...(header ? { delivery_label: header } : {}) }
+  return { ok: true, delivery, input, label: header }
+}
+
+export const handleAutomationHook = async (request: Request, env: Env, team: string, trigger: string): Promise<Response> => {
+  if (request.method !== "POST") return json(405, { ok: false, code: "method.not_allowed" })
+  if (!TEAM.test(team) || !TRIGGER.test(trigger)) return json(404, { ok: false, code: "selector.not_found" })
+  const v = await verifyCmuxHook(request, env, team, trigger)
+  if (!v.ok) return v.response
+  const { delivery, input } = v
+  const header = v.label
 
   const stub = env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(team))
   const r = (await stub.deliverWebhook(team, trigger, delivery, input)) as DeliverResult
