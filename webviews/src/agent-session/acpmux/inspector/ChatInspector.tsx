@@ -499,7 +499,8 @@ export function useChatInspector({
 const INSPECTOR_TOGGLE = "button.acpmux-chat-inspector-toggle";
 /// What a press may land on without hiding the popover: a menu, popup or dialog the panel opened,
 /// drawn outside it in a portal.
-const DISMISS_KEEPERS = 'dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], .ui-popup';
+const DISMISS_KEEPERS =
+  'dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], .ui-popup';
 
 /// Closes the Inspector from Esc and gives the keyboard to its header toggle, so focus is
 /// not dropped on the page when the panel it was in leaves. Over a diff in place the header, and the
@@ -825,6 +826,17 @@ export function InspectorPanel({
   const t = useT();
   const frame = useRef<HTMLElement | null>(null);
   const drag = useRef<{ right: number } | undefined>(undefined);
+  // The foot animates only once it has been drawn at its first measure: the open draws it at once.
+  const footKnown = foot !== undefined && foot > 0;
+  const [footSettled, setFootSettled] = useState(false);
+  useEffect(() => {
+    if (!footKnown) {
+      setFootSettled(false);
+      return;
+    }
+    const frameId = requestAnimationFrame(() => setFootSettled(true));
+    return () => cancelAnimationFrame(frameId);
+  }, [footKnown]);
   // A popover hides on a press elsewhere: one capture listener on the document while it is one.
   useEffect(() => {
     const doc = frame.current?.ownerDocument;
@@ -852,6 +864,7 @@ export function InspectorPanel({
       data-chrome={title ? "title" : onClose ? chrome : "none"}
       data-over-chat={foot !== undefined ? "" : undefined}
       data-popover={onDismiss ? "" : undefined}
+      data-foot-moves={footKnown && footSettled ? "" : undefined}
       style={
         {
           width,

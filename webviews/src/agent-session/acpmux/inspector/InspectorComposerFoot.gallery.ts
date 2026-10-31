@@ -118,7 +118,10 @@ export default agentPaneEntry({
       native,
       play: async (ctx) => {
         await opened(ctx);
-        await ctx.click({ selector: ".acpmux-md" });
+        // A press at the composer (its centre may lie under the popover).
+        ctx.document
+          .querySelector(".acpmux-md")
+          ?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, composed: true }));
         await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-chat-inspector"), { capMs: 3000 });
       },
     },
