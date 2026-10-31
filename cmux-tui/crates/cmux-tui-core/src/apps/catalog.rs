@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use super::mirror::{Facts, Source, Tier};
+use cmux_json::JsonSet as _;
 
 /// Publishers whose apps are first-party.
 const FIRST_PARTY: &[&str] = &["cmux", "manaflow-ai"];
@@ -167,7 +168,7 @@ impl Package {
                     palette.get("title").cloned().unwrap_or_else(|| Value::String(op.clone()));
                 let mut command = serde_json::json!({ "op": op, "title": title });
                 if let Some(when) = palette.get("when") {
-                    command["when"] = when.clone();
+                    command.set("when", when.clone());
                 }
                 Some(command)
             })

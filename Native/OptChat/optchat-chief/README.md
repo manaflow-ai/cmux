@@ -30,9 +30,15 @@ Two engines run a turn (`OPTCHAT_CHIEF_ENGINE`):
   AskUserQuestion, EnterPlanMode and ExitPlanMode: acpmux keeps those for a
   human under every policy, and nobody answers them in a turn.
 
-A message sent while a turn works never stops it, on any engine (decision
-2026-10-09, parity with the reference client; it replaces the 2026-10-04
-stop). On the acpmux engine the brain steers the message into the running
+A message sent while a turn works is steered into it at once (user
+2026-10-21: "we need to immediately interrupt and steer"; it replaces the
+2026-10-09 "a message never stops a turn"). When a person's message cannot
+go in now (acpmux refuses the steer), or Claude Code has not read it within
+`OPTCHAT_STEER_DEADLINE_SECONDS` (default 3; 0 waits for the next tool
+boundary), the turn is stopped at once, even mid-tool; its end posts
+nothing and the next turn starts with the message. The host never posts a
+message of its own about it (the old front desk receipt "Got it. The Chief
+is busy with a turn ..." is gone: "no fake messages"). On the acpmux engine the brain steers the message into the running
 session (`brain/steer.rs`): acpmux's Claude Code adapter writes it to
 claude's stdin, where Claude Code reads it at its next tool boundary
 (`--replay-user-messages` confirms it), and codex-acp takes it as a steer;
@@ -41,14 +47,64 @@ order, and logged as `user` where it arrived: when Claude Code read it, and
 at once on codex-acp (which answers a steer only at the turn's end). A
 message too big to go in whole (over the view's 128,000 bytes or 20 images)
 is not steered. When the turn cannot take it (its session has not started,
-an item of another conversation is ahead, or acpmux refuses the steer), the
-message waits at the head of the queue and the next turn starts the moment
-this one ends. The native engine delivers it after the next tool results,
+an item of another conversation is ahead, or acpmux refuses a report's
+steer), the message waits at the head of the queue and the next turn starts
+the moment this one ends. The native engine delivers it after the next tool results,
 or the next turn takes it. Messages that arrive while a turn waits for
 settle go into that same call. Subagent reports
-follow the same rule. Only chief.stop stops a turn: the runner waits until
+are steered the same way but never stop a turn. chief.stop also stops one: the runner waits until
 no tool call runs, then sends `session/cancel` every second until the turn
 ends, and the end posts nothing to the chat or any bridge.
+
+## Every person message gets a reply
+
+User 2026-10-21: "make every user message in the Chief DM get a reply,
+guaranteed." The reply ledger (`src/brain/reply_ledger.rs`,
+`HostState::awaiting`) holds each person message of the Chief conversation
+from the moment it is queued until the owner takes a post that answers it: a
+reply that names it (`answers`, `reply_to`), or any text the Chief posts once
+a turn has seen it (a `send`). The ledger is saved with the host state, so a
+host crash, a restart, or a cloud VM deleted mid-turn keeps it (a restarted
+host checks again after the longest wait, after its resume turn), and the mux
+ack of a cloud wake waits until the ledger is empty, so the queue delivers
+the wake again to the next host.
+
+Ways a message used to end with no reply, and what happens now:
+
+- The turn ends with `NO_REPLY`, or with `stop` and nothing sent: refused for
+  a person message of the Chief conversation (channels keep `NO_REPLY`).
+- The turn fails, times out, or is cut (acpmux lost, an upstream error past
+  `MAX_CUTS`): the failure text posts as before; when nothing posts, the
+  message waits for a retry.
+
+A turn an error a retry may clear ends is cut, not failed, and runs again on
+the resume note (`brain/turns.rs` `cut_kind`, issue 25577): the classes a
+subagent auto-resumes on (`auto_resume::classify_error`: 429 and rate
+limits, 500, 502, 503, 504, 529, overloaded) run again after
+`UPSTREAM_RESUME_BACKOFF` (15 s, 45 s, 120 s); a network error (DNS, a
+dropped connection, `fetch failed`, the Mac offline) waits until the model
+endpoint answers (`auto_resume::wait_online`, every 30 s, at most 6 h) and
+then runs again no sooner than that backoff. A person's message starts the
+turn at once. At most `MAX_CUTS` (3) cuts in a row; a usage limit is never
+cut. A cut turn's resume is saved with the host state, so a host that quits
+while it waits (Cmd+Q, an update) runs the task again when it starts. Tests:
+`tests/chief_turn_retry.rs`.
+- The owner refuses the reply post (any reject other than `agent_rate`,
+  which retries on its own): the message waits for a retry.
+- The host dies before the reply posts: the ledger survives the restart.
+
+A message left unanswered gets a check after 5 s, 30 s and 120 s
+(`REPLY_RETRY_WAITS`). When no turn runs, the check starts a retry turn on
+a `[no reply]` note that names the messages, says why, and forbids
+`NO_REPLY`. After `MAX_REPLY_TRIES` (3) retries the host posts a short
+failure note in the message's thread ("I could not answer your message ...
+Please send it again.") and logs a note so the next turn does not answer it
+again. Only the owner's stop (chief.stop) and a retraction close a message
+with no post.
+
+Home (cmux-next, `ChiefReplyWatchdog`) shows a notice in the local Chief
+conversation when the person's last message has had no reply for 2 minutes,
+from the conversation head alone, so it also covers a host that is down.
 
 ## Several Chiefs and channels
 
@@ -115,6 +171,20 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   the ids at once (ids are unique per home, kept in host.json).
 - `spawn` takes an optional `effort` (low, medium, high, xhigh, max): how
   hard its subagents think; by default the calling turn's effort.
+- `cloud_workspace {title, size?, machine?}` (`optchat-chief cloud-workspace
+  [--size S] [--machine machine:ID] "title"`, `src/cloud_workspace.rs`) starts a
+  cmux Cloud workspace for a task through the app's control socket
+  (`CMUX_SOCKET_PATH`): `cloudListMachines`, then `newCloudMachine {name}` (the
+  title lowercased with dashes), which makes the machine and opens its first
+  workspace in the sidebar under the machine; with `machine` it runs
+  `newCloudWorkspace` on that machine instead (keyed, so a retry never opens a
+  second one). The runs are `script` origin: the app's rules for an agent's
+  create apply (on a paid plan it makes the machine at once), so the Chief calls
+  it only for a machine the person asked for. A machine of that name, or a create
+  of that name the list's `creating` still shows, is answered, never made again;
+  an app without `creating` gets the names this host asked for, held 20 minutes.
+  It rides on the `spawn` grant and runs only in the owner's turn; subagents do
+  not have it; a host with no app answers that it has none.
 - First message: the view at spawn time (one block per cached piece), then
   `Your task:\n\n<task>`. System prompt: section 9's subagent prompt (agent
   renamed Chief), VIEW_DOC, a short cmux section, then the person profile
@@ -161,9 +231,10 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   `features.multi_agent = false` (harness.rs guard test).
 - A host with no app (`CMUX_SOCKET_PATH` unset) and a cloud install (the
   always-on brain on a server) makes each workspace in its OWN session
-  daemon instead (`DaemonWorkspaces`: `create-workspace` by key,
-  `create-terminal` in the subagent's directory, `new-conversation-tab` with
-  `agent_session {host: install:<id>, host_name, session, harness}`). The
+  daemon instead (`DaemonWorkspaces`: `create-workspace` by key, then
+  `new-conversation-tab {workspace}` with `agent_session {host:
+  install:<id>, host_name, session, harness}`, the chat as its only tab and no
+  shell). The
   subagent runs on that machine, so its workspace belongs to that machine's
   session (data-model.md 1.2); an app shows it while connected to that
   session, and an app on another machine shows the chat tab as running on
@@ -194,12 +265,19 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   (a record from before launches were saved takes its task from the spawn
   call in the log, and the floor of that moment).
 - A turn whose subagents are at work gets `Subagents at work now: a1, a3.`
-  after the view, before its new messages (never logged).
-- `chief.stop` stops the running turn and every subagent at work
-  (`session/cancel` on each; their reports come quiet) and drops the queued
-  ones; it answers `{"stopped": true, "subagents": [...]}`.
-  `chief.stop {name: "a3"}` stops only that subagent and answers the
-  note `Stopped by the user: a3.`; the turn and the other subagents go on.
+  after the view, before its new messages (never logged), with a line that
+  their tasks are not done until each reports, so the Chief never reports a
+  task finished while its subagent still runs; its reply also carries those
+  messages as `answers_pending`.
+- `chief.stop` stops only the running turn; subagents at work and queued
+  ones go on. It answers `{"stopped": bool}`. The Chief's own `stop` tool
+  (`{"tool": "stop", "end_turn": true}` on the tools socket, or any call from
+  a turn session) only ends its turn and is never taken for `chief.stop`.
+  `chief.stop {name: "a3"}` stops only that subagent (`session/cancel`; its
+  report comes quiet) and answers the note `Stopped by the user: a3.`; the
+  turn and the other subagents go on. A stopped or cancelled subagent is not
+  at work any more, even when its session never ends the turn: its slot frees
+  at once.
 - A subagent prompt the harness fails ends that run with `[a<N>] (failed:
   <error>)`, never a subagent that waits forever.
 
@@ -209,10 +287,15 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   `features.multi_agent = false`), so `chief spawn` is its only way to start
   a subagent, as `TURN_TOOLS` leaves a Claude turn no Task tool.
 
-`tell` to a running subagent is steered into its session (acpmux steer,
-as for Chief turns): the harness reads it between its tool calls and the
-run's report answers it. A session that cannot steer takes it as its next
-prompt, after the current turn.
+`tell` to a running subagent is steered into its session and sent now
+(acpmux steer with `steerNow`, 2026-10-26): acpmux stops the agent's current
+step, as the Send now button in its chat does, so it reads the message at
+once and its turn goes on; a running subagent or background shell is never
+stopped for it. The chat in the subagent's workspace is that same session,
+so the message shows there live as the Chief's (`optchat-tell:` prompt id).
+A peer's message and `queue: true` wait for the step. The run's report
+answers it. A session that cannot steer is interrupted and takes it as its
+next prompt (tell-interrupt-DESIGN.md).
 A subagent's first message carries no cache mark of ours, and all of a
 spawn's subagents start at once: Claude Code marks its two system blocks and
 the last two messages of every later request in a session, the API takes at
@@ -518,11 +601,18 @@ byte-identical across turns. The request the model gets is not fully ours:
   on claude-sr, which resets `CLAUDE_CONFIG_DIR` (see Compactor routes). When
   acpmux refuses the preset, turns still start (with the harness's own
   configuration) and host.log says so; compactor sessions never do.
-  Claude Code keeps each turn's transcript (the whole view) for 2 days
-  (`cleanupPeriodDays`, minimum 1, set in both the isolated configuration
-  and the session directory's project settings); on claude-sr the
-  transcripts are under `~/.claude/projects/`, and whether a project-level
-  `cleanupPeriodDays` governs that sweep is not checked.
+  Each turn's transcript (the whole view) is kept for 2 days: Claude Code's
+  `cleanupPeriodDays` in the isolated configuration, and the host's
+  TurnRetention (`turn_retention.rs`), which prunes exactly the turn
+  project (and the compactor's slot projects a crash left, after 1 day) in
+  the user's Claude home. No Chief project settings file (turn, subagent,
+  compactor slot) sets `cleanupPeriodDays`: Claude Code reads it from the
+  merged settings and its sweep walks every project of the store the
+  session runs on, which for these sessions is the user's own
+  `~/.claude`, so a project-level 2 deleted the user's other chats'
+  transcripts (checked against Claude Code 2.1.312; cmux#27740's
+  investigation). `tests/harness.rs`
+  `chief_project_settings_never_set_the_stores_retention` holds it.
 - Claude Code's own system prompt still comes first, with its date and
   environment lines, so the cached prefix changes at least once a day.
   Machine-wide managed settings still apply.

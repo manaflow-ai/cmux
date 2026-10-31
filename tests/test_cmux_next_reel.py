@@ -16,6 +16,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
+import importlib.util
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/cmux-next/media/reel.py"
@@ -100,6 +102,24 @@ class DryRunTests(unittest.TestCase):
                          [(5, "fix: a", "no clip"), (6, "feat: d", "no clip")])
 
 
+class FfmpegEnvTests(unittest.TestCase):
+    def test_ffmpeg_runs_without_the_publish_steps_secrets(self):
+        spec = importlib.util.spec_from_file_location("media_reel", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        seen = {}
+
+        def run(argv, **kwargs):
+            seen.update(kwargs["env"])
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        secrets = {"PR_MEDIA_PRIVATE_TERMS": "secret-host", "GH_TOKEN": "t", "PATH": "/usr/bin"}
+        with mock.patch.dict(os.environ, secrets), mock.patch.object(module.subprocess, "run", side_effect=run):
+            module.ffmpeg(["-version"], Path("."))
+        self.assertEqual(seen.get("PATH"), "/usr/bin")
+        self.assertFalse({"PR_MEDIA_PRIVATE_TERMS", "GH_TOKEN"} & set(seen))
+
+
 @unittest.skipUnless(HAS_FFMPEG, "needs ffmpeg")
 class BuildTests(unittest.TestCase):
     def test_two_clips_an_odd_title_and_a_pr_without_a_clip(self):
@@ -170,7 +190,14 @@ class PublishTests(unittest.TestCase):
             log = tmp / "gh.jsonl"
             notes = {"build": "100", "items": [{"title": "Tabs keep their order", "author": "Ada", "pr": 11}]}
             out = tmp / "out"
-            env = dict(os.environ, PATH=f"{gh.parent}{os.pathsep}{os.environ.get('PATH', '')}", FAKE_GH_LOG=str(log))
+            # As inside .github/actions/pr-media-publish: a made-up terms list instead
+            # of this machine's names, and an OCR tool that reads every frame as clean.
+            ocr = tmp / "bin/ocr"
+            ocr.write_text("#!/bin/sh\necho ok\n", encoding="utf-8")
+            ocr.chmod(0o755)
+            env = dict(os.environ, PATH=f"{gh.parent}{os.pathsep}{os.environ.get('PATH', '')}", FAKE_GH_LOG=str(log),
+                       GITHUB_ACTIONS="true", PR_MEDIA_PUBLISH_GATE="1", PR_MEDIA_PRIVACY_OCR=str(ocr),
+                       PR_MEDIA_PRIVATE_TERMS='["glow-box"]')
             done = subprocess.run([sys.executable, str(SCRIPT), "--build", "100",
                                    "--notes", str(write(tmp / "notes.json", notes)), "--allow-unsigned",
                                    "--clips", str(write(tmp / "clips.json", {"11": str(tmp / "a.mp4")})),

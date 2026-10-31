@@ -6,6 +6,10 @@ nonisolated extension AcpmuxPaneMethods {
     /// The shape of a reply the relay filters itself, without relying on the daemon's redaction.
     public nonisolated indirect enum ReplyShape: Sendable {
         case string
+        /// A JSON `true` or `false` only; a number or a string that reads as one is dropped.
+        case bool
+        /// A finite JSON number that is not a boolean; anything else is dropped.
+        case number
         case object([String: ReplyShape])
         case list(ReplyShape)
         /// Only the scheme of the URL in the sibling field `source` (`ssh`, `ws`, `wss`), so the
@@ -17,11 +21,41 @@ nonisolated extension AcpmuxPaneMethods {
     static let reportedSchemes: Set<String> = ["ssh", "ws", "wss"]
 
     /// Replies filtered to the fields the pane renders; everything else is dropped, at every depth.
-    /// `_acpmux/status`: the pane reads only `peers[].name` and each peer's `transport`, the
-    /// scheme of its `url` (direct.ts, after initialize; environments.ts peerKindsFromStatus).
+    /// `_acpmux/status`: the pane reads only `peers[].name`, each peer's `transport` (the scheme
+    /// of its `url`) and whether it is `connected` (direct.ts; environments.ts peerKindsFromStatus,
+    /// peerConnectedFromStatus), and its link `state`, `lastSeen` (ms) and failed `attempts`, which
+    /// tell a chat on a machine that is not connected (with when it was last seen) from a deleted
+    /// one, and from one whose machine is still connecting (chatUnavailable.ts).
     public static let replyShapes: [String: ReplyShape] = [
         "_acpmux/status": .object([
-            "peers": .list(.object(["name": .string, "transport": .scheme(from: "url")])),
+            "peers": .list(.object([
+                "name": .string, "transport": .scheme(from: "url"), "connected": .bool,
+                "state": .string, "lastSeen": .number, "attempts": .number,
+                // The same cached, one-minute health reading the native remote-machine sidebar
+                // displays. Keep only values needed for a warning and the budget verdict;
+                // URLs, host labels, disk readings and session counts stay out of the page.
+                "health": .object([
+                    "unsupported": .bool,
+                    "load": .list(.number),
+                    "cpus": .number,
+                    "ram": .object(["freeBytes": .number]),
+                    "pressure": .object([
+                        "cores": .number,
+                        "load_limit": .number,
+                        "ok": .bool,
+                        "over": .list(.string),
+
+                    ]),
+                ]),
+            ])),
+        ]),
+        // Reconnect returns the same safe peer state needed by the offline copy's banner. The
+        // relay derives transport from `url` and drops the endpoint and all other metadata.
+        "_acpmux/peer_reconnect": .object([
+            "peers": .list(.object([
+                "name": .string, "transport": .scheme(from: "url"), "connected": .bool,
+                "state": .string, "lastSeen": .number, "attempts": .number, "error": .string,
+            ])),
         ]),
     ]
 
@@ -30,6 +64,13 @@ nonisolated extension AcpmuxPaneMethods {
         switch shape {
         case .string:
             return value as? String
+        case .bool:
+            guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
+            return number.boolValue
+        case .number:
+            guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  number.doubleValue.isFinite else { return nil }
+            return number
         case .scheme:
             guard let scheme = (value as? String).flatMap({ URLComponents(string: $0)?.scheme?.lowercased() }),
                   reportedSchemes.contains(scheme) else { return nil }

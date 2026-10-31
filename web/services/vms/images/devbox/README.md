@@ -21,9 +21,12 @@ Python 3.12, uv, Docker (running from boot), and its own copies of Claude
 Code, Codex and OpenCode. The bake keeps all of that and replaces the agent
 copies with the exact Dockerfile pins (`npm install -g` on the base's npm,
 every agent bin symlinked into `/usr/local/bin` so daemon panes resolve them
-without a login profile), and installs `bubblewrap`, codex's Linux sandbox
-prerequisite, so codex runs on the distro's `bwrap` instead of warning on
-every launch that it is falling back to its bundled copy. A cmux login banner
+without a login profile), and builds checksum-pinned upstream `bubblewrap`
+0.13.1, replacing Ubuntu 24.04's 0.9.0. Muse's `--ro-bind-symlink` option
+belongs to its patched helper and is unsupported by upstream 0.13.1.
+`/usr/bin/bwrap` is diverted so a later apt install preserves the pinned binary. This reaches new machines
+after the next image bake; existing machines retain their baked version.
+Codex uses this `bwrap` instead of warning on every launch that it is falling back to its bundled copy. A cmux login banner
 (`cmux-motd`, rendered by pam_motd on SSH) replaces the stock Ubuntu and
 Freestyle motd text.
 
@@ -84,7 +87,10 @@ writes):
   comments are intentionally part of the digest, because telling a comment
   from code in TypeScript needs a full lexer and any line heuristic can hide
   a code change, so a comment-only edit to the bake script also asks for a
-  re-promotion) was baked from exactly this checkout's sources. An entry is checked with the schema it was recorded
+  re-promotion), and from schema 3 the files the bake installs from outside
+  this directory (`DEVBOX_BAKED_PAYLOADS`: `cmux-machine-health`, its hygiene
+  command and their installer module) was baked from exactly this checkout's
+  sources. An entry is checked with the schema it was recorded
   with (absent: 1), so a formula change never forces a rebake; new bakes
   record `DEVBOX_SOURCE_SCHEMA`, and `bun run devbox:promote -- freestyle
   --upgrade-source-schema` moves older defaults up without a bake only where
@@ -92,11 +98,32 @@ writes):
   its digest at its own schema, its `builderScriptVersion` against this
   checkout's bake script, and the Dockerfile's instructions at its
   `repoCommit` (read from git) against this checkout's. Anything else is
-  kept and reported; a rebake is the only other way up.
+  kept and reported; a rebake is the only other way up. Git proves no
+  schema-3 payload, so that upgrade stops at schema 2
+  (`DEVBOX_SOURCE_PROVABLE_SCHEMA`).
 
-A source change that landed before its bake is listed in `DEVBOX_AWAITING_REBAKE` (`devbox-image-common.ts`), which
-excuses exactly that drift for `devbox:manifest:check` and the manifest test, never for `promote`;
-the promotion that bakes those sources deletes the entry.
+A source change that landed before its bake is listed in `services/vms/images/awaiting-rebake.json`
+(`DEVBOX_AWAITING_REBAKE`), which excuses exactly that drift for `devbox:manifest:check` and the
+manifest test, never for `promote`; the promotion that bakes those sources deletes the entry
+(`bun scripts/devbox-rebake.ts settle`).
+
+### Rebake workflow
+
+`.github/workflows/cloud-devbox-image-rebake.yml` runs when a commit that touches an image input
+(`REBAKE_INPUTS` in `web/scripts/devbox-rebake.ts`: every file in the bake's import closure and
+every file it ships; the test keeps the workflow's paths equal to it) lands on `feat-cmux-next`,
+and on manual dispatch from `feat-cmux-next` (`force`, `keep`; any other ref does nothing). It bakes when the inputs differ from the ones the last
+published rebake recorded in `services/vms/images/rebake-state.json`, or a Freestyle default was
+baked from other sources than that commit's, unless an open `devbox-rebake/<inputs key 12>` PR
+already has them. It then promotes (bake, verify, derive every size, manifest rows), settles
+`awaiting-rebake.json`, records `rebake-state.json`, smoke-tests the new md desktop default (its
+`/etc/cmux/image-stamp` and a cmux-tui round trip, `check-devbox-image-reachable.ts
+--expect-stamp`), opens the PR with the manifest diff, and closes older open rebake PRs as
+superseded. The version is `<UTC yyyymmddHHMM>-<commit 10>-<inputs key 12>`; every snapshot is
+slugged `cmux-devbox-ci-<version>[-<size>]` and its manifest rows carry it. Merging the PR is the
+promotion. The run then keeps the newest `keep` (default 5) rebake versions plus every snapshot a
+manifest row names (this run's, and feat-cmux-next's and main's as they are now), and deletes the other `cmux-devbox-ci-*`
+snapshots; nothing else on the account is touched.
 
 Rollback is therefore a revert of the promotion commit as a whole, never the
 manifest flags alone.
@@ -332,13 +359,16 @@ container, so the hostname there is the runtime's.
 
 Daemon-spawned shells get the TERM the Mac exports (`xterm-256color`, or
 `xterm-ghostty` when passed through) plus `COLORTERM=truecolor`, and inherit
-`TERM_PROGRAM=ghostty` with `TERM_PROGRAM_VERSION` from
-`/etc/cmux/ghostty-version` (the Ghostty .deb pin, written by the bake and
-the Dockerfile) via the supervisor's environment, the same identity the app
-exports to local and SSH shells. Claude Code and other agents gate
+`TERM_PROGRAM=ghostty` via the supervisor's environment, the same identity the
+app exports to local and SSH shells. Claude Code and other agents gate
 synchronized output, progress reporting, strikethrough, and Cmd-click on
 `TERM_PROGRAM`; `verify-devbox-image.ts` reads the daemon's environ to prove
-it. Programs still resolve TERM against the guest's terminfo. Stock ncurses
+it. The daemon's own environment also carries `TERM_PROGRAM_VERSION` from
+`/etc/cmux/ghostty-version` (the Ghostty .deb pin, written by the bake and the
+Dockerfile), which the verifier checks, but no shell inherits it: cmux forwards
+a full-screen TUI's mouse reports instead of providing Ghostty's native
+selection, so a child that read a Ghostty version would turn its own
+copy-on-select drag fallback off (cmux#22585). Programs still resolve TERM against the guest's terminfo. Stock ncurses
 `xterm-256color` advertises no truecolor (`Tc`) or styled underlines (`Su`)
 and emits SGR 90 for `setaf 8`, which the cmux renderer shows as invisible
 ghost text. `cmux-terminfo.src` is the app's `Resources/terminfo-overlay`

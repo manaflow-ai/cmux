@@ -34,6 +34,7 @@ extension BrowserProfileService {
         try edit { $0.markDeleted(id) }
         services.cache.dropHistory(for: BrowserProfileRecord.engineProfile(for: id))
         services.bookmarks.dropProfile(id)
+        Task { [sync = services.onboarding.historySync] in _ = try? await sync.removeImported(profile: id, bookmarks: nil, forgetPages: false) }  // task-owner: its imports and their sync go too
         cleanUpDeletedProfiles()
     }
 
@@ -101,9 +102,11 @@ extension BrowserProfileService {
         }
     }
 
-    /// Each profile's imported history and bookmarks go into its omnibar.
+    /// Each profile's imported history goes into its omnibar; Keep in Sync starts watching.
     private func seedImportedHistory() {
-        guard let store = importStore else { return }
-        OnboardingService.seedHistory(profiles: ordered.map(\.id), store: store, cache: services.cache)
+        guard importStore != nil else { return }
+        let sync = services.onboarding.historySync, profiles = ordered.map(\.id)
+        // task-owner: one-shot launch load of the import store; the sync owns its watches
+        Task { await sync.start(profiles: profiles) }
     }
 }

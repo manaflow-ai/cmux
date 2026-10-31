@@ -1,9 +1,11 @@
 // A session reference's hover card (started/SessionHoverCard.tsx) over the transcript (Leo,
 // 2026-10-20, "the styling is a bit shit"; references: Claude desktop's and Codex's hover and link
 // previews):
-//   - its surface is the popup surface every hover card, menu and popover uses, never a grey that
-//     reads as the user bubble beside it;
-//   - a hairline rim and the hover card elevation (--elevation-2), nothing more dramatic;
+//   - its surface is the shared glass hover card (.ui-card.ui-glass, plans/cmux-next/glass-lens-DESIGN.md),
+//     never a grey that reads as the user bubble beside it; under plain glass it is the popup surface
+//     every hover card, menu and popover used before the lens;
+//   - the glass rim over a clear hairline border (the card keeps its size) and the hover card
+//     elevation (--elevation-2), nothing more dramatic;
 //   - proper padding, and a hierarchy: the title (emphasis), then the status row, then the meta line
 //     (folder and branch) in a smaller, muted ink.
 // Measured in light and dark from the gallery's `reply` variant, which sets the card beside a user
@@ -12,8 +14,8 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 type Box = { left: number; top: number; right: number; bottom: number };
 type Measured = {
@@ -22,9 +24,12 @@ type Measured = {
   title: Box;
   status: Box;
   meta: Box | null;
+  glass: boolean;
+  background: string;
+  tint: string;
   border: { width: number; color: string };
   shadow: string;
-  elevation: string;
+  glassShadow: string;
   titleWeight: string;
   titleSize: string;
   titleColor: string;
@@ -54,8 +59,8 @@ await requireBrowserLane("session-hover-card-surface.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, "agent-pane.session-hover", { browser });
   });
   afterAll(async () => {
     await browser?.close();
@@ -68,7 +73,7 @@ await requireBrowserLane("session-hover-card-surface.test.ts", async () => {
     for (;;) {
       try {
         await page.goto(
-          `http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.session-hover&variant=reply&frame=component&width=560&colorScheme=${colorScheme}`,
+          `http://127.0.0.1:${port}${galleryFrame("agent-pane.session-hover", { variant: "reply", frame: "component", width: 560, colorScheme })}`,
         );
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
           timeout: 60_000,
@@ -92,11 +97,14 @@ await requireBrowserLane("session-hover-card-surface.test.ts", async () => {
     };
     const card = document.querySelector(".acpmux-session-hover-card")!;
     const style = getComputedStyle(card);
-    // What `--elevation-2` resolves to here, through the same cascade the card sits in.
+    // What the glass tokens resolve to on the card itself (its own overrides included): the tint,
+    // and the glass rim with the hover card elevation.
     const probe = document.createElement("div");
-    probe.style.boxShadow = "var(--elevation-2)";
-    card.parentElement!.append(probe);
-    const elevation = getComputedStyle(probe).boxShadow;
+    probe.style.background = "var(--glass-tint)";
+    probe.style.boxShadow = "var(--glass-rim-shadow), var(--elevation-2)";
+    card.append(probe);
+    const tint = getComputedStyle(probe).backgroundColor;
+    const glassShadow = getComputedStyle(probe).boxShadow;
     probe.remove();
     const title = card.querySelector(".acpmux-session-hover-title")!;
     const meta = card.querySelector(".acpmux-session-hover-meta");
@@ -106,9 +114,12 @@ await requireBrowserLane("session-hover-card-surface.test.ts", async () => {
       title: box(title)!,
       status: box(card.querySelector(".acpmux-session-status-line"))!,
       meta: box(meta),
+      glass: card.classList.contains("ui-glass"),
+      background: style.backgroundColor,
+      tint,
       border: { width: parseFloat(style.borderTopWidth) || 0, color: style.borderTopColor },
       shadow: style.boxShadow,
-      elevation,
+      glassShadow,
       titleWeight: getComputedStyle(title).fontWeight,
       titleSize: getComputedStyle(title).fontSize,
       titleColor: getComputedStyle(title).color,
@@ -135,49 +146,44 @@ await requireBrowserLane("session-hover-card-surface.test.ts", async () => {
   }
   const distance = (a: number[], b: number[]) => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!);
 
-  /** The popup surface's color here, painted on a probe beside the card. */
-  async function popupSurface(page: Page) {
-    await page.evaluate(() => {
-      const probe = document.createElement("div");
-      probe.id = "popup-probe";
-      probe.className = "ui-positioner";
-      probe.style.cssText =
-        "position:fixed;left:680px;top:360px;width:30px;height:30px;background:var(--surface-popup)";
-      document.querySelector(".acpmux-shell")!.append(probe);
-    });
-    const pixel = await pixels(page);
-    const color = pixel(695, 375);
-    await page.evaluate(() => document.getElementById("popup-probe")?.remove());
-    return color;
-  }
-
   for (const scheme of ["light", "dark"] as const) {
     describe(`${scheme}`, () => {
-      test("the card is the popup surface, and does not read as the user bubble", async () => {
+      test("the card is glass, and does not read as the user bubble", async () => {
         const page = await open(scheme);
         const m = await page.evaluate(measure);
         const pixel = await pixels(page);
-        // Inside the rim, in the top padding, clear of the text.
-        const fill = pixel(m.card.right - 6, m.card.top + 4);
+        // Inside the rim, in the top padding, clear of the text and of the 12px corner's curve.
+        const fill = pixel(m.card.right - 14, m.card.top + 4);
         const bubble = pixel(m.bubble.left + 4, (m.bubble.top + m.bubble.bottom) / 2);
-        const surface = await popupSurface(page);
         await page.close();
-        expect(distance(fill, surface)).toBeLessThanOrEqual(3);
+        expect(m.glass).toBe(true);
+        expect(m.background).toBe(m.tint);
         expect(distance(fill, bubble)).toBeGreaterThanOrEqual(12);
       });
 
-      test("a hairline rim and the hover card elevation", async () => {
+      test("under plain glass the card is still glass: the glass tint, never the solid popup surface", async () => {
+        const page = await open(scheme);
+        await page.evaluate(() => document.documentElement.setAttribute("data-glass", "plain"));
+        const m = await page.evaluate(measure);
+        await page.close();
+        expect(m.glass).toBe(true);
+        expect(m.background).toBe(m.tint);
+      });
+
+      test("the glass rim over a clear hairline border, and the hover card elevation", async () => {
         const page = await open(scheme);
         const m = await page.evaluate(measure);
         const pixel = await pixels(page);
-        const fill = pixel(m.card.right - 6, m.card.top + 4);
-        const rim = pixel((m.card.left + m.card.right) / 2, m.card.top);
+        const fill = pixel(m.card.right - 14, m.card.top + 4);
+        // The first column inside the clear border, halfway down: the glass rim's edge line.
+        const rim = pixel(m.card.left + m.border.width, (m.card.top + m.card.bottom) / 2);
         await page.close();
+        // The border keeps the card's size; the glass rim draws the edge.
         expect(m.border.width).toBeGreaterThan(0);
         expect(m.border.width).toBeLessThanOrEqual(1);
-        expect(m.border.color).not.toMatch(/^(transparent|rgba\(0, 0, 0, 0\))$/);
+        expect(m.border.color).toMatch(/^(transparent|rgba\(0, 0, 0, 0\))$/);
         expect(distance(rim, fill)).toBeGreaterThanOrEqual(6);
-        expect(m.shadow).toBe(m.elevation);
+        expect(m.shadow).toBe(m.glassShadow);
       });
 
       test("padding, then the title, the status row and the meta line, each a step quieter", async () => {

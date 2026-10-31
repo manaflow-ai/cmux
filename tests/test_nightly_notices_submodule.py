@@ -13,6 +13,7 @@ had accepted, stapled and launch-tested each build.
 import re
 import sys
 from pathlib import Path
+from nightly_workflow_text import nightly_text
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/nightly.yml"
@@ -20,7 +21,7 @@ CHECKERS = ("verify-app-bundle-licenses.sh", "notarize-nightly-dmg.sh", "resume-
 INIT = "init-submodule.sh ghostty-next"
 EXEMPT: set[str] = set()
 
-text = WORKFLOW.read_text()
+text = nightly_text()
 jobs_text = text[text.index("\njobs:\n"):]
 blocks = dict(re.findall(r"^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", jobs_text, re.MULTILINE | re.DOTALL))
 

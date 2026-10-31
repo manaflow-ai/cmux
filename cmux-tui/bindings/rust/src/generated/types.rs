@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 618580395ad650b750fb7be122cdc20524f93ba299cc62b7afebb68b22ff6b12.
+// cmux-tui mux protocol 12, IR 440934d902c97a5d430e2f5c26ae15e96ab11f89fa383c70cf209c01f3abd2cb.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -61,6 +61,9 @@ pub struct AgentRecord {
     /// Adapter identity (\`claude\`, \`codex\`, ...) when a hook claimed the terminal; null for socket-only reports.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub agent: Optional<String>,
+    /// The harness's own session id that the agent's hooks reported (\`claude\`, \`codex\` session ids), checked to \`\[A-Za-z0-9._:-\]\` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep \`session\` for a human label, so clients find a terminal's agent session by this.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub agent_session_id: Optional<String>,
     /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub last_prompt: Optional<String>,
@@ -361,6 +364,13 @@ pub struct CloseTerminalResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationPresenceParticipant {
+    pub participant: String,
+    pub viewing: bool,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ColumnMoveDirection {
     #[serde(rename = "left")]
@@ -376,6 +386,15 @@ pub struct ColumnPin {
     pub mode: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub role: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ColumnSide {
+    #[serde(rename = "left")]
+    Left,
+    #[serde(rename = "right")]
+    Right,
 }
 
 #[rustfmt::skip]
@@ -814,6 +833,13 @@ pub struct GetCellPixelsResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetHostSizePolicyResult {
+    pub mac_participants: Vec<String>,
+    pub policy: HostSizePolicy,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetSizeStateResult {
     pub self_participant: Nullable<String>,
     pub state: SizeState,
@@ -913,6 +939,34 @@ pub struct HomeInboxRow {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HostSizeMode {
+    #[serde(rename = "smallest")]
+    Smallest,
+    #[serde(rename = "mac")]
+    Mac,
+    #[serde(rename = "latest")]
+    Latest,
+    #[serde(rename = "priority")]
+    Priority,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostSizePolicy {
+    pub mode: HostSizeMode,
+    pub order: Vec<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostSizePolicyRequest {
+    pub mode: HostSizeMode,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub order: Optional<Vec<String>>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IdMappingKind {
     #[serde(rename = "workspace")]
     Workspace,
@@ -942,6 +996,8 @@ pub struct IdentifyResult {
     pub build_commit: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub build_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub build_time: Optional<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1164,7 +1220,11 @@ pub enum NameSource {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewRowResult {
     pub pane: Id,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub pane_id: Option<String>,
     pub surface: Id,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1611,6 +1671,13 @@ pub struct Screen {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SendExpectAgent {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub session: Optional<String>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsConnections {
     pub accepted: u64,
@@ -1633,6 +1700,14 @@ pub struct ServerStatsHistogram {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsHookQueue {
+    pub queued_events: u64,
+    pub reset_dropped_events: u64,
+    pub undeliverable_events: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsJournalWriter {
     pub batch_size: ServerStatsHistogram,
     pub batches: u64,
@@ -1647,6 +1722,20 @@ pub struct ServerStatsJournalWriter {
     pub receipt_wait_us: ServerStatsHistogram,
     pub terminal_events: u64,
     pub terminal_queued: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLockDetail {
+    pub by_hold_p99: Vec<ServerStatsLockSiteDetail>,
+    pub by_hold_total: Vec<ServerStatsLockSiteDetail>,
+    pub contended_acquisitions: u64,
+    pub hold_us: ServerStatsHistogram,
+    pub holder: Nullable<ServerStatsLockHolder>,
+    pub last_stall: Nullable<ServerStatsLockStall>,
+    pub sites: u64,
+    pub stalls: u64,
+    pub wait_us: ServerStatsHistogram,
 }
 
 #[rustfmt::skip]
@@ -1667,10 +1756,30 @@ pub struct ServerStatsLockSite {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLockSiteDetail {
+    pub acquisitions: u64,
+    pub hold_max_us: u64,
+    pub hold_p99_us: u64,
+    pub hold_total_us: u64,
+    pub site: String,
+    pub wait_max_us: u64,
+    pub wait_p99_us: u64,
+    pub wait_total_us: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsLockStall {
     pub blocker: Nullable<String>,
     pub waited_us: u64,
     pub waiter: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLocks {
+    pub registry: ServerStatsLockDetail,
+    pub state: ServerStatsLockDetail,
 }
 
 #[rustfmt::skip]
@@ -1711,7 +1820,11 @@ pub struct ServerStatsResourceProjection {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsResult {
     pub connections: ServerStatsConnections,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub hook_queue: Option<ServerStatsHookQueue>,
     pub journal_writer: Nullable<ServerStatsJournalWriter>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub locks: Option<ServerStatsLocks>,
     pub registry_lock: ServerStatsRegistryLock,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub resource_projection: Option<ServerStatsResourceProjection>,
@@ -1747,6 +1860,12 @@ pub enum ServerStatsWriterPhase {
 pub struct SetCellPixelsResult {
     pub failures: Vec<CellPixelFailure>,
     pub resizes: Vec<CellPixelResize>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetHostSizePolicyResult {
+    pub policy: HostSizePolicy,
 }
 
 #[rustfmt::skip]
@@ -2599,6 +2718,27 @@ pub struct TerminalPlacement {
     pub terminal_resource_id: Option<String>,
     pub terminal_revision: u64,
     pub workspace: Nullable<Id>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalPortsListener {
+    /// The loopback address that accepted the daemon's connect: 127.0.0.1 or ::1.
+    pub bound: String,
+    /// The host as the terminal printed it: localhost, 127.0.0.1, 0.0.0.0, \[::1\], ...
+    pub host: String,
+    pub port: u16,
+    /// The printed URL, or http://HOST:PORT/ when the text had no scheme.
+    pub url: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalPortsResult {
+    /// Ports the text names that refused the connect.
+    pub closed: Vec<u16>,
+    pub listeners: Vec<TerminalPortsListener>,
+    pub surface: Id,
 }
 
 #[rustfmt::skip]

@@ -68,10 +68,29 @@ public struct RemoteBrowserWire: Sendable {
         encode(["e": "ime_commit", "surface": 0, "text": text, "replacement": NSNull()])
     }
 
-    /// A key with no text of its own (`Backspace`, `Enter`, `Tab`, arrows).
-    public func key(_ code: String, key: String, text: String = "", down: Bool) -> Data {
+    /// `cmux.rb/1` modifier bits (proto.rs `modifiers`).
+    public struct Modifiers: OptionSet, Sendable {
+        public let rawValue: Int
+        public init(rawValue: Int) { self.rawValue = rawValue }
+        public static let shift = Modifiers(rawValue: 1)
+        public static let control = Modifiers(rawValue: 1 << 1)
+        public static let option = Modifiers(rawValue: 1 << 2)
+        public static let command = Modifiers(rawValue: 1 << 3)
+    }
+
+    /// A key with no text of its own (`Backspace`, `Enter`, `Tab`, arrows), or a
+    /// shortcut: `editCommands` are the Mac's edit commands for it (`SelectAll`,
+    /// `Copy`, ...), which Chromium runs as the Mac's own key bindings would.
+    public func key(_ code: String, key: String, text: String = "", down: Bool, modifiers: Modifiers = [],
+                    editCommands: [String] = []) -> Data {
         encode(["e": "key", "surface": 0, "down": down, "code": code, "key": key, "text": text, "unmodified_text": text,
-                "modifiers": 0, "repeat": false, "location": 0, "edit_commands": [Any]()])
+                "modifiers": modifiers.rawValue, "repeat": false, "location": 0,
+                "edit_commands": down ? editCommands.map { ["name": $0, "value": ""] } : [[String: String]]()])
+    }
+
+    /// A simulator's hardware button (`home`, `lock`; cmux-mobile-host `surface.rs`).
+    public func button(_ name: String) -> Data {
+        encode(["e": "button", "surface": 0, "button": name])
     }
 
     private func encode(_ object: [String: Any]) -> Data {

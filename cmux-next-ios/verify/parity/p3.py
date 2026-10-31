@@ -650,7 +650,8 @@ def flow_chief():
             s.tap_el(st[0]); time.sleep(2)
             pq.shot("chief-settings")
             out["settings"] = [e.label for e in s.find() if e.label and e.ident and e.ident.startswith("chief.settings")][:12]
-            d = s.find(ident="chief.settings.done")
+            # Chief's info is pushed (Back); older builds showed a sheet (Done).
+            d = s.find(ident="chief.settings.done") or [e for e in s.find(label="Back", kind="Button") if e.frame[1] < 130]
             if d:
                 s.tap_el(d[0]); time.sleep(1)
         eng = m.cmux("chief", "engine", check=False, timeout=30)

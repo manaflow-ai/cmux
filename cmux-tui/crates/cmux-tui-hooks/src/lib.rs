@@ -2,6 +2,8 @@
 //! checks and removes cmux-tui's journal hook entries and plugins in each
 //! provider's native config.
 
+use cmux_json::JsonSet as _;
+
 #[cfg(test)]
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
@@ -676,7 +678,7 @@ fn run_with_context(plan: &Plan, context: &Context) -> RunResult {
         "errors":errors,
     });
     if plan.action != Action::Uninstall {
-        value["activation"] = Value::String(ACTIVATION_NOTE.into());
+        value.set("activation", Value::String(ACTIVATION_NOTE.into()));
     }
     RunResult { failed: !errors.is_empty(), value }
 }
@@ -2091,10 +2093,24 @@ fn codex_session_hook_settings_with_context(
     let root = read_json_object(&path)?;
     let key_path =
         codex_state_key_hooks_path(&path, context.provider_path_from_env_override(provider));
+    // Codex 0.162 treats each `hooks.state` override as the complete state
+    // entry.  The disabled entries below therefore replace (rather than
+    // merge with) the persisted table, and would otherwise discard the
+    // trusted hash for every installed hook.  Preserve a hash only when it
+    // still matches the current hooks.json identity: a user edit must keep
+    // prompting for review instead of inheriting trust for the old command.
+    let expected_trust = codex_present_expected_trust_entries(&key_path, &root)?;
+    let persisted_trust = codex_persisted_trust_hashes(
+        &path.parent().context("codex hooks path has no parent")?.join(CODEX_CONFIG_FILE),
+        &expected_trust,
+    );
     let mut state = toml_edit::InlineTable::new();
     for key in codex_owned_entry_keys(&key_path, &root) {
         let mut entry = toml_edit::InlineTable::new();
         entry.insert("enabled", false.into());
+        if let Some(hash) = persisted_trust.get(&key) {
+            entry.insert("trusted_hash", hash.clone().into());
+        }
         state.insert(&key, entry.into());
     }
     for event in CODEX_EVENTS {
@@ -2112,6 +2128,42 @@ fn codex_session_hook_settings_with_context(
     }
     settings.push(format!("hooks.state={state}"));
     Ok(settings)
+}
+
+/// Returns persisted trust hashes for the current cmux-owned hook identities.
+/// Invalid or inaccessible config is ignored: the wrapper can still launch,
+/// and Codex will show its normal review prompt for entries it cannot prove.
+#[cfg(unix)]
+fn codex_persisted_trust_hashes(
+    config_path: &Path,
+    expected: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let Ok(Some(text)) = read_codex_config_text(config_path) else {
+        return BTreeMap::new();
+    };
+    let Ok(document) = text.parse::<toml_edit::DocumentMut>() else {
+        return BTreeMap::new();
+    };
+    let Some(state) = document
+        .as_table()
+        .get("hooks")
+        .and_then(toml_edit::Item::as_table_like)
+        .and_then(|hooks| hooks.get("state"))
+        .and_then(toml_edit::Item::as_table_like)
+    else {
+        return BTreeMap::new();
+    };
+    expected
+        .iter()
+        .filter_map(|(key, expected_hash)| {
+            let hash = state
+                .get(key)
+                .and_then(toml_edit::Item::as_table_like)
+                .and_then(|entry| entry.get("trusted_hash"))
+                .and_then(toml_edit::Item::as_str)?;
+            (hash == expected_hash).then(|| (key.clone(), hash.to_owned()))
+        })
+        .collect()
 }
 
 /// The command shape before the tmux fallback. Its codex trust hashes stay
@@ -2277,11 +2329,30 @@ fn codex_expected_trust_entries(
     key_hooks_path: &Path,
     root: &Map<String, Value>,
 ) -> anyhow::Result<BTreeMap<String, String>> {
+    let entries = codex_present_expected_trust_entries(key_hooks_path, root)?;
+    for event in CODEX_EVENTS {
+        if codex_owned_hook_entry(root, event).is_none() {
+            anyhow::bail!("installed codex hook for {event} is missing");
+        }
+    }
+    Ok(entries)
+}
+
+/// Trust entries for the cmux-owned hooks that are actually present in
+/// `root`. Session overrides can run while an install is partially complete,
+/// so unlike the strict verifier this intentionally skips missing events.
+fn codex_present_expected_trust_entries(
+    key_hooks_path: &Path,
+    root: &Map<String, Value>,
+) -> anyhow::Result<BTreeMap<String, String>> {
     let mut entries = BTreeMap::new();
     for event in CODEX_EVENTS {
         let label = codex_event_state_label(event)?;
-        let (group_index, handler_index, group, handler) = codex_owned_hook_entry(root, event)
-            .with_context(|| format!("installed codex hook for {event} is missing"))?;
+        let Some((group_index, handler_index, group, handler)) =
+            codex_owned_hook_entry(root, event)
+        else {
+            continue;
+        };
         let key = format!("{}:{label}:{group_index}:{handler_index}", key_hooks_path.display());
         let command = if cfg!(windows) {
             handler
@@ -2512,6 +2583,9 @@ fn codex_owned_entry_keys(key_hooks_path: &Path, root: &Map<String, Value>) -> B
 /// can sequence it BEFORE mutating hooks.json and commit it afterwards.
 struct PreparedCodexTrustWrite {
     edit: CodexTrustEdit,
+    /// `config.toml.cmux-lock` beside the unresolved config.toml (see
+    /// `lock_codex_config`).
+    lock_path: PathBuf,
     original: Option<String>,
     updated: String,
     mode: u32,
@@ -2616,6 +2690,7 @@ fn prepare_codex_trust_state(
         edit.config_path.parent().context("codex config path has no parent")?.to_path_buf();
     ensure_writable_directory(&target_parent)?;
     Ok(Some(PreparedCodexTrustWrite {
+        lock_path: parent.join(CODEX_CONFIG_LOCK_FILE),
         mode: existing_file_mode(&edit.config_path).unwrap_or(0o600),
         edit,
         original,
@@ -2624,6 +2699,10 @@ fn prepare_codex_trust_state(
 }
 
 fn commit_codex_trust_state(write: &PreparedCodexTrustWrite) -> anyhow::Result<()> {
+    // The re-read, compare and rename below run under the lock every other
+    // cmux writer of this config.toml takes, so neither write is built on a
+    // read the other one replaced. Released when `_lock` drops.
+    let _lock = lock_codex_config(&write.lock_path);
     // Close the preflight-to-commit window: if config.toml changed in between
     // (codex's own trust review or a user edit), re-render against the fresh
     // content instead of clobbering the concurrent edit with the stale
@@ -2641,6 +2720,53 @@ fn commit_codex_trust_state(write: &PreparedCodexTrustWrite) -> anyhow::Result<(
         // The concurrent edit already satisfies the trust entries.
         (_, None) => Ok(()),
     }
+}
+
+/// The advisory lock every cmux writer of a codex config.toml takes for its
+/// read-modify-rename: this installer and the Cloud devbox shell-start merge
+/// (web/services/vms/images/devbox/agent-config.sh, which flocks the same
+/// file name in the same directory). Without it, two writers that each re-read
+/// before their rename can still drop the other's keys (the provider block or
+/// the hook trust state) in the window between read and rename.
+const CODEX_CONFIG_LOCK_FILE: &str = "config.toml.cmux-lock";
+
+/// How long the installer waits for another writer's lock. The shell-start
+/// holders keep it for one bounded read and rename and give up after 5 s, but
+/// a stopped or hung holder must not stall an install forever.
+const CODEX_CONFIG_LOCK_WAIT: Duration = Duration::from_secs(15);
+
+/// Returns once this process holds `lock_path` exclusively, or `None` when it
+/// cannot: a directory that refuses the lock file, a filesystem without flock,
+/// or a holder that keeps it past `CODEX_CONFIG_LOCK_WAIT`. The write then
+/// goes ahead unlocked, as before the lock existed, instead of failing or
+/// hanging the install; the commit's own re-read still guards that case.
+#[cfg(unix)]
+fn lock_codex_config(lock_path: &Path) -> Option<fs::File> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .custom_flags(libc::O_CLOEXEC)
+        .open(lock_path)
+        .ok()?;
+    let deadline = Instant::now() + CODEX_CONFIG_LOCK_WAIT;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Some(file),
+            Err(fs::TryLockError::WouldBlock) if Instant::now() < deadline => {
+                // Lock contention, not synchronization: flock has no
+                // wait-with-timeout, so poll at a short interval to a deadline.
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(_) => return None,
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn lock_codex_config(_lock_path: &Path) -> Option<fs::File> {
+    None
 }
 
 /// Captures a file's rollback snapshot (bytes and mode) before mutation.
@@ -3117,6 +3243,97 @@ mod tests {
             );
         }
         assert_eq!(state.len(), CODEX_EVENTS.len());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_session_flags_preserve_current_trust_for_disabled_hooks() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let plan = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&plan, &context).failed);
+
+        let hooks_path = context.home.join(".codex/hooks.json");
+        let hooks_root = read_json_object(&hooks_path).unwrap();
+        let key_path = codex_state_key_hooks_path(&hooks_path, false);
+        let expected = codex_expected_trust_entries(&key_path, &hooks_root).unwrap();
+        let settings = codex_session_hook_settings_with_context(
+            Path::new("/tmp/cmux-tui.sock"),
+            "term_test",
+            Path::new("/tmp/cmux-tui"),
+            &context,
+        )
+        .unwrap();
+        let state_line = settings.iter().find(|line| line.starts_with("hooks.state=")).unwrap();
+        let parsed: toml::Value = toml::from_str(state_line).unwrap();
+        let state = parsed["hooks"]["state"].as_table().unwrap();
+        for (key, hash) in &expected {
+            let entry = state[key].as_table().unwrap();
+            assert_eq!(entry.get("enabled").and_then(toml::Value::as_bool), Some(false));
+            assert_eq!(
+                entry.get("trusted_hash").and_then(toml::Value::as_str),
+                Some(hash.as_str())
+            );
+        }
+
+        // A stale persisted hash must not be copied into the session override:
+        // changing a command keeps Codex's review gate intact.
+        let config_path = context.home.join(".codex/config.toml");
+        let original = fs::read_to_string(&config_path).unwrap();
+        let (changed_key, changed_hash) = expected.iter().next().unwrap();
+        let stale = original.replacen(changed_hash, "sha256:stale", 1);
+        assert_ne!(stale, original);
+        atomic_write(&config_path, stale.as_bytes(), Some(0o600)).unwrap();
+        let settings = codex_session_hook_settings_with_context(
+            Path::new("/tmp/cmux-tui.sock"),
+            "term_test",
+            Path::new("/tmp/cmux-tui"),
+            &context,
+        )
+        .unwrap();
+        let state_line = settings.iter().find(|line| line.starts_with("hooks.state=")).unwrap();
+        let parsed: toml::Value = toml::from_str(state_line).unwrap();
+        let entry = parsed["hooks"]["state"][changed_key].as_table().unwrap();
+        assert_eq!(entry.get("enabled").and_then(toml::Value::as_bool), Some(false));
+        assert!(entry.get("trusted_hash").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_session_flags_still_inject_when_install_is_partial() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let plan = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&plan, &context).failed);
+        let hooks_path = context.home.join(".codex/hooks.json");
+        let mut hooks = read_json_object(&hooks_path).unwrap();
+        let key_path = codex_state_key_hooks_path(&hooks_path, false);
+        let expected = codex_expected_trust_entries(&key_path, &hooks).unwrap();
+        let (existing_key, existing_hash) =
+            expected.iter().find(|(key, _)| key.contains(":post_tool_use:")).unwrap();
+        hooks.get_mut("hooks").and_then(Value::as_object_mut).unwrap().remove("Stop");
+        atomic_write(
+            &hooks_path,
+            serde_json::to_vec(&Value::Object(hooks)).unwrap().as_slice(),
+            Some(0o600),
+        )
+        .unwrap();
+        let settings = codex_session_hook_settings_with_context(
+            Path::new("/tmp/cmux-tui.sock"),
+            "term_test",
+            Path::new("/tmp/cmux-tui"),
+            &context,
+        )
+        .unwrap();
+        assert!(settings.iter().any(|line| line.starts_with("hooks.Stop=")));
+        let state_line = settings.iter().find(|line| line.starts_with("hooks.state=")).unwrap();
+        let parsed: toml::Value = toml::from_str(state_line).unwrap();
+        let entry = parsed["hooks"]["state"][existing_key].as_table().unwrap();
+        assert_eq!(entry.get("enabled").and_then(toml::Value::as_bool), Some(false));
+        assert_eq!(
+            entry.get("trusted_hash").and_then(toml::Value::as_str),
+            Some(existing_hash.as_str())
+        );
     }
 
     #[test]

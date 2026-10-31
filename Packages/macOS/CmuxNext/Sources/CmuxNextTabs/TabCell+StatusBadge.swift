@@ -24,7 +24,7 @@ extension TabCell {
     func statusBadgePlan(config: StatusIndicatorConfig) -> StatusIndicatorPlan? {
         guard config.iconSet != .current || config.isStatic, let state = statusBadgeState else { return nil }
         let plan = StatusIndicatorPlan.make(state, style: config.settings.style, animates: false, set: config.iconSet, isStatic: config.isStatic,
-                                            staticShapes: config.staticShapes)
+                                            staticShapes: config.staticShapes, working: config.workingLook)
         return plan.glyph == .none ? nil : plan
     }
 

@@ -44,7 +44,7 @@ enum HistoryPalettePages {
             ("history.agents", HistoryAppStrings.agentsTitle, 43, .agent, "arrow.clockwise.circle"),
         ]
         return kinds.map { id, title, order, kind, symbol in
-            // Agent sessions also make up the Chats & agents chip (Cmd-Shift-A).
+            // Agent sessions also make up the Chats & agents scope.
             PaletteSearchContribution(id: id, title: title, order: order, searchesChats: kind == .agent) { [weak services] in
                 services.map { page($0, id: id, title: title, placeholder: "", symbol: symbol, kinds: [kind]) }
             }
@@ -63,8 +63,14 @@ enum HistoryPalettePages {
 
     /// The brand mark an agent session's row draws (its provider's), or nil.
     nonisolated static func agentBrand(_ entry: HistoryEntry) -> String? {
-        guard case .agent(let session) = entry.payload else { return nil }
-        return AgentBrandCatalog.brand(for: session.provider)?.rawValue
+        switch entry.payload {
+        case .agent(let session):
+            return AgentBrandCatalog.brand(for: session.provider)?.rawValue
+        case .closed(let item):
+            return AgentBrandCatalog.brand(for: item.agentSession?.harness)?.rawValue
+        default:
+            return nil
+        }
     }
 
     static func item(for entry: HistoryEntry, services: AppServices) -> PaletteItem {

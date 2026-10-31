@@ -13,6 +13,10 @@ public protocol AgentActivitySource: AnyObject {
     func follow(session: String, _ on: Bool)
     /// Decoded pixels of a frame, or nil when unavailable.
     func image(for frame: AgentActivityFrameRef) async -> NSImage?
+    /// A frame's encoded bytes for the page, as the host stores them (no
+    /// decode on the main actor), or nil when unavailable. `session` is the
+    /// frame's session, which `full` needs to find the full frame.
+    func frame(_ frame: AgentActivityFrameRef, size: AgentActivityFrameSize, session: String?) async -> AgentActivityFrameData?
     /// Sends a user operation to the owning host.
     func perform(_ op: AgentActivityUserOp) async throws
 }
@@ -50,22 +54,6 @@ public final class AgentActivityModel {
     }
     /// Last error from a user operation, for the toolbar.
     public private(set) var lastOperationError: String?
-    /// Every acpmux session with its lane (cx-v9k2f), while the lanes view follows a lane
-    /// store (`AgentLaneStore.follow`); nil hides it.
-    public var lanes: [AgentActivityLane]? {
-        didSet {
-            guard lanes != oldValue else { return }
-            priorityRevision &+= 1
-            priorityChangedSessionID = Self.changedLaneID(old: oldValue, new: lanes)
-            notifyChange()
-        }
-    }
-    /// Monotonic hook revision used by the web priority view to animate only
-    /// the row changed by the native `_acpmux/watch` event.
-    public private(set) var priorityRevision: UInt64 = 0
-    public private(set) var priorityChangedSessionID: String?
-    /// Opens a lane's chat (the page's row click); the App reveals or opens its tab.
-    @ObservationIgnored public var onJump: ((AgentActivityLane) -> Void)?
 
     /// Called by a host view when the projection changes and must be sent to
     /// another renderer, such as the Activity web view.
@@ -74,23 +62,6 @@ public final class AgentActivityModel {
     @ObservationIgnored private let source: any AgentActivitySource
     @ObservationIgnored private var followed: [String] = []
     @ObservationIgnored private var extraFollowed: Set<String> = []
-
-    private static func changedLaneID(old: [AgentActivityLane]?, new: [AgentActivityLane]?) -> String? {
-        let oldByID = Dictionary(uniqueKeysWithValues: (old ?? []).map { ($0.id, $0) })
-        let newByID = Dictionary(uniqueKeysWithValues: (new ?? []).map { ($0.id, $0) })
-        // Keep this projection linear on the main actor. The sorted union
-        // allocated and sorted every lane ID for each ACPmux update.
-        var firstChanged: String?
-        for id in oldByID.keys where oldByID[id] != newByID[id] {
-            if let firstChanged, id >= firstChanged { continue }
-            firstChanged = id
-        }
-        for id in newByID.keys where newByID[id] != oldByID[id] {
-            if let firstChanged, id >= firstChanged { continue }
-            firstChanged = id
-        }
-        return firstChanged
-    }
 
     public init(source: any AgentActivitySource) {
         self.source = source
@@ -193,6 +164,7 @@ public final class AgentActivityModel {
     public func scrub(to seq: UInt64?) {
         guard let seq, let last = selectedEvents.last, seq != last.seq else {
             scrubSeq = nil
+            notifyChange()
             return
         }
         scrubSeq = selectedEvents.contains { $0.seq == seq } ? seq : nil
@@ -223,19 +195,22 @@ public final class AgentActivityModel {
     // MARK: User operations (sent to the host; no optimistic change)
 
     public func perform(_ op: AgentActivityUserOp) {
-        if case let .watch(session, on) = op {
-            if on { watching.insert(session) } else { watching.remove(session) }
-            notifyChange()
-        }
-        Task { @MainActor [source] in
-            do {
-                try await source.perform(op)
-                self.lastOperationError = nil
-                self.notifyChange()
-            } catch {
-                self.lastOperationError = String(describing: error)
-                self.notifyChange()
+        Task { try? await performAndWait(op) }
+    }
+
+    /// Reports the host's result to page callers as well as native controls.
+    public func performAndWait(_ op: AgentActivityUserOp) async throws {
+        do {
+            try await source.perform(op)
+            lastOperationError = nil
+            if case let .watch(session, on) = op {
+                if on { watching.insert(session) } else { watching.remove(session) }
             }
+            notifyChange()
+        } catch {
+            lastOperationError = String(describing: error)
+            notifyChange()
+            throw error
         }
     }
 
@@ -270,7 +245,7 @@ public final class AgentActivityModel {
         updateFollow()
     }
 
-    /// Also follows `ids` (the lanes and grid layouts show every session's
+    /// Also follows `ids` (the timeline and grid layouts show every session's
     /// newest frame). The selection is always followed.
     public func follow(_ ids: Set<String>) {
         extraFollowed = ids

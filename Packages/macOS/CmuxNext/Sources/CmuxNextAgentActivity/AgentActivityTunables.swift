@@ -5,7 +5,7 @@ public import CmuxNextDesign
 public nonisolated enum AgentActivityLayout: String, Sendable, CaseIterable, TunableChoice {
     /// Session list left; preview, filmstrip and event rows right.
     case split
-    /// One timeline across all live sessions, a lane per agent.
+    /// One timeline across all live sessions, a row per agent.
     case timeline
     /// A wall of session tiles (latest frame, or live frame when watched).
     case grid
@@ -13,7 +13,7 @@ public nonisolated enum AgentActivityLayout: String, Sendable, CaseIterable, Tun
     public var tunableTitle: String {
         switch self {
         case .split: "Split (list + timeline)"
-        case .timeline: "Lanes (all agents on one timeline)"
+        case .timeline: "Timeline (all agents on one timeline)"
         case .grid: "Grid (session wall)"
         }
     }
@@ -27,12 +27,5 @@ public nonisolated enum AgentActivityTunables {
         "agentActivity.layout", section, "Layout", help: "Prototype layout of the Agent activity pane. Switches live.",
         default: .split, code: "AgentActivityTunables.layout")
 
-    /// The sidebar's Lanes item and the lanes view show this Mac's own sessions; on, also the
-    /// acpmux peers' lanes and coordinators' child sessions (`AgentLaneStore.shown`).
-    public static let lanesShowFleet = Tunable<Bool>.toggle(
-        "agentActivity.lanesShowFleet", section, "Lanes: show fleet and child lanes",
-        help: "The Lanes item and view also count acpmux peers' lanes and sessions a coordinator started (mux.parent).",
-        default: false, code: "AgentActivityTunables.lanesShowFleet")
-
-    public static var all: [TunableDescriptor] { [layout.descriptor, lanesShowFleet.descriptor] }
+    public static var all: [TunableDescriptor] { [layout.descriptor] }
 }

@@ -125,3 +125,36 @@ fn scroll_surface_emits_one_scroll_changed_event() {
     .unwrap();
     assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
 }
+
+/// A hook-reported agent keeps `session` for its human label (the hook
+/// marker is dropped), so `list-agents` and `agent-changed` carry the
+/// harness's own session id as `agent_session_id`: `cmux://agent` links
+/// (manaflow-ai/cmux#22096) resolve a live terminal by it.
+#[test]
+fn list_agents_and_agent_changed_carry_the_hook_session_id() {
+    let mux = Mux::new_for_test("agent-session-id-wire", SurfaceOptions::default());
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().unwrap();
+    let events = mux.subscribe();
+    let hook = crate::agent_hooks::agent_hook_journal_ingress(
+        "claude",
+        "SessionStart",
+        Some(&terminal_id.to_string()),
+        json!({"session_id":"claude-session-1"}),
+    )
+    .unwrap();
+    mux.append_journal_ingress(&hook, "test", "hook-1").unwrap();
+
+    let listed = cmd_frontend::list_agents(&mux, Some(surface.id), None).unwrap();
+    let agents = listed["agents"].as_array().unwrap();
+    assert_eq!(agents.len(), 1, "{listed}");
+    assert_eq!(agents[0]["agent"], "claude", "{listed}");
+    assert_eq!(agents[0]["agent_session_id"], "claude-session-1", "{listed}");
+
+    let changed = events
+        .try_iter()
+        .map(|event| subscribed_event_json(&event))
+        .find(|event| event["event"] == "agent-changed")
+        .expect("the hook publishes agent-changed");
+    assert_eq!(changed["agent_session_id"], "claude-session-1", "{changed}");
+}

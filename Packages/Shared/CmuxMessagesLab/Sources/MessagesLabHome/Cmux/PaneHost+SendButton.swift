@@ -16,6 +16,8 @@ extension ChatController {
         }
         button.setLight(Fixture.lightAppearance)
         let animate = animated && button.window != nil && !MessagesLabHomeView.reducesMotion
-        button.set(shown: slot.shown, enabled: slot.enabled, animated: animate)
+        // cmux: while dictating the finish and mic buttons stand there instead.
+        button.set(shown: slot.shown && !voice.isActive, enabled: slot.enabled, animated: animate)
+        placeVoiceControls()
     }
 }

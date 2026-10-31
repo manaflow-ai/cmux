@@ -1,31 +1,11 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextHistory
 import Foundation
-
-/// The chat as Open Chat names it (the index's metadata).
-struct ChatOpenSubject: Equatable {
-    var title: String?
-    /// The index harness id (`claude-code`, `codex`, `opencode`, `pi`, ...).
-    var harness: String?
-    var sessionID: String?
-    var cwd: String?
-    /// The chat's index key (`harness:id`): a fresh chat opened for it shows its past turns.
-    var key: String?
-
-    /// The acpmux harness family a fresh agent chat for this chat starts on, nil for the default.
-    var acpHarness: String? {
-        switch harness {
-        case "claude-code": "claude"
-        case "codex", "opencode", "gemini", "pi": harness
-        case "cursor-agent": "cursor"
-        default: nil
-        }
-    }
-}
 
 /// What Open Chat does with a daemon plan (Lawrence 2026-10-09): one click on a chat shows it in a
 /// NEW WORKSPACE as the ACP agent pane, focus moving there, never a terminal; a chat a tab already
@@ -41,12 +21,17 @@ enum ChatOpenRoute: Equatable {
     case readOnly(path: String)
     case needsFolder(reason: String)
 
-    static func route(_ plan: AcpmuxChatOpenPlan, chat: ChatOpenSubject, inTerminal: Bool = false,
+    /// `watch`: View Only, for a chat acpmux would adopt (Claude Code, Codex): the tab shows it
+    /// without running it. Any other plan or harness opens as it would.
+    static func route(_ plan: AcpmuxChatOpenPlan, chat: ChatOpenSubject, inTerminal: Bool = false, watch: Bool = false,
                       openTab: (AgentPaneAdopt) -> String?) -> ChatOpenRoute {
         if inTerminal { return terminal(plan, chat: chat) }
         switch plan.action {
         case .needsFolder(let reason): return .needsFolder(reason: reason)
-        case .adopt(let adopt, let cwd, _):
+        case .adopt(var adopt, let cwd, _):
+            // Only Claude Code and Codex chats are watched; a daemon without `family` names the
+            // profile after its family.
+            if watch, ["claude", "codex"].contains(plan.family ?? adopt.harness) { adopt.watch = true }
             return openTab(adopt).map { .reveal(tab: $0) }
                 ?? .newWorkspace(name: chat.title, cwd: cwd, seed: AgentPaneSeed(cwd: cwd, adopt: adopt, pastChat: chat.key),
                                  command: nil, env: [:])
@@ -98,22 +83,42 @@ final class ChatsOpenCoordinator {
     /// Open in Terminal (the row's right-click menu): the harness's own resume command.
     func openInTerminal(_ key: String) { open(key, inTerminal: true) }
 
-    /// `page`: the New Tab page the row was clicked on; the chat replaces it in its tab.
-    func open(_ key: String, inTerminal: Bool = false, replacing page: String? = nil) {
+    /// `page`: the New Tab page the row was clicked on; the chat replaces it in its tab. `watch`: View
+    /// Only (an All chats row's menu, `agentChat.view`, `cmux agent view`): a tab that shows the chat
+    /// and follows the app that runs it, without running it, until Take Over.
+    func open(_ key: String, inTerminal: Bool = false, watch: Bool = false, replacing page: String? = nil) {
         guard let services, let environment = QuitAgents.environment(services) else { return }
+        // A chat a tab already shows (its agent chat, else the terminal running it) is shown there,
+        // never opened again in a new workspace that then asks to Fork or Open Anyway. Open in
+        // Terminal and an explicit View Only still open their own tab.
+        if !inTerminal, !watch, revealRunning(key) { return }
+        // Every Open of an outside Claude Code or Codex chat is View Only unless the Debug toggle is off.
+        let watch = watch || AgentPaneTunables.openOutsideChatsViewOnly.value
         Task { [weak self] in
             guard let self else { return }
             do {
                 guard let plan = try await environment.chatOpenPlan(key: key) else { return }
-                await dispatch(plan, key: key, environment: environment, inTerminal: inTerminal, replacing: page)
+                await dispatch(plan, key: key, environment: environment, inTerminal: inTerminal, watch: watch, replacing: page)
             } catch {
-                services.refusalHUD.show(error.localizedDescription, in: services.windows.active?.window ?? NSApp.keyWindow)
+                services.refusalHUD.show(error.localizedDescription, in: services.windows.active?.window ?? services.keyWindowSource())
             }
         }
     }
 
+    /// Shows the tab that already shows chat `key`: the agent chat resuming it, else a live
+    /// terminal running it (the lookup `cmux://agent` links use). False when no tab shows it.
+    private func revealRunning(_ key: String) -> Bool {
+        guard let services else { return false }
+        let chat = services.chatsFeed?.chat(id: key)
+        let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
+        // The index names Claude Code `claude-code`; tabs and terminals name it `claude`.
+        guard let harness = TerminalChatRoute.harness(of: chat?.harness ?? parts.first),
+              let session = chat?.sessionID ?? (parts.count == 2 ? parts[1] : nil) else { return false }
+        return services.revealAgentSession(harness: harness, session: session)
+    }
+
     private func dispatch(_ plan: AcpmuxChatOpenPlan, key: String, environment: AcpmuxEnvironment, inTerminal: Bool = false,
-                          replacing page: String? = nil) async {
+                          watch: Bool = false, replacing page: String? = nil) async {
         guard let services else { return }
         let chat = services.chatsFeed?.chat(id: key)
         let title = chat?.title
@@ -122,7 +127,8 @@ final class ChatsOpenCoordinator {
         let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
         let subject = ChatOpenSubject(title: title, harness: chat?.harness ?? parts.first,
                                       sessionID: chat?.sessionID ?? (parts.count == 2 ? parts[1] : nil), cwd: chat?.cwd, key: key)
-        switch ChatOpenRoute.route(plan, chat: subject, inTerminal: inTerminal, openTab: { services.agentTabs.tab(resuming: $0) }) {
+        switch ChatOpenRoute.route(plan, chat: subject, inTerminal: inTerminal, watch: watch,
+                                   openTab: { services.agentTabs.tab(resuming: $0) }) {
         case .needsFolder(let reason):
             // The chat opens (in its new workspace) and says why it has no folder, with Choose
             // Folder there (cx-nn3e.1), never a bare Open panel.
@@ -140,23 +146,23 @@ final class ChatsOpenCoordinator {
         }
     }
 
-    /// The New Tab page `page` opens `seed`'s chat in its place (with the Debug toggle, beside it: NewTabPage.opensBeside);
+    /// The New Tab page `page` opens `seed`'s chat in its place (opted in, beside it: NewTabPage.opensBeside);
     /// the page closes once the chat's tab exists. False when the page is gone.
     private func replace(_ page: String, with seed: AgentPaneSeed) -> Bool {
         guard let services else { return false }
         // The page's store id (it may have been provisional at the click). The New Tab page is an
         // agent tab, not an internal page tab: its pane is found by its tab model.
         let page = services.agentTabs.resolve(page)
-        guard services.agentTabs.isNewTabPage(page), let (slot, model) = services.locateTab(page),
+        guard services.agentTabs.isNewTabPage(page), let (slot, model) = services.locateTab(page, onMachine: services.machines.local.machineID),
               let pane = services.paneController(for: model) else { return false }
         // A page of another machine never becomes a chat of this Mac (cx-k21v): the chat opens in a
         // new workspace of this Mac instead, as before open-here.
         guard pane.daemon.isLocal else { return false }
-        if NewTabPage.opensBeside(page, in: pane) {
+        if NewTabPage.opensBeside(page, in: pane, mainPane: false) {
             let closePage = NewTabPage.closingPage(page, in: pane)
-            return services.linkOpener.open(from: pane) { [services] target, placed in
+            return services.linkOpener.open(from: pane, mainPane: false) { [services] target, placed in
                 services.agentTabs.openTab(in: target, seed: AgentPaneSeedSource(seed), select: placed == nil) { key in
-                    if let placed, let surface = services.locateTab(key)?.0.surface { placed(surface) }
+                    if let placed, let surface = services.locateTab(key, onMachine: target.daemon.machineID)?.0.surface { placed(surface) }
                     closePage()
                 }
             }

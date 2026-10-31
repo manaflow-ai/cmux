@@ -21,13 +21,13 @@ final class HomeRecipientChip: NSView {
         label.stringValue = token.text
         label.font = Typography.body
         label.lineBreakMode = .byTruncatingTail
-        label.themeColor = { [isValid = token.isValid] in isValid ? Palette.accent : Palette.danger }
+        label.themeColor = { [isValid = token.isValid] in isValid ? Palette.litGlyph : Palette.danger }
         addSubview(label)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(HomeConversationStrings.removeRecipient(token.text))
         setAccessibilityIdentifier("cmux.home.newMessage.token")
-        if !token.isValid { toolTip = HomeConversationStrings.unknownRecipient(token.text) }
+        if !token.isValid { themedToolTip = HomeConversationStrings.unknownRecipient(token.text) }
         applyColors()
     }
 
@@ -40,7 +40,10 @@ final class HomeRecipientChip: NSView {
     override func layout() {
         super.layout()
         let size = label.intrinsicContentSize
-        label.frame = NSRect(x: 10, y: (bounds.height - size.height) / 2, width: max(0, bounds.width - 20), height: size.height)
+        // The text box sits 10 pt in from each side; the frame adds the label's padding around it
+        // (a frame the size of the text alone truncated every name).
+        label.frame = label.frame(forAlignmentRect: NSRect(x: 10, y: (bounds.height - size.height) / 2,
+                                                           width: max(0, bounds.width - 20), height: size.height))
     }
 
     override func mouseDown(with event: NSEvent) { onSelect() }

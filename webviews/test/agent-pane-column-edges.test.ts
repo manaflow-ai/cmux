@@ -9,8 +9,8 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 type Frame = { entry: string; variant: string; edge: string; blocks: Record<string, string> };
 
@@ -41,11 +41,10 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
     },
     {
       entry: "agent-pane.pr-dock",
-      variant: "several",
+      variant: "inline-pills",
       edge: ".acpmux-composer-box",
       blocks: {
         transcript: ".acpmux-row:not(.acpmux-user)",
-        "PR dock": ".acpmux-pr-dock > *",
       },
     },
     {
@@ -69,8 +68,12 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(
+      vite,
+      ["agent-pane.bottom-stack", "agent-pane.pr-dock", "agent-pane.new-tab", "agent-pane.composer"],
+      { browser },
+    );
   });
   afterAll(async () => {
     await browser?.close();
@@ -122,13 +125,19 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
     for (const width of WIDTHS) {
       for (const frame of FRAMES) {
         const page = await browser!.newPage({ viewport: { width, height: 760 } });
-        await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=${frame.entry}&variant=${frame.variant}`);
+        await page.goto(`http://127.0.0.1:${port}${galleryFrame(frame.entry, { variant: frame.variant })}`);
         // The first page waits on a cold Vite compiling the gallery, past 30 s on a busy runner.
         await page.locator(frame.edge).first().waitFor({ timeout: 90_000 });
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
           timeout: 30_000,
         });
         const { edgeLeft, found } = await page.evaluate(offsets, frame);
+        if (frame.entry === "agent-pane.pr-dock") {
+          const links = page.locator(".acpmux-scroll .acpmux-pr-dock").first();
+          await links.waitFor();
+          expect(await page.locator(".acpmux-dock > .acpmux-pr-dock").count()).toBe(0);
+          expect(await links.evaluate((node) => !!node.closest(".cv-turn-actions"))).toBe(true);
+        }
         await page.close();
         const label = `${frame.entry}:${frame.variant} @${width}`;
         edges[label] = Math.round(edgeLeft);
@@ -139,7 +148,7 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
       }
       // In a narrow pane the New Tab card and the chat's composer card stand at the same page edge.
       if (width > 600) continue;
-      const chat = edges[`agent-pane.pr-dock:several @${width}`]!;
+      const chat = edges[`agent-pane.pr-dock:inline-pills @${width}`]!;
       const newTab = edges[`agent-pane.new-tab:empty @${width}`]!;
       if (Math.abs(newTab - chat) > 1) {
         offenders.push(`agent-pane.new-tab:empty @${width} card ${newTab - chat}px from the chat's`);
@@ -161,6 +170,13 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
     const radius = (el: Element, corner: string) => parseFloat(getComputedStyle(el).getPropertyValue(corner)) || 0;
     const rows = queue ? [...queue.querySelectorAll(".acpmux-queued")] : [];
     const last = rows.at(-1)?.getBoundingClientRect();
+    const listBottom = queue?.getBoundingClientRect().bottom ?? 0;
+    const scrolls = queue ? queue.scrollHeight - queue.clientHeight > 1 : false;
+    const cap = queue ? parseFloat(getComputedStyle(queue).getPropertyValue("--acpmux-queue-max")) || 132 : 0;
+    const shownLast = rows
+      .map((row) => row.getBoundingClientRect().bottom)
+      .filter((bottom) => bottom <= listBottom + 0.5)
+      .at(-1);
     return {
       head: strip ? "strip" : "queue",
       // The block stands right on the card, side by side to the half pixel.
@@ -182,26 +198,30 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
             Math.round(el.getBoundingClientRect().left - queue.getBoundingClientRect().left),
           )
         : [],
-      // The queue's last row keeps room above what is under it: its descenders never touch it.
-      queueRoom: queue && last ? Math.round(queue.getBoundingClientRect().bottom - last.bottom) : null,
+      // The queue's last row keeps room above what is under it: its descenders never touch it. A
+      // queue past its cap scrolls and rests on a whole row (ComposerQueue fitList): the rows under
+      // it are out of sight, so its last shown row ends at the list's edge. A font that wraps a
+      // prompt to two lines (CI's, at 420px) takes the steering frame past its cap.
+      // Past the cap only: a list that scrolls with its rows under `--acpmux-queue-max` sized short.
+      scrolls,
+      overCap: queue ? queue.scrollHeight > cap + 1 : false,
+      queueRoom: queue && last ? Math.round(listBottom - (scrolls ? (shownLast ?? last.bottom) : last.bottom)) : null,
     };
   }
 
   test("the strip or queue and the card meet square in one rim, and the queue keeps room above", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const JOINS = [
-      // A new chat, before its first send, shows the strip (#20869).
-      { entry: "agent-pane.composer", variant: "new-chat", edge: ".acpmux-composer-box" },
       { entry: "agent-pane.composer", variant: "queued-paused", edge: ".acpmux-composer-box" },
       { entry: "agent-pane.composer", variant: "queued-steering", edge: ".acpmux-composer-box" },
-      // The New Tab's strip is text a few px over its card, the card's rim whole (#21133;
-      // composer-top-strip-variants.test.ts pins it), so it has no join here.
+      // A new chat's strip, the chat's as the New Tab's, is text a few px over its card, the card's
+      // rim whole (#21133; composer-top-strip-variants.test.ts pins it), so it has no join here.
     ];
     const offenders: string[] = [];
     for (const width of WIDTHS) {
       for (const frame of JOINS) {
         const page = await browser!.newPage({ viewport: { width, height: 760 } });
-        await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=${frame.entry}&variant=${frame.variant}`);
+        await page.goto(`http://127.0.0.1:${port}${galleryFrame(frame.entry, { variant: frame.variant })}`);
         await page.locator(frame.edge).first().waitFor({ timeout: 90_000 });
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
           timeout: 30_000,
@@ -223,7 +243,9 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
         if (join.stripRim !== "none") offenders.push(`${label} strip draws its own rim (${join.stripRim})`);
         if (join.textStarts.some((x) => x > 36 || x !== join.textStarts[0]))
           offenders.push(`${label} queued text starts at ${join.textStarts.join("/")}px`);
-        if (join.queueRoom !== null && join.queueRoom < 4) offenders.push(`${label} queue room ${join.queueRoom}px`);
+        if (join.queueRoom !== null && (join.scrolls ? Math.abs(join.queueRoom) > 1 : join.queueRoom < 4))
+          offenders.push(`${label} queue room ${join.queueRoom}px${join.scrolls ? " (scrolls)" : ""}`);
+        if (join.scrolls && !join.overCap) offenders.push(`${label} queue scrolls under its cap`);
       }
     }
     expect(offenders).toEqual([]);

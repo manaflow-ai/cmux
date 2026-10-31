@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Runs an ``ImportPlan``: for each source profile, reads each picked kind,
 /// reports progress, then hands the batch to the destination. Runs off the
@@ -37,7 +37,8 @@ public actor BrowserImporter {
                                         kind: kind, fraction: Double(step) / Double(steps), counts: counts))
             }
             do {
-                var batch = ImportBatch(source: try await record(for: item.profile, mergeTarget: plan.mergeTarget), kinds: item.kinds)
+                var batch = ImportBatch(source: try await record(for: item.profile, target: plan.mergeTarget ?? item.target), kinds: item.kinds)
+                if plan.keepsHistoryInSync, item.kinds.contains(.history) { batch.source.syncedHistoryFile = item.profile.historyFile }
                 for kind in ImportDataKind.allCases where item.kinds.contains(kind) {
                     report(kind, running + batch.counts, done)
                     try Task.checkCancellation()
@@ -99,17 +100,19 @@ public actor BrowserImporter {
     }
 
     /// The mapping for a source: its proposed profile id (reused from an
-    /// earlier import), and the profile the data goes to now.
-    private func record(for profile: BrowserSourceProfile, mergeTarget: String?) async throws -> ImportSourceRecord {
+    /// earlier import), and the profile the data goes to now: `target`, or
+    /// the source's own profile, made with its name, color and picture.
+    private func record(for profile: BrowserSourceProfile, target: String?) async throws -> ImportSourceRecord {
         let proposed = await store?.proposedProfileID(for: profile.id) ?? UUID().uuidString.lowercased()
         let single = profile.browser.family == .safari || profile.browser.family.isPrivateStore || profile.directoryName.isEmpty
         let name = single ? profile.browser.displayName : "\(profile.browser.displayName) · \(profile.displayName)"
         var record = ImportSourceRecord(browser: profile.browser, profileDirectory: profile.directoryName, displayName: name,
                                         proposedProfileID: proposed, targetProfileID: "default", profileName: single ? nil : profile.displayName)
-        if let mergeTarget {
-            record.targetProfileID = mergeTarget
+        if let target {
+            record.targetProfileID = target
         } else {
-            record.targetProfileID = try await provisioning.createProfile(id: proposed, name: name, color: nil, source: record.sourceFields)
+            record.targetProfileID = try await provisioning.createProfile(id: proposed, name: name, look: SourceProfileLook(profile),
+                                                                          source: record.sourceFields)
         }
         return record
     }
@@ -126,21 +129,39 @@ public actor BrowserImporter {
             batch.bookmarks = try readBookmarks(profile)
             return
         }
+        if kind == .history, let file = profile.historyFile {
+            batch.history = try readHistory(profile.browser.family, file: file, limit: historyLimit)
+            return
+        }
         switch (profile.browser.family, kind) {
-        case (.chromium, .history):
-            batch.history = try ChromiumHistoryReader().read(path.appending(path: "History"), limit: historyLimit)
         case (.chromium, .openTabs):
             if let file = ChromiumSessionReader().sessionFile(profile: path) { batch.openTabs = ChromiumSessionReader().parse(try Data(contentsOf: file)) }
+        case (.chromium, .searchEngines):
+            batch.searchEngine = ChromiumSearchEngineReader().read(profile: path)
         case (.chromium, .extensions):
             batch.extensions = ChromiumExtensionsReader().read(profile: path)
-        case (.firefox, .history):
-            batch.history = try FirefoxPlacesReader().readHistory(path.appending(path: "places.sqlite"), limit: historyLimit)
         case (.firefox, .openTabs):
             if let file = FirefoxSessionReader().sessionFile(in: path) { batch.openTabs = FirefoxSessionReader().parse(try Data(contentsOf: file)) }
-        case (.safari, .history):
-            batch.history = try SafariHistoryReader().read(path.appending(path: "History.db"), limit: historyLimit)
+        case (.firefox, .searchEngines):
+            batch.searchEngine = FirefoxSearchEngineReader().read(profile: path)
+        case (.safari, .searchEngines):
+            batch.searchEngine = SafariSearchEngineReader().read()
         default:
             return
+        }
+        #endif
+    }
+
+    /// One history database, newest pages first, with its family's reader.
+    public static func readHistory(_ family: BrowserFamily, file: URL, limit: Int) throws -> [ImportedHistoryEntry] {
+        #if CMUX_NO_BROWSER_DATA_IMPORT || CMUX_NO_HISTORY_IMPORT
+        return []
+        #else
+        switch family {
+        case .chromium: return try ChromiumHistoryReader().read(file, limit: limit)
+        case .firefox: return try FirefoxPlacesReader().readHistory(file, limit: limit)
+        case .safari: return try SafariHistoryReader().read(file, limit: limit)
+        case .webkit, .other: return []
         }
         #endif
     }

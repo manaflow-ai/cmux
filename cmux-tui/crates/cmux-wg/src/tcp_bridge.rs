@@ -27,6 +27,30 @@ impl TcpStack {
         self.poll();
     }
 
+    /// Take no new connection, and close every open one after what its owner had queued
+    /// (`WgMesh::close`). Listeners and connections still in their handshake are reset.
+    pub(crate) fn close_all(&mut self) {
+        for listener in std::mem::take(&mut self.listeners) {
+            for handle in listener.handles {
+                self.sockets.get_mut::<tcp::Socket>(handle).abort();
+                self.sockets.remove(handle);
+            }
+        }
+        self.abort_conns(|conn| conn.pending_stream.is_some());
+        self.closing = true;
+    }
+
+    /// Whether every connection's peer acknowledged all it was sent and its FIN, or the
+    /// connection ended: nothing a reset could still take from a peer.
+    pub(crate) fn delivered(&self) -> bool {
+        self.conns.iter().all(|conn| {
+            matches!(
+                self.sockets.get::<tcp::Socket>(conn.handle).state(),
+                tcp::State::FinWait2 | tcp::State::TimeWait | tcp::State::Closed
+            )
+        })
+    }
+
     pub(crate) fn clear(&mut self) {
         self.conns.clear();
         self.listeners.clear();
@@ -55,7 +79,8 @@ impl TcpStack {
     pub(crate) fn abort_conns(&mut self, mut doomed: impl FnMut(&Conn) -> bool) {
         let mut index = 0;
         while index < self.conns.len() {
-            if !doomed(&self.conns[index]) {
+            let Some(conn) = self.conns.get(index) else { break };
+            if !doomed(conn) {
                 index += 1;
                 continue;
             }
@@ -72,16 +97,18 @@ impl TcpStack {
     pub(crate) fn process_listeners(&mut self) {
         let mut index = 0;
         while index < self.listeners.len() {
-            if self.listeners[index].accept.is_closed() {
-                for handle in std::mem::take(&mut self.listeners[index].handles) {
+            let Some(listener) = self.listeners.get_mut(index) else { break };
+            if listener.accept.is_closed() {
+                for handle in std::mem::take(&mut listener.handles) {
                     self.sockets.get_mut::<tcp::Socket>(handle).abort();
                     self.sockets.remove(handle);
                 }
                 self.listeners.swap_remove(index);
                 continue;
             }
-            let port = self.listeners[index].port;
-            let handles = std::mem::take(&mut self.listeners[index].handles);
+            let port = listener.port;
+            let accept = listener.accept.clone();
+            let handles = std::mem::take(&mut listener.handles);
             let mut still_listening = Vec::with_capacity(handles.len());
             let mut listen_count = 0;
             let mut half_open = 0;
@@ -110,7 +137,7 @@ impl TcpStack {
                                 }
                             },
                         };
-                        let accept = self.listeners[index].accept.clone();
+                        let accept = accept.clone();
                         let (conn, stream) = self.bridge(handle, local, remote, peer);
                         self.conns.push(Conn {
                             pending_stream: Some((Handoff::Accept(accept), stream)),
@@ -150,17 +177,20 @@ impl TcpStack {
                     }
                 }
             }
-            self.listeners[index].handles = still_listening;
+            if let Some(listener) = self.listeners.get_mut(index) {
+                listener.handles = still_listening;
+            }
             index += 1;
         }
     }
 
     /// Returns whether any byte moved, so the caller can poll again.
     pub(crate) fn process_conns(&mut self) -> bool {
+        let closing = self.closing;
         let mut progressed = false;
         let mut index = 0;
         while index < self.conns.len() {
-            let conn = &mut self.conns[index];
+            let Some(conn) = self.conns.get_mut(index) else { break };
             let socket = self.sockets.get_mut::<tcp::Socket>(conn.handle);
 
             if let Some((handoff, stream)) = conn.pending_stream.take() {
@@ -209,6 +239,12 @@ impl TcpStack {
                         match conn.outbound.try_recv() {
                             Ok(Outbound::Data(bytes)) => conn.pending_write = Some(bytes),
                             Ok(Outbound::Shutdown) | Err(TryRecvError::Disconnected) => {
+                                conn.outbound_closed = true;
+                                socket.close();
+                                break;
+                            }
+                            // Closing: what the owner queued went in; nothing later does.
+                            Err(TryRecvError::Empty) if closing => {
                                 conn.outbound_closed = true;
                                 socket.close();
                                 break;

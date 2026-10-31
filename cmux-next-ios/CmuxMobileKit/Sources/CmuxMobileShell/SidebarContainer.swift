@@ -59,6 +59,9 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
     private var animator: UIViewPropertyAnimator?
     private var wasPastThreshold = false
     private var isTracking = false
+    /// Reduce Motion: the drawer settles in place instead of sliding (a drag
+    /// still follows the finger). Tests set it.
+    var reducesMotion: () -> Bool = { UIAccessibility.isReduceMotionEnabled }
 
     init(model: SidebarModel, sidebar: UIViewController, content: UIViewController) {
         self.model = model
@@ -121,6 +124,9 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
         pan.maximumNumberOfTouches = 1
         view.addGestureRecognizer(pan)
         view.addGestureRecognizer(EdgeSwipePriority())
+        // UIKit starts closing an open List row as the finger lands, before the pan asks to
+        // begin: whether a row was open is read at touch-down.
+        view.addGestureRecognizer(TouchDownProbe { [weak self] in self?.noteTouchDown() })
 
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) { (self: Self, _) in
             self.strokeView.layer.borderColor = theme.colors.cardStroke.uiColor.resolvedColor(with: self.traitCollection).cgColor
@@ -208,26 +214,39 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
         // UISpringTimingParameters takes velocity relative to the remaining distance.
         let relativeVelocity = abs(distance) > 0.5 ? velocity / distance : 0
         animator?.stopAnimation(true)
+        animator = nil
         setCorners(rounded: true)
         setSidebarPresent(true)
         publish(open: open)
-        let animator = theme.motion.drawer.animator(initialVelocity: relativeVelocity)
         offset = target
+        if reducesMotion() {
+            apply()
+            didSettle(open: open)
+            return
+        }
+        let animator = theme.motion.drawer.animator(initialVelocity: relativeVelocity)
         animator.addAnimations { [weak self] in self?.apply() }
         animator.addCompletion { [weak self] position in
             guard let self, position == .end else { return }
             self.animator = nil
-            self.model.progress = self.progress
-            if !open {
-                self.setCorners(rounded: false)
-                self.setSidebarPresent(false)
-            }
-            if open { UIAccessibility.post(notification: .screenChanged, argument: self.sidebarController.view) }
+            self.didSettle(open: open)
         }
         animator.isInterruptible = true
         self.animator = animator
         model.progress = open ? 1 : 0
         animator.startAnimation()
+    }
+
+    /// The drawer at rest: a closed card loses its corners and the sidebar
+    /// leaves the screen and the accessibility tree; an open one takes
+    /// VoiceOver's focus.
+    private func didSettle(open: Bool) {
+        model.progress = progress
+        if !open {
+            setCorners(rounded: false)
+            setSidebarPresent(false)
+        }
+        if open { UIAccessibility.post(notification: .screenChanged, argument: sidebarController.view) }
     }
 
     /// Captures the on-screen position (mid-animation included) as the start
@@ -309,9 +328,36 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
         if model.isOpen {
             return velocity.x < 0
         }
-        guard velocity.x > 0, model.allowsInteractiveOpen else { return false }
-        let location = pan.location(in: view)
-        return !touchIsInPushedScreen(location) && !touchIsInHorizontalScroller(location)
+        guard velocity.x > 0 else { return false }
+        return mayOpen(at: pan.location(in: view))
+    }
+
+    /// Whether a rightward pan at `location` may open the closed drawer.
+    func mayOpen(at location: CGPoint) -> Bool {
+        guard model.allowsInteractiveOpen else { return false }
+        guard !touchIsInPushedScreen(location), !touchIsInHorizontalScroller(location) else { return false }
+        return !closesOpenRowActions()
+    }
+
+    /// Mail and Messages: while a row's swipe actions are open, a rightward
+    /// swipe closes them instead of opening the drawer. A `List` row closes
+    /// itself on the touch (UIKit); a row outside `List` is closed here.
+    /// Returns whether actions were open.
+    private func closesOpenRowActions() -> Bool {
+        let rows = RowSwipeActions.shared
+        let listRowOpen = listRowOpenAtTouchDown || RowSwipeActions.hasOpenListRow(in: contentController.view)
+        guard rows.hasOpenRow || listRowOpen else { return false }
+        rows.closeAll()
+        return true
+    }
+
+    /// A `List` row was slid open when the current touch began.
+    private var listRowOpenAtTouchDown = false
+
+    private func noteTouchDown() {
+        // Only where the drawer could open (closed, on a tab root): no tree walk elsewhere.
+        listRowOpenAtTouchDown = !model.isOpen && model.allowsInteractiveOpen
+            && RowSwipeActions.hasOpenListRow(in: contentController.view)
     }
 
     /// The drawer only opens from a tab root. Any navigation controller under
@@ -334,6 +380,8 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer === pan else { return false }
         if other is UIScreenEdgePanGestureRecognizer { return true }
+        // A row outside `List` with open actions takes the rightward swipe to close them.
+        if other.name == RowSwipeActions.panName { return true }
         var responder: UIResponder? = other.view
         while let current = responder {
             if let navigation = current as? UINavigationController {
@@ -429,6 +477,25 @@ private final class EdgeSwipePriority: UIGestureRecognizer {
             }
             responder = current.next
         }
+    }
+}
+
+/// Reports each touch-down and fails at once: it never recognizes, delays
+/// or cancels touches.
+private final class TouchDownProbe: UIGestureRecognizer {
+    private let began: () -> Void
+
+    init(began: @escaping () -> Void) {
+        self.began = began
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        began()
+        state = .failed
     }
 }
 

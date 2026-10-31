@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextIcons
 
 /// A browser pane: toolbar (back, forward, reload, omnibox, extension slot),
@@ -77,6 +77,10 @@ public final class BrowserChromeView: NSView {
     /// square; the pane's one rounded content area clips this whole view.
     let contentContainer = NSView()
     public var onPaneHeaderHeightChange: (() -> Void)?
+    /// The page entered (true) or left (false) element fullscreen: the host may give it the whole
+    /// screen, as Chrome does (`WindowController+FullScreen`).
+    public var onContentFullscreenChange: ((Bool) -> Void)?
+    private var reportedContentFullscreen = false
     /// The band under the toolbar rows for the pane's tab strip (R109).
     let headerBand = BrowserHeaderBand()
     let findBar = FindBarView()
@@ -91,6 +95,9 @@ public final class BrowserChromeView: NSView {
         return isToolbarHidden ? 0 : currentToolbarHeight
     }
     private var observation: ObservationLoop?
+    /// Prompts have their own loop: a state change (a title, progress) does not re-render the prompt
+    /// bar, and a new prompt does not re-run the rest of the chrome.
+    private var promptObservation: ObservationLoop?
     /// The address a page woken from hibernation slept on, shown until the
     /// woken page reports a real one (`holdAddress(whileWaking:)`).
     var wakingAddress: BrowserTabState?
@@ -98,6 +105,12 @@ public final class BrowserChromeView: NSView {
     var httpsFallback = HTTPSUpgradeFallback()
     private var showsStop = false
     var isToolbarHidden = false
+    /// The edge the toolbar rows sit on (`browser.toolbarPosition`); the pane sets it.
+    public var toolbarPosition: ToolbarPosition = .top {
+        didSet { if toolbarPosition != oldValue { applyToolbarPosition() } }
+    }
+    /// The constraints that put the toolbar rows, page and page bars at the top or bottom.
+    let toolbarEdge = ToolbarEdgeConstraints()
     /// The person hid this tab's address bar row (Toggle Omnibar).
     public internal(set) var isOmnibarHidden = false
     private let density = DensityBinding()
@@ -226,29 +239,53 @@ public final class BrowserChromeView: NSView {
         addSubview(toolbar)
         addSubview(separator)
         installAccessoryBar(below: separator)
-        installHeaderBand(below: accessoryBar)
+        installHeaderBand(beside: accessoryBar)
         addSubview(progressLine)
         pageStatus.install(in: self, over: contentContainer) { [weak self] in self?.tab }
         addSubview(promptBar)
         addSubview(findBar)
 
         _ = toolbarHeight  // binds it here, in the same order as before
+        let scale = { [weak self] in self?.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2 }
+        // From the top: toolbar, separator, accessory bar, band, page. From the bottom: the same
+        // rows mirrored, the page on top (`ToolbarEdgeConstraints`).
+        toolbarEdge.top += [
+            toolbar.topAnchor.constraint(equalTo: topAnchor),
+            density.bind(addressBar.topAnchor.constraint(equalTo: toolbar.topAnchor)) { OmnibarStyle.barTop(scale: scale()) }, // R101 gaps
+            separator.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
+            progressLine.bottomAnchor.constraint(equalTo: separator.bottomAnchor),
+            // The page starts under the header band (empty unless the pane's
+            // tab bar sits below the toolbar, R109).
+            contentContainer.topAnchor.constraint(equalTo: headerBand.guide.bottomAnchor),
+            contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
+            // The shared find pill sits where every pane's does.
+            findBar.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: FindPillMetrics.inset),
+            density.bind(promptBar.topAnchor.constraint(equalTo: contentContainer.topAnchor)) { BrowserMetrics.overlayInset },
+        ]
+        toolbarEdge.bottom += [
+            toolbar.bottomAnchor.constraint(equalTo: bottomAnchor),
+            density.bind(addressBar.bottomAnchor.constraint(equalTo: toolbar.bottomAnchor)) { -OmnibarStyle.barTop(scale: scale()) },
+            separator.bottomAnchor.constraint(equalTo: toolbar.topAnchor),
+            progressLine.topAnchor.constraint(equalTo: separator.topAnchor),
+            contentContainer.topAnchor.constraint(equalTo: topAnchor),
+            contentContainer.bottomAnchor.constraint(equalTo: headerBand.guide.topAnchor),
+            // The page's bars sit by the toolbar, at the page's bottom.
+            findBar.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor, constant: -FindPillMetrics.inset),
+            density.bind(promptBar.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor)) { -BrowserMetrics.overlayInset },
+        ]
+        toolbarEdge.activate(toolbarPosition)
         density.update { [extensionSlot, toolbarButtons] in
             extensionSlot.spacing = OmnibarStyle.buttonSpacing
             toolbarButtons.spacing = OmnibarStyle.buttonSpacing
             navigation.spacing = OmnibarStyle.buttonSpacing
         }
         NSLayoutConstraint.activate([
-            toolbar.topAnchor.constraint(equalTo: topAnchor),
             toolbar.leadingAnchor.constraint(equalTo: leadingAnchor),
             toolbar.trailingAnchor.constraint(equalTo: trailingAnchor),
             toolbarHeight,
             density.bind(navigation.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor)) { OmnibarStyle.toolbarInset },
             navigation.centerYAnchor.constraint(equalTo: addressBar.centerYAnchor),
             density.bind(addressBar.leadingAnchor.constraint(equalTo: navigation.trailingAnchor)) { OmnibarStyle.barMargin },
-            density.bind(addressBar.topAnchor.constraint(equalTo: toolbar.topAnchor)) { [weak self] in // R101 gaps
-                OmnibarStyle.barTop(scale: self?.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2)
-            },
             density.bind(extensionSlot.leadingAnchor.constraint(equalTo: addressBar.trailingAnchor)) { OmnibarStyle.barMargin },
             density.bind(toolbarButtons.leadingAnchor.constraint(equalTo: extensionSlot.trailingAnchor)) { OmnibarStyle.buttonSpacing },
             density.bind(toolbarButtons.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor)) { -OmnibarStyle.toolbarInset },
@@ -266,30 +303,21 @@ public final class BrowserChromeView: NSView {
                 OmnibarStyle.buttonSize
             },
 
-            separator.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: trailingAnchor),
             // No line between the omnibar and the page (Lawrence 2026-10-16): the separator is only an anchor.
             separator.heightAnchor.constraint(equalToConstant: 0),
 
-            progressLine.bottomAnchor.constraint(equalTo: separator.bottomAnchor),
             progressLine.leadingAnchor.constraint(equalTo: leadingAnchor),
             progressLine.trailingAnchor.constraint(equalTo: trailingAnchor),
             density.bind(progressLine.heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.progressThickness },
 
-            // The page starts under the header band (empty unless the pane's
-            // tab bar sits below the toolbar, R109).
-            contentContainer.topAnchor.constraint(equalTo: headerBand.guide.bottomAnchor),
             contentContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
             contentContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
-            contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            // The shared find pill sits where every pane's does.
-            findBar.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: FindPillMetrics.inset),
             findBar.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -FindPillMetrics.inset),
             findBar.leadingAnchor.constraint(greaterThanOrEqualTo: contentContainer.leadingAnchor, constant: FindPillMetrics.inset),
 
-            density.bind(promptBar.topAnchor.constraint(equalTo: contentContainer.topAnchor)) { BrowserMetrics.overlayInset },
             promptBar.centerXAnchor.constraint(equalTo: contentContainer.centerXAnchor),
             density.bind(promptBar.leadingAnchor.constraint(greaterThanOrEqualTo: contentContainer.leadingAnchor)) { BrowserMetrics.overlayInset },
         ])
@@ -332,6 +360,7 @@ public final class BrowserChromeView: NSView {
 
     private func attach(_ tab: any BrowserTab, replacing old: (any BrowserTab)?) {
         observation?.cancel()
+        promptObservation?.cancel()
         // Another page in this toolbar: the held address was the old page's.
         if let old, old !== tab { wakingAddress = nil }
         siteZoom.follow(tab)
@@ -358,6 +387,10 @@ public final class BrowserChromeView: NSView {
             findBar.isHidden = true
         }
         observation = ObservationLoop { [weak self] in self?.render() }
+        promptObservation = ObservationLoop { [weak self] in
+            self?.renderPrompt()
+            self?.updateOcclusion()
+        }
     }
 
     /// Permission prompts in the bar; JavaScript dialogs as cmux dialogs on this tab.
@@ -385,10 +418,13 @@ public final class BrowserChromeView: NSView {
 
         pageStatus.render(state)
 
-        renderPrompt()
-
         setToolbarHidden(state.isContentFullscreen || isOmnibarHidden)
         updateOcclusion()
+        if state.isContentFullscreen != reportedContentFullscreen {
+            reportedContentFullscreen = state.isContentFullscreen
+            // task-owner: the host's window work runs after this render, outside its observation.
+            Task { @MainActor [weak self, on = reportedContentFullscreen] in self?.onContentFullscreenChange?(on) }
+        }
     }
 
     /// A move to a screen with another scale snaps the toolbar gap again.
@@ -413,10 +449,26 @@ public final class BrowserChromeView: NSView {
     /// Child-window pages draw above this view; tell them where the find
     /// bar, prompt bar, and error page cover them (floating cards are on
     /// the overlay host instead, `PageFloatingOverlays`).
+    ///
+    /// The find and prompt bars are rounded glass: a page that takes rounded
+    /// holes (`BrowserRoundedOcclusionHosting`) gets each bar's glass with its
+    /// corner radius, so the page shows around the corners instead of a square
+    /// of pane ground (Lawrence 2026-10-27, the save-password bar).
     private func updateOcclusion() {
         guard let occluded = tab as? any BrowserOcclusionHosting else { return }
-        let bars = [findBar, promptBar].filter { !$0.isHidden && $0.superview != nil }
-        let rects = (bars + pageStatus.shown).map { convert($0.frame, to: tab.contentView) }
+        let bars: [(bar: NSView, glass: OverlaySurfaceView?)] = [(findBar, findBar.glass), (promptBar, promptBar.glass)]
+            .filter { !$0.bar.isHidden && $0.bar.superview != nil }
+        var squares = pageStatus.shown
+        if let rounded = occluded as? any BrowserRoundedOcclusionHosting {
+            let holes = bars.map { bar, glass in
+                glass.map { CEFClipShape.RoundedRect(rect: $0.convert($0.bounds, to: tab.contentView), radius: $0.cornerRadius) }
+                    ?? CEFClipShape.RoundedRect(rect: convert(bar.frame, to: tab.contentView), radius: 0)
+            }
+            if rounded.roundedOcclusions != holes { rounded.roundedOcclusions = holes }
+        } else {
+            squares = bars.map(\.bar) + squares
+        }
+        let rects = squares.map { convert($0.frame, to: tab.contentView) }
         if occluded.occlusionRects != rects { occluded.occlusionRects = rects }
     }
 

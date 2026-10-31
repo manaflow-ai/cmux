@@ -1,8 +1,9 @@
 // Leo 10-15 (preview build): on the New Tab page, the model picker opened under the search
 // suggestions. A composer menu opened while the suggestions show draws over them, as Codex
 // desktop's composer menus always do: a press on the menu's rows reaches the menu, never a
-// suggestion. Same for the reasoning (effort) menu, and the other way around: suggestions that
-// open while a menu shows stay under it.
+// suggestion. Same for the access menu, and the other way around: suggestions that open while a
+// menu shows stay under it. The model button opens its compact menu, which holds Effort (Leo
+// 2026-10-20: one model button, no separate effort menu).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -64,8 +65,15 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
       const node = document.querySelector<HTMLElement>(selector);
       return !!node && getComputedStyle(node).visibility === "visible" && node.getBoundingClientRect().height > 0;
     }, menuSelector);
-    // Past the open animation.
-    await page.waitForTimeout(400);
+    // Past the open animation (finite animations only).
+    await page.evaluate(() =>
+      Promise.all(
+        document
+          .getAnimations()
+          .filter((animation) => Number.isFinite(Number(animation.effect?.getComputedTiming().endTime)))
+          .map((animation) => animation.finished.catch(() => undefined)),
+      ),
+    );
     return page.evaluate(
       ({ menuSelector, rowSelector }) => {
         const menu = document.querySelector<HTMLElement>(menuSelector)!;
@@ -99,17 +107,8 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
       query: "",
       height: 720,
       button: ".acpmux-model-name",
-      menu: ".acpmux-mp[role=dialog]",
-      rows: "[role=option]",
-    },
-    {
-      name: "effort",
-      query: "?reported",
-      // Too short for the menu over its chip: it opens down, over the suggestions.
-      height: 400,
-      button: ".acpmux-effort .acpmux-picker-button",
-      menu: ".acpmux-effort-menu",
-      rows: "[role=menuitemradio]",
+      menu: ".acpmux-quick-menu",
+      rows: "[role^=menuitem]",
     },
     {
       name: "access",
@@ -122,12 +121,18 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
     },
   ];
   const withQuery = (query: string, more: string) => `${query ? `${query}&` : "?"}${more}`;
-  // Default (the harness's unset template) is the stage layout: the composer at the foot, where all
-  // three menus reach over its suggestions (CI on #22119 measured 2 to 3 rows each). Threads keeps
-  // the composer at the top of the page: the model menu reaches over the suggestions there; the
-  // effort and access menus open clear of them (0 rows), so only their presses are checked.
+  // Default (the harness's unset template) is the stage layout: the composer at the foot, where the
+  // access menu reaches over its suggestions (CI on #22119 measured 2 to 3 rows). The model button's
+  // compact menu (Leo 2026-10-20) opens above the box there, clear of the suggestions under it (CI
+  // on #22800 measured 0 rows), so only its presses are checked. Threads keeps the composer at the
+  // top of the page: the model menu reaches over the suggestions there; the access menu opens clear
+  // of them (0 rows), so only its presses are checked.
   const MENUS_ON: ((typeof MENUS)[number] & { mustOverlap: boolean })[] = [
-    ...MENUS.map((entry) => ({ ...entry, name: `${entry.name} (Default, stage)`, mustOverlap: true })),
+    ...MENUS.map((entry) => ({
+      ...entry,
+      name: `${entry.name} (Default, stage)`,
+      mustOverlap: entry.name !== "model",
+    })),
     ...MENUS.map((entry) => ({
       ...entry,
       name: `${entry.name} (Threads)`,
@@ -138,7 +143,7 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
 
   // Cards, the app's default page, draws Claude Code's split: the chips sit in the quiet row under
   // the box, and the suggestions hang under that row, never over it (greptile on #22285). There
-  // the model menu reaches over the suggestions; the effort and access menus open clear of them
+  // the model menu reaches over the suggestions; the access menu opens clear of them
   // (CI on #22285 measured no overlap), so only the model menu has an overlap to check.
   for (const { name, query, height, button, menu, rows } of MENUS.filter((entry) => entry.name === "model")) {
     MENUS_ON.push({

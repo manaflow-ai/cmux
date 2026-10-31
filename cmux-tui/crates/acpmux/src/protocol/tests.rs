@@ -59,6 +59,7 @@ fn protocol_registry_names_every_served_method() {
         include_str!("../server/requests.rs"),
         include_str!("../server/mod.rs"),
         include_str!("../server/chats.rs"),
+        include_str!("../server/chat_windows.rs"),
         include_str!("../server/secrets.rs"),
         include_str!("../server/peer_forward.rs"),
         include_str!("../server/remote_guard.rs"),
@@ -68,7 +69,10 @@ fn protocol_registry_names_every_served_method() {
     // Prefixes the dispatcher matches on, not method names.
     let prefixes = ["_acpmux/chat", "_acpmux/transfer_"];
     for source in sources {
-        for capture in literal.captures_iter(source) {
+        // The served code, not the test modules at the end of each file: a test may name a
+        // method the server doesn't serve (`request_admission_tests` sends `_acpmux/unknown`).
+        let served = source.split("\n#[cfg(test)]\nmod ").next().unwrap_or_default();
+        for capture in literal.captures_iter(served) {
             let name = &capture[1];
             if !names.contains(name) && !prefixes.contains(&name) {
                 missing.insert(name.to_owned());
@@ -76,4 +80,41 @@ fn protocol_registry_names_every_served_method() {
         }
     }
     assert!(missing.is_empty(), "declare these in protocol::registry(): {missing:?}");
+}
+
+/// `_acpmux/sessions` pages (`hub::session_pages`): the IR names its `limit`
+/// and `cursor` params and the reply's `nextCursor`, so typed clients may send
+/// and read them.
+#[test]
+fn protocol_sessions_names_its_page_fields() {
+    let ir: serde_json::Value = serde_json::from_str(&ir_text()).expect("IR is JSON");
+    let fields = |ty: &str| -> BTreeSet<String> {
+        ir["types"][ty]["properties"]
+            .as_object()
+            .map(|props| props.keys().cloned().collect())
+            .unwrap_or_default()
+    };
+    let params = fields("SessionsParams");
+    assert!(params.contains("limit") && params.contains("cursor"), "SessionsParams: {params:?}");
+    assert!(
+        params.contains("localOnly")
+            && params.contains("excludeStatus")
+            && params.contains("orderBy"),
+        "SessionsParams: {params:?}"
+    );
+    assert!(fields("SessionsResult").contains("nextCursor"), "SessionsResult lacks nextCursor");
+}
+
+#[test]
+fn protocol_mail_send_supports_optional_reports_target() {
+    let ir: serde_json::Value = serde_json::from_str(&ir_text()).expect("IR is JSON");
+    let params = &ir["types"]["MailSendParams"];
+    let properties = params["properties"].as_object().expect("MailSendParams properties");
+    assert_eq!(properties["target"]["type"], serde_json::json!(["string", "null"]));
+    assert_eq!(properties["recipient"]["type"], serde_json::json!(["string", "null"]));
+    let required = params["required"].as_array().expect("MailSendParams required");
+    assert!(required.iter().all(|field| field != "target" && field != "recipient"));
+    assert!(required.iter().any(|field| field == "id"));
+    assert!(required.iter().any(|field| field == "sender"));
+    assert!(required.iter().any(|field| field == "body"));
 }

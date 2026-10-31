@@ -54,7 +54,7 @@ html[data-cmux-page="files"] body { overflow: hidden; }
   flex: none;
   width: 10px;
   height: 10px;
-  transition: transform 140ms ease-out;
+  transition: transform var(--cmux-motion-micro) ease-out;
 }
 
 .files-chevron:not(.is-leaf) {

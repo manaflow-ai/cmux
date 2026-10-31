@@ -58,7 +58,7 @@ mod agent_message_policy {
 
     #[test]
     fn the_sender_is_the_verified_actor() {
-        let daemon = Daemon::start("sender", &[]);
+        let daemon = Daemon::start_owner_with("sender", &[], true);
         // The person sends as the local user, and may say so.
         let message = daemon.sent(None, to("acp:reader", "hello"));
         assert_eq!(message["sender"], "cli", "{message}");
@@ -91,7 +91,7 @@ mod agent_message_policy {
 
     #[test]
     fn deliveries_start_queued_in_a_shared_workspace_and_held_otherwise() {
-        let daemon = Daemon::start("workspaces", &[]);
+        let daemon = Daemon::start_owner_with("workspaces", &[], true);
         let (alpha, alpha_key) = daemon.workspace("alpha");
         let (beta, _) = daemon.workspace("beta");
         let (reader, _) = daemon.agent_terminal(&alpha, "true");
@@ -171,7 +171,11 @@ mod agent_message_policy {
 
     #[test]
     fn the_cross_workspace_setting_refuses_or_allows() {
-        let refuse = Daemon::start("refuse", &[("CMUX_AGENT_MESSAGE_CROSS_WORKSPACE", "refuse")]);
+        let refuse = Daemon::start_owner_with(
+            "refuse",
+            &[("CMUX_AGENT_MESSAGE_CROSS_WORKSPACE", "refuse")],
+            true,
+        );
         let (_, alpha) = refuse.workspace("alpha");
         let (_, beta) = refuse.workspace("beta");
         refuse.place_session("a", &alpha);
@@ -192,7 +196,11 @@ mod agent_message_policy {
         );
         drop(refuse);
 
-        let allow = Daemon::start("allow", &[("CMUX_AGENT_MESSAGE_CROSS_WORKSPACE", "allow")]);
+        let allow = Daemon::start_owner_with(
+            "allow",
+            &[("CMUX_AGENT_MESSAGE_CROSS_WORKSPACE", "allow")],
+            true,
+        );
         let (_, alpha) = allow.workspace("alpha");
         let (_, beta) = allow.workspace("beta");
         allow.place_session("a", &alpha);
@@ -205,9 +213,10 @@ mod agent_message_policy {
         drop(allow);
 
         // Without acpmux no session's workspace is known: held, never refused.
-        let alone = Daemon::start_without_acpmux(
+        let alone = Daemon::start_owner_with(
             "no-acpmux",
             &[("CMUX_AGENT_MESSAGE_CROSS_WORKSPACE", "refuse")],
+            false,
         );
         let a = alone.acp_credential("a");
         let sent = alone.sent(Some(&a), to("acp:b", "nobody knows"));
@@ -297,7 +306,7 @@ mod agent_message_policy {
 
     #[test]
     fn a_refused_send_never_asks_acpmux() {
-        let daemon = Daemon::start("lookups", &[]);
+        let daemon = Daemon::start_owner_with("lookups", &[], true);
         let (_, alpha) = daemon.workspace("alpha");
         daemon.place_session("a", &alpha);
         let a = daemon.acp_credential("a");
@@ -316,7 +325,7 @@ mod agent_message_policy {
 
     #[test]
     fn a_sender_joins_only_a_thread_it_is_part_of() {
-        let daemon = Daemon::start("join", &[]);
+        let daemon = Daemon::start_owner_with("join", &[], true);
         let (_, alpha) = daemon.workspace("alpha");
         for session in ["a", "b", "c"] {
             daemon.place_session(session, &alpha);
@@ -360,7 +369,7 @@ mod agent_message_policy {
 
     #[test]
     fn a_sender_may_burst_five_messages_in_ten_seconds() {
-        let daemon = Daemon::start("burst", &[]);
+        let daemon = Daemon::start_owner_with("burst", &[], true);
         for index in 0..5 {
             daemon.sent(None, to(&format!("acp:r{index}"), "hello"));
         }
@@ -504,7 +513,7 @@ mod agent_message_policy {
 
     #[test]
     fn a_registry_with_the_first_delivery_table_keeps_its_messages() {
-        let mut daemon = Daemon::start("migration", &[]);
+        let mut daemon = Daemon::start_owner_with("migration", &[], true);
         let first = id(&daemon.sent(
             None,
             json!({"recipients": ["acp:one", "acp:two"],

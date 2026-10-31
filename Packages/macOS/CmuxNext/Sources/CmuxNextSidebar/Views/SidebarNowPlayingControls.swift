@@ -4,8 +4,9 @@ import CmuxNextIcons
 import QuartzCore
 
 /// The Now Playing card's Play or Pause: the one filled control, a disc in the
-/// theme's text color with the glyph cut out in `textOnPrimary`, so it reads
-/// first among the controls (music apps do the same). Pressed, it dims.
+/// theme's accent (`accentFill`, the text color when no accent is chosen) with
+/// the glyph in `onAccent`, so it reads first among the controls (music apps
+/// do the same). Pressed, it dims.
 final class SidebarNowPlayingPlayButton: NSButton {
     var onPress: (() -> Void)?
     var icon: IconName = .mediaPlay { didSet { if icon != oldValue { renderedSide = 0; needsLayout = true } } }
@@ -13,7 +14,6 @@ final class SidebarNowPlayingPlayButton: NSButton {
         didSet {
             guard label != oldValue else { return }
             setAccessibilityLabel(label)
-            themedToolTip = label
         }
     }
     private var renderedSide: CGFloat = 0
@@ -54,8 +54,8 @@ final class SidebarNowPlayingPlayButton: NSButton {
     override func updateLayer() {
         layer?.cornerRadius = bounds.height / 2
         performWithTheme {
-            layer?.backgroundColor = Palette.textPrimary.cgColor
-            contentTintColor = Palette.textOnPrimary
+            layer?.backgroundColor = Palette.accentFill.cgColor
+            contentTintColor = Palette.onAccent
         }
         layer?.opacity = isHighlighted ? 0.75 : (isEnabled ? 1 : 0.4)
     }

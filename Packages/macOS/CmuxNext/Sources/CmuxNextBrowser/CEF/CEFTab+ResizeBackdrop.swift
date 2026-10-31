@@ -51,9 +51,11 @@ extension CEFTab {
     /// The page's background color for the host view, nil when the gap
     /// keeps the pane ground: before the first real page (the New Tab page
     /// is a hole that shows the window backdrop), or with the tunable off.
+    /// A document that has not settled yet takes the loading base, so the gap
+    /// matches the page area (`CEFTab+LoadingBackground`).
     var pageBackdropColor: CGColor? {
         guard BrowserResizeTunables.pageBackdrop.value, pastFirstRealPage else { return nil }
-        let argb = pageBackdropARGB ?? PageBackground.engineDefaultARGB
+        let argb = loadingBaseARGB ?? pageBackdropARGB ?? PageBackground.engineDefaultARGB
         func channel(_ shift: UInt32) -> CGFloat { CGFloat((argb >> shift) & 0xFF) / 255 }
         return CGColor(srgbRed: channel(16), green: channel(8), blue: channel(0), alpha: 1)
     }
@@ -64,7 +66,7 @@ extension CEFTab {
         guard BrowserResizeTunables.pageBackdrop.value, pastFirstRealPage, browserID != nil, !isClosed else { return }
         let document = pageBackdropDocument
         Task { [weak self] in
-            guard let value = try? await self?.evaluate(Self.pageBackdropScript, world: .page) else { return }
+            guard let value = try? await self?.evaluate(Self.pageBackdropScript, world: .page, gesture: .cmux) else { return }
             // A navigation since the read: the next document samples its own.
             guard let self, document == self.pageBackdropDocument, !self.isClosed else { return }
             let argb = Self.backdropARGB(from: value)
@@ -74,12 +76,14 @@ extension CEFTab {
         }
     }
 
-    /// A new document committed: its background is unknown until it loads,
-    /// so Chromium's white applies again (a page without a background of its
-    /// own must never show the previous page's color).
+    /// A new document committed: its background is unknown until it loads, so
+    /// the loading base applies again (a page without a background of its own
+    /// must never show the previous page's color).
     func resetPageBackdrop() {
         pageBackdropDocument += 1
-        guard pageBackdropARGB != nil else { return }
+        let settled = documentSettled
+        documentSettled = false
+        guard pageBackdropARGB != nil || settled else { return }
         pageBackdropARGB = nil
         applyPageBackground()
     }

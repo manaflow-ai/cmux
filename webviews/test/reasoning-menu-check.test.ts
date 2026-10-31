@@ -1,14 +1,17 @@
 // cmux-web-test-timeout: 300
-// The reasoning menu marks the chosen level with a check at the row's trailing edge, as Claude's
-// model list does, never in a leading gutter that indents every label (Leo 2026-10-18): each label
-// starts at the row's own inset, and the section title lines up with them.
+// The effort levels mark the chosen one with a check at the row's trailing edge, as Claude's model
+// list does, never in a leading gutter that indents every label (Leo 2026-10-18): each label starts
+// at the row's own inset. The levels are the Effort submenu of the model button's menu (Leo
+// 2026-10-20: one model button, no separate Reasoning chip). The stage is a new chat's composer,
+// which keeps that submenu: on New Tab and in a live chat the current model's row carries its
+// levels inline instead (#26521), and reasoning-own-control covers those.
 // Real Chromium and WebKit (the app's engine) on the gallery stage. CI fails the file when it cannot
 // launch them (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/reasoning-menu-check.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("reasoning-menu-check.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -34,7 +37,7 @@ await requireBrowserLane("reasoning-menu-check.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   const browsers = new Map<string, Browser>();
   const stageURL = (entry: string, variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}&frame=component&width=760&theme=Catppuccin+Mocha`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant, frame: "component", width: 760, theme: "Catppuccin Mocha" })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -43,23 +46,11 @@ await requireBrowserLane("reasoning-menu-check.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
-    for (const [name, engine] of engines) {
-      const browser = await engine.launch({ headless: true });
-      browsers.set(name, browser);
-      // The first load can run Vite's dependency optimizer and reload mid-compile.
-      const warm = await browser.newPage({ viewport: { width: 760, height: 600 } });
-      await warm.goto(stageURL("agent-pane.new-tab", "reasoning-chip"));
-      for (;;) {
-        try {
-          await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-          break;
-        } catch (error) {
-          if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-        }
-      }
-      await warm.close();
-    }
+    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
+    await warmGalleryFrame(vite, "agent-pane.composer", {
+      browser: [...browsers.values()][0],
+      params: { variant: "new-chat-reasoning" },
+    });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
@@ -67,7 +58,7 @@ await requireBrowserLane("reasoning-menu-check.test.ts", async () => {
   });
 
   const chip = (name: string) => `button[aria-haspopup][aria-label="${name}"]`;
-  const open = async (engine: string, entry = "agent-pane.new-tab", variant = "reasoning-chip"): Promise<Page> => {
+  const open = async (engine: string, entry = "agent-pane.composer", variant = "new-chat-reasoning"): Promise<Page> => {
     const page = await browsers.get(engine)!.newPage({ viewport: { width: 760, height: 600 } });
     await page.goto(stageURL(entry, variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
@@ -82,16 +73,28 @@ await requireBrowserLane("reasoning-menu-check.test.ts", async () => {
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
     await page.mouse.up();
-    await page.waitForTimeout(300);
   };
 
   for (const [engine] of engines)
     test(`${engine}: the check trails the chosen row; labels start at the row's inset`, async () => {
       const page = await open(engine);
-      await press(page, chip("Effort"));
-      await page.locator(".acpmux-effort-menu [role=menuitemradio][aria-checked=true]").waitFor();
+      await press(page, chip("Model"));
+      await page.locator(".acpmux-quick-menu").first().waitFor();
+      await page.getByRole("menuitem", { name: /^Effort/ }).click();
+      await page.waitForFunction(() => document.querySelectorAll(".acpmux-quick-menu").length >= 2);
+      await page.locator(".acpmux-quick-menu").last().locator("[role=menuitemradio][aria-checked=true]").waitFor();
+      // Measure the open menu, not its open motion (finite animations only).
+      await page.evaluate(() =>
+        Promise.all(
+          document
+            .getAnimations()
+            .filter((animation) => Number.isFinite(Number(animation.effect?.getComputedTiming().endTime)))
+            .map((animation) => animation.finished.catch(() => undefined)),
+        ),
+      );
       const geometry = await page.evaluate(() => {
-        const menu = document.querySelector(".acpmux-effort-menu")!;
+        const menus = document.querySelectorAll(".acpmux-quick-menu");
+        const menu = menus[menus.length - 1]!;
         const rows = [...menu.querySelectorAll<HTMLElement>("[role=menuitemradio]")].map((row) => {
           const box = row.getBoundingClientRect();
           const label = row.querySelector(".acpmux-menu-label")!.getBoundingClientRect();
@@ -103,19 +106,13 @@ await requireBrowserLane("reasoning-menu-check.test.ts", async () => {
             checkAfterLabel: check.left >= label.right,
           };
         });
-        const title = menu.querySelector(".ui-menu-group-label")!;
-        const titleInset =
-          title.getBoundingClientRect().left +
-          parseFloat(getComputedStyle(title).paddingLeft) -
-          menu.querySelector("[role=menuitemradio]")!.getBoundingClientRect().left;
-        return { rows, titleInset: Math.round(titleInset) };
+        return { rows };
       });
       const chosen = geometry.rows.find((row) => row.checked)!;
       expect(chosen.checkAfterLabel, "the check sits after the label").toBe(true);
       expect(chosen.checkFromEnd, "the check sits at the row's trailing edge").toBeLessThanOrEqual(12);
       for (const row of geometry.rows) expect(row.inset, "no leading check gutter").toBeLessThanOrEqual(12);
       expect(new Set(geometry.rows.map((row) => row.inset)).size, "every label starts at the same x").toBe(1);
-      expect(geometry.titleInset, "the section title lines up with the labels").toBe(geometry.rows[0]!.inset);
       await page.close();
     });
 });

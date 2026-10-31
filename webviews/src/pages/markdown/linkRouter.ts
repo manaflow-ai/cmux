@@ -1,6 +1,6 @@
 // Where a followed link goes (plans/cmux-next/diff-host.md S6): `#anchor` scrolls to its heading in
-// this file; a relative markdown file opens in this page (link history: the `back` and `forward`
-// page commands); another relative file opens in the file viewer, http(s) in a cmux browser tab
+// this file and a relative markdown file opens in this page, each a link history entry (the `back`
+// and `forward` page commands, the omnibar's Back and Forward); another relative file opens in the file viewer, http(s) in a cmux browser tab
 // and mailto:/tel: in the system handler, a cmux app link (`cmux://workspace/…`) inside cmux, all
 // through `cmux.markdown.openLink`. A relative target
 // that does not exist goes nowhere (its hover card says so).
@@ -10,7 +10,7 @@ import { parseLink, type LinkResolver, type ResolvedLink } from "./links";
 import type { HistoryEntry, MarkdownStore } from "./store";
 
 export interface RouterDeps {
-  store: Pick<MarkdownStore, "getState" | "navigate" | "go"> &
+  store: Pick<MarkdownStore, "getState" | "navigate" | "go" | "reload"> &
     Partial<Pick<MarkdownStore, "beginNavigation" | "endNavigation">>;
   client: PageClient | null;
   resolver: Pick<LinkResolver, "get">;
@@ -29,7 +29,9 @@ export class LinkRouter {
     const from = store.getState().config?.path;
     const link = parseLink(href);
     if (link.kind === "anchor") {
-      this.deps.scrollToAnchor(link.anchor);
+      if (!from) return void this.deps.scrollToAnchor(link.anchor);
+      const entry = await store.navigate(from, link.anchor, this.deps.scroll.get());
+      if (entry) this.land(entry, false);
       return;
     }
     if (!from || !client || link.kind === "unsafe") return;
@@ -60,6 +62,27 @@ export class LinkRouter {
     }
     const entry = await store.navigate(resolved.path, link.anchor, this.deps.scroll.get());
     if (entry) this.land(entry, false);
+  }
+
+  /** The `open` page command: an absolute markdown path typed in the omnibar, a new entry. */
+  async open(path: string): Promise<void> {
+    const { store } = this.deps;
+    store.beginNavigation?.(path);
+    try {
+      const entry = await store.navigate(path, "", this.deps.scroll.get());
+      if (entry) this.land(entry, false);
+    } finally {
+      store.endNavigation?.();
+    }
+  }
+
+  /** The `reload` page command: the file again from disk, at the same scroll. */
+  async reload(): Promise<void> {
+    const top = this.deps.scroll.get();
+    if (!(await this.deps.store.reload())) return;
+    const place = () => this.deps.scroll.set(top);
+    if (this.deps.afterShow) this.deps.afterShow(place);
+    else place();
   }
 
   /** The `back` (-1) and `forward` (+1) page commands. */

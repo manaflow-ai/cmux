@@ -4,6 +4,7 @@
 //! (`connect_record*`), the receipt a durable input write waits on, and the
 //! launch-time ownership of the host process (`SpawnedHostProcess`).
 
+use crate::panic_free::RecoverPoison;
 use std::io as std_io;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, sync_channel};
@@ -25,9 +26,7 @@ use super::control_responses::{ControlResponseWaiter, ControlResponses};
 use super::host_state::{
     HOST_HANDSHAKE_TRANSIENT_RETRIES, HOST_LAUNCH_ROLLBACK_WAIT, MAX_PENDING_INPUT_ACK_BYTES,
 };
-use super::records::{
-    acknowledge_terminal_host_exit_record, terminal_host_exit_record, write_record,
-};
+use super::records::{acknowledge_terminal_host_exit_record, terminal_host_exit_record};
 use super::renderer_grant::ControlRequestUnanswered;
 
 mod connect;
@@ -71,7 +70,7 @@ impl InputAckReceipt {
                 Ok(())
             }
             Err(error) => {
-                self.control_responses.waiters.lock().unwrap().remove(&self.request_id);
+                self.control_responses.waiters.lock().recover_poison().remove(&self.request_id);
                 // Shutdown uses a separately cloned socket handle. A timed-out
                 // receipt therefore does not wait behind another frame writer
                 // before it can abort the broken attachment.
@@ -91,8 +90,13 @@ impl InputAckReceipt {
 
 impl Drop for InputAckReceipt {
     fn drop(&mut self) {
-        let abandoned =
-            self.control_responses.waiters.lock().unwrap().remove(&self.request_id).is_some();
+        let abandoned = self
+            .control_responses
+            .waiters
+            .lock()
+            .recover_poison()
+            .remove(&self.request_id)
+            .is_some();
         self.control_responses.release_input_ack(self.bytes);
         if abandoned {
             // A submitted request whose confirmation is abandoned can still
@@ -146,7 +150,7 @@ pub(crate) fn send_host_frame(
     kind: MessageKind,
     payload: &[u8],
 ) -> std::io::Result<()> {
-    let mut writer = writer.lock().unwrap();
+    let mut writer = writer.lock().recover_poison();
     let mut frame = Frame::new(kind, payload.to_vec());
     frame.version = protocol_version;
     let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
@@ -212,7 +216,7 @@ impl HostAttachment {
         }
         let (sender, receiver) = sync_channel(1);
         {
-            let mut waiters = self.control_responses.waiters.lock().unwrap();
+            let mut waiters = self.control_responses.waiters.lock().recover_poison();
             if waiters.contains_key(&request_id) {
                 self.control_responses.release_input_ack(payload.len());
                 return Err(ConfirmedInputFailure::Known(std::io::Error::new(
@@ -230,7 +234,7 @@ impl HostAttachment {
         frame.version = self.protocol_version;
         frame.request_id = request_id;
         let write_result = {
-            let mut writer = self.writer.lock().unwrap();
+            let mut writer = self.writer.lock().recover_poison();
             let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
             if result.is_err() {
                 let _ = writer.shutdown(std::net::Shutdown::Both);
@@ -238,7 +242,7 @@ impl HostAttachment {
             result
         };
         if let Err(error) = write_result {
-            self.control_responses.waiters.lock().unwrap().remove(&request_id);
+            self.control_responses.waiters.lock().recover_poison().remove(&request_id);
             self.control_responses.release_input_ack(payload.len());
             return Err(ConfirmedInputFailure::Indeterminate(error));
         }
@@ -290,37 +294,24 @@ impl HostAttachment {
         }
         // Held while writing, as `send_viewer_size` does, so a newer size
         // cannot be overtaken by this re-send of an older one.
-        let viewer_size =
-            self.viewer_size.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let viewer_size = self.viewer_size.lock().recover_poison();
         let (cols, rows) = (*viewer_size)?;
         let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver) = sync_channel(1);
-        self.control_responses
-            .waiters
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(
-                request_id,
-                ControlResponseWaiter::Blocking { kind: MessageKind::ResizeAck, sender },
-            );
+        self.control_responses.waiters.lock().recover_poison().insert(
+            request_id,
+            ControlResponseWaiter::Blocking { kind: MessageKind::ResizeAck, sender },
+        );
         let mut payload = Vec::with_capacity(4);
         payload.extend_from_slice(&cols.to_le_bytes());
         payload.extend_from_slice(&rows.to_le_bytes());
         let mut frame = Frame::new(MessageKind::ViewerSize, payload);
         frame.version = self.protocol_version;
         frame.request_id = request_id;
-        let written = write_frame(
-            &mut *self.writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
-            &frame,
-        )
-        .is_ok();
+        let written = write_frame(&mut *self.writer.lock().recover_poison(), &frame).is_ok();
         drop(viewer_size);
         if !written {
-            self.control_responses
-                .waiters
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .remove(&request_id);
+            self.control_responses.waiters.lock().recover_poison().remove(&request_id);
             return None;
         }
         // A late acknowledgement after the caller stops waiting still finds
@@ -335,7 +326,7 @@ impl HostAttachment {
         let (cols, rows) = normalize_terminal_geometry(cols, rows).map_err(|error| {
             std::io::Error::new(std::io::ErrorKind::InvalidInput, error.to_string())
         })?;
-        let mut viewer_size = self.viewer_size.lock().unwrap();
+        let mut viewer_size = self.viewer_size.lock().recover_poison();
         if *viewer_size == Some((cols, rows)) {
             return Ok(false);
         }
@@ -378,7 +369,7 @@ impl HostAttachment {
         let height_px = height_px.max(1);
         let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver) = sync_channel(1);
-        self.control_responses.waiters.lock().unwrap().insert(
+        self.control_responses.waiters.lock().recover_poison().insert(
             request_id,
             ControlResponseWaiter::Blocking { kind: MessageKind::CellPixelSizeAck, sender },
         );
@@ -389,12 +380,12 @@ impl HostAttachment {
         frame.version = self.protocol_version;
         frame.request_id = request_id;
         let write_result = {
-            let mut writer = self.writer.lock().unwrap();
+            let mut writer = self.writer.lock().recover_poison();
             write_frame(&mut *writer, &frame).map_err(protocol_io_error)
         };
         if let Err(error) = write_result {
-            let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
-            self.control_responses.waiters.lock().unwrap().remove(&request_id);
+            let _ = self.writer.lock().recover_poison().shutdown(std::net::Shutdown::Both);
+            self.control_responses.waiters.lock().recover_poison().remove(&request_id);
             return Err(error.into());
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -412,7 +403,7 @@ impl HostAttachment {
                     }
                 }
                 Err(RecvTimeoutError::Disconnected) => {
-                    self.control_responses.waiters.lock().unwrap().remove(&request_id);
+                    self.control_responses.waiters.lock().recover_poison().remove(&request_id);
                     anyhow::bail!(
                         "terminal host connection closed before acknowledging cell pixel size"
                     );
@@ -422,7 +413,7 @@ impl HostAttachment {
             || response.payload.as_slice()
                 != [width_px.to_le_bytes(), height_px.to_le_bytes()].concat()
         {
-            let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
+            let _ = self.writer.lock().recover_poison().shutdown(std::net::Shutdown::Both);
             anyhow::bail!("terminal host returned a malformed cell pixel size acknowledgement");
         }
         Ok(true)
@@ -469,7 +460,7 @@ impl HostAttachment {
         request.version = self.protocol_version;
         request.request_id = request_id;
         let write_result = {
-            let mut writer = self.writer.lock().unwrap();
+            let mut writer = self.writer.lock().recover_poison();
             write_frame(&mut *writer, &request).map_err(protocol_io_error)
         };
         if let Err(error) = write_result {
@@ -560,7 +551,7 @@ impl HostAttachment {
     }
 
     pub fn release_viewer_size(&self) -> std::io::Result<bool> {
-        let mut viewer_size = self.viewer_size.lock().unwrap();
+        let mut viewer_size = self.viewer_size.lock().recover_poison();
         if viewer_size.is_none() {
             return Ok(false);
         }
@@ -573,7 +564,7 @@ impl HostAttachment {
     }
 
     pub fn viewer_size(&self) -> Option<(u16, u16)> {
-        *self.viewer_size.lock().unwrap()
+        *self.viewer_size.lock().recover_poison()
     }
 
     pub fn protocol_version(&self) -> u16 {
@@ -581,7 +572,7 @@ impl HostAttachment {
     }
 
     pub fn disconnect(&self) {
-        let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
+        let _ = self.writer.lock().recover_poison().shutdown(std::net::Shutdown::Both);
     }
 
     /// Remove this daemon from host publication only after the reader has
@@ -698,13 +689,16 @@ impl HostAttachment {
             .wait(disconnect_on_timeout)
     }
 
+    /// Name `workspace_key` in the host's record (its recovery mirror; the
+    /// registry is the placement authority). The write is queued off the
+    /// caller's path (`record_mirror`), so a move does not wait for it.
     pub fn persist_workspace(&mut self, workspace_key: &str) -> anyhow::Result<()> {
         if self.record.workspace_key == workspace_key {
             return Ok(());
         }
         let mut updated = self.record.clone();
         updated.workspace_key = workspace_key.to_string();
-        write_record(&self.record_path, &updated)?;
+        super::record_mirror::queue(&self.record_path, updated.clone());
         self.record = updated;
         Ok(())
     }

@@ -91,7 +91,10 @@ public nonisolated struct BackdropUserImages: Sendable {
         return .file(path: target.path)
     }
 
+    /// A downloaded work, including one since taken out of the set (``BackdropArt/removedIDs``): its
+    /// file stays in the folder but is never one of the person's own images.
     private func isDownloadedArt(_ url: URL) -> Bool {
-        url.pathExtension.lowercased() == "avif" && BackdropArt(rawValue: url.deletingPathExtension().lastPathComponent) != nil
+        let id = url.deletingPathExtension().lastPathComponent
+        return url.pathExtension.lowercased() == "avif" && (BackdropArt(id: id) != nil || BackdropArt.removedIDs.contains(id))
     }
 }

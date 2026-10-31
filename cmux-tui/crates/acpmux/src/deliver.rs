@@ -41,6 +41,16 @@ pub async fn deliver(
     steer: bool,
     provenance: Option<&Value>,
 ) -> Result<Value> {
-    let prompt = PromptId { id: prompt_id.to_owned(), resend: true };
+    let prompt = PromptId {
+        id: prompt_id.to_owned(),
+        resend: true,
+        from_agent: None,
+        supersede: None,
+        class: None,
+        pr: None,
+        thread: None,
+        cli_host: None,
+        attachments: Vec::new(),
+    };
     queue_prompt(client, session, text, steer, provenance, &prompt).await
 }

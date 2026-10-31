@@ -2,7 +2,8 @@
 
 /**
  * Replies write LaTeX with `\[ … \]` (display) and `\( … \)` (inline) as well as
- * dollars; rewrite them to the dollar forms outside code fences. A display block may span
+ * dollars; rewrite display brackets to dollars outside code fences. Inline brackets remain explicit
+ * for the inline renderer. A display block may span
  * lines; its lines are joined.
  */
 export function normalizeMath(lines: string[]): string[] {
@@ -37,12 +38,9 @@ export function normalizeMath(lines: string[]): string[] {
         continue;
       }
     }
-    // Inline code keeps its text: `\(x\)` between backticks is not math.
-    out.push(
-      line.replace(/(`+)[^`]*?\1|\\\((.+?)\\\)/g, (match, ticks: string | undefined, tex: string | undefined) =>
-        ticks ? match : `$${tex!.trim()}$`,
-      ),
-    );
+    // Explicit inline \(…\) remains distinct from ambiguous dollar math. The inline renderer
+    // parses it directly, so shell exclusions for `$(` and `${` cannot reject grouped TeX.
+    out.push(line);
   }
   return out;
 }

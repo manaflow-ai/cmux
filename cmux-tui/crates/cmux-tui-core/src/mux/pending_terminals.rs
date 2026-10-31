@@ -98,11 +98,22 @@ impl Mux {
     pub(super) fn set_pending_terminal(&self, terminal_id: &str, pending: PendingTerminal) -> bool {
         let public_id = self.workspace_registry.lock().unwrap().terminal_resource_id(terminal_id);
         let Ok(Some(public_id)) = public_id else { return false };
+        self.set_pending_terminal_as(public_id, terminal_id, pending);
+        true
+    }
+
+    /// Mark a terminal pending under a public id the caller already read.
+    #[cfg(any(unix, windows))]
+    pub(super) fn set_pending_terminal_as(
+        &self,
+        public_id: TerminalPublicId,
+        terminal_id: &str,
+        pending: PendingTerminal,
+    ) {
         self.pending_terminals
             .lock()
             .unwrap()
             .insert(public_id.as_str().to_string(), (terminal_id.to_string(), pending));
-        true
     }
 
     /// Forget a pending marker. Returns whether one was present. A respawn's

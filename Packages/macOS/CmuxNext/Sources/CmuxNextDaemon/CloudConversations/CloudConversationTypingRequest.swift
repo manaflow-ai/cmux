@@ -7,7 +7,7 @@ import Foundation
 public struct CloudConversationTypingRequest: DaemonRequest {
     public typealias Response = EmptyResponse
     public static let command = "cloud-conversation-typing"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.cloudConversationTyping
+    public static let requiredCapability: String? = DaemonCapability.cloudConversationTyping.rawValue
     public var conversation: String
     public var on: Bool
 

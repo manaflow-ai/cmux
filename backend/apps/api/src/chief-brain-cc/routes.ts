@@ -13,6 +13,8 @@ const MAX_BODY = 1_000_000
  * The bearer is the token made for the running turn only: its mac is checked here, before any object wakes
  * (an unauthenticated post never creates a brain), and the conversation brain checks that it is the running
  * turn's. 404 where the route is off, 401 for any other token, 413 above MAX_BODY (refused before it is read).
+ * A body with `net` is the Chief's network change (net.ts): JSON back, the settings and the script, or 400.
+ * A body with `vm` is the Chief's sandbox call (sandbox.ts): JSON back.
  */
 export const handleCcNotes = async (request: Request, env: Env, agent: string, conversation: string): Promise<Response> => {
   if (!ccConfigured(env) || request.method !== "POST") return new Response("not found", { status: 404 })
@@ -21,15 +23,16 @@ export const handleCcNotes = async (request: Request, env: Env, agent: string, c
   if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY) return new Response("too large", { status: 413 })
   const text = await readCapped(request, MAX_BODY)
   if (text === null) return new Response("too large", { status: 413 })
-  let body: { run?: unknown; events?: unknown; result?: unknown }
+  let body: { run?: unknown; events?: unknown; result?: unknown; net?: unknown; vm?: unknown }
   try {
     body = JSON.parse(text) as typeof body
   } catch {
     return new Response("bad json", { status: 400 })
   }
   if (!(await notesTokenOk(env, agent, conversation, typeof body?.run === "string" ? body.run : "", token))) return new Response("unauthorized", { status: 401 })
-  const brain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(agent, conversation))) as unknown as { ccNotes(t: string, b: unknown): Promise<{ status: number }> }
+  const brain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(agent, conversation))) as unknown as { ccNotes(t: string, b: unknown): Promise<{ status: number; json?: unknown }> }
   const r = await brain.ccNotes(token, body)
+  if (r.json !== undefined) return Response.json(r.json, { status: r.status })
   return new Response(r.status === 200 ? "ok" : "unauthorized", { status: r.status })
 }
 

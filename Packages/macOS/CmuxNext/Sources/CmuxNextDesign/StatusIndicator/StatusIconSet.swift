@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextDesignTokens
 
 /// Status icon candidate sets (cx-kxa2, Lawrence 2026-10-08: "make sure we
 /// have better notif icons for osc 7501 things ... make sure i can try a
@@ -41,6 +42,13 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
     /// dot, a wait is an attention dot (no talk bubble, Lawrence 2026-10-20) and permission a muted line
     /// shield, and only an error is red (a line i in a ring).
     case codex
+    /// The quiet static glyphs (`sets.dots` in static-status.json, hq#1957 status glyph thunderdome):
+    /// one small dot, hollow (half-filled working, a ringed dot waiting) or solid with a bar, check or
+    /// x cut out (permission, done, error). Debug only; never the default.
+    case stillDots
+    /// The bold static glyphs (`sets.pictograms`, hq#1957 status glyph thunderdome): an hourglass, a
+    /// chat bubble with dots, a padlock, a check, a warning triangle. Debug only; never the default.
+    case stillPictograms
 
     /// The Debug Settings switch (the Debug menu writes the same value).
     public static let tunable = Tunable<StatusIconSet>.choice(
@@ -62,6 +70,8 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .symbolsOutline: String(localized: "statusIconSet.symbolsOutline", defaultValue: "Outlined Symbols", bundle: .module)
         case .still: String(localized: "statusIconSet.still", defaultValue: "Static", bundle: .module)
         case .codex: String(localized: "statusIconSet.codex", defaultValue: "Codex-like", bundle: .module)
+        case .stillDots: String(localized: "statusIconSet.stillDots", defaultValue: "Static Dots", bundle: .module)
+        case .stillPictograms: String(localized: "statusIconSet.stillPictograms", defaultValue: "Static Pictograms", bundle: .module)
         }
     }
 
@@ -80,6 +90,8 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .symbolsOutline: "SF Symbols, outlined, and a spinner for work."
         case .still: "Static glyphs, never animated: half-filled ring, attention dot, shield, check disc, ! diamond."
         case .codex: "Codex's sidebar: a grey spinner (a still ring under Reduce Motion), blue done dot, attention dot for a wait, muted line shield for permission, red line i."
+        case .stillDots: "Static dots, never animated: half-filled dot, ringed dot, dot with a bar, check or x cut out."
+        case .stillPictograms: "Static pictograms, never animated: hourglass, chat bubble, padlock, check, warning triangle."
         }
     }
 
@@ -89,9 +101,9 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         guard self != .current else { return nil }
         // Idle draws nothing in every set; the idle glyph is for hosts that show a still idle mark.
         // Known progress keeps its ring, which never moves and says how far along the work is.
-        if self == .still {
+        if isStatic {
             if state == .idle || (state.isWorking && state.progress != nil) { return nil }
-            return StaticStatusGlyph(state)?.plan
+            return staticGlyph(for: state)?.plan
         }
         if self == .codex { return codexPlan(for: state) }
         switch state {
@@ -155,7 +167,8 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
             case .auth?: .symbol("key")
             case nil: .symbol("exclamationmark.circle")
             }
-        case .still: .vector(kind == .permission || kind == .auth ? .permission : .waiting)
+        case .still, .stillDots, .stillPictograms:
+            .vector(staticGlyph(for: .waiting(kind: kind)) ?? .waiting)
         case .codex: .vector(kind == .permission || kind == .auth ? .shieldLine : .dot)
         }
     }
@@ -179,7 +192,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .letters: .badge(.roundedSquare, .check)
         case .symbols: .symbol("checkmark.circle.fill")
         case .symbolsOutline: .symbol("checkmark.circle")
-        case .still: .vector(.done)
+        case .still, .stillDots, .stillPictograms: .vector(staticGlyph(for: .success) ?? .done)
         case .codex: .vector(.dot)
         }
     }
@@ -194,8 +207,25 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .letters: .badge(.roundedSquare, .cross)
         case .symbols: .symbol("xmark.octagon.fill")
         case .symbolsOutline: .symbol("xmark.octagon")
-        case .still: .vector(.error)
+        case .still, .stillDots, .stillPictograms: .vector(staticGlyph(for: .error) ?? .error)
         case .codex: .vector(.info)
+        }
+    }
+
+    /// Whether the set draws only the static glyphs (`still`, `stillDots`, `stillPictograms`).
+    var isStatic: Bool { self == .still || self == .stillDots || self == .stillPictograms }
+
+    /// The static glyph a static set draws for `state` (`sets` in static-status.json names the Dots
+    /// and Pictograms picks; each keeps the Static set's theme role per state), nil for loading and
+    /// for the other sets.
+    func staticGlyph(for state: StatusIndicatorState) -> StaticStatusGlyph? {
+        guard let glyph = StaticStatusGlyph(state) else { return nil }
+        switch self {
+        case .still: return glyph
+        case .stillDots: return glyph.dots
+        case .stillPictograms: return glyph.pictograms
+        case .current, .shapes, .rings, .badges, .bars, .pips, .signs, .letters, .symbols, .symbolsOutline, .codex:
+            return nil
         }
     }
 

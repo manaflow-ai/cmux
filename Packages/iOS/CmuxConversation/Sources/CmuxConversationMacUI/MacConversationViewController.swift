@@ -70,6 +70,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     var onComposerHeightChange: (() -> Void)?
     var onInfoChange: ((ConversationInfo, String?, Bool) -> Void)?
     let layoutCache = MacMessageLayoutCache()
+    /// Opens a link clicked in a bubble's text (tests capture it).
+    var openURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
     let keyboard = MacConversationKeyboardState()
     let audioPlayer = ConversationAudioPlayer()
     lazy var audioComposer = MacAudioComposer(controller: self)
@@ -1390,7 +1392,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         }
         if let text = rowView.rowLayout?.textFrame, text.contains(local),
            let url = link(in: model, at: CGPoint(x: local.x - text.minX, y: local.y - text.minY), width: text.width) {
-            NSWorkspace.shared.open(url)
+            openURL(url)
             return true
         }
         if rowView.contentFrame.contains(local), model.message.seq != nil, isHold(after: event) {
@@ -2399,9 +2401,16 @@ final class MacThreadFocusView: NSView {
 
     override var isFlipped: Bool { true }
 
+    /// A click off every thread bubble leaves reply mode. Thread rows span
+    /// the full transcript width, so only each row's bubble area counts as a
+    /// hit; the band beside a bubble and the timestamps are backdrop.
     override func mouseDown(with event: NSEvent) {
-        let point = content.convert(event.locationInWindow, from: nil)
-        if !content.subviews.contains(where: { $0.frame.contains(point) }) { onDismiss?() }
+        let onBubble = content.subviews.contains { view in
+            guard let container = view as? MacMessageContainerView else { return false }
+            let row = container.row
+            return row.contentFrame.contains(row.convert(event.locationInWindow, from: nil))
+        }
+        if !onBubble { onDismiss?() }
     }
 
     func show(_ placed: [(NSView, CGRect)], animated: Bool) {

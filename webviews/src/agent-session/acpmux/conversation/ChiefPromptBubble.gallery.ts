@@ -16,6 +16,17 @@ const longTask = [
   "Short report: cause, fix, commits, tests.",
 ].join("\n");
 
+/** A Chief subagent's first message (chiefEnvelope.ts): the Chief's view in `<chat>`, then the task. */
+const envelope = [
+  "<chat>",
+  ...Array.from({ length: 89 }, (_, index) => `chief: step ${index + 1} of the plan, as the Chief saw it`),
+  "</chat>",
+  "",
+  "Your task:",
+  "",
+  "Fix the Home header fade so the transcript under it stays legible.",
+].join("\n");
+
 export default agentPaneEntry({
   id: "agent-pane.chief-prompt",
   title: "Prompt from the Chief",
@@ -28,6 +39,14 @@ export default agentPaneEntry({
       snapshot: chat([
         user(longTask, 9, { seq: 1, from: "chief" }),
         assistant("Found it: the open page starts mid-turn, so the prompt never drew.", 8),
+        summary(8, { seq: 3, status: "completed" }),
+      ]),
+    },
+    context: {
+      note: "The Chief's view as one collapsed line with its Copy at the trailing end; a narrow pane truncates the label, never covers it.",
+      snapshot: chat([
+        user(envelope, 9, { seq: 1 }),
+        assistant("On it.", 8),
         summary(8, { seq: 3, status: "completed" }),
       ]),
     },

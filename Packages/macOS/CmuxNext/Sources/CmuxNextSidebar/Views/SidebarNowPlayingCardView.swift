@@ -3,15 +3,18 @@ import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextWakeups
 
-/// The Now Playing card in the bottom-left slot (cx-ouoxo): the artwork,
-/// title and artist with small level bars that sway while it plays, a
-/// scrubber that seeks, and Previous, Play or Pause (the one filled control),
-/// and Next. It sits on the composer's surface like every sidebar card, in
-/// the sidebar's theme. The bars and the scrubber move only when motion is
-/// allowed (`Motion`), as render-server animations, so a playing card costs
-/// the app no wakeups. Hovering it reveals an x at its top right (the
-/// sidebar's hover-reveal fade, `setHoverShown`) that hides the card until
-/// other media starts; a right-click opens the card's action menu (u2437).
+/// The Now Playing card in the bottom-left slot (cx-ouoxo), laid out like
+/// macOS's own Now Playing card: the site, the title and the artist, the
+/// artwork filling the top right and fading into the card, a scrubber that
+/// seeks, then Previous, Play or Pause (the one filled control, in the theme's
+/// accent) and Next, and past a divider Picture in Picture for a tab's video.
+/// Small level bars sway at the end of the controls while it plays. It sits
+/// on the sidebar cards' glass (``CardSurfaceView``), in the sidebar's theme.
+/// The bars and the scrubber move only when motion is allowed (`Motion`), as
+/// render-server animations, so a playing card costs the app no wakeups.
+/// Hovering it reveals an x at its top right (the sidebar's hover-reveal
+/// fade, `setHoverShown`) that hides the card until other media starts; a
+/// right-click opens the card's action menu (u2437).
 final class SidebarNowPlayingCardView: NSView {
     var onCommand: ((SidebarNowPlayingCommand) -> Void)?
     /// The x: the slot sends ``SidebarIntent/hideNowPlayingCard``.
@@ -25,6 +28,9 @@ final class SidebarNowPlayingCardView: NSView {
     private(set) var nowPlaying: SidebarNowPlaying?
     let surface = CardSurfaceView()
     let artworkView = DecorativeImageView()
+    /// Fades the artwork's leading edge into the card, as macOS's card does.
+    private let artworkFade = CAGradientLayer()
+    let siteLabel = ChromeLabel(labelWithString: "")
     let titleLabel = ChromeLabel(labelWithString: "")
     let artistLabel = ChromeLabel(labelWithString: "")
     let scrubber = SidebarNowPlayingScrubber()
@@ -32,6 +38,9 @@ final class SidebarNowPlayingCardView: NSView {
     let playPauseButton = SidebarNowPlayingPlayButton()
     let levels = SidebarNowPlayingLevels()
     let nextButton = SidebarIconButton(icon: .mediaNext, label: "")
+    /// The hairline between the transport and Picture in Picture.
+    let controlsDivider = NSView()
+    let pictureInPictureButton = SidebarIconButton(icon: .sitePermissionAutopictureinpicture, label: "")
     /// The artwork data `artworkView` shows, so a report with the same art does not decode it again.
     private var shownArtwork: Data?
 
@@ -40,25 +49,33 @@ final class SidebarNowPlayingCardView: NSView {
         addSubview(surface)
         artworkView.imageScaling = .scaleProportionallyUpOrDown
         artworkView.wantsLayer = true
-        artworkView.layer?.cornerRadius = Metrics.space1
         artworkView.layer?.masksToBounds = true
-        for label in [titleLabel, artistLabel] {
+        artworkFade.startPoint = CGPoint(x: 0, y: 0.5)
+        artworkFade.endPoint = CGPoint(x: 1, y: 0.5)
+        artworkFade.colors = [NSColor.clear.cgColor, NSColor.black.withAlphaComponent(0.85).cgColor, NSColor.black.cgColor]
+        artworkFade.locations = [0, 0.55, 1]
+        artworkView.layer?.mask = artworkFade
+        controlsDivider.wantsLayer = true
+        for label in [siteLabel, titleLabel, artistLabel] {
             label.lineBreakMode = .byTruncatingTail
             label.maximumNumberOfLines = 1
             label.setAccessibilityElement(false)
         }
-        for view in [artworkView, titleLabel, artistLabel, levels, scrubber, previousButton, playPauseButton, nextButton, closeButton] as [NSView] {
+        for view in [artworkView, siteLabel, titleLabel, artistLabel, levels, scrubber, previousButton, playPauseButton, nextButton,
+                     controlsDivider, pictureInPictureButton, closeButton] as [NSView] {
             addSubview(view)
         }
         closeButton.isHidden = true
         closeButton.alphaValue = 0
-        closeButton.toolTip = Self.closeLabel
+        for button in [previousButton, nextButton, pictureInPictureButton, closeButton] { button.showsLabelToolTip = false }
         closeButton.onPress = { [weak self] in self?.onClose?() }
         previousButton.onPress = { [weak self] in self?.onCommand?(.previous) }
         playPauseButton.onPress = { [weak self] in self?.onCommand?(.playPause) }
         nextButton.onPress = { [weak self] in self?.onCommand?(.next) }
+        pictureInPictureButton.onPress = { [weak self] in self?.onCommand?(.pictureInPicture) }
         scrubber.onSeek = { [weak self] seconds in self?.onCommand?(.seek(seconds)) }
-        for (view, control) in [(previousButton, "previous"), (playPauseButton, "playPause"), (nextButton, "next"), (scrubber, "scrubber")] as [(NSView, String)] {
+        for (view, control) in [(previousButton, "previous"), (playPauseButton, "playPause"), (nextButton, "next"),
+                                (pictureInPictureButton, "pictureInPicture"), (scrubber, "scrubber")] as [(NSView, String)] {
             view.setAccessibilityIdentifier("cmux.sidebar.nowPlaying.\(control)")
         }
         setAccessibilityElement(true)
@@ -81,9 +98,10 @@ final class SidebarNowPlayingCardView: NSView {
             // A card that comes back starts without its x until the pointer moves onto it.
             isHovered = false
             setHoverShown(closeButton, false, fades: false)
-            fadeOpacity(levels, to: 1, fades: false)
             return
         }
+        siteLabel.stringValue = nowPlaying.site
+        siteLabel.isHidden = nowPlaying.site.isEmpty
         titleLabel.stringValue = nowPlaying.title
         artistLabel.stringValue = nowPlaying.artist
         artistLabel.isHidden = nowPlaying.artist.isEmpty
@@ -94,12 +112,16 @@ final class SidebarNowPlayingCardView: NSView {
         nextButton.label = labels.next
         previousButton.isEnabled = nowPlaying.canPrevious
         nextButton.isEnabled = nowPlaying.canNext
+        pictureInPictureButton.isHidden = !nowPlaying.canPictureInPicture
+        controlsDivider.isHidden = !nowPlaying.canPictureInPicture
+        pictureInPictureButton.label = nowPlaying.isPictureInPicture ? labels.exitPictureInPicture : labels.pictureInPicture
         levels.show(playing: nowPlaying.isPlaying)
         if nowPlaying.artwork != shownArtwork {
             shownArtwork = nowPlaying.artwork
             artworkView.image = nowPlaying.artwork.flatMap(NSImage.init(data:))
         }
-        setAccessibilityLabel([nowPlaying.title, nowPlaying.artist].filter { !$0.isEmpty }.joined(separator: ", "))
+        artworkView.isHidden = artworkView.image == nil
+        setAccessibilityLabel([nowPlaying.title, nowPlaying.artist, nowPlaying.site].filter { !$0.isEmpty }.joined(separator: ", "))
         scrubber.show(nowPlaying)
         applyColors()
         needsLayout = true
@@ -113,10 +135,7 @@ final class SidebarNowPlayingCardView: NSView {
     func setHovered(_ hovered: Bool) {
         guard hovered != isHovered else { return }
         isHovered = hovered
-        let shown = hovered && nowPlaying != nil
-        setHoverShown(closeButton, shown, fades: window != nil)
-        // The x takes the level bars' corner while it shows; the bars come back as it goes.
-        fadeOpacity(levels, to: shown ? 0 : 1, fades: window != nil)
+        setHoverShown(closeButton, hovered && nowPlaying != nil, fades: window != nil)
     }
 
     override func updateTrackingAreas() {
@@ -142,46 +161,81 @@ final class SidebarNowPlayingCardView: NSView {
     }
 
     private static var padding: CGFloat { Metrics.space3 }
-    private static let artworkSide: CGFloat = 44
+    /// The header's height at least: the artwork never shrinks below it.
+    private static let headerMinimum: CGFloat = 44
     private static let controlSide: CGFloat = 24
     private static let playSide: CGFloat = 32
 
+    /// The site, title and artist lines' height for `nowPlaying`.
+    private static func textHeight(site: Bool, artist: Bool) -> CGFloat {
+        let caption = ceil(Typography.caption.boundingRectForFont.height)
+        let title = ceil(Typography.bodyEmphasized.boundingRectForFont.height)
+        return (site ? caption + Metrics.space1 : 0) + title + (artist ? caption : 0)
+    }
+
     /// The card's height for `nowPlaying` at the sidebar's width.
     static func height(for nowPlaying: SidebarNowPlaying) -> CGFloat {
+        let header = max(headerMinimum, textHeight(site: !nowPlaying.site.isEmpty, artist: !nowPlaying.artist.isEmpty))
         let scrub = nowPlaying.canSeek ? SidebarNowPlayingScrubber.height + Metrics.space1 : 0
-        return padding + artworkSide + Metrics.space2 + scrub + playSide + padding
+        return padding + header + Metrics.space2 + scrub + playSide + padding
     }
 
     override func layout() {
         super.layout()
-        let b = bounds, pad = Self.padding, side = Self.artworkSide
+        let b = bounds, pad = Self.padding
         surface.frame = b
         surface.cornerRadius = Metrics.space3
+        siteLabel.font = Typography.caption
         titleLabel.font = Typography.bodyEmphasized
         artistLabel.font = Typography.caption
-        artworkView.frame = NSRect(x: pad, y: pad, width: side, height: side)
-        artworkView.layer?.cornerRadius = Metrics.space2
-        let textX = pad + side + Metrics.space2, levelsSize = SidebarNowPlayingLevels.size
-        let textWidth = max(0, b.width - pad - textX - levelsSize.width - Metrics.space2)
-        let title = ceil(Typography.bodyEmphasized.boundingRectForFont.height), artist = ceil(Typography.caption.boundingRectForFont.height)
-        let textHeight = title + (artistLabel.isHidden ? 0 : artist)
-        let textY = pad + max(0, (side - textHeight) / 2)
-        titleLabel.frame = NSRect(x: textX, y: textY, width: textWidth, height: title)
-        artistLabel.frame = NSRect(x: textX, y: textY + title, width: textWidth, height: artist)
-        levels.frame = NSRect(x: b.width - pad - levelsSize.width, y: textY + (title - levelsSize.height) / 2,
-                              width: levelsSize.width, height: levelsSize.height).integral
-        var y = pad + side + Metrics.space2
+        let site = !siteLabel.isHidden, artist = !artistLabel.isHidden
+        let header = max(Self.headerMinimum, Self.textHeight(site: site, artist: artist))
+        // The artwork fills the top right corner, as tall as the header with its padding, and
+        // fades out toward the text, which may run over the faded half.
+        let art = artworkView.isHidden ? 0 : min(pad + header + Metrics.space2, b.width / 2)
+        artworkView.frame = NSRect(x: b.width - art, y: 0, width: art, height: art)
+        artworkView.layer?.cornerRadius = surface.cornerRadius
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        artworkFade.frame = artworkView.bounds
+        CATransaction.commit()
+        let textWidth = max(0, b.width - 2 * pad - art / 2)
+        let caption = ceil(Typography.caption.boundingRectForFont.height)
+        let title = ceil(Typography.bodyEmphasized.boundingRectForFont.height)
+        var y = pad + max(0, (header - Self.textHeight(site: site, artist: artist)) / 2)
+        if site {
+            siteLabel.frame = NSRect(x: pad, y: y, width: textWidth, height: caption)
+            y += caption + Metrics.space1
+        }
+        titleLabel.frame = NSRect(x: pad, y: y, width: textWidth, height: title)
+        artistLabel.frame = NSRect(x: pad, y: y + title, width: textWidth, height: caption)
+        y = pad + header + Metrics.space2
         if nowPlaying?.canSeek == true {
             scrubber.frame = NSRect(x: pad, y: y, width: max(0, b.width - 2 * pad), height: SidebarNowPlayingScrubber.height)
             y += SidebarNowPlayingScrubber.height + Metrics.space1
         } else {
             scrubber.frame = .zero
         }
-        let control = Self.controlSide, play = Self.playSide, gap = Metrics.space4
-        let x = (b.width - 2 * control - play - 2 * gap) / 2
-        previousButton.frame = NSRect(x: x, y: y + (play - control) / 2, width: control, height: control).integral
-        playPauseButton.frame = NSRect(x: x + control + gap, y: y, width: play, height: play).integral
-        nextButton.frame = NSRect(x: x + control + gap + play + gap, y: y + (play - control) / 2, width: control, height: control).integral
+        // Previous, Play or Pause and Next from the leading edge (macOS's card), then the divider
+        // and Picture in Picture; the level bars close the row.
+        let control = Self.controlSide, play = Self.playSide, gap = Metrics.space2
+        let controlY = y + (play - control) / 2
+        var x = pad - (control - Metrics.smallIconSize) / 2
+        previousButton.frame = NSRect(x: x, y: controlY, width: control, height: control).integral
+        x += control + gap
+        playPauseButton.frame = NSRect(x: x, y: y, width: play, height: play).integral
+        x += play + gap
+        nextButton.frame = NSRect(x: x, y: controlY, width: control, height: control).integral
+        x += control + Metrics.space3
+        let line = Metrics.lineWidth(1)
+        controlsDivider.frame = NSRect(x: x, y: y + Metrics.space2, width: line, height: max(0, play - 2 * Metrics.space2))
+        x += line + Metrics.space3
+        pictureInPictureButton.frame = NSRect(x: x, y: controlY, width: control, height: control).integral
+        let levelsSize = SidebarNowPlayingLevels.size, levelsX = b.width - pad - levelsSize.width
+        // A narrow sidebar drops the bars rather than draw them over the last control.
+        let controlsEnd = (pictureInPictureButton.isHidden ? nextButton : pictureInPictureButton).frame.maxX + gap
+        levels.frame = levelsX < controlsEnd ? .zero
+            : NSRect(x: levelsX, y: y + (play - levelsSize.height) / 2, width: levelsSize.width, height: levelsSize.height).integral
         let close = Self.closeSide
         closeButton.frame = NSRect(x: b.width - Metrics.space1 - close, y: Metrics.space1, width: close, height: close).integral
     }
@@ -190,9 +244,12 @@ final class SidebarNowPlayingCardView: NSView {
 
     private func applyColors() {
         performWithTheme {
+            siteLabel.textColor = Palette.textSecondary
             titleLabel.textColor = Palette.textPrimary
             artistLabel.textColor = Palette.textSecondary
-            artworkView.layer?.backgroundColor = Palette.hoverFill.cgColor
+            controlsDivider.layer?.backgroundColor = Palette.separator.cgColor
+            // A floating video lights its button in the accent, as a toggle that is on.
+            pictureInPictureButton.tintOverride = nowPlaying?.isPictureInPicture == true ? Palette.accentFill : nil
             scrubber.applyColors()
         }
         levels.applyColors()
@@ -271,7 +328,7 @@ final class SidebarNowPlayingScrubber: NSView {
     func applyColors() {
         performWithTheme {
             track.backgroundColor = Palette.hoverFill.cgColor
-            fill.backgroundColor = Palette.textSecondary.cgColor
+            fill.backgroundColor = Palette.accentFill.cgColor
         }
     }
 

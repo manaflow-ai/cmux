@@ -23,12 +23,16 @@ pub(crate) struct StateEffects {
 impl StateEffects {
     pub(crate) const PRESENTATION: Self = Self { presentation: true, tree: true };
     pub(crate) const EVENTS_ONLY: Self = Self { presentation: false, tree: false };
+    /// A presentation field the raw tree does not carry (a workspace's
+    /// description or task status): the cache reloads, no `tree-changed`.
+    pub(crate) const NOTES: Self = Self { presentation: true, tree: false };
 }
 
 impl Mux {
     /// Commit one state mutation. Selector resolution belongs inside `apply`
     /// (it receives the locked state), so an idempotent replay returns its
     /// stored result before any selector is resolved.
+    #[track_caller]
     pub(crate) fn commit_state(
         &self,
         mutation: &WorkspaceMutation,
@@ -91,6 +95,7 @@ impl Mux {
 
     /// [`Self::commit_state`]'s replay or refusal before anything is
     /// applied (`WorkspaceRegistry::state_mutation_replay`).
+    #[track_caller]
     pub(crate) fn state_commit_replay(
         &self,
         mutation: &WorkspaceMutation,
@@ -107,6 +112,7 @@ impl Mux {
     }
 
     /// Read the registry under its lock.
+    #[track_caller]
     pub(crate) fn read_registry_state<T>(
         &self,
         read: impl FnOnce(&rusqlite::Connection) -> anyhow::Result<T>,

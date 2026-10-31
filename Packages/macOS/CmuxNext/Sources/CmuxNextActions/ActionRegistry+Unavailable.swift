@@ -36,9 +36,9 @@ extension ActionRegistry {
                         invoke: { _ in }, unavailableReason: { reason }, handler: {})); return true
     }
 
-    /// The bound action's current unavailable reason, if any.
+    /// The bound action's current unavailable reason, or why a setting turns it off, if any.
     public func unavailableReason(for id: ActionID) -> String? {
-        action(for: id)?.unavailableReason?()
+        action(for: id)?.unavailableReason?() ?? settingOffReason(canonicalID(for: id))
     }
 
     /// Called by a handler that cannot act on this invocation. The reason
@@ -63,6 +63,22 @@ extension ActionRegistry {
     public func refuseNotFound(_ reason: String) {
         if isCapturingRefusal, capturedRefusal == nil { capturedRefusalIsNotFound = true }
         refuse(reason, quiet: true)
+    }
+
+    /// Runs `body`, a lookup behind a reason or visibility rule (a menu row's state, a palette
+    /// row's enabled check), with every refusal in it dropped: no notice shows and no caller
+    /// receives it. The handler run that follows reports its own refusal.
+    public func withoutRefusals<T>(_ body: () -> T) -> T {
+        let observer = refusalObserver, capturing = isCapturingRefusal, reporting = isReportingRefusal
+        refusalObserver = nil
+        isCapturingRefusal = false
+        isReportingRefusal = false
+        defer {
+            refusalObserver = observer
+            isCapturingRefusal = capturing
+            isReportingRefusal = reporting
+        }
+        return body()
     }
 
     /// ``capturingRefusal(_:)`` that also says whether the refusal was

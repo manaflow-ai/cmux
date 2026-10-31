@@ -81,3 +81,50 @@ async fn recovery_attach_stops_on_a_non_advancing_page() {
         "recovery stopped after seq 41; 0 events recovered from seq 40, more remain"
     );
 }
+
+#[tokio::test]
+async fn a_removed_steer_row_keeps_folds_on_their_rows() {
+    // A steer re-run at turn end replaces its steer row (transcript.rs): the folds a
+    // person flipped below that row move up with their rows.
+    let (mut app, _) = super::interaction_tests::app().await;
+    let id = "test-session";
+    let mux = |seq: u64, kind: &str, msg: Value| json!({"sessionId": id, "seq": seq, "at": 1_000 + seq, "dir": "mux", "kind": kind, "msg": msg});
+    let thought = json!({"sessionId": id, "seq": 13, "at": 1_013, "dir": "in", "kind": "session/update", "msg": {
+        "method": "session/update",
+        "params": {"sessionId": id, "update": {
+            "sessionUpdate": "agent_thought_chunk",
+            "content": {"type": "text", "text": "thinking"},
+        }},
+    }});
+    for e in [
+        mux(10, "user_message", json!({"text": "go", "promptId": "p1", "turnId": "t1"})),
+        mux(11, "turn_started", json!({"turnId": "t1"})),
+        mux(
+            12,
+            "user_message",
+            json!({"text": "also", "steer": true, "promptId": "p2", "turnId": "t1"}),
+        ),
+        thought,
+        mux(14, "turn_result", json!({"turnId": "t1", "stopReason": "end_turn"})),
+    ] {
+        app.on_notification(method::MUX_EVENT, e);
+    }
+    assert!(matches!(app.transcripts[id].items[2], Item::Thought { .. }));
+    app.toggled.insert(
+        id.into(),
+        [Toggle::Turn(0), Toggle::Turn(1), Toggle::Item(2)].into_iter().collect(),
+    );
+
+    app.on_notification(
+        method::MUX_EVENT,
+        mux(15, "user_message", json!({"text": "also", "promptId": "p2", "turnId": "t2"})),
+    );
+
+    let items = &app.transcripts[id].items;
+    assert!(matches!(items[1], Item::Thought { .. }), "{items:?}");
+    assert_eq!(
+        app.toggled[id],
+        [Toggle::Turn(0), Toggle::Item(1)].into_iter().collect(),
+        "the thought's fold moved with it; the removed row's fold is gone"
+    );
+}

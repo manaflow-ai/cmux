@@ -1,0 +1,22 @@
+{
+  "name": "@cmux/home-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "bun scripts/typecheck.ts",
+    "test": "bun test",
+    "serve": "bun src/main.ts serve",
+    "build": "bun scripts/build.ts"
+  },
+  "dependencies": {
+    "@cmux/home-core": "workspace:*",
+    "@cmux/ownership": "workspace:*",
+    "@cmux/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260925.1",
+    "@types/bun": "1.4.2",
+    "typescript": "7.0.2"
+  }
+}

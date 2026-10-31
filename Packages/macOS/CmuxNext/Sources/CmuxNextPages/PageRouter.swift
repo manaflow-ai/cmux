@@ -17,10 +17,14 @@ public final class PageRouter {
     private var routes: [PageRoute]
     /// Runs one envelope in the page (`window.__cmuxPageReceive(<json>)`).
     public var send: ((JSONValue) -> Void)?
+    /// Script pipeline entry that reports envelopes dropped by a page reset.
+    public var sendWithDrop: ((JSONValue, @escaping @MainActor () -> Void) -> Void)?
     /// Runs at every ``close()`` (and so at ``reset()`` and rebind): the host drops envelopes it
     /// has not delivered yet, which belong to the subscriptions that just ended.
     public var didClose: (() -> Void)?
     private var subscriptions: [UInt64: PageSubscription] = [:]
+    private var activeStreams: Set<UInt64> = []
+    private var streamProviders: [UInt64: (name: String, provider: any PageProvider)] = [:]
     private var sequences: [UInt64: UInt64] = [:]
     private var nextSubscription: UInt64 = 1
     private var nextCall: UInt64 = 1
@@ -58,11 +62,28 @@ public final class PageRouter {
 
     // MARK: Page to host
 
+    /// A page's call or subscription id: an integer in 1 ... 2^53 - 1 (the JSON-safe range the protocol
+    /// allows), nil for anything else. The page posts any JSON number (`Infinity` and `1e30` are valid
+    /// script values) and `UInt64(_:)` traps outside 0 ..< 2^64.
+    nonisolated static func wireID(_ value: Double) -> UInt64? {
+        guard value >= 1, value <= 9_007_199_254_740_991, value == value.rounded(.towardZero) else { return nil }
+        return UInt64(value)
+    }
+
     /// Handles one envelope the page posted and returns the reply envelope (or `null` for
     /// messages that need none: `unsub`, and replies to host calls).
     public func handle(_ message: JSONValue) async -> JSONValue {
         guard let type = message["t"]?.stringValue else { return Self.error(id: 0, .invalidParams("missing t")) }
-        let id = message["id"]?.doubleValue.map { UInt64(max(0, $0)) } ?? 0
+        var id: UInt64 = 0
+        if let raw = message["id"]?.doubleValue {
+            guard let valid = Self.wireID(raw) else {
+                // An invalid id names no operation: a call or subscription is refused (never run under
+                // id 0, where invalid ids would collide); anything else needs no reply.
+                guard type == "call" || type == "sub" else { return .null }
+                return Self.error(id: 0, PageError(code: "cmux.protocol.bad_message", message: "id must be an integer from 1 to 2^53 - 1"))
+            }
+            id = valid
+        }
         switch type {
         case "call":
             guard let op = message["op"]?.stringValue else { return Self.error(id: id, .invalidParams("missing op")) }
@@ -97,7 +118,7 @@ public final class PageRouter {
             inFlight[id]?.cancel()
             return .null
         case "unsub":
-            if let sub = message["sub"]?.doubleValue { unsubscribe(UInt64(max(0, sub))) }
+            if let sub = message["sub"]?.doubleValue.flatMap(Self.wireID) { unsubscribe(sub) }
             return .null
         case "ok", "err":
             resolve(id: id, message)
@@ -117,6 +138,10 @@ public final class PageRouter {
     /// A popup op (`cmux.app.popup.*`, cx-6k6cg) with its params: the page view's WebPopupHost.
     public var popup: (@MainActor (String, [String: Any]) -> JSONValue)?
 
+    /// A right-click menu (`cmux.app.contextMenu.show`) with its params: the page view's native
+    /// menu, answered once it closes.
+    public var contextMenu: (@MainActor ([String: Any]) async -> JSONValue)?
+
     private func call(_ op: String, params: JSONValue, opid: String?) async throws -> JSONValue {
         if op == PageNativeOp.titleBarDoubleClick {
             guard !closed else { throw PageError.closed }
@@ -129,6 +154,13 @@ public final class PageRouter {
                 throw PageError.invalidParams("params must be an object")
             }
             return popup?(op, fields) ?? .object(["shown": .bool(false)])
+        }
+        if op == PageNativeOp.contextMenu {
+            guard !closed else { throw PageError.closed }
+            guard case .object = params, let fields = params.foundationObject as? [String: Any] else {
+                throw PageError.invalidParams("params must be an object")
+            }
+            return await contextMenu?(fields) ?? .object(["picked": .null])
         }
         let (provider, params) = try admit(op, params: params)
         let gesture = userGestureEvent?() ?? nil
@@ -164,27 +196,45 @@ public final class PageRouter {
         let (provider, filter) = try admit(stream, params: filter)
         let sub = nextSubscription
         nextSubscription += 1
+        activeStreams.insert(sub)
+        streamProviders[sub] = (stream, provider)
         // A provider may send its current state from inside `subscribe` (the icon picker's open
         // session). Those events wait until the reply that names `sub` reaches the page.
         let early = PageEarlyEvents()
-        let subscription = try await provider.subscribe(stream, filter: filter, context: PageCallContext(page: descriptor.id)) { [weak self] data in
-            if early.hold(data) { return }
-            self?.deliver(sub: sub, data)
+        // One owner frees it on every exit: the posted flush below takes it over; every other exit (a
+        // throw, the page closed meanwhile, nothing held) releases it here, so a provider that keeps
+        // `onEvent` after its subscription ended adds nothing to a list nobody reads.
+        var flushesAfterReply = false
+        defer { if !flushesAfterReply { _ = early.release() } }
+        let subscription: PageSubscription
+        do {
+            subscription = try await provider.subscribe(stream, filter: filter, context: PageCallContext(page: descriptor.id)) { [weak self] data in
+                if !provider.eventsAfterSubscribeReply, early.hold(data) { return }
+                self?.deliver(sub: sub, data, publicationID: provider.eventDeliveryID)
+            }
+        } catch {
+            activeStreams.remove(sub)
+            streamProviders.removeValue(forKey: sub)
+            throw error
         }
         guard !closed else {
             subscription.cancel()
+            activeStreams.remove(sub)
+            streamProviders.removeValue(forKey: sub)
             throw PageError.closed
         }
+        activeStreams.remove(sub)
         subscriptions[sub] = subscription
-        // Nothing held: later events go straight to the page. Otherwise they queue behind the held
-        // ones until the flush, which runs after the reply.
-        guard early.isHolding else {
+        // Nothing held (or a provider that sends only after the reply): later events go straight to
+        // the page. Otherwise they queue behind the held ones until the flush, which runs after the reply.
+        guard early.isHolding, !provider.eventsAfterSubscribeReply else {
             _ = early.release()
             return sub
         }
+        flushesAfterReply = true
         // task-owner: one flush after the reply; ends with the router
         Task { @MainActor [weak self] in
-            for data in early.release() { self?.deliver(sub: sub, data) }
+            for data in early.release() { self?.deliver(sub: sub, data, publicationID: provider.eventDeliveryID) }
         }
         return sub
     }
@@ -201,15 +251,23 @@ public final class PageRouter {
         return (route.provider, params)
     }
 
-    private func deliver(sub: UInt64, _ data: JSONValue) {
-        guard subscriptions[sub] != nil || builtIn[sub] != nil else { return }
+    private func deliver(sub: UInt64, _ data: JSONValue, publicationID: UInt64? = nil) {
+        guard subscriptions[sub] != nil || builtIn[sub] != nil || activeStreams.contains(sub) else { return }
         let seq = (sequences[sub] ?? 0) + 1
         sequences[sub] = seq
-        send?(["t": "ev", "sub": .number(Double(sub)), "seq": .number(Double(seq)), "data": data])
+        let envelope: JSONValue = ["t": "ev", "sub": .number(Double(sub)), "seq": .number(Double(seq)), "data": data]
+        let stream = streamProviders[sub]
+        let dropped = { @MainActor in
+            guard let stream else { return }
+            stream.provider.eventDeliveryDropped(stream: stream.name, data: data, publicationID: publicationID)
+        }
+        if let sendWithDrop { sendWithDrop(envelope, dropped) } else { send?(envelope) }
     }
 
     private func unsubscribe(_ sub: UInt64) {
         subscriptions.removeValue(forKey: sub)?.cancel()
+        activeStreams.remove(sub)
+        streamProviders.removeValue(forKey: sub)
         builtIn.removeValue(forKey: sub)
         sequences.removeValue(forKey: sub)
     }
@@ -271,6 +329,8 @@ public final class PageRouter {
         didClose?()
         for subscription in subscriptions.values { subscription.cancel() }
         subscriptions.removeAll()
+        activeStreams.removeAll()
+        streamProviders.removeAll()
         builtIn.removeAll()
         sequences.removeAll()
         let pending = pendingCalls

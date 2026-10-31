@@ -1,125 +1,176 @@
-// The chat's pull requests above the composer (cx-ncc.81, Claude desktop's PR bars): each one a
-// `gh pr create` in the chat opened (sessionSummary.ts), newest first, with its number, repository,
-// title and state, each a chip as wide as its text, its title cut off only when the composer's
-// column is full, with its dismiss button inside. The chat folder's pull request, which the header
-// chip follows live, shows its live state and title. The newest two show and the rest wait behind
-// Show more; a dismissed bar stays hidden for this chat (the page's storage, so a reload keeps it
-// hidden).
-import { useEffect, useRef, useState } from "react";
-import { useT, type StringKey } from "../i18n";
-import { Icon } from "../icons/Icon";
+// PR shortcuts belong to the message's existing line. Overflow is a portal: opening it never
+// changes the transcript's measured height. Parsing keeps the producer's PR revision cache.
+import { createContext, useContext, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
-import { Close } from "../conversation/icons";
-import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
-import { sessionPullRequests, type SummaryPullRequest } from "./sessionSummary";
+import { useHeaderState } from "../header/headerState";
+import { transcriptPullRequestKey, transcriptPullRequests, type SummaryPullRequest } from "./transcriptPullRequests";
+import { headerStatus, visibleChanges } from "../inspector/ChangesSection";
+import { GitHubMark } from "../conversation/icons";
+import { LinkHoverCard } from "../chips/LinkHoverCard";
+import { useSiteInfo } from "../chips/linkStore";
+import { useHoverCard } from "../chips/useHoverCard";
+import { Popover } from "../../../ui/Popover";
+import { usePopoverTrigger } from "../../../ui/popoverTrigger";
+import { PullRequestHostVisibility } from "./pullRequestPlacement";
 
-const SHOWN = 2;
-const BADGES: Record<string, StringKey> = {
-  open: "header.prBadge.open",
-  draft: "header.prBadge.draft",
-  merged: "header.prBadge.merged",
-  closed: "header.prBadge.closed",
-};
-
-const storageKey = (sessionId: string) => `acpmux.prDock.dismissed.${sessionId}`;
-
-/// The pull request URLs dismissed in this chat; none when the page has no storage.
-function readDismissed(sessionId: string | undefined): string[] {
-  if (!sessionId) return [];
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem(storageKey(sessionId)) ?? "[]");
-    return Array.isArray(value) ? value.filter((url): url is string => typeof url === "string") : [];
-  } catch {
-    return [];
-  }
+/// Existing comparison treatments are opt-in gallery document attributes only.
+export function legacyPullRequestDockMode() {
+  const mode = typeof document === "undefined" ? undefined : document.documentElement.dataset.prDock;
+  return mode === "compact" || mode === "none" || mode === "collapsed" || mode === "full";
 }
 
-function writeDismissed(sessionId: string | undefined, urls: readonly string[]): void {
-  if (!sessionId) return;
-  try {
-    localStorage.setItem(storageKey(sessionId), JSON.stringify(urls));
-  } catch {
-    // Without storage the bar stays hidden until the page reloads.
-  }
-}
+export const RowPullRequests = createContext<readonly SummaryPullRequest[] | undefined>(undefined);
 
-/// A bar's state and title: the live ones when the header follows this pull request. Without
-/// them, "open" is only what the chat last saw, so the bar names no state rather than a stale one.
-function shown(
-  pr: SummaryPullRequest,
-  live: HeaderPullRequest | undefined,
-): { state: string; title: string; labeled: boolean } {
-  if (live?.url === pr.url) return { state: live.state, title: live.title || (pr.title ?? ""), labeled: true };
-  return { state: pr.state, title: pr.title ?? "", labeled: pr.state !== "open" };
-}
-
-/// Mount keyed by the chat: dismissals and Show more belong to one chat.
-export function PullRequestDock({ rows, sessionId }: { rows: readonly AcpmuxRow[]; sessionId?: string }) {
-  const t = useT();
+export function useTranscriptPullRequests(rows: readonly AcpmuxRow[], repository?: string) {
   const { pullRequest: live } = useHeaderState();
-  // Every streamed chunk is a new rows array: parse again only when a tool call changed.
-  const parsed = useRef<{ key: string; prs: SummaryPullRequest[] }>(undefined);
-  const key = rows.flatMap((row) => (row.kind === "activity" ? [`${row.id}:${row.version}`] : [])).join(",");
-  if (parsed.current?.key !== key) parsed.current = { key, prs: sessionPullRequests(rows) };
+  // The dock counts the same session-owned Changes as Session Info. Read-only reply mentions are
+  // Sources, so the cache fingerprints command findings only and skips per-token prose work.
+  const parsed = useRef<{ key: string | symbol; repository?: string; prs: SummaryPullRequest[] }>(undefined);
+  // Use the producer revision even though the dock parses commands only: the revision is O(1)
+  // for live snapshots and advances only when a tool finding changes.
+  const key = transcriptPullRequestKey(rows, false);
+  if (parsed.current?.key !== key || parsed.current?.repository !== repository) {
+    parsed.current = {
+      key,
+      repository,
+      prs: transcriptPullRequests(rows, { folder: repository, replies: false }),
+    };
+  }
   const all = parsed.current.prs;
-  const [dismissed, setDismissed] = useState(() => readDismissed(sessionId));
-  const [expanded, setExpanded] = useState(false);
-  const dock = useRef<HTMLElement>(null);
-  // The place of the bar just dismissed: focus moves to the bar now there, or the composer.
-  const [refocus, setRefocus] = useState<number>();
-  useEffect(() => {
-    if (refocus === undefined) return;
-    setRefocus(undefined);
-    const buttons = dock.current?.querySelectorAll<HTMLElement>(".acpmux-pr-dock__dismiss");
-    const next = buttons?.[Math.min(refocus, buttons.length - 1)];
-    (
-      next ?? document.querySelector<HTMLElement>(".acpmux-composer [contenteditable], .acpmux-composer textarea")
-    )?.focus();
-  }, [refocus]);
-  const prs = all.filter((pr) => !dismissed.includes(pr.url)).reverse();
-  if (prs.length === 0) return null;
-  const visible = expanded ? prs : prs.slice(0, SHOWN);
-  const dismiss = (url: string, index: number) => {
-    const next = [...dismissed, url];
-    setDismissed(next);
-    writeDismissed(sessionId, next);
-    setRefocus(index);
-  };
+  const legacy = legacyPullRequestDockMode();
+  return useMemo(() => (legacy ? [] : visibleChanges(all, headerStatus(live)).reverse()), [all, live, legacy]);
+}
+
+export function PullRequestDock() {
+  const prs = useContext(RowPullRequests);
+  if (!prs?.length) return null;
+  return <PullRequestPills prs={prs} />;
+}
+
+function PullRequestPills({ prs }: { prs: readonly SummaryPullRequest[] }) {
+  const t = useT();
+  const reportHost = useContext(PullRequestHostVisibility);
+  useLayoutEffect(() => {
+    reportHost?.(true);
+    return () => reportHost?.(false);
+  }, [reportHost]);
+  const { pullRequest: live } = useHeaderState();
+  const [open, setOpen] = useState(false);
+  const [count, setCount] = useState(Math.min(2, prs.length));
+  const row = useRef<HTMLSpanElement>(null);
+  const measure = useRef<HTMLSpanElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const press = usePopoverTrigger(open, setOpen);
+  const mode = typeof document === "undefined" ? undefined : document.documentElement.dataset.prDock;
+  const limit = mode === "one" ? 1 : 2;
+  useLayoutEffect(() => {
+    const node = row.current;
+    const sizing = measure.current;
+    if (!node || !sizing) return;
+    const fit = () => {
+      const widths = [...sizing.children].map((child) => child.getBoundingClientRect().width);
+      const more = widths[2] ?? 0;
+      const gap = parseFloat(getComputedStyle(node).columnGap) || 0;
+      const two = (widths[0] ?? 0) + (widths[1] ?? 0) + gap + (prs.length > 2 ? more + gap : 0);
+      setCount(prs.length > 1 && limit > 1 && two <= node.clientWidth ? 2 : 1);
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(node);
+    observer.observe(sizing);
+    return () => observer.disconnect();
+  }, [prs, limit]);
+  const visible = Math.min(count, prs.length);
+  const link = (pr: SummaryPullRequest) => (
+    <PullRequestBar
+      key={pr.url}
+      pr={pr}
+      state={live?.url === pr.url ? live.state : pr.state}
+      title={live?.url === pr.url ? live.title || pr.title || "" : pr.title || ""}
+    >
+      <span className="acpmux-pr-dock__number">#{pr.number}</span>
+      <span className="acpmux-pr-dock__repo">{pr.repo.split("/").pop()}</span>
+    </PullRequestBar>
+  );
   return (
-    <section ref={dock} className="acpmux-pr-dock" aria-label={t("prDock.label")}>
-      {visible.map((pr, index) => {
-        const { state, title, labeled } = shown(pr, live);
-        const badge = BADGES[state];
-        return (
-          <div key={pr.url} className="acpmux-pr-dock__chip">
-            <a className="acpmux-pr-dock__bar" href={pr.url} data-state={state}>
-              <Icon name="git.pullrequest" size={13} />
-              <span className="acpmux-pr-dock__number">#{pr.number}</span>
-              <span className="acpmux-pr-dock__repo">{pr.repo.split("/").pop()}</span>
-              {title && <span className="acpmux-pr-dock__title">{title}</span>}
-              {labeled && <span className="acpmux-pr-dock__state">{badge ? t(badge) : state}</span>}
-            </a>
-            <button
-              type="button"
-              className="cv-iconbtn cv-iconbtn--compact acpmux-pr-dock__dismiss"
-              aria-label={t("prDock.dismiss", { number: pr.number })}
-              onClick={() => dismiss(pr.url, index)}
-            >
-              <Close size={12} />
-            </button>
-          </div>
-        );
-      })}
-      {prs.length > SHOWN && (
+    <span ref={row} className="acpmux-pr-dock" aria-label={t("prDock.label")}>
+      <span ref={measure} className="acpmux-pr-dock__measure" aria-hidden="true">
+        {prs.slice(0, 2).map((pr) => (
+          <span key={pr.url}>
+            #{pr.number} {pr.repo.split("/").pop()}
+          </span>
+        ))}
+        {prs.length === 1 && <span />}
+        <span>+{prs.length - 1}</span>
+      </span>
+      {prs.slice(0, visible).map(link)}
+      {prs.length > visible && (
         <button
+          ref={trigger}
           type="button"
           className="acpmux-pr-dock__more"
-          aria-expanded={expanded}
-          onClick={() => setExpanded(!expanded)}
+          aria-label={t("prDock.more", { count: prs.length - visible })}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          {...press}
         >
-          {expanded ? t("prDock.less") : t("prDock.more", { count: prs.length - SHOWN })}
+          +{prs.length - visible}
         </button>
       )}
-    </section>
+      <Popover
+        open={open && prs.length > visible}
+        onOpenChange={setOpen}
+        anchor={trigger.current}
+        finalFocus={trigger}
+        label={t("prDock.label")}
+        side="top"
+        className="acpmux-pr-dock__popover"
+      >
+        {prs.slice(visible).map(link)}
+      </Popover>
+    </span>
+  );
+}
+
+/// One bar's link and its hover card, the same card as a pull request link in a reply.
+function PullRequestBar({
+  pr,
+  state,
+  title,
+  children,
+}: {
+  pr: SummaryPullRequest;
+  state: string;
+  title: string;
+  children: ReactNode;
+}) {
+  const hover = useHoverCard();
+  const site = useSiteInfo(pr.url);
+  const [bar, setBar] = useState<HTMLAnchorElement | null>(null);
+  const card = useId();
+  return (
+    <>
+      <a
+        ref={setBar}
+        className="acpmux-pr-dock__bar"
+        href={pr.url}
+        data-state={state}
+        aria-describedby={hover.open ? card : undefined}
+        {...hover.trigger}
+      >
+        {children}
+      </a>
+      <LinkHoverCard
+        id={card}
+        href={pr.url}
+        anchor={bar}
+        hover={hover}
+        mark={<GitHubMark size={13} className="cv-chip__icon cv-chip__icon--gh" />}
+        siteTitle={site?.title}
+        pullRequest={{ repo: pr.repo, number: pr.number, title, state }}
+        side="top"
+      />
+    </>
   );
 }

@@ -3,12 +3,13 @@
 Every Cloud sidebar, palette and context-menu item is an app action. The CLI runs
 the same action through the app control socket, so an agent reaches it with
 `cmux cloud <verb>` or `cmux action run <id>`. Check targets and arguments with
-`cmux action describe "<cli name>"` first. Without `--target`, a machine action
-applies to the focused cloud workspace's machine.
+`cmux action describe "<cli name>"` first. From the CLI or MCP, a machine action
+needs `--target machine:vm-…`; without it the run is refused.
 
 | Sidebar or palette item | CLI |
 | --- | --- |
-| New Cloud Machine… | `cmux cloud new-machine` (opens the sheet) |
+| List Cloud Machines (the Cloud sidebar) | `cmux cloud list-machines` (returns `machines`) |
+| New Cloud Machine… | `cmux cloud new-machine` (returns `machine_id`) |
 | New Cloud Workspace | `cmux cloud new-workspace` |
 | New workspace on a machine | `cmux workspace new-on-machine --machine machine:vm-…` |
 | Open Machine | `cmux cloud open-machine --target machine:vm-…` |
@@ -18,6 +19,7 @@ applies to the focused cloud workspace's machine.
 | Cloud Machine Status | `cmux cloud machine-status --target machine:vm-…` |
 | Cloud Machine Ports | `cmux cloud machine-ports --target machine:vm-…` |
 | Cloud Machine Tools | `cmux cloud machine-tools --target machine:vm-…` |
+| Set Up GitHub on This Machine | `cmux cloud setup-github --target machine:vm-…` |
 | Snapshot Cloud Machine | `cmux cloud snapshot-machine --target machine:vm-…` |
 | Fork Cloud Machine | `cmux cloud fork-machine --target machine:vm-…` |
 | Restore Cloud Machine… | `cmux cloud restore-machine --target machine:vm-… --snapshot <id>` |
@@ -31,13 +33,13 @@ applies to the focused cloud workspace's machine.
 | Move to Cloud / Bring Back Local (agent chat tab) | `cmux cloud move`, `cmux cloud bring-back` |
 | Copy Machine ID / Link / Port | Menu only: the CLI never writes the clipboard |
 | Cloud Diagnostics… | `cmux cloud diagnostics` |
-| Team Picker | `cmux cloud team-picker` |
+| Switch Active Team… (also Settings > Accounts > Active Team) | `cmux cloud team-picker` |
 | Sign In / Sign Out | `cmux cloud sign-in`, `cmux cloud sign-out` |
 | Open Mobile Pairing | `cmux cloud open-mobile-pairing` |
 
-Actions return the app's action result. They do not return machine data such as a
-tree, a file, command output or a port URL on stdout; read and list actions show
-their result in an app toast, and copy actions write to the clipboard.
+Actions return the app's action result. From the CLI, read and list actions put
+their data in its `result` (command output, a file, a listing, status); they return
+no tree or port URL, and copy actions write to the clipboard.
 
 Removed with the Swift CLI, with no action equivalent: `vm tree` and its sidebar
 pin/order verbs, `vm workspace open|close|rm|rename` against a machine,

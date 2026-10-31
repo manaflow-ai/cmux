@@ -34,19 +34,19 @@ import Testing
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
 
-        let original = ThemeStore.shared.input
+        let original = ThemeScope.app.store.input
         let colors = Self.ghostty()
         GhosttyConfigBackground.loaded = GhosttyConfigBackground(opacity: colors.backgroundOpacity, blur: colors.backgroundBlur)
         defer {
             GhosttyRuntime.backgroundOverride = WindowBackgroundOverride()
             GhosttyConfigBackground.loaded = GhosttyConfigBackground()
-            ThemeStore.shared.apply(original)
+            ThemeScope.app.store.apply(original)
         }
         let scope = ThemeScope(level: .room)
         let terminal = TerminalThemeSetting(backdropScope: scope)
-        terminal.reload = { ThemeStore.shared.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride)) }
+        terminal.reload = { ThemeScope.app.store.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride)) }
         terminal.follow(settings)
-        ThemeStore.shared.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride))
+        ThemeScope.app.store.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride))
         #expect(scope.backdropSelection?.id == Self.work)
         return scope.shownWindowOpacity
     }
@@ -60,8 +60,8 @@ import Testing
         for (lower, higher) in zip(shown, shown.dropFirst()) {
             #expect(higher >= lower - 0.0001, "shown opacities \(shown) for \(steps)")
         }
-        // 100% covers the picture as much as a picture allows (the art always shows a little).
-        #expect(shown[3] >= WindowBackdrop.maximumWorkspaceTint - 0.0001, "shown opacities \(shown)")
+        // 100% covers the picture fully: the window is opaque (2026-10-21, "all the way to 100%").
+        #expect(shown[3] == 1, "shown opacities \(shown)")
     }
 
     /// A surface's own opacity over a picture covers the picture that much: the window shows the

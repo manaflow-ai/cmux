@@ -253,17 +253,24 @@ export async function vmCreateCleanupPendingCopy(locale: Locale): Promise<VmRequ
 /** Load and translate the `vm_requires_pro` response copy for the request locale. */
 export async function vmRequiresProCopy(
   locale: Locale,
-  values: { readonly upgradeUrl: string },
+  values: { readonly upgradeUrl: string; readonly planId: string },
 ): Promise<VmRequiresProCopy> {
+  const messages = await loadMessages(locale);
   const translator = createTranslator({
     locale,
-    messages: await loadMessages(locale),
+    messages,
     namespace: "vmErrors.requiresPro",
   }) as unknown as (key: string, values?: Record<string, string>) => string;
+  const planTranslator = createTranslator({
+    locale,
+    messages,
+    namespace: "pricing",
+  }) as unknown as (key: string) => string;
+  const plan = planTranslator(`${values.planId}.name`);
   return {
-    title: translator("title"),
-    message: translator("message"),
-    action: translator("action", { upgradeUrl: values.upgradeUrl }),
+    title: translator("title", { plan }),
+    message: translator("message", { plan }),
+    action: translator("action", { plan, upgradeUrl: values.upgradeUrl }),
   };
 }
 
@@ -345,7 +352,7 @@ export async function vmPlanBudgetCopy(
  */
 export async function vmActiveLimitCountedCopy(
   locale: Locale,
-  machines: readonly { readonly name: string; readonly status: "provisioning" | "running" }[],
+  machines: readonly { readonly name: string; readonly status: "provisioning" | "running" | "paused" }[],
 ): Promise<string> {
   if (machines.length === 0) return "";
   const t = createTranslator({

@@ -48,9 +48,15 @@ public nonisolated enum ActionOrigin: String, Sendable, Hashable, CaseIterable {
 /// CLI `--target`, or nil for "the focused one") and the collected arguments.
 public nonisolated struct ActionInvocation: Sendable, Hashable {
     public var target: ActionTargetRef?
+    /// Namespace of a native menu's target. It identifies its owner, never grants authority.
+    public var targetMachineID: String?
     public var arguments: [String: ActionValue]
     /// In-app runs are the user's; the control socket sets its caller's.
     public var origin: ActionOrigin
+    /// The control socket carried the run (`RegistryControlBridge` sets it on every one). Its
+    /// ``origin`` is then only the caller's claim, `user` included, so a handler that gives a
+    /// person more than automation (a raw screenshot) checks this, not the origin alone.
+    public var viaControlSocket = false
     /// The calling app preserved by the native provider, even during its user gesture.
     /// Nil for direct native/CLI/page calls; attribution never grants execution authority.
     public var callerApp: String?
@@ -66,6 +72,10 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// No column is right of the chat: the target is the chat, and the new
     /// tab moves into a new column right of it.
     public var newColumnBeside = false
+    /// A person's click opened this beside the chat (the header's Changes, Preview or Files): its
+    /// tab takes the keyboard focus where it lands, and its close gives it back to the chat. An
+    /// agent's beside run never takes it. In-app only: the control socket never sets it.
+    public var besideTakesFocus = false
     /// `action.run` `background: true`: a tab this run opens stays unselected in
     /// its pane, so the pane keeps showing what the person chose
     /// (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.1).
@@ -80,9 +90,19 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// A split that opens a terminal even where a person's split opens the New Tab page (the chat
     /// header's Terminal, cx-00n1). In-app only: the control socket never sets it.
     public var opensTerminal = false
-    /// A close the sidebar sends for its rows (a row's close button, a middle-click, Delete on the
-    /// selection): each row by itself, never widened to the selection. In-app only.
+    /// A run the sidebar sends for one of its rows (a row's close button or speaker, a middle-click,
+    /// Delete on the selection): each row by itself, never widened to the selection. In-app only.
     public var closesRowOnly = false
+    /// A person's unconfirmed Close Workspace: the destructive gate let it run at the press, and the
+    /// handler asks about running programs itself, with the row still in place (`WorkspaceCloseFlow`).
+    /// In-app only: the control socket never sets it.
+    public var asksIfRunning = false
+    /// The timestamp (`NSEvent.timestamp`, seconds of system uptime) of the key press or click
+    /// that started this run, when the run went through a gate first (a confirmation sheet, the
+    /// palette asking for an argument) and so may run in a later turn, outside that event's
+    /// dispatch. The registry stamps it when the gate starts; the run's `action.*` signposts
+    /// report its age when no input event is being dispatched at the run. Nil for every other run.
+    public var inputTimestamp: Double?
 
     public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:], origin: ActionOrigin = .user,
                 focusRequested: Bool = false) {

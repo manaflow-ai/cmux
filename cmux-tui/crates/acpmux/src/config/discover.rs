@@ -40,15 +40,21 @@ pub fn discover_harnesses(route: Option<&str>) -> BTreeMap<String, HarnessProfil
     found
 }
 
+/// The Muse Code ACP adapter's program (cmux-muse-acp).
+pub const MUSE_ACP: &str = "muse-acp";
+
+/// Muse Code in a terminal tab, when `muse` itself is the ACP harness.
+pub const MUSE_TERMINAL: &str = "muse-terminal";
+
 /// The profile name of the built-in UniiChat harness.
 pub const UNIICHAT_PROFILE: &str = "unii";
 
 /// This process's own binary and the prefix that reaches its subcommands
 /// (`cmux acp …` when acpmux runs inside cmux): the bundled adapter.
 fn self_argv() -> Option<Vec<String>> {
-    let exe = std::env::current_exe().ok()?;
-    let mut argv = vec![exe.to_string_lossy().into_owned()];
-    argv.extend(crate::daemon::daemon_prefix().iter().map(|p| p.to_string_lossy().into_owned()));
+    let this = crate::self_command::SelfCommand::current().ok()?;
+    let mut argv = vec![this.exe.to_string_lossy().into_owned()];
+    argv.extend(this.args_lossy::<&str>(&[]));
     Some(argv)
 }
 
@@ -85,21 +91,34 @@ pub fn add_uniichat(found: &mut BTreeMap<String, HarnessProfile>, self_argv: Opt
 pub const CMUX_ROUTER_PROFILE: &str = "cmux";
 
 /// The models the hosted cmux model router serves (backend
-/// apps/api/src/inference/catalog.ts): `(id, name)`. The first is the profile
-/// default. The live list is GET /v1/models through the relay.
+/// apps/api/src/inference/catalog.ts and its deployments' `INFERENCE_MODEL_ALLOWLIST`):
+/// `(id, name)`, the DeepSeek models only (user, 2026-10-28). The first is the profile
+/// default and the Claude fallback model: DeepSeek V4.1 Flash 1017, which takes images.
+/// The cmux setting `agents.modelRouter.model` picks another start model from this list
+/// (the app's Settings, palette, `cmux settings set` and MCP `settings.set` write it).
+/// The live list is GET /v1/models through the relay.
 pub const CMUX_ROUTER_MODELS: &[(&str, &str)] = &[
-    ("qwen/qwen3.7-flash", "Qwen3.7 Flash"),
-    ("z-ai/glm-5.3", "GLM-5.3"),
-    ("moonshotai/kimi-k3", "Kimi K3"),
-    ("deepseek/deepseek-v4-pro", "DeepSeek V4 Pro"),
+    ("deepseek/deepseek-v4.1-flash-1017", "DeepSeek V4.1 Flash 1017"),
     ("deepseek/deepseek-v4.1-flash", "DeepSeek V4.1 Flash"),
-    ("moonshotai/kimi-k2.7-code", "Kimi K2.7 Code"),
-    ("minimax/minimax-m3", "MiniMax M3"),
-    ("z-ai/glm-5.3-flash", "GLM-5.3 Flash"),
     ("deepseek/deepseek-v4-flash", "DeepSeek V4 Flash"),
-    ("openai/gpt-oss-120b", "gpt-oss-120b"),
-    ("meta/llama-4-scout", "Llama 4 Scout"),
+    ("deepseek/deepseek-v4-pro", "DeepSeek V4 Pro"),
 ];
+
+/// The cmux setting that picks the cmux router profile's start model.
+pub const CMUX_ROUTER_MODEL_SETTING: &str = "agents.modelRouter.model";
+
+/// The model `agents.modelRouter.model` names in a settings document, if any.
+pub fn cmux_router_model_in(doc: &serde_json::Value) -> Option<String> {
+    crate::user_settings::value(doc, CMUX_ROUTER_MODEL_SETTING)?.as_str().map(str::to_owned)
+}
+
+/// The model `agents.modelRouter.model` names in the settings file now (blocking file IO).
+pub fn cmux_router_model_setting() -> Option<String> {
+    match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => cmux_router_model_in(&doc),
+        _ => None,
+    }
+}
 
 /// Adds `cmux`: Claude Code (acpmux's own adapter) on the built-in `cmux`
 /// route, so it runs the cmux model router's open-source models through the
@@ -108,11 +127,27 @@ pub fn add_cmux_router(
     found: &mut BTreeMap<String, HarnessProfile>,
     which: &dyn Fn(&str) -> Option<String>,
 ) {
+    let setting = cmux_router_model_setting();
+    add_cmux_router_with(found, which, setting.as_deref());
+}
+
+/// `add_cmux_router` with the setting's value passed in. A model the router does not
+/// serve keeps the default.
+pub fn add_cmux_router_with(
+    found: &mut BTreeMap<String, HarnessProfile>,
+    which: &dyn Fn(&str) -> Option<String>,
+    setting: Option<&str>,
+) {
     if found.contains_key(CMUX_ROUTER_PROFILE) {
         return;
     }
     let Some(claude) = which("claude") else { return };
-    let default = CMUX_ROUTER_MODELS[0].0;
+    let Some(&(default, _)) = setting
+        .and_then(|m| CMUX_ROUTER_MODELS.iter().find(|(id, _)| *id == m))
+        .or_else(|| CMUX_ROUTER_MODELS.first())
+    else {
+        return;
+    };
     let env = BTreeMap::from([
         (crate::routes::PROFILE_ROUTE_KEY.to_owned(), crate::routes::CMUX_ROUTE_ID.to_owned()),
         // Claude Code's background calls name Haiku/Sonnet aliases; the
@@ -238,6 +273,10 @@ pub fn discover_harnesses_from(
         // Cursor's CLI speaks ACP itself: `cursor-agent acp` (newer installs
         // name the launcher `agent`; see cursor_agent_launcher below).
         ("cursor", "cursor-agent"),
+        // Hermes Agent (NousResearch/hermes-agent) speaks ACP itself:
+        // `hermes acp`. Its provider and model come from ~/.hermes
+        // (`hermes model`).
+        ("hermes", "hermes"),
     ] {
         // An ~/.acpx entry keeps its name, except the reserved Claude names:
         // `claude` and `claude-sr` are acpmux's own Claude Code adapter
@@ -260,7 +299,7 @@ pub fn discover_harnesses_from(
                 "omp" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "prime-agent" => (HarnessKind::Acp, vec![path, "--mode".into(), "acp".into()]),
                 "grok" => (HarnessKind::Acp, vec![path, "agent".into(), "stdio".into()]),
-                "cursor-agent" => (HarnessKind::Acp, vec![path, "acp".into()]),
+                "cursor-agent" | "hermes" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "gemini" => (HarnessKind::Acp, vec![path, "--experimental-acp".into()]),
                 "opencode" | "opencode2" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "dsh" => (HarnessKind::Acp, vec![path, "--profile".into(), "acp".into()]),
@@ -313,28 +352,48 @@ pub fn discover_harnesses_from(
             },
         );
     }
-    // Muse Code (Meta's `muse`) has no ACP mode: it speaks its own session
-    // protocol (`muse serve`), which acpmux does not bridge yet. It is offered
-    // as a terminal harness (`cmux harness run muse`); its chats come from the
-    // chat index (`muse resume <id>`) and its status from its hooks.
-    if !agents.contains_key("muse")
-        && let Some(path) = which("muse")
-    {
-        agents.insert(
-            "muse".to_owned(),
-            HarnessProfile {
-                kind: HarnessKind::Terminal,
-                argv: vec![path],
-                env: BTreeMap::new(),
-                description: Some("Muse Code, found on PATH; runs in a terminal tab".into()),
-                fallback: None,
-                family: Some("muse".into()),
-                models: vec![],
-                model: None,
-                effort: None,
-                policy: None,
-            },
-        );
+    // Muse Code (Meta's `muse`) has no ACP mode of its own: it speaks its own
+    // session protocol (`muse serve`). The cmux-muse-acp adapter
+    // (manaflow-ai/cmux-muse-acp, a fork of BrokkAi/muse-acp) bridges it to
+    // ACP, so with `muse-acp` on PATH `muse` is an ACP harness: chats, the
+    // Chief engine, the model picker (its `configOptions`) and modes. The
+    // adapter gets the `muse` it found as `MUSE_CLI`, so a daemon PATH that
+    // lacks it still starts Muse. Without the adapter `muse` stays a terminal
+    // harness (`cmux harness run muse`); with it the terminal one is
+    // `muse-terminal`. Its chats come from the chat index (`muse resume <id>`)
+    // either way, and its status from its hooks.
+    if let Some(muse) = which("muse") {
+        let terminal = HarnessProfile {
+            kind: HarnessKind::Terminal,
+            argv: vec![muse.clone()],
+            env: BTreeMap::new(),
+            description: Some("Muse Code, found on PATH; runs in a terminal tab".into()),
+            fallback: None,
+            family: Some("muse".into()),
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        };
+        match which(MUSE_ACP) {
+            Some(adapter) if !agents.contains_key("muse") => {
+                agents.insert(
+                    "muse".to_owned(),
+                    HarnessProfile {
+                        kind: HarnessKind::Acp,
+                        argv: vec![adapter],
+                        env: BTreeMap::from([("MUSE_CLI".to_owned(), muse)]),
+                        description: Some("Muse Code through the muse-acp adapter".into()),
+                        ..terminal.clone()
+                    },
+                );
+                agents.entry(MUSE_TERMINAL.to_owned()).or_insert(terminal);
+            }
+            Some(_) => {}
+            None => {
+                agents.entry("muse".to_owned()).or_insert(terminal);
+            }
+        }
     }
     // Codex through `codex app-server`, bridged in process (cmux-codex-acp,
     // `codex_app_server.rs`), is `codex` whenever codex is installed; an ACP
@@ -440,5 +499,81 @@ mod acpx_codex_tests {
         let acpx = r#"{"agents": {"codex": {"argv": ["/Users/me/bin/my-codex-adapter"]}}}"#;
         let found = discover_harnesses_from(Some(acpx), &which);
         assert_eq!(found["codex"].argv, ["/Users/me/bin/my-codex-adapter"]);
+    }
+}
+
+#[cfg(test)]
+mod muse_tests {
+    use super::*;
+
+    fn on_path(names: &'static [&'static str]) -> impl Fn(&str) -> Option<String> {
+        move |name| names.contains(&name).then(|| format!("/opt/bin/{name}"))
+    }
+
+    /// With the adapter installed, `muse` is an ACP chat harness that runs
+    /// the adapter and hands it the `muse` it found; the terminal stays.
+    #[test]
+    fn muse_acp_makes_muse_an_acp_harness() {
+        let found = discover_harnesses_from(None, &on_path(&["muse", "muse-acp"]));
+        let muse = &found["muse"];
+        assert_eq!(muse.kind, HarnessKind::Acp);
+        assert_eq!(muse.argv, ["/opt/bin/muse-acp"]);
+        assert_eq!(muse.env.get("MUSE_CLI").map(String::as_str), Some("/opt/bin/muse"));
+        assert_eq!(muse.family.as_deref(), Some("muse"));
+        let terminal = &found[MUSE_TERMINAL];
+        assert_eq!(terminal.kind, HarnessKind::Terminal);
+        assert_eq!(terminal.argv, ["/opt/bin/muse"]);
+    }
+
+    /// Without the adapter, `muse` stays the terminal harness it was.
+    #[test]
+    fn muse_without_the_adapter_stays_a_terminal_harness() {
+        let found = discover_harnesses_from(None, &on_path(&["muse"]));
+        assert_eq!(found["muse"].kind, HarnessKind::Terminal);
+        assert!(!found.contains_key(MUSE_TERMINAL));
+    }
+
+    /// The adapter alone starts nothing: it needs Muse itself.
+    #[test]
+    fn the_adapter_without_muse_offers_nothing() {
+        let found = discover_harnesses_from(None, &on_path(&["muse-acp"]));
+        assert!(!found.contains_key("muse"));
+    }
+
+    /// A `muse` the person imported from ~/.acpx stays theirs.
+    #[test]
+    fn an_imported_muse_stays_theirs() {
+        let acpx = r#"{"agents": {"muse": {"argv": ["/Users/me/bin/my-muse"]}}}"#;
+        let found = discover_harnesses_from(Some(acpx), &on_path(&["muse", "muse-acp"]));
+        assert_eq!(found["muse"].argv, ["/Users/me/bin/my-muse"]);
+    }
+}
+
+#[cfg(test)]
+mod hermes_tests {
+    use super::*;
+
+    fn on_path(names: &'static [&'static str]) -> impl Fn(&str) -> Option<String> {
+        move |name| names.contains(&name).then(|| format!("/opt/bin/{name}"))
+    }
+
+    /// Hermes Agent (NousResearch/hermes-agent) speaks ACP itself: `hermes
+    /// acp`. On PATH it is an ACP harness of its own family, so the Chief's
+    /// engine picker, `chief engine set --harness hermes` and chats can run it.
+    #[test]
+    fn hermes_on_path_runs_hermes_acp() {
+        let found = discover_harnesses_from(None, &on_path(&["hermes"]));
+        let hermes = found.get("hermes").expect("hermes on PATH is a harness");
+        assert_eq!(hermes.kind, HarnessKind::Acp);
+        assert_eq!(hermes.argv, ["/opt/bin/hermes", "acp"]);
+        assert_eq!(crate::config::derive_family("hermes", hermes), "hermes");
+    }
+
+    /// A `hermes` the person imported from ~/.acpx stays theirs.
+    #[test]
+    fn hermes_imported_from_acpx_stays_theirs() {
+        let acpx = r#"{"agents": {"hermes": {"argv": ["/Users/me/bin/my-hermes", "acp"]}}}"#;
+        let found = discover_harnesses_from(Some(acpx), &on_path(&["hermes"]));
+        assert_eq!(found["hermes"].argv, ["/Users/me/bin/my-hermes", "acp"]);
     }
 }

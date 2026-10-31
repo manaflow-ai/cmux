@@ -85,6 +85,7 @@ public struct BackdropSelectionSetting: Sendable {
                 return Self.defaultSelection
             }
             if raw == "none" { return nil }
+            if BackdropArt.removedIDs.contains(raw) { return Self.defaultSelection }
             // A shuffle shows its picture of now; the app's timer turns it (`TerminalThemeSetting`).
             if let shuffle = Self.shuffle(root) { return shuffle.pick(on: Date(), calendar: .current) }
             guard let selection = BackdropSelection(id: raw) else {
@@ -94,7 +95,8 @@ public struct BackdropSelectionSetting: Sendable {
             }
             return selection
         }
-        guard root.value(at: BackdropArtSetting().configPath) != nil else { return Self.defaultSelection }
+        guard let legacy = root.value(at: BackdropArtSetting().configPath) else { return Self.defaultSelection }
+        if let raw = legacy.stringValue, BackdropArt.removedIDs.contains(raw) { return Self.defaultSelection }
         return BackdropArtSetting().parse(root, diagnostics: &diagnostics).map(BackdropSelection.art)
     }
 }

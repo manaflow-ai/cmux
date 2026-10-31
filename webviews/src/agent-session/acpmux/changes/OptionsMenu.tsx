@@ -41,7 +41,6 @@ export function OptionsMenu({ rows }: { rows: OptionsRow[] }) {
         className="acpmux-diff-tool"
         data-tool="options"
         aria-label={t("changes.options")}
-        title={t("changes.options")}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={toggle}
@@ -54,7 +53,7 @@ export function OptionsMenu({ rows }: { rows: OptionsRow[] }) {
           style={menuStyle}
           role="menu"
           tabIndex={-1}
-          className="acpmux-file-menu-list"
+          className="ui-popup ui-glass acpmux-file-menu-list"
           aria-label={t("changes.options")}
           onKeyDown={onKeyDown}
         >

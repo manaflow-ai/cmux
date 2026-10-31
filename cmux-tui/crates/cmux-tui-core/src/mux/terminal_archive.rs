@@ -179,8 +179,13 @@ impl Mux {
         }
         let public_id = runtime.terminal_public_id()?.clone();
         let identity = self.resource_terminal_host_identity(runtime)?;
-        let screen = runtime.try_with_terminal(archive_screen).ok().flatten();
-        if screen.is_none() {
+        // terminal.persistence.mode memory: the archive keeps no screen.
+        let screen = if self.output_store.memory_only() {
+            None
+        } else {
+            runtime.try_with_terminal(archive_screen).ok().flatten()
+        };
+        if screen.is_none() && !self.output_store.memory_only() {
             eprintln!("cmux-tui: terminal {public_id} archive has no screen");
         }
         let stopped = runtime.process_id().and_then(|pid| {

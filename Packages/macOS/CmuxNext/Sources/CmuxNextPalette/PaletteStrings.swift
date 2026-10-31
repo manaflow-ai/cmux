@@ -16,6 +16,9 @@ nonisolated enum PaletteStrings {
     static var shortcutsTitle: String { String(localized: "palette.page.shortcuts", defaultValue: "Keyboard Shortcuts", bundle: .module) }
     static var shortcutsPlaceholder: String { String(localized: "palette.placeholder.shortcuts", defaultValue: "Search shortcuts by name or keys…", bundle: .module) }
     static var workspacesTitle: String { String(localized: "palette.page.workspaces", defaultValue: "Go to Workspace", bundle: .module) }
+    static func workspaceNotFound(_ id: String) -> String {
+        String(localized: "palette.goToWorkspace.notFound", defaultValue: "No workspace \(id).", bundle: .module)
+    }
     static var workspacesPlaceholder: String { String(localized: "palette.placeholder.workspaces", defaultValue: "Search workspaces…", bundle: .module) }
     static var tabsTitle: String { String(localized: "palette.page.tabs", defaultValue: "Go to Tab", bundle: .module) }
     static var tabsPlaceholder: String { String(localized: "palette.placeholder.tabs", defaultValue: "Search tabs…", bundle: .module) }
@@ -38,10 +41,18 @@ nonisolated enum PaletteStrings {
     static var copyPath: String { String(localized: "palette.command.copyPath", defaultValue: "Copy Path", bundle: .module) }
     static var runCommand: String { String(localized: "palette.command.run", defaultValue: "Run Command", bundle: .module) }
     static var open: String { String(localized: "palette.command.open", defaultValue: "Open", bundle: .module) }
+    /// Open Recovered Draft…'s page: its title and its search field.
+    static var recoveredDraftsTitle: String {
+        String(localized: "palette.recoveredDrafts.title", defaultValue: "Recovered Drafts", bundle: .module)
+    }
+    static var recoveredDraftsPlaceholder: String {
+        String(localized: "palette.recoveredDrafts.placeholder", defaultValue: "Find a recovered draft", bundle: .module)
+    }
     static var submit: String { String(localized: "palette.command.submit", defaultValue: "Submit", bundle: .module) }
     static var current: String { String(localized: "palette.accessory.current", defaultValue: "Current", bundle: .module) }
     static var on: String { String(localized: "palette.accessory.on", defaultValue: "On", bundle: .module) }
     static var off: String { String(localized: "palette.accessory.off", defaultValue: "Off", bundle: .module) }
+    static var changeFont: String { String(localized: "palette.setting.changeFont", defaultValue: "Change Font…", bundle: .module) }
     static var customValue: String { String(localized: "palette.setting.customValue", defaultValue: "Custom Value…", bundle: .module) }
     static var turnOn: String { String(localized: "palette.command.turnOn", defaultValue: "Turn On", bundle: .module) }
     static var turnOff: String { String(localized: "palette.command.turnOff", defaultValue: "Turn Off", bundle: .module) }
@@ -53,7 +64,7 @@ nonisolated enum PaletteStrings {
     static var sectionPanes: String { String(localized: "palette.section.panes", defaultValue: "Panes", bundle: .module) }
     /// The Search scope's title (the sidebar's Search button) and its field's placeholder.
     static var searchEverythingTitle: String { String(localized: "palette.scope.search", defaultValue: "Search", bundle: .module) }
-    /// The Chats & agents chip (Cmd-Shift-A, `search.chats`) on top of Search.
+    /// The Chats & agents scope: Search narrowed to agent chats and sessions.
     static var chatsAndAgentsTitle: String { String(localized: "palette.scope.chats", defaultValue: "Chats & agents", bundle: .module) }
     static var chatsAndAgentsPlaceholder: String {
         String(localized: "palette.placeholder.chatsAndAgents", defaultValue: "Search chats and agents…", bundle: .module)

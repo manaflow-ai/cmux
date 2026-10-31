@@ -81,6 +81,7 @@ fn scratch(name: &str) -> (PathBuf, FolderGate) {
             codex_config: root.join("config.toml"),
             record: root.join("acpmux").join("trust.json"),
             agent_home: None,
+            cmux_worktrees: None,
         },
     };
     (folder, gate)

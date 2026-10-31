@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// Which page the palette opens on.
@@ -22,12 +23,18 @@ public final class PaletteController {
     public let registry: ActionRegistry
     public let model: PaletteModel
     public var sources: PaletteSources
+    /// Additional rows the app hides from the registry page based on live Labs/debug state.
+    public var hiddenActionIDs: (() -> Set<ActionID>)?
 
     public private(set) var isVisible = false
     /// Called synchronously when the panel opens (true) or closes (false),
     /// before any key-window change it causes, so the owner's focus overlay
     /// stack never lags the panel (plans/cmux-next/input-spec.md bug B7).
-    public var onVisibilityChange: ((Bool) -> Void)?
+    /// The window is the one the panel is a child of, so the owner puts the
+    /// overlay on the window the palette is actually over (W5, W6) instead
+    /// of guessing it from the active window, which the palette's own
+    /// `relativeTo:` and the key window can both disagree with.
+    public var onVisibilityChange: ((Bool, NSWindow?) -> Void)?
     /// Main-thread phases of each open, request to committed first frame
     /// (the stall bench, `debug.timings`).
     public var onPresented: ((PaletteOpenTiming) -> Void)?
@@ -48,8 +55,6 @@ public final class PaletteController {
     private var panel: PalettePanel?
     private weak var parentWindow: NSWindow?
     private var presentationGeneration = 0
-    /// The open panel sits on a control (`show(scope:anchoredTo:)`), not centered over its window.
-    private var isAnchored = false
 
     public init(
         registry: ActionRegistry,
@@ -80,54 +85,53 @@ public final class PaletteController {
 
     /// Opens `scope` above the root (`palette.open`, a scope's shortcut).
     /// Returns false for a scope the graph does not have.
-    /// - Parameter anchor: a control the panel opens from (the sidebar's
-    ///   Search button): the panel sits just above it, its leading edge on the
-    ///   control's, inside the screen. Nil centers it over the window.
     @discardableResult
-    public func show(scope: PaletteScopeID, query: String = "", relativeTo window: NSWindow? = nil, anchoredTo anchor: NSView? = nil) -> Bool {
+    public func show(scope: PaletteScopeID, query: String = "", relativeTo window: NSWindow? = nil) -> Bool {
         configureScopes()
         guard model.navigation.graph.contains(scope) else { return false }
         markOpenStarted()
         captureContext()
         model.open(scope: scope, query: query)
         modelReady = .now
-        present(relativeTo: window ?? anchor?.window, anchor: anchor.flatMap(Self.screenRect(of:)))
+        present(relativeTo: window)
         return true
-    }
-
-    /// `view`'s frame on the screen, or nil when it is in no window.
-    private static func screenRect(of view: NSView) -> NSRect? {
-        guard let window = view.window else { return nil }
-        return window.convertToScreen(view.convert(view.bounds, to: nil))
     }
 
     // MARK: Registry wiring
 
     /// Binds the palette's own catalog actions: Command Palette (toggle),
-    /// Go to Workspace (Cmd-P, which opens Search) and Search Keyboard Shortcuts. Go to Tab is Search
-    /// Tabs, which the App binds (`tab.search`).
+    /// Go to Workspace (Cmd-P, what is open now), Search (Cmd-Shift-A, everything) and Search
+    /// Keyboard Shortcuts. Go to Tab is Search Tabs, which the App binds (`tab.search`).
     public func bindRegistryActions() {
         registry.bind("commandPalette") { [weak self] in self?.toggle(.commands) }
         registry.bind("palette.searchShortcuts") { [weak self] in self?.show(.keyboardShortcuts) }
-        // Cmd-Shift-A: Search with the Chats & agents chip (search-everything-DESIGN.md section 10.1).
+        // Cmd-Shift-A: Search, which adds history and agent chats to the open items
+        // (search-everything-DESIGN.md section 10.1). The id predates the change; user key files name it.
         registry.bind("search.chats", invoke: { [weak self] invocation in
-            self?.showChats(query: invocation["query"]?.stringValue ?? "")
+            self?.show(scope: PaletteScopeID.search, query: invocation["query"]?.stringValue ?? "")
         })
         if sources.workspaces != nil {
             // With a workspace (a palette row's typed ref, `palette.run`,
             // the CLI) it switches to it; without one it opens the page.
             registry.bind("goToWorkspace", invoke: { [weak self] invocation in
                 if let workspace = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue {
-                    self?.sources.workspaces?.selectWorkspace(id: workspace)
-                } else if self?.show(scope: PaletteScopeID.search) != true {
-                    // Cmd-P opens the merged Search window (search-everything-DESIGN.md section 10);
-                    // its empty query lists the workspaces, as Go to Workspace did.
+                    guard let self, let source = self.sources.workspaces else { return }
+                    // An id that names no workspace is refused, never a silent success.
+                    guard source.workspaces.contains(where: { $0.id == workspace }) else {
+                        return self.registry.refuseNotFound(PaletteStrings.workspaceNotFound(workspace))
+                    }
+                    source.selectWorkspace(id: workspace)
+                } else if self?.show(scope: PaletteScopeID.workspaces) != true {
+                    // Cmd-P lists only what is open: workspaces, then their groups, panes and tabs.
                     self?.show(.workspaces)
                 }
             })
         }
         registry.argumentCollector = { [weak self] id, invocation in
             self?.collectArguments(for: id, invocation: invocation)
+        }
+        registry.argumentAsker = { [weak self] id, invocation, ask in
+            self?.collectArguments(for: id, invocation: invocation, asking: ask)
         }
     }
 
@@ -205,15 +209,18 @@ public final class PaletteController {
 
     /// Opens the palette to collect the missing arguments of `id`, then runs
     /// it. Installed as the registry's `argumentCollector`, so a menu item or
-    /// shortcut for an argument-taking action asks inline.
-    public func collectArguments(for id: ActionID, invocation: ActionInvocation, relativeTo window: NSWindow? = nil) {
+    /// shortcut for an argument-taking action asks inline. `ask` also asks for
+    /// one optional argument (``ActionRegistry/ask(_:_:_:)``: a menu Rename with
+    /// no name asks for it here instead of in a separate dialog).
+    public func collectArguments(for id: ActionID, invocation: ActionInvocation, asking ask: ActionArgumentAsk? = nil,
+                                 relativeTo window: NSWindow? = nil) {
         guard let descriptor = registry.descriptor(for: id) else { return }
         // Without its arguments, an action that opens a scope opens it, as its palette row does.
-        if invocation.arguments.isEmpty, let scope = scope(openedBy: id), show(scope: scope, relativeTo: window) { return }
+        if ask == nil, invocation.arguments.isEmpty, let scope = scope(openedBy: id), show(scope: scope, relativeTo: window) { return }
         captureContext()
         let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: sources.targets,
                                        captured: capturedTargets, preview: sources.argumentPreview,
-                                       swatches: sources.argumentSwatches)
+                                       swatches: sources.argumentSwatches, ask: ask)
         let effect = flow.effect(collected: invocation)
         if case .perform(let handler) = effect {
             // Nothing left to ask.
@@ -244,8 +251,7 @@ public final class PaletteController {
         }
     }
 
-    /// `anchor`: the screen rect of the control the panel opens from, or nil.
-    private func present(relativeTo window: NSWindow?, anchor: NSRect? = nil) {
+    private func present(relativeTo window: NSWindow?) {
         model.usage.prepare()
         let started = openStarted ?? .now
         let modelDone = modelReady ?? started
@@ -270,13 +276,12 @@ public final class PaletteController {
             return
         }
         isVisible = true
-        onVisibilityChange?(true)
         parentWindow = parent
+        onVisibilityChange?(true, parent)
         // The room (theme) of the window it opens over.
         (parent?.themeScope ?? .app).adopt(panel)
-        isAnchored = anchor != nil
         let size = PaletteLayout.windowSize
-        panel.setFrame(anchor.map { frame(above: $0, on: parent?.screen, size: size) } ?? frame(for: parent, size: size), display: false)
+        panel.setFrame(frame(for: parent, size: size), display: false)
         if let parent, panel.parent !== parent {
             panel.parent?.removeChildWindow(panel)
             parent.addChildWindow(panel, ordered: .above)
@@ -287,7 +292,7 @@ public final class PaletteController {
         contentView?.animateIn()
         if let onPresented {
             let presented = ContinuousClock.now
-            CATransaction.setCompletionBlock {
+            CATransaction.setMainCompletion {
                 let committed = ContinuousClock.now
                 onPresented(PaletteOpenTiming(
                     input: input, model: started.duration(to: modelDone), panel: modelDone.duration(to: panelDone),
@@ -316,6 +321,10 @@ public final class PaletteController {
     /// The panel while the palette is open (`debug.key` target `palette`).
     public var visiblePanel: NSWindow? { isVisible ? panel : nil }
 
+    /// The search field's text as drawn while the palette is open (`debug.focus`), which a
+    /// capture checks next to the model's `query`: the two can disagree.
+    public var visibleFieldText: String? { isVisible ? contentView?.searchBar.field.stringValue : nil }
+
     /// Key-downs in the panel that reached `noResponder(for:)` (the system
     /// beep) since launch.
     public var unhandledKeyDowns: Int { panel?.unhandledKeyDowns ?? 0 }
@@ -330,7 +339,7 @@ public final class PaletteController {
         guard isVisible, let panel else { return }
         isVisible = false
         registry.context.remove(.paletteOpen)
-        onVisibilityChange?(false)
+        onVisibilityChange?(false, parentWindow)
         model.closeActionsMenu()
         shortcutRecorder.abandon()
         model.shortcutRecorder = nil
@@ -358,19 +367,17 @@ public final class PaletteController {
         content.autoresizingMask = [.width, .height]
         content.onPreferredSizeChange = { [weak self, weak panel] size in
             guard let self, let panel, self.isVisible else { return }
-            // Keep the top edge fixed when density changes while open; an
-            // anchored panel keeps its bottom-left corner on its control.
+            // Keep the top edge fixed when density changes while open.
             var frame = panel.frame
-            if !self.isAnchored {
-                frame.origin.y += frame.height - size.height
-                frame.origin.x += (frame.width - size.width) / 2
-            }
+            frame.origin.y += frame.height - size.height
+            frame.origin.x += (frame.width - size.width) / 2
             frame.size = size
             panel.setFrame(frame, display: true)
         }
         content.onRecorderOption = { [weak self] option in self?.shortcutRecorder.choose(option) }
         panel.contentView = content
-        panel.keyHandler = { [weak self] event in self?.handleKeyDown(event) ?? false }
+        panel.keyHandler = { [weak self, weak panel] event in self?.handleKeyDown(event, in: panel) ?? false }
+        panel.onBecomeKey = { [weak self] in self?.contentView?.focusField() }
         panel.capturesKeyEquivalents = { [weak self] in self?.model.shortcutRecorder != nil }
         panel.capturesKeyEquivalent = { [weak self] event in
             guard let model = self?.model else { return false }
@@ -388,18 +395,6 @@ public final class PaletteController {
         }
         self.panel = panel
         return panel
-    }
-
-    /// Just above `anchor` (a control's screen rect), the card's leading edge
-    /// on the control's, clamped to the visible screen when there is one.
-    private func frame(above anchor: NSRect, on screen: NSScreen?, size: CGSize) -> NSRect {
-        let margin = PaletteLayout.shadowMargin
-        var origin = NSPoint(x: anchor.minX - margin, y: anchor.maxY + Metrics.space2 - margin)
-        if let visible = (screen ?? NSScreen.screens.first(where: { $0.frame.intersects(anchor) }))?.visibleFrame {
-            origin.x = min(max(origin.x, visible.minX), visible.maxX - size.width)
-            origin.y = min(max(origin.y, visible.minY), visible.maxY - size.height)
-        }
-        return NSRect(origin: origin, size: size)
     }
 
     /// Top-centered over the parent window at about a sixth of its height,
@@ -421,18 +416,22 @@ public final class PaletteController {
 
     /// Maps a key-down in the panel to a palette command. Returns true when
     /// the event was consumed (so the text field never sees it).
-    func handleKeyDown(_ event: NSEvent) -> Bool {
+    /// `window`: the panel the key went to (the event's own window when nil).
+    func handleKeyDown(_ event: NSEvent, in window: NSWindow? = nil) -> Bool {
+        let window = window ?? event.window
         if model.shortcutRecorder != nil {
             return shortcutRecorder.handle(PaletteShortcutRecorder.shortcut(for: event), keyCode: event.keyCode, event: event)
         }
+        if Self.inputMethodOwns(event, in: window) { return false }
+        let caret = Self.caret(in: window)
         guard let command = PaletteKeyMap.command(
             for: event,
             actionsMenuOpen: model.actionsMenu != nil,
             queryIsEmpty: model.query.isEmpty,
             registry: registry,
             hierarchical: model.currentPageIsHierarchical,
-            caretAtEnd: Self.caret(in: event.window).atEnd,
-            caretAtStart: Self.caret(in: event.window).atStart,
+            caretAtEnd: caret.atEnd,
+            caretAtStart: caret.atStart,
             selectedTogglesInPlace: model.selectedItem?.primary.togglesInPlace == true
         ) else { return false }
         return model.handle(command)

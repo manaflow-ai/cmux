@@ -130,6 +130,8 @@ public struct XcodePhoneBackend: PhoneBackend {
                 try await send(.pasteboard(text), to: id)
                 try await hid.send(keys: [PhoneKeyStroke(usage: 0x19, command: true)], to: id.raw)
             }
+        case .softwareKeyboard:
+            try await requireHID(input).toggleSoftwareKeyboard(on: id.raw)
         case .button(let button):
             let hid = try requireHID(input)
             guard let usage = Self.consumerUsage(button) else {
@@ -137,6 +139,15 @@ public struct XcodePhoneBackend: PhoneBackend {
             }
             try await hid.press(page: 0x0C, usage: usage, on: id.raw)
         }
+    }
+
+    /// The simulator's current appearance (`simctl ui <udid> appearance` with no value prints it).
+    public func appearance(_ id: PhoneDeviceID) async throws -> PhoneAppearance {
+        try requireSimulator(id, "appearance")
+        let out = try await checked(["simctl", "ui", id.raw, "appearance"], name: "simctl ui appearance").stdout
+        let text = String(decoding: out, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let appearance = PhoneAppearance(rawValue: text) else { throw PhoneError.unreadable(what: "the appearance") }
+        return appearance
     }
 
     public func screenPoints(_ id: PhoneDeviceID) async throws -> PhonePoint {

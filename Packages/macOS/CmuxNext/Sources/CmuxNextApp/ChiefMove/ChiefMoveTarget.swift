@@ -1,12 +1,12 @@
-/// One "Move Chief to…" target (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): a
+/// One "Move Chief To…" target (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): a
 /// place the Chief can move to, the `--to` value the move takes, or why it is greyed out.
 struct ChiefMoveTarget: Equatable {
     /// Why a listed target cannot be picked now.
     enum DisabledReason: Equatable {
         /// The host is not connected.
         case offline
-        /// A paired server answers through `brain_place`; no server move exists yet.
-        case notSupportedYet
+        /// A paired server with no SSH route (its name is not a usable host name).
+        case noSSHRoute
         /// cmux Cloud needs the person's Cloud sign-in.
         case signInNeeded
     }

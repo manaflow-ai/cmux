@@ -78,7 +78,7 @@ final class MorphBubble {
         textSize = size
         fieldRect = field
         flyingRect = target
-        let bs = Springs.Bubble(fieldShrinks: fieldShrinks, lines: tl.lines.count)
+        let bs = Springs.Bubble(fieldShrinks: fieldShrinks, lines: tl.lines.count, travel: Double(field.width - target.width))
         springs = bs
         let none: [String: CAAction] = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "opacity": NSNull(),
                                         "transform": NSNull(), "path": NSNull(), "backgroundColor": NSNull()]
@@ -264,7 +264,8 @@ final class MorphBubble {
         let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty, !LongText.isLong(t) else { return }
         prepLock.lock(); prepSerial += 1; let serial = prepSerial; prepLock.unlock()
-        prepQueue.async {
+        let box = PaletteScope.effective // cmux: the typing chat's palette goes with the job
+        prepQueue.async { PaletteScope.with(box) {
             prepLock.lock(); let latest = serial == prepSerial; prepLock.unlock()
             guard latest, let part = TextParts.parts(for: t).first(where: { $0.plainText != nil }) else { return }
             let (size, tl) = Sizing.size(of: part, width: width, scale: scale)
@@ -273,7 +274,7 @@ final class MorphBubble {
             prepLock.lock()
             if serial == prepSerial { prepared = (tl, size, scale, images) }
             prepLock.unlock()
-        }
+        } }
     }
     private static func preparedImages(_ tl: TextLayout, _ size: CGSize, scale: CGFloat) -> (CGImage?, CGImage?)? {
         prepLock.lock(); defer { prepLock.unlock() }

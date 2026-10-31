@@ -6,38 +6,42 @@ Status: **match** (same function and look), **close** (same function, small visu
 difference, named), **gap** (missing; the plan says why and what it needs).
 
 Chrome's desktop default is the **legacy** Extensions menu: `kExtensionsMenuAccessControl` is off
-(§0). cmux matches the legacy menu. The new menu (448 wide, site-access toggles, requests section)
-is listed at the end for reference only.
+(§0). cmux started from the legacy menu and, since #22992 (Leo, 2026-10-20: "style the extensions
+situation a bit better"), takes cmux's popover look and the best of Chrome's new menu and Edge's:
+site-access sections, a second line with each extension's access, a side panel button, an accent
+pin toggle, Get Extensions and an empty state. The rows below say where it now differs on purpose.
 
 ## A. Extensions bubble (§3.1, §3.2)
 
 | Chrome | cmux status | Plan / reason |
 |---|---|---|
 | Bubble, not a menu: `BubbleDialogDelegateView`, arrow TOP_RIGHT under the puzzle | match: native popup panel, right-aligned below the puzzle (or below More when the puzzle is hidden) | |
-| Width 320, corner radius 12, margins 0 | match | |
-| Title "Extensions" 16 pt medium, close button 24×24 with a 16 glyph, tooltip "Close" | match | |
+| Width 320, corner radius 12, margins 0 | **different on purpose**: 340 wide, cmux popover radius and row insets (`PopupStyle`) | Matches cmux's other popovers. |
+| Title "Extensions" 16 pt medium, close button 24×24 with a 16 glyph, tooltip "Close" | close: `Typography.bodyEmphasized`, the current site under it (Edge), close 24×24 with a 14 glyph | |
 | Window accessibility title empty (no "Alert Extensions") | match: the panel's title is empty, the title row speaks | |
-| List scrolls above 448, no horizontal scroll, content inset 20 | match | |
-| Three sections "Full access", "Access requested", "No access needed", each with a header and a description, hidden when empty | **gap** | Needs per-site interaction state (`SiteInteraction`) from Chromium. The fork shim does not expose it. Needs a fork API `cmux_ext_site_interaction(browser, tab)`. The strings are translated and ready (in `chrome-translations.json`, not yet in the catalog). Until then cmux shows one list. |
+| List scrolls above 448, no horizontal scroll, content inset 20 | close: scrolls above 400 with edge fades (`ScrollEdgeFadeView`), content inset 12 | |
+| Three sections "Full access", "Access requested", "No access needed", each with a header and a description, hidden when empty | close: "Can see and change this site", "Allowed only when clicked", "No access needed", hidden when empty, from each extension's manifest (`ExtensionSiteAccess`) | The fork reports no runtime `SiteInteraction`; a fork API `cmux_ext_site_interaction(browser, tab)` would replace the manifest reading and show withheld access. |
+| Edge: "Allow extensions on {site}" toggle | **gap** | Chromium's user-restricted sites (`PermissionsManager`) have no fork API. |
 | Rows sorted case-insensitive by name | match (the store's order is by name) | |
-| Separator, then "Manage Extensions" with the 20 gear (`settings_chrome_refresh_old`), inset 24, image-label spacing 16 | match | |
+| Separator, then "Manage Extensions" with the 20 gear (`settings_chrome_refresh_old`), inset 24, image-label spacing 16 | close: 16 gear, then "Get Extensions" (Chrome Web Store, `storefront_old`) as Edge does | |
 | Opens on mouse **press**; a press on the open puzzle closes it | match | |
 | Puzzle held "pressed" while the bubble is open | match: pressed fill while open, normal again on every close path (u2426) | |
 | Esc closes; arrow keys walk all buttons | match (Tab and Shift-Tab too; wrap at both ends) | |
 | Hover on a row button takes focus, leaving clears it | match | |
-| No empty state: puzzle hidden with 0 extensions | **different on purpose**: cmux always shows the puzzle and shows "No extensions" | cmux uses the bubble to reach Manage Extensions with 0 extensions. |
+| No empty state: puzzle hidden with 0 extensions | **different on purpose**: cmux always shows the puzzle and an empty state that points to the Web Store | cmux uses the bubble to reach Manage Extensions and Get Extensions with 0 extensions. |
 | Colors: opaque `kColorBubbleBackground`, `kColorHoverButtonBackgroundHovered` | close: cmux theme overlay surface (glass, opaque under Reduce Transparency) and theme hover fill | Decision for the user (cmux glass or Chrome opaque). |
 
 ### Row (§3.2 `ExtensionMenuItemView`)
 
 | Chrome | cmux status | Plan / reason |
 |---|---|---|
-| Primary button: icon 28 box (16 icon), name 12 pt, border V8, tooltip = action tooltip, disabled if the action is disabled | match (icon, name, border); close: the tooltip is the extension name, not the per-tab action title | Per-tab action title is in `CEFExtensionAction`; follow-up. |
-| Pin button 44×44, 20 glyph `keep_old` (unpinned) / `keep_off_old` (pinned) | match (Chrome glyphs from the a128 pack) | |
-| Pinned glyph in accent blue (`kColorExtensionMenuPinButtonIcon`) | close: cmux text color | Decision for the user. |
+| Primary button: icon 28 box (16 icon), name 12 pt, border V8, tooltip = action tooltip, disabled if the action is disabled | close: 20 icon in a 24 box, the name and (Edge) its access on a second line, the whole row highlights; the tooltip is the extension name, not the per-tab action title | Per-tab action title is in `CEFExtensionAction`; follow-up. |
+| Pin button 44×44, 20 glyph `keep_old` (unpinned) / `keep_off_old` (pinned) | **different on purpose**: a 28×28 toggle, `keep_old` in both states | The state reads at a glance (below). |
+| Pinned glyph in accent blue (`kColorExtensionMenuPinButtonIcon`) | match in spirit: the theme accent (`Palette.accentFill`) on an accent wash | Never Chrome's blue: the theme decides. |
+| Edge: side panel button for a side panel extension | close: shown when the manifest has `side_panel` and the action opens no popup; it runs the action (which opens the panel) | The fork has no call that opens an extension's side panel directly. |
 | Pin tooltips "Pin" / "Unpin"; a11y "Pin {name}" / "Unpin {name}"; announcement "Extension pinned" / "Extension unpinned" | match | |
 | "Pinned by your Administrator" (force-pinned, disabled) | **gap** | Needs a force-pinned flag in `cmux_ext_list`. String is translated and ready. |
-| "⋮" button 44×44, `browser_tools_chrome_refresh_old` 20, tooltip "More options", a11y name = extension name | match | |
+| "⋮" button 44×44, `browser_tools_chrome_refresh_old` 20, tooltip "More options", a11y name = extension name | close: 28×28 with a 16 glyph | |
 | Row click on an extension whose action is disabled opens its context menu | match | |
 | Built-in uBlock row | cmux only: the row's tooltip says the full uBlock Origin ships inside cmux | |
 
@@ -59,7 +63,7 @@ per-extension menu. Decision for the user (keep them in the bubble or drop them 
 | 4 | "Options" | match | |
 | 5 | "Remove from Chrome" | match as "Remove from cmux" | Decision for the user (brand name). |
 | 5' | "Installed by Your Administrator" (disabled) | match | |
-| 6 | "Pin" / "Unpin", only from the toolbar icon | match | |
+| 6 | "Pin" / "Unpin", only from the toolbar icon | **different on purpose**: also in the bubble's more menu, beside the row's pin toggle | |
 | – | "Open Side Panel" / "Close Side Panel" | **gap** | cmux has no extension side panel host. |
 | 7 | "Manage Extension" → chrome://extensions/?id= | match (new Chromium tab) | |
 | 8 | "View Web Permissions" → site settings of the extension origin | match (new Chromium tab) | |

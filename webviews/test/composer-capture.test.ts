@@ -5,9 +5,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-capture.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -25,7 +25,7 @@ await requireBrowserLane("composer-capture.test.ts", async () => {
   let browser: Browser | undefined;
 
   const stageURL = (variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.composer&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.composer", { variant })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -34,8 +34,8 @@ await requireBrowserLane("composer-capture.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, "agent-pane.composer", { browser });
   });
   afterAll(async () => {
     await browser?.close();

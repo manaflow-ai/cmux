@@ -63,6 +63,17 @@ struct AcpmuxCrashRestartTests {
         #expect(!fixture.launched, "a reconnect started a daemon that was shut down")
     }
 
+    /// The card's explicit Retry is a fresh `ready` handshake, unlike the automatic reconnect
+    /// loop above. A cleanly stopped app-owned daemon must therefore be started by that action.
+    @Test func aManualRetryAfterAShutdownStartsTheBundledDaemon() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let host = AcpmuxHost(environment: fixture.environment)
+
+        await #expect(throws: (any Error).self) { _ = try await host.handshake(sessionId: "s") }
+        #expect(fixture.launched, "manual Retry did not start the bundled acpmux after a clean stop")
+    }
+
     @Test func theChiefsHostNeverStartsADaemonEvenAfterACrash() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -71,5 +82,54 @@ struct AcpmuxCrashRestartTests {
 
         await #expect(throws: AgentPaneHostError.chiefStopped) { _ = try await host.reconnectHandshake(sessionId: "s") }
         #expect(!fixture.launched)
+    }
+
+    /// #25570: after a relaunch a restored Chief chat found nothing on the Chief home's socket and
+    /// said "open Home to start it" until someone did. The tab asks the Chief host's owner to start
+    /// instead, still never starting the daemon itself, and the page retries until it is up.
+    @Test func aChiefTabWithNothingOnTheSocketAsksItsOwnerToStart() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let asks = Asks()
+        let host = AcpmuxHost(environment: fixture.environment, startsDaemons: false,
+                              startOwner: { await asks.ask(answer: true) })
+
+        await #expect(throws: AgentPaneHostError.chiefStarting) { _ = try await host.handshake(sessionId: "s") }
+        await #expect(throws: AgentPaneHostError.chiefStarting) { _ = try await host.reconnectHandshake(sessionId: "s") }
+        #expect(await asks.count == 2, "the Chief tab never asked the Chief host to start")
+        #expect(!fixture.launched, "a Chief tab started the Chief home's daemon itself (cx-ebm.54)")
+        #expect(!AgentPaneHostError.userMessage(for: AgentPaneHostError.chiefStarting).contains("open Home"))
+    }
+
+    /// An owner that will not start (after `cmux chief shutdown`) leaves the chat stopped.
+    @Test func aChiefTabWhoseOwnerWillNotStartStaysStopped() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let asks = Asks()
+        let host = AcpmuxHost(environment: fixture.environment, startsDaemons: false,
+                              startOwner: { await asks.ask(answer: false) })
+
+        await #expect(throws: AgentPaneHostError.chiefStopped) { _ = try await host.reconnectHandshake(sessionId: "s") }
+        #expect(await asks.count == 1)
+        #expect(!fixture.launched)
+    }
+
+    /// An app-owned daemon never asks: it starts its own.
+    @Test func anOwnedHostNeverAsksAnOwner() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let asks = Asks()
+        let host = AcpmuxHost(environment: fixture.environment, startOwner: { await asks.ask(answer: true) })
+
+        await #expect(throws: AgentPaneHostError.daemonStopped) { _ = try await host.reconnectHandshake(sessionId: "s") }
+        #expect(await asks.count == 0)
+    }
+
+    actor Asks {
+        private(set) var count = 0
+        func ask(answer: Bool) -> Bool {
+            count += 1
+            return answer
+        }
     }
 }

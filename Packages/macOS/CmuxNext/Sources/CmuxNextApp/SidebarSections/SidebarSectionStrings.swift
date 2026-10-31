@@ -13,6 +13,7 @@ enum SidebarSectionStrings {
         case .unsupported: notInDocument
         case .workspaceList: workspaceListStays
         case .unknownItem: noSuchItem
+        case .rejected(let reject): rejected(reject.rawValue)
         }
     }
     static var notInDocument: String {
@@ -21,6 +22,11 @@ enum SidebarSectionStrings {
     }
     static var workspaceListStays: String {
         String(localized: "sidebarSections.workspaceListStays", defaultValue: "the workspace list cannot be moved or removed",
+               table: "SidebarSections", bundle: .module)
+    }
+    /// A Priority row action named a chat no acpmux lists any more.
+    static var noSuchPriorityChat: String {
+        String(localized: "sidebarSections.priority.noSuchChat", defaultValue: "that chat is no longer in the Priority view",
                table: "SidebarSections", bundle: .module)
     }
     static var noSuchSection: String {

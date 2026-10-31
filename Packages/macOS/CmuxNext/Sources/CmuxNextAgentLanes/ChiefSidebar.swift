@@ -1,10 +1,12 @@
 public import CmuxNextActions
 public import CmuxNextAgentActivity
+import CmuxNextApps
 import CmuxNextCompat
 public import CmuxNextDesign
+import CmuxNextHome
 public import CmuxNextSidebar
 import Foundation
-import Observation
+public import Observation
 
 /// The sidebar's Chief item (the `chief` built-in) and its subagent rows
 /// (`SidebarTransientItem.chiefSubagents`): Leo 2026-10-20, talk to the Chief from the left side
@@ -19,6 +21,8 @@ public final class ChiefSidebar {
     public static let openAction: ActionID = "home.openChief"
     /// Show Idle Chief Subagents: checked while the list is unfolded; only the Chief item's menu shows it.
     public static let toggleIdleAction: ActionID = "sidebar.chief.toggleIdleSubagents"
+    /// Open Chief Subagent: its target is a subagent row's sidebar item (the Chief pane's Subagents menu).
+    public static let openSubagentAction: ActionID = "chief.openSubagent"
     private static let showsIdleKey = "sidebar.chief.showsIdleSubagents"
 
     /// The Chief item's indicator and badge.
@@ -62,7 +66,7 @@ public final class ChiefSidebar {
     /// item info.
     public internal(set) var status = Status()
     /// Whether the sidebar shows the Chief item (`SidebarModel.followTopItems` reads the layout):
-    /// the subagent fold applies only then.
+    /// the subagent fold applies only then, and the App Store's Chief in Sidebar card is on.
     public internal(set) var isPlaced = false
     @ObservationIgnored private let lanes: AgentLaneStore
     @ObservationIgnored private var host: Host?
@@ -82,20 +86,27 @@ public final class ChiefSidebar {
         SidebarTransientItem.chiefSubagents(lanes: lanes.lanes.values, showsIdle: showsIdleSubagents)
     }
 
+    /// Every subagent row, idle ones too, in number order (the Chief pane's Subagents menu).
+    public func allSubagents() -> [SidebarTransientItem] {
+        SidebarTransientItem.chiefSubagents(lanes: lanes.lanes.values, showsIdle: true)
+    }
+
     /// The Chief item's look with its status.
     public func decorate(_ info: inout SidebarItemInfo) {
         (info.activity, info.badge) = (status.activity, status.badge)
     }
 
     /// The sidebar-item menu entries a layout item does not show: Hide on a non-app item, the
-    /// subagent fold on any item but the Chief.
-    public static func menuRemovals(isApp: Bool, isChief: Bool) -> Set<ActionID> {
+    /// subagent fold on any item but the Chief, Archive on a band tile (`isTile`: Pinned, custom and app
+    /// sections draw no dimmed look; plans/cmux-next/archiving-DESIGN.md).
+    public static func menuRemovals(isApp: Bool, isChief: Bool, isTile: Bool = false) -> Set<ActionID> {
         var removed: Set<ActionID> = isApp ? [] : ["sidebar.item.hideApp"]
         if !isChief { removed.insert(toggleIdleAction) }
+        if isTile { removed.insert("sidebar.item.toggleArchive") }
         return removed
     }
 
-    /// Binds Open Chief and the fold, and starts following the lanes into `status`.
+    /// Binds Open Chief, Open Chief Subagent and the fold, and starts following the lanes into `status`.
     public func bind(into registry: ActionRegistry, host: Host) {
         self.host = host
         watch()
@@ -106,6 +117,31 @@ public final class ChiefSidebar {
         registry.bind(Self.toggleIdleAction, isEnabled: { [weak self] in self?.isPlaced == true },
                       invoke: { [weak self] _ in self?.showsIdleSubagents.toggle() })
         ActionTargetTitles.setState(Self.toggleIdleAction, in: registry) { [weak self] _ in self?.showsIdleSubagents }
+        registry.bind(Self.openSubagentAction, invoke: { [weak self, weak registry] invocation in
+            guard let self, let registry else { return }
+            // No subagent row (its shortcut, `cmux action run` without --target): say so, never a silent no-op.
+            guard let target = invocation.target else { return registry.refuse(ChiefToolStrings.noSubagent) }
+            if target.kind != .sidebarItem || !activate(LayoutItemID(target.id), registry: registry) {
+                registry.refuseNotFound(ChiefToolStrings.noSubagent)
+            }
+        })
+        // The docked Home's Messages view (the Chief's chat) shows its tools in the pane's tab row.
+        HomeDockSwitchView.makeRowTools = { [weak self, weak registry] mode in
+            guard mode == .messages, let self, let registry else { return nil }
+            return ChiefPaneTools(chief: self, registry: registry)
+        }
+        // The App Store's Chief in Sidebar card: Get is Add to Sidebar, Remove takes every Chief item out.
+        let chief = SidebarBuiltIn.chief.rawValue
+        SettingsAppFeatures.sidebarItems = .init(names: [chief], isShown: { [weak self] in $0 == chief && self?.isPlaced == true },
+                                                 set: { [weak registry] name, on in Self.setPlaced(name, on, registry: registry) })
+    }
+
+    /// Runs Add to Sidebar (the top rows) or Remove Everywhere for built-in `name` as the person's edit.
+    static func setPlaced(_ name: String, _ on: Bool, registry: ActionRegistry?) -> Bool {
+        guard let registry else { return false }
+        let invocation = on ? ActionInvocation(arguments: ["item": .string(name)], origin: .user)
+            : ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: name), origin: .user)
+        return registry.perform(on ? "sidebar.item.add" : "sidebar.item.removeEverywhere", invocation: invocation)
     }
 
     /// Runs a click on a subagent row; false for any other item.

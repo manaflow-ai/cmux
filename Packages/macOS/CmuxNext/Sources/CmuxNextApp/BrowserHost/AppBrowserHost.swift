@@ -92,7 +92,9 @@ final class AppBrowserHost {
                   let parent = services.locateTab(surface: opener) else { return }
             provider.reportTabCreated(targetID: tab.id, openerTargetID: parent.id)
         }
-        leaseObservation = provider.observeLeases { [cursorLeases] targetID, lease in
+        leaseObservation = provider.observeLeases { [cursorLeases, weak services] targetID, lease in
+            // A page an agent holds never freezes or hibernates (smarter hibernation, msg 9103).
+            services?.cache.hibernation?.noteLease(targetID, held: lease != nil)
             AgentCursorPresenceColors.shared.leaseChanged(target: targetID, session: lease?.session, terminal: lease?.terminal)
             cursorLeases.leaseChanged(target: targetID, session: lease?.session, wireState: lease?.state)
         }
@@ -217,7 +219,7 @@ final class AppProviderCredentials: ProviderCredentialsSource {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser-host")
 
     func providerCredentials() async -> ProviderCredentials? {
-        guard let daemon, daemon.supports(DaemonCapabilities.shared.browserHostProvider),
+        guard let daemon, daemon.supports(DaemonCapability.browserHostProvider.rawValue),
               let connection = daemon.connection else { return nil }
         let reply: BrowserHostProviderRequest.Response
         do {

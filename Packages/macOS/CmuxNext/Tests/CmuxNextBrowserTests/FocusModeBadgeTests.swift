@@ -45,13 +45,35 @@ import Testing
         #expect(presses == 1)
     }
 
-    @Test func reduceMotionShowsBadgeAtOnce() {
-        Motion.reduceMotionOverride = true
-        defer { Motion.reduceMotionOverride = nil }
+    /// With fades off (`ui.animations.feedback`, or the master switch) the badge appears in the
+    /// same frame. Reduce Motion alone keeps fades (shortened to a crossfade, `MotionPolicy`), so
+    /// pinning it left this to the host: where the window has an awake screen the fade ran and
+    /// alpha read 0 (aws-m4pro-8 and -9 every run).
+    @Test func fadesOffShowBadgeAtOnce() {
+        let design = DesignSettings.shared
+        let saved = design.disabledAnimationCategories
+        design.disabledAnimationCategories.insert(.feedback)
+        defer { design.disabledAnimationCategories = saved }
         let (chrome, window) = chrome()
         defer { window.close() }
         chrome.showsFocusModeIndicator = true
         #expect(chrome.addressBar.focusModeBadgeView.alphaValue == 1)
         #expect(!chrome.addressBar.focusModeBadgeView.isHidden)
+    }
+
+    /// The badge is a lit chip in the theme's accent, never orange (Leo 2026-10-21: "the accent is
+    /// never orange"). It was `systemOrange`, a color no theme sets.
+    @Test func badgeUsesTheThemeAccentNotOrange() {
+        let (chrome, window) = chrome()
+        defer { window.close() }
+        chrome.showsFocusModeIndicator = true
+        let badge = chrome.addressBar.focusModeBadgeView
+        badge.updateLayer()
+        let shown = badge.shownTextColor?.usingColorSpace(.sRGB)
+        let lit = badge.performWithTheme { Palette.litGlyph }.usingColorSpace(.sRGB)
+        let orange = NSColor.systemOrange.usingColorSpace(.sRGB)
+        #expect(shown != nil)
+        #expect(shown != orange)
+        #expect(shown == lit)
     }
 }

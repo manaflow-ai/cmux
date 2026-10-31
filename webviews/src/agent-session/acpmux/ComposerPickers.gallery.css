@@ -8,7 +8,7 @@
   min-height: 210px;
   padding: 28px;
   color: var(--cmux-text, CanvasText);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-family: var(--font-ui);
 }
 
 /* The gallery fixture renders ComposerPickers without the production composer-bar wrapper. Keep
@@ -16,7 +16,6 @@
    coarse device even while Playwright sends real mouse events. The production rail keeps the
    pointer-gated rule in composerLocation.css. */
 .acpmux-composer-gallery-shell .acpmux-model .acpmux-picker-button:hover,
-.acpmux-composer-gallery-shell .acpmux-effort .acpmux-picker-button:hover,
 .acpmux-composer-gallery-shell .acpmux-access .acpmux-picker-button:hover {
   background: var(--acpmux-pill-hover);
 }
@@ -26,12 +25,14 @@
   gap: 4px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
   font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .acpmux-composer-gallery-copy strong {
   color: var(--cmux-text, CanvasText);
   font-size: var(--text-title);
   font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
 }
 
 .acpmux-composer-gallery-shell .acpmux-picker-button:hover {

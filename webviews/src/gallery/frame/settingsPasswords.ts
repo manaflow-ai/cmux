@@ -59,6 +59,13 @@ export async function fixtureSteps(steps: PageFixtureStep[] = []): Promise<void>
   }
 }
 
+/** Controls that prove a settings fixture mounted. Empty cards have no row controls. */
+export function settingsReadySelector(hasRows: boolean): string {
+  return hasRows
+    ? "[data-row-key] input:not(:disabled), [data-row-key] button:not(:disabled), [data-row-key] select:not(:disabled), [data-theme-picker]:not(:disabled), [data-card][data-empty]"
+    : "[data-card]";
+}
+
 export async function mountSettingsPage(state: SettingsPageVariant, context: StageContext): Promise<void> {
   const { createMockClient } = await import("../../pages/settings/mockProvider");
   const { installCatalog } = await import("../../pages/settings/strings");
@@ -83,8 +90,11 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
     mock.provider.host = { ...mock.provider.host, theme: { ...mock.provider.host.theme, config } };
   }
   if (state.accounts) mock.provider.accounts = structuredClone(state.accounts);
+  if (state.environments) mock.provider.environments = structuredClone(state.environments);
   if (state.agents) mock.provider.agents.state = { ...mock.provider.agents.state, ...structuredClone(state.agents) };
   if (state.harnesses) mock.provider.harnesses = structuredClone(state.harnesses);
+  if (state.devices) mock.provider.devices = structuredClone(state.devices);
+  if (state.integrations) mock.provider.integrations = structuredClone(state.integrations);
   window.addEventListener("pagehide", mock.close, { once: true });
   const client: SettingsClient = {
     call: (op, params) =>
@@ -93,44 +103,8 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
         : mock.client.call(op, params),
     subscribe: (stream, listener) => mock.client.subscribe(stream, listener),
   };
-  await bridge(
-    client,
-    [
-      "cmux.settings.list",
-      "cmux.settings.snapshot",
-      "cmux.settings.set",
-      "cmux.settings.reset",
-      "cmux.settings.reset_all",
-      "cmux.settings.preview",
-      "cmux.settings.preview.end",
-      "cmux.settings.sound.play",
-      "cmux.settings.host.lists",
-      "cmux.settings.accounts.state",
-      "cmux.settings.accounts.run",
-      "cmux.settings.agents.state",
-      "cmux.settings.agents.run",
-      "cmux.settings.harnesses.state",
-      "cmux.settings.harnesses.run",
-      "cmux.settings.theme.set",
-      "cmux.settings.theme.colors",
-      "cmux.settings.theme.save",
-      "cmux.settings.theme.import",
-      "cmux.settings.theme.accepts",
-      "cmux.settings.file.reveal",
-      "cmux.settings.folders.add",
-      "cmux.settings.section.actions",
-      "cmux.app.action.run",
-    ],
-    [
-      "cmux.settings.changed",
-      "cmux.page.connection",
-      "cmux.page.command",
-      "cmux.settings.host.changed",
-      "cmux.settings.accounts.changed",
-      "cmux.settings.agents.changed",
-      "cmux.settings.harnesses.changed",
-    ],
-  );
+  // Every op and stream the mock serves, so a card whose calls the mock answers renders here too.
+  await bridge(client, mock.provider.served.ops, mock.provider.served.streams);
   if (state.backdropImages) {
     const images = state.backdropImages;
     const replaceImages = () => {
@@ -157,11 +131,7 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   await import("../../pages/settings/main");
   if (!state.loading && !state.options?.failing && state.options?.connected !== false) {
     const { categoryOf, categoryRows } = await import("../../pages/settings/categories");
-    await fixtureElement(
-      categoryRows(categoryOf(state.section)).length
-        ? "[data-row-key] input:not(:disabled), [data-row-key] button:not(:disabled), [data-row-key] select:not(:disabled), [data-theme-picker]:not(:disabled)"
-        : "[data-card]",
-    );
+    await fixtureElement(settingsReadySelector(categoryRows(categoryOf(state.section)).length > 0));
   }
   await fixtureSteps(state.steps);
 }

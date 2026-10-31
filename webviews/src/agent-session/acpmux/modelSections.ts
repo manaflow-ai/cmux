@@ -7,6 +7,9 @@ import { classify } from "./modelTaxonomy";
 /** `family` is the catalog's ("Opus", "Sol"); without one the name and id decide it. */
 export type SectionModel = { id: string; name: string; family?: string };
 
+/** A model a curated list can name: by its id, or by the catalog release an alias row stands for. */
+export type CuratedModel = { id: string; name: string; release?: string };
+
 /** The version a model's name states before any " · " detail ("Opus 5.5 · 1M context" is [5, 5]);
  *  none for "Opus", "Opus · 1M context" or "Opus plan". */
 function versionOf(model: SectionModel): number[] {
@@ -53,4 +56,27 @@ export function modelSections<T extends SectionModel>(
       .sort((a, b) => compare(b.version, a.version) || a.order - b.order)
       .map((entry) => entry.model),
   };
+}
+
+/// With a curated list (topModels/): its models first, in its order, each followed by its variants
+/// ("Fable 5.1 · 1M context"), and every other model under More models, newest family first, then
+/// older ones. Without one, or when the harness offers none of it, the catalog's newest family stays
+/// first. The composer's model picker and Retry's model menu both order models this way.
+export function curatedSections<T extends CuratedModel>(
+  sections: { latest: T[]; older: T[] },
+  top: readonly string[] | undefined,
+): { latest: T[]; older: T[] } {
+  if (!top) return sections;
+  const all = [...sections.latest, ...sections.older];
+  const latest: T[] = [];
+  for (const id of top) {
+    const model = all.find((choice) => choice.id === id || choice.release === id);
+    if (!model) continue;
+    const variants = all.filter(
+      (choice) => choice !== model && (choice.id.startsWith(`${id}[`) || choice.name.startsWith(`${model.name} · `)),
+    );
+    for (const choice of [model, ...variants]) if (!latest.includes(choice)) latest.push(choice);
+  }
+  if (latest.length === 0) return sections;
+  return { latest, older: all.filter((choice) => !latest.includes(choice)) };
 }

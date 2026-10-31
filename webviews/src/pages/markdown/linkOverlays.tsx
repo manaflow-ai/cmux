@@ -64,10 +64,10 @@ export function LinkBubbleView({ bubble }: { bubble: LinkBubbleState }) {
           <span className="md-link-bubble-url">{info.target}</span>
         </button>
         <Toolbar className="md-link-bubble-actions" label={label("bubble")}>
-          <ToolbarButton label={copied ? label("copied") : label("copy")} keepsFocus onPress={copy}>
+          <ToolbarButton label={copied ? label("copied") : label("copy")} tooltip={false} keepsFocus onPress={copy}>
             {copied ? <CheckGlyph /> : <CopyGlyph />}
           </ToolbarButton>
-          <ToolbarButton label={label("edit")} keepsFocus onPress={() => bubble.edit()}>
+          <ToolbarButton label={label("edit")} tooltip={false} keepsFocus onPress={() => bubble.edit()}>
             <EditGlyph />
           </ToolbarButton>
           <ToolbarButton label={label("remove")} keepsFocus onPress={() => bubble.remove()}>

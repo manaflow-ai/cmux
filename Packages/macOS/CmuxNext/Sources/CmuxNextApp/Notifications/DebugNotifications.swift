@@ -10,6 +10,8 @@ import CmuxNextSettings
 /// banner's Send (`DesktopNotifier.reply`).
 /// `{"action": "allow" | "deny", "surface": <handle>, "id": <banner id>}` runs an approval
 /// banner's Allow once or Deny (`DesktopNotifier.approve`).
+/// `{"action": "mark_read", "surface": <handle>, "id": <banner id>}` runs a banner's Mark as Read
+/// (`DesktopNotifier.markRead`).
 /// `{"action": "dismiss_highlight", "workspace": <id>}` hides that
 /// workspace's attention rings until a newer notification (cx-epgo).
 enum DebugNotifications {
@@ -27,6 +29,10 @@ enum DebugNotifications {
         if let action = params["action"]?.stringValue, action == "allow" || action == "deny" {
             let surface = params["surface"]?.doubleValue.map { UInt64($0) }
             center.desktop.approve(id: params["id"]?.stringValue ?? "", surface: surface, allow: action == "allow")
+        }
+        if params["action"]?.stringValue == "mark_read" {
+            let surface = params["surface"]?.doubleValue.map { UInt64($0) }
+            center.desktop.markRead(id: params["id"]?.stringValue ?? "", surface: surface)
         }
         let store = services.daemon.store
         // `{"action": "dismiss_highlight", "workspace": <id>}`: the Dismiss Highlight path (cx-epgo).
@@ -54,7 +60,7 @@ enum DebugNotifications {
             return [
                 "id": .string(controller.state.id),
                 "attention": .array(marks.keys.sorted().map { .string($0.rawValue) }),
-                "focused_tab": NotificationCenterService.contentTab(controller.focus.state.resolved).map(JSONValue.string) ?? .null,
+                "focused_tab": NotificationCenterService.shownFocus(controller).flatMap(NotificationCenterService.contentTab).map(JSONValue.string) ?? .null,
             ]
         }
         let prefs = center.preferences
@@ -66,8 +72,10 @@ enum DebugNotifications {
             "authorization": .string(center.desktop.authorization),
             "log": .array(center.log.map(JSONValue.string)),
             "feed_log": .array((center.feedDriver?.log ?? []).map(JSONValue.string)),
-            "dock_badge": center.dockBadgeLabel.map(JSONValue.string) ?? .null,
-            "dismissed_highlights": .object(center.dismissedHighlights.mapValues { .number(Double($0)) }),
+            "dock_badge": center.dockBadge.label.map(JSONValue.string) ?? .null,
+            "dismissed_highlights": .object(Dictionary(uniqueKeysWithValues: center.dismissedHighlights.map { key, value in
+                ("\(key.machine):\(key.session ?? ""):\(key.id)", .number(Double(value)))
+            })),
             "highlight_look": .string(AttentionHighlightLook.tunable.value.rawValue),
             "preferences": [
                 "dismissal": .string(prefs.dismissal.rawValue), "desktop": .string(prefs.desktop.rawValue),
@@ -86,6 +94,7 @@ enum DebugNotifications {
             "subtitle": banner.subtitle.map(JSONValue.string) ?? .null, "body": .string(banner.body),
             "surface": banner.surface.map { .number(Double($0)) } ?? .null,
             "reply": .bool(banner.reply), "approval": .bool(banner.approval),
+            "category": banner.category.map(JSONValue.string) ?? .null,
             "attachment": banner.attachment.map { data in
                 ["bytes": .number(Double(data.count)), "png_base64": .string(data.base64EncodedString())]
             } ?? .null,

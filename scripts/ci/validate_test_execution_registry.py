@@ -18,6 +18,13 @@ workflow already runs the file) and leaves the rest for a person to place.
 The pre-commit hook runs it, so wiring a new test into ci-guards.yml is
 enough to register it.
 
+`--pr-lanes BRANCH` also fails on a test no pull request into BRANCH runs
+(scripts/ci/pr_test_lanes.py reads the workflows as that event runs them),
+unless tests/pr-lane-exemptions.json lists it with a reason. With --base-sha
+only what this change adds fails; what the base already has warns. cmux-next
+guards / tooling-tests runs it for feat-cmux-next. It needs PyYAML, so the
+pre-commit hook's copy never takes this path.
+
 Duplicate registrations sit between the two. Two pull requests that each
 register the same test merge cleanly into a duplicate nobody wrote, so a
 duplicate already present on the base branch warns and one this branch
@@ -28,11 +35,15 @@ from __future__ import annotations
 
 import argparse
 import ast
+import io
+import json
 import os
 import re
 import shlex
 import subprocess
 import sys
+import tarfile
+import tempfile
 from collections import Counter
 from pathlib import Path
 
@@ -67,6 +78,10 @@ RECIPE_TEST_RE = re.compile(r"tests/test_[A-Za-z0-9_.-]+\.py")
 RECIPE_STEP_NAME_RE = re.compile(r"\s*(-\s+)?name:")
 # Options that keep the default selection or narrow it only through `--only`.
 RECIPE_VALUE_OPTIONS = {"--only", "--timeout", "--receipt", "--jobs"}
+# The reviewed list of tests no pull request lane runs on purpose (--pr-lanes).
+PR_LANE_EXEMPTIONS = Path("tests") / "pr-lane-exemptions.json"
+# What validate_pr_lanes reads, extracted from the base to judge it there too.
+PR_LANE_BASE_PATHS = (".github", "tests", "scripts/ci", "scripts/verify-local.py")
 
 
 def runner_lanes_from_workflow_text(text: str) -> set[str]:
@@ -429,6 +444,138 @@ def validate(
     return errors, warnings, lane_counts
 
 
+def pr_lane_exemptions(root: Path) -> tuple[dict[str, str], list[str]]:
+    """{test: reason} from the reviewed exemption list, and the list's own errors."""
+    path = root / PR_LANE_EXEMPTIONS
+    if not path.is_file():
+        return {}, []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        return {}, [f"{PR_LANE_EXEMPTIONS}: {error}"]
+    exempt: dict[str, str] = {}
+    errors: list[str] = []
+    groups = data.get("exemptions") if isinstance(data, dict) else None
+    if not isinstance(groups, list):
+        return {}, [f"{PR_LANE_EXEMPTIONS}: expected an \"exemptions\" list"]
+    for index, group in enumerate(groups, start=1):
+        reason = group.get("reason") if isinstance(group, dict) else None
+        tests = group.get("tests") if isinstance(group, dict) else None
+        if not isinstance(reason, str) or not reason.strip():
+            errors.append(f"{PR_LANE_EXEMPTIONS}: exemption {index} needs a reason")
+            continue
+        if not isinstance(tests, list) or not all(isinstance(test, str) for test in tests):
+            errors.append(f"{PR_LANE_EXEMPTIONS}: exemption {index} needs a list of tests")
+            continue
+        for test in tests:
+            if test in exempt:
+                errors.append(f"{PR_LANE_EXEMPTIONS}: {test} is listed more than once")
+            exempt[test] = reason
+    return exempt, errors
+
+
+def pr_lane_tests(root: Path, branch: str) -> tuple[str, set[str]]:
+    """The text a pull request into `branch` executes, and the runner lanes it invokes."""
+    import pr_test_lanes  # noqa: PLC0415 - needs PyYAML; the pre-commit hook copy never loads it
+
+    texts = pr_test_lanes.pull_request_texts(root, branch)
+    workflows = root / ".github" / "workflows"
+    reached = list(texts) + recipe_tests(texts, workflows)
+    for text in texts:
+        try:
+            reached += [script for _, script in workload_entrypoints.entrypoints(text, root)]
+        except (OSError, UnicodeError, ValueError, KeyError):
+            pass
+    lanes: set[str] = set()
+    for text in texts:
+        lanes.update(runner_lanes_from_workflow_text(text))
+    return "\n".join(reached), lanes
+
+
+def validate_pr_lanes(root: Path, branch: str) -> list[str]:
+    """Errors for tests no pull request into `branch` runs.
+
+    The linux-guard check above accepts a test any workflow names, including a
+    main-push job, a schedule or a `paths:` filter. a2d6b35 broke
+    tests/test_webviews_tests_per_file.py, which only web-validation.yml's
+    main-push job and the nightly car guards ran, and every feat-cmux-next pull
+    request stayed green (#23430). A test passes here when a job a pull request
+    into `branch` can run executes it (scripts/ci/pr_test_lanes.py), when its
+    registry lane is a runner lane such a job invokes, when it is a manual test
+    (the registry holds its reason), or when tests/pr-lane-exemptions.json
+    lists it with a reason.
+    """
+    exempt, errors = pr_lane_exemptions(root)
+    text, lanes = pr_lane_tests(root, branch)
+    lane_of = {str(entry.get("path")): entry.get("lane") for entry in load_registry(root / "tests" / "test-execution.toml")}
+    discovered = sorted(
+        path.relative_to(root).as_posix() for path in (root / "tests").glob("test_*.py") if path.is_file()
+    )
+    for path in sorted(set(exempt) - set(discovered)):
+        errors.append(f"{PR_LANE_EXEMPTIONS}: {path} does not exist; remove it from the list")
+    for path in discovered:
+        lane = lane_of.get(path)
+        runs = path in text or (isinstance(lane, str) and lane in lanes)
+        if runs and path in exempt:
+            errors.append(
+                f"{path}: a pull request into {branch} runs it now; remove it from {PR_LANE_EXEMPTIONS}"
+            )
+        elif not runs and path not in exempt and lane != "manual":
+            errors.append(
+                f"{path}: no job a pull request into {branch} runs executes it, so a change that breaks it "
+                "lands green. Run it from a step of a job that runs on those pull requests (routed by the "
+                "paths of the code it tests), or list it in "
+                f"{PR_LANE_EXEMPTIONS} with the reason it cannot run there."
+            )
+    return errors
+
+
+def base_pr_lane_errors(root: Path, branch: str, base_sha: str) -> set[str]:
+    """validate_pr_lanes on the base's tree (this checkout's code, the base's workflows and tests)."""
+    point = comparison_point(base_sha, root)
+    present = [
+        path for path in PR_LANE_BASE_PATHS
+        if subprocess.run(["git", "cat-file", "-e", f"{point}:{path}"], cwd=root, capture_output=True).returncode == 0
+    ]
+    if "tests" not in present:
+        return set()
+    archive = subprocess.run(["git", "archive", "--format=tar", point, "--", *present],
+                             cwd=root, capture_output=True, check=True).stdout
+    with tempfile.TemporaryDirectory(prefix="pr-lanes-base-") as directory:
+        with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+            try:
+                tar.extractall(directory, filter="data")
+            except TypeError:  # Python without extraction filters
+                tar.extractall(directory)  # noqa: S202 - our own repository's archive
+        base = Path(directory)
+        if not (base / "tests" / "test-execution.toml").is_file():
+            return set()
+        return set(validate_pr_lanes(base, branch))
+
+
+def pr_lane_findings(root: Path, branch: str, base_sha: str = "") -> tuple[list[str], list[str]]:
+    """(errors, warnings) of the pull request lane check, judged against the base.
+
+    feat-cmux-next takes direct-pushed main syncs and safe-push commits that skip pull request
+    checks. A test such a push left unrun, or an exemption it made stale, is in the base's
+    findings too: it warns, so it does not turn every later pull request red. Only a finding
+    this change adds fails. With no base every finding fails.
+    """
+    errors = validate_pr_lanes(root, branch)
+    if not base_sha:
+        return errors, []
+    try:
+        on_base = base_pr_lane_errors(root, branch, base_sha)
+    except (OSError, ValueError, ImportError, tarfile.TarError, subprocess.CalledProcessError) as error:
+        note = (f"could not judge the pull request lanes at the base {base_sha}: {error}; "
+                "every finding below is a warning")
+        return [], [note, *errors]
+    return (
+        [error for error in errors if error not in on_base],
+        [f"{error} (already so on the base, so this warns)" for error in errors if error in on_base],
+    )
+
+
 def report_warnings(warnings: list[str]) -> None:
     """Print warnings, annotate them in Actions, and note them in the step summary."""
     if not warnings:
@@ -454,8 +601,9 @@ def report_warnings(warnings: list[str]) -> None:
     lines.extend(
         [
             "",
-            "These tests are unregistered but were not added by this pull request, "
-            "so they do not fail it. Register them in `tests/test-execution.toml`.",
+            "These were already so on the base, so they do not fail this pull request. "
+            "Register unregistered tests in `tests/test-execution.toml`; route or exempt "
+            "(`tests/pr-lane-exemptions.json`) tests no pull request runs.",
             "",
         ]
     )
@@ -479,6 +627,8 @@ def main(argv: list[str]) -> int:
                         help="register unregistered tests a workflow already runs, then validate")
     parser.add_argument("--only", action="append", default=None, metavar="PATH",
                         help="with --write, register only these tests (repeatable)")
+    parser.add_argument("--pr-lanes", metavar="BRANCH", default="",
+                        help="also fail on a test no pull request into BRANCH runs (needs PyYAML)")
     args = parser.parse_args(argv)
     root = args.repo_root.resolve()
 
@@ -495,6 +645,14 @@ def main(argv: list[str]) -> int:
     except (OSError, ValueError) as error:
         print(error, file=sys.stderr)
         return 1
+
+    if args.pr_lanes:
+        try:
+            lane_errors, lane_warnings = pr_lane_findings(root, args.pr_lanes, args.base_sha)
+            errors += lane_errors
+            warnings += lane_warnings
+        except (OSError, ValueError, ImportError) as error:
+            errors.append(f"could not read the pull request lanes into {args.pr_lanes}: {error}")
 
     report_warnings(warnings)
 

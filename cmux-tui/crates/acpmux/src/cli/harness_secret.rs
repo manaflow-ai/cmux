@@ -52,19 +52,30 @@ impl std::fmt::Debug for StoreCommand {
 /// The store command for `os` ("macos" or any other unix). The value is
 /// copied once, into `stdin`, sized up front so it never reallocates.
 pub fn store_command(os: &str, id: &str, key: &str, value: &str) -> Result<StoreCommand> {
+    store_item(os, SERVICE, &format!("{id}/{key}"), &format!("cmux harness {id} {key}"), value)
+}
+
+/// The store command for one secret store item (`service`, `account`, `label`); the value only
+/// ever goes to the command's stdin. Also `cmux cloud secret set` (service `cmux-cloud-secret`).
+pub fn store_item(
+    os: &str,
+    service: &str,
+    account: &str,
+    label: &str,
+    value: &str,
+) -> Result<StoreCommand> {
     if value.is_empty() {
         bail!("the value is empty");
     }
     if value.contains(['\n', '\r', '\0']) {
         bail!("the value has a line break or NUL byte; a secret must be one line");
     }
-    let account = format!("{id}/{key}");
-    let label = format!("cmux harness {id} {key}");
     Ok(if os == "macos" {
         let head = format!(
-            "add-generic-password -U -s {SERVICE} -a {} -l {} -w ",
-            security_quote(&account),
-            security_quote(&label)
+            "add-generic-password -U -s {} -a {} -l {} -w ",
+            security_quote(service),
+            security_quote(account),
+            security_quote(label)
         );
         // Every value byte may need an escape, plus the quotes and line end.
         let mut stdin = Zeroizing::new(String::with_capacity(head.len() + 2 * value.len() + 3));
@@ -76,11 +87,19 @@ pub fn store_command(os: &str, id: &str, key: &str, value: &str) -> Result<Store
         let mut stdin = Zeroizing::new(String::with_capacity(value.len()));
         stdin.push_str(value);
         StoreCommand {
-            argv: ["secret-tool", "store", "--label", &label, "service", SERVICE, "account"]
-                .iter()
-                .map(|s| (*s).to_owned())
-                .chain(std::iter::once(account))
-                .collect(),
+            argv: [
+                "secret-tool",
+                "store",
+                "--label",
+                label,
+                "service",
+                service,
+                "account",
+                account,
+            ]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect(),
             stdin,
         }
     })
@@ -276,9 +295,7 @@ pub fn write_reference(path: &Path, id: &str, key: &str) -> Result<bool, String>
 pub fn read_value(key: &str) -> Result<Zeroizing<String>> {
     let stdin = std::io::stdin();
     if stdin.is_terminal() {
-        eprint!("Value for {key} (input hidden): ");
-        std::io::stderr().flush()?;
-        let value = read_hidden_line()?;
+        let value = read_hidden_line(&format!("Value for {key} (input hidden): "))?;
         eprintln!();
         return Ok(value);
     }
@@ -314,7 +331,7 @@ pub fn read_secret_from(input: &mut impl Read) -> Result<Zeroizing<String>> {
 /// The line goes into one presized buffer that is zeroed on drop; a line
 /// longer than [`MAX_SECRET_BYTES`] is refused.
 #[cfg(unix)]
-fn read_hidden_line() -> Result<Zeroizing<String>> {
+fn read_hidden_line(prompt: &str) -> Result<Zeroizing<String>> {
     let fd = libc::STDIN_FILENO;
     let mut saved = std::mem::MaybeUninit::<libc::termios>::uninit();
     // SAFETY: tcgetattr fills `saved` for a valid fd or fails without touching it.
@@ -329,6 +346,9 @@ fn read_hidden_line() -> Result<Zeroizing<String>> {
     if unsafe { libc::tcsetattr(fd, libc::TCSAFLUSH, &quiet) } != 0 {
         bail!("cannot turn off terminal echo; pipe the value on stdin instead");
     }
+    // The prompt only once echo is off: a value typed (or pasted) early never shows.
+    eprint!("{prompt}");
+    let _ = std::io::stderr().flush();
     let mut line = Zeroizing::new(String::with_capacity(MAX_SECRET_BYTES + 2));
     let read = std::io::stdin().lock().take(MAX_SECRET_BYTES as u64 + 2).read_line(&mut line);
     // SAFETY: restores the settings read above.
@@ -344,7 +364,7 @@ fn read_hidden_line() -> Result<Zeroizing<String>> {
 /// Windows port: console echo control comes in a later landing; a value
 /// piped on stdin works.
 #[cfg(not(unix))]
-fn read_hidden_line() -> Result<Zeroizing<String>> {
+fn read_hidden_line(_prompt: &str) -> Result<Zeroizing<String>> {
     bail!("cannot turn off terminal echo; pipe the value on stdin instead")
 }
 

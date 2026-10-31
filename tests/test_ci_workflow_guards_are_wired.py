@@ -44,7 +44,24 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # Guards that are knowingly unwired. Each entry needs a reason and an exit:
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
-UNWIRED: set[str] = set()
+UNWIRED: set[str] = {
+    # Both are lane = "manual" in tests/test-execution.toml: CLAUDE.md forbids adding CI tests (Lawrence
+    # 2026-10-23: "not to add gates/tests in CI, but you have to run them yourself"). Each reads a workflow
+    # only as data (a fixture nightly.yml; cmux-next.yml for stamp readers). Exit: wire it here if that
+    # rule changes and the toml entry moves to a CI lane.
+    "tests/test_cmux_next_guardrails.py",
+    "tests/test_settings_stamp_not_committed.py",
+    # lane = "manual" for the same rule. It runs tree-preflight's inspect step with fakes and asserts
+    # wall-clock bounds of its fallback owner election; run it by hand when that step changes.
+    "tests/test_cmux_tui_election_budget.py",
+    # lane = "manual" for the same rule. It reads nightly-next-launch-smoke.yml and nightly.yml to assert
+    # the post-publish smoke never gates a publish; run it by hand when the smoke or its workflow changes.
+    "tests/test_nightly_next_launch_smoke.py",
+    # lane = "manual" for the same rule. It reads nightly.yml only to keep the pinned Sparkle key of
+    # nightly_next_artifact_check.py equal to NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY; run it by hand when that
+    # helper or the workflows that call it change.
+    "tests/test_nightly_next_artifact_check.py",
+}
 
 
 def tracked_tests() -> list[str]:

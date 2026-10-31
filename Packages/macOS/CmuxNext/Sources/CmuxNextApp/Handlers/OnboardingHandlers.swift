@@ -1,7 +1,10 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentLanes
+import CmuxNextBrowser
 import CmuxNextCookieImport
 import CmuxNextDesign
+import CmuxNextImportCards
 import CmuxNextOnboarding
 
 /// Import and default-app actions. Import from Browser opens the tool window
@@ -13,6 +16,14 @@ enum OnboardingHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         registry.bind("importFromBrowser", run: { _ in services.onboarding.show(step: .importData) })
+        BrowserImportGate(host: services).install(into: registry) { BrowserImportOfferStrings.turnedOff }
+        registry.bind("browserProfile.removeImportedData", run: { invocation in
+            let record = try context.browserProfile(invocation), sync = services.onboarding.historySync
+            Task {  // task-owner: one removal the person asked for; the toast reports it, or that it failed
+                let counts = try? await sync.removeImported(profile: record.id, bookmarks: services.importedBookmarkSink)
+                BrowserFileImport.toast(services, id: "browser-import-removed", counts.removalText(profile: record.name))
+            }
+        })
         // No path argument: only the person's own pick in the open panel brings passwords in.
         registry.bind("password.importCSV", run: { invocation in
             try PasswordCSVFiles(services: services).chooseImport(profile: BookmarkResolver(services: services).profile(invocation))
@@ -45,21 +56,17 @@ enum OnboardingHandlers {
             track: { registry.track($0) },
             destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }))
         registry.bind("browser.importCookies", run: { invocation in try cookieImports.run(invocation) })
+        // Import suggestion cards (Settings › Import only): the same import run as the window's.
+        ImportSuggestionsCenter.shared.bind(into: registry, host: importCardsHost(services))
         // Every entrypoint previews the exact snapshot and waits for the
         // person's answer before any browser, SSH host or agent is restored.
         registry.bind("workspace.importClassic", run: { _ in
             let window = NSApp.keyWindow ?? NSApp.mainWindow
             registry.track(Task { @MainActor in
                 do {
-                    let importer = AppOnboardingServices(owner: services.onboarding)
-                    guard let summary = try await importer.importClassicSessions() else { return nil }
-                    let notice = ClassicImportStrings.notice(summary)
-                    services.onboarding.classicImportNotice = notice
-                    ClassicImportStrings.toast(notice, in: window)
+                    _ = try await importClassic(services, in: window)
                     return nil
                 } catch {
-                    services.onboarding.classicImportNotice = ClassicImportStrings.failed
-                    ClassicImportStrings.toast(ClassicImportStrings.failed, in: window)
                     return ActionWorkFailure("import-classic: \(error)")
                 }
             })
@@ -87,6 +94,36 @@ enum OnboardingHandlers {
                 }
             })
         })
+    }
+
+    /// What the import cards run through the App: the Import from Browser window's import run
+    /// and Import Workspaces from Classic cmux.
+    static func importCardsHost(_ services: AppServices) -> ImportCardsHost {
+        ImportCardsHost(
+            runImport: { plan, keys, progress in try await AppOnboardingServices(owner: services.onboarding).runImport(plan, keys: keys, progress: progress) },
+            importedProfiles: { Set(await services.onboarding.importStore.sources().map(\.sourceKey)) },
+            openSettings: { route in try? services.settingsWindow.show(section: nil, route: route) },
+            importClassic: { progress in try await importClassic(services, in: nil, progress: progress)?.opened })
+    }
+
+    /// Import Workspaces from Classic cmux as every entrypoint runs it (the action, the cmux
+    /// Classic card): the import with its preview, then its toast in `window` (the key window
+    /// when nil). Returns what it did, nil when the person declined the preview.
+    static func importClassic(_ services: AppServices, in window: NSWindow?,
+                              progress: (@MainActor (Double) -> Void)? = nil) async throws -> ClassicImportSummary? {
+        do {
+            guard let summary = try await AppOnboardingServices(owner: services.onboarding).importClassicSessions(progress: progress) else {
+                return nil
+            }
+            let notice = ClassicImportStrings.notice(summary)
+            services.onboarding.classicImportNotice = notice
+            ClassicImportStrings.toast(notice, in: window)
+            return summary
+        } catch {
+            services.onboarding.classicImportNotice = ClassicImportStrings.failed
+            ClassicImportStrings.toast(ClassicImportStrings.failed, in: window)
+            throw error
+        }
     }
 }
 
