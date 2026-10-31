@@ -505,7 +505,7 @@ enum AgentHandlers {
         }
         let opening: AgentPaneFileOpening
         do {
-            opening = try AgentPaneFileOpening.plan(path: path, target: target)
+            opening = try AgentPaneFileOpening.plan(path: path, target: target, editor: { context.services.editorApps.application() })
         } catch AgentPaneFileRefusal.relativePath {
             throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path))
         } catch AgentPaneFileRefusal.notInTab {
@@ -516,7 +516,7 @@ enum AgentHandlers {
             throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path))
         }
         if let editor = opening.editor {
-            NSWorkspace.shared.open([opening.url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
+            context.services.editorApps.open(opening.url, withApplicationAt: editor)
         }
     }
 }
