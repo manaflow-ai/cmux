@@ -31,8 +31,9 @@ class CtrlBacktickApp:
     """An app right after Ctrl-`: the stand-in is the pane's selected tab for `standin_reads` topology reads,
     then the daemon's tab replaces it. The daemon knows only the public id."""
 
-    def __init__(self, standin_reads):
-        self.standin_reads, self.reads = standin_reads, 0
+    def __init__(self, standin_reads, old_tab_reads=0, keys=True):
+        # keys: the topology has `terminal_key` (the app's host id of each tab's terminal); older builds lack it.
+        self.standin_reads, self.old_tab_reads, self.keys, self.reads = standin_reads, old_tab_reads, keys, 0
         self.screen_reads = []
 
     def panes(self):
@@ -42,16 +43,25 @@ class CtrlBacktickApp:
     def rpc(self, method, params=None, timeout=None):
         assert method == "snapshot.get", method
         self.reads += 1
-        if self.reads <= self.standin_reads:
-            tab = {"id": "pending_tab_e05df098-4241-484a-9ac6-3d6567e68f33", "terminal": HOST_ID}
+        first = {"id": "tab_first", "terminal": "term_first", "terminal_key": "first-key"}
+        if self.reads <= self.old_tab_reads:  # the pane still selects the old tab; the view is the new one's
+            tab, selected = None, first
+        elif self.reads <= self.old_tab_reads + self.standin_reads:
+            tab = {"id": "pending_tab_e05df098-4241-484a-9ac6-3d6567e68f33", "terminal": HOST_ID, "terminal_key": HOST_ID}
+            selected = tab
         else:
             tab = {"id": "tab_afaf3d427ec4d32fe27c5e230125d48b", "terminal": PUBLIC_ID, "terminal_key": HOST_ID}
-        pane = {"id": PANE, "selected_tab": tab["id"], "tabs": [{"id": "tab_first", "terminal": "term_first"}, tab]}
+            selected = tab
+        if not self.keys:
+            for each in (first, tab):
+                if each:
+                    each.pop("terminal_key", None)
+        pane = {"id": PANE, "selected_tab": selected["id"], "tabs": [first] + ([tab] if tab else [])}
         return {"topology": {"workspaces": [{"name": "jr-r3-tab", "screens": [{"panes": [pane]}]}]}}
 
     def screen(self, term):
         self.screen_reads.append(term)
-        if term != PUBLIC_ID:
+        if term not in (PUBLIC_ID, "term_first"):
             raise D.StepError(f'cmux terminal {term} screen read: exit 1: {{"code":"selector.not_found",'
                               f'"details":{{"scope":"terminal","selector":"{term}"}}}}')
         return {"text": "J> "}
@@ -72,6 +82,18 @@ class FocusedTerminalTests(unittest.TestCase):
         self.assertEqual(result["terminal"], PUBLIC_ID)
         self.assertEqual(result["pane"], PANE)
         self.assertIn(HOST_ID, journey.known_views)
+
+    def test_a_read_while_the_pane_still_selects_the_old_tab_never_adopts_the_old_terminal(self):
+        # feat-tip-fixes-v2 (2026-10-31): the first read after Ctrl-` showed the new view in a pane whose selected
+        # tab was still the old one, whose terminal the daemon knows; the step must wait for the new tab.
+        app = CtrlBacktickApp(standin_reads=0, old_tab_reads=2)
+        journey, _ = self.play(app)
+        self.assertEqual(journey.term, PUBLIC_ID)
+
+    def test_a_topology_without_terminal_key_still_waits_out_the_standin(self):
+        app = CtrlBacktickApp(standin_reads=2, keys=False)
+        journey, _ = self.play(app)
+        self.assertEqual(journey.term, PUBLIC_ID)
 
     def test_no_standin_adopts_at_once(self):
         app = CtrlBacktickApp(standin_reads=0)
