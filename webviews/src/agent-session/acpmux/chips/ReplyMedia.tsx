@@ -164,6 +164,26 @@ export function MediaPlayer({
   const [expanded, setExpanded] = useState(false);
   const close = useRef<HTMLButtonElement>(null);
   const media = useRef<HTMLSpanElement>(null);
+  const inlineVideo = useRef<HTMLVideoElement | null>(null);
+  const expandedVideo = useRef<HTMLVideoElement | null>(null);
+  const expandedPlayed = useRef(false);
+  // Where the inline copy's own Play continues from after the expanded player closed.
+  const inlineResume = useRef<number | undefined>(undefined);
+  // Closing the expanded player hands its position back, so the inline copy (paused at the
+  // handoff) resumes where the expanded one stopped instead of rewinding.
+  const closeExpanded = () => {
+    const large = expandedVideo.current;
+    const inline = inlineVideo.current;
+    if (expandedPlayed.current && large && inline && large !== inline) {
+      const time = large.currentTime;
+      if (Number.isFinite(time)) {
+        inline.currentTime = time;
+        inlineResume.current = time;
+      }
+    }
+    expandedPlayed.current = false;
+    setExpanded(false);
+  };
   const [short, setShort] = useState(false);
   useLayoutEffect(() => {
     if (kind !== "video") return;
@@ -191,7 +211,19 @@ export function MediaPlayer({
   const open = mediaOpenRequest(source);
   return (
     <span ref={media} className={`cv-media is-video${short ? " has-short-video" : ""}`} data-path={path}>
-      <VideoThumbnail src={src} name={name} onError={onError} />
+      <VideoThumbnail
+        src={src}
+        name={name}
+        onError={onError}
+        videoRef={(element) => {
+          inlineVideo.current = element;
+        }}
+        onPlay={() => {
+          const time = inlineResume.current;
+          inlineResume.current = undefined;
+          return time;
+        }}
+      />
       <span className="cv-media__actions">
         {open && (
           <button
@@ -222,7 +254,7 @@ export function MediaPlayer({
         <Dialog
           open
           onOpenChange={(open) => {
-            if (!open) setExpanded(false);
+            if (!open) closeExpanded();
           }}
           label={name || t("media.player")}
           className="acpmux-image-viewer"
@@ -237,14 +269,32 @@ export function MediaPlayer({
                 className="acpmux-image-viewer-action"
                 ref={close}
                 {...keyedIconProps(t("image.close"), "escape")}
-                onClick={() => setExpanded(false)}
+                onClick={closeExpanded}
               >
                 <Close />
               </button>
             </div>
             <div className="cv-media-stage">
               {/* Opens paused, like the thumbnail: only Play starts it with sound (never autoplay). */}
-              <VideoThumbnail src={src} name={name} onError={onError} />
+              <VideoThumbnail
+                src={src}
+                name={name}
+                onError={onError}
+                videoRef={(element) => {
+                  expandedVideo.current = element;
+                }}
+                onPlay={(element) => {
+                  expandedPlayed.current = true;
+                  inlineResume.current = undefined;
+                  const current = inlineVideo.current;
+                  if (!current || current === element) return undefined;
+                  const time = current.currentTime;
+                  // The expanded copy is the active player after an explicit Play. Keep the
+                  // inline copy's position, but stop it before the new copy gains sound.
+                  current.pause();
+                  return Number.isFinite(time) && time > 0 ? time : undefined;
+                }}
+              />
             </div>
           </div>
         </Dialog>
@@ -277,8 +327,21 @@ function useMediaPreviewAllowed(): boolean {
 /// A video before it plays: its poster frame (the frame just after the start, read with the
 /// metadata), a glass play button in its middle and its length in a corner. The pointer resting on
 /// it previews it muted after the shared hover-intent dwell; a click plays it from the start with
-/// sound and the player's controls. Every part a click lands on shows the pointing hand.
-export function VideoThumbnail({ src, name, onError }: { src: string; name: string; onError(): void }) {
+/// sound and the player's controls. Every part a click lands on shows the arrow.
+export function VideoThumbnail({
+  src,
+  name,
+  onError,
+  onPlay,
+  videoRef,
+}: {
+  src: string;
+  name: string;
+  onError(): void;
+  /** Called before explicit playback starts; return a position to continue from. */
+  onPlay?(element: HTMLVideoElement): number | undefined;
+  videoRef?(element: HTMLVideoElement | null): void;
+}) {
   const t = useT();
   const video = useRef<HTMLVideoElement>(null);
   const startedRef = useRef(false);
@@ -325,8 +388,9 @@ export function VideoThumbnail({ src, name, onError }: { src: string; name: stri
     dismiss();
     setStarted(true);
     if (!element) return;
+    const handoffTime = onPlay?.(element);
     element.muted = false;
-    element.currentTime = 0;
+    element.currentTime = handoffTime ?? 0;
     void element.play()?.catch(() => {});
   };
   return (
@@ -336,7 +400,10 @@ export function VideoThumbnail({ src, name, onError }: { src: string; name: stri
     >
       {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- an agent's recording has no captions */}
       <video
-        ref={video}
+        ref={(element) => {
+          video.current = element;
+          videoRef?.(element);
+        }}
         src={src}
         controls={started}
         muted={!started}

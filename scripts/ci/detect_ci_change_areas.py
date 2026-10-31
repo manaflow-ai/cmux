@@ -735,12 +735,26 @@ def ci_helper_areas(
                         and not (runner == _TEST_REGISTRY_PATH and _registry_lane_is_inert(root, referrer))
                     ]
                     if runners and all(
-                        runner.startswith(".github/workflows/") and runner not in routed for runner in runners
+                        (runner.startswith(".github/workflows/") and runner not in routed)
+                        or runner.startswith("scripts/")
+                        for runner in runners
                     ):
                         # Only workflows outside ci.yml's call tree run this test
                         # (feat-cmux-next's cmux-next.yml and nightly.yml run a
                         # checks-job test and the nightly strip test): a dead end,
-                        # like those workflows themselves.
+                        # like those workflows themselves. A script that runs it
+                        # (a nightly step moved out of nightly.yml) is walked in
+                        # turn, so a routed job that runs the script still counts;
+                        # a script nothing names fails open.
+                        for runner in runners:
+                            if not runner.startswith("scripts/") or runner in visited_files:
+                                continue
+                            namers = _files_naming(root, Path(runner).stem)
+                            if namers is None:
+                                return every_area(f"could not search for {Path(runner).stem}")
+                            if not [namer for namer in namers if namer != runner]:
+                                return every_area(f"{runner} runs {referrer} and nothing names it")
+                            tokens.append(Path(runner).stem)
                         continue
                 return every_area(f"{referrer} names {token} and runs outside the Linux guards")
             if referrer.startswith("scripts/"):

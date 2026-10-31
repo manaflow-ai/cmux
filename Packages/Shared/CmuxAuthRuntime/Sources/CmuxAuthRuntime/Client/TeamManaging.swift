@@ -15,6 +15,8 @@ public protocol TeamManaging: Sendable {
     func renameTeam(id: String, displayName: String) async throws -> CMUXAuthTeam
     /// Deletes a team (admins only; refused while it has a subscription).
     func deleteTeam(id: String) async throws
+    /// Emails a team invitation to each address (`role` on joining).
+    func inviteToTeam(id: String, emails: [String], role: CMUXTeamRole) async throws -> CMUXTeamInviteResult
 }
 
 extension StackAuthClient: TeamManaging {
@@ -48,5 +50,10 @@ extension StackAuthClient: TeamManaging {
     public func deleteTeam(id: String) async throws {
         guard let teamsAPI else { throw CMUXTeamError.unavailable }
         try await teamsAPI.delete(teamID: id)
+    }
+
+    public func inviteToTeam(id: String, emails: [String], role: CMUXTeamRole) async throws -> CMUXTeamInviteResult {
+        guard let teamsAPI else { throw CMUXTeamError.unavailable }
+        return try await teamsAPI.invite(teamID: id, emails: emails, role: role)
     }
 }

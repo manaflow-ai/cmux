@@ -5,7 +5,7 @@
 // choice is kept by the row's id (transcriptDisclosure.tsx), so a prompt scrolled out and back, or
 // drawn again from history, stays as the reader left it. Find opens a collapsed prompt, or a closed
 // chip, that holds its current match. The bubble keeps the whole text; Copy copies all of it.
-import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT, usePaneLanguage } from "../i18n";
 import { FindReveal } from "./chatFind";
 import {
@@ -20,17 +20,17 @@ import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { foldMotion, foldMs, markHeightFold } from "./fold";
 import { holdHeader } from "./useAnchoredCollapse";
 import { Markdown } from "./Markdown";
-import { SoftBroken } from "./softBreaks";
-
-// Ordinary text keeps its literal whitespace and cheap span. Anything that can contain Markdown
-// uses the shared transcript parser, including a list, code or link with no quote in the prompt.
-const PROMPT_MARKDOWN = /[`*_~[\]$<>|#\\]|https?:\/\/|(^|\n)[ \t]*(?:[-+]|\d+[.)])[ \t]/;
+import { SoftBroken, softBreaks } from "./softBreaks";
+import { isPromptMarkdown } from "./promptMarkdown";
+import { githubRefLabel, UrlChip } from "../chips/LinkChips";
+import { textLinks } from "../chips/paths";
 
 export function PromptText({
   rowId,
   text,
   pasted,
   show,
+  children,
 }: {
   rowId: string;
   /// The prompt as recorded: what Find searches and the paste ranges point into.
@@ -38,6 +38,8 @@ export function PromptText({
   pasted?: readonly PasteRange[];
   /// How a typed part reads in the bubble (a `data:` image as its name, UserBubble.tsx).
   show: (text: string) => string;
+  /// Ordered attachments share this fold; opening a pasted block also opens the prompt.
+  children?: (open: () => void) => ReactNode;
 }) {
   const t = useT();
   const id = useId();
@@ -76,7 +78,7 @@ export function PromptText({
     // The bubble: a text drawn whole has no box to observe.
     observer.observe(node.parentElement ?? node);
     return () => observer.disconnect();
-  }, [parts, long, open]);
+  }, [parts, long, open, children]);
   const collapsed = long && !open;
   // Show more and Show less (Leo 2026-10-21: "these all need animations for expand and collpase"),
   // over the fold's token, without moving what the reader looks at ("just expand the area at the
@@ -161,29 +163,23 @@ export function PromptText({
   return (
     <>
       <div ref={body} id={id} className={`cv-user__text${collapsed ? " is-clamped is-faded" : ""}`}>
-        {parts.map((part, index) =>
-          part.kind === "text" ? (
-            PROMPT_MARKDOWN.test(part.text) ? (
-              <Markdown key={index} className="cv-user__markdown" thumbnails={false}>
-                {show(part.text)}
-              </Markdown>
-            ) : (
-              <span key={index} className="cv-user__typed">
-                <SoftBroken text={show(part.text)} />
-              </span>
-            )
-          ) : (
-            <PasteChip
-              key={index}
-              rowId={rowId}
-              index={part.index}
-              text={part.text}
-              needle={needle}
-              // An opened paste shows whole, not cut at the prompt's tenth line.
-              onOpen={() => setOpen(true)}
-            />
-          ),
-        )}
+        {children
+          ? children(() => setOpen(true))
+          : parts.map((part, index) =>
+              part.kind === "text" ? (
+                <PromptTyped key={index} text={part.text} show={show} />
+              ) : (
+                <PasteChip
+                  key={index}
+                  rowId={rowId}
+                  index={part.index}
+                  text={part.text}
+                  needle={needle}
+                  // An opened paste shows whole, not cut at the prompt's tenth line.
+                  onOpen={() => setOpen(true)}
+                />
+              ),
+            )}
       </div>
       {long && (
         <button
@@ -201,8 +197,46 @@ export function PromptText({
   );
 }
 
-/// One pasted block: the chip, and the paste under it once opened.
-function PasteChip({
+/// One typed block of a sent prompt: Markdown when it is written in Markdown (promptMarkdown.ts),
+/// else its literal text, its line breaks kept (the bubble's `pre-wrap`), a bare web address as a
+/// link, and break points in long tokens. A sent prompt's inline parts draw theirs with it too
+/// (InlinePromptContent.tsx), so a placed prompt reads as a legacy one does.
+export function PromptTyped({ text, show }: { text: string; show: (text: string) => string }) {
+  const shown = show(text);
+  return isPromptMarkdown(text) ? (
+    <Markdown className="cv-user__markdown" thumbnails={false}>
+      {shown}
+    </Markdown>
+  ) : (
+    <span className="cv-user__typed">
+      <LiteralText text={shown} />
+    </span>
+  );
+}
+
+/// Literal prompt text with each bare web address a link (UrlChip, as in a reply); the rest keeps
+/// its break points (softBreaks.tsx).
+function LiteralText({ text }: { text: string }) {
+  const urls = text.includes("://") ? textLinks(text).filter((link) => link.kind === "url") : [];
+  if (!urls.length) return <SoftBroken text={text} />;
+  const out: ReactNode[] = [];
+  let at = 0;
+  urls.forEach((link, index) => {
+    if (link.start > at) out.push(...softBreaks(text.slice(at, link.start), `t${index}`));
+    out.push(
+      <UrlChip key={`u${index}`} href={link.value}>
+        {githubRefLabel(link.value) ?? link.value}
+      </UrlChip>,
+    );
+    at = link.end;
+  });
+  if (at < text.length) out.push(...softBreaks(text.slice(at), "tail"));
+  return <>{out}</>;
+}
+
+/// One pasted block: the chip, and the paste under it once opened. A sent prompt's inline parts
+/// draw theirs with it too (InlinePromptContent.tsx).
+export function PasteChip({
   rowId,
   index,
   text,
@@ -223,6 +257,7 @@ function PasteChip({
   const reveal = useContext(FindReveal);
   useLayoutEffect(() => {
     if (!hit || open) return;
+    onOpen();
     setOpen(true);
     reveal?.repaint();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
