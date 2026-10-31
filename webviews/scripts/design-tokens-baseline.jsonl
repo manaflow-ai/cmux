@@ -111,7 +111,7 @@
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"height","property":"height","values":{"16px":3,"30px":4,"22px":1,"10px":2,"26px":2,"18px":2,"6px":3,"14px":1,"72px":1,"3px":1,"36px":2,"34px":1,"calc(var(--text-heading--line-height) + 6px)":1}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"height","property":"min-height","values":{"52px":1,"84px":1,"34px":1,"96px":1,"60px":1,"56px":1}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"spacing","property":"gap","values":{"10px":11,"6px":13,"14px":2,"2px":7,"6px 16px":1,"5px":1}}
-{"file":"agent-session/acpmux/newtab/screen.css","kind":"spacing","property":"padding","values":{"clamp(40px,14vh,140px) max(var(--cv-edge,18px),calc((100% - var(--cv-column,720px))/2)) 24px":1,"0 18px":1,"2px 6px":1,"2px 8px":1,"12px 14px":1,"0 10px 6px":1,"0 6px":3,"0 12px 0 10px":1,"0 10px":7,"0 0 0 10px":2,"1px 0":2,"6px":3,"8px 10px":1,"0 8px 0 22px":1,"0 14px":1,"5px 14px":1,"14px 16px":1}}
+{"file":"agent-session/acpmux/newtab/screen.css","kind":"spacing","property":"padding","values":{"clamp(40px,14vh,140px) max(var(--cv-edge,18px),calc((100% - var(--cv-column,720px))/2)) 24px":1,"0 18px":1,"2px 6px":1,"2px 8px":1,"12px 14px":1,"0 10px 6px":1,"0 6px":3,"0 12px 0 10px":1,"0 10px":5,"1px 0":2,"6px":3,"8px 10px":1,"0 8px 0 22px":1,"0 14px":1,"5px 14px":1,"14px 16px":1}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"spacing","property":"padding-block","values":{"6px 18px":1,"18px":1}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"spacing","property":"padding-bottom","values":{"2px":1}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"spacing","property":"padding-left","values":{"30px":1}}
