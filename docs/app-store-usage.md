@@ -8,7 +8,10 @@ installs without your click on that card.
 
 ## 1. Open the App Store
 
-Use one of these:
+In this build the App Store is a preview feature. Turn it on first: Settings > Labs > Preview
+features, or `cmux settings set labs.previewFeatures true`.
+
+Then use one of these:
 
 - the **App Store** item at the top of the sidebar;
 - the palette (Cmd-Shift-P): type `App Store`;
@@ -117,6 +120,17 @@ cmux apps install manaflow-ai/hello-deploy --deploy cloud-vm:<machine id>
    undoes the install. The reason is in the app's log (App Store > Installed > Logs).
 
 `cmux apps remove manaflow-ai/hello-deploy` removes the app and its container.
+
+Measured 2026-10-30, with a fleet build of this branch on a self-hosted Linux machine
+(cmux-dev-backend-1, Docker 29.7.2, reached over Tailscale SSH):
+
+| Step | Time |
+| --- | --- |
+| install answers (instance `deploying`) | 8 ms |
+| instance `running`, image pull from cold included | 2.46 s |
+| health check over the tailnet | 0.10 s (HTTP 200) |
+| remove until the container is gone | about 2 s |
+| an unreachable host rolls the install back | 0.21 s |
 
 ## 6. Remove or hide an app
 
