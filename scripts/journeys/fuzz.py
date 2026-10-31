@@ -188,7 +188,9 @@ def wait_go(opts, what):
             print(f"fuzz: dropped a go file ({data}): host not in {allowed} or past its until", flush=True)
             continue
         print(f"fuzz: {what} goes on {host} (scheduler hold until {until})", flush=True)
-        return host
+        if isinstance(until, str):
+            until = calendar.timegm(time.strptime(until[:19], "%Y-%m-%dT%H:%M:%S"))
+        return host, (float(until) if isinstance(until, (int, float)) else None)
 
 
 def signal_done(opts, what, host, status):
@@ -228,14 +230,14 @@ class Runner:
         waits for the scheduler's go file and leases only the mini it names, then writes the done file."""
         opts = self.opts
         if opts.go_dir:
-            host = wait_go(opts, out.name)
+            host, until = wait_go(opts, out.name)
             try:
-                return self._lease(build, out, options, host)
+                return self._lease(build, out, options, host, until)
             finally:
                 signal_done(opts, out.name, host, None)
         return self._lease(build, out, options, host)
 
-    def _lease(self, build, out, options, host=None):
+    def _lease(self, build, out, options, host=None, until=None):
         opts = self.opts
         env = {**os.environ,
                "CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS": os.environ.get("CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS", "600"),
@@ -246,6 +248,13 @@ class Runner:
         # Normal mode leases only its --whole-host mini (wait_go drops a go for any other one); else the go host or
         # the first side's mini of an ABBA pair, else --host, else an idle one of --hosts.
         hosts = opts.whole_host or host or opts.host or self.gate.idle_first(opts.hosts)
+        if until is not None:
+            # A go-gated round: the scheduler holds the mini until UNTIL, so the acquire waits only that window (counted
+            # from the go, not from when the round queued). Past it, the round is "not run" and waits for the next go,
+            # never a long drain on a mini the scheduler no longer holds.
+            window = int(max(30, until - time.time()))
+            env["CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS"] = str(window)
+            env["CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS"] = "0"
         env["CAPTURE_HOST_HOSTS"] = env["CAPTURE_HOST_SLOT_HOSTS"] = hosts
         argv = [sys.executable, opts.runner, "--build", build, "--journey", JOURNEY, "--exclusive", "--hosts", hosts,
                 "--out", str(out)]

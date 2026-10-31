@@ -253,6 +253,17 @@ def launch_facts(text):
 ACQUIRE_SLACK_SECONDS = 60
 
 
+def set_phase(ch, lease, name):
+    """`capture-host phase LEASE download|journey|idle`: what the lease does now, which the controller reads in the lease
+    heartbeat (the scheduler's rule that releases an idle lease). A failure is logged and never fails the round."""
+    try:
+        done = subprocess.run([ch, "phase", lease, name], capture_output=True, timeout=30)
+        if done.returncode != 0:
+            log(f"phase {name} of {lease}: exit {done.returncode}: {done.stderr.decode(errors='replace').strip()[-200:]}")
+    except (OSError, subprocess.TimeoutExpired) as error:
+        log(f"phase {name} of {lease}: {error}")
+
+
 def acquire_lease(ch, exclusive, log_path=None, whole_host=False):
     """`capture-host acquire --slot [--exclusive]` (or, whole_host, `acquire [--exclusive]`: the whole mini); the
     lease words it prints. An exclusive acquire waits for the
@@ -346,6 +357,7 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
     facts, host, hog_started, work = {}, None, None, None
     try:
         signal.pthread_sigmask(signal.SIG_SETMASK, mask)  # a stop from here on raises inside the try: finally releases
+        set_phase(ch, lease, "download")
         info = dict(kv.split("=", 1) for kv in run([ch, "slot-info", lease]).stdout.decode().split() if "=" in kv)
         host, root = info["host"], info["root"]
         work = f"{root}/journeys"
@@ -411,6 +423,7 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         if budget < 60:
             raise RuntimeError(f"the lease has {budget + 45}s left after setup: too little to run journeys")
         log(f"driving {', '.join(ids)} on {host} ({budget}s left on the lease)")
+        set_phase(ch, lease, "journey")
         drove = remote(host, f"/usr/bin/python3 -I {q(work + '/kit/driver.py')} --socket {q(facts['socket'])} "
                              f"--app {q(facts.get('app', app))} --home {q(root + '/home')} "
                              f"--journeys {q(work + '/kit/journeys.json')} --out {q(work + '/out')} --ocr {ocr} "
@@ -421,6 +434,7 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
             log(f"[{host}] {line}")
         if drove.returncode not in (0, 1):
             log(f"driver exited {drove.returncode}: {drove.stderr.decode(errors='replace').strip()[-600:]}")
+        set_phase(ch, lease, "idle")  # the journeys ended: results are fetched, then the lease is released
         files = remote(host, f"cd {q(work + '/out')} && tar c --exclude 'frames' . | head -c {RESULT_TAR_MAX_BYTES}",
                        timeout=left(150), check=False).stdout
         take_results(files, out, set(ids))

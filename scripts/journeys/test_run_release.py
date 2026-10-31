@@ -27,6 +27,7 @@ case "$1" in
            echo "slot-cmux99-abc" ;;
   slot-info) echo "host=cmux99 slot=1 root=/tmp/fake-root" ;;
   launch) echo "pid=1 socket=/tmp/fake.sock bundle_id=x app=/tmp/fake.app" ;;
+  phase) echo "phase $3" >> "$CH_LOG" ;;
   release) echo release-start >> "$CH_LOG"; sleep "${CH_RELEASE_SLEEP:-0}"; echo release-done >> "$CH_LOG"; echo released ;;
 esac
 """
@@ -87,6 +88,7 @@ class Release(unittest.TestCase):
         self.assertIn("release slot-cmux99-abc", self.lines(), err)
         self.assertIn("not run", out)
         self.assertIn("cache yes", self.lines())  # the build goes to the per-mini cache, not the slot
+        self.assertIn("phase download", self.lines())  # the controller sees what the lease does
 
     def test_sigterm_while_driving_releases(self):
         p = self.start("sleep")
@@ -97,6 +99,7 @@ class Release(unittest.TestCase):
         out, err = p.communicate(timeout=60)
         self.assertEqual(p.returncode, 143, err)
         self.assertIn("release slot-cmux99-abc", self.lines())
+        self.assertIn("phase journey", self.lines())
 
     def test_sigterm_while_acquiring_ends_the_acquire(self):
         p = self.start("sleep", CH_ACQUIRE_SLEEP="30")

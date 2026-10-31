@@ -276,8 +276,25 @@ class Verdicts(unittest.TestCase):
             (tmp / "fz.go").write_text(json.dumps({"host": "cmux19", "until": time.time() + 300}))
         threading.Thread(target=later, daemon=True).start()
         t = time.time()
-        self.assertEqual(fuzz.wait_go(opts, "r"), "cmux19")
+        self.assertEqual(fuzz.wait_go(opts, "r")[0], "cmux19")
         self.assertGreater(time.time() - t, 4)
+
+    def test_go_gated_acquire_waits_only_the_hold_window(self):
+        import types
+        tmp = Path(tempfile.mkdtemp())
+        runner = tmp / "fake_run.py"
+        runner.write_text("import os, sys, json\nargs = sys.argv[1:]; out = args[args.index('--out') + 1]\n"
+                          "os.makedirs(out, exist_ok=True)\n"
+                          "json.dump({k: os.environ.get(k) for k in ('CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS', "
+                          "'CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS')}, open(os.path.join(out, 'env.json'), 'w'))\n")
+        (tmp / "fz.go").write_text(json.dumps({"host": "cmux19", "until": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 200))}))
+        opts = types.SimpleNamespace(go_dir=str(tmp), go_spec="fz", host=None, hosts="cmux19", whole_host=None, runner=str(runner),
+                                     allow_cmux17=False, hog_swap_gb=0, diagnostic=True)
+        gate = types.SimpleNamespace(OWNER_POOL="perf-lead", idle_first=lambda h: h)
+        fuzz.Runner(opts, gate).lease("job", tmp / "r1", {})
+        env = json.loads((tmp / "r1" / "env.json").read_text())
+        self.assertTrue(150 <= int(env["CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS"]) <= 200, env)
+        self.assertEqual(env["CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS"], "0")
 
     def test_iso_until_is_utc(self):
         import types
@@ -285,7 +302,7 @@ class Verdicts(unittest.TestCase):
         soon = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 120))
         (tmp / "fz.go").write_text(json.dumps({"host": "cmux19", "until": soon}))
         opts = types.SimpleNamespace(go_dir=str(tmp), go_spec="fz", host=None, hosts="cmux19", whole_host=None)
-        self.assertEqual(fuzz.wait_go(opts, "r"), "cmux19")
+        self.assertEqual(fuzz.wait_go(opts, "r")[0], "cmux19")
 
     def test_expired_or_foreign_go_is_dropped(self):
         import types
@@ -299,7 +316,7 @@ class Verdicts(unittest.TestCase):
             time.sleep(6)
             (tmp / "fz.go").write_text(json.dumps({"host": "cmux19", "until": time.time() + 300}))
         threading.Thread(target=later, daemon=True).start()
-        self.assertEqual(fuzz.wait_go(opts, "round 1 test"), "cmux19")
+        self.assertEqual(fuzz.wait_go(opts, "round 1 test")[0], "cmux19")
 
     def test_cmux17_refused(self):
         tmp = Path(tempfile.mkdtemp())
