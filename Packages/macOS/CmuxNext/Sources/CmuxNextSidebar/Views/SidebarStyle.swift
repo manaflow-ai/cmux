@@ -192,9 +192,11 @@ enum SidebarStyle {
     /// header part left side"), while the header's name keeps the rows' text column.
     static var groupRailReach: CGFloat { Metrics.space1 + groupBarWidth }
     /// The least room a group header's bar and rail keep from the list's left edge (Lawrence 2026-10-25: "groups
-    /// headers and rails need more left padding"): they sat flush at 0 and 2 pt. One inset less than the
-    /// rows' (4 pt compact, 6 pt comfortable), at every level and in Minimal Mode.
-    static var groupEdgePadding: CGFloat { max(0, horizontalInset - groupBarWidth) }
+    /// headers and rails need more left padding"): they sat flush at 0 and 2 pt. The rows' inset less the rail and
+    /// its gap (`groupRailReach`; 2 pt compact, 4 pt comfortable), so the padding never eats the rail's gap: at
+    /// `horizontalInset - groupBarWidth` the rail sat flush against its members' fills (Lawrence 2026-10-30, "alignment
+    /// here is bad").
+    static var groupEdgePadding: CGFloat { max(0, horizontalInset - groupRailReach) }
     /// The cut between a header's bar and its members' line: Chrome's (Leo 2026-10-19: "chrome has a neat little
     /// cut line"). A `joined` line has none.
     static var groupLineCut: CGFloat { Metrics.space3 }
