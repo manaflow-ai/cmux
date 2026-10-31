@@ -1007,14 +1007,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-chats-mirror"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "cmux-chief"
 version = "0.1.0"
 dependencies = [
