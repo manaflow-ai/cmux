@@ -229,18 +229,6 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab.</string>
-			<key>pfm_name</key>
-			<string>tabs.terminalFirst</string>
-			<key>pfm_title</key>
-			<string>cmux Classic Mode</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
 			<string>afterCurrent</string>
 			<key>pfm_description</key>
 			<string>Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.</string>
@@ -354,34 +342,6 @@
 			<string>Tab Bar Buttons</string>
 			<key>pfm_type</key>
 			<string>array</string>
-		</dict>
-		<dict>
-			<key>pfm_description</key>
-			<string>Text size of tab titles. Unset, tabs follow the interface size.</string>
-			<key>pfm_name</key>
-			<string>appearance.metrics.tabFontSize</string>
-			<key>pfm_range_max</key>
-			<real>18</real>
-			<key>pfm_range_min</key>
-			<real>10</real>
-			<key>pfm_title</key>
-			<string>Tab Text Size</string>
-			<key>pfm_type</key>
-			<string>real</string>
-		</dict>
-		<dict>
-			<key>pfm_description</key>
-			<string>Height of a pane's tab bar. Its tabs grow and shrink with it.</string>
-			<key>pfm_name</key>
-			<string>appearance.metrics.tabStripHeight</string>
-			<key>pfm_range_max</key>
-			<real>44</real>
-			<key>pfm_range_min</key>
-			<real>22</real>
-			<key>pfm_title</key>
-			<string>Tab Bar Height</string>
-			<key>pfm_type</key>
-			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -4661,18 +4621,6 @@
 			<string>sidebar.pinnedBandsScroll</string>
 			<key>pfm_title</key>
 			<string>Scroll Tall Sections</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>Lists tabs beneath each workspace in the sidebar.</string>
-			<key>pfm_name</key>
-			<string>sidebar.showWorkspaceTabs</string>
-			<key>pfm_title</key>
-			<string>Show Workspace Tabs</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
