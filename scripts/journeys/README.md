@@ -385,6 +385,17 @@ typed after the creation hold, every other check runs and is counted per round; 
 must be a new folder. Writes `summary.json` and `summary.txt`. Test:
 `python3 scripts/journeys/test_smoke_gate.py`.
 
+### Open P0 journeys block the .pass
+
+A build with an open P0 that the smoke journey does not test would pass by omission (cmux-ad 12:35Z). So after
+10 of 10 rounds the gate also reads `handoff/open-p0-journeys.txt` (one open P0 per line: journey ids, `a|b` for
+any one of them, the kit branch@commit, the owner and the STATUS item that opened it) and the ledger
+`handoff/open-p0-results/<JOB>.jsonl`, to which every `run.py` run appends its results. The `.pass` is written only
+when each listed journey has a PASS and no FAIL on that exact build job; else the gate writes `open-p0.txt` in its
+out folder, naming each blocking line, and exits 75. Owners add a line when a P0 opens and remove it only when the
+fix is in the build and the journey passes. A kit whose `run.py` predates the ledger: append its `results.jsonl`
+lines to the ledger file.
+
 ### Rounds by scheduler GO (`--go-spec`)
 
 When the mini scheduler gives one round per GO (lead, STATUS 1354), `--go-spec NAME` keeps all rounds in one

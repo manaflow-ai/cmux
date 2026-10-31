@@ -301,6 +301,45 @@ def await_go(spec, hosts, used, deadline, poll=5.0):
         time.sleep(poll)
 
 
+# Open P0 journeys (cmux-ad 12:35Z): a .pass also needs each open P0 journey to have passed, and never failed, on the
+# exact build job: a pass by omission (the gate does not test that P0) is no pass.
+OPEN_P0 = Path(os.environ.get("SMOKE_GATE_OPEN_P0", "/Users/lawrence/fun/wt/handoff/open-p0-journeys.txt"))
+P0_LEDGER = Path(os.environ.get("JOURNEYS_P0_LEDGER", "/Users/lawrence/fun/wt/handoff/open-p0-results"))
+
+
+def open_p0_blockers(job):
+    """[(list line, why)] of the open P0 journeys that block a .pass for JOB: no PASS on JOB in the ledger, or any FAIL.
+    An unreadable list blocks too (the rule cannot be checked)."""
+    try:
+        listed = [l.split() for l in OPEN_P0.read_text().splitlines() if l.strip() and not l.lstrip().startswith("#")]
+    except OSError as error:
+        return [(str(OPEN_P0), f"the open-P0 list cannot be read ({error}): no .pass")]
+    rows = []
+    try:
+        for text in (P0_LEDGER / f"{job}.jsonl").read_text().splitlines():
+            try:
+                row = json.loads(text)
+            except ValueError:
+                continue
+            if isinstance(row, dict) and row.get("build_job") == job:
+                rows.append(row)
+    except OSError:
+        pass
+    blockers = []
+    for fields in listed:
+        ids = set(fields[0].split("|"))
+        mine = [r for r in rows if r.get("id") in ids]
+        fails = [r for r in mine if r.get("status") == "fail"]
+        passes = [r for r in mine if r.get("status") == "pass"]
+        line = " ".join(fields)
+        if fails:
+            blockers.append((line, f"FAILED on {job}: {len(fails)} fail(s), e.g. {fails[0].get('out')}: "
+                                   f"{str(fails[0].get('reason') or '')[:160]}"))
+        elif not passes:
+            blockers.append((line, f"has not passed on {job} ({len(mine)} result(s), none a pass)"))
+    return blockers
+
+
 def build_state(job, deadline, poll=30.0):
     """The fleet state of build JOB once it is done, failed or cancelled, or its last state at DEADLINE."""
     while True:
@@ -487,8 +526,17 @@ def main(argv=None):
         if not gate_run:
             print(f"smoke-gate: a trial PASS (--rounds {opts.rounds}, --swap-gb {opts.swap_gb:g}): no .pass file", file=sys.stderr)
             return 75
+        blockers = open_p0_blockers(opts.build)
+        if blockers:
+            text = "\n".join([f"smoke-gate: {opts.rounds} of {opts.rounds} rounds passed, but an open P0 journey blocks the "
+                              f".pass ({OPEN_P0}):"] + [f"  {line}: {why}" for line, why in blockers])
+            (out / "open-p0.txt").write_text(text + "\n")
+            print(text, file=sys.stderr)
+            return 75
         handoff = Path(opts.handoff)
         handoff.mkdir(parents=True, exist_ok=True)
+        summary["open_p0_checked"] = [l.split()[0] for l in OPEN_P0.read_text().splitlines()
+                                      if l.strip() and not l.lstrip().startswith("#")]
         (handoff / f"{opts.build}.pass").write_text(json.dumps(summary, indent=1) + "\n")
         print(f"wrote {handoff / (opts.build + '.pass')}")
         return 0

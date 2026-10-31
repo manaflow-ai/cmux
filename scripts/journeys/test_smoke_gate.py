@@ -88,6 +88,9 @@ def gate(plan, tmp, extra=(), env_extra=None, rounds=None):
     with open(runner, "w") as f:
         f.write(FAKE)
     env = {k: v for k, v in os.environ.items() if not k.startswith("CAPTURE_HOST_")}
+    if not os.path.exists(os.path.join(tmp, "open-p0.txt")):
+        open(os.path.join(tmp, "open-p0.txt"), "w").write("# no open P0 journeys\n")
+    env.update({"SMOKE_GATE_OPEN_P0": os.path.join(tmp, "open-p0.txt"), "JOURNEYS_P0_LEDGER": os.path.join(tmp, "ledger")})
     env.update({"SMOKE_PLAN": json.dumps(plan), "SMOKE_GATE_CMUX_CI": "/bin/false",
                 "SMOKE_JOURNEY": str(HERE / "journeys" / "dogfood" / "smoke-dogfood.json"), **(env_extra or {})})
     done = subprocess.run([sys.executable, str(GATE), "--build", "job123", "--rounds", str(rounds or len(plan)), "--runner", runner,
@@ -268,6 +271,58 @@ class Verdicts(unittest.TestCase):
                                        "SMOKE_JOURNEY": str(HERE / "journeys" / "dogfood" / "smoke-dogfood.json")})
             self.assertEqual(done.returncode, 2)
             self.assertIn("not empty", done.stderr)
+
+
+class OpenP0(unittest.TestCase):
+    """A .pass needs every open P0 journey passed, and never failed, on the exact build (cmux-ad 12:35Z)."""
+
+    def test_an_open_p0_without_a_pass_on_the_build_blocks_the_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "open-p0.txt"), "w").write(
+                "# comment\nr3-new-tab-panel kit@1 owner STATUS-1017\nj-a|j-b kit@2 owner STATUS-1\n")
+            code, summary = gate(["pass"] * 10, tmp)
+            self.assertEqual(summary["verdict"], "PASS")
+            self.assertEqual(code, 75)
+            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+            if not summary["gate_dirty"]:  # the open-P0 check runs after the committed-gate check
+                text = open(os.path.join(tmp, "out", "open-p0.txt")).read()
+                self.assertIn("r3-new-tab-panel", text)
+                self.assertIn("has not passed on job123", text)
+
+    def test_the_ledger_decides_pass_fail_and_other_builds(self):
+        mod = load_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            mod.OPEN_P0, mod.P0_LEDGER = Path(tmp) / "list.txt", Path(tmp) / "ledger"
+            mod.OPEN_P0.write_text("r3-new-tab-panel k o S1\nj-a|j-b k o S2\n")
+            mod.P0_LEDGER.mkdir()
+            rows = [{"id": "r3-new-tab-panel", "status": "pass", "build_job": "J"},
+                    {"id": "j-b", "status": "pass", "build_job": "J"},
+                    {"id": "r3-new-tab-panel", "status": "pass", "build_job": "OTHER"}]
+            (mod.P0_LEDGER / "J.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\nnot json\n")
+            self.assertEqual(mod.open_p0_blockers("J"), [])
+            with open(mod.P0_LEDGER / "J.jsonl", "a") as f:
+                f.write(json.dumps({"id": "r3-new-tab-panel", "status": "fail", "build_job": "J", "out": "/x"}) + "\n")
+            blockers = mod.open_p0_blockers("J")
+            self.assertEqual(len(blockers), 1)
+            self.assertIn("FAILED on J", blockers[0][1])
+            self.assertEqual(len(mod.open_p0_blockers("NONE")), 2)  # no results on that build: both block
+            mod.OPEN_P0 = Path(tmp) / "missing.txt"
+            self.assertIn("cannot be read", mod.open_p0_blockers("J")[0][1])
+
+    def test_run_py_appends_each_result_to_the_ledger(self):
+        sys.path.insert(0, str(HERE))
+        import importlib
+        run = importlib.import_module("run")
+        with tempfile.TemporaryDirectory() as tmp:
+            old, run.P0_LEDGER = run.P0_LEDGER, Path(tmp) / "ledger"
+            try:
+                run.record_p0_results([{"id": "x", "status": "pass", "build_job": "J", "reason": ""},
+                                       {"id": "y", "status": "fail", "build_job": None}], Path(tmp) / "out")
+            finally:
+                ledger, run.P0_LEDGER = run.P0_LEDGER, old
+            rows = [json.loads(l) for l in (ledger / "J.jsonl").read_text().splitlines()]
+            self.assertEqual([(r["id"], r["status"], r["build_job"]) for r in rows], [("x", "pass", "J")])
+            self.assertTrue(rows[0]["kit"])
 
 
 class GoSpec(unittest.TestCase):
