@@ -38,6 +38,19 @@ export const emailDomainOf = (email: string | null | undefined): string | undefi
   return /^[a-z0-9.-]+\.[a-z0-9-]+$/.test(domain) ? domain : undefined
 }
 
+const scopeClaim = (value: unknown): string | undefined => {
+  if (typeof value === "string") return value
+  return undefined
+}
+
+type ScopedPrincipal = Principal & { readonly scope?: string }
+
+/** Scope decisions use only claims returned by jwtVerify, never decoded request data. */
+export const hasScope = (principal: Principal, required: string): boolean => {
+  const scope = (principal as ScopedPrincipal).scope
+  return typeof scope === "string" && scope.split(/\s+/).includes(required)
+}
+
 /** A Stack access token: a human session. */
 const sessionPrincipal = async (env: Env, token: string): Promise<Principal | undefined> => {
   try {
@@ -90,6 +103,8 @@ export const signer = async (env: Env) => {
 }
 
 export interface InstallClaims {
+  /** Derived from the live install grant by UserDO.redeem, never from the token request. */
+  readonly scope?: string
   readonly user: string
   readonly team: string
   readonly install: string
@@ -110,7 +125,7 @@ export const mintAccessToken = async (env: Env, c: InstallClaims) => {
   const { key, kid } = await signer(env)
   const now = Math.floor(Date.now() / 1000)
   const exp = now + ACCESS_TOKEN_TTL_SECONDS
-  const token = await new SignJWT({ team: c.team, inst: c.install, grant: c.grant, ...(c.sso_team ? { sso_team: c.sso_team } : {}), ...(c.email_domain ? { edom: c.email_domain } : {}), ...(c.agent ? { agt: c.agent } : {}), ...(c.vm ? { vm: true } : {}), ...(c.team_vm ? { tvm: true } : {}) })
+  const token = await new SignJWT({ ...(c.scope ? { scope: c.scope } : {}), team: c.team, inst: c.install, grant: c.grant, ...(c.sso_team ? { sso_team: c.sso_team } : {}), ...(c.email_domain ? { edom: c.email_domain } : {}), ...(c.agent ? { agt: c.agent } : {}), ...(c.vm ? { vm: true } : {}), ...(c.team_vm ? { tvm: true } : {}) })
     .setProtectedHeader({ alg: "ES256", kid, typ: "JWT" })
     .setIssuer(issuer(env))
     .setAudience("api")
@@ -129,8 +144,9 @@ const installPrincipal = async (env: Env, token: string): Promise<Principal | un
       audience: "api",
       clockTolerance: 30
     })
-    const { sub, team, inst, grant, exp, sso_team, edom, agt, vm, tvm } = payload as { sub?: unknown; team?: unknown; inst?: unknown; grant?: unknown; exp?: unknown; sso_team?: unknown; edom?: unknown; agt?: unknown; vm?: unknown; tvm?: unknown }
+    const { sub, team, inst, grant, exp, sso_team, edom, agt, vm, tvm, scope: rawScope } = payload as { sub?: unknown; team?: unknown; inst?: unknown; grant?: unknown; exp?: unknown; sso_team?: unknown; edom?: unknown; agt?: unknown; vm?: unknown; tvm?: unknown; scope?: unknown }
     if (typeof sub !== "string" || typeof team !== "string" || typeof inst !== "string" || typeof grant !== "string") return undefined
+    const scope = scopeClaim(rawScope)
     return {
       kind: "install",
       identity: inst,
@@ -138,6 +154,7 @@ const installPrincipal = async (env: Env, token: string): Promise<Principal | un
       team,
       install: inst,
       grant,
+      ...(scope ? { scope } : {}),
       ...(typeof exp === "number" ? { expires_at: exp * 1000 } : {}),
       ...(typeof sso_team === "string" ? { sso_team } : {}),
       ...(typeof edom === "string" ? { email_domain: edom } : {}),
