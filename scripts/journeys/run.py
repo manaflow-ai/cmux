@@ -231,6 +231,7 @@ def kit_tar(specs):
         for ext in sorted(HERE.glob("ext_*.py")):  # step and condition groups the driver loads
             tar.add(ext, arcname=ext.name)
         tar.add(BUILD_NAMES, arcname="build_names.py")
+        tar.add(HERE / "smoke_hog.py", arcname="smoke_hog.py")  # run only with --hog-swap-gb
         tar.add(OCR_SOURCE, arcname="ocr.swift")
         data = json.dumps([{k: v for k, v in s.items() if not k.startswith("_")} for s in specs]).encode()
         info = tarfile.TarInfo("journeys.json")
@@ -248,12 +249,18 @@ def launch_facts(text):
     return facts
 
 
-def run_lease(specs, build, out, frame_interval):
-    """Plays `specs` in one slot; {id: result} (driver results, or not run with the reason)."""
+HOG_WARMUP_SECONDS = 45  # the hog's memory pressure builds before the journeys start
+
+
+def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.0):
+    """Plays `specs` in one slot; {id: result} (driver results, or not run with the reason). `exclusive`: the
+    lease owns the whole mini (`capture-host acquire --slot --exclusive`: no fleet step runs there meanwhile;
+    the fleet rule for any result that is evidence, such as the dogfood smoke gate)."""
     ch = capture_host()
     ids = [s["id"] for s in specs]
     try:
-        acquired = run([ch, "acquire", "--slot"], timeout=330).stdout.decode().split()
+        acquired = run([ch, "acquire", "--slot", *(["--exclusive"] if exclusive else [])],
+                       timeout=630 if exclusive else 330).stdout.decode().split()
     except (RuntimeError, subprocess.TimeoutExpired) as error:
         return {i: {"status": "not run", "reason": f"no capture slot: {str(error)[-300:]}"} for i in ids}
     if not acquired:
@@ -261,7 +268,7 @@ def run_lease(specs, build, out, frame_interval):
     lease, deadline = acquired[-1], time.monotonic() + LEASE_SECONDS
     left = lambda cap: max(10.0, min(cap, deadline - time.monotonic()))
     log(f"leased {lease}")
-    facts, host = {}, None
+    facts, host, hog_started, work = {}, None, False, None
     try:
         info = dict(kv.split("=", 1) for kv in run([ch, "slot-info", lease]).stdout.decode().split() if "=" in kv)
         host, root = info["host"], info["root"]
@@ -284,6 +291,18 @@ def run_lease(specs, build, out, frame_interval):
         if facts.get("socket", "none") == "none":
             raise RuntimeError(f"the app did not answer on its control socket: "
                                f"{(launched.stdout + launched.stderr).decode(errors='replace').strip()[-400:]}")
+        if hog_swap_gb > 0:
+            # Memory pressure (the Austin's-day hog): it holds incompressible memory until swap used is
+            # hog_swap_gb above the start, gives memory back near the edge, and ends by itself at its deadline.
+            # Started by this lease, stopped by its own pid below (never a pid this run did not start).
+            hog_end = int(left(LEASE_SECONDS) - 30)
+            remote(host, f"mkdir -p {q(work + '/out')} && cd {q(work)} && "
+                         f"nohup /usr/bin/python3 -I kit/smoke_hog.py --swap-gb {float(hog_swap_gb)} "
+                         f"--deadline $(( $(date +%s) + {hog_end} )) --log {q(work + '/hog.jsonl')} </dev/null >/dev/null 2>&1 & "
+                         f"echo $! > {q(work + '/hog.pid')}", timeout=left(30))
+            hog_started = True
+            log(f"memory hog on {host}: swap +{hog_swap_gb} GB, {HOG_WARMUP_SECONDS}s to build up")
+            time.sleep(HOG_WARMUP_SECONDS)
         budget = int(left(LEASE_SECONDS) - 45)
         if budget < 60:
             raise RuntimeError(f"the lease has {budget + 45}s left after setup: too little to run journeys")
@@ -300,11 +319,18 @@ def run_lease(specs, build, out, frame_interval):
         files = remote(host, f"cd {q(work + '/out')} && tar c --exclude 'frames' . | head -c {RESULT_TAR_MAX_BYTES}",
                        timeout=left(150), check=False).stdout
         take_results(files, out, set(ids))
+        if hog_started:
+            hog_log = remote(host, f"tail -c 2000000 {q(work + '/hog.jsonl')}", timeout=left(60), check=False).stdout
+            (out / f"hog-{lease}.jsonl").write_bytes(hog_log or b"")
     except (RuntimeError, subprocess.TimeoutExpired, KeyError, ValueError) as error:
         log(f"lease {lease}: {error}")
         reason = f"{host or lease}: {str(error)[-400:]}"
         return collect(out, ids, host, missing_reason=reason)
     finally:
+        if hog_started and host:
+            # Our own hog only: the pid it wrote, checked to still be smoke_hog.py (its deadline ends it anyway).
+            remote(host, f"p=$(cat {q(work + '/hog.pid')} 2>/dev/null) && [ -n \"$p\" ] && "
+                         f"ps -p \"$p\" -o command= | grep -q smoke_hog.py && kill \"$p\"; true", timeout=30, check=False)
         released = subprocess.run([ch, "release", lease], capture_output=True, timeout=120)
         log(f"released {lease}" if released.returncode == 0 else
             f"release of {lease} exited {released.returncode} (it expires within 10 minutes)")
@@ -431,6 +457,10 @@ def main(argv=None):
     pick.add_argument("--all", action="store_true")
     ap.add_argument("--out", help="output folder (default artifacts/journeys/<job12>-<time>)")
     ap.add_argument("--hosts", help="capture hosts to lease from, spaces between (sets CAPTURE_HOST_SLOT_HOSTS)")
+    ap.add_argument("--hog-swap-gb", type=float, default=0.0,
+                    help="memory pressure during each lease: the Austin's-day hog to this much swap above the start")
+    ap.add_argument("--exclusive", action="store_true",
+                    help="take each lease exclusive (the whole mini; capture-host acquire --slot --exclusive): for evidence")
     ap.add_argument("--frame-interval", type=float, default=1.0, help="seconds between clip frames (>= 0.25)")
     ap.add_argument("--build-wait-minutes", type=float, default=90, help="how long to wait for a running build")
     ap.add_argument("--list", action="store_true", help="print the journeys and exit")
@@ -473,7 +503,8 @@ def main(argv=None):
         results = {s["id"]: {"status": "not run", "reason": why} for s in chosen}
     else:
         for group in batches(chosen):
-            results.update(run_lease(group, build, out, opts.frame_interval))
+            results.update(run_lease(group, build, out, opts.frame_interval, exclusive=opts.exclusive,
+                                     hog_swap_gb=opts.hog_swap_gb))
 
     lines = []
     for spec in chosen:

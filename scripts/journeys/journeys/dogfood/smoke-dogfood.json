@@ -1,0 +1,68 @@
+{
+  "id": "smoke-dogfood",
+  "priority": "P1",
+  "title": "Dogfood smoke: 3 workspaces, Cmd-D twice and Ctrl-` twice fast with a line typed into each new terminal at once, a browser page, close, quit, reopen: everything works and the workspaces come back",
+  "why": "cmux-ad 2026-10-30 (stop the line, item 2): a build goes to Lawrence only when this passes 10 of 10 rounds under memory pressure (scripts/journeys/smoke-gate.py). Keys typed into a terminal while it is created are the bug class Lawrence reports, so the lines are typed at once, with no wait for the creation hold.",
+  "source": "the dogfood smoke gate (scripts/journeys/smoke-gate.py; README)",
+  "budget_seconds": 250,
+  "steps": [
+    {"do": "smoke_remember_workspaces"},
+    {"do": "new_terminal", "via": "key", "key": "n", "modifiers": ["cmd"], "as": "ws1"},
+    {"do": "new_terminal", "via": "key", "key": "n", "modifiers": ["cmd"], "as": "ws2"},
+    {"do": "new_terminal", "via": "key", "key": "n", "modifiers": ["cmd"], "as": "ws3"},
+    {"do": "neutral_prompt"},
+    {"do": "expect", "title": "Cmd-N three times made three workspaces", "timeout": 20,
+     "all": [{"smoke_workspaces": {"new": 3}}]},
+
+    {"do": "smoke_make_key"},
+    {"do": "key", "key": "d", "modifiers": ["cmd"], "mark": "split1"},
+    {"do": "smoke_type_now", "text": "echo d1-${nonce}-$((6*7))"},
+    {"do": "key", "key": "d", "modifiers": ["cmd"], "mark": "split2"},
+    {"do": "smoke_type_now", "text": "echo d2-${nonce}-$((6*7))"},
+    {"do": "expect", "title": "Cmd-D twice fast: two new panes, and the line typed into each at once ran there", "since": "split1", "timeout": 30,
+     "all": [
+       {"app_layout": {"panes": 3}},
+       {"smoke_daemon_lines": {"lines": ["d1-${nonce}-42", "d2-${nonce}-42"]}},
+       {"smoke_app_lines": {"lines": ["d1-${nonce}-42", "d2-${nonce}-42"]}},
+       {"frame_screen": {"shows": ["d1-${nonce}-42", "d2-${nonce}-42"]}}
+     ]},
+
+    {"do": "key", "key": "`", "modifiers": ["control"], "mark": "tab1"},
+    {"do": "smoke_type_now", "text": "echo t1-${nonce}-$((6*7))"},
+    {"do": "key", "key": "`", "modifiers": ["control"], "mark": "tab2"},
+    {"do": "smoke_type_now", "text": "echo t2-${nonce}-$((6*7))"},
+    {"do": "expect", "title": "Ctrl-` twice fast: two new terminal tabs, and the line typed into each at once ran there", "since": "tab1", "timeout": 30,
+     "all": [
+       {"smoke_daemon_lines": {"lines": ["t1-${nonce}-42", "t2-${nonce}-42"]}},
+       {"smoke_app_lines": {"lines": ["t2-${nonce}-42"]}},
+       {"frame_screen": {"shows": ["t2-${nonce}-42"]}}
+     ]},
+
+    {"do": "key", "key": "l", "modifiers": ["cmd", "shift"], "mark": "browser"},
+    {"do": "expect", "title": "Cmd-Shift-L opens a browser tab whose address bar takes the keys", "since": "browser", "timeout": 15,
+     "all": [{"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "addressBar"}}]},
+    {"do": "type", "text": "example.com", "enter": true, "mark": "loaded"},
+    {"do": "expect", "title": "the browser tab loads the page", "since": "loaded", "timeout": 45,
+     "all": [
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "browserPage"}},
+       {"frame_text": "Example Domain"}
+     ]},
+
+    {"do": "relaunch", "how": "quit", "mark": "reopened"},
+    {"do": "expect", "title": "after the reopen: one window, a clean launch, no blank pane, and the three workspaces came back", "since": "reopened", "timeout": 60,
+     "all": [
+       {"app_rpc": {"method": "debug.windows", "path": "windows", "len": 1}},
+       {"app_rpc": {"method": "debug.crashes", "path": "launch.recovery", "equals": "clean"}},
+       {"app_rpc": {"method": "debug.surfaces", "path": "blank_panes", "equals": 0}},
+       {"smoke_workspaces": {"new": 3}},
+       {"smoke_daemon_lines": {"lines": ["d1-${nonce}-42", "d2-${nonce}-42", "t1-${nonce}-42", "t2-${nonce}-42"]}}
+     ]},
+
+    {"do": "smoke_close_all"},
+    {"do": "expect", "title": "close all: the journey's workspaces are gone", "timeout": 20,
+     "all": [{"smoke_workspaces": {"new": 0}}]}
+  ],
+  "finally": [
+    {"do": "smoke_close_all"}
+  ]
+}

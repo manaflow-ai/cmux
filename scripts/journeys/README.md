@@ -279,6 +279,45 @@ journey and a bug, and writes:
 Any other verdict, an empty `tried`, a failure without a filed journey and bug, or a QA agent
 that is the author refuses the build.
 
+## Dogfood smoke gate (10 of 10 under memory pressure)
+
+```bash
+python3 scripts/journeys/smoke-gate.py --build JOB [--rounds 10] [--swap-gb 15]
+```
+
+cmux-ad 2026-10-30 (stop the line, item 2): a build goes to Lawrence only with
+`/Users/lawrence/fun/wt/handoff/dogfood-smoke/<JOB>.pass`, which only this gate writes, and only
+when `journeys/dogfood/smoke-dogfood.json` passed every round (10 of 10). Each round is one run of
+`run.py --journey smoke-dogfood --exclusive --hog-swap-gb 15`:
+
+- `--exclusive`: the lease owns the whole mini (`capture-host acquire --slot --exclusive`), so no
+  fleet step runs there during the round (the fleet rule for evidence).
+- `--hog-swap-gb`: the Austin's-day memory hog (`smoke_hog.py`, a copy of feat's
+  `scripts/cmux-next/austins-day/hog.py` until perf has it) holds incompressible memory until swap
+  used is that much above the start, gives memory back near the edge, and ends by its own
+  deadline; run.py starts it after the app launches (45 s to build up) and stops it by its pid.
+
+The journey (group `ext_smoke.py`): Cmd-N three times (three workspaces); Cmd-D twice fast, a line
+typed into each new pane at once; Ctrl-\` twice fast, a line typed into each new tab at once;
+Cmd-Shift-L and example.com; Cmd-Q and reopen, the three workspaces and their output back; close
+all. Each step is checked by the app's state (topology, `debug.surfaces`, `debug.focus`,
+`debug.windows`, `debug.crashes`), the daemon's screens and, where it shows text, a window frame
+(`check-NN.png`).
+
+**Typed at once** (`smoke_type_now`): no wait for the creation hold, the case Lawrence reports
+(keys into a terminal while it is created). A capture slot's window is never key
+(`CMUX_NEXT_NO_ACTIVATE`), and held keys are replayed through `NSApplication.sendEvent`, which
+reaches only the key window. So the journey first makes its window key without activating the
+app (`smoke_make_key`: `debug.window.focus`, which calls `makeKey()` and reports the key window).
+If the window did not become key, the round is "not run: known gap", which never passes the gate.
+`capture-host launch --activate` (a real foreground app) needs a whole-host lease, which needs
+CuaDriver's grants on the mini.
+
+Verdict: PASS (every round passed; the `.pass` file holds the summary, the rounds' leases and
+results, and the gate's commit; a gate with uncommitted changes never writes it), FAIL (a round
+failed: the summary names its step), NOT JUDGED (no failure, but a round did not run). Writes
+`summary.json` and `summary.txt`. Test: `python3 scripts/journeys/test_smoke_gate.py`.
+
 ## Not supported yet
 
 - Generated journeys: one per action catalog row, settings schema entry and keyboard shortcut
