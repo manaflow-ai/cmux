@@ -19,6 +19,7 @@ enum CEFThumbnail {
     @MainActor static func capture(_ tab: CEFTab, _ params: [String: Any]) async throws -> CGImage {
         guard let browserID = tab.browserID, !tab.isClosed else { throw BrowserTabError.snapshotUnavailable }
         let json = try await tab.runtime.devTools(browserID, method: "Page.captureScreenshot", params: params)
-        return try CEFDevToolsResult.screenshot(json)
+        // A viewport PNG is megabytes of base64 (an agent's `browser screenshot`): decoded off the main actor.
+        return try await CEFDevToolsResult.decodedScreenshot(json)
     }
 }
