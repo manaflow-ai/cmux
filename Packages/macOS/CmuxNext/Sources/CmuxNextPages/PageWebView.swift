@@ -54,6 +54,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Called after the page's effective visibility changes. Owners use this to revoke native
     /// page proofs on hide/detach and rebind them after the Chromium document is visible again.
     public var onVisibilityChanged: (@MainActor (Bool) -> Void)?
+    /// The Chromium host this page started in: told when its Chromium page attached
+    /// (``PageChromiumHosting/focusViewChanged(_:)``).
+    weak var chromiumFocusHost: (any PageChromiumHosting)?
     /// The Chromium execution context behind the isolated question-key channel was destroyed.
     /// Owners clear their cached binding and refresh it against the new document context.
     public var onQuestionKeyChannelInvalidated: (@MainActor () -> Void)?
@@ -430,7 +433,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     private func observeUIScale() {
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, DesignSettings.shared.interfaceScale, DesignSettings.shared.interfaceScaleEnabled) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.userScale) }) {
                 guard let self else { return }
                 self.applyUIScale()
             }

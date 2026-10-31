@@ -1,5 +1,4 @@
 import CmuxNextAgentPane
-import CmuxNextCloud
 import CmuxNextDaemon
 import Foundation
 
@@ -31,16 +30,12 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// The machine's daemon says whether a keyed acpmux restart loses nothing
     /// (`agent-session-start-keyed-reason-v1`, cx-0w0jj).
     var servesKeyedReason = false
-    /// A Cloud machine's link owner answer (``ownerLink(appLink:link:)``), read at each trust call
+    /// A Cloud machine's link owner answer (``CloudMachineLinks/ownerLink``), read at each trust call
     /// and never kept. Nil for a machine that is not a Cloud machine.
     var ownerLink: AgentSessionAttachClient.OwnerLink?
+    /// The chat runs on the person's own Cloud VM (``RemoteAcpmuxWire/ownerCloud(_:served:)``).
+    var ownerCloud: RemoteAcpmuxWire.OwnerCloud?
 
-    /// The owner answer of the link a Cloud machine's calls go over: the app link's own
-    /// (``CloudLinkSession/ownerLink``) or the legacy link's (``CloudMachineLink/ownerLink``).
-    static func ownerLink(appLink: CloudLinkSession?, link: CloudMachineLink?) -> AgentSessionAttachClient.OwnerLink {
-        if let appLink { return { await appLink.ownerLink } }
-        return { await link?.ownerLink }
-    }
     /// The keyed restart of the machine's acpmux (an SSH machine, or a paired server on the ssh
     /// route); nil where the app has no exec channel of its own (cx-0q7o).
     var approvals: AgentPaneRemoteApprovals?
@@ -79,7 +74,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         if let session {
             route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint, reconnect] in
                 let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, endpoint: endpoint)
-                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil)
+                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil)
             }
         } else if let start, mode == .attach {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
@@ -95,7 +90,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                     }
                     let client = AgentSessionAttachClient(surface: started.surface, reconnect: reconnect, endpoint: endpoint)
                     return (AgentTabRemoteClient(client: client, mode: .attach), started.session)
-                }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil)
+                }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil, ownerCloud: ownerCloud)
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)
