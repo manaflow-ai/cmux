@@ -75,6 +75,12 @@ on:
   # published spends no macOS time (run_macos=false) and publishes nothing.
   push:
     branches: ["**"]
+    # The published binaries do not contain the prose under cmux-tui/docs.
+    # Keep the publisher asleep for docs-only commits; v2 tree-key computation
+    # excludes the same non-runtime subtree. A push that also changes code
+    # still runs.
+    paths-ignore:
+      - "cmux-tui/docs/**"
     # The branch itself is trusted. Run on every base-branch advance so a
     # Swift-only change can repair a missing cmux-tui tree publication before
     # downstream app jobs try to fetch it.
@@ -310,9 +316,9 @@ jobs:
           key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$SOURCE_COMMIT")"
           [[ "$key" =~ ^[0-9a-f]{40}$ ]]
           echo "key=$key" >> "$GITHUB_OUTPUT"
-          # CMUX-TUI-TREE-KEY-V2: the v1 key of the same commit (with the classic
-          # ghostty gitlink). Trees published before v2 exist only under it.
-          legacy_key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v1 "$SOURCE_COMMIT")"
+          # CMUX-TUI-TREE-KEY-V2: the v2-legacy key of the same commit (the pre-docs v2 algorithm).
+          # Trees published before docs-only filtering exist only under it.
+          legacy_key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v2-legacy "$SOURCE_COMMIT")"
           [[ "$legacy_key" =~ ^[0-9a-f]{40}$ ]]
           echo "legacy_key=$legacy_key" >> "$GITHUB_OUTPUT"
 
@@ -376,15 +382,15 @@ jobs:
             fi
             [[ "$complete" == true ]]
           }
+          # Seed the docs-independent key even when an old publication exists.
+          # A later docs-only push has no publisher and cannot use that commit's
+          # docs-sensitive compatibility key. Consumers may read old keys, but
+          # only the canonical key is enough to skip publication here.
           tree_ready=false
           published_key=""
           if tree_complete "$key"; then
             tree_ready=true
             published_key="$key"
-          elif [[ "$legacy_key" != "$key" ]] && tree_complete "$legacy_key"; then
-            tree_ready=true
-            published_key="$legacy_key"
-            echo "Tree $key is published under its v1 key $legacy_key; fetch reads it there (CMUX-TUI-TREE-KEY-V2)."
           fi
           if [[ "$tree_ready" == true ]]; then
             echo "Published tree $key and all daemon companions are ready; macOS build can be skipped."
@@ -1423,12 +1429,12 @@ jobs:
           [[ "$key" =~ ^[0-9a-f]{40}$ ]]
           echo "key=$key" >> "$GITHUB_OUTPUT"
           echo "cmux-tui tree key: $key"
-          # CMUX-TUI-TREE-KEY-V2: the tree is also published under its v1 key
-          # until the v1 write stops (B2), so older checkouts still find it.
-          legacy_key="$(scripts/cmux-next/pin-cmux-tui.sh key --version v1)"
+          # CMUX-TUI-TREE-KEY-V2: the tree is also published under its v2-legacy key
+          # during the docs-key transition, so older checkouts still find it.
+          legacy_key="$(scripts/cmux-next/pin-cmux-tui.sh key --version v2-legacy)"
           [[ "$legacy_key" =~ ^[0-9a-f]{40}$ ]]
           echo "legacy_key=$legacy_key" >> "$GITHUB_OUTPUT"
-          echo "cmux-tui v1 tree key: $legacy_key"
+          echo "cmux-tui v2-legacy tree key: $legacy_key"
 
       # This job's tests can start acpmux daemons: they get a home of the job's
       # own, never the runner's ~/.acpmux, the mini's own daemon
@@ -3032,7 +3038,7 @@ jobs:
             echo "Took $object from this run's build (SHA-256 $expected, as the commit manifest names)"
           }
           # Publishes the tree under KEY, which must be this checkout's key
-          # of that version (CMUX-TUI-TREE-KEY-V2: v2, then v1 until B2).
+          # of that version (CMUX-TUI-TREE-KEY-V2: v2, then v2-legacy until B2).
           publish_tree() {
           local KEY="$1" version="$2" base source_args source_commit
           [[ "$(scripts/cmux-next/pin-cmux-tui.sh key --version "$version")" == "$KEY" ]] || {
@@ -3053,7 +3059,7 @@ jobs:
             [[ "$1" == https://files.cmux.com/* ]] || { echo "fetch: $1 is not a files.cmux.com object" >&2; return 2; }
             local object="${1#https://files.cmux.com/}"
             # A commit prefix (cmux-tui/<sha>/, cmux-tui-windows/<sha>/) is
-            # write-once, so its objects are read once per job: the v1 pass
+            # write-once, so its objects are read once per job: the compatibility pass
             # below reads the same commit's companions the v2 pass just read
             # (2.5 min of the 5 in run 40804446248). Tree objects are not kept.
             if [[ "$object" =~ ^cmux-tui(-windows)?/[0-9a-f]{40}/[^/]+$ ]]; then
@@ -3240,7 +3246,7 @@ jobs:
           }
           publish_tree "$KEY_V2" v2
           if [[ -n "$LEGACY_KEY" && "$LEGACY_KEY" != "$KEY_V2" ]]; then
-            publish_tree "$LEGACY_KEY" v1
+            publish_tree "$LEGACY_KEY" v2-legacy
           fi
 
       - name: Verify the tree publication
@@ -3345,7 +3351,7 @@ jobs:
             echo "Verified: $base/$name"
           }
           verify_tree "$KEY"
-          # CMUX-TUI-TREE-KEY-V2: the v1 publication too, until B2.
+          # CMUX-TUI-TREE-KEY-V2: the v2-legacy publication too, until B2.
           if [[ -n "$LEGACY_KEY" && "$LEGACY_KEY" != "$KEY" ]]; then
             verify_tree "$LEGACY_KEY"
           fi
