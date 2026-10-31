@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4118935876003",
+  "notes": "notes/4118935876003.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28980,
+      "title": "New Tab: Cmd-T shows the page at once again (the parked Chromium spare paints)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28111,
+      "title": "carry of #26791: cloud.startChat first send",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28018,
+      "title": "fix(acpmux): keep transcript disclosure carets inline",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27829,
+      "title": "cmux NEXT: replace an incompatible cmux-tui owner after an update, keeping its terminals",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29156,
+      "title": "ci(cmux-next): the selector lint's table and check run no Mac compile",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28965,
+      "title": "New Tab: Return always starts the chat; a busy Mac or a slow sign-in check never blocks it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29167,
+      "title": "fix(arch-ratchet): app_lines back under the last green tip (auto-archive style write moves to CmuxNextSettings)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
