@@ -101,6 +101,13 @@ import UIKit
         }
         try #require(scroll.contentSize.height >= 8000, "content measured \(scroll.contentSize.height)")
         let content: UIView = scroll
+        // Every row measured once (the native transcript measures a row when it first lays it
+        // out), so the jump's oracle reads a settled bottom.
+        controller.scrollTranscript(toContentY: scroll.contentSize.height, animated: false)
+        for _ in 0 ..< 5 {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+            controller.view.layoutIfNeeded()
+        }
         // Up at the first turn, no longer following the newest one.
         controller.scrollTranscript(toContentY: 0, animated: false)
         #expect(scroll.contentOffset.y < scroll.bounds.height)

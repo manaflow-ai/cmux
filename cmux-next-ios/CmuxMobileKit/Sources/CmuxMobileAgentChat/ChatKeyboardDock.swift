@@ -750,7 +750,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         endFoldHold()
         surface.following = !toTop
         view.layoutIfNeeded()
-        scroll(to: toTop ? CGPoint(x: 0, y: -scrollView.contentInset.top) : bottomOffset, animated: animated)
+        scroll(to: { [unowned self] in toTop ? CGPoint(x: 0, y: -scrollView.contentInset.top) : bottomOffset }, animated: animated)
     }
 
     /// Room the find bar takes under the header (its 44 pt row and its margins).
@@ -762,8 +762,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         view.layoutIfNeeded()
         let headerBottom = topInset ?? view.safeAreaInsets.top
         let wanted = y - headerBottom - Self.findBarClearance
-        let target = CGPoint(x: 0, y: min(max(-scrollView.contentInset.top, wanted), max(-scrollView.contentInset.top, bottomOffset.y)))
-        scroll(to: target, animated: animated)
+        scroll(to: { [unowned self] in
+            CGPoint(x: 0, y: min(max(-scrollView.contentInset.top, wanted), max(-scrollView.contentInset.top, bottomOffset.y)))
+        }, animated: animated)
     }
 
     func revealFindBlock(_ findBlock: String, position: Double, animated: Bool) {
@@ -781,7 +782,11 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// throughout. Tests set it.
     var reducesMotion: () -> Bool = { UIAccessibility.isReduceMotionEnabled }
 
-    private func scroll(to target: CGPoint, animated: Bool) {
+    /// `resolve`: the target, read again after a long jump's cut. The cut lays out the rows it
+    /// lands on, and measuring them can move the bottom (a target read before it landed a few
+    /// points short of the newest row).
+    private func scroll(to resolve: () -> CGPoint, animated: Bool) {
+        let target = resolve()
         if animated, !reducesMotion() {
             // A long jump animated the offset across pages SwiftUI had not drawn yet (a
             // blank band and stale fragments for ~300 ms). Cut to one screen short of the
@@ -797,7 +802,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
                 scrollView.layoutIfNeeded()
                 CATransaction.commit()
             }
-            UIView.animate(springDuration: 0.4, bounce: 0) { self.scrollView.contentOffset = target }
+            let landing = resolve()
+            UIView.animate(springDuration: 0.4, bounce: 0) { self.scrollView.contentOffset = landing }
         } else {
             scrollView.contentOffset = target
         }

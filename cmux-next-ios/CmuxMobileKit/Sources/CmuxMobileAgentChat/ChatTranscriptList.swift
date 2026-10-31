@@ -25,9 +25,14 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
 
     private struct Measured {
         var revision: Int
+        /// The transcript's disclosure state when measured (`disclosureRevision`).
+        var disclosures: Int
         var width: CGFloat
         var height: CGFloat
     }
+    /// Bumped when a disclosure opens or closes: a row's revision stays, but what it shows (a
+    /// tool's output, a thought) changed, so a height measured before is no shortcut for it.
+    var disclosureRevision = 0
 
     private(set) var items: [Item] = []
     private var heights: [CGFloat] = []
@@ -101,7 +106,8 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     /// The height a cell measured for this row's current revision at this width, if any:
     /// a cell showing it again needs no SwiftUI sizing pass.
     func knownHeight(of id: String) -> (height: CGFloat, width: CGFloat)? {
-        guard let row = index[id], row < items.count, let known = measured[id], known.revision == items[row].revision else { return nil }
+        guard let row = index[id], row < items.count, let known = measured[id], known.revision == items[row].revision,
+              known.disclosures == disclosureRevision else { return nil }
         return (known.height, known.width)
     }
 
@@ -202,7 +208,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         guard row < items.count else { return false }
         measurements += 1
         let item = items[row]
-        measured[item.id] = Measured(revision: item.revision, width: width, height: preferred.size.height)
+        measured[item.id] = Measured(revision: item.revision, disclosures: disclosureRevision, width: width, height: preferred.size.height)
         return abs(preferred.size.height - heights[row]) > 0.25
     }
 
@@ -556,6 +562,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                 forced.formUnion(lookup.shownNative.keys)
             }
             shownDisclosures = disclosures
+            // The rows shown again re-measure (a tool row opened over its collapsed height).
+            layout.disclosureRevision = disclosures
         }
         // Find in Chat's current match moved: the rows losing and taking the mark draw again.
         let marked = surface.find?.currentBlock.map(Self.rowID(findBlock:))
