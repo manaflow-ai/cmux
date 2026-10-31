@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-02: groups with no user-chosen colour draw no dot, line, chip fill or wash.
+  Leo (ask-c88148faefe): "WHY DOES THIS HAVE A LINE AND COLOR?????? WHERE IS ORANGE COMING FROM?????????? AN ORANGE DOT????"
+  New groups and missing stored colours use `GroupTint.none`; explicitly chosen palette and custom colours
+  keep their appearance. This supersedes the automatic group palette from #22651 and the grey fallback
+  from #32156. Regression: `GroupNoChosenColorTests`; surface spec: `design/tabs.md`.
+
 - 2026-11-02: the Priority view's machine tag takes the machine's identity colour, `MachineColor(name:)`, not its own
   hash into the group palette (#32081, carrying Leo's handoff of 2026-10-21: "When #22763 merges, replace that body
   with `MachineColor(name: machine).color`"). The tag text now matches the machine's colour elsewhere and follows the

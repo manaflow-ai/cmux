@@ -587,7 +587,8 @@ fn tab_groups_create_edit_move_ungroup_and_close_through_public_ids() {
 
     let second = mutate(&mux, "tab_group.create", json!({"tabs": [ids[2]]}), "group-create-2");
     let second_id = second["id"].as_str().unwrap().to_string();
-    assert_eq!(second["color"], "grey");
+    // No color named: no color (not grey, not a palette pick).
+    assert_eq!(second["color"], "none");
     let closed = mutate(&mux, "tab_group.close", json!({"tab_group": second_id}), "group-close");
     assert_eq!(closed["tab_ids"], json!([ids[2]]));
     assert!(mux.with_state(|state| {
