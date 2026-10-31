@@ -10,6 +10,7 @@ use crate::cli::hosts::{checked_host, ssh_argv};
 use crate::client::Client;
 use crate::tailnet::{self, Tailnet};
 use anyhow::{Result, anyhow};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::net::IpAddr;
 use std::process::{Command, Stdio};
@@ -81,9 +82,10 @@ impl Io for Live<'_> {
     }
 }
 
-/// `peer`: this daemon lists `t.name` at `ssh://t.host` and it connects.
-pub async fn peer(client: &Client, t: &PeerTarget<'_>, fix: bool) -> StepResult {
-    peer_with(&Live(Some(client)), t, fix).await
+/// `peer`: this daemon lists `t.name` at `ssh://t.host` and it connects. With `lend` (enroll,
+/// that is Add Machine), this Mac also lends it its GitHub login.
+pub async fn peer(client: &Client, t: &PeerTarget<'_>, fix: bool, lend: bool) -> StepResult {
+    peer_step(&Live(Some(client)), t, fix, lend).await
 }
 
 /// `peer-back`: the machine lists this one as an ssh peer that resolves
@@ -126,10 +128,19 @@ fn last_error(p: &Value) -> String {
     p.get("error").and_then(Value::as_str).map(|e| format!(" ({e})")).unwrap_or_default()
 }
 
-/// Two ssh peer URLs that name the same destination and port.
+/// Two ssh peer URLs that name the same destination and port: the same user exactly (`alice`
+/// and `Alice` can be two accounts), on a host named in any case.
 fn same_ssh_url(a: &str, b: &str) -> bool {
+    let split = |d: &str| match d.rsplit_once('@') {
+        Some((user, host)) => (Some(user.to_owned()), host.to_owned()),
+        None => (None, d.to_owned()),
+    };
     match (crate::peer::ssh_target(a), crate::peer::ssh_target(b)) {
-        (Ok(a), Ok(b)) => a.destination.eq_ignore_ascii_case(&b.destination) && a.port == b.port,
+        (Ok(a), Ok(b)) => {
+            let ((user_a, host_a), (user_b, host_b)) =
+                (split(&a.destination), split(&b.destination));
+            user_a == user_b && host_a.eq_ignore_ascii_case(&host_b) && a.port == b.port
+        }
         _ => false,
     }
 }
@@ -149,7 +160,33 @@ pub(crate) fn checked_name(name: &str) -> Result<&str, &'static str> {
     Ok(name)
 }
 
+/// With `lend`, the person's own machine added with Add Machine: this Mac lends it its GitHub
+/// login (`github_broker.rs`), so an agent there needs no `gh auth login`. Without it the add
+/// leaves the peer as it was (`host doctor`).
+fn add_params(name: &str, url: &str, lend: bool) -> Value {
+    let mut p = json!({"name": name, "url": url, "wait": true});
+    if lend {
+        p.set("githubBroker", json!(true));
+    }
+    p
+}
+
+fn lends_github(p: &Value) -> bool {
+    p.get("githubBroker").and_then(Value::as_bool) == Some(true)
+}
+
+/// The `peer` step of `host doctor`: it never changes what the peer is lent.
+#[cfg(test)]
 pub(crate) async fn peer_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) -> StepResult {
+    peer_step(io, t, fix, false).await
+}
+
+pub(crate) async fn peer_step(
+    io: &impl Io,
+    t: &PeerTarget<'_>,
+    fix: bool,
+    lend: bool,
+) -> StepResult {
     let fail = |detail: String| result(Step::Peer, StepState::Fail, detail);
     if let Err(e) = checked_host(t.host) {
         return fail(e.to_string()).with_fix("Give the host as [user@]name, without a port.");
@@ -164,6 +201,21 @@ pub(crate) async fn peer_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) -> St
     };
     let settle = |reply: Result<Value>| match reply {
         Err(e) => fail(format!("the local daemon refused {name} at {url}: {e}")),
+        // The peer stopped (it was removed, or never started) before its attempt settled.
+        Ok(reply) if reply["wait"]["stopped"] == true => fail(format!(
+            "{name} at {url} stopped before it connected{}",
+            last_error(&reply["wait"]["peer"])
+        ))
+        .with_fix("`acpmux host ls` shows whether it is still configured; add it again if not."),
+        // The daemon's wait ran out before the attempt settled (`Hub::wait_for_peer`): say how
+        // far it got, not "does not connect" with no reason.
+        Ok(reply) if reply["wait"]["settled"] == false => {
+            let p = &reply["wait"]["peer"];
+            let step = if p["handshaking"] == true { "in its handshake" } else { "connecting" };
+            let secs = reply["wait"]["waitedMs"].as_u64().unwrap_or(0) / 1000;
+            fail(format!("{name} at {url} is still {step} after {secs}s{}", last_error(p)))
+                .with_fix("Check again in a minute; `acpmux host ls` shows when it connects.")
+        }
         Ok(reply) => match named(&list(&reply), name) {
             Some(p) if connected(p) => {
                 result(Step::Peer, StepState::Fixed, format!("{name} at {url}, connected"))
@@ -179,19 +231,22 @@ pub(crate) async fn peer_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) -> St
                 "Pick another name for this machine, or remove that peer first (`acpmux host rm {name}`)."
             ))
         }
-        Some(p) if connected(p) => {
+        Some(p) if connected(p) && (!fix || !lend || lends_github(p)) => {
             result(Step::Peer, StepState::Ok, format!("{name} at {url}, connected"))
         }
         Some(p) if !fix => fail(format!("{name} at {url} is not connected{}", last_error(p)))
             .with_fix("Check again with --fix to reconnect it."),
+        // Enrolled again, after it was added without GitHub: added again with it, under its own
+        // url (the daemon keeps its saved tokens), which also reconnects it.
+        Some(p) if lend && !lends_github(p) => {
+            settle(io.rpc("_acpmux/peer_add", add_params(name, text(p, "url"), true)).await)
+        }
         Some(_) => settle(
-            io.rpc("_acpmux/peer_reconnect", json!({"name": name, "wait": true})).await,
+            io.rpc("_acpmux/peer_reconnect", json!({"name": name, "wait": true, "force": true})).await,
         ),
         None if !fix => fail(format!("no peer named {name}"))
             .with_fix(format!("Check again with --fix to add {name} at {url}.")),
-        None => settle(
-            io.rpc("_acpmux/peer_add", json!({"name": name, "url": url, "wait": true})).await,
-        ),
+        None => settle(io.rpc("_acpmux/peer_add", add_params(name, &url, lend)).await),
     }
 }
 

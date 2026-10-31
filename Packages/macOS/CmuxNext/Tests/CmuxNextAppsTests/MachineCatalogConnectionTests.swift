@@ -37,7 +37,7 @@ struct MachineCatalogConnectionTests {
                 reply.update(error='wrong owner', error_code=code)
             print(json.dumps(reply), flush=True)
         """#
-        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", script, mode])
+        let bridge = DaemonBridge.fakePython(["-c", script, mode])
         let connection = DaemonConnection(endpoint: .init(socketPath: "/tmp/cmux-catalog-test-\(UUID().uuidString).sock", bridge: bridge),
                                           configuration: .init(requiredCapabilities: [], terminalEnvironment: nil))
         let request = MachineCatalogPublishRequest(expectedMachineID: "machine_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sequence: 7, machines: [])

@@ -17,6 +17,10 @@ struct Fake {
     peers: RefCell<Vec<Value>>,
     /// Whether a peer the local daemon adds or reconnects connects.
     local_connects: bool,
+    /// Whether the local daemon's wait for that attempt ran out first, the peer in its handshake.
+    local_waits_out: bool,
+    /// Whether that peer stopped (was removed) before its attempt settled.
+    local_stops: bool,
     tailnet: Option<&'static str>,
     user: Option<&'static str>,
     /// The remote's peers (`daemon status`); `None`: no daemon runs there.
@@ -34,6 +38,8 @@ impl Default for Fake {
         Self {
             peers: RefCell::new(Vec::new()),
             local_connects: true,
+            local_waits_out: false,
+            local_stops: false,
             tailnet: Some(TAILNET),
             user: Some("leo"),
             remote_peers: RefCell::new(Some(Vec::new())),
@@ -58,7 +64,7 @@ impl Io for Fake {
             "_acpmux/peers" => {}
             "_acpmux/peer_add" => {
                 peers.retain(|p| p["name"] != name);
-                peers.push(json!({"name": name, "url": params["url"], "connected": self.local_connects, "error": (!self.local_connects).then_some("ssh: no route")}));
+                peers.push(json!({"name": name, "url": params["url"], "connected": self.local_connects, "error": (!self.local_connects).then_some("ssh: no route"), "githubBroker": params["githubBroker"]}));
             }
             "_acpmux/peer_reconnect" => {
                 for p in peers.iter_mut().filter(|p| p["name"] == name) {
@@ -66,6 +72,16 @@ impl Io for Fake {
                 }
             }
             other => return Err(anyhow!("unexpected rpc {other}")),
+        }
+        if self.local_waits_out && method != "_acpmux/peers" {
+            let peer =
+                json!({"name": name, "connected": false, "handshaking": true, "error": null});
+            let wait = json!({"settled": false, "waitedMs": 30_000, "peer": peer});
+            return Ok(json!({"peers": *peers, "wait": wait}));
+        }
+        if self.local_stops && method != "_acpmux/peers" {
+            let wait = json!({"settled": false, "stopped": true, "waitedMs": 0, "peer": null});
+            return Ok(json!({"peers": *peers, "wait": wait}));
         }
         Ok(json!({"peers": *peers}))
     }
@@ -242,6 +258,24 @@ async fn peer_adds_only_with_fix_and_then_connects() {
     assert_eq!(r.state, StepState::Ok);
 }
 
+/// A wait the local daemon gave up on says how far the attempt got, not "does not connect".
+#[tokio::test]
+async fn peer_reports_an_attempt_still_running_when_the_wait_ran_out() {
+    let fake = Fake { local_connects: false, local_waits_out: true, ..Fake::default() };
+    let r = peer_with(&fake, &target(None), true).await;
+    assert_eq!(r.state, StepState::Fail);
+    assert_eq!(r.detail, "hb at ssh://huge-blue is still in its handshake after 30s");
+}
+
+/// A peer that stopped before its attempt settled is not "still connecting after 0s".
+#[tokio::test]
+async fn peer_reports_a_peer_that_stopped_before_it_connected() {
+    let fake = Fake { local_connects: false, local_stops: true, ..Fake::default() };
+    let r = peer_with(&fake, &target(None), true).await;
+    assert_eq!(r.state, StepState::Fail);
+    assert_eq!(r.detail, "hb at ssh://huge-blue stopped before it connected");
+}
+
 #[tokio::test]
 async fn peer_reports_a_peer_that_does_not_connect() {
     let fake = Fake { local_connects: false, ..Fake::default() };
@@ -380,7 +414,7 @@ async fn a_peer_on_another_port_passes_peer_and_identity_and_fix_adds_it_with_it
     let fake = Fake::default();
     fake.peers
         .borrow_mut()
-        .push(json!({"name": "hb", "url": "ssh://huge-blue:47900", "connected": true}));
+        .push(json!({"name": "hb", "url": "ssh://huge-blue:47900", "connected": true, "githubBroker": true}));
     let t = PeerTarget { port: 47900, ..target(None) };
     let r = peer_with(&fake, &t, true).await;
     assert_eq!(
@@ -402,4 +436,53 @@ async fn a_peer_on_another_port_passes_peer_and_identity_and_fix_adds_it_with_it
     assert_eq!(fake.peers.borrow()[0]["url"], "ssh://huge-blue:47900");
     assert_eq!(peer_with(&fake, &t, false).await.state, StepState::Ok);
     assert_eq!(identity_with(&fake, &t).await.state, StepState::Ok);
+}
+
+/// Add Machine adds the person's own machine with the Mac's GitHub login lent to it
+/// (`github_broker.rs`); one added before that gets it on its next enroll, under its own url.
+#[tokio::test]
+async fn add_machine_lends_github_and_turns_it_on_for_an_older_peer() {
+    let fake = Fake::default();
+    assert_eq!(peer_step(&fake, &target(None), true, true).await.state, StepState::Fixed);
+    assert_eq!(fake.peers.borrow()[0]["githubBroker"], true);
+
+    let fake = Fake::default();
+    fake.peers
+        .borrow_mut()
+        .push(json!({"name": "hb", "url": "ssh://Huge-Blue", "connected": true}));
+    // A check without fix changes nothing.
+    assert_eq!(peer_step(&fake, &target(None), false, true).await.state, StepState::Ok);
+    assert!(!fake.mutated_here());
+    assert_eq!(peer_step(&fake, &target(None), true, true).await.state, StepState::Fixed);
+    let peers = fake.peers.borrow();
+    assert_eq!(
+        (peers.len(), &peers[0]["url"], &peers[0]["githubBroker"]),
+        (1, &json!("ssh://Huge-Blue"), &json!(true))
+    );
+}
+
+/// The review of the Add Machine part at 5e03d7f: `host doctor --fix` lent GitHub to a peer
+/// that was never enrolled, and to one whose lending was turned off.
+#[tokio::test]
+async fn doctor_never_lends_github() {
+    let fake = Fake::default();
+    assert_eq!(peer_with(&fake, &target(None), true).await.state, StepState::Fixed);
+    assert_eq!(fake.peers.borrow()[0]["githubBroker"], Value::Null);
+
+    let fake = Fake::default();
+    fake.peers
+        .borrow_mut()
+        .push(json!({"name": "hb", "url": "ssh://huge-blue", "connected": true}));
+    assert_eq!(peer_with(&fake, &target(None), true).await.state, StepState::Ok);
+    assert!(!fake.mutated_here());
+}
+
+/// Review of part 3 at a51f607: `Alice@host` matched `alice@host`, so enroll could lend GitHub
+/// to another account's saved peer.
+#[test]
+fn a_peer_url_matches_its_user_exactly_and_its_host_in_any_case() {
+    assert!(same_ssh_url("ssh://alice@Host.example", "ssh://alice@host.example"));
+    assert!(!same_ssh_url("ssh://Alice@host.example", "ssh://alice@host.example"));
+    assert!(!same_ssh_url("ssh://alice@host.example", "ssh://host.example"));
+    assert!(!same_ssh_url("ssh://alice@host.example:2222", "ssh://alice@host.example"));
 }

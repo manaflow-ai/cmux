@@ -26,6 +26,8 @@ use prompt_semantic::*;
 mod vt_boundary;
 use vt_boundary::*;
 
+mod replay_rows;
+
 mod color_override;
 use color_override::*;
 
@@ -972,19 +974,11 @@ impl Terminal {
     }
 
     fn active_row_wrap_continuation(&self, y: u16) -> Option<bool> {
-        let grid_ref = self.grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, 0, u64::from(y))?;
-        let mut row = sys::GhosttyRow::default();
-        check(unsafe { sys::ghostty_grid_ref_row(&grid_ref, &mut row) }).ok()?;
-        let mut continuation = false;
-        check(unsafe {
-            sys::ghostty_row_get(
-                row,
-                sys::GHOSTTY_ROW_DATA_WRAP_CONTINUATION,
-                (&mut continuation as *mut bool).cast(),
-            )
-        })
-        .ok()?;
-        Some(continuation)
+        self.row_flag(
+            sys::GHOSTTY_POINT_TAG_ACTIVE,
+            u64::from(y),
+            sys::GHOSTTY_ROW_DATA_WRAP_CONTINUATION,
+        )
     }
 
     fn active_row_prompt_semantic(&self, y: u16) -> Option<sys::GhosttyRowSemanticPrompt> {
@@ -2291,115 +2285,6 @@ impl Terminal {
             }
         }
         Ok(best)
-    }
-
-    fn vt_replay_text_range_bounded(
-        &mut self,
-        range: ReplayRowRange,
-        placement_rows: &KittyReplayRowIndex,
-        max_bytes: usize,
-        include_palette: bool,
-    ) -> Result<Option<ReplayText>> {
-        let cols = self.cols();
-        if cols == 0 || range.start > range.end {
-            return Err(Error::InvalidValue);
-        }
-        let suffix = self.cursor_position_escape()?;
-        let suffix_len = suffix.as_ref().map_or(0, Vec::len);
-        let Some(format_max_bytes) = max_bytes.checked_sub(suffix_len) else {
-            return Ok(None);
-        };
-        let insert_at_start = placement_rows.overlaps(range.start);
-        let has_placement_anchor =
-            placement_rows.anchors.range(range.start..=range.end).next().is_some();
-        let mut segment_ends =
-            placement_rows.anchors.range(range.start..=range.end).copied().collect::<BTreeSet<_>>();
-        if insert_at_start {
-            segment_ends.insert(range.start);
-        }
-        segment_ends.insert(range.end);
-        let mut bytes = Vec::new();
-        let mut insertion_offsets = BTreeMap::new();
-        let mut segment_start = range.start;
-        let replay_rows = range.end - range.start + 1;
-        let screen_rows = u64::from(self.rows().max(1));
-        // A replay with retained scrollback can contain exactly one viewport
-        // of rows while still carrying a sparse history prefix in Ghostty's
-        // screen coordinate space. Keep every row boundary in that case so
-        // the target cannot retain stale history above the active TUI.
-        let history_bearing = self.history_rows() > 0 || replay_rows > screen_rows;
-        // A replay without image placement anchors can let the target terminal
-        // recreate soft wraps naturally. Placement commands and history-bearing
-        // ranges depend on physical row cursor positions, so retain the
-        // row-delimited form for those cases.
-        let preserve_soft_wrap = !history_bearing && !insert_at_start && !has_placement_anchor;
-        let mut emitted_breaks = 0usize;
-        for segment_end in segment_ends {
-            if segment_end < segment_start {
-                continue;
-            }
-            let selection = self.screen_selection(segment_start, segment_end)?;
-            let first = segment_start == range.start;
-            let last = segment_end == range.end;
-            let remaining = format_max_bytes.saturating_sub(bytes.len());
-            let Some(chunk) = self.format_bounded(
-                Self::vt_replay_segment_options(
-                    &selection,
-                    first,
-                    last,
-                    include_palette,
-                    preserve_soft_wrap,
-                ),
-                remaining,
-            )?
-            else {
-                return Ok(None);
-            };
-            if !preserve_soft_wrap {
-                emitted_breaks = emitted_breaks
-                    .saturating_add(chunk.windows(2).filter(|bytes| *bytes == b"\r\n").count());
-            }
-            bytes.extend_from_slice(&chunk);
-            if !preserve_soft_wrap && history_bearing {
-                let expected_breaks =
-                    usize::try_from(segment_end - range.start).unwrap_or(usize::MAX);
-                while emitted_breaks < expected_breaks {
-                    if bytes.len().saturating_add(2) > format_max_bytes {
-                        return Ok(None);
-                    }
-                    bytes.extend_from_slice(b"\r\n");
-                    emitted_breaks = emitted_breaks.saturating_add(1);
-                }
-            }
-            if placement_rows.anchors.contains(&segment_end)
-                || (insert_at_start && segment_end == range.start)
-            {
-                insertion_offsets.insert(segment_end, bytes.len());
-            }
-            if !last {
-                if !preserve_soft_wrap {
-                    if bytes.len().saturating_add(2) > format_max_bytes {
-                        return Ok(None);
-                    }
-                    bytes.extend_from_slice(b"\r\n");
-                    emitted_breaks = emitted_breaks.saturating_add(1);
-                }
-                segment_start = segment_end.saturating_add(1);
-            }
-        }
-        if !preserve_soft_wrap && history_bearing {
-            let expected_breaks = usize::try_from(replay_rows - 1).unwrap_or(usize::MAX);
-            for _ in emitted_breaks..expected_breaks {
-                if bytes.len().saturating_add(2) > format_max_bytes {
-                    return Ok(None);
-                }
-                bytes.extend_from_slice(b"\r\n");
-            }
-        }
-        if let Some(suffix) = suffix {
-            bytes.extend_from_slice(&suffix);
-        }
-        Ok(Some(ReplayText { bytes, range: Some(range), insertion_offsets }))
     }
 
     fn screen_selection(&self, start_row: u64, end_row: u64) -> Result<sys::GhosttySelection> {

@@ -48,12 +48,16 @@ extension SettingsSchema {
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
+        // Whether a chat shows the live view of the app its agent uses: looks only.
+        "computerUse.livePreview",
         "shortcuts.showModifierHoldHints",
+        // Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).
+        "contextMenus.showCustomizeItem",
         "window.titlebarButtons",
         "tabs.plusButton",
         "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons", "browser.toolbarPosition",
         "navigation.historyScope", "navigation.history.scope",
-        "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors",
+        "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.textSize", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors",
         "sidebar.showLocalMachine",
         "sidebar.controlsOnHover", // sidebar control visibility (looks only)
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",
@@ -61,6 +65,7 @@ extension SettingsSchema {
         "sidebar.side", "sidebar.style",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
         "tabs.newTabTemplate",
+        "tabs.nativeNewTabPage", // which New Tab page draws; a look switch, ends no work
         "tabs.newTabPosition",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
@@ -89,11 +94,15 @@ extension SettingsSchema {
         "layout.focusFollowsMouse",
         "layout.scrollAreas",
         "layout.scrollModifier",
+        "layout.pagesHandleCommandScroll",
+        // The cmux model router's default model is the same choice exposed by its Settings and MCP pickers.
+        "agents.modelRouter.model",
         "layout.minimumPaneWidth",
         "layout.minimumPaneHeight",
         "appearance.theme",
         "appearance.appTheme",
         "appearance.accent",
+        "appearance.highlightColor", // the app's one selected-text color (looks only)
         "appearance.themeEdits",
         "appearance.machineColors", // the color of each machine's marks (looks only)
         "appearance.backdropArt",
@@ -190,6 +199,8 @@ extension SettingsSchema {
         "browser.siteEngines",
         "browser.newTabPage",
         "browser.showBookmarksBar",
+        // Whether browser tabs offer to import cookies: the card reads nothing until the person clicks Import.
+        "browser.import.cookieBanner",
         "browser.toolbarButtons",
         "browser.hibernation",
         "browser.hibernationExclusions",
@@ -236,6 +247,8 @@ extension SettingsSchema {
         "agentPane.needsYou.enabled",
         "updates.notify",
         "updates.showWhatsNew",
+        // Feature tips: a display the person can turn on again.
+        "updates.showFeatureTips",
         "announcements.enabled",
     ]
 
@@ -319,6 +332,9 @@ extension SettingsSchema {
         "labs.voiceRoom": .privacy,
         // The room address chooses the network endpoint that receives that capture.
         "labs.voiceRoomURL": .network,
+        // On, Add Device mints a line that joins any machine to the team's machines: only the person
+        // turns that on.
+        "labs.machineJoin": .network,
         // On, a key is taken from every other app system-wide.
         "app.globalHotKey": .userOnly,
         "app.startAgentGlobalHotKey": .userOnly,

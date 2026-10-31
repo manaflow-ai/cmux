@@ -1,10 +1,11 @@
 // Another agent's message that waits in the chat's queue is not the person's prompt (Leo,
 // 2026-10-25: "I don't know why these things are queued up. It's kind of strange."). It never
 // draws as a composer-queue row: the transcript shows it at once as the message it is (its
-// received card, IncomingMessageCard.tsx), after the running turn, with a quiet "Read after this
-// turn" (QueuedMessageCard.tsx). Its ⋯ menu keeps the queue row's actions: Steer, Edit message,
-// queueing on or off, Delete. Once acpmux starts it, the queue drops it and the prompt's own row
-// is its card, delivered. The composer's queue, its fold and its count, are the person's own
+// received line, IncomingMessageCard.tsx), in the one group of messages that wait
+// (pendingMessages.ts), never under a "Read after this turn" (Leo, 2026-10-29: "why the fuck do you
+// guys keep doing this fucking bullshit with the red after this turn?"). Its ⋯ menu is a message's,
+// not the person's queue row's: Deliver now, Copy, Dismiss (QueuedMessageCard.tsx). Once acpmux
+// starts it, the queue drops it and the prompt's own row is its card, delivered. The composer's queue, its fold and its count, are the person's own
 // prompts alone (ComposerQueue.tsx).
 import type { ComposerAttachment } from "../attachments";
 import { QUEUED_MESSAGE, type AcpmuxRow, type AcpmuxSnapshot, type QueuedPromptImage } from "../model";
@@ -34,8 +35,10 @@ export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonl
   for (const entry of queue) {
     const message = entry.message;
     if (!message) continue;
+    // The first message may explain a Stop hold, once for the run.
+    const lead = rows.length === 0;
     let row = rowsByEntry.get(entry);
-    if (!row) {
+    if (!row || Boolean(row.queuedMessage?.lead) !== lead) {
       row = {
         id: queuedMessageRowId(entry.id),
         version: ++version,
@@ -43,7 +46,12 @@ export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonl
         kind: QUEUED_MESSAGE,
         text: message.text,
         incoming: { kind: "message", message },
-        queuedMessage: { promptId: entry.id, ...(entry.next ? { next: true } : {}) },
+        queuedMessage: {
+          promptId: entry.id,
+          ...(entry.next ? { next: true } : {}),
+          ...(lead ? { lead: true } : {}),
+          ...(entry.heldByStop ? { heldByStop: true } : {}),
+        },
         untyped: true,
         ...(entry.images?.length ? { images: entry.images } : {}),
       };
@@ -74,4 +82,10 @@ export function queuedAttachments(
       };
     }),
   );
+}
+
+/// Whether an image of the prompt could not be read back (no local copy, and the read failed): taking
+/// the prompt into the composer then would lose it, so Edit message leaves it in the queue.
+export function lacksImageBytes(attachments: readonly ComposerAttachment[]): boolean {
+  return attachments.some((attachment) => attachment.kind === "image" && !attachment.data);
 }
