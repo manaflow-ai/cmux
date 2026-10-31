@@ -790,6 +790,8 @@ class RunnerPoolsTests(unittest.TestCase):
         jobs = {1: [job(B32, created=10)]}  # no other start evidence: the pool's move is the evidence
         dead = dead_labels.dead_labels_if_complete(runs, jobs, now=NOW, retired=pools.retired())
         self.assertEqual([(d.name(), d.live) for d in dead], [(B32, (B16,))])
+        self.assertTrue(dead[0].retired)
+        self.assertTrue(dead[0].as_json()["retired"])
         pooled = dead_labels.plan(runs, jobs, dead, values=VALUES, repo="manaflow-ai/cmux", pools=pools,
                                   workflow_text=lambda r, p: workflow(POOLED_RUNS_ON))
         self.assertIsNone(pooled[0].why_not)

@@ -141,13 +141,17 @@ class DeadLabel:
     oldest: dt.timedelta
     queued: int
     live: tuple[str, ...]  # labels of the family that started a job within the window
+    retired: bool = False  # a pool-retirement candidate, not observed start evidence
 
     def name(self) -> str:
         return ",".join(sorted(self.labels))
 
     def as_json(self) -> dict[str, Any]:
-        return {"label": self.name(), "family": self.family, "queued": self.queued,
-                "oldest_queued_minutes": int(self.oldest.total_seconds() // 60), "live": list(self.live)}
+        value = {"label": self.name(), "family": self.family, "queued": self.queued,
+                 "oldest_queued_minutes": int(self.oldest.total_seconds() // 60), "live": list(self.live)}
+        if self.retired:
+            value["retired"] = True
+        return value
 
 
 def dead_labels(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], *,
@@ -273,7 +277,7 @@ def retired_labels(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, 
             if wait is not None and not wait[1] and now - wait[0] >= after:
                 waits.setdefault(next(iter(labels)), []).append(now - wait[0])
     return [DeadLabel(frozenset({label}), label_family(label) or "pool", max(ages), len(ages),
-                      tuple(x for x in (retired[label],) if x))
+                      tuple(x for x in (retired[label],) if x), retired=True)
             for label, ages in sorted(waits.items())]
 
 

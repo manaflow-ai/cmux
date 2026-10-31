@@ -113,6 +113,16 @@ class Evidence(unittest.TestCase):
         self.assertEqual(started, {"blacksmith-32vcpu-ubuntu-2404"})
         self.assertEqual(runner_pools._labels("a,b+c"), {"a", "b", "c"})
 
+    def test_retired_label_entries_do_not_fabricate_start_evidence(self) -> None:
+        # A pool move makes queued jobs eligible for re-dispatch, but the record is
+        # not an observation that the replacement label actually started anything.
+        snapshot = dict(RECORDED, dead_labels=[{
+            "label": "blacksmith-16vcpu-ubuntu-2404", "family": "linux", "queued": 4,
+            "oldest_queued_minutes": 6, "live": ["blacksmith-32vcpu-ubuntu-2404"], "retired": True}])
+        dead, started, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+        self.assertEqual(dead, set())
+        self.assertEqual(started, set())
+
     def test_probe_health_per_label(self) -> None:
         dead, started, _ = runner_pools.label_evidence(health({
             "blacksmith-32vcpu-ubuntu-2404": "stalled", "blacksmith-16vcpu-ubuntu-2404": "started"}), None, now=NOW)
