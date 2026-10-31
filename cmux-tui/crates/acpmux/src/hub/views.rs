@@ -423,7 +423,8 @@ impl Hub {
                 ),
                 started_at: t.started_at,
                 client: t.client,
-                prompt: t.prompt_preview,
+                // Another agent's message as its sender and words, not its envelope; masked.
+                prompt: t.masked_preview,
                 turn_id: t.turn_id,
                 prompt_id: t.prompt_id,
                 turn_seq: t.turn_seq,
@@ -452,15 +453,20 @@ impl Hub {
                     from_harness: crate::prompt_provenance::sender_of(q.run.provenance.as_ref()).1,
                     class: q.run.class,
                     author: crate::author::listed(q.run.provenance.as_ref()),
+                    subagent_retry: super::subagent_retry::listed(q.run.provenance.as_ref()),
                     // By attachment id: `_acpmux/attachment` reads each back.
-                    images: super::prompt_images::named(&q.run.blocks)
-                        .into_iter()
-                        .map(|image| QueuedImage {
-                            id: image["id"].as_str().unwrap_or_default().to_owned(),
-                            mime_type: image["mimeType"].as_str().unwrap_or_default().to_owned(),
-                            name: image["name"].as_str().map(str::to_owned),
-                        })
-                        .collect(),
+                    images: super::prompt_images::named_sourced(
+                        &q.run.blocks,
+                        q.run.display_parts.as_ref(),
+                    )
+                    .into_iter()
+                    .map(|image| QueuedImage {
+                        id: image["id"].as_str().unwrap_or_default().to_owned(),
+                        mime_type: image["mimeType"].as_str().unwrap_or_default().to_owned(),
+                        name: image["name"].as_str().map(str::to_owned),
+                        source: image.get("source").cloned(),
+                    })
+                    .collect(),
                 })
                 .collect(),
             pending_permissions: session.pending_permissions().len() as u64,
