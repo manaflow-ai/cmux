@@ -443,6 +443,82 @@
 }
 .acpmux-quick-placement-top .acpmux-quick-rail-tab { max-width: 100%; }
 .acpmux-quick-placement-top .acpmux-quick-body { flex-basis: auto; }
+/* The default: harness symbols in a row across the top, each name on hover (Leo 2026-10-30: "we
+   had a pretty good thing going with teh symbols of the harneses at the top"). A harness with no
+   symbol of its own shows its name in the row. Many harnesses wrap onto another row instead of
+   scrolling sideways, so no symbol is ever cut halfway (Leo 2026-10-28: "don't have bullshit end
+   halfway on a fucking icon when there's lots of harnesses"); past three rows the strip scrolls a
+   whole row at a time. */
+.acpmux-quick-placement-symbols .acpmux-quick-layout { flex-direction: column; }
+.acpmux-quick-placement-symbols .acpmux-quick-rail {
+  --acpmux-symbols-gap: var(--ds-space-1);
+  flex: none;
+  contain: none;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--acpmux-symbols-gap);
+  border-inline-end: 0;
+  /* The bottom inset is one gap, so a fourth row starts exactly where three rows end. */
+  padding: var(--ds-space-2) var(--ds-space-2) var(--acpmux-symbols-gap);
+  max-height: calc(var(--ds-space-2) + 3 * var(--ui-row-height) + 3 * var(--acpmux-symbols-gap));
+  overflow-x: hidden;
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+  scroll-padding-block: var(--ds-space-2);
+  scrollbar-width: none;
+}
+.acpmux-quick-placement-symbols .acpmux-quick-rail-tab { position: relative; scroll-snap-align: start; }
+/* Themed: each harness's symbol in the theme's text colours (AgentMark `tint`), muted at rest; the
+   selected harness lit in the text colour on the wash, with the accent bar under it. */
+.acpmux-quick-placement-symbols .acpmux-quick-rail-tab { color: var(--agent-muted); }
+.acpmux-quick-placement-symbols .acpmux-quick-rail-tab:hover,
+.acpmux-quick-placement-symbols .acpmux-quick-rail-tab[aria-pressed="true"] { color: var(--agent-text); }
+.acpmux-quick-placement-symbols .acpmux-quick-rail-tab[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 25%;
+  inset-block-end: -3px;
+  /* Half a grid step: a thin bar, on the scale. */
+  height: calc(var(--ds-space-1) / 2);
+  border-radius: 1px;
+  background: var(--agent-accent, var(--agent-text));
+}
+.acpmux-quick-placement-symbols .acpmux-quick-rail-tab {
+  justify-content: center;
+  min-width: var(--ui-row-height);
+  height: var(--ui-row-height);
+  min-height: 0;
+  padding: 0;
+}
+/* The menu's screen-reader-only text (a symbol tab's name, the effort trigger's model, Add
+   harness's label) is hidden by the picker's own rule, not only by the pane's Tailwind sr-only:
+   the menu is portaled, and a page without that utility drew it all as text. */
+.acpmux-quick-menu .sr-only {
+  position: absolute;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+/* A harness with no symbol: its name's initial, as one-colour as the symbols and their size. */
+.acpmux-quick-rail-initial {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  aspect-ratio: 1;
+  border: var(--cmux-hairline, 0.5px) solid currentColor;
+  border-radius: 4px;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  line-height: 1;
+}
+/* The hairline between the symbols and the list is the list's: a row of icon tabs never sits on a
+   plate of its own (gallery-control-surfaces). An inset shadow, not a border, so it takes no room
+   and the first row stays flush with the list's top. */
+.acpmux-quick-placement-symbols .acpmux-quick-body {
+  flex-basis: auto;
+  box-shadow: inset 0 var(--cmux-hairline, 0.5px) 0 var(--agent-border);
+}
 .acpmux-quick-placement-compact .acpmux-quick-rail { flex-basis: 68px; }
 .acpmux-quick-placement-compact .acpmux-quick-rail-tab { flex-direction: column; gap: 0; padding-block: var(--ds-space-1); text-align: center; }
 .acpmux-quick-placement-compact .acpmux-quick-harness-name { font-size: var(--text-caption); }
@@ -570,6 +646,11 @@
   display: flex;
   align-items: center;
 }
+.acpmux-quick-menu { --acpmux-quick-effort-column: 112px; }
+.acpmux-quick-effort-now {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .acpmux-quick-model-effort > .acpmux-quick-item:first-child {
   flex: 1 1 auto;
   min-width: 0;
@@ -578,6 +659,9 @@
   flex: none;
   justify-content: flex-end;
   gap: var(--ds-space-1);
+  /* One width on every row (the width probe's), so the rows' ⌘N keys and stars line up in columns
+     whatever level each row's hidden item names. */
+  width: var(--acpmux-quick-effort-column);
   min-width: 0;
   padding-inline: var(--ds-space-2) var(--ui-row-padding-inline);
   color: var(--agent-muted);
@@ -622,7 +706,7 @@
 .acpmux-quick-effort-vertical .acpmux-effort-ends { display: none; }
 .acpmux-quick-width-probe-efforts {
   display: inline-block;
-  width: 112px;
+  width: var(--acpmux-quick-effort-column);
 }
 .acpmux-quick-menu.acpmux-quick-placement-left:has(.acpmux-quick-effort-trigger) .acpmux-quick-rail { flex-basis: 28%; }
 .acpmux-quick-menu.acpmux-quick-placement-compact:has(.acpmux-quick-effort-trigger) .acpmux-quick-rail {
@@ -650,3 +734,25 @@
   display: inline-flex;
   gap: var(--ds-space-1);
 }
+
+/* A model row's star at its trailing edge: shown on a starred row, else while the row is pointed at. */
+.acpmux-quick-star {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-inline-end: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--agent-muted);
+  visibility: hidden;
+}
+.acpmux-quick-star[aria-pressed="true"],
+.acpmux-quick-model-effort:is(:hover, :has([data-highlighted])) .acpmux-quick-star { visibility: visible; }
+.acpmux-quick-star:hover { background: var(--acpmux-menu-hover); color: var(--agent-text); }
+/* Legacy models and its count on one row, the count quiet after the name. */
+.acpmux-quick-legacy { display: flex; align-items: baseline; gap: var(--ds-space-2); min-width: 0; }
+.acpmux-quick-legacy .acpmux-quick-value { margin-inline-start: 0; padding-inline-start: 0; color: var(--agent-muted); font-size: var(--text-caption); }

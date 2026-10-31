@@ -402,9 +402,12 @@ class Workflow(unittest.TestCase):
         steps = DOC["jobs"]["pick-nightly-build-runner"]["steps"]
         pick = next(step for step in steps if step.get("id") == "pick")
         flag = pick["env"]["UNREAD_OWNED_FALLBACK"].removeprefix("${{").removesuffix("}}")
-        for owned_on, want in (("1", "1"), ("0", ""), ("", "")):
-            with self.subTest(owned_on=owned_on):
-                self.assertEqual(evaluate(parse_expression(flag), {"vars.CI_PR_POOL_OWNED": owned_on}) or "", want)
+        # And only while the rescue runs (ci-owned-pool-rescue.yml: CI_OWNED_POOL_RESCUE unset or not '0').
+        for owned_on, rescue_on, want in (("1", "", "1"), ("1", "1", "1"), ("1", "0", ""), ("0", "", ""),
+                                          ("", "", ""), ("0", "1", "")):
+            with self.subTest(owned_on=owned_on, rescue_on=rescue_on):
+                context = {"vars.CI_PR_POOL_OWNED": owned_on, "vars.CI_OWNED_POOL_RESCUE": rescue_on}
+                self.assertEqual(evaluate(parse_expression(flag), context) or "", want)
         # nightly-next-train.yml has no owned-pool rescue, so its pick never sets it.
         train = yaml.safe_load((ROOT / ".github" / "workflows" / "nightly-next-train.yml").read_text())
         for step in train["jobs"]["pick-train-runner"]["steps"]:

@@ -771,7 +771,9 @@ impl Hub {
         let budget = self.config.read().await.agent_start_timeout();
         let mut retried = false;
         loop {
-            let started = self.cold_start(session, profile, stops, off);
+            // Boxed: a cold start is a deep future, and this loop keeps it beside the retry's
+            // state on the stack its caller polls it on.
+            let started = Box::pin(self.cold_start(session, profile, stops, off));
             let failed = match tokio::time::timeout(budget, started).await {
                 Ok(Ok(child)) => return Ok(self.keep_account_home(session, profile, child)),
                 Ok(Err(e)) => Some(e),
