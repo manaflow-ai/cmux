@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 758,
-    "mcp": 676
+    "verbs": 760,
+    "mcp": 678
   },
   "nouns": [
     {
@@ -524,6 +524,20 @@
           "id": "app.hide",
           "mcp": true,
           "mcpTool": "app_apps_hide"
+        },
+        {
+          "command": "cmux apps install",
+          "title": "Install App…",
+          "id": "app.install",
+          "mcp": true,
+          "mcpTool": "app_apps_install"
+        },
+        {
+          "command": "cmux apps remove",
+          "title": "Remove App…",
+          "id": "app.remove",
+          "mcp": true,
+          "mcpTool": "app_apps_remove"
         },
         {
           "command": "cmux apps unhide",
