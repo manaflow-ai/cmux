@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextCompat
@@ -121,11 +122,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageDescriptor.registerDiffRoot()
         PageDescriptor.registerFilePageRoots()
         PageDescriptor.registerAgentActivityRoot()
-        // Peer-route approvals: where this Mac's approver key lives, before any pane connects.
-        PeerApprovalsApp.install()
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment, keyWindowSource: { NSApp.keyWindow }, appActiveSource: { NSApp.isActive }, work: launchReads.work, mainWork: mainWork,
-                                   launchImages: launchReads.images, relaunchWake: launchReads.wake)
+                                   launchImages: launchReads.images, relaunchWake: launchReads.wake, peerApprover: PeerApprovalsApp.approver())
         AppProcessRoot.shared.adopt(services)
         self.services = services
         #if DEBUG
@@ -513,6 +512,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         services?.crashRecovery.applicationWillTerminate()
+        services?.crashReporting.reporter.stallSummary.close()  // the open hour's stall counts
         // The release push's socket closes and nothing reconnects (ReleasePushListener).
         services?.updater.stopReleasePush()
         services?.agentTabs.pageChats.stopNotices()
