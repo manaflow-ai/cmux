@@ -88,6 +88,34 @@ jobs:
           permission-actions: read
           permission-contents: read
 
+      - name: Checkout the gh token wrapper from main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: .gh-tooling
+          sparse-checkout: scripts/ci/gh_app_token.sh
+          sparse-checkout-cone-mode: false
+
+      # The App's own budget runs out too: runs 41245804266 and 41245954158
+      # (2026-10-31 21:55Z and 21:59Z) failed in "Resolve the source run" with
+      # "API rate limit exceeded for installation" on the minted token, and
+      # nothing fell back. scripts/ci/gh_app_token.sh sends each github.token
+      # call as the App first, retries a refused one with github.token, and
+      # backs off when both are refused, so one spent budget no longer fails
+      # the handoff. The steps below pass github.token for the wrapper to swap.
+      - name: Send this job's gh calls as the read App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        # The 30-minute job timeout leaves room for 10 minutes of backoff.
+        run: |
+          if [ -f .gh-tooling/scripts/ci/gh_app_token.sh ]; then
+            bash .gh-tooling/scripts/ci/gh_app_token.sh --install
+            echo "GH_BUDGET_WAIT_MAX_SECONDS=600" >> "$GITHUB_ENV"
+          fi
+
       # SOURCE_SHA is the commit the source run built: a dev daily run of
       # cmux-next.yml on feat-cmux-next whose name carries the SHA it was asked
       # for (cmux-next.yml fails a run whose checkout is not that SHA).
@@ -98,7 +126,7 @@ jobs:
       # 20:23Z on 2026-10-30 failed here (run 41122647270).
       - name: Resolve the source run
         env:
-          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -126,7 +154,7 @@ jobs:
       - name: Require a successful app-producing job
         id: source-gate
         env:
-          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -151,7 +179,7 @@ jobs:
         id: source-artifact
         if: steps.source-gate.outputs.eligible == 'true'
         env:
-          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -201,7 +229,7 @@ jobs:
         env:
           APP_PATH: ${{ steps.unpack.outputs.app }}
           NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
-          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
