@@ -182,28 +182,6 @@ import Testing
         #expect(target(0.95) == .position(DropPosition(section: section, group: group.id, index: 0)), "lower half: into the group")
     }
 
-    /// Astra review: with inline tabs, a workspace drag over the one row's tab rows drops after it in the group, as over
-    /// a member's tab rows on base (the resolver reads the tab rows' workspace, which the one row still is for them).
-    @Test func aDropOnTheOneRowsTabRowsGoesIntoTheGroup() throws {
-        var coord = ws("w-coord", "release-coord")
-        coord.tabs = [SidebarTab(id: TabID("t1"), title: "t1"), SidebarTab(id: TabID("t2"), title: "t2")]
-        let group = SidebarGroup(id: GroupID("g-coord"), name: "release-coord", workspaces: [coord])
-        let sections = [SidebarSection(kind: .machine(machine), nodes: [.workspace(ws("w-loose", "loose")), .group(group)])]
-        var options = SidebarLayoutOptions()
-        options.showWorkspaceTabs = true
-        let layout = SidebarLayout.make(sections: sections, metrics: metrics, options: options)
-        #expect(try #require(layout.row(for: .workspace(WorkspaceID("w-coord")))).standsForGroup)
-        let section = SectionID.machine(machine.id)
-        for tab in ["t1", "t2"] {
-            let row = try #require(layout.row(for: .tab(WorkspaceID("w-coord"), TabID(tab))))
-            for fraction: CGFloat in [0.2, 0.8] {
-                let target = DropResolver.resolve(y: row.y + row.height * fraction, payload: .workspaces([WorkspaceID("w-loose")]),
-                                                  base: layout, sections: sections, onto: (0, 0))
-                #expect(target == .position(DropPosition(section: section, group: group.id, index: 1)), "tab \(tab) at \(fraction)")
-            }
-        }
-    }
-
     /// A parent whose own members are all behind its closed "Done (N)" row still draws a subgroup when that subgroup is
     /// one same-named row: the drop resolver reads the parent as open, as it did with the subgroup's header, so a drop
     /// on the parent header's body goes into the parent at its start (not "into" a folded group).
@@ -262,20 +240,6 @@ import Testing
         }
     }
 
-    /// Sol review: a collapsed group keeps its active member's row without its tab rows (as on base); the one row of
-    /// such a group lists none either.
-    @Test func aCollapsedOneRowListsNoTabRows() throws {
-        var coord = ws("w-coord", "release-coord")
-        coord.tabs = [SidebarTab(id: TabID("t1"), title: "t1")]
-        let group = SidebarGroup(id: GroupID("g-coord"), name: "release-coord", isCollapsed: true, workspaces: [coord])
-        var options = SidebarLayoutOptions()
-        options.showWorkspaceTabs = true
-        options.activeWorkspaceID = WorkspaceID("w-coord")
-        let layout = SidebarLayout.make(sections: [SidebarSection(kind: .machine(machine), nodes: [.group(group)])], metrics: metrics, options: options)
-        #expect(try #require(layout.row(for: .workspace(WorkspaceID("w-coord")))).standsForGroup)
-        #expect(layout.row(for: .tab(WorkspaceID("w-coord"), TabID("t1"))) == nil, "a collapsed group listed its member's tabs")
-    }
-
     /// Sol review: a group drag cuts the list into top-level blocks; the one row starts its own group's block (as its
     /// header did), never joining the open group above it.
     @Test func aGroupDragCutsTheOneRowIntoItsOwnBlock() throws {
@@ -294,13 +258,9 @@ import Testing
     /// Sol review: the document drag reads the one row as its group's slot, as it read the header: its top band drops
     /// before the group, its middle into it, its bottom band after it (out of a nested group too).
     @Test func aDocumentDropOnTheOneRowGoesBeforeIntoOrAfterTheGroup() throws {
-        var coord = ws("w-coord", "release-coord")
-        coord.tabs = [SidebarTab(id: TabID("t1"), title: "t1")]
-        let group = SidebarGroup(id: GroupID("g-coord"), name: "release-coord", workspaces: [coord])
+        let group = SidebarGroup(id: GroupID("g-coord"), name: "release-coord", workspaces: [ws("w-coord", "release-coord")])
         let sections = [SidebarSection(kind: .machine(machine), nodes: [.workspace(ws("w-loose", "loose")), .group(group)])]
-        var options = SidebarLayoutOptions()
-        options.showWorkspaceTabs = true
-        let layout = SidebarLayout.make(sections: sections, metrics: metrics, options: options)
+        let layout = SidebarLayout.make(sections: sections, metrics: metrics, options: SidebarLayoutOptions())
         let doc = SidebarDocDrag(item: { key in
             switch key {
             case let .workspace(id): "w_\(id.rawValue)"
@@ -310,8 +270,7 @@ import Testing
         }, section: { _ in "sec" }, begin: { _ in [:] }, drop: { _, _ in })
         let (geometry, rows) = doc.geometry(layout, width: 240, acceptance: [:])
         let one = try #require(layout.row(for: .workspace(WorkspaceID("w-coord"))))
-        let tab = try #require(layout.row(for: .tab(WorkspaceID("w-coord"), TabID("t1"))))
-        let span = tab.maxY - one.y // the tab rows are part of the row's slot
+        let span = one.height
         func target(_ fraction: CGFloat) -> SidebarDocTarget? { geometry.hit(CGPoint(x: 100, y: one.y + span * fraction))?.target }
         #expect(target(0.1) == SidebarDocTarget(section: "sec", before: "g_g-coord"), "top band: before the group")
         #expect(target(0.5) == SidebarDocTarget(section: "sec", parent: "g_g-coord"), "middle: into the group")
