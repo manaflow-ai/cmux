@@ -17,7 +17,8 @@
 //! ([`Hub::notice_reader_has_tools`]), not when its messages came: a chat whose agent respawned
 //! without the tools, or that an adopted tool-less agent still runs after a restart, may hold
 //! messages the inbox took while it had them. It reads only what is in memory, the chat's tool
-//! rows and the config, as it runs for every notice (router reviews of #28707).
+//! rows and the config, as it runs for every notice; what it cannot tell from them (a folder
+//! profile's file) counts as no reader (router reviews of #28707).
 
 use super::*;
 
@@ -96,7 +97,7 @@ impl Hub {
     /// what the agent last launched for it was given (`record_spawn_inputs`; they outlast a
     /// restart, so an adopted agent counts as it was started), and the profile its next spawn
     /// takes must leave the tools in too ([`spawn_keeps_tools`]). Unknown (no rows yet, the
-    /// `acpmux` server turned off) counts as cannot: a notice to one that cannot carries its
+    /// `acpmux` server turned off, a folder profile) counts as cannot: a notice to one that cannot carries its
     /// messages whole ([`whole_notice`]).
     pub(super) async fn notice_reader_has_tools(&self, session: &Session) -> bool {
         let m = session.meta();
@@ -127,13 +128,13 @@ impl Hub {
 }
 
 /// Whether the chat's next spawn gives its agent the `acpmux` server, from the config alone: the
-/// harness profile's, its defaults' and its preset's env and args, then the chat's own env, as
-/// `spawn_profile_read` merges them. None of `spawn_profile_for`'s file work (a folder profile's
-/// file, the cmux-harness migration) runs for a notice: a folder profile is judged by the rows of
-/// its last launch alone.
+/// harness profile's, its defaults' and its preset's env and args, expanded, then the chat's own
+/// env, as `spawn_profile_read` merges them. None of `spawn_profile_for`'s file work runs for a
+/// notice, so a harness the catalog does not hold (a folder profile, whose file says the rest)
+/// counts as unknown: no.
 fn spawn_keeps_tools(cfg: &crate::config::Config, m: &SessionMeta) -> bool {
     let Some(profile) = cfg.profile(&m.harness) else {
-        return true;
+        return false;
     };
     let mut env = profile.env.clone();
     for (k, v) in cfg.defaults_for(&m.harness).env {
@@ -144,6 +145,11 @@ fn spawn_keeps_tools(cfg: &crate::config::Config, m: &SessionMeta) -> bool {
         env.extend(preset.env.clone());
         args.extend(preset.args.iter().cloned());
     }
+    let home = dirs::home_dir().unwrap_or_default();
+    let model = m.model_request.as_deref().unwrap_or_default();
+    let expand = |v: &mut String| *v = super::spawn::expand_env_value(v, &m.cwd, &home, model);
+    env.values_mut().for_each(expand);
+    args.iter_mut().for_each(expand);
     env.extend(m.session_env.clone());
     // Claude Code alone reads `--strict-mcp-config` (`hub/tools.rs`).
     if profile.kind != crate::config::HarnessKind::ClaudeStdio {
