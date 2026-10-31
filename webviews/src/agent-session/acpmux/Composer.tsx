@@ -106,6 +106,7 @@ import {
   attachmentErrorText,
   useAttachmentIntake,
   useSendWhenAttached,
+  useSendWhenOriginals,
 } from "./composer/attachmentIntake";
 import { keepElsewhere, type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
@@ -687,7 +688,7 @@ export function Composer({
   const holdForAttachments = useSendWhenAttached(loading + videoReading, sessionId, unsettled + videoReading);
   /// A prompt too large for one acpmux message waits for its images' originals still uploading,
   /// then goes with them as links (promptBudget.ts); the person's x on one lets it go without it.
-  const holdForOriginals = useSendWhenAttached(
+  const holdForOriginals = useSendWhenOriginals(
     attachments.filter((attachment) => originalUploads.has(attachment.id)).length,
     sessionId,
   );
@@ -1187,7 +1188,7 @@ export function Composer({
           const asTaken = (value: string) => withoutInlineTokens(value, (id) => dropped.has(id));
           const written = asTaken(field.current?.value() ?? "");
           holdForAttachments.cancel();
-          holdForOriginals.cancel();
+          holdForOriginals(false, () => undefined);
           // Accepted commands consume staged files before their async work starts. A pending read
           // must not leak into the next prompt while the command waits.
           for (const item of pending) cancel(item.id);
@@ -1215,7 +1216,7 @@ export function Composer({
       if (owned) {
         // Accepted commands consume staged files, including reads still pending when /import opened.
         holdForAttachments.cancel();
-        holdForOriginals.cancel();
+        holdForOriginals(false, () => undefined);
         for (const item of pending) cancel(item.id);
         // By id: a chip patched after it went (its original's path arriving) is still the one sent.
         const went = new Set(attachments.map((attachment) => attachment.id));
@@ -1232,8 +1233,10 @@ export function Composer({
     if (holdForAttachments(() => submitNow.current(force, steer))) return false;
     // Too large for one message until the originals still uploading are saved: it waits for them.
     if (
-      awaitsOriginals(prompt, placed.attachments, (id) => originalUploads.has(id)) &&
-      holdForOriginals(() => submitNow.current(force, steer))
+      holdForOriginals(
+        awaitsOriginals(prompt, placed.attachments, (id) => originalUploads.has(id)),
+        () => submitNow.current(force, steer),
+      )
     )
       return false;
     if (command?.kind === "cliOnly") {

@@ -671,6 +671,22 @@ export function useSendWhenAttached(
   return hold;
 }
 
+/// A send too large for one acpmux message waits for the originals of its images still uploading
+/// (`uploading` of them), then goes once, with them as links (promptBudget.ts `awaitsOriginals`).
+/// `hold(awaits, send)`: when `awaits`, holds `send` (true; a later hold replaces it); otherwise the
+/// send goes now (false) and any held one is dropped, so it never goes later on its own with
+/// whatever draft the composer has then. A new `scope` drops it too.
+export function useSendWhenOriginals(
+  uploading: number,
+  scope?: string,
+): (awaits: boolean, send: () => void) => boolean {
+  const wait = useSendWhenAttached(uploading, scope);
+  const [hold] = useState(() => (awaits: boolean, send: () => void) => {
+    return awaits && wait(send);
+  });
+  return hold;
+}
+
 /// Puts `text` in place of a paste's own text in a plain text field (the New Tab prompt), so the
 /// images lifted out of it never land there as base64; the prompt field takes its paste itself.
 function pasteTextInto(event: ClipboardEvent, text: string) {
