@@ -131,6 +131,9 @@ await requireBrowserLane("settings-columns-browser.test.ts", async () => {
           ? {
               name: ink(custom.querySelector(".acpmux-harness-name")),
               detail: ink(custom.querySelector(".acpmux-harness-detail, :scope > :nth-child(2)")),
+              right: custom.querySelector(".acpmux-harness-detail, :scope > :nth-child(2)")!.getBoundingClientRect()
+                .right,
+              limit: custom.getBoundingClientRect().right,
             }
           : null,
       };
@@ -177,6 +180,8 @@ await requireBrowserLane("settings-columns-browser.test.ts", async () => {
           expect(m.custom).not.toBeNull();
           expect(Math.abs(m.custom!.name! - m.rows[0]!.name!)).toBeLessThanOrEqual(0.5);
           expect(Math.abs(m.custom!.detail! - m.rows[0]!.name!)).toBeLessThanOrEqual(0.5);
+          // Its detail truncates inside the page's column instead of running past the window.
+          expect(m.custom!.right).toBeLessThanOrEqual(m.custom!.limit + 0.5);
         } finally {
           await page.close();
         }
