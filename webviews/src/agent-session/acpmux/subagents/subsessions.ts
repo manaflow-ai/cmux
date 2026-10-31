@@ -147,6 +147,10 @@ export class SubsessionStore {
   private infos = new Map<string, SubsessionInfo>();
   private keys = new Map<string, string>();
   private readonly listeners = new Set<() => void>();
+  /// The session list is immutable: direct.ts reuses each entry object when its summary did not
+  /// change. Keep that identity list so a streaming snapshot that only changed transcript rows
+  /// does not rebuild maps for every listed chat (a large workspace can have thousands).
+  private previousSessions: readonly AcpmuxSessionEntry[] | undefined;
 
   private entries = new Map<string, AcpmuxSessionEntry>();
   /// Every listed chat's id by its names (its name, its short name; not its title, which can be
@@ -168,6 +172,13 @@ export class SubsessionStore {
   /// change keeps its object. The pane sends the list with every snapshot, reusing the entry of a
   /// session that did not change, so an entry seen last time is not read again.
   set(sessions: readonly AcpmuxSessionEntry[]): void {
+    if (
+      this.previousSessions &&
+      this.previousSessions.length === sessions.length &&
+      this.previousSessions.every((entry, index) => entry === sessions[index])
+    )
+      return;
+    this.previousSessions = sessions.slice();
     const infos = new Map<string, SubsessionInfo>();
     const keys = new Map<string, string>();
     const entries = new Map<string, AcpmuxSessionEntry>();

@@ -130,6 +130,25 @@ test("the store follows sub-sessions only, and tells its readers only when one's
   expect(store.get("a")).toBeUndefined();
 });
 
+test("a snapshot that reuses every session entry skips the full session-list scan", () => {
+  const store = new SubsessionStore();
+  const child = summary("child", { shortName: "child", startedBy: "chat" });
+  store.set([child]);
+  let nameReads = 0;
+  Object.defineProperty(child, "name", {
+    configurable: true,
+    get: () => {
+      nameReads += 1;
+      return "child";
+    },
+  });
+  store.set([child]);
+  expect(nameReads).toBe(0);
+  // A new entry identity remains observable and still updates the child view.
+  store.set([summary("child", { shortName: "renamed", startedBy: "chat" })]);
+  expect(store.get("child")?.name).toBe("renamed");
+});
+
 test("another agent's message finds its sender's chat by name, and that chat's harness", () => {
   const store = new SubsessionStore();
   let notified = 0;
