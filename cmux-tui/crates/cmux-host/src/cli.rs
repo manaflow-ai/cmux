@@ -284,6 +284,25 @@ fn logs_verb(args: &[String]) -> u8 {
 }
 
 #[cfg(target_os = "linux")]
+const CLOUD_VM_TRANSPORT: &str = "CLOUD_VM_TRANSPORT";
+
+/// Native receiving is an explicit deployment capability.  Direct/Freestyle
+/// machines have no confirmed mesh allocation and must keep the lifetime-only
+/// root channel, even though the receiver implementation is present in the
+/// image.  The vm-api deployment sets this marker alongside its provider
+/// config; the receiver still performs the authenticated policy read before
+/// READY.
+#[cfg(target_os = "linux")]
+fn native_receiver_enabled(value: Option<&str>) -> bool {
+    value == Some("vm-api")
+}
+
+#[cfg(target_os = "linux")]
+fn native_receiver_from_environment() -> bool {
+    native_receiver_enabled(std::env::var(CLOUD_VM_TRANSPORT).ok().as_deref())
+}
+
+#[cfg(target_os = "linux")]
 fn run_agent(mut cfg: Config) -> u8 {
     use crate::agent::{ActionLog, Agent};
     // Without a layout the agent still binds and supervises; roles only
@@ -315,7 +334,14 @@ fn run_agent(mut cfg: Config) -> u8 {
     // supervisor signals before the Cloud worker starts any thread.
     // SAFETY: geteuid has no preconditions.
     let bootstrap = if unsafe { libc::geteuid() } == 0 {
-        cmux_link::root_bootstrap::Host::new().ok().map(std::sync::Arc::new)
+        let host = if native_receiver_from_environment() {
+            // Native capability is opt-in.  A direct/Freestyle VM remains
+            // lifetime-only and can never accidentally start a receiver.
+            cmux_link::root_bootstrap::Host::new_native()
+        } else {
+            cmux_link::root_bootstrap::Host::new()
+        };
+        host.ok().map(std::sync::Arc::new)
     } else {
         None
     };
@@ -336,6 +362,20 @@ fn run_agent(mut cfg: Config) -> u8 {
             eprintln!("cmux host: {e}");
             code(1)
         }
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::native_receiver_enabled;
+
+    #[test]
+    fn native_receiver_requires_vm_api_transport() {
+        assert!(native_receiver_enabled(Some("vm-api")));
+        assert!(!native_receiver_enabled(None));
+        assert!(!native_receiver_enabled(Some("direct")));
+        assert!(!native_receiver_enabled(Some("VM-API")));
+        assert!(!native_receiver_enabled(Some("vm-api\n")));
     }
 }
 

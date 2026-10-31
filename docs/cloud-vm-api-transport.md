@@ -60,3 +60,19 @@ Stack tenant membership, scoped keys and VM policy still govern access.
 
 Hosted tests use fake identity/VM API responses with real owner RPCs and SQLite;
 they do not establish a live provider rollout or production billing integration.
+
+## Native receiver activation
+
+The root supervisor keeps its lifetime-only channel unless the VM image is
+started with `CLOUD_VM_TRANSPORT=vm-api`. This is an explicit deployment
+capability marker: direct/Freestyle machines do not have a confirmed mesh
+membership and must never advertise a Native receiver. The marker does not
+grant authority; the receiver still waits for the VM's authenticated policy
+read and the backend's `transport=vm-api` plus confirmed `network` row before
+it can report `READY`.
+
+Enable the marker only on the approved VM API image after configuring the
+settings above. The current image/deploy wiring does not inject this marker;
+that must be added as part of the rollout. A signed NEXT DEV rollout remains
+required to prove create, bind, receiver `READY`, connect-info/token and
+encrypted daemon/SSH traffic; the hosted tests do not replace that live proof.
