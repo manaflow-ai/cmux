@@ -29,6 +29,8 @@ final class AppWebPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
     static let logLinesPerPane = 2_000
 
     let pane: AppWebPane
+    /// A replacement with no active web implementation revokes the old document immediately.
+    var enabled = true
     weak var calls: (any AppWebPaneCalls)?
     private(set) var loggedThisLoad = 0
     private(set) var loggedThisPane = 0
@@ -42,7 +44,7 @@ final class AppWebPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
     func pageCommitted() { loggedThisLoad = 0 }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) async -> (Any?, String?) {
-        guard message.frameInfo.isMainFrame, pane.isOwn(message.frameInfo.request.url) else {
+        guard enabled, message.frameInfo.isMainFrame, pane.isOwn(message.frameInfo.request.url) else {
             return (Self.refusal("bridge.origin", "only the pane's own page can call cmux"), nil)
         }
         guard let body = message.body as? [String: Any], let kind = body["kind"] as? String else {

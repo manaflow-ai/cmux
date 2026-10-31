@@ -22,6 +22,7 @@ final class DaemonAppsTransport: AppsTransport {
     static let runTimeout: Duration = .seconds(30)
     static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "apps")
 
+    private let decoding = AppsWireDecoding(mountFailure: AppsAppStrings.mountFailed)
     private let daemon: DaemonService
     let provider: AppsProviderChannel
     let inventory: AgentInventoryProviderBridge
@@ -57,7 +58,7 @@ final class DaemonAppsTransport: AppsTransport {
             inventory.handle(envelope)
             guard case .unknown(let name, let payload) = envelope.event, DaemonSideEvents.isAppsEvent(name) else { return }
             if provider.handle(envelope) { return }
-            if let decoded = AppsWireDecoding.event(name: name, payload: payload) { onEvent?(decoded) }
+            if let decoded = decoding.event(name: name, payload: payload) { onEvent?(decoded) }
         }
         let daemon = daemon
         update(daemon.store.connectionState, storeEpoch: daemon.store.connectionEpoch)
@@ -126,7 +127,7 @@ final class DaemonAppsTransport: AppsTransport {
     }
 
     func list() async throws(AppsTransportError) -> AppsListReply {
-        AppsWireDecoding.list(try await send(AppsListRequest()))
+        decoding.list(try await send(AppsListRequest()))
     }
 
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord {
@@ -160,7 +161,7 @@ final class DaemonAppsTransport: AppsTransport {
     }
 
     func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine] {
-        AppsWireDecoding.logs(try await send(AppsLogsRequest(app: app, follow: follow)))
+        decoding.logs(try await send(AppsLogsRequest(app: app, follow: follow)))
     }
 
     func webCall(app: String, op: String, args: AppJSON) async throws(AppsTransportError) -> AppJSON {

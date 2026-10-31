@@ -29,6 +29,8 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
     private(set) var hotReloads = 0
     /// Called for each navigation the pane refused (tests wait on it).
     var onRefusedNavigation: (() -> Void)?
+    /// Called once a document finishes loading (tests wait on invalidation).
+    var onLoaded: (() -> Void)?
     /// The offline rule list is in place; nothing loads before it (``installOfflineRules()``).
     private(set) var offline = false
     /// WebKit allows no network host to this pane (`_allowedNetworkHosts`); without it nothing loads.
@@ -132,11 +134,13 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
                   let latest = AppWebPane(manifest: app.manifest, bundle: bundle)
             else {
                 schemeHandler.pane = nil
+                bridge.enabled = false
                 webView.loadHTMLString("", baseURL: nil)
                 return
             }
             pane = latest
             schemeHandler.pane = latest
+            bridge.enabled = true
         }
         load()
     }
@@ -185,6 +189,9 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
     public func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
         // Frames are refused by the content policy; the page stays on its own origin, and
         // with no UI delegate a new-window request opens nothing.
+        // The host's invalidation document must replace the old page even though
+        // loadHTMLString navigates to about:blank, outside the app's own origin.
+        if schemeHandler.pane == nil, action.request.url?.absoluteString == "about:blank" { return .allow }
         guard pane.isOwn(action.request.url) else {
             onRefusedNavigation?()
             return .cancel
@@ -194,6 +201,10 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse) async -> WKNavigationResponsePolicy {
         response.canShowMIMEType ? .allow : .cancel
+    }
+
+    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
+        onLoaded?()
     }
 
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {

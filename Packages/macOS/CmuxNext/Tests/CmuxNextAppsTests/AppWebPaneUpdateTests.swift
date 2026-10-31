@@ -42,6 +42,30 @@ struct AppWebPaneUpdateTests {
             "return (await fetch('main.html')).headers.get('Content-Security-Policy')", arguments: [:], in: nil, contentWorld: .page
         ) as? String
         #expect(policy == AppWebPane.hostCSP + ", img-src 'none'")
+
+        // An approved version can also remove its web implementation. It must
+        // discard the old document and revoke its bridge, rather than leave it live.
+        var noPane = transport.record
+        noPane.version = "3.0.0"
+        noPane.manifest = try #require(AppManifest(json: [
+            "manifestVersion": 2, "id": "local/board", "name": "Board", "version": "3.0.0",
+            "runtime": ["web": ["root": "ui/"]], "implements": [:],
+        ]))
+        let (loaded, didLoad) = AsyncStream.makeStream(of: Void.self)
+        view.onLoaded = { didLoad.yield() }
+        transport.record = noPane
+        transport.onEvent?(.changed(revision: 3, app: first.id, transaction: "registry-put"))
+        await waitForVersion("3.0.0", client: client, app: first.id)
+        for await _ in loaded { break }
+        #expect(view.webView.url?.absoluteString == "about:blank")
+        #expect(!view.bridge.enabled)
+        let cleared = try await view.webView.evaluateJavaScript("document.title") as? String
+        #expect(cleared == "")
+        let refused = try await view.webView.callAsyncJavaScript(
+            "try { await cmux.call('workspace.list', {}); return 'ran' } catch (e) { return e.code }",
+            arguments: [:], in: nil, contentWorld: .page
+        ) as? String
+        #expect(refused == "bridge.origin")
     }
 
     private func writePage(root: URL, entry: String, version: String) throws {
