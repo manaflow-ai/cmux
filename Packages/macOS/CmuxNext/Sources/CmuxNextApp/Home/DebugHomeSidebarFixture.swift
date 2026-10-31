@@ -15,9 +15,8 @@ import Foundation
 /// `team` (at most 12) lists that many fixture team members with no DM after the conversations
 /// (`team: 0` removes them). `width`, `select`, `search`, `unread` set the list's look (`HomeSidebarView.debugLook`),
 /// after the rows (no `count` keeps them); the answer carries the header's frames.
-/// `messages` [{row, text}] answers the list's message search with those messages of the fixture
-/// rows (a message containing every typed word matches); `messages: []` gives the search back to
-/// the owner. `query` types into the search field, as a person does.
+/// `messages` [{row, text}] answers the list's message search (``HomeSidebarFixtureRows/messageHits(_:in:now:)``);
+/// `query` types into the search field, as a person does.
 /// `new_message` (a team size) opens New Message and fills its list with fixture Chiefs and teammates;
 /// `intro` ("welcome" | "askFocus") shows that intro on the shown Chief (neither touches other rows).
 /// `hover_draft: true` moves the synthesized pointer (`DebugHover`) onto the New Message row, so
@@ -45,7 +44,10 @@ enum DebugHomeSidebarFixture {
             }
             page.list.update(page.sidebar.model())
         }
-        if let messages = params["messages"]?.arrayValue { fixtureMessages(messages, page: page) }
+        if let messages = params["messages"]?.arrayValue {
+            let entries = messages.map { (row: $0["row"]?.intValue, text: $0["text"]?.stringValue) }
+            page.list.debugMessageHits = HomeSidebarFixtureRows.messageHits(entries, in: page.sidebar.debugRows, now: Date())
+        }
         if params["count"] != nil || params["chiefs"] != nil
             || !["width", "select", "search", "unread", "team", "messages", "query"].contains(where: { params[$0] != nil }) {
             let count = min(HomeSidebarFixtureRows.names.count, max(0, params["count"]?.intValue ?? 5)), pinned = min(count, max(0, params["pinned"]?.intValue ?? 3))
@@ -66,23 +68,6 @@ enum DebugHomeSidebarFixture {
             return .object(["error": .string("no such row")])
         }
         return JSONValue(foundation: look.merging(["rows": page.sidebar.debugRows.map(\.id.rawValue)]) { a, _ in a }) ?? .null
-    }
-
-    /// The list's message search answers from `messages` ({row, text}: a message in the fixture row
-    /// at `row`, an hour apart, newest first); none gives the search back to the owner.
-    static func fixtureMessages(_ messages: [JSONValue], page: TopHomePageView) {
-        guard !messages.isEmpty else { page.list.debugMessageHits = nil; return }
-        let rows = page.sidebar.debugRows
-        let now = Date()
-        let hits = messages.enumerated().compactMap { i, entry -> HomeSearchHit? in
-            guard let row = entry["row"]?.intValue, rows.indices.contains(row), let text = entry["text"]?.stringValue else { return nil }
-            let conversation = rows[row].id // checked: indices.contains above
-            let message = Message(id: MessageID("msg_fixture_\(i)"), conversation: conversation, seq: Seq(i + 1),
-                                  clientMessageID: IdempotencyKey("msg_fixture_\(i)"), author: ParticipantID("user_fixture_\(row)"),
-                                  parts: [.text(text)], createdAt: now.addingTimeInterval(Double(-(i + 1) * 3600)))
-            return HomeSearchHit(conversation: conversation, message: message, highlights: [])
-        }
-        page.list.debugMessageHits = hits
     }
 }
 #endif
