@@ -117,7 +117,11 @@ await requireBrowserLane("session-info-no-summary-card.test.ts", async () => {
               .locator(inspector ? "aside.acpmux-chat-inspector [data-section]" : ".acpmux-summary-card")
               .first()
               .waitFor({ timeout: 10_000 });
-            await page.waitForTimeout(600);
+            // Its opening animation done and the frame painted (support/paintedFrames.ts).
+            await page.evaluate(async () => {
+              await Promise.all(document.getAnimations().map((one) => one.finished.catch(() => undefined)));
+              await window.cmuxPaintFrame();
+            });
             const name = `${inspector ? "after-session-info" : "before-summary-card"}-${dark ? "dark" : "light"}.png`;
             // The pane's top right: the header's tools and the panel under them, with some transcript.
             await page.screenshot({ path: path.join(out, "stills", name), clip: { x: 380, y: 0, width: 520, height: 240 } });
