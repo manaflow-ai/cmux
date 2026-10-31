@@ -60,8 +60,11 @@ extension ActionRegistry {
                 return AgentPaneView.pageCommandUnavailable(title)
             }
             ActionTargetReasons.set(id, in: self, reason)
-            // The palette runs on the focused chat: its row is disabled with the same reason.
-            ActionTargetTitles.setPaletteReason(id, in: self) { reason(ActionInvocation()) }
+            // The palette runs on the focused chat: its row is disabled while that chat does not offer
+            // it, with a subtitle that does not repeat the row's title.
+            ActionTargetTitles.setPaletteReason(id, in: self) {
+                reason(ActionInvocation()) == nil ? nil : AgentPaneView.pageCommandUnavailableHere
+            }
             return bound
         }.allSatisfy(\.self)
     }

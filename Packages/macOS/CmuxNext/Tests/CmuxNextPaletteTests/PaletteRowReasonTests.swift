@@ -37,7 +37,7 @@ struct PaletteRowReasonTests {
         registry.context = ActionContext(rawValue: .max)
         let action = ActionID(rawValue: id)
         registry.bind(action) {}
-        var reason: String? = "\(title) isn't available in this chat."
+        var reason: String? = "Not available in this chat."
         ActionTargetTitles.setPaletteReason(action, in: registry) { reason }
         func row() throws -> PaletteItem {
             try #require(RegistryPaletteProvider(registry: registry).makeItems().first { $0.actionID == action })
@@ -45,7 +45,7 @@ struct PaletteRowReasonTests {
         let refused = try row()
         #expect(refused.title == title)
         #expect(!refused.isEnabled)
-        #expect(refused.subtitle == "\(title) isn't available in this chat.")
+        #expect(refused.subtitle == "Not available in this chat.")
         reason = nil
         let offered = try row()
         #expect(offered.isEnabled)

@@ -44,9 +44,10 @@ struct AgentPageCommandTests {
         #expect(ActionTargetReasons.reason(for: "agentPane.toggleFiles", invocation: paneB, in: registry)
             == "Toggle Files Beside Chat isn't available in this chat.")
         #expect(ActionTargetReasons.reason(for: "agentPane.toggleSideTabs", invocation: paneB, in: registry) == nil)
-        // The palette runs on the focused chat, so its row is disabled with that chat's reason.
+        // The palette runs on the focused chat, so its row is disabled while that chat lacks it; the
+        // subtitle beside the title does not repeat it.
         #expect(registry.action(for: "agentPane.toggleSideTabs")?.paletteUnavailableReason?()
-            == "Toggle Tabs Beside Chat isn't available in this chat.")
+            == "Not available in this chat.")
         let refusal = registry.capturingRefusal { registry.perform("agentPane.toggleSideTabs", invocation: focused) }
         #expect(refusal == "Toggle Tabs Beside Chat isn't available in this chat.")
         #expect(ran.isEmpty)
@@ -88,7 +89,7 @@ struct AgentPageCommandTests {
         #expect(bound)
         let focused = ActionInvocation(origin: .cli, focusRequested: true)
         let reason = "\(title) isn't available in this chat."
-        #expect(registry.action(for: id)?.paletteUnavailableReason?() == reason)
+        #expect(registry.action(for: id)?.paletteUnavailableReason?() == "Not available in this chat.")
         let refusal = registry.capturingRefusal { registry.perform(id, invocation: focused) }
         #expect(refusal == reason)
         #expect(ran.isEmpty)

@@ -12,18 +12,8 @@
     {"title": "Close the terminal, which a new chat leaves focused (its prompt names the runner, which PR media refuses)",
      "cmux": ["action", "run", "closePane"], "wait": 1, "shot": false,
      "optional": "closing the terminal asked to confirm"},
-    {"title": "Open the palette", "cmux": ["action", "run", "commandPalette"], "wait": 1.5, "shot": false},
-    {"title": "Type b", "rpc": {"method": "debug.key", "params": {"key": "b", "target": "palette"}}, "wait": 0.2, "shot": false},
-    {"title": "Type a", "rpc": {"method": "debug.key", "params": {"key": "a", "target": "palette"}}, "wait": 0.2, "shot": false},
-    {"title": "Type c", "rpc": {"method": "debug.key", "params": {"key": "c", "target": "palette"}}, "wait": 0.2, "shot": false},
-    {"title": "Type k", "rpc": {"method": "debug.key", "params": {"key": "k", "target": "palette"}}, "wait": 0.2, "shot": false},
-    {"title": "Type g", "rpc": {"method": "debug.key", "params": {"key": "g", "target": "palette"}}, "wait": 0.2, "shot": false},
-    {"title": "Type r", "rpc": {"method": "debug.key", "params": {"key": "r", "target": "palette"}}, "wait": 0.2, "shot": false},
-    {"title": "Type o", "rpc": {"method": "debug.key", "params": {"key": "o", "target": "palette"}}, "wait": 0.2, "shot": false},
-    {"title": "Type u", "rpc": {"method": "debug.key", "params": {"key": "u", "target": "palette"}}, "wait": 0.2, "shot": false},
-    {"title": "Type n", "rpc": {"method": "debug.key", "params": {"key": "n", "target": "palette"}}, "wait": 0.2, "shot": false},
-    {"title": "Type d", "rpc": {"method": "debug.key", "params": {"key": "d", "target": "palette"}}, "wait": 1.5, "shot": false},
-    {"title": "Palette: \"background\" in a new agent chat (Run in Background and Show Background Tasks say why they cannot run yet)", "wait": 0.5},
-    {"title": "Close the palette", "cmux": ["action", "run", "commandPalette"], "wait": 1, "shot": false}
+    {"title": "Open the palette on \"in session info\"", "rpc": {"method": "action.run", "params": {"action": "palette.open", "args": {"query": "in session info"}, "focus": true}}, "wait": 2, "shot": false},
+    {"title": "Palette: \"in session info\" in a new agent chat (Show Subagents and Show Background Tasks greyed with why: nothing listed yet)", "wait": 0.5},
+    {"title": "Close the palette", "rpc": {"method": "debug.key", "params": {"key": "escape", "target": "palette"}}, "wait": 1, "shot": false}
   ]
 }
