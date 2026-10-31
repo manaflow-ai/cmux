@@ -683,6 +683,7 @@
     "setting.sidebar.stepping": "allItems",
     "setting.sidebar.steppingWraps": true,
     "setting.sidebar.style": "standard",
+    "setting.sidebar.textSize": "default",
     "setting.sidebar.topBandMaxShare": 0.3333333333333333,
     "setting.sidebar.workspaceIcons": {},
     "setting.sidebar.workspaceRow.agent.agentStatus": null,
