@@ -4,7 +4,17 @@
 // `ready` answer's draft and new-chat fields, and the snapshot.
 import { agentPaneEntry, type AgentPaneVariant } from "../../gallery/format";
 import { minutesAgo } from "../../gallery/clock";
-import { assistant, CATALOG, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
+import {
+  assistant,
+  CATALOG,
+  chat,
+  CWD,
+  noChat,
+  session,
+  SESSION_ID,
+  summary,
+  user,
+} from "../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../gallery/play";
 import type { MarkdownFieldElement } from "./MarkdownField";
 import type { AcpmuxSnapshot } from "./model";
@@ -1833,6 +1843,18 @@ export default agentPaneEntry({
       note: "Another harness and model in the chips.",
       snapshot: chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex chat" }),
     },
+    // A Codex chat on a Cloud machine (remoteEditing.ts): a team machine's wire refuses it, the
+    // person's own machine (`ownerCloud`) sends.
+    "codex-cloud-team": {
+      note: "A Codex chat on a team Cloud machine: no Send, and a note says this agent cannot be driven from here.",
+      ready: { draft: "Add retries with backoff to the fetch helper" },
+      snapshot: cloudCodex(),
+    },
+    "codex-cloud-own": {
+      note: "A Codex chat on the person's own Cloud machine: the normal composer, with Send.",
+      ready: { draft: "Add retries with backoff to the fetch helper" },
+      snapshot: cloudCodex(true),
+    },
     // The location row is a new chat's only (locationRow.ts): these show it before the first send.
     "tray-long-branch": {
       note: "A new chat's location row keeps a long branch readable without moving the composer.",
@@ -2731,6 +2753,22 @@ function withSummary(
   summary: Partial<NonNullable<ReturnType<typeof chat>["summary"]>>,
 ): ReturnType<typeof chat> {
   return { ...snapshot, summary: { ...snapshot.summary!, ...summary } };
+}
+
+/// A Codex chat on the Cloud machine `cloud-1`, over the app's remote wire; `ownerCloud` when the
+/// signed-in person owns that machine.
+function cloudCodex(ownerCloud?: true): ReturnType<typeof chat> {
+  const snapshot = chat(finished, {
+    harness: "codex",
+    model: "gpt-6-astra",
+    title: "Codex chat",
+    sessions: [
+      session({ sessionId: SESSION_ID, title: "Codex chat", harness: "codex", host: "cloud-1", hostKind: "cloud" }),
+    ],
+    origin: "remote",
+    ownerCloud,
+  });
+  return withSummary(snapshot, { host: "cloud-1", peer: "cloud-1", hostKind: "cloud" });
 }
 
 /// Every footer button (+, the one model button with its effort, the mode; Fast mode on, which only

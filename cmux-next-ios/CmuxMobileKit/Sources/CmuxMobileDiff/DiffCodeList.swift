@@ -380,7 +380,7 @@ final class DiffLineCell: UICollectionViewCell, DiffCell {
         gutter.addSubview(gutterRow)
         gutter.addSubview(gutterBand)
         [oldLabel, newLabel, markerLabel].forEach(gutter.addSubview)
-        matchBar.backgroundColor = .tintColor
+        matchBar.backgroundColor = .cmuxMobileAccent
         matchBar.isHidden = true
         gutter.addSubview(matchBar)
         contentView.addSubview(gutter)
@@ -581,7 +581,7 @@ final class DiffSplitCell: UICollectionViewCell, DiffCell {
     override init(frame: CGRect) {
         super.init(frame: frame)
         divider.backgroundColor = .separator
-        matchBar.backgroundColor = .tintColor
+        matchBar.backgroundColor = .cmuxMobileAccent
         matchBar.isHidden = true
         [left, right, divider, matchBar].forEach(contentView.addSubview)
         isAccessibilityElement = true

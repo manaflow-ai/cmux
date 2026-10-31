@@ -5,6 +5,9 @@
 use super::event_lanes::LaneFlow;
 use super::event_registry::{RegistryWork, run_registry_work};
 use super::*;
+use crate::serial_lanes::{Lane, LaneNext};
+use std::sync::OnceLock;
+use std::sync::mpsc::TryRecvError;
 
 /// Serves the surface's CDP events in order on the shared event-lane pool
 /// (`browser-events-<n>`); a surface has no event thread of its own.
@@ -193,6 +196,65 @@ pub(super) fn start_surface_thread(
     }))
 }
 
+/// The sending side of a browser surface's command queue. Each send kicks
+/// the surface's worker lane (`serial_lanes.rs`), which replaced the
+/// `browser-surface-<id>-worker` thread (perf100 tui lane: 353 such threads,
+/// each parked for good, in one Chief daemon). Dropping the last sender
+/// kicks too, so the lane sees the queue disconnect.
+pub(crate) struct BrowserCommandTx {
+    /// `None` only inside `drop`.
+    tx: Option<SyncSender<SequencedBrowserCommand>>,
+    lane: Arc<OnceLock<Lane>>,
+    /// One per sender; `Arc::into_inner` names the last one to drop.
+    live: Option<Arc<()>>,
+}
+
+impl BrowserCommandTx {
+    pub(super) fn channel(
+        capacity: usize,
+    ) -> (Self, (Receiver<SequencedBrowserCommand>, Arc<OnceLock<Lane>>)) {
+        let (tx, rx) = sync_channel(capacity);
+        let lane = Arc::new(OnceLock::new());
+        (Self { tx: Some(tx), lane: lane.clone(), live: Some(Arc::new(())) }, (rx, lane))
+    }
+
+    /// Same contract as `SyncSender::try_send`, whose error carries the
+    /// command back.
+    #[allow(clippy::result_large_err)]
+    pub(super) fn try_send(
+        &self,
+        command: SequencedBrowserCommand,
+    ) -> Result<(), TrySendError<SequencedBrowserCommand>> {
+        // `tx` is None only inside `drop`.
+        let Some(tx) = self.tx.as_ref() else { return Err(TrySendError::Disconnected(command)) };
+        let sent = tx.try_send(command);
+        // A full queue still wakes the worker, which drains it.
+        if !matches!(sent, Err(TrySendError::Disconnected(_)))
+            && let Some(lane) = self.lane.get()
+        {
+            lane.kick();
+        }
+        sent
+    }
+}
+
+impl Clone for BrowserCommandTx {
+    fn clone(&self) -> Self {
+        Self { tx: self.tx.clone(), lane: self.lane.clone(), live: self.live.clone() }
+    }
+}
+
+impl Drop for BrowserCommandTx {
+    fn drop(&mut self) {
+        // Disconnect first: the kicked lane must see the queue closed.
+        drop(self.tx.take());
+        let last = self.live.take().is_some_and(|live| Arc::into_inner(live).is_some());
+        if last && let Some(lane) = self.lane.get() {
+            lane.kick();
+        }
+    }
+}
+
 /// tab-attention-v1: the tab is on `browser.url()`; `clear` drops a "needs
 /// you" mark set on another page (the marked page is gone). `seen_url` only
 /// skips the call for a page this thread already asked about.
@@ -211,62 +273,76 @@ pub(super) fn clear_attention_if_page_changed(
 
 pub(super) fn start_browser_worker(
     surface: Arc<Surface>,
-    rx: Receiver<SequencedBrowserCommand>,
+    (rx, lane_slot): (Receiver<SequencedBrowserCommand>, Arc<OnceLock<Lane>>),
     command_order: Arc<Mutex<BrowserCommandOrder>>,
     latest_nav: Arc<Mutex<Option<SequencedBrowserCommand>>>,
     latest_authority: Arc<Mutex<Option<SequencedBrowserCommand>>>,
     mux: Weak<Mux>,
-    done_tx: Option<Sender<()>>,
+    mut done_tx: Option<Sender<()>>,
 ) {
     let id = surface.id;
-    let _ =
-        std::thread::Builder::new().name(format!("browser-surface-{id}-worker")).spawn(move || {
-            let mut failures = BrowserWorkerErrorState::default();
-            loop {
-                let first = match next_browser_lifecycle_deadline(&surface, &failures) {
-                    Some(deadline) => {
-                        match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                            Ok(first) => first,
-                            Err(RecvTimeoutError::Timeout) => {
-                                service_due_browser_lifecycles(&surface, &mux, id, &mut failures);
-                                continue;
-                            }
-                            Err(RecvTimeoutError::Disconnected) => break,
-                        }
+    let mut failures = BrowserWorkerErrorState::default();
+    // The lane holds the surface strongly, as the worker thread did; the
+    // queue's senders hold the lane, so the surface lives until its queue
+    // is closed and drained (`close_command_sender`).
+    let next = |surface: &Surface, failures: &BrowserWorkerErrorState| {
+        match next_browser_lifecycle_deadline(surface, failures) {
+            Some(deadline) => LaneNext::At(deadline),
+            None => LaneNext::Idle,
+        }
+    };
+    let lane = Lane::new("browser-surface-worker", move || {
+        // Drain until the queue is empty or closed: a close that happened
+        // while the lane was already queued kicks nothing new, so only
+        // reading on to `Disconnected` sees it.
+        loop {
+            let first = match rx.try_recv() {
+                Ok(first) => first,
+                Err(TryRecvError::Empty) => {
+                    // A deadline or a sender's drop, not a command.
+                    if next_browser_lifecycle_deadline(&surface, &failures)
+                        .is_some_and(|deadline| deadline <= Instant::now())
+                    {
+                        service_due_browser_lifecycles(&surface, &mux, id, &mut failures);
                     }
-                    None => match rx.recv() {
-                        Ok(first) => first,
-                        Err(_) => break,
-                    },
-                };
-                let mut batch = vec![first];
-                let mut order = command_order.lock().unwrap();
-                while let Ok(next) = rx.try_recv() {
-                    batch.push(next);
+                    return next(&surface, &failures);
                 }
-                batch.extend(order.retained_releases.drain(..));
-                batch.extend(order.registry_work.drain(..));
-                batch.extend(order.registry_exit.take());
-                if let Some(command) = take_latest_worker_commands(&latest_nav) {
-                    batch.push(command);
+                Err(TryRecvError::Disconnected) => {
+                    if let Some(done_tx) = done_tx.take() {
+                        let _ = done_tx.send(());
+                    }
+                    return LaneNext::Close;
                 }
-                if let Some(command) = take_latest_worker_commands(&latest_authority) {
-                    batch.push(command);
-                }
-                drop(order);
-                batch.sort_unstable_by_key(|queued| queued.sequence);
+            };
+            let mut batch = vec![first];
+            let mut order = command_order.lock().unwrap();
+            while let Ok(next) = rx.try_recv() {
+                batch.push(next);
+            }
+            batch.extend(order.retained_releases.drain(..));
+            batch.extend(order.registry_work.drain(..));
+            batch.extend(order.registry_exit.take());
+            if let Some(command) = take_latest_worker_commands(&latest_nav) {
+                batch.push(command);
+            }
+            if let Some(command) = take_latest_worker_commands(&latest_authority) {
+                batch.push(command);
+            }
+            drop(order);
+            batch.sort_unstable_by_key(|queued| queued.sequence);
+            service_due_browser_lifecycles(&surface, &mux, id, &mut failures);
+            batch.retain(|queued| !matches!(&queued.command, BrowserCommand::WakeLatest));
+            coalesce_worker_mouse_moves(&mut batch);
+            for queued in batch {
                 service_due_browser_lifecycles(&surface, &mux, id, &mut failures);
-                batch.retain(|queued| !matches!(&queued.command, BrowserCommand::WakeLatest));
-                coalesce_worker_mouse_moves(&mut batch);
-                for queued in batch {
-                    service_due_browser_lifecycles(&surface, &mux, id, &mut failures);
-                    run_browser_worker_command(&surface, queued, &mux, id, &mut failures);
-                }
+                run_browser_worker_command(&surface, queued, &mux, id, &mut failures);
             }
-            if let Some(done_tx) = done_tx {
-                let _ = done_tx.send(());
-            }
-        });
+        }
+    });
+    if lane_slot.set(lane.clone()).is_ok() {
+        // Commands sent before the lane existed.
+        lane.kick();
+    }
 }
 
 pub(super) fn next_browser_lifecycle_deadline(
