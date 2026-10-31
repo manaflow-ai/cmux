@@ -130,9 +130,18 @@ struct ChromiumQuestionKeyChannelTests {
         function press(changes = {}) {
           const target = changes.target ?? document.activeElement;
           const path = []; for (let node = target; node; node = node.parentNode) path.push(node);
-          listener?.({isTrusted:true, repeat:false, isComposing:false, keyCode:13, key:'Enter',
+          const event = {isTrusted:true, repeat:false, isComposing:false, keyCode:13, key:'Enter',
             shiftKey:false, ctrlKey:false, altKey:false, target, composedPath:() => path,
-            preventDefault() {}, stopImmediatePropagation() {}, ...changes});
+            stopped:false, preventDefault() {}, stopImmediatePropagation() { this.stopped = true; }, ...changes};
+          window.dispatchEvent(event);
+          if (!event.stopped) listener?.(event);
+        }
+        function input(value) {
+          field.value = value;
+          const event = {type:'input', target:field, stopped:false,
+            stopImmediatePropagation() { this.stopped = true; }};
+          window.dispatchEvent(event);
+          if (!event.stopped) field.listeners.input?.(event);
         }
         function reply(answer, annotations) {
           const value = {optionId:'allow', answers:{Question:answer}};
@@ -202,6 +211,45 @@ struct ChromiumQuestionKeyChannelTests {
         #expect(isolated.evaluateScript("reports.length").toInt32() == 0)
         isolated.evaluateScript("press(); press();")
         #expect(isolated.evaluateScript("reports.length").toInt32() == 2)
+        channel.invalidate()
+    }
+
+    @Test func anEarlierWindowCaptureCannotRelabelTheQuestionBeforeDocumentCapture() async throws {
+        let page = page()
+        let channel = ChromiumQuestionKeyChannel(page: page, owns: { $0?.absoluteString == Self.url })
+        let second = PageQuestionKeyTarget(sessionID: "session-one", permissionID: "question-two")
+        var snapshots: [PageQuestionKeySnapshot] = []
+        let installed = try await install(channel, page: page, targets: [Self.target, second]) { snapshots.append($0) }
+        let isolated = try scriptContext(binding: installed.binding, source: installed.source, guardSource: installed.guardSource,
+                                         beforeBind: "window.addEventListener('keydown', () => { card.attrs['data-cmux-question-id'] = 'question-two'; }, true);")
+        redeemIn(isolated, page: page)
+        isolated.evaluateScript("press()")
+        let report = try #require(isolated.evaluateScript("reports[0]").toString())
+        #expect(channel.receive(try Self.event(binding: installed.binding, payload: report)))
+        let captured = try #require(snapshots.first)
+        #expect(captured.target == Self.target, "the early event record keeps the original question identity")
+        #expect(!(await channel.redeem(captured)), "a relabeled card cannot redeem the original question key")
+        channel.invalidate()
+    }
+
+    @Test func anEarlierWindowInputCaptureRevokesEditsEvenWhenThePageStopsPropagation() async throws {
+        let page = page()
+        let channel = ChromiumQuestionKeyChannel(page: page, owns: { $0?.absoluteString == Self.url })
+        var snapshots: [PageQuestionKeySnapshot] = []
+        let installed = try await install(channel, page: page) { snapshots.append($0) }
+        let isolated = try scriptContext(binding: installed.binding, source: installed.source, guardSource: installed.guardSource,
+                                         beforeBind: "window.addEventListener('input', event => event.stopImmediatePropagation(), true);")
+        redeemIn(isolated, page: page)
+        isolated.evaluateScript("press()")
+        let first = try #require(isolated.evaluateScript("reports[0]").toString())
+        #expect(channel.receive(try Self.event(binding: installed.binding, payload: first)))
+        let old = try #require(snapshots.first)
+        isolated.evaluateScript("input('edited'); field.value = 'My answer';")
+        #expect(!(await channel.redeem(old)), "an edit remains revoked after its value is restored")
+        isolated.evaluateScript("press()")
+        let next = try #require(isolated.evaluateScript("reports[1]").toString())
+        #expect(channel.receive(try Self.event(binding: installed.binding, payload: next)))
+        #expect(await channel.redeem(try #require(snapshots.last)))
         channel.invalidate()
     }
 

@@ -37,9 +37,39 @@ nonisolated enum PageQuestionKeyScript {
           const probe = new Event('__cmuxFocusProbe_' + secret);
           const dispatch = EventTarget.prototype.dispatchEvent;
           let focus = 0, acknowledged = 0;
+          const keyEvents = new WeakMap();
+          const inputVersions = new WeakMap();
           const observe = (event) => { if (event === probe) ++acknowledged; else ++focus; };
+          const observeInput = (event) => {
+            const field = event.target;
+            if (field instanceof HTMLTextAreaElement)
+              inputVersions.set(field, (inputVersions.get(field) ?? 0) + 1);
+          };
+          const observeKey = (event) => {
+            if (!event.isTrusted || event.repeat || event.isComposing || event.keyCode === 229 ||
+                event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey) return;
+            const field = event.target;
+            if (!(field instanceof HTMLTextAreaElement) || field !== document.activeElement || !field.isConnected) return;
+            const path = event.composedPath();
+            if (path[0] !== field) return;
+            const other = field.closest('.acpmux-question-other[data-row-editing="true"]');
+            const card = field.closest('.acpmux-question');
+            if (!other || !card || !path.includes(other) || !path.includes(card) || card.hidden ||
+                card.getAttribute('aria-busy') === 'true' || field.getClientRects().length === 0 ||
+                card.getClientRects().length === 0) return;
+            keyEvents.set(event, {
+              field, other, card,
+              sessionID: card.getAttribute('data-cmux-question-session'),
+              permissionID: card.getAttribute('data-cmux-question-id'),
+              replyJSON: card.getAttribute('data-cmux-question-enter-reply'),
+              text: field.value,
+              inputVersion: inputVersions.get(field) ?? 0,
+            });
+          };
           window.addEventListener('focusout', observe, true);
           window.addEventListener(probe.type, observe, true);
+          window.addEventListener('input', observeInput, true);
+          window.addEventListener('keydown', observeKey, true);
           Object.defineProperty(globalThis, '\(focusGuard)', {value:Object.freeze({
             read(key) {
               if (key !== secret) return undefined;
@@ -48,7 +78,9 @@ nonisolated enum PageQuestionKeyScript {
               // document.open may keep this global while clearing window listeners. A marker
               // without its early listener is never sufficient; do not reinstall it late.
               return acknowledged === before + 1 ? focus : undefined;
-            }
+            },
+            key(event, key) { return key === secret ? keyEvents.get(event) : undefined; },
+            inputVersion(field, key) { return key === secret ? (inputVersions.get(field) ?? 0) : undefined; },
           })});
         })();
         """
@@ -70,6 +102,7 @@ nonisolated enum PageQuestionKeyScript {
           const nonce = \(value(nonce));
           const binding = \(value(binding));
           const redemption = \(value(redemptionName(binding: binding)));
+          const guardedKey = (event) => focusGuard?.key?.(event, guardSecret);
           const post = globalThis[binding];
           let sequence = 0;
           let pending;
@@ -95,6 +128,7 @@ nonisolated enum PageQuestionKeyScript {
           };
           const valid = (snapshot) => !snapshot.revoked && snapshot.field.isConnected && snapshot.card.isConnected &&
             focusGuard.read(guardSecret) === snapshot.focus &&
+            focusGuard.inputVersion(snapshot.field, guardSecret) === snapshot.inputVersion &&
             snapshot.field === document.activeElement && snapshot.other.contains(snapshot.field) &&
             snapshot.card.contains(snapshot.other) && snapshot.other.getAttribute('data-row-editing') === 'true' &&
             snapshot.card.getAttribute('data-cmux-question-session') === snapshot.sessionID &&
@@ -113,24 +147,26 @@ nonisolated enum PageQuestionKeyScript {
             return accepted;
           };
           const key = (event) => {
+            const guarded = guardedKey(event);
+            if (!guarded) return;
             if (!event.isTrusted || event.repeat || event.isComposing || event.keyCode === 229 ||
                 event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey) return;
-            const field = event.target;
+            const field = guarded.field;
             if (!(field instanceof HTMLTextAreaElement) || field !== document.activeElement || !field.isConnected) return;
             const path = event.composedPath();
             if (path[0] !== field) return;
-            const other = field.closest('.acpmux-question-other[data-row-editing="true"]');
-            const card = field.closest('.acpmux-question');
+            const other = guarded.other;
+            const card = guarded.card;
             if (!other || !card || !path.includes(other) || !path.includes(card) ||
                 card.hidden || card.getAttribute('aria-busy') === 'true' ||
                 field.getClientRects().length === 0 || card.getClientRects().length === 0) return;
-            const sessionID = card.getAttribute('data-cmux-question-session');
-            const permissionID = card.getAttribute('data-cmux-question-id');
+            const sessionID = guarded.sessionID;
+            const permissionID = guarded.permissionID;
             if (!allowed.has(JSON.stringify([sessionID, permissionID]))) return;
             revoke(); // Every newer genuine key revokes the previous unused proof.
             const focus = focusGuard.read(guardSecret);
             if (!Number.isSafeInteger(focus)) return;
-            const replyJSON = card.getAttribute('data-cmux-question-enter-reply');
+            const replyJSON = guarded.replyJSON;
             if (typeof replyJSON !== 'string' || replyJSON.length > \(maximumReplyBytes)) return;
             let reply;
             try { reply = JSON.parse(replyJSON); } catch { return; }
@@ -148,8 +184,8 @@ nonisolated enum PageQuestionKeyScript {
               'data-cmux-question-session', 'data-cmux-question-id', 'data-cmux-question-enter-reply', 'hidden'
             ]});
             observer.observe(other, {attributes:true, childList:true, attributeFilter:['data-row-editing']});
-            const snapshot = {card, field, other, ancestors, observer, sessionID, permissionID, replyJSON, text:field.value, focus,
-              serial:++sequence, revoked:false};
+            const snapshot = {card, field, other, ancestors, observer, sessionID, permissionID, replyJSON,
+              text:guarded.text, inputVersion:guarded.inputVersion, focus, serial:++sequence, revoked:false};
             pending = snapshot;
             field.addEventListener('input', revoke, true);
             // Capture runs before the card's handler. No page API receives a ticket or secret.
