@@ -81,6 +81,12 @@
   --cv-footer-gap: 0px;
   --cv-tool-run-bottom-gap: 4px;
   --cv-tool-gap: var(--ds-space-2, 8px);
+  /* One icon column for every transcript meta row: a tool row, a sent message, a received or inbox
+     message, a background task, a sub-session or subagent card. Each starts its icon at the row's
+     left edge (no inset of its own), in the same slot, with its words the same distance after it
+     (Leo, 2026-10-31: "YOU GUYS CANNOT FUCKIGN MISALIGN THINGS"; test/transcript-meta-columns-browser.test.ts). */
+  --cv-row-icon: var(--cv-glyph-slot);
+  --cv-row-icon-gap: calc(var(--cv-tool-gap) - 1.5px);
   --cv-disclosure-gap: var(--ds-space-1, 4px);
   /* A message's hover row fades as Claude Code desktop's (--cds-message-actions-reveal-*): in after
      100ms over 120ms, out at once (Claude's 60ms is off the motion scale: its quick 80ms), both on
@@ -1938,9 +1944,9 @@ pre.cv-math-source {
   flex: none;
   align-items: center;
   justify-content: center;
-  width: var(--cv-glyph-slot);
+  width: var(--cv-row-icon);
   height: var(--cv-glyph-line);
-  margin-right: -1.5px;
+  margin-right: calc(var(--cv-row-icon-gap) - var(--cv-tool-gap));
 }
 .cv-tool__text {
   flex: 0 1 auto;
@@ -2703,7 +2709,7 @@ pre.cv-math-source {
   height: var(--cv-disclosure-line-height);
   min-height: 0;
   color: var(--cv-activity-text);
-  padding-inline: var(--ds-space-1);
+  padding-inline: 0 var(--ds-space-1);
   border-radius: 6px;
   white-space: nowrap;
   user-select: none;
@@ -2765,13 +2771,12 @@ pre.cv-math-source {
   max-width: 45%;
   min-width: 0;
   height: var(--cv-message-line);
-  gap: var(--ds-space-1);
-  padding-inline-start: var(--ds-space-1);
+  gap: var(--cv-row-icon-gap);
 }
 .cv-received__mark {
   display: inline-flex;
   flex: none;
-  width: 16px;
+  width: var(--cv-row-icon);
   justify-content: center;
   color: var(--cv-text-muted);
 }
