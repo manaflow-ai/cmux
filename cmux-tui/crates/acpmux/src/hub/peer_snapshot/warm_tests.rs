@@ -167,24 +167,22 @@ async fn a_daemon_whose_clients_open_no_peer_chat_reads_nothing_ahead() {
     hub.stop_idle_reaper();
 }
 
-/// Review of #28626 at a2cc1e2: new records past a copy that do not fit one page are read on from
-/// the newest one the page held; a newest page, a page that held all there was, or one that held
-/// nothing new ends the chat's reads.
+/// Review of #28626 at a2cc1e2 and 599fcb1: new records past a copy that do not fit one page are
+/// read on after the interval, one page a round; a newest page, a page that held all there was, or
+/// one that held nothing new is not cut short.
 #[test]
-fn a_page_past_the_copy_that_did_not_fit_is_read_on_from_its_newest_record() {
+fn a_page_past_the_copy_that_did_not_fit_is_cut_short() {
     let after = json!({"sessionId": "m1", "afterSeq": 10, "limit": 400, "maxBytes": 1});
     let page = |more: bool, seqs: &[u64]| {
         let events: Vec<Value> = seqs.iter().map(|s| json!({"seq": s, "kind": "k"})).collect();
         json!({"events": events, "hasMore": more})
     };
-    let next = next_page(&after, &page(true, &[11, 14, 12])).unwrap();
-    assert_eq!(next["afterSeq"], json!(14));
-    assert_eq!((next["limit"].clone(), next["sessionId"].clone()), (json!(400), json!("m1")));
-    assert_eq!(next_page(&after, &page(false, &[11, 14])), None, "it held all there was");
-    assert_eq!(next_page(&after, &page(true, &[])), None, "nothing new: no loop");
-    assert_eq!(next_page(&after, &page(true, &[9, 10])), None);
+    assert!(cut_short(&after, &page(true, &[11, 14, 12])));
+    assert!(!cut_short(&after, &page(false, &[11, 14])), "it held all there was");
+    assert!(!cut_short(&after, &page(true, &[])), "nothing new: no loop");
+    assert!(!cut_short(&after, &page(true, &[9, 10])));
     let newest = json!({"sessionId": "m1", "beforeSeq": NEWEST});
-    assert_eq!(next_page(&newest, &page(true, &[11, 14])), None, "a newest page is the tail");
+    assert!(!cut_short(&newest, &page(true, &[11, 14])), "a newest page is the tail");
 }
 
 /// Review of #28626 at a2cc1e2: a stopping daemon starts no round and aborts those running.

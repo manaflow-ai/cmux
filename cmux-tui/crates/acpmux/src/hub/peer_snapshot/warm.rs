@@ -9,8 +9,8 @@
 //!
 //! Bounds: [`WARM_PER_PEER`] chats of each peer, changed in the last [`WARM_WITHIN_MS`]; a read is
 //! the pane's open page ([`WARM_LIMIT`] records within [`WARM_BYTES`]), only past what the copy
-//! covers once it covers some, and at most [`WARM_PAGES`] such pages in a round; a chat is read
-//! (or tried) at most once each [`WARM_EVERY`], and its last change is always read; one round at a
+//! covers once it covers some, one page a chat a round; a chat is read (or tried) at most once each
+//! [`WARM_EVERY`], and its last change, a refusal and a page cut short are read again after it; one round at a
 //! time per peer, one read at a time in it, and a round ends at the first read the link refuses (a
 //! chat the peer refuses is passed over). What is kept stays within the copies' own bounds. Rounds
 //! stop with the daemon (`Hub::stop_idle_reaper`), before its last flush.
@@ -31,9 +31,6 @@ const WARM_SETTLE: Duration = Duration::from_millis(if cfg!(test) { 20 } else { 
 /// A read's bounds: those of the pane's attach (`OPEN_PAGE_BYTES`, webviews `direct.ts`).
 const WARM_LIMIT: u64 = 400;
 const WARM_BYTES: u64 = 128 << 10;
-/// Pages past a copy one round reads of a chat whose new records do not fit one page; the rest is
-/// read [`WARM_EVERY`] later.
-const WARM_PAGES: usize = 4;
 /// The kinds the pane's attach of a peer chat asks for, at most 8 (an older peer refuses more):
 /// the transcript, the commands, usage, config, bookmarks and secret cards.
 const WARM_KINDS: [&str; 7] = [
@@ -150,7 +147,7 @@ pub(super) fn plan(
             (at.saturating_add(WARM_WITHIN_MS) >= now_ms).then_some((row, at))
         })
         .collect();
-    open.sort_by(|a, b| b.1.cmp(&a.1));
+    open.sort_by_key(|(_, at)| std::cmp::Reverse(*at));
     open.truncate(WARM_PER_PEER);
     let (mut asks, mut planned, mut later) = (Vec::new(), HashSet::new(), None::<Instant>);
     for (row, _) in open {
@@ -282,55 +279,62 @@ impl Hub {
             (asks, later)
         };
         let mut later = later;
+        // Read again after the interval: a chat refused or not read to its end.
+        let again = |later: &mut Option<Instant>| {
+            let at = Instant::now() + WARM_EVERY;
+            *later = Some(later.map_or(at, |l| l.min(at)));
+        };
         for ask in asks {
             // Tried counts as read: a chat the peer refuses waits its interval too.
             warm.state().read_at.insert((name.to_owned(), ask.mux.clone()), Instant::now());
-            let mut params = ask.params;
-            for _ in 0..WARM_PAGES {
-                // The link the page is asked on, read before it, as the forward path does.
-                let link = peer.link_epoch();
-                let read = peer.request_on(method::MUX_EVENTS, params.clone(), Some(link)).await;
-                let mut page = match read {
-                    Ok(page) => page,
-                    // The link is down: nothing else of this peer is read this round.
-                    Err(e) if link_down(peer, &e) => return later,
-                    // This chat only (gone meanwhile, a page it cannot give): the next one is read.
-                    Err(_) => break,
-                };
-                let held = |r: &Value| r.get("events").and_then(Value::as_array).map(Vec::len);
-                let before = held(&page);
-                crate::server::strip_peer_asks(self, name, &ask.mux, method::MUX_EVENTS, &mut page);
-                // Checked as the page is kept: a round of a stopping daemon keeps nothing after its
-                // last flush.
-                if held(&page) != before || warm.state().stopped {
-                    break;
+            // The link the page is asked on, read before it, as the forward path does.
+            let link = peer.link_epoch();
+            let read = peer.request_on(method::MUX_EVENTS, ask.params.clone(), Some(link)).await;
+            let mut page = match read {
+                Ok(page) => page,
+                // The link is down: nothing else of this peer is read this round; the link's
+                // return starts the next.
+                Err(e) if link_down(peer, &e) => return later,
+                // This chat only (gone meanwhile, a page it cannot give): the next one is read,
+                // and this one again after the interval.
+                Err(_) => {
+                    again(&mut later);
+                    continue;
+                }
+            };
+            let held = |r: &Value| r.get("events").and_then(Value::as_array).map(Vec::len);
+            let before = held(&page);
+            crate::server::strip_peer_asks(self, name, &ask.mux, method::MUX_EVENTS, &mut page);
+            if held(&page) != before {
+                continue;
+            }
+            {
+                // Kept under the lock the stop takes, so no page is kept once the daemon stops
+                // (its last flush comes after `Warm::stop`). The capture only queues the page.
+                let s = warm.state();
+                if s.stopped {
+                    return None;
                 }
                 let on = (name, peer.generation, link, Some(ask.generation));
-                self.capture_peer_page(on, (&ask.mux, true), &params, &page);
-                let Some(next) = next_page(&params, &page) else { break };
-                params = next;
-                // Read past the last of these pages after the interval, if they do not get there.
-                let at = Instant::now() + WARM_EVERY;
-                later = Some(later.map_or(at, |l| l.min(at)));
+                self.capture_peer_page(on, (&ask.mux, true), &ask.params, &page);
+            }
+            // New records past the copy that did not fit one page: the rest is read after the
+            // interval, one page a round (the plan continues from what the copy covers then).
+            if cut_short(&ask.params, &page) {
+                again(&mut later);
             }
         }
         later
     }
 }
 
-/// The read after `page`, asked with `params`: records past the copy that did not fit one page
-/// continue from the newest one the page held. None when it held all there was, held nothing new,
-/// or was a newest page (the chat's tail already).
-pub(super) fn next_page(params: &Value, page: &Value) -> Option<Value> {
-    let after = params.get("afterSeq").and_then(Value::as_u64)?;
-    if page.get("hasMore") == Some(&Value::Bool(false)) {
-        return None;
-    }
-    let events = page.get("events").and_then(Value::as_array)?;
-    let newest = events.iter().filter_map(seq_of).max().filter(|n| *n > after)?;
-    let mut next = params.clone();
-    next["afterSeq"] = json!(newest);
-    Some(next)
+/// Whether `page`, a read past a copy asked with `params`, stopped short of the chat's newest
+/// record (`hasMore`) after holding something new: a newest page is the chat's tail already.
+pub(super) fn cut_short(params: &Value, page: &Value) -> bool {
+    let Some(after) = params.get("afterSeq").and_then(Value::as_u64) else { return false };
+    let events = page.get("events").and_then(Value::as_array);
+    page.get("hasMore") != Some(&Value::Bool(false))
+        && events.is_some_and(|e| e.iter().filter_map(seq_of).any(|seq| seq > after))
 }
 
 /// Whether `e` refused a read because peer `peer`'s link is down, not because of the chat.
