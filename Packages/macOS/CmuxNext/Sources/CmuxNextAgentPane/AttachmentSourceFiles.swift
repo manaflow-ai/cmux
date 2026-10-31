@@ -28,6 +28,15 @@ nonisolated extension AttachmentSource {
     static let airDropAgent = "com.apple.sharingd"
     static let airDropApp = "com.apple.finder.Open-AirDrop"
 
+    /// Writes `data`, a capture cmux took, to `url` (its folder made first, atomically) and marks it
+    /// as cmux's (``markOwn(_:bundleId:)``), so an attachment made of it wears cmux's icon. A
+    /// blocking file write: call it off the main actor.
+    public static func writeOwn(_ data: Data, to url: URL) throws {
+        try FileManager.checked.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.blockingWrite(to: url, options: .atomic)
+        markOwn(url)
+    }
+
     /// Marks `url`, a file cmux wrote, as cmux's (Screenshot Tab's PNG). Best effort.
     public static func markOwn(_ url: URL, bundleId: String? = Bundle.main.bundleIdentifier) {
         guard let bundleId, AttachmentSource.isBundleId(bundleId) else { return }

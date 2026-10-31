@@ -1,5 +1,8 @@
 // The real transcript controls share a trailing chevron column through hover, keyboard focus,
 // nested expansion and a Shell block's own Copy. The obsolete floating row Copy is not a fixture.
+// The steps of an opened run inside its card (`.cv-steps`, #27896) are the exception: each step's
+// caret sits inline right after its label, as Leo asked of the transcript's carets ("we can fit
+// stuff closer", #28018), within the same 4.5px #28018 checks.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -68,18 +71,34 @@ await requireBrowserLane("agent-pane-transcript-chevron-column.test.ts", async (
       await page.locator('[data-label="group"] > .cv-tools > button').click();
       await page.locator('[data-label="run"] > .cv-tools > button').click();
       await page.locator('[data-label="thought"] .cv-thought').click();
-      const expanded = await page
-        .locator("[data-chevron-column] .cv-tool__chevron")
-        .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().right * 10) / 10));
-      expect(expanded).toHaveLength(9);
+      const carets = await page.locator("[data-chevron-column] .cv-tool__chevron").evaluateAll((nodes) =>
+        nodes.map((node) => {
+          const caret = node.getBoundingClientRect();
+          const label = node.closest(".cv-steps")
+            ? node
+                .closest(".cv-tool")!
+                .querySelector(".cv-tool__text, .cv-command__text, .cv-thought__label, .cv-thought__preview")!
+                .getBoundingClientRect()
+            : undefined;
+          return { right: Math.round(caret.right * 10) / 10, gap: label ? caret.left - label.right : undefined };
+        }),
+      );
+      expect(carets).toHaveLength(9);
+      // Rows outside a run's card keep the one trailing edge.
+      const expanded = carets.filter((caret) => caret.gap === undefined).map((caret) => caret.right);
+      expect(expanded).toHaveLength(7);
       expect(new Set(expanded)).toEqual(new Set(before));
+      // The opened group's two steps, in its card: each caret right after its label.
+      const steps = carets.flatMap((caret) => (caret.gap === undefined ? [] : [caret.gap]));
+      expect(steps).toHaveLength(2);
+      expect(steps.every((gap) => gap >= -0.5 && gap <= 4.5)).toBe(true);
       expect(await page.locator("[data-chevron-column] .acpmux-row__copy").count()).toBe(0);
       if (process.env.CMUX_CHEVRON_ARTIFACT_DIR) {
         const directory = process.env.CMUX_CHEVRON_ARTIFACT_DIR;
         await mkdir(directory, { recursive: true });
         await writeFile(
           path.join(directory, `rects-${width}.json`),
-          JSON.stringify({ width, before, after, expanded, action }, null, 2),
+          JSON.stringify({ width, before, after, expanded, steps, action }, null, 2),
         );
         await page.screenshot({ path: path.join(directory, `chevrons-${width}.png`), fullPage: true });
       }

@@ -30,6 +30,8 @@ final class CloudMachineSession {
     /// Why the app link ended (localized), until the next connect. Nil
     /// while connected or connecting, and always nil for the legacy link.
     private(set) var linkEnded: String?
+    /// The ended link went down or was revoked, not refused (``CloudAppLinks/isDrop(_:)``).
+    private(set) var linkDropped = false
     /// The link as this session's endpoint calls see it (cx-lu8f): starting,
     /// up, or the last start's failure. Drives the booting and connecting
     /// stages; never set from elapsed time.
@@ -43,6 +45,10 @@ final class CloudMachineSession {
     /// Counts suspends: a connect that a pause overtook opens no connection
     /// (not `isLive`: a click connects a paused machine on purpose).
     @ObservationIgnored private var suspends = 0
+    /// Counts the connects this session started. A machine list read notes it
+    /// when it begins (`CloudService.refresh`), so its answer can tell a
+    /// connect that began after the read (``listed(_:connectsAtRead:)``).
+    @ObservationIgnored private(set) var connects = 0
     @ObservationIgnored private var linkTransition: Task<Void, Never>?
     /// The app-link connect hop in flight: a pause or a disconnect cancels
     /// it instead of waiting up to `CloudAppLinks.connectTimeout`.
@@ -102,6 +108,7 @@ final class CloudMachineSession {
         } else {
             guard machine.status.isLive else { return }
         }
+        connects += 1
         // A resume that failed earlier says nothing about this connect.
         resumeFailure = nil
         let previous = linkTransition
@@ -177,6 +184,7 @@ final class CloudMachineSession {
         appTicket = nil
         daemon.shutdownConnection()
         linkEnded = nil
+        linkDropped = false
         resumeFailure = nil
         noteLinkStarting()
         let suspendsBefore = suspends
@@ -226,13 +234,21 @@ final class CloudMachineSession {
     }
 
     /// "Disconnected, click to connect": no connection until the next connect.
+    /// Reads the machine list again (at most every 30 s), as a legacy link's
+    /// failure does (`noteLink`): the idle auto-pause may have parked the
+    /// machine behind the app, and the record then reads paused, not failed.
     private func showEnded(_ error: any Error) {
         CloudAppLinks.logEnded(error)
         let message = CloudAppLinks.endedMessage(error)
         daemon.shutdownConnection()
         daemon.store.markFailed(message)
         linkEnded = message
+        linkDropped = CloudAppLinks.isDrop(error)
         linkPhase = .failed(message)
+        if let refresher {
+            // task-owner: one throttled list read; the reconcile it runs updates this record
+            Task { await refresher(false) }
+        }
     }
 
     /// A link start began. A previous start's failure stays shown until a
@@ -254,6 +270,32 @@ final class CloudMachineSession {
         if case .failed = phase, let refresher {
             // task-owner: one throttled list read; the reconcile it runs updates this record
             Task { await refresher(false) }
+        }
+    }
+
+    /// A machine list read's record for this machine (`CloudService.reconcile`):
+    /// one that stopped being live suspends the session, one that turned live
+    /// connects it. `connectsAtRead` is ``connects`` when the read began: a
+    /// connect since then (a click's, which starts a paused machine) is newer
+    /// than the answer, so a record that is not live neither suspends it nor
+    /// models it paused: the session keeps its live status, pause reason and
+    /// running start, and takes the record's other fields.
+    func listed(_ record: CloudMachine, connectsAtRead: Int) {
+        let wasLive = machine.status.isLive
+        if wasLive, !record.status.isLive {
+            guard connects == connectsAtRead else {
+                var kept = record
+                (kept.status, kept.pauseReason, kept.runningSince) = (machine.status, machine.pauseReason, machine.runningSince)
+                machine = kept
+                return
+            }
+            machine = record
+            suspend()
+            return
+        }
+        machine = record
+        if !wasLive, record.status.isLive {
+            connect()
         }
     }
 
@@ -281,7 +323,8 @@ final class CloudMachineSession {
         if case .connected = daemon.store.connectionState { connected = daemon.connection != nil }
         return CloudMachineStageInput(creation: nil, machineStatus: machine.status, link: linkPhase, daemonConnected: connected,
                                       daemonLoaded: daemon.store.isLoaded, daemonFailure: daemonFailure, linkEnded: linkEnded,
-                                      pauseReason: machine.pauseReason, resuming: resuming, resumeFailure: resumeFailure)
+                                      pauseReason: machine.pauseReason, resuming: resuming, resumeFailure: resumeFailure,
+                                      linkDropped: linkDropped)
     }
 
     /// Where the machine is on its way to a usable daemon.
