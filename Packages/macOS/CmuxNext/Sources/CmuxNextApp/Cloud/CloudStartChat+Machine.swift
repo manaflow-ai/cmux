@@ -58,7 +58,7 @@ extension CloudStartChat {
             machine.connected ? machine.chats == 0 : (machine.status == .paused && machine.pauseReason == .idle)
         }
         let eligible = candidates.filter { machine in
-            mine(machine) && !isLanePool(machine.title) && !(machine.slug.map(isLanePool) ?? false)
+            !machine.status.isChanging && mine(machine) && !isLanePool(machine.title) && !(machine.slug.map(isLanePool) ?? false)
                 && (machine.connected || machine.status.isLive || (machine.status == .paused && machine.pauseReason == .idle))
         }
         let marked = { (machine: Candidate) in isMarkedForChats(machine.title) || (machine.slug.map(isMarkedForChats) ?? false) }
@@ -263,7 +263,7 @@ extension CloudStartChat {
                 ? session.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).filter { $0.agentSession != nil }.count
                 : nil
             return Candidate(id: session.machineID, title: session.machine.title, slug: session.machine.slug, createdBy: session.machine.createdBy,
-                             status: session.machine.status, pauseReason: session.machine.pauseReason, connected: connected, chats: chats)
+                             status: session.machine.shownStatus, pauseReason: session.machine.pauseReason, connected: connected, chats: chats)
         }
         let destination = Self.destination(for: pin, destinations: destinations, candidates: candidates, user: cloud.auth.user?.id,
                                            used: destinations.machines(of: account)) { id in
