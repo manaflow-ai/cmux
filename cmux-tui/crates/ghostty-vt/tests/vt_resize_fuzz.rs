@@ -31,12 +31,12 @@ const SCROLLBACK: usize = 1 << 20;
 /// are off here, so this test does not turn the base red. The fuzz runs keep
 /// them on, with a random seed (scratch branch `cp/fuzz-vt-replay-on`). The
 /// fix PR for #29136 sets this to true.
-const OPEN_FINDING_ORACLES: bool = false;
+const OPEN_FINDING_ORACLES: bool = true;
 
 /// The landed test uses a fixed seed, so it gives the same cases every run
 /// and cannot turn the base red on a new random input; the fuzz runs on the
 /// scratch branch use a random seed.
-const FIXED_SEED: Option<u64> = Some(0x1e_0e);
+const FIXED_SEED: Option<u64> = None;
 
 #[derive(Debug, Clone)]
 enum Op {

@@ -576,7 +576,7 @@ proptest! {
         // A fixed seed: the same cases every run, so a new random input
         // cannot turn the base red. Fuzz runs set a random seed on a scratch
         // branch.
-        rng_seed: proptest::test_runner::RngSeed::Fixed(0x1e_0d),
+        rng_seed: proptest::test_runner::RngSeed::Random,
         ..ProptestConfig::default()
     })]
 
