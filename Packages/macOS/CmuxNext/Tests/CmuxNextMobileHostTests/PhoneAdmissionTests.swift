@@ -369,6 +369,32 @@ import Testing
         #expect(!store.trusts(Self.phone))
     }
 
+    @Test func aLateCancellationLeavesTheNextPeriodsQuestion() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = await Self.store(at: directory)
+        let admission = PhoneAdmission(phones: store, disconnect: { _ in })
+        admission.servingPeriod = { 3 }
+        let asked = AsyncStream<Void>.makeStream()
+        var answer: CheckedContinuation<PhoneAdmission.PromptResult, Never>?
+        admission.ask = { _, _ in
+            await withCheckedContinuation { continuation in
+                answer = continuation
+                asked.continuation.yield()
+            }
+        }
+        admission.dismissAsk = { _, _ in }
+        // task-owner: answered below, after the stale cancellation
+        let pending = Task { await admission.decide(Self.phone) }
+        var events = asked.stream.makeAsyncIterator()
+        await events.next()
+        // Period 2 ended and Phone Access came back on (period 3) before its cancellation ran.
+        admission.cancelAll()
+        answer?.resume(returning: .allow)
+        #expect(await pending.value)
+        #expect(store.trusts(Self.phone))
+    }
+
     @Test func aSaveQueuedBeforeTurningOffSavesNothing() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

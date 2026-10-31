@@ -72,15 +72,13 @@ final class PhoneAdmission {
                 guard let self else { return }
                 if generation != self.phones.generation {
                     generation = self.phones.generation
-                    admissionGenerations = [:]
-                    for question in questions.values {
-                        question.cancel()
-                        question.task.cancel()
-                    }
-                    questions = [:]
                     denied = [:]
-                    for dialog in CmuxDialogCenter.shared.records where dialog.spec.identifier == Self.dialogIdentifier {
-                        CmuxDialogCenter.shared.dismiss(dialog.id)
+                    // Only questions asked under an earlier account; one asked since the switch stays.
+                    cancelQuestions { $0.accountGeneration != self.phones.generation }
+                    if questions.isEmpty {
+                        for dialog in CmuxDialogCenter.shared.records where dialog.spec.identifier == Self.dialogIdentifier {
+                            CmuxDialogCenter.shared.dismiss(dialog.id)
+                        }
                     }
                 }
                 for phone in change.removed where phone.transport == .iroh {
@@ -158,17 +156,24 @@ final class PhoneAdmission {
         if questions.isEmpty { quiet() }
     }
 
-    /// Phone Access was turned off or signed out: every open question resolves as
-    /// unavailable, and a late Allow cannot pass its phone's new token.
+    /// Phone Access was turned off or signed out: every question from a period that has
+    /// ended resolves as unavailable, and a late Allow cannot pass its phone's new token.
+    /// A cancellation that arrives after Phone Access came back on leaves the new period's.
     func cancelAll() {
-        guard !questions.isEmpty else { return }
-        for (phoneDeviceID, question) in questions {
+        let current = servingPeriod()
+        cancelQuestions { $0.servingPeriod != current }
+    }
+
+    private func cancelQuestions(where stale: (Question) -> Bool) {
+        let ended = questions.filter { stale($0.value) }
+        guard !ended.isEmpty else { return }
+        for (phoneDeviceID, question) in ended {
             admissionGenerations[phoneDeviceID, default: 0] &+= 1
+            questions[phoneDeviceID] = nil
             question.cancel()
             question.task.cancel()
         }
-        questions = [:]
-        quiet()
+        if questions.isEmpty { quiet() }
     }
 
     static func spec(_ phone: MobileHostPairRequest, user: String) -> CmuxDialogSpec {
