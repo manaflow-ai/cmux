@@ -19550,6 +19550,138 @@
         }
       }
     },
+    "composer.cloudSignIn": {
+      "comment": "Agent pane: environment picker row that starts cmux Cloud sign-in when the account is signed out",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in for Cloud"
+          }
+        }
+      }
+    },
     "composer.cloud": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -178179,6 +178311,7 @@
         }
       }
     },
+    "composer.queuedSubagentRetry": {"comment":"Agent pane: label before a subagent's name on a queued request, from acpmux, that the agent resume that subagent after a transient error","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Resume subagent"}},"ar":{"stringUnit":{"state":"translated","value":"استئناف الوكيل الفرعي"}},"bs":{"stringUnit":{"state":"translated","value":"Nastavi podagenta"}},"da":{"stringUnit":{"state":"translated","value":"Genoptag subagent"}},"de":{"stringUnit":{"state":"translated","value":"Subagent fortsetzen"}},"es":{"stringUnit":{"state":"translated","value":"Reanudar subagente"}},"fr":{"stringUnit":{"state":"translated","value":"Reprendre le sous-agent"}},"it":{"stringUnit":{"state":"translated","value":"Riprendi subagente"}},"ja":{"stringUnit":{"state":"translated","value":"サブエージェントを再開"}},"km":{"stringUnit":{"state":"translated","value":"បន្តភ្នាក់ងាររង"}},"ko":{"stringUnit":{"state":"translated","value":"하위 에이전트 재개"}},"nb":{"stringUnit":{"state":"translated","value":"Gjenoppta underagent"}},"pl":{"stringUnit":{"state":"translated","value":"Wznów podagenta"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Retomar subagente"}},"ru":{"stringUnit":{"state":"translated","value":"Возобновить субагента"}},"th":{"stringUnit":{"state":"translated","value":"ทำงานเอเจนต์ย่อยต่อ"}},"tr":{"stringUnit":{"state":"translated","value":"Alt ajanı sürdür"}},"uk":{"stringUnit":{"state":"translated","value":"Відновити субагента"}},"vi":{"stringUnit":{"state":"translated","value":"Tiếp tục tác tử con"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"恢复子代理"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"恢復子代理"}}}},
     "composer.steering": {
       "comment": "Agent pane: label on a prompt sent now, which stops the running turn and runs next",
       "extractionState": "manual",
@@ -206810,127 +206943,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حفظ"
+            "value": "حفظ البيئة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sačuvaj"
+            "value": "Sačuvaj okruženje"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gem"
+            "value": "Gem miljø"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sichern"
+            "value": "Umgebung speichern"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Save"
+            "value": "Save environment"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Guardar"
+            "value": "Guardar entorno"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enregistrer"
+            "value": "Enregistrer l’environnement"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Salva"
+            "value": "Salva ambiente"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "保存"
+            "value": "環境を保存"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "រក្សាទុក"
+            "value": "រក្សាទុកបរិស្ថាន"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "저장"
+            "value": "환경 저장"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lagre"
+            "value": "Lagre miljø"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zapisz"
+            "value": "Zapisz środowisko"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Salvar"
+            "value": "Salvar ambiente"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сохранить"
+            "value": "Сохранить окружение"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บันทึก"
+            "value": "บันทึกสภาพแวดล้อม"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kaydet"
+            "value": "Ortamı kaydet"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Зберегти"
+            "value": "Зберегти середовище"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lưu"
+            "value": "Lưu môi trường"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "存储"
+            "value": "保存环境"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "儲存"
+            "value": "儲存環境"
           }
         }
       }

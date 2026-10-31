@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Group reorder with nested groups on (u9772, "reordering groups in sidebar is very buggy now").
@@ -12,7 +13,7 @@ import Testing
 ///
 /// The list: loose `top`, group `p` (member `a`) with subgroup `s` (member `b`), group `q` (member `c`), group
 /// `r` (member `d`).
-@MainActor @Suite(.serialized) struct SidebarGroupReorderNestingTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarGroupReorderNestingTests {
     static let section = "sec"
 
     final class Drops {
