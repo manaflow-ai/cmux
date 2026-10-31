@@ -345,7 +345,8 @@ public actor DaemonConnection {
             // Each event decodes on the connection's decode lane; the reader waits for the stream's consumer
             // after the line.
             transport.start(
-                dispatch: .control(readerWait: { route.waitWhileReaderParked() }),
+                dispatch: EventDispatch(weigh: { _, _ in .heavy }, readerWait: { route.waitWhileReaderParked() },
+                                        wakeReader: { route.wakeParkedReader() }),
                 onCausedEvent: { [weak self] name, line, index, wireCause in
                     let event: DaemonEvent
                     if let transportSites, name == DaemonDiagnosticSite.eventName {

@@ -117,6 +117,12 @@ final class DecodeLane: Sendable {
         if left <= lowWater, readerParked.exchange(false, ordering: .sequentiallyConsistent) { readerWake.signal() }
     }
 
+    /// Any thread: the connection ended. A reader waiting for room goes on at once (it then reads the shut socket's
+    /// EOF and leaves); whoever clears the parked mark signals, so the wake is never lost or doubled.
+    func wakeReader() {
+        if readerParked.exchange(false, ordering: .sequentiallyConsistent) { readerWake.signal() }
+    }
+
     /// Reader thread, after each line and outside its hang scope (a wait for a queue slot is not a hang): parks
     /// while the backlog is above ``highWater``, until it drains to ``lowWater``. Returns at once otherwise.
     func waitForRoom() {

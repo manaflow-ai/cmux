@@ -159,6 +159,7 @@ final class LineTransport: Sendable {
     func start(dispatch: EventDispatch = .control, onCausedEvent onEvent: @escaping CausedEventHandler,
                onClose: @escaping CloseHandler) {
         let fd = socket.withLock { $0.fd }
+        state.withLock { $0.wakeReader = dispatch.wakeReader }
         let thread = Thread { [self] in
             readLoop(fd: fd, dispatch: dispatch, onEvent: onEvent, onClose: onClose)
         }
@@ -323,12 +324,22 @@ final class LineTransport: Sendable {
         end(.lost(detail))
     }
 
+    /// Ends the connection by itself: pending requests fail, the socket shuts down, and a reader parked in a
+    /// backpressure wait (its lane's backlog, its consumer's) goes on, so it reads the shut socket's EOF, leaves its
+    /// loop and posts `onClose` once. A parked reader never read that EOF, so the connection never learned it had
+    /// ended and kept the dead transport as ready (v2.2.10-opt P0 2026-10-30: "closed by client" for 47 min).
     private func end(_ reason: TransportCloseReason) {
         failAll(reason)
         socket.withLock { socket in
             if socket.fd >= 0 { Darwin.shutdown(socket.fd, SHUT_RDWR) }
         }
         child?.terminate()
+        let wake = state.withLock { state -> (@Sendable () -> Void)? in
+            defer { state.wakeReader = nil }
+            return state.wakeReader
+        }
+        wake?()
+        lane.wakeReader()
     }
 
     // MARK: - Private
