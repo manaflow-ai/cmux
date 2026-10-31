@@ -2213,6 +2213,57 @@ async fn an_unadoptable_host_ends_under_mdm_off_though_its_log_asks() {
     );
 }
 
+/// A chat whose agent asks, stopped with its host left running, and a next daemon that cannot
+/// speak to that host (`ACPMUX_TEST_CONTROLLER_PROTOCOL_MAX`: every host refuses it, as a host of
+/// a build it cannot speak to does): the daemon (not started), the chat and the harness's pid.
+async fn left_incompatible(tag: &str) -> (Daemon, String, i64) {
+    let mut daemon = Daemon::new(tag, "ask");
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", prompt).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    daemon.sigterm();
+    drop(rpc);
+    assert!(alive(harness_pid), "SIGTERM ended the agent");
+    daemon.env.push(("ACPMUX_TEST_CONTROLLER_PROTOCOL_MAX".into(), "0".into()));
+    (daemon, session, harness_pid)
+}
+
+/// https://github.com/manaflow-ai/cmux/issues/26337: a host a restart left that refuses this
+/// build's protocol is never adopted, so its replay is never read, and what it moved to while no
+/// daemon was attached is unknown though its log asks. Under MDM's off it ends (its nonce proves
+/// it) instead of running on unjudged.
+#[tokio::test]
+async fn an_incompatible_host_ends_under_mdm_off_though_its_log_asks() {
+    let (mut daemon, _session, harness_pid) = left_incompatible("mdmincompat").await;
+    record_mdm_off(&daemon);
+    daemon.start();
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "a host this build cannot speak to ran on unjudged under the managed off"
+    );
+}
+
+/// https://github.com/manaflow-ai/cmux/issues/26337: with MDM unset, a host this build cannot speak
+/// to runs on, unadoptable, as before. An off pushed later still ends it (the adoption hold it
+/// left is cut, and nothing this daemon read says what it runs).
+#[tokio::test]
+async fn an_incompatible_host_runs_on_with_mdm_unset_and_ends_when_mdm_turns_it_off() {
+    let (mut daemon, session, harness_pid) = left_incompatible("mdmincompatpush").await;
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    rpc.call("_acpmux/status", json!({})).await;
+    daemon.wait_event(&session, "host_unadoptable", |e| e["kind"] == "host_unadoptable");
+    assert!(alive(harness_pid), "with MDM unset the next daemon ended the agent");
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "a host this build cannot speak to ran on after MDM turned full access off"
+    );
+}
+
 /// Review 44 of #23322: the argv a start runs is on disk before its agent starts. A chat whose
 /// agent ended starts again, for a model pick, on a profile a config reload pinned to `--yolo`;
 /// the daemon dies while that agent initializes. Under MDM's off the next daemon ends that host

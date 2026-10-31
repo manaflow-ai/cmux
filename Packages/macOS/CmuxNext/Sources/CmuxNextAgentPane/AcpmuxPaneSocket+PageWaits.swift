@@ -5,7 +5,11 @@ extension AcpmuxPaneSocket {
     /// (``AgentPaneFramePacer``): a reply or a request (an `id`); `_acpmux/prompt_accepted`, whose
     /// absence fails a sent prompt after a minute (direct.ts `deliveryTiming`); and a turn's end
     /// (`turn_end`, `turn_result`), whose absence 5 s after Stop says the stop was forced
-    /// (direct.ts `STOP_GRACE_MS`). Session updates, the bulk of a streaming turn, wait until the
+    /// (direct.ts `STOP_GRACE_MS`); and the records that answer a send in place of
+    /// `prompt_accepted`: `queued` (a prompt behind a running turn, which acpmux takes with no
+    /// acceptance), `dequeued`, `queue_removed` and `prompt_refused`. Without them a held pane left a
+    /// prompt sent mid-turn "Still sending" until the turn ended (session claude-7, 2026-10-30).
+    /// Session updates, the bulk of a streaming turn, wait until the
     /// pane shows. A full flush's backlog
     /// and the close go to a hidden pane too (``pageWaits``), so its queue stays far below the
     /// bound (``AgentPaneTransport/Limits``) and a long hidden stream costs one call per full flush.
@@ -13,7 +17,9 @@ extension AcpmuxPaneSocket {
         if object["id"] != nil { return true }
         switch object["method"] as? String {
         case "_acpmux/prompt_accepted": return true
-        case "_acpmux/event": return ["turn_end", "turn_result"].contains((object["params"] as? [String: Any])?["kind"] as? String)
+        case "_acpmux/event":
+            let kind = (object["params"] as? [String: Any])?["kind"] as? String
+            return ["turn_end", "turn_result", "queued", "dequeued", "queue_removed", "prompt_refused"].contains(kind)
         default: return false
         }
     }

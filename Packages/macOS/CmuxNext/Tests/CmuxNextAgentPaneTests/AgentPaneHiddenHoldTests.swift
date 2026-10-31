@@ -81,6 +81,13 @@ struct AgentPaneHiddenHoldTests {
         // Its absence 5 s after Stop says the stop was forced.
         #expect(waits(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s","seq":9,"kind":"turn_end","msg":{}}}"#))
         #expect(waits(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s","seq":9,"kind":"turn_result","msg":{}}}"#))
+        // A prompt sent behind a running turn: acpmux takes it with a `queued` record and sends no
+        // `prompt_accepted` (hub/turns.rs accepts only a prompt that starts at once), so a held pane
+        // left it "Still sending" until the turn ended (session claude-7, 2026-10-30, the repro on
+        // cmux-austin-mini-1, 2026-10-31). A refusal or a removal from the queue answers a send too.
+        for kind in ["queued", "dequeued", "queue_removed", "prompt_refused"] {
+            #expect(waits(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s","seq":9,"kind":"\#(kind)","msg":{}}}"#), "\(kind)")
+        }
         #expect(!waits(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s","seq":8,"kind":"agent_message_chunk","msg":{}}}"#))
         #expect(!waits(AcpmuxStandInServer.benchFrame(1)), "a streamed session/update")
     }

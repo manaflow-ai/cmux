@@ -30,6 +30,8 @@ const kek = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("ba
 
 export default defineConfig({
   test: {
+    // test-node/ runs under Node (vitest.node.config.ts): tests there spawn local programs, which workerd cannot.
+    include: ["test/**/*.test.ts"],
     // Loads the Worker once per test file before any test runs (test/setup/warm-worker.ts).
     setupFiles: ["./test/setup/warm-worker.ts"],
     // The full parallel run of every file (309 s on a 32 vCPU Freestyle VM, 2026-10-16) makes each case about 9x
