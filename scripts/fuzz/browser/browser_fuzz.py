@@ -56,7 +56,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "..", "cmux-next"))
 import fuzz_model as model  # noqa: E402
 
 # A stall during a DevTools op names its owner, so the fuzz owner can send it on with its signature and seed.
-DEVTOOLS_OWNER = "the DevTools main-thread stall owner (fuzz catalog row k)"
+DEVTOOLS_OWNER = "the DevTools main-thread stall owner"
 
 
 class Failure(Exception):
@@ -209,6 +209,7 @@ class Session:
         self.notes: list[str] = []
         self.stalls: dict[str, Failure] = {}
         self.download_tokens: set[str] = {run_token}
+        self.last_reading: dict[str, tuple[str, str]] = {}  # tab -> (url, title) of its last check_url reading
         self.counts = {"ops": 0, "renderer_kills": 0, "sad_tabs": 0, "downloads": 0, "devtools": 0, "refused": 0, "no_renderer": 0, "no_verdict": 0}
 
     # -- plumbing
@@ -397,8 +398,10 @@ class Session:
             state = self.state(tab, index)
             if "error" in state:
                 return
-            title = model.judged_title(state.get("url") or "", state.get("title") or "")
-            problem = model.committed_url_violation(state.get("url") or "", title, agent_op=agent and answered_ok, via_web=via_web)
+            reading = (state.get("url") or "", state.get("title") or "")
+            title = model.judged_title(*reading, previous=self.last_reading.get(tab))
+            self.last_reading[tab] = reading
+            problem = model.committed_url_violation(reading[0], title, agent_op=agent and answered_ok, via_web=via_web)
             if not problem:
                 return
             if attempt == 0:

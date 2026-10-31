@@ -220,11 +220,29 @@ def stall_signature(record: dict, depth: int = 3) -> str:
     return " < ".join(names[:depth]) or "(no frames)"
 
 
-def judged_title(url: str, title: str) -> str:
-    """The title the canary check reads. Only a page that shows /script-nav now runs its own script (it sets location
-    to its `to` URL, a javascript: one included, again on each reload, Back or Forward): its title is not judged. Any
-    other page is judged, also in a tab that showed /script-nav before."""
-    return "" if "/script-nav" in urllib.parse.urlsplit(url).path else title
+def url_path(url: str) -> str:
+    """The URL's path, split by hand: never raises (urlsplit raises ValueError on a malformed host such as `[zz::]`)."""
+    rest = url.split("#", 1)[0].split("?", 1)[0]
+    if "://" in rest:
+        rest = rest.split("://", 1)[1]
+        return "/" + rest.split("/", 1)[1] if "/" in rest else "/"
+    return rest.split(":", 1)[1] if ":" in rest else rest
+
+
+def judged_title(url: str, title: str, previous: tuple[str, str] | None = None) -> str:
+    """The title the canary check reads ("" when it is not judged), from the tab's reading (`url`, `title`) and the
+    reading before it (`previous`, its (url, title), or None).
+
+    The /script-nav page runs its own script (it sets location to its `to` URL, a javascript: one included, again on
+    each reload, Back or Forward): its title is not judged. Every other page is judged, also in a tab that showed
+    /script-nav before, except a stale title: a Chromium tab's URL changes when a navigation starts, but its title
+    stays the old page's until the new page commits. So a reading whose URL left /script-nav while its title is still
+    the one read there is skipped once; the next reading of the tab judges it."""
+    if "/script-nav" in url_path(url):
+        return ""
+    if previous and "/script-nav" in url_path(previous[0]) and previous[0] != url and previous[1] == title:
+        return ""
+    return title
 
 
 def committed_url_violation(url: str, title: str, *, agent_op: bool, via_web: bool) -> str | None:
