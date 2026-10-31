@@ -467,9 +467,11 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
         expect(calls[0]!.params).toEqual(
           noProject ? { harness: "claude", noProject: true } : { harness: "claude", cwd: PROJECT },
         );
+        // A no-project start sends after its chat.new and names that session (#28543); a start in a
+        // project queues its send with the harness switch, which owns the prompt (screenActions.ts).
         expect(calls[1]!.params).toEqual({
           text: DRAFT,
-          expectedSessionId: "first-chat",
+          ...(noProject ? { expectedSessionId: "first-chat" } : {}),
           attachments: [
             expect.objectContaining({
               kind: "image",
