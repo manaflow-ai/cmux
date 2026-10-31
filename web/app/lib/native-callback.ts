@@ -9,6 +9,8 @@ const NATIVE_SCHEMES = new Set([
   "cmux-rc",
   // nightly-next's cmux NEXT, installed beside cmux NIGHTLY.
   "cmux-next",
+  // cmux NEXT Stable (scripts/ci/stable-next-identity.sh), installed beside cmux NEXT.
+  "cmux-next-stable",
 ]);
 
 export function nativeCallbackHrefForScheme(scheme: string): string {

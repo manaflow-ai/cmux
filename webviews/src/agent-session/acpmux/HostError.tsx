@@ -1,3 +1,7 @@
+import type { ReactNode } from "react";
+import { DialogButton } from "../../ui/DialogButton";
+import { HOST_ERROR_DEADLINE_MS } from "./hostRetry";
+import { useNow } from "./subagents/SubagentGroup";
 import { useT } from "./i18n";
 
 /// A chat acpmux would not start (a folder harness without its Enable or Trust): the reason above
@@ -77,5 +81,51 @@ export function HostUnavailableLine({
         )
       )}
     </div>
+  );
+}
+
+/// How long the pane has waited, as `m:ss` (a count, the same in every language).
+export function waitedText(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/// The pane's handshake waits for this app's acpmux, which has not answered yet. The app never
+/// restarts a slow acpmux on its own (rule R5: a late answer is not a crash, and under load a
+/// restart reloads every chat), so the person sees how long the pane has waited and decides:
+/// Restart agent service stops that daemon (its chats are kept) and the pane asks again, which
+/// starts a new one. Nothing shows while a wait is short (`HOST_ERROR_DEADLINE_MS`, the pane's
+/// one rule for saying a recovery: "STOP SHOWING BULLSHIT ON LOAD"); that only decides what is
+/// drawn, never whether acpmux is restarted. `since`: when the wait began (`Date.now()` time).
+/// One host line shows at a time and the newest state wins: until this line shows, `otherwise`
+/// (the line of an earlier failed handshake) stays; once it shows, it replaces that line.
+export function HostWaitingLine({
+  since,
+  restarting,
+  onRestart,
+  otherwise = null,
+  now: fixedNow,
+}: {
+  since: number;
+  restarting?: boolean;
+  /// Restart agent service; none when the host cannot restart what this wait waits on.
+  onRestart?(): void;
+  otherwise?: ReactNode;
+  /// A fixed clock for the gallery; the pane passes none and the line counts each second.
+  now?: number;
+}) {
+  const t = useT();
+  const ticking = useNow(fixedNow === undefined);
+  const waited = (fixedNow ?? ticking) - since;
+  if (waited < HOST_ERROR_DEADLINE_MS && !restarting) return otherwise;
+  return (
+    <output className="acpmux-host-line" data-host-waiting>
+      <p className="acpmux-host-line-message">{t("host.waitingService", { time: waitedText(waited) })}</p>
+      {onRestart && (
+        <DialogButton dialogKey={null} onClick={onRestart} disabled={restarting}>
+          {t(restarting ? "host.restartingService" : "host.restartService")}
+        </DialogButton>
+      )}
+    </output>
   );
 }

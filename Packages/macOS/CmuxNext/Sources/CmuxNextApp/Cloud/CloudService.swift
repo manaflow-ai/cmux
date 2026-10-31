@@ -92,6 +92,8 @@ final class CloudService {
     @ObservationIgnored var confirmCreate: (@MainActor (CloudMachineCreateFlow.Prompt) async -> Bool)?
     /// Machine creations in flight (sidebar can show a placeholder).
     private(set) var creating = 0
+    /// The names app server creates in flight asked for, typed or default: a default picked meanwhile skips them.
+    @ObservationIgnored private var machineNamesInFlight: [String] = []
     /// New Cloud Workspace runs from the click to the open terminal: each
     /// window's progress view and sidebar row (cx-lu8f).
     let creations = CloudCreations()
@@ -441,6 +443,7 @@ final class CloudService {
         let read = beginRecordRead()
         defer { finishRecordRead(read) }
         let account = listAccount
+        let connectsAtRead = Dictionary(machines.cloud.map { ($0.machineID, $0.connects) }, uniquingKeysWith: { first, _ in first })
         do {
             let list: [CloudMachine]
             let limits: CloudMachineLimits?
@@ -456,7 +459,7 @@ final class CloudService {
             machines.cloudLimits = limits
             if let limits { planObserved(limits.planId) }
             lastError = nil
-            reconcile(list, read: read)
+            reconcile(list, read: read, connectsAtRead: connectsAtRead)
             hasLoadedMachines = true
             loadedAccount = account
             listLoadedAt = .now
@@ -506,13 +509,14 @@ final class CloudService {
         processDeferredRecordRemovals()
     }
 
-    func reconcile(_ list: [CloudMachine], read: Int) {
+    /// `connectsAtRead` fences a list against a connection begun after that list was requested.
+    func reconcile(_ list: [CloudMachine], read: Int, connectsAtRead: [String: Int] = [:]) {
         // A list that arrives after Cloud was turned off connects nothing.
         guard !policyDisabled else { return }
         let visible = list.filter { $0.status != .destroyed }
         for machine in visible {
             if let session = machines.session(machine.id) {
-                apply(machine, to: session, read: read)
+                apply(machine, to: session, read: read, connectsAtRead: connectsAtRead[machine.id])
             } else {
                 // Do not resurrect a machine removed by a newer detail/list response.
                 guard read > recordReadApplied[machine.id, default: 0] else { continue }
@@ -571,22 +575,17 @@ final class CloudService {
     /// machine that stopped being live suspends its link, and one that turned live connects.
     /// `read` (``beginRecordRead(machineID:)``): a record from a read asked before the one the session
     /// holds changes nothing, so answers that land out of order run no stale transition.
-    func apply(_ machine: CloudMachine, to session: CloudMachineSession, read: Int) {
+    func apply(_ machine: CloudMachine, to session: CloudMachineSession, read: Int, connectsAtRead: Int? = nil) {
         // Apply the newer record before releasing any removal it was protecting.
         defer { finishRecordRead(read) }
         guard read > recordReadApplied[machine.id, default: 0], machines.session(machine.id) === session else { return }
         recordReadApplied[machine.id] = read
-        let wasLive = session.machine.status.isLive
-        session.machine = machine
         if machine.status == .destroyed {
+            session.machine = machine
             removeConfirmedMachine(machine.id, destructionConfirmed: true)
             return
         }
-        if wasLive, !machine.status.isLive {
-            session.suspend()
-        } else if !wasLive, machine.status.isLive {
-            session.connect()
-        }
+        session.listed(machine, connectsAtRead: connectsAtRead ?? session.connects)
     }
 
     @discardableResult
@@ -607,6 +606,8 @@ final class CloudService {
             session = CloudMachineSession(machine: machine, link: link, mainWork: mainWork)
         }
         session.daemon.workTracker = machines.local.workTracker
+        session.daemon.onPaneNotReady = machines.local.onPaneNotReady
+        session.daemon.paneNotReadyText = machines.local.paneNotReadyText
         // An attach to a paused machine resumes it through Resume Machine's own path.
         session.resumer = { [weak self] id in try await self?.resumeMachine(id) }
         // An attach reads a record that may be stale (paused behind the app) again first.
@@ -647,7 +648,7 @@ final class CloudService {
                        request: CloudMachineRequest = CloudMachineRequest(), proceed: () throws -> Void = {}) async throws -> CloudMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
-        let name = name ?? request.name
+        var name = name ?? request.name
         // The app server's create takes none of them yet, and its machines have no `/api/vm` file
         // or exec route for a bootstrap: refuse rather than make a machine without what was asked.
         if configuration.linkSource == .appServer, !request.isDefault {
@@ -657,6 +658,24 @@ final class CloudService {
         if configuration.linkSource != .appServer, request.environment != nil {
             throw ActionFailure(message: CloudEnvironmentStrings().unavailable)
         }
+        // The cmux-next backend stores no name and no slug for an unnamed machine, so it would be titled by
+        // its raw id: give it a readable one, unique among this account's machines and creations in flight.
+        // The classic `/api/vm` create names it itself (its slug).
+        var reserved: String?
+        if configuration.linkSource == .appServer {
+            if let pinned = creation?.pinnedMachineName {
+                name = pinned
+            } else if name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
+                name = CloudMachine.defaultName(
+                    taken: machines.cloud.map(\.machine.title) + creations.all.compactMap(\.pinnedMachineName) + machineNamesInFlight,
+                    base: CloudStrings.defaultMachineName, numbered: CloudStrings.defaultMachineName(numbered:))
+            }
+            creation?.pinnedMachineName = name
+            // Held until this create ends, typed names included, so a default picked meanwhile is another one.
+            reserved = name
+            if let name { machineNamesInFlight.append(name) }
+        }
+        defer { if let reserved, let index = machineNamesInFlight.firstIndex(of: reserved) { machineNamesInFlight.remove(at: index) } }
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }

@@ -75,6 +75,26 @@ use tokio::sync::Notify;
 
 use crate::protocol::session::{RetryReason, RetrySummary};
 
+#[cfg(test)]
+thread_local! {
+    static AFTER_FINISH_REPLACED_CHECK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const {
+        std::cell::RefCell::new(None)
+    };
+}
+
+#[cfg(test)]
+fn after_finish_replaced_check() {
+    let hook = AFTER_FINISH_REPLACED_CHECK.with(|slot| slot.borrow_mut().take());
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
+#[cfg(test)]
+pub(super) fn set_after_finish_replaced_check(hook: Box<dyn FnOnce()>) {
+    AFTER_FINISH_REPLACED_CHECK.with(|slot| *slot.borrow_mut() = Some(hook));
+}
+
 /// `_acpmux/retry`: a failed turn retried on demand.
 pub(crate) mod retry_turn;
 
@@ -210,6 +230,10 @@ enum Mark {
 /// The retry state of one session instance; returning imports have their own mark.
 pub(crate) struct Pending {
     mark: Mutex<Option<Mark>>,
+    #[cfg(test)]
+    stop_locked: Mutex<Option<std::sync::mpsc::Sender<()>>>,
+    #[cfg(test)]
+    take_entered: Mutex<Option<std::sync::mpsc::Sender<()>>>,
     /// Counts the times a continuation stopped being pending (`continuation_pending`): the
     /// inbox's timer, put off while one was, looks again then (`inbox.rs`).
     released: tokio::sync::watch::Sender<u64>,
@@ -217,7 +241,14 @@ pub(crate) struct Pending {
 
 impl Default for Pending {
     fn default() -> Self {
-        Self { mark: Mutex::default(), released: tokio::sync::watch::channel(0).0 }
+        Self {
+            mark: Mutex::default(),
+            released: tokio::sync::watch::channel(0).0,
+            #[cfg(test)]
+            stop_locked: Mutex::default(),
+            #[cfg(test)]
+            take_entered: Mutex::default(),
+        }
     }
 }
 
@@ -369,10 +400,13 @@ impl TurnInfo {
 }
 
 impl Hub {
-    /// Mark an outgoing session before its durable store is staged. Retry tasks hold the same
-    /// per-instance lock around their replacement check and terminal journal effects.
+    /// Mark an outgoing session before its durable store is staged. The admission lock order is
+    /// `auto_resume -> append_lock -> turn` for completion and replacement; attestation takes
+    /// `append_lock -> turn` and never `auto_resume`. The replacement fence takes both locks in
+    /// that order, so it cannot pass a `replaced` check and then race a terminal retry append.
     pub(super) fn seal_retry_replacement(&self, session: &Session) {
         let _retry = session.auto_resume.lock();
+        let _append = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
         session.replaced.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
@@ -386,7 +420,17 @@ impl Hub {
         turn_id: &str,
         next: Option<super::TurnInfo>,
     ) -> Option<super::TurnInfo> {
+        #[cfg(test)]
+        if let Some(entered) =
+            session.auto_resume.take_entered.lock().unwrap_or_else(|e| e.into_inner()).take()
+        {
+            let _ = entered.send(());
+        }
         let mut pending = session.auto_resume.lock();
+        // Stop and retry journal writes take auto_resume before append_lock. Keep that
+        // order here too: taking append_lock in finish_turn before this retry lock
+        // deadlocks against Stop. Attestation still shares the turn-clear boundary.
+        let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
         let turn = {
             let mut running = session.turn.lock().unwrap_or_else(|e| e.into_inner());
             let turn = running.take();
@@ -426,6 +470,9 @@ impl Hub {
         turn_id: &str,
         cut: Option<CutTurn<'_>>,
     ) {
+        // Once a shutdown began none waits here to fire: a cut it hands on is the next daemon's
+        // to continue (`restart_resume.rs`), and Quit Everything continues nothing.
+        let cut = cut.filter(|_| !self.shutting_down());
         let mut pending = session.auto_resume.lock();
         let ending = match pending.as_ref() {
             Some(Mark::Ending(t)) if t == turn_id => Some(true),
@@ -484,7 +531,24 @@ impl Hub {
             };
             let mut msg = serde_json::to_value(&retry).unwrap_or_else(|_| json!({}));
             msg.set("delayMs", json!(delay));
-            if hub.set_retry(&session, &turn_id, retry, msg) {
+            // Tests only: pause a retry before its wait is set.
+            #[cfg(test)]
+            {
+                let seam = hub.retry_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+                if let Some((arrived, release)) = seam {
+                    let _ = arrived.send(());
+                    let _ = release.await;
+                }
+            }
+            // None once a shutdown began, whenever it began (router review of #28503): a cut it
+            // hands on is the next daemon's to continue, and Quit Everything continues nothing.
+            // The wait is the record the next daemon restores (`restore.rs`).
+            let set = hub.before_shutdown(|| hub.set_retry(&session, &turn_id, retry, msg));
+            let Some(set) = set else {
+                hub.take_pending(&session, &turn_id);
+                return;
+            };
+            if set {
                 // Its delay, or its mark going (`Wake`): Stop, close, a turn that took the chat.
                 tokio::select! {
                     () = tokio::time::sleep(Duration::from_millis(delay)) => {}
@@ -543,6 +607,12 @@ impl Hub {
     /// ending now gets none, however it ends.
     pub(super) fn stop_auto_resume(&self, session: &Session) {
         let mut pending = session.auto_resume.lock();
+        #[cfg(test)]
+        if let Some(locked) =
+            session.auto_resume.stop_locked.lock().unwrap_or_else(|e| e.into_inner()).take()
+        {
+            let _ = locked.send(());
+        }
         // A lazy startup may not have installed the saved retry's mark yet. Journal the
         // cancellation boundary under the same lock as recovery: only schedules before
         // this record are stopped, never a later turn after an earlier idle Stop.
@@ -886,6 +956,8 @@ impl Hub {
         if session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
             return;
         }
+        #[cfg(test)]
+        after_finish_replaced_check();
         let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why});
         match result {
             Ok(v) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled") => {
@@ -1048,3 +1120,7 @@ mod tests {
         assert_eq!(staggered(u64::MAX, "s"), u64::MAX);
     }
 }
+
+#[cfg(test)]
+#[path = "auto_resume/turn_completion_tests.rs"]
+mod turn_completion_tests;

@@ -75,8 +75,10 @@ public enum CmuxMobileListKind: Sendable {
 }
 
 extension View {
-    /// Starts this section header, footer, inline label or icon-less row at
-    /// the list's text column (the rows' titles), not in the marks' gutter.
+    /// Starts this plain-list section header or footer, inline label or
+    /// icon-less row at the list's text column (the rows' titles), not in the
+    /// marks' gutter. Grouped (Settings) headers and footers do not take it:
+    /// they keep the system position, as in iOS Settings (SPEC 4.2.1).
     public func cmuxMobileTextColumn(_ kind: CmuxMobileListKind = .grouped) -> some View {
         modifier(CmuxMobileTextColumnModifier(kind: kind))
     }
