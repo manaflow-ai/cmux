@@ -247,7 +247,10 @@ def arm_samples(rows, command, metric):
     """{arm: samples} of `metric` for `command`: warm is the idle phase at the launched workspace count."""
     out = {}
     if "warm" in ARMS:
-        out["warm"] = [r.get(metric) for r in rows if r.get("phase") == "idle" and not r.get("arm") and r.get("command") == command]
+        # The idle phase at every workspace count (`idle`, or `idle@<n>ws` with --workspaces): a phase name with a
+        # count never matched `== "idle"`, so a --workspaces run reported its warm arm as "no arm ran".
+        out["warm"] = [r.get(metric) for r in rows if (r.get("phase") or "").split("@")[0] == "idle" and not r.get("arm")
+                       and r.get("command") == command]
     for arm in ("quick", "cold"):
         if arm in ARMS:
             out[arm] = [r.get(metric) for r in rows if r.get("arm") == arm and r.get("command") == command]
