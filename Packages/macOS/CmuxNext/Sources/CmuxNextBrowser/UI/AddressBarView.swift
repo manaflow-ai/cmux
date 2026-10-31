@@ -166,6 +166,7 @@ public final class AddressBarView: NSView {
                   !BrowserNewTabPage.isNewTabPage(url) else { return nil }
             return BrowserURLDragItem(url: url, title: pageTitle?())
         }
+        registerForDraggedTypes(Self.dropTypes)
         field.setPlaceholder(Strings.omnibarPlaceholder)
         field.delegate = self
         field.sink = self
