@@ -35,9 +35,11 @@ extension DaemonService {
                 return .failure(DaemonError.notConnected)
             }
         }
-        store.intend(intent, transaction: transaction)
         #if DEBUG || CMUX_BENCH_HOOKS
         let held = creationHold.creationStarted(label)
+        creationHold.intend(held) { [store] in store.intend(intent, transaction: transaction) } // a held stand-in shows at its release
+        #else
+        store.intend(intent, transaction: transaction)
         #endif
         return { [self] in do {
             let value = try await body(connection)
