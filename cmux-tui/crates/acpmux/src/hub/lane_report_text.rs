@@ -177,9 +177,9 @@ mod tests {
     }
 
     #[test]
-    fn short_review_sha_has_compact_headline() {
+    fn short_review_sha_is_not_a_verdict() {
         let reply = "Review (Sol): SHIP at abc123\nNone";
-        assert_eq!(headline(reply), "SHIP at abc123 · no findings");
+        assert_eq!(headline(reply), "Review (Sol): SHIP at abc123 None");
     }
 
     #[test]
