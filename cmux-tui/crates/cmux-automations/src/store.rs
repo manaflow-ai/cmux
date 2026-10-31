@@ -120,8 +120,9 @@ impl Drop for Flock {
 
 fn is_automation_id(name: &str) -> bool {
     name.len() == 25
-        && name.starts_with("auto_")
-        && name[5..].bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        && name
+            .strip_prefix("auto_")
+            .is_some_and(|id| id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()))
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
