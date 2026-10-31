@@ -119,6 +119,19 @@ import Testing
         #expect(Self.width(of: .resize, atY: y, in: f) >= 8)
     }
 
+    /// Over the knob the cursor is the arrow (the press scrolls); beside it, the resize cursor.
+    @Test func theCursorFollowsWhoTakesThePress() throws {
+        let f = try Self.fixture()
+        defer { f.window.close() }
+        let knob = try Self.knob(f)
+        let edge = f.root.sidebar.frame.maxX
+        let overKnob = f.root.convert(CGPoint(x: min(knob.maxX - 0.5, edge - 1), y: knob.midY), to: nil)
+        let besideY = knob.maxY + 40 < f.root.bounds.maxY - 40 ? knob.maxY + 40 : knob.minY - 40
+        let beside = f.root.convert(CGPoint(x: edge - 1, y: besideY), to: nil)
+        #expect(!f.handle.showsResizeCursor(at: overKnob))
+        #expect(f.handle.showsResizeCursor(at: beside))
+    }
+
     /// Renders the window around the edge at 4x with every point's click target tinted.
     static func draw(_ f: Fixture, knob: CGRect) throws -> CGImage {
         let edge = f.root.sidebar.frame.maxX
