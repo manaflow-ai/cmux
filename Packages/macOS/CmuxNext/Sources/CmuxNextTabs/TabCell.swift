@@ -396,11 +396,8 @@ final class TabCell {
         let midY = bounds.height / 2
         let iconSide = m.iconSize
         var closeRect: CGRect?
-        if visibility.showsClose {
+        if let x = visibility.closeButtonOriginX(pillWidth: bounds.width, metrics: m) {
             let side = m.closeButtonSize
-            let x = visibility.showsIcon || !visibility.centersContent
-                ? bounds.width - m.contentTrailingInset - side
-                : (bounds.width - side) / 2
             closeRect = CGRect(x: pixel(x), y: pixel(midY - side / 2), width: side, height: side)
         }
         var iconX = Self.iconX(form: visibility, pillWidth: bounds.width, metrics: m)
