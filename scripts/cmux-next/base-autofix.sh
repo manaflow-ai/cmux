@@ -247,18 +247,29 @@ fi
 # on every later base push (#28989, #28136). The fixer only rewrites reported
 # findings, never a baselined or ratcheted type; a frozen file is put back.
 if (( ratchets )) && [[ -f "$repo/scripts/lint-ios-package-conventions.sh" ]]; then
-  touched_before="$(git -C "$repo" diff --name-only -- 'Packages/*' 'ios/cmux/*')"
+  # Swift files an earlier step already changed keep their contents from before the fixer, so a
+  # frozen one is put back to them and a rewrite in the rest is still reported.
+  before_dir="$(mktemp -d "${TMPDIR:-/tmp}/base-autofix-namespace.XXXXXX")"
+  while IFS= read -r path; do
+    [[ "$path" == *.swift && -f "$repo/$path" ]] || continue
+    mkdir -p "$before_dir/$(dirname "$path")" && cp "$repo/$path" "$before_dir/$path"
+  done < <(git -C "$repo" diff --name-only -- 'Packages/*' 'ios/cmux/*')
   (cd "$repo" && bash scripts/lint-ios-package-conventions.sh --namespace-fix >/dev/null 2>&1) || true
   while IFS= read -r path; do
     [[ "$path" == *.swift ]] || continue
-    grep -qxF -- "$path" <<<"$touched_before" && continue
-    if frozen "$path"; then
+    if [[ -f "$before_dir/$path" ]]; then
+      cmp -s "$before_dir/$path" "$repo/$path" && continue
+      frozen "$path" && cp "$before_dir/$path" "$repo/$path"
+    elif frozen "$path"; then
       git -C "$repo" checkout --quiet -- "$path"
+    fi
+    if frozen "$path"; then
       echo "skipped (frozen): $path (./scripts/lint-ios-package-conventions.sh --namespace-fix)"
     else
       echo "fixed: namespace rewrite in $path"
     fi
   done < <(git -C "$repo" diff --name-only -- 'Packages/*' 'ios/cmux/*')
+  rm -rf "$before_dir"
 fi
 
 # 1g. The cloud wire clients. The generators need no installed packages.

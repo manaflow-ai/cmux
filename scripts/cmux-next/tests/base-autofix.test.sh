@@ -107,4 +107,10 @@ bash "$FIX" --no-fmt --ratchets "$repo" > "$tmp/out" 2>&1 || fail "the fixer mus
 [[ "$(cat "$repo/$settings")" == 'public enum S {}' ]] || fail "a frozen file must never get the namespace rewrite"
 grep -q '^fixed: namespace rewrite in Packages/a/A.swift' "$tmp/out" || fail "the namespace rewrite must be reported"
 grep -q "^skipped (frozen): $settings" "$tmp/out" || fail "a frozen namespace rewrite must be reported"
+# A frozen file an earlier step already changed keeps that change and gets no rewrite.
+git -C "$repo" checkout -q -- .
+printf '// edited\npublic enum S {}\n' > "$repo/$settings"
+bash "$FIX" --no-fmt --ratchets "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed beside an edited frozen file"
+[[ "$(cat "$repo/$settings")" == $'// edited\npublic enum S {}' ]] || fail "an edited frozen file must keep its edit and get no rewrite"
+grep -q "^skipped (frozen): $settings" "$tmp/out" || fail "a frozen namespace rewrite beside an edit must be reported"
 echo "base autofix: ok"
