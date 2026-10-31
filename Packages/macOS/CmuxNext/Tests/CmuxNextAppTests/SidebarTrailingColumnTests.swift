@@ -20,11 +20,15 @@ import Testing
     nonisolated struct Look: Sendable, CustomTestStringConvertible {
         var density: SidebarDensity
         var width: CGFloat
-        var testDescription: String { "\(density) at \(Int(width)) pt" }
+        /// `sidebar.textSize` (Lawrence msg 17752): marks stay on one column at every text size.
+        var textSize: SidebarTextSize = .standard
+        var testDescription: String { "\(density) at \(Int(width)) pt, text \(textSize.rawValue)" }
     }
 
-    nonisolated static let looks: [Look] = [SidebarDensity.compact, .comfortable, .expanded].flatMap { density in
-        [CGFloat(200), 260, 340].map { Look(density: density, width: $0) }
+    nonisolated static let looks: [Look] = SidebarTextSize.allCases.flatMap { textSize in
+        [SidebarDensity.compact, .comfortable, .expanded].flatMap { density in
+            [CGFloat(200), 260, 340].map { Look(density: density, width: $0, textSize: textSize) }
+        }
     }
 
     private static func sidebar(_ look: Look) -> SidebarView {
@@ -53,10 +57,12 @@ import Testing
         return sidebar
     }
 
-    private static func withDensity<T>(_ density: SidebarDensity, _ body: () throws -> T) rethrows -> T {
-        let before = DesignSettings.shared.sidebarSections.density
+    private static func withDensity<T>(_ density: SidebarDensity, textSize: SidebarTextSize = .standard,
+                                       _ body: () throws -> T) rethrows -> T {
+        let before = DesignSettings.shared.sidebarSections
         DesignSettings.shared.sidebarSections.density = density
-        defer { DesignSettings.shared.sidebarSections.density = before }
+        DesignSettings.shared.sidebarSections.textSize = textSize
+        defer { DesignSettings.shared.sidebarSections = before }
         return try body()
     }
 
@@ -77,7 +83,7 @@ import Testing
 
     @Test(arguments: looks)
     func dotsAndSpinnersCenterOnTheHeaderChevron(_ look: Look) throws {
-        try Self.withDensity(look.density) {
+        try Self.withDensity(look.density, textSize: look.textSize) {
             let sidebar = Self.sidebar(look)
             let reference = try Self.chevron(sidebar).midX
             for id in Self.indicatorRows {
@@ -90,7 +96,7 @@ import Testing
 
     @Test(arguments: looks)
     func dotsAndSpinnersShareOneSlot(_ look: Look) throws {
-        try Self.withDensity(look.density) {
+        try Self.withDensity(look.density, textSize: look.textSize) {
             let sidebar = Self.sidebar(look)
             let slots = try Self.indicatorRows.map { try Self.glyph(sidebar, $0).size }
             #expect(Set(slots.map { "\($0.width)x\($0.height)" }).count == 1, "\(look.testDescription): slot sizes \(slots)")
@@ -99,7 +105,7 @@ import Testing
 
     @Test(arguments: looks)
     func eachGlyphCentersVerticallyInItsRow(_ look: Look) throws {
-        try Self.withDensity(look.density) {
+        try Self.withDensity(look.density, textSize: look.textSize) {
             let sidebar = Self.sidebar(look)
             for id in Self.indicatorRows {
                 let row = try #require(sidebar.list.rowViews[.workspace(id)] as? WorkspaceRowView)
@@ -126,11 +132,16 @@ import Testing
         var density: SidebarDensity
         var minimal: SidebarMinimalMode
         var width: CGFloat
-        var testDescription: String { "\(density.rawValue)/minimal-\(minimal.rawValue)/\(Int(width))pt" }
+        var textSize: SidebarTextSize = .standard
+        var testDescription: String { "\(density.rawValue)/minimal-\(minimal.rawValue)/\(Int(width))pt/text-\(textSize.rawValue)" }
     }
 
-    nonisolated static let kindCases: [KindCase] = SidebarDensity.allCases.flatMap { density in
-        [SidebarMinimalMode.off, .both].flatMap { minimal in [220, 300].map { KindCase(density: density, minimal: minimal, width: $0) } }
+    nonisolated static let kindCases: [KindCase] = SidebarTextSize.allCases.flatMap { textSize in
+        SidebarDensity.allCases.flatMap { density in
+            [SidebarMinimalMode.off, .both].flatMap { minimal in
+                [220, 300].map { KindCase(density: density, minimal: minimal, width: $0, textSize: textSize) }
+            }
+        }
     }
 
     static let home = LayoutItemID("itm_home"), lead = LayoutItemID("itm_lead"), browserLead = LayoutItemID("itm_browser_lead")
@@ -291,7 +302,7 @@ import Testing
 
     @Test(arguments: kindCases)
     func everyRowKindCentersItsIndicatorOnTheColumn(_ c: KindCase) throws {
-        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
+        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
             let h = KindHarness(width: c.width)
             defer { h.window.close() }
             let column = try Self.columnX(h)

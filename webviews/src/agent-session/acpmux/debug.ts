@@ -1,3 +1,4 @@
+import { userScrollIntent } from "./conversation/userScroll";
 import * as automation from "./automation";
 import type { AcpmuxRow } from "./model";
 import type { PermissionDecision } from "./permissions/protocol";
@@ -33,7 +34,7 @@ export type AcpmuxDebug = {
   /// answered an ask, who else is here and typing; multiplayer/sharedFixture.ts) when it is "shared",
   /// or with step `count` (0-5, else 0) of the subagent tray's life (subagentsFixture.ts) when it is
   /// "subagents".
-  seedRows(count?: number, fixture?: string): Promise<Record<string, unknown>>;
+  seedRows(count?: number, fixture?: string, agents?: number): Promise<Record<string, unknown>>;
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
   perfStats(options?: { raw?: boolean }): Record<string, unknown>;
@@ -143,11 +144,11 @@ export function createAcpmuxDebug(
   };
 
   return {
-    async seedRows(count = 5000, fixture) {
+    async seedRows(count = 5000, fixture, agents) {
       acpmuxPerf.enable();
       const rows =
         fixture === "subagents"
-          ? subagentTrayRows(trayStep(count), trayOrigin(count))
+          ? subagentTrayRows(trayStep(count), trayOrigin(count), agents ?? 2)
           : fixture === "worked-turn"
             ? workedTurnRows(Date.now() - 60_000)
             : fixture === "incoming"
@@ -190,6 +191,7 @@ export function createAcpmuxDebug(
       acpmuxPerf.enable();
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
       if (!scroller) return { error: "no transcript" };
+      const requested = userScrollIntent(scroller).request();
       const run = ++generation;
       const duration = Math.max(0.1, seconds) * 1000;
       timestamps = [];
@@ -199,7 +201,12 @@ export function createAcpmuxDebug(
       const done = (async () => {
         const warmup: number[] = [];
         for (let frame = 0; frame < WARMUP_FRAMES; frame += 1) warmup.push(await nextFrame());
-        if (run !== generation) return;
+        if (run !== generation || !requested()) {
+          // Cancellation during warm-up returns before the animation phase, so clear the
+          // diagnostic flag here rather than leaving flingStats() stuck at running.
+          if (run === generation) running = false;
+          return;
+        }
         nominal =
           options.nominal_ms && options.nominal_ms > 0
             ? options.nominal_ms
@@ -211,7 +218,7 @@ export function createAcpmuxDebug(
         await new Promise<void>((resolve) => {
           let start: number | undefined;
           const tick = (now: number) => {
-            if (run !== generation) return resolve();
+            if (run !== generation || !requested()) return resolve();
             start ??= now;
             timestamps.push(now);
             const progress = Math.min(1, (now - start) / duration);
