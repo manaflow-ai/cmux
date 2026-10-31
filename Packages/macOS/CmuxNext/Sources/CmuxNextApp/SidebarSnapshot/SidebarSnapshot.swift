@@ -28,20 +28,7 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
         var group: Group?
     }
 
-    struct Workspace: Codable, Hashable, Sendable {
-        var id: String
-        var machineID: String
-        var title: String
-        /// `harness`, `browser` or `terminal`; absent in older snapshots.
-        var kind: String?
-        /// The agent brand whose mark is the row's type glyph; absent in older snapshots.
-        var kindBrand: String?
-        /// `symbol:<name>`, `swatch:<color>` or `emoji:<text>`.
-        var icon: String?
-        var iconTint: String?
-        /// The workspace's own color (`SidebarWorkspace.color`), for a filled or railed row; absent in older snapshots.
-        var color: String?
-    }
+    typealias Workspace = SidebarWorkspaceSnapshot
 
     struct Group: Codable, Hashable, Sendable {
         var id: String
