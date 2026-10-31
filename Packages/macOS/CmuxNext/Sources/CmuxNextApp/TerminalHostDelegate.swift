@@ -114,7 +114,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
                 let stat = try await files.stat(path)
                 guard stat.kind == "file" || stat.kind == "symlink" else { return }
             } catch {
-                if RemoteFilePageFiles.code(of: error) == "fs.not_found" { continue }
+                if RemoteFilePageFiles.code(of: error) == "fs.not_found" || TerminalLinkResolver.resolve(text, cwd: nil, allowsLocalFiles: false) != nil { continue }
                 // The remote page names offline, unsupported and denied machines; never drop the click.
             }
             let position = TerminalLinkResolver.location(text).map { FilePosition(line: $0.line, column: $0.column ?? 1) }
