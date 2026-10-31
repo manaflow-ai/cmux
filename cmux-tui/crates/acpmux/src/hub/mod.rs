@@ -104,6 +104,7 @@ mod prompt_line_tests;
 mod protected_hold;
 mod queue;
 mod queue_edit;
+pub(crate) mod reply_fit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
 pub use queue::{QueuedPrompt, Withdrawn, supersede::key as supersede_key};
 mod resolve;
@@ -1352,15 +1353,15 @@ impl Hub {
     pub(super) fn local_match_counts(&self, key: &str) -> [usize; 3] {
         let bare = !key.contains('/');
         let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut counts = [0; 3];
+        let mut counts = [0_usize; 3];
         for s in sessions.values() {
             let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if s.id.starts_with(key) || meta.name.starts_with(key) {
-                counts[0] += 1;
+                counts[0] = counts[0].saturating_add(1);
             } else if bare && crate::session_name::ends_with_segments(&meta.name, key) {
                 let slot = if meta.status == SessionStatus::Closed { 2 } else { 1 };
                 if let Some(count) = counts.get_mut(slot) {
-                    *count += 1;
+                    *count = count.saturating_add(1);
                 }
             }
         }
