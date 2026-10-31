@@ -89,8 +89,8 @@ export const DEFAULT_PICK_MODEL = "default";
 
 /// Remembers `pick` for every folder and for `folder`: the harness the next New Tab, new chat and
 /// split starts on. Every harness choice is a pick, also one on the agent's own default model and
-/// one that names no model (an account, a New Tab agent row): that one keeps the model last picked
-/// on the harness, else its default.
+/// one that names no model (an account, a fork, a New Tab agent row): that one keeps the model of
+/// the last pick while it is on the same harness, else names the harness's default.
 /// `post` sends it to the app (a page's `callNative`); else the page's native bridge.
 export function rememberPick(
   pick: { harness: string; model?: string },

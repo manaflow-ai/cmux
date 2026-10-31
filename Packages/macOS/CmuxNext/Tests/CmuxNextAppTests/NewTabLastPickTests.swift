@@ -60,9 +60,10 @@ struct NewTabLastPickTests {
         memory.remember(AgentPaneRememberedPick(agent: "codex"))
         #expect(memory.agent == "codex")
         #expect(memory.picks?.global == .init(harness: "codex", model: "default"))
-        // An agent with a model picked before keeps it.
+        // An agent pick naming no model keeps the last pick's model while it is on that agent.
+        memory.remember(AgentPaneRememberedPick(agent: "claude-sr-internal", model: "claude-opus-5-5", folder: "/work/a"))
         memory.remember(AgentPaneRememberedPick(agent: "claude-sr-internal", folder: "/work/a"))
-        #expect(memory.picks?.global == .init(harness: "claude-sr-internal", model: "default"))
+        #expect(memory.picks?.global == .init(harness: "claude-sr-internal", model: "claude-opus-5-5"))
     }
 }
 

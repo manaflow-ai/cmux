@@ -63,12 +63,15 @@ test("a harness picked on its own default model is the next New Tab's harness", 
   expect(lastModel("claude-sr-internal", FOLDER)).toBeUndefined();
 });
 
-test("a harness picked without a model keeps the model last picked on it", () => {
+test("a harness picked without a model keeps its last model, and replaces another harness's pick", () => {
   rememberPick({ harness: "claude-sr-internal", model: "claude-opus-5-5" }, FOLDER, post);
+  rememberPick({ harness: "claude-sr-internal" }, FOLDER, post);
+  expect(lastModel("claude-sr-internal", FOLDER)).toBe("claude-opus-5-5");
   rememberPick({ harness: "claude", model: "claude-opus-5-5" }, FOLDER, post);
   rememberPick({ harness: "claude-sr-internal" }, FOLDER, post);
   expect(nextNewTab()).toBe("claude-sr-internal");
-  expect(lastModel("claude-sr-internal", FOLDER)).toBe("claude-opus-5-5");
+  // The pick names no model of its own then: the harness's saved or catalog default starts it.
+  expect(lastModel("claude-sr-internal", FOLDER)).toBeUndefined();
 });
 
 test("a chat started from a New Tab agent row is the next New Tab's harness", () => {
@@ -87,4 +90,31 @@ test("a chat started from a New Tab agent row is the next New Tab's harness", ()
   void Promise.resolve(screen.onAsk("claude-sr-internal", "", undefined, undefined, undefined)).catch(() => undefined);
   expect(nextNewTab(FOLDER, "claude-sr-internal")).toBe("claude-sr-internal");
   expect(sent).toContainEqual(["newTab.remember", { agent: "claude-sr-internal", model: "default", folder: FOLDER }]);
+});
+
+test("a New Tab start remembers its pick in the folder the chat starts in, never for another machine", async () => {
+  // An older pick in the project the person picks: it must not win over this start there.
+  rememberPick({ harness: "claude", model: "claude-opus-5-5" }, "/b", post);
+  const screen = newTabScreenActions({
+    callNative: async (method, params) => {
+      sent.push([method, params]);
+      return method === "chat.new" ? "session-1" : undefined;
+    },
+    cwd: "/a",
+    chatCwd: "/a",
+    leave: () => {},
+    selectSession: () => {},
+    showAllChats: () => {},
+    runShell: () => {},
+  });
+  await Promise.resolve(screen.onAsk("claude-sr-internal", "", "/b", undefined, undefined)).catch(() => undefined);
+  expect(nextNewTab("/b")).toBe("claude-sr-internal");
+  // A chat on another machine leaves this Mac's pick alone.
+  sent.length = 0;
+  const saved = { peer: "studio" } as never;
+  await Promise.resolve(screen.onAsk("codex", "", "/remote", undefined, undefined, undefined, saved)).catch(
+    () => undefined,
+  );
+  expect(sent.some(([method]) => method === "newTab.remember")).toBe(false);
+  expect(nextNewTab("/b")).toBe("claude-sr-internal");
 });
