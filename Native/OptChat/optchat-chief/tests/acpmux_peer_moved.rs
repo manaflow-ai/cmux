@@ -52,6 +52,47 @@ fn moved_peer_a_moved_acpmux_signed_by_our_team_as_our_acpmux_passes() {
     assert_eq!(code_signature::verify(&nightly(), &ours()), Ok(()));
 }
 
+/// A UTC instant as a `SystemTime`.
+fn utc(year: i32, month: u32, day: u32) -> std::time::SystemTime {
+    let days = {
+        // Days from 1970-01-01 to `year-month-day` (proleptic Gregorian, Howard Hinnant's algorithm).
+        let y = if month <= 2 { year - 1 } else { year } as i64;
+        let era = if y >= 0 { y } else { y - 399 } / 400;
+        let yoe = y - era * 400;
+        let m = month as i64;
+        let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + day as i64 - 1;
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        era * 146_097 + doe - 719_468
+    };
+    std::time::UNIX_EPOCH + std::time::Duration::from_secs(days as u64 * 86_400)
+}
+
+/// The nightly fixture's leaf (Developer ID Application, team 7WLXT3NR37)
+/// expires on 2031-04-16; the signature was made and time-stamped on
+/// 2026-10-21. A peer is checked as Security's code signing checks code: the
+/// chain as of the signature's own time (its secure timestamp, else its
+/// signing time), so a binary signed while the certificate was valid still
+/// passes after the certificate expires. It was checked as of now, which
+/// refused every such peer, and refuses Xcode's clang on every fleet host
+/// since Apple's signing certificate for it expired.
+#[test]
+fn moved_peer_signed_while_its_certificate_was_valid_passes_after_it_expires() {
+    let after_the_leaf_expired = utc(2031, 6, 1);
+    assert_eq!(
+        code_signature::verify_at(&nightly(), &ours(), after_the_leaf_expired),
+        Ok(())
+    );
+}
+
+/// The signature's own time never moves the check forward: as of a day
+/// before its leaf was issued (2026-04-15) the chain does not verify, and the
+/// later signing time is not used.
+#[test]
+fn moved_peer_a_signature_from_after_now_is_refused() {
+    let before_it_was_signed = utc(2026, 1, 1);
+    assert!(code_signature::verify_at(&nightly(), &ours(), before_it_was_signed).is_err());
+}
+
 #[test]
 fn moved_peer_another_team_or_identifier_is_refused() {
     let other_team = Signer {

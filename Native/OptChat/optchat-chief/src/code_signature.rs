@@ -57,6 +57,16 @@ const APPLE_ROOT_CA_SHA256: &str =
 /// Checks `signature` (a running process's) against `ours` (see the module
 /// doc); the error says which rule failed.
 pub fn verify(signature: &KernelSignature, ours: &Signer) -> Result<(), String> {
+    verify_at(signature, ours, std::time::SystemTime::now())
+}
+
+/// [`verify`] as of `now` (the clock the certificate chain is checked
+/// against).
+pub fn verify_at(
+    signature: &KernelSignature,
+    ours: &Signer,
+    now: std::time::SystemTime,
+) -> Result<(), String> {
     use sha2::Digest as _;
     if signature.flags & CS_VALID == 0 {
         return Err("the kernel does not mark its code valid".into());
@@ -86,7 +96,7 @@ pub fn verify(signature: &KernelSignature, ours: &Signer) -> Result<(), String> 
     if team != ours.team {
         return Err(format!("its team is {team:?}, not {:?}", ours.team));
     }
-    let leaf_team = cms_signer_team(cms, directory)?;
+    let leaf_team = cms_signer_team(cms, directory, now)?;
     if leaf_team != ours.team {
         return Err(format!(
             "its signing certificate's team (OU) is {leaf_team:?}, not {:?}",
@@ -145,7 +155,7 @@ fn c_string_at(bytes: &[u8], at: usize) -> Result<String, String> {
 pub use macos::{of_file, running_peer};
 
 #[cfg(not(target_os = "macos"))]
-fn cms_signer_team(_: &[u8], _: &[u8]) -> Result<String, String> {
+fn cms_signer_team(_: &[u8], _: &[u8], _: std::time::SystemTime) -> Result<String, String> {
     Err("code signatures are checked on macOS only".into())
 }
 
@@ -184,6 +194,8 @@ mod macos {
         fn CFArrayGetTypeID() -> usize;
         fn CFDictionaryGetTypeID() -> usize;
         fn CFDataCreate(alloc: CFTypeRef, bytes: *const u8, len: isize) -> CFTypeRef;
+        fn CFDateCreate(alloc: CFTypeRef, at: f64) -> CFTypeRef;
+        fn CFErrorGetCode(error: CFTypeRef) -> isize;
         fn CFDataGetBytePtr(data: CFTypeRef) -> *const u8;
         fn CFDataGetLength(data: CFTypeRef) -> isize;
         fn CFArrayGetCount(array: CFTypeRef) -> isize;
@@ -228,6 +240,8 @@ mod macos {
             cert_verify_result: *mut OSStatus,
         ) -> OSStatus;
         fn SecPolicyCreateBasicX509() -> CFTypeRef;
+        fn SecTrustSetVerifyDate(trust: CFTypeRef, date: CFTypeRef) -> OSStatus;
+        fn SecTrustEvaluateWithError(trust: CFTypeRef, error: *mut CFTypeRef) -> bool;
         fn SecTrustCopyCertificateChain(trust: CFTypeRef) -> CFTypeRef;
         fn SecCertificateCopyData(cert: CFTypeRef) -> CFTypeRef;
         fn SecCertificateCopyValues(
@@ -385,9 +399,50 @@ mod macos {
         })
     }
 
+    /// Seconds since 2001-01-01 (Core Foundation's absolute time) of `at`.
+    fn absolute_time(at: std::time::SystemTime) -> f64 {
+        const CF_EPOCH: f64 = 978_307_200.0;
+        match at.duration_since(std::time::UNIX_EPOCH) {
+            Ok(after) => after.as_secs_f64() - CF_EPOCH,
+            Err(before) => -before.duration().as_secs_f64() - CF_EPOCH,
+        }
+    }
+
+    /// Whether `trust`'s chain verifies as of `at` (Core Foundation absolute
+    /// time); the error names the trust failure.
+    fn chain_verifies(trust: CFTypeRef, at: f64) -> Result<(), String> {
+        // SAFETY: no pointers; CFDateCreate copies the value.
+        let date = Cf::new(
+            unsafe { CFDateCreate(std::ptr::null(), at) },
+            "CFDateCreate",
+        )?;
+        // SAFETY: trust and date are live.
+        check(
+            unsafe { SecTrustSetVerifyDate(trust, date.0) },
+            "SecTrustSetVerifyDate",
+        )?;
+        let mut error: CFTypeRef = std::ptr::null();
+        // SAFETY: trust is live; error is a valid out-pointer.
+        if unsafe { SecTrustEvaluateWithError(trust, &mut error) } {
+            return Ok(());
+        }
+        let code = Cf::new(error, "the trust error")
+            // SAFETY: the error is a live CFError.
+            .map(|error| unsafe { CFErrorGetCode(error.0) })
+            .unwrap_or(0);
+        Err(format!(
+            "its CMS signature's certificate chain does not verify (certificate result {code})"
+        ))
+    }
+
     /// The team ID (certificate OU) of the single CMS signer over
-    /// `directory`, once its signature and its chain to Apple Root CA verify.
-    pub(super) fn cms_signer_team(cms: &[u8], directory: &[u8]) -> Result<String, String> {
+    /// `directory`, once its signature and its chain to Apple Root CA verify
+    /// as of `now`.
+    pub(super) fn cms_signer_team(
+        cms: &[u8],
+        directory: &[u8],
+        now: std::time::SystemTime,
+    ) -> Result<String, String> {
         use sha2::Digest as _;
         let mut decoder: CFTypeRef = std::ptr::null();
         // SAFETY: decoder is a valid out-pointer.
@@ -426,6 +481,8 @@ mod macos {
             unsafe { SecPolicyCreateBasicX509() },
             "SecPolicyCreateBasicX509",
         )?;
+        // The signature itself first (no trust evaluation), as Security's code
+        // signing does; the chain is evaluated below, as of a chosen time.
         let (mut status, mut trust, mut verify) = (0u32, std::ptr::null(), 0);
         // SAFETY: decoder and policy are live; the out-pointers are valid.
         check(
@@ -434,7 +491,7 @@ mod macos {
                     decoder.0,
                     0,
                     policy.0,
-                    1,
+                    0,
                     &mut status,
                     &mut trust,
                     &mut verify,
@@ -443,11 +500,12 @@ mod macos {
             "CMSDecoderCopySignerStatus",
         )?;
         let trust = Cf::new(trust, "the signer's trust")?;
-        if status != CMS_SIGNER_VALID || verify != 0 {
+        if status != CMS_SIGNER_VALID {
             return Err(format!(
-                "its CMS signature does not verify (signer status {status}, certificate result {verify})"
+                "its CMS signature does not verify (signer status {status})"
             ));
         }
+        chain_verifies(trust.0, absolute_time(now))?;
         // SAFETY: trust is live.
         let chain = Cf::new(
             unsafe { SecTrustCopyCertificateChain(trust.0) },
