@@ -80,6 +80,8 @@ type Line = {
   agent?: Subagent;
   name: string;
   detail?: string;
+  /// The kind of agent it is, for the hover card.
+  kind?: string;
   progress?: string;
   status: SubagentStatus;
   state: string;
@@ -180,11 +182,10 @@ export function SubagentsSection({
       agent,
       name: agent.name,
       progress: subagentProgress(t, language, agent).join(" · "),
-      detail: live(status)
-        ? (agent.action ?? (isRepeatedAgentKind(agent.kind) ? undefined : agent.kind))
-        : isRepeatedAgentKind(agent.kind)
-          ? undefined
-          : agent.kind,
+      // What it does now, while it runs; its kind (Explore, general-purpose) is no subtitle on the
+      // line (Leo, 2026-10-31: "a lot of these subtitles are bad"): the hover card keeps it.
+      detail: live(status) ? agent.action : undefined,
+      kind: agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined,
       status,
       state: subagentStateText(t, agent, waiting),
       working: Boolean(retrying(agent)),
@@ -298,6 +299,7 @@ function AgentCard({ item }: { item: Line }) {
         {[
           item.state,
           item.time,
+          item.kind,
           progress,
           item.status === "running" || item.status === "waiting" ? item.detail : undefined,
         ]

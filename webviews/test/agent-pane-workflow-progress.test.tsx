@@ -163,13 +163,10 @@ for (const producer of [false, true])
       for (const row of rows()) {
         const button = row.querySelector(".acpmux-agent-line__button")!;
         expect(button.querySelectorAll(".acpmux-agent-line__time")).toHaveLength(1);
-        const trailing = [...button.children].slice(-3).map((node) => node.className);
-        // The trailing tracks as #29264 set them: the time, the state, Stop's track, the chevron.
-        expect(trailing).toEqual([
-          "acpmux-agent-line__status",
-          "acpmux-agent-line__stop-track",
-          "acpmux-agent-line__chevron",
-        ]);
+        // The row's own trailing tracks (subagent-tray-trailing.test.ts owns their order): a progress
+        // update leaves Stop's track and the chevron last.
+        const trailing = [...button.children].slice(-2).map((node) => node.className);
+        expect(trailing).toEqual(["acpmux-agent-line__stop-track", "acpmux-agent-line__chevron"]);
       }
     } finally {
       await act(async () => root.unmount());
