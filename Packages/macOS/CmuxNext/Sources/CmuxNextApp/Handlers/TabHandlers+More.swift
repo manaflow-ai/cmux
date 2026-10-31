@@ -68,14 +68,15 @@ extension TabHandlers {
         guard let id = services.workspaceID(ofTab: tab.id), let workspace = services.workspace(id: id),
               let qualified = WindowProfiles.qualified(id, machines: services.machines) else { return .refused(RefusalStrings.noWorkspaceToActOn) }
         if WindowProfiles.membership(services.machines)?.pins[qualified] == room { return .refused(RoomStrings.alreadyInRoom) }
+        if let reason = TabPromotion.refusal(tab: tab.id, services: services) { return .refused(reason) }
         let alone = workspace.screens.flatMap(\.panes).flatMap(\.tabs).count == 1, session = qualified.session
-        if !alone, let reason = TabPromotion.refusal(tab: tab.id, services: services) { return .refused(reason) }
-        return .applied(ActionConfirmation(send: {
+        // action-wait-allow: a space pin has no store intent (Move Workspace to Space sends it the same way), so nothing local stands in.
+        return .waiting(.daemonEcho) {
             var key: WorkspaceKey? = WorkspaceKey(rawValue: qualified.key)
             if !alone { key = await TabMoves.toNewWorkspace(tab, services: services) }
             guard let key else { return "move-tab-to-new-workspace failed (see the app log)" }
             return await home.failure("pin-workspace") { try await $0.pinWorkspace(session: session, key: key, to: room) }
-        }))
+        }
     }
 
     /// Move Tab to New Workspace, or to a New Window that shows the new workspace. On one of several

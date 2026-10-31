@@ -107,15 +107,15 @@ fn space_flags_are_not_positional_names() {
             json!({"name": "Office"}),
         ),
         (
-            &["space", "close", "--target", "room:Work"][..],
-            "space close",
+            &["space", "delete", "--target", "room:Work", "--confirm"][..],
+            "space delete",
             Some("room:Work"),
-            json!({}),
+            json!({"confirm": true}),
         ),
         (
-            &["space", "move", "workspace", "--target", "workspace:ws_1"][..],
-            "space move workspace",
-            Some("workspace:ws_1"),
+            &["space", "switch", "--target", "room:Work"][..],
+            "space switch",
+            Some("room:Work"),
             json!({}),
         ),
     ] {
