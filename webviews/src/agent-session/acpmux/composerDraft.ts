@@ -128,7 +128,7 @@ let draftDrain: Promise<void> | undefined;
 // goes when its composer leaves the chat or closes (forgetQueuedDraft), or the draft is cleared, so
 // the map holds at most one entry per open composer.
 const lastQueuedDraft = new Map<string, string>();
-const pendingDraftWrites = new Map<string, { sessionId: string; text: string; sequence: number }>();
+const pendingDraftWrites = new Map<string, DraftWrite>();
 // The write sent to acpmux and not yet answered, by session: until acpmux says it holds it, its text
 // is newer than any draft a read returns, so a remount's read never merges the older draft into it.
 // An entry goes when its answer comes (or it fails and goes back in `pendingDraftWrites`).
@@ -158,6 +158,8 @@ export const draftWriteLimits = { timeoutMs: 5_000, lateHoldMs: 30_000 };
 // connection). Writes on a connection that never answers wait, as they always did; only the
 // web-swap hold above is bounded.
 let unansweredWrite: { action: DraftAction; since: number } | undefined;
+/** A write to acpmux; `generation` is its chat's edit count when it was queued (`settleDraftWrite`). */
+type DraftWrite = { sessionId: string; text: string; sequence: number; generation: number };
 
 function writeTimedOut(action: DraftAction, sessionId: string, sequence: number, sent: Promise<unknown>): void {
   const late = { action, since: Date.now() };
@@ -169,7 +171,11 @@ function writeTimedOut(action: DraftAction, sessionId: string, sequence: number,
   };
   void Promise.resolve(sent).then(() => {
     // It landed: its own retry, still queued, would only land over a later edit.
-    if (pendingDraftWrites.get(sessionId)?.sequence === sequence) pendingDraftWrites.delete(sessionId);
+    const retry = pendingDraftWrites.get(sessionId);
+    if (retry?.sequence === sequence) {
+      pendingDraftWrites.delete(sessionId);
+      settleDraftWrite(retry);
+    }
     answered();
   }, answered);
   // Its retry is queued (`pendingDraftWrites`), which keeps the text authoritative meanwhile.
@@ -240,9 +246,7 @@ async function flushDraftWrites(): Promise<void> {
       if (unansweredWrite?.action !== action) unansweredWrite = undefined;
       // A write that timed out may still land: anything newer waits for its answer (writeTimedOut).
       if (unansweredWrite) break;
-      const next = pendingDraftWrites.entries().next().value as
-        | [string, { sessionId: string; text: string; sequence: number }]
-        | undefined;
+      const next = pendingDraftWrites.entries().next().value as [string, DraftWrite] | undefined;
       if (!next) break;
       const [sessionId, write] = next;
       pendingDraftWrites.delete(sessionId);
@@ -253,6 +257,7 @@ async function flushDraftWrites(): Promise<void> {
         // A write that never answers would keep this drain, and the web-swap hold, forever.
         await answeredInTime(sent);
         if (sentDraftWrites.get(sessionId) === write.sequence) sentDraftWrites.delete(sessionId);
+        settleDraftWrite(write);
       } catch (error) {
         if (sentDraftWrites.get(sessionId) === write.sequence) sentDraftWrites.delete(sessionId);
         if (error === WRITE_TIMED_OUT && sent) writeTimedOut(action, sessionId, write.sequence, sent);
@@ -339,7 +344,12 @@ export function writePersistedDraft(sessionId: string | undefined, text: string)
   cachePersistedDraft(sessionId, text);
   // Keep only the newest value per session. This preserves clear-after-type ordering when a
   // connection is down, without dropping the final clear or sending stale keystrokes on repair.
-  pendingDraftWrites.set(sessionId, { sessionId, text, sequence: ++draftWriteSequence });
+  pendingDraftWrites.set(sessionId, {
+    sessionId,
+    text,
+    sequence: ++draftWriteSequence,
+    generation: chatDrafts.get(sessionId)?.generation ?? 0,
+  });
   // A cleared draft is nothing to compare with: its entry goes, so the map holds only live drafts.
   if (text) lastQueuedDraft.set(sessionId, text);
   else lastQueuedDraft.delete(sessionId);
@@ -354,12 +364,27 @@ export async function readDurableDraft(sessionId: string | undefined): Promise<s
 // Per chat, for the page's life (unmounts and remounts included, so a composer that comes back
 // keeps it): whether this page read the chat's acpmux draft, and whether the person edited or sent
 // from its prompt since the last settled read (`hydratedDraft`). One entry per chat the page opened.
-const chatDrafts = new Map<string, { read: boolean; edited: boolean; sent: boolean }>();
+// `generation` counts the edits and sends, so a write knows whether one came after it was queued.
+const chatDrafts = new Map<string, { read: boolean; edited: boolean; sent: boolean; generation: number }>();
 
 function chatDraft(sessionId: string) {
   let entry = chatDrafts.get(sessionId);
-  if (!entry) chatDrafts.set(sessionId, (entry = { read: false, edited: false, sent: false }));
+  if (!entry) chatDrafts.set(sessionId, (entry = { read: false, edited: false, sent: false, generation: 0 }));
   return entry;
+}
+
+/** acpmux answered `write`: when nothing of the page's is still on its way for that chat and no
+ * edit or send came after it was queued, acpmux holds the prompt as it is, so the edits and sends
+ * before it are settled, as a read settles them (`markDraftRead`). Before (cmux#28204 review at
+ * 470bd8b0), a read that came while the write was on its way left them set for good, so a later
+ * read (another pane changed the draft meanwhile) kept this page's older text over the newer draft
+ * and wrote it back. */
+function settleDraftWrite(write: DraftWrite): void {
+  const entry = chatDrafts.get(write.sessionId);
+  if (!entry || !entry.read || entry.generation !== write.generation) return;
+  if (hasPendingDraftWrite(write.sessionId)) return;
+  entry.edited = false;
+  entry.sent = false;
 }
 
 /** What `hydratedDraft` needs to know of `sessionId` besides the texts. */
@@ -397,12 +422,18 @@ export function markDraftRead(sessionId: string | undefined): void {
 
 /** The person edited `sessionId`'s prompt (a clear included). */
 export function noteDraftEdited(sessionId: string | undefined): void {
-  if (sessionId?.trim()) chatDraft(sessionId).edited = true;
+  if (!sessionId?.trim()) return;
+  const entry = chatDraft(sessionId);
+  entry.edited = true;
+  entry.generation += 1;
 }
 
 /** The person sent from `sessionId`'s prompt: the text that was there is not a draft any more. */
 export function noteDraftSent(sessionId: string | undefined): void {
-  if (sessionId?.trim()) chatDraft(sessionId).sent = true;
+  if (!sessionId?.trim()) return;
+  const entry = chatDraft(sessionId);
+  entry.sent = true;
+  entry.generation += 1;
 }
 
 /// Reads the daemon draft: `{ draft }` once acpmux answered (`draft` undefined when it holds none),
