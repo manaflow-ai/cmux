@@ -1617,6 +1617,45 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_pull_never_leaves_the_work_directory_through_a_link() {
+        let base =
+            std::env::temp_dir().join(format!("cmux-vm-run-pull-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let work = base.join("work");
+        std::fs::create_dir_all(work.join("dist")).unwrap();
+        std::fs::write(work.join("dist/report.txt"), "report").unwrap();
+        std::fs::create_dir_all(base.join("outside")).unwrap();
+        std::fs::write(base.join("outside/secret"), "secret").unwrap();
+        // What the command left behind: a link out, and a link that stays in.
+        std::os::unix::fs::symlink(base.join("outside"), work.join("leak")).unwrap();
+        std::os::unix::fs::symlink(work.join("dist"), work.join("alias")).unwrap();
+        let archive = base.join("pull.tgz");
+        let archive = archive.to_str().unwrap();
+        let run = |path: &str| {
+            let script =
+                pull_pack_script(work.to_str().unwrap(), &[path.to_owned()], archive, 1 << 20);
+            let out = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(&script)
+                .output()
+                .unwrap();
+            let ok = out.status.success()
+                && String::from_utf8_lossy(&out.stdout).split_whitespace().nth(1) == Some("0");
+            (ok, String::from_utf8_lossy(&out.stderr).into_owned())
+        };
+        let (ok, stderr) = run("leak/secret");
+        assert!(!ok, "a pull through a link out of the work directory ran");
+        assert!(stderr.contains("leak/secret"), "{stderr}");
+        // The link itself is archived as a link, never followed.
+        assert!(run("leak").0);
+        // A link that stays inside the work directory is fine.
+        assert!(run("alias/report.txt").0);
+        assert!(run("dist/report.txt").0);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     #[test]
     fn a_worktree_git_cannot_list_is_refused_not_walked() {
         let dir =
