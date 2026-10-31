@@ -501,4 +501,6 @@ extension CloudHandlers {
         }
         return CloudStrings.diagnosticsAllWell(CloudDiagnosticsReport.accountLabel(account))
     }
+
+    static func bindSignInRecovery(into registry: ActionRegistry, cloud: CloudService) { CloudSignInRecovery(pending: cloud.signedOutCreation, signIn: { await cloud.auth.signIn() }, hasCurrentList: { cloud.hasCurrentList(within: .seconds(30)) }, isSignedIn: { cloud.isSignedIn }, refresh: { await cloud.refresh() }).bind(into: registry) } // HQ #4884
 }
