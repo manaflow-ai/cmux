@@ -19,6 +19,6 @@
 .acpmux-harness-action:hover{background:var(--acpmux-composer-hover)}
 .acpmux-harness-action.is-primary{background:var(--agent-accent);box-shadow:none;color:var(--agent-accent-text,#fff)}
 .acpmux-harness-action.is-primary:hover{background:color-mix(in srgb,var(--agent-accent) 88%,var(--agent-accent-text,#fff))}
-.acpmux-harnesses-custom{display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:8px var(--harness-inset) 8px calc(var(--harness-inset) + var(--harness-mark) + var(--harness-gap));border:0;border-top:.5px solid var(--acpmux-composer-edge);border-radius:0;background:none;color:var(--agent-text);font:inherit;text-align:left}
+.acpmux-harnesses-custom{display:flex;flex-direction:column;align-items:stretch;min-width:0;gap:1px;padding:8px var(--harness-inset) 8px calc(var(--harness-inset) + var(--harness-mark) + var(--harness-gap));border:0;border-top:.5px solid var(--acpmux-composer-edge);border-radius:0;background:none;color:var(--agent-text);font:inherit;text-align:left}
 .acpmux-harnesses-custom:hover .acpmux-harness-name{text-decoration:underline}
 .acpmux-harnesses button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
