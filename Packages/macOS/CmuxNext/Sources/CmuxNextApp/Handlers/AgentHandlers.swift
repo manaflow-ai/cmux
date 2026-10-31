@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextComputerUse
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHistory
 import CmuxNextHomeEngine
@@ -260,6 +261,7 @@ enum AgentHandlers {
             })
         }
         TerminalChatHandler.bind(into: registry, context: context)
+        AgentShareActions(host: context.services).bind(into: registry)
         AgentTeamsLaunch.bind(into: registry, context: context)
         let services = context.services
         let helper = ComputerUseHelperDaemon.shared
@@ -478,7 +480,9 @@ enum AgentHandlers {
             if let session = invocation.callerAgentSession, let chat = context.services.agentTabs.tab(showing: session) {
                 context.services.chatQuoteOpeners.noteOpened(url, byAgentTab: chat)
             }
-            if let reason = context.services.viewers.openFile(url, in: pane, userChose: invocation.origin == .user) { throw ActionFailure(message: reason) }
+            // `asText` (`cmux open --as-text`, MCP, u18462): HTML, SVG or Markdown opens as its source, as Open as Text does.
+            let asText = invocation["asText"]?.boolValue ?? (invocation["asText"]?.stringValue == "true")
+            if let reason = context.services.viewers.openFile(url, in: pane, userChose: invocation.origin == .user, asText: asText) { throw ActionFailure(message: reason) }
             return
         }
         let opening: AgentPaneFileOpening
