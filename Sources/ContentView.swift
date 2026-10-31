@@ -7635,6 +7635,22 @@ struct ContentView: View {
         return snapshot
     }
 
+    static func toggleSplitZoomCommandContribution() -> CommandPaletteCommandContribution {
+        func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
+            { _ in value }
+        }
+        return CommandPaletteCommandContribution(
+            commandId: "palette.toggleSplitZoom",
+            title: constant(String(localized: "command.toggleSplitZoom.title", defaultValue: "Toggle Pane Zoom")),
+            subtitle: constant(String(localized: "command.toggleSplitZoom.subtitle", defaultValue: "Pane Layout")),
+            keywords: ["terminal", "browser", "pane", "split", "zoom", "maximize"],
+            when: { context in
+                context.bool(CommandPaletteContextKeys.hasFocusedPanel) &&
+                context.bool(CommandPaletteContextKeys.workspaceHasSplits)
+            }
+        )
+    }
+
     /// Search keywords for the mobile pairing command palette entry.
     ///
     /// Kept as a single source of truth so the contribution and its behavioral
@@ -8848,23 +8864,12 @@ struct ContentView: View {
                 }
             )
         )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.toggleSplitZoom",
-                title: constant(String(localized: "command.toggleSplitZoom.title", defaultValue: "Toggle Pane Zoom")),
-                subtitle: constant(String(localized: "command.toggleSplitZoom.subtitle", defaultValue: "Terminal Layout")),
-                keywords: ["terminal", "pane", "split", "zoom", "maximize"],
-                when: { context in
-                    context.bool(CommandPaletteContextKeys.panelIsTerminal) &&
-                    context.bool(CommandPaletteContextKeys.workspaceHasSplits)
-                }
-            )
-        )
+        contributions.append(Self.toggleSplitZoomCommandContribution())
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.toggleFullWidthTab",
                 title: constant(String(localized: "command.toggleFullWidthTab.title", defaultValue: "Toggle Full Width Tab")),
-                subtitle: constant(String(localized: "command.toggleSplitZoom.subtitle", defaultValue: "Terminal Layout")),
+                subtitle: constant(String(localized: "command.toggleSplitZoom.subtitle", defaultValue: "Pane Layout")),
                 keywords: ["full", "width", "tab", "title", "header", "solo"],
                 when: { context in
                     context.bool(CommandPaletteContextKeys.hasFocusedPanel) &&
