@@ -29,7 +29,7 @@ await requireBrowserLane("subagent-tray-composer-geometry.test.ts", async () => 
     await server?.close();
   });
 
-  for (const width of [760, 300]) {
+  for (const width of [760, 300, 200]) {
     test(`running tray tracks share the composer controls at ${width}px`, async () => {
       const port = (server.httpServer!.address() as { port: number }).port;
       const page = await browser.newPage({
@@ -52,6 +52,8 @@ await requireBrowserLane("subagent-tray-composer-geometry.test.ts", async () => 
           const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
           const rows = [...tray.querySelectorAll<HTMLElement>(".acpmux-agent-line")].map((row) => ({
             row: rect(row)!,
+            scrollWidth: row.scrollWidth,
+            clientWidth: row.clientWidth,
             button: rect(row.querySelector(".acpmux-agent-line__button"))!,
             leading: rect(row.querySelector(".acpmux-lineage__icon"))!,
             time: rect(row.querySelector(".acpmux-agent-line__time"))!,
@@ -89,6 +91,7 @@ await requireBrowserLane("subagent-tray-composer-geometry.test.ts", async () => 
             geometry.plus.left - geometry.composer.left,
           );
         for (const row of geometry.rows) {
+          expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth + 1);
           within(row.row.left, geometry.composer.left);
           within(row.row.right, geometry.composer.right);
           within(center(row.chevron).x, center(geometry.mic).x);

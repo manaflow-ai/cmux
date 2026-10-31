@@ -705,6 +705,9 @@ button.cv-subagent > :last-child {
 /* Narrow rows put their title above the same right-aligned controls. */
 @container running-tray (max-width: 400px) {
   .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
+    /* At the smallest split widths, only the status track contracts. The track remains the
+       same width on every row; duration and the composer-aligned controls never get pushed out. */
+    --acpmux-tray-status-width: clamp(0px, calc(100cqw - var(--acpmux-tray-time-width) - var(--acpmux-tray-stop-width) - var(--acpmux-tray-chevron-width) - 4 * var(--acpmux-tray-gap) - 2 * var(--acpmux-tray-inset)), 74px);
     position: relative;
     grid-template-rows: var(--ui-row-height, 28px) var(--ui-row-height, 28px);
     row-gap: 0;
