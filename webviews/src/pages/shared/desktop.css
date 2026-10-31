@@ -244,7 +244,14 @@ input[type="range"] {
    What is inside a clickable thing takes its cursor (`inherit`): the arrow inside selectable text,
    where `.selectable *` would give its label the I-beam, and a surface's own cursor on the
    clickable thing too, so a sent or queued image's thumbnail keeps the button's zoom-in. This rule
-   comes first so a clickable thing nested in another still gets the arrow. */
+   comes first so a clickable thing nested in another still gets the arrow.
+   What is inside any label takes the label's cursor too: a choice's arrow (the label's own rule
+   below), a locked choice's arrow, a field label's I-beam in selectable text. A field inside keeps
+   the text cursor (its own rule outranks this one). Never `label:has(...) *` here, nor any `:has()`
+   before a combinator whose last compound has no class or attribute (`*`, `:not(...)`): Chromium
+   then restyles the whole page on every node inserted anywhere under the elements it tracks for
+   `:has()`, about 850 elements per streamed row or rail tick in the agent pane
+   (pane-has-restyle.browser.test.ts). */
 :where(
     button,
     a[href],
@@ -260,8 +267,7 @@ input[type="range"] {
     [role="checkbox"],
     [role="radio"],
     summary,
-    label[for],
-    label:has(input[type="checkbox"], input[type="radio"])
+    label
   )
   * {
   cursor: inherit;
@@ -313,7 +319,8 @@ input:is(
    memory sizes), apart from a link or button in it. CSS cannot follow `for` to its control, so a
    `for` label keeps the arrow. A surface that shows another cursor there (`not-allowed`) says so
    with !important on a :disabled rule. Inert content takes no pointer input at all (a sheet's
-   background, a closing popup), so it and everything in it keep the arrow too. */
+   background, a closing popup), so it and everything in it keep the arrow too. The locked label's
+   contents take its arrow by inheritance (the label rule above), not through a `label:has(...) *`. */
 [inert],
 [inert] *,
 [aria-disabled="true"],
@@ -325,11 +332,7 @@ fieldset:disabled > :not(legend:first-of-type):not(:is(a[href], button, input, s
 fieldset:disabled > :not(legend:first-of-type) :not(:is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]), :is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]) *),
 label:not([for]):has(:is(input, select, textarea):disabled):not(
     :has(:is(input:not([type="hidden"]), select, textarea):enabled)
-  ),
-label:not([for]):has(:is(input, select, textarea):disabled):not(
-    :has(:is(input:not([type="hidden"]), select, textarea):enabled)
-  )
-  :not(:is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]), :is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]) *) {
+  ) {
   cursor: default !important;
 }
 
