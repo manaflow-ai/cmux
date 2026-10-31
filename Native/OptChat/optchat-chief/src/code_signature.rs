@@ -470,8 +470,11 @@ mod macos {
         )?;
         let (mut status, mut trust, mut verify) = (0u32, std::ptr::null(), 0);
         // The signature only; the chain is evaluated below at a time this
-        // code chooses (CMSDecoder's own evaluation may take the signer's
-        // unauthenticated signingTime claim, or the current time).
+        // code chooses. CMSDecoder's own evaluation falls back from the
+        // secure timestamp to the signingTime attribute, which the signer
+        // picks: a holder of an expired or revoked leaf's key could backdate it.
+        // This call also verifies the unsigned attributes (the RFC 3161
+        // token's signature and imprint): a broken token fails it here.
         // SAFETY: decoder and policy are live; the out-pointers are valid.
         check(
             unsafe {
@@ -494,10 +497,11 @@ mod macos {
             ));
         }
         // The RFC 3161 timestamp token over this signer's signature (an
-        // unsigned attribute, so the signer's signature does not cover it):
-        // Security returns its time only once the token's signature verifies,
-        // its imprint is this signer's signature, and its authority's chain
-        // is trusted for time stamping, as codesign checks it.
+        // unsigned attribute, so the signer's signature does not cover it).
+        // Its time is trusted only because the status check above verified
+        // the token: Security caches the time while it decodes, before its
+        // imprint check, and returns the cache here (the policy is then not
+        // used). Keep this call after that check.
         // SAFETY: kSecPolicyAppleTimeStamping is Security's constant.
         let stamping = Cf::new(
             unsafe { SecPolicyCreateWithProperties(kSecPolicyAppleTimeStamping, std::ptr::null()) },

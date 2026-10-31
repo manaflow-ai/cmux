@@ -251,6 +251,8 @@ fn nightly_without_timestamp() -> KernelSignature {
 // The nightly fixture: leaf "Developer ID Application: Manaflow, Inc."
 // valid 2026-04-15..2031-04-16, signed and timestamped 2026-10-21.
 
+// Also true of the code before the time seam (CMSDecoder used the verified
+// timestamp first): a guard against a rule stricter than Apple's.
 #[test]
 fn moved_peer_a_timestamped_signature_stays_valid_after_its_certificate_expires() {
     assert_eq!(
@@ -275,14 +277,23 @@ fn moved_peer_a_signature_without_a_secure_timestamp_is_refused_after_its_certif
 }
 
 #[test]
-fn moved_peer_a_forged_timestamp_does_not_extend_validity() {
+fn moved_peer_a_broken_timestamp_token_does_not_extend_validity() {
     let mut forged = nightly();
     let (offset, mut cms) = cms_of(&forged.blob);
     let (_, _, unsigned) = signer_and_unsigned(&cms);
-    // The last byte of the timestamp token is its own RSA signature's.
-    cms[ber_end(&cms, unsigned) - 1] ^= 0xff;
+    // The unsignedAttrs have a definite length, and their last byte is the
+    // last byte of the timestamp token's own RSA signature.
+    assert!(ber_header(&cms, unsigned).2.is_some());
+    let last = ber_end(&cms, unsigned) - 1;
+    cms[last] ^= 0xff;
     forged.blob[offset + 8..offset + 8 + cms.len()].copy_from_slice(&cms);
-    assert!(code_signature::verify_at(&forged, &ours(), jan_1(2032)).is_err());
+    // Refused after the leaf's expiry: by the CMS verification of the token,
+    // or, if a broken token only lost its time, at the chain.
+    let err = code_signature::verify_at(&forged, &ours(), jan_1(2032)).unwrap_err();
+    assert!(
+        err.contains("CMS signature does not verify") || err.contains("no secure timestamp"),
+        "{err}"
+    );
 }
 
 #[test]
