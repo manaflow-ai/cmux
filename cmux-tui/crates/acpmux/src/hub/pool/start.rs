@@ -132,8 +132,7 @@ impl Hub {
             &host_spec.env,
             &host_spec.cwd,
         );
-        let servers =
-crate::hub::LaunchServers::read(
+        let servers = crate::hub::LaunchServers::read(
             &launch,
             spec.draft.family.clone().unwrap_or_default(),
             spec.spawn.kind,

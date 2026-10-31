@@ -43,8 +43,11 @@ async fn an_adopted_harness_with_a_child_stays_up_idle_and_a_stop_still_ends_bot
 #[tokio::test]
 async fn an_adopted_harness_running_only_its_mcp_servers_hibernates() {
     let pids_file = std::env::temp_dir().join(format!("amd-idlemcp-{}", std::process::id()));
-    let mut daemon =
-        Daemon::with_env("idlemcp", "approve-all", &[("FAKE_RUN_MCP", pids_file.to_str().unwrap())]);
+    let mut daemon = Daemon::with_env(
+        "idlemcp",
+        "approve-all",
+        &[("FAKE_RUN_MCP", pids_file.to_str().unwrap())],
+    );
     let session = new_session(&daemon).await;
     let harness = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
     let pids_path = format!("{}.{harness}", pids_file.display());

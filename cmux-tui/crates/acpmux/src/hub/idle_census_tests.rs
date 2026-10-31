@@ -477,19 +477,17 @@ async fn a_claude_wrapper_profile_reads_claude_codes_configs() {
     for d in [&home, &cwd] {
         std::fs::create_dir_all(d).unwrap();
     }
-    let user = json!({"mcpServers": {"yab": {"command": "/Applications/yab.app/yab", "args": ["mcp"]}}});
+    let user =
+        json!({"mcpServers": {"yab": {"command": "/Applications/yab.app/yab", "args": ["mcp"]}}});
     std::fs::write(home.join(".claude.json"), user.to_string()).unwrap();
     let launch = crate::agent::Launch {
         args: vec!["/Users/me/.local/bin/claude-sr2".into()],
         env: [("HOME".to_string(), home.to_string_lossy().into_owned())].into_iter().collect(),
         cwd: cwd.clone(),
     };
-    let read = LaunchServers::read(
-        &launch,
-        "claude-sr2".into(),
-        crate::config::HarnessKind::ClaudeStdio,
-    )
-    .await;
+    let read =
+        LaunchServers::read(&launch, "claude-sr2".into(), crate::config::HarnessKind::ClaudeStdio)
+            .await;
     let LaunchServers::Known { servers, .. } = read else { panic!("the configs were not read") };
     assert_eq!(
         servers.iter().map(|s| s.command.as_str()).collect::<Vec<_>>(),
@@ -506,13 +504,28 @@ async fn a_claude_wrapper_profile_reads_claude_codes_configs() {
 /// back unchanged after a restart, so the daemon that adopts the host judges the same servers
 /// (cmux NIGHTLY, 2026-10-30: about 150 adopted agents never hibernated after a crash).
 #[test]
+fn a_kept_launch_leaves_the_servers_env_out() {
+    let given = json!([{
+        "name": "forum", "command": "/opt/cmux/acpmux", "args": ["forum-mcp"],
+        "env": [{"name": "ACPMUX_SESSION_TOKEN", "value": "secret-token"}],
+    }]);
+    let kept = launch_only(Some(&given)).unwrap();
+    assert_eq!(kept, json!([{"command": "/opt/cmux/acpmux", "args": ["forum-mcp"]}]));
+    assert!(!kept.to_string().contains("secret-token"));
+    assert_eq!(from_json(Some(&kept)), from_json(Some(&given)));
+    assert_eq!(launch_only(None), None);
+}
+
+#[test]
 fn the_kept_servers_survive_the_session_file() {
     let stored = StoredLaunch {
         incarnation: "inc-1".into(),
         servers: vec![sidecar("/opt/cmux/acpmux", &["forum-mcp".into()]).unwrap()],
         path: "/usr/bin:/bin".into(),
         cwd: PathBuf::from("/w"),
-        given: Some(json!([{"name": "cmux", "command": "/opt/cmux/cmux", "args": ["mcp", "serve"]}])),
+        given: Some(
+            json!([{"name": "cmux", "command": "/opt/cmux/cmux", "args": ["mcp", "serve"]}]),
+        ),
     };
     let mut meta: crate::store::SessionMeta = serde_json::from_value(json!({
         "schema": crate::store::META_SCHEMA, "id": "chat", "name": "chat", "harness": "claude",

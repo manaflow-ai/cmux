@@ -244,6 +244,7 @@ pub struct StoredLaunch {
     pub servers: Vec<Sidecar>,
     pub path: String,
     pub cwd: PathBuf,
+    /// Only each given server's `command` and `args` (`launch_only`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub given: Option<Value>,
 }
@@ -261,7 +262,9 @@ impl Hub {
                     servers,
                     path,
                     cwd,
-                    given: child.given_servers.lock().unwrap_or_else(|e| e.into_inner()).clone(),
+                    given: launch_only(
+                        child.given_servers.lock().unwrap_or_else(|e| e.into_inner()).as_ref(),
+                    ),
                 })
             }
             _ => None,
@@ -283,6 +286,17 @@ impl Hub {
         });
         *child.given_servers.lock().unwrap_or_else(|e| e.into_inner()) = stored.given;
     }
+}
+
+/// The `command` and `args` of each stdio server in `given`, all the census reads of it: a server's
+/// `env` carries its session's caller token (`agent_tools::for_session`), which a session's meta
+/// (saved, and sent whole in a chat move) must not.
+fn launch_only(given: Option<&Value>) -> Option<Value> {
+    let list: Vec<Value> = from_json(given)
+        .into_iter()
+        .map(|s| serde_json::json!({"command": s.command, "args": s.args}))
+        .collect();
+    (!list.is_empty()).then_some(Value::Array(list))
 }
 
 /// `servers` with each one given by name resolved on `path`, each relative path in `cwd` (the
