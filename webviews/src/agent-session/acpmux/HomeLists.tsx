@@ -151,7 +151,7 @@ function HomeRow({
           </span>
         )}
         {project && (
-          <span className="acpmux-home-meta" title={session.cwd}>
+          <span className="acpmux-home-meta acpmux-home-project" title={session.cwd}>
             {project}
           </span>
         )}
