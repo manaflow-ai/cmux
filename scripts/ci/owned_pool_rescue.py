@@ -1486,11 +1486,13 @@ RATE_LIMIT_MAX_WAIT_SECONDS = 300
 
 
 class QuotaSpent(urllib.error.HTTPError):
-    """The token's hourly budget is spent and its reset is further out than this job may wait, or the rate-limit
-    waits ran out. Waiting through an hour-long reset only holds a runner, so the request is refused at once and a
-    single watch ends green with a warning (an infra skip, main()), never red. Still an HTTPError, so every caller
-    that treats a refused read as a failed one (READ_ERRORS) keeps doing so. The cmux-bot installation ran dry at
-    about 00:50Z on 2026-10-31, and the per-run rescues that hit it waited 15 minutes and then failed red."""
+    """A single watch's read found the token's hourly budget spent, with its reset further out than the watch may
+    wait. Waiting through it only holds a runner, so the read is refused at once and the watch ends green with a
+    warning (an infra skip, main()), never red. Still an HTTPError, so every caller that treats a refused read as a
+    failed one (READ_ERRORS) keeps doing so. Only before the watch has sent any write (GitHub.may_end_on_spent()): a
+    rescue that has cancelled a run still waits through every rate limit for the reads and the re-run that follow,
+    as before. The cmux-bot installation ran dry at about 00:50Z on 2026-10-31, and the per-run rescues that hit it
+    waited 15 minutes and then failed red."""
 
     def __init__(self, error: urllib.error.HTTPError, said: str, why: str) -> None:
         super().__init__(error.url, error.code, why, error.headers, io.BytesIO(said.encode()))
@@ -1733,13 +1735,18 @@ class GitHub:
             return interval
         if remaining < BUDGET_RESERVE and reset is not None:
             until = reset - time.time() + 5
-            if self.end_on_spent and until > RATE_LIMIT_WAIT_SECONDS:
+            if until > RATE_LIMIT_WAIT_SECONDS and self.may_end_on_spent():
                 # A single watch (not the sweeper, not a nightly's) does not hold its runner through the reset.
                 raise QuotaSpent(urllib.error.HTTPError(f"{API}/rate_limit", 403, "spent", None, None), "",
                                  f"{remaining} API requests left and the budget resets in {until:.0f}s, past the "
                                  f"{RATE_LIMIT_WAIT_SECONDS}s a watch may wait")
             return max(interval, until)
         return max(interval, IDLE_POLL_SECONDS)
+
+    def may_end_on_spent(self) -> bool:
+        """A spent budget may end this thread's watch (QuotaSpent): a single watch that is not a nightly's
+        (end_on_spent), before this thread has sent any write. After a cancel, its reads and re-run wait as before."""
+        return self.end_on_spent and not getattr(self._limits, "wrote", False)
 
     def _fresh_token(self, stale: str | None = None) -> None:
         """Swap in a new installation token when the current one is TOKEN_REFRESH_SECONDS old, or when
@@ -1796,10 +1803,9 @@ class GitHub:
             return False
         left = RATE_LIMIT_WAIT_SECONDS - self.rate_limit_waited
         if left < 1:
-            raise QuotaSpent(error, said, f"{method} {path} was refused for a rate limit (HTTP {error.code}) "
-                                          "and this watch has no rate-limit wait left")
+            return False
         spent = {key.lower(): value for key, value in headers.items()}.get("x-ratelimit-remaining", "").strip() == "0"
-        if spent and wait > left:
+        if spent and wait > left and method == "GET" and self.may_end_on_spent():
             # The hour's budget is gone and its reset is further out than the wait left: waiting it out only holds
             # the runner, and the request fails at the end anyway.
             raise QuotaSpent(error, said, f"{method} {path} was refused: the API budget is spent and resets in "
@@ -1820,6 +1826,8 @@ class GitHub:
                 before_retry: Callable[[], None] | None = None, refreshed: bool = False,
                 before_send: Callable[[], None] | None = None) -> Any:
         self._fresh_token()
+        if method != "GET":
+            self._limits.wrote = True  # from here on this watch waits through rate limits (may_end_on_spent())
         headers = self.read_headers if method == "GET" and not own_token else self.headers
         with self._lock:
             # One token for the whole request, read under the lock _fresh_token() swaps it under.

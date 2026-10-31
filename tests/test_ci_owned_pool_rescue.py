@@ -7426,30 +7426,53 @@ class SpendLess(unittest.TestCase):
         self.assertEqual(jobs, ["/actions/runs/1/attempts/2/jobs?per_page=20", "/actions/runs/1/attempts/1/jobs?per_page=20",
                                 "/actions/runs/3/attempts/1/jobs?per_page=20", "/actions/runs/3/attempts/1/jobs?per_page=20"])
 
-    def test_a_spent_budget_far_from_its_reset_is_not_waited_for(self):
+    def spent_refusal(self):
         reset = str(int(rescue.time.time()) + 3000)
-        refusal = (403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": reset},
-                   b'{"message": "API rate limit exceeded for installation."}')
-        seen, patch = Tokens.refusing(self, [refusal])
+        return (403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": reset},
+                b'{"message": "API rate limit exceeded for installation."}')
+
+    def test_a_spent_budget_far_from_its_reset_ends_a_single_watchs_read(self):
+        seen, patch = Tokens.refusing(self, [self.spent_refusal()])
         waits = []
         with patch, unittest.mock.patch("sys.stderr", io.StringIO()):
             api = rescue.GitHub("repo-token", "o/r")
             api.sleep = waits.append
+            api.end_on_spent = True
             with self.assertRaises(rescue.QuotaSpent) as raised:
-                api.cancel(7)
+                api.run(7)
         self.assertEqual((len(seen), waits), (1, []))
         self.assertIsInstance(raised.exception, rescue.urllib.error.HTTPError, "still a failed read to its callers")
         self.assertIn("resets in", rescue.quota_skip(raised.exception))
         self.assertIsNone(rescue.quota_skip(RuntimeError("x")))
 
-    def test_rate_limit_waits_that_ran_out_end_as_a_spent_budget(self):
-        limited = b'{"message": "secondary rate limit"}'
-        seen, patch = Tokens.refusing(self, [(403, {}, limited)] * 50)
+    def test_a_write_and_every_read_after_it_still_wait_through_a_spent_budget(self):
+        # A rescue that cancelled a run must still get to its re-run (review on #28844): nothing after a write ends
+        # the watch early, and neither does the write itself.
+        for calls in (("cancel",), ("cancel", "run")):
+            with self.subTest(calls=calls):
+                seen, patch = Tokens.refusing(self, [self.spent_refusal()])
+                waits = []
+                with patch, unittest.mock.patch("sys.stderr", io.StringIO()):
+                    api = rescue.GitHub("repo-token", "o/r")
+                    api.sleep = waits.append
+                    api.end_on_spent = True
+                    if calls == ("cancel", "run"):
+                        api._limits.wrote = True  # a cancel this thread already sent
+                        api.run(7)
+                    else:
+                        api.cancel(7)
+                self.assertEqual(len(seen), 2)
+                self.assertEqual(len(waits), 1)
+                self.assertFalse(api.may_end_on_spent())
+
+    def test_the_sweeper_and_a_nightlys_watch_still_wait(self):
+        seen, patch = Tokens.refusing(self, [self.spent_refusal()])
+        waits = []
         with patch, unittest.mock.patch("sys.stderr", io.StringIO()):
             api = rescue.GitHub("repo-token", "o/r")
-            api.sleep = lambda seconds: None
-            with self.assertRaises(rescue.QuotaSpent):
-                api.cancel(7)
+            api.sleep = waits.append
+            api.run(7)  # end_on_spent is off
+        self.assertEqual((len(seen), len(waits)), (2, 1))
 
     def test_a_single_watch_ends_instead_of_pacing_through_a_far_reset(self):
         now = 1_000_000.0
@@ -7460,6 +7483,9 @@ class SpendLess(unittest.TestCase):
             api.end_on_spent = True
             with self.assertRaises(rescue.QuotaSpent):
                 api.pace(20)
+            api._limits.wrote = True
+            self.assertEqual(api.pace(20), 3005, "a watch that has cancelled a run waits for its re-run")
+            api._limits.wrote = False
             api._budget = (rescue.time.monotonic(), 3, now + 300)
             self.assertEqual(api.pace(20), 305, "a reset within the wait allowance is still waited for")
 
