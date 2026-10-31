@@ -82,10 +82,10 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
-  const url = () => {
+  const url = (target = `session=${CHAT}`) => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
-    return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${CHAT}`;
+    return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&${target}`;
   };
   beforeAll(async () => {
     daemon = Bun.serve({
@@ -131,7 +131,7 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  type Bridge = { applyTabRow?(row: unknown): void };
+  type Bridge = { applyTabRow?(row: unknown): void; applyPreview?(on: boolean): void };
   type Recorder = { __tabRowCalls?: unknown[] };
 
   /// Opens the chat and records its `pane.tabRowTools` calls in `window.__tabRowCalls`.
@@ -227,5 +227,37 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
     await page.waitForFunction(() => ((window as Recorder).__tabRowCalls ?? []).length > 0);
     expect(((await calls(page)) as { width: number }[]).at(-1)).toEqual(first);
     await page.close();
+  });
+
+  // Leo's DEV build showed "Coverage unverified" at the right of every chat's tab row, a new chat
+  // that had not started included: acpmux v1 reports `isolation: "unverified"` for every session and
+  // a chat with no session has no summary, so the badge (Labs preview only) said the same thing on
+  // every tab. The enforcement detail stays in the continuation review (handoff/ReviewMessage.tsx).
+  test("Labs preview on: the row draws no coverage badge, in a chat or in a new chat with no session yet", async () => {
+    for (const target of [`session=${CHAT}`, "new"]) {
+      const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+      await installPaintedFrames(page);
+      await page.goto(url(target));
+      // A new chat before its first prompt: the chat view with no session and no summary.
+      if (target === "new") await page.locator(".acpmux-handoff-header-tools").waitFor();
+      else await page.getByText(REPLY).waitFor();
+      await page.waitForFunction(() =>
+        Boolean((window as { cmuxAcpmuxBridge?: Bridge }).cmuxAcpmuxBridge?.applyPreview),
+      );
+      await page.evaluate(() => (window as { cmuxAcpmuxBridge?: Bridge }).cmuxAcpmuxBridge!.applyPreview!(true));
+      await offer(page, { height: 28, trailingInset: 40 });
+      await page.locator(".acpmux-header[data-tab-row]").waitFor();
+      const tools = await page.evaluate(async () => {
+        await window.cmuxPaintFrame();
+        await window.cmuxPaintFrame();
+        const tools = document.querySelector<HTMLElement>(".acpmux-handoff-header-tools")!;
+        return { badges: tools.querySelectorAll(".acpmux-session-coverage").length, text: tools.innerText };
+      });
+      if (target === "new") expect(await page.getByText(REPLY).count()).toBe(0);
+      expect(tools.badges, target).toBe(0);
+      expect(tools.text, target).not.toContain("Coverage unverified");
+      expect(tools.text, target).not.toContain("Native policy");
+      await page.close();
+    }
   });
 });

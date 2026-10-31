@@ -13,12 +13,17 @@ public struct ScreenPreferences: Codable, Hashable, Sendable {
     public var fitToDisplay = true
     /// Screen stream quality (Auto lets WebRTC choose).
     public var quality = ScreenQuality.auto
+    /// How touches drive the pointer: where the finger is (direct, the
+    /// default) or a cursor moved like a laptop trackpad.
+    public var inputMode = ScreenInputMode.direct
 
-    public init(localCursor: Bool = true, showStats: Bool = true, fitToDisplay: Bool = true, quality: ScreenQuality = .auto) {
+    public init(localCursor: Bool = true, showStats: Bool = true, fitToDisplay: Bool = true, quality: ScreenQuality = .auto,
+                inputMode: ScreenInputMode = .direct) {
         self.localCursor = localCursor
         self.showStats = showStats
         self.fitToDisplay = fitToDisplay
         self.quality = quality
+        self.inputMode = inputMode
     }
 
     public init(from decoder: any Decoder) throws {
@@ -27,6 +32,36 @@ public struct ScreenPreferences: Codable, Hashable, Sendable {
         showStats = try container.decodeIfPresent(Bool.self, forKey: .showStats) ?? true
         fitToDisplay = try container.decodeIfPresent(Bool.self, forKey: .fitToDisplay) ?? true
         quality = (try? container.decodeIfPresent(ScreenQuality.self, forKey: .quality)) ?? .auto
+        inputMode = (try? container.decodeIfPresent(ScreenInputMode.self, forKey: .inputMode)) ?? .direct
+    }
+}
+
+/// How touches drive the remote pointer (`ScreenPreferences.inputMode`).
+/// - `direct`: a tap clicks where the finger is, press-and-hold then drag
+///   drags, one finger pans a zoomed view.
+/// - `trackpad`: a cursor that one finger moves relatively (faster strokes go
+///   further); a tap clicks at the cursor, tap then hold and drag (or a long
+///   press) drags, and a zoomed view follows the cursor.
+///
+/// Both: two-finger tap right-clicks, two fingers scroll, pinch zooms.
+public enum ScreenInputMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case direct, trackpad
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .direct: "Direct Touch"
+        case .trackpad: "Trackpad"
+        }
+    }
+
+    /// An SF Symbol for the choice.
+    public var symbol: String {
+        switch self {
+        case .direct: "hand.point.up.left"
+        case .trackpad: "rectangle.and.hand.point.up.left"
+        }
     }
 }
 
