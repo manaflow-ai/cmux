@@ -60,7 +60,7 @@ enum CloudHandlers {
                     return nil
                 }
                 let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user,
-                                         askedBy: invocation.callerAgentSession)
+                                         askedBy: invocation.callerAgentSession, reveals: invocation.allowsViewChange)
                 guard request.isDefault else {
                     CloudHandlers.createRequested(request, flow: flow, window: window, context)
                     return nil
