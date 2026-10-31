@@ -54,16 +54,18 @@ On 2026-10-31 an R3 round whose relaunch failed reported the `result.json` an ol
 left in its reused folder. So:
 
 - Each run writes a new folder. An `--out` folder that holds an earlier run's files makes every
-  journey `not run`; the earlier `results.jsonl` is kept as `results.jsonl.earlier-<run id>`.
+  journey `not run`; the earlier `results.jsonl`, `run.json` and `<id>/` folders are kept beside,
+  named with this run's id (`results.jsonl.earlier-<this run id>`, `<id>.old-<time>-<pid>`).
 - The driver writes the run id and run start into each `result.json`. `run.py` takes no
-  `result.json` without both (`not run`, reason `stale or foreign result: ...`).
+  `result.json` without both (`not run`, reason `stale or foreign result: ...`) and moves that
+  folder aside as `<id>.foreign-<this run id>`.
 - A lease whose launch (or a capture-host wrapper's relaunch) or set-up fails before the driver
   starts is `not run` with that reason; `run.py` reads no result then.
 
 ### Run fleet rounds from a pinned checkout
 
-`run.py` packs the harness (`driver.py`, `ext_*.py`, the journey specs, `smoke_hog.py`) from
-disk at each lease. Run fleet rounds only from a pinned, reviewed checkout, never from the
+`run.py` loads the journey specs at its start and packs `driver.py`, `ext_*.py`, `smoke_hog.py`,
+`build_names.py` and the text reader's source from disk at each lease. Run fleet rounds only from a pinned, reviewed checkout, never from the
 worktree you edit in:
 
 ```bash
@@ -74,8 +76,9 @@ cd ../journeys-run && python3 scripts/journeys/run.py --build JOB ...
 `run.py` reads `git status` of `scripts/journeys`, `scripts/cmux-next/build_names.py` and
 `scripts/ci/pr_media_ocr.swift` at the start and at each lease. A result from uncommitted
 harness files, or from a checkout whose commit moved during the run, is `not run`
-(`harness: unpinned (...)`); its own status stays in `result.json`'s `harness` record
-(`commit`, `dirty`, `detached`, `pinned`). That record names the harness commit of every result.
+(`harness: unpinned (...)`), in `results.jsonl` and in `result.json`; the journey's own status
+stays in the `harness` record (`commit`, `dirty`, `detached`, `pinned`, `status`), and a step
+group's report (`fuzz.json`) is renamed `fuzz.json.unpinned`. That record names the harness commit of every result.
 
 ## How it runs (what it reuses)
 
