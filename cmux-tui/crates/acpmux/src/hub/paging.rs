@@ -235,8 +235,8 @@ pub fn omitted(bytes: usize) -> Value {
 pub const MAX_REPLY_BYTES: usize = MAX_RECORD_BYTES;
 
 /// The fields of `_acpmux/attach`'s `session` that only its detail carries
-/// (`Hub::session_detail`), each copied whole from what the agent said: the last a reply that
-/// must fit gives up, largest first, each to its empty value. The summary's fields stay.
+/// (`Hub::session_detail`), each copied whole from what the agent said: the first a reply that
+/// must fit gives up, largest first, each to its empty value.
 const DETAIL_FIELDS: &[(&str, fn() -> Value)] = &[
     ("modes", || Value::Null),
     ("configOptions", || Value::Null),
@@ -252,6 +252,29 @@ const DETAIL_FIELDS: &[(&str, fn() -> Value)] = &[
     ("pending", || Value::Array(Vec::new())),
 ];
 
+/// The `session` fields a reply always keeps: what names the chat and where it runs. Every
+/// other field may go, so no value an agent sets (a title, a tag) can keep a chat from opening.
+const KEPT_FIELDS: &[&str] = &[
+    "sessionId",
+    "id",
+    "qualifiedSessionId",
+    "sessionReceipt",
+    "status",
+    "harness",
+    "cwd",
+    "peer",
+];
+
+/// `value`'s empty value of its own type: what a field given up becomes after the detail's.
+fn empty_like(value: &Value) -> Value {
+    match value {
+        Value::String(_) => Value::String(String::new()),
+        Value::Array(_) => Value::Array(Vec::new()),
+        Value::Object(_) => Value::Object(serde_json::Map::new()),
+        _ => Value::Null,
+    }
+}
+
 /// Makes a reply of records fit one message when each part fits but together they do not:
 /// `_acpmux/attach`'s page and its `turnOpener` each keep a record of up to
 /// [`MAX_RECORD_BYTES`], so a large prompt and its large answer were an 18.9 MB reply refused
@@ -261,9 +284,10 @@ const DETAIL_FIELDS: &[(&str, fn() -> Value)] = &[
 /// First the largest records' `msg` become [`omitted`] stubs, largest first, until the reply
 /// fits; every record keeps its seq, kind and time. The records are `events` (an array of
 /// `_acpmux/event` values) and `turnOpener` (one). If it still does not fit, the `session`
-/// detail's own fields ([`DETAIL_FIELDS`]) go, largest first, each named in
-/// `session._meta.acpmux.omitted`; the pane then reads as for an older acpmux that sent none.
-/// What is left is the summary and the records' envelopes, a few KiB each.
+/// detail's own fields ([`DETAIL_FIELDS`]) go, largest first, and then any other field but
+/// [`KEPT_FIELDS`], each to its empty value and named in `session._meta.acpmux.omitted`; the
+/// pane then reads as for an older acpmux that sent none. What is left is the chat's identity
+/// and the records' envelopes, a few hundred bytes each.
 pub fn fit_reply(reply: &mut Value) {
     let size = |value: &Value| serde_json::to_string(value).map_or(usize::MAX, |text| text.len());
     let mut bytes = size(reply);
@@ -298,24 +322,41 @@ pub fn fit_reply(reply: &mut Value) {
         bytes = bytes - msg_size + stub_size;
     }
     let Some(session) = reply.get_mut("session").and_then(Value::as_object_mut) else { return };
-    let mut fields: Vec<(&str, fn() -> Value, usize)> = DETAIL_FIELDS
-        .iter()
-        .filter_map(|&(name, empty)| session.get(name).map(|value| (name, empty, size(value))))
-        .collect();
-    fields.sort_by_key(|&(_, _, bytes)| std::cmp::Reverse(bytes));
     let mut left_out = Vec::new();
-    for (name, empty, field_size) in fields {
-        if bytes <= MAX_REPLY_BYTES {
-            break;
+    // The detail's fields first, then the rest but the kept ones; each pass largest first.
+    let detail: Vec<(String, Value)> = DETAIL_FIELDS
+        .iter()
+        .filter_map(|&(name, empty)| session.get(name).map(|_| (name.to_owned(), empty())))
+        .collect();
+    let rest: Vec<(String, Value)> = session
+        .iter()
+        .filter(|(name, _)| {
+            !KEPT_FIELDS.contains(&name.as_str())
+                && !DETAIL_FIELDS.iter().any(|(detail, _)| detail == name)
+        })
+        .map(|(name, value)| (name.clone(), empty_like(value)))
+        .collect();
+    for pass in [detail, rest] {
+        let mut fields: Vec<(String, Value, usize)> = pass
+            .into_iter()
+            .filter_map(|(name, empty)| {
+                let field_size = session.get(&name).map(size)?;
+                Some((name, empty, field_size))
+            })
+            .collect();
+        fields.sort_by_key(|(_, _, bytes)| std::cmp::Reverse(*bytes));
+        for (name, empty, field_size) in fields {
+            if bytes <= MAX_REPLY_BYTES {
+                break;
+            }
+            let empty_size = size(&empty);
+            if empty_size >= field_size {
+                break;
+            }
+            bytes = bytes - field_size + empty_size;
+            session.insert(name.clone(), empty);
+            left_out.push(Value::String(name));
         }
-        let empty = empty();
-        let empty_size = size(&empty);
-        if empty_size >= field_size {
-            break;
-        }
-        session.insert(name.to_owned(), empty);
-        bytes = bytes - field_size + empty_size;
-        left_out.push(Value::String(name.to_owned()));
     }
     if !left_out.is_empty() {
         session.insert(

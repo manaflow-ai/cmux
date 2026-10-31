@@ -412,6 +412,23 @@ fn a_reply_fits_one_message_whatever_holds_its_bytes() {
         (json!("s"), json!("idle"))
     );
 
+    // Nor can a value the agent set in the summary (a session_info_update title) keep a chat
+    // from opening: past the detail, any field but the chat's identity goes to its empty value.
+    let mut titled = json!({
+        "session": {"sessionId": "s", "status": "idle", "cwd": "/w", "title": "t".repeat(15 << 20), "tags": ["a"], "models": "m".repeat(1 << 20)},
+        "events": [event(1, "a")],
+        "turnOpener": null,
+    });
+    fit_reply(&mut titled);
+    let bytes = serde_json::to_string(&titled).unwrap().len();
+    assert!(bytes <= MAX_REPLY_BYTES, "{bytes}");
+    let session = &titled["session"];
+    assert_eq!(session["title"], "");
+    assert_eq!(session["models"], Value::Null);
+    assert_eq!(session["tags"], json!(["a"]), "a small field stays");
+    assert_eq!((session["sessionId"].clone(), session["cwd"].clone()), (json!("s"), json!("/w")));
+    assert_eq!(session["_meta"]["acpmux"]["omitted"]["fields"], json!(["models", "title"]));
+
     // A reply that fits is left exactly as it is.
     let small =
         json!({"session": {"sessionId": "s"}, "events": [event(1, "a")], "turnOpener": null});
