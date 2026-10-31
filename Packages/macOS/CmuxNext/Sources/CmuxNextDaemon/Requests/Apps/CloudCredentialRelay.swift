@@ -75,10 +75,10 @@ public nonisolated struct CloudCredentialRelay: Sendable {
     public init(post: @escaping Post, token: @escaping @Sendable () async throws -> String,
                 invalidate: @escaping @Sendable () async -> Void, session: @escaping @Sendable () async -> Session,
                 allowedOps: @escaping @Sendable () async -> Set<String>,
-                installID: @escaping @Sendable () async -> String? = { nil }) {
+                installID: (@Sendable () async -> String?)? = nil) {
         self.post = post
         self.token = token
-        self.installID = installID
+        self.installID = installID ?? { nil }
         self.invalidate = invalidate
         self.session = session
         self.allowedOps = allowedOps

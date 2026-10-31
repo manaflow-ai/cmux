@@ -172,11 +172,12 @@ struct CloudCredentialRelayRefusalTests {
         #expect(await generation.postCount() == 0)
     }
 
-    @Test func credentialSocketRejectsUnknownFieldsAndBoundsLongStatePaths() throws {
+    @Test func credentialSocketRejectsUnknownFieldsAndFitsDarwinRuntimePath() throws {
         let unknown = Data(#"{"op":"connect_info","host":"host_0123456789abcdefghij","extra":true}"#.utf8)
         #expect(!CloudLinkLauncher.credentialRequestAcceptedForTesting(unknown))
-        let state = URL(fileURLWithPath: "/" + String(repeating: "very-long-state-root/", count: 20))
-        let path = CloudLinkLauncher.credentialSocketPath(stateRoot: state, runtimeBase: URL(fileURLWithPath: "/tmp"))
+        let runtime = URL(fileURLWithPath: "/var/folders/ab/0123456789abcdefghijklmnopqrst/T/")
+        let path = CloudLinkLauncher.credentialSocketPath(runtimeBase: runtime)
         #expect(path.utf8.count < 104)
+        #expect(path != CloudLinkLauncher.credentialSocketPath(runtimeBase: runtime))
     }
 }
