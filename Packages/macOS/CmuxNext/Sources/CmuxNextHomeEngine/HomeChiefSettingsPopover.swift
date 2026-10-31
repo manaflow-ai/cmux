@@ -47,8 +47,10 @@ public final class HomeChiefSettingsPopover {
     /// popover itself, a feed or composer popup), so a second toggle closes the popover it opened,
     /// and with no key window a child listed first (Chromium's page window: outside an active app
     /// AppKit lists it before its parent, and a capture slot is never active).
-    public static func toggleTarget(key: NSWindow?, ordered: [NSWindow]) -> NSWindow? {
-        guard var window = key ?? ordered.first(where: { $0.isVisible }) else { return nil }
+    /// `ordered` is read only without a key window: it asks the window server (a mach round trip on
+    /// the main thread, up to 40 ms under load), and a palette build asks this for its Chief rows.
+    public static func toggleTarget(key: NSWindow?, ordered: @autoclosure () -> [NSWindow]) -> NSWindow? {
+        guard var window = key ?? ordered().first(where: { $0.isVisible }) else { return nil }
         while let parent = window.parent { window = parent }
         return window
     }

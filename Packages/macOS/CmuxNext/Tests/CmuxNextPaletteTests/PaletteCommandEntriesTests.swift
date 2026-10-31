@@ -32,6 +32,38 @@ struct PaletteCommandEntriesTests {
         #expect(entries.allSatisfy { !$0.title.isEmpty && !$0.section.isEmpty })
     }
 
+    /// The rows are kept per focus context and per hidden set (``PaletteCommandEntryCache``): focus that leaves
+    /// and comes back builds nothing, another context gets its own rows, and a binding change drops them all.
+    @Test func theEntriesAreKeptPerContextAndDroppedWhenABindingChanges() {
+        let registry = Self.registry()
+        for descriptor in registry.descriptors where descriptor.isPaletteVisible && descriptor.arguments.isEmpty {
+            registry.bind(descriptor.id) {}
+        }
+        let palette = PaletteController(registry: registry, frecencyPersistence: nil)
+        let cache = palette.commandEntryCache
+        let everything = palette.commandEntries()
+        #expect(palette.commandEntries() == everything)
+        #expect(cache.builds == 1)
+        // Another focus context: its own rows (fewer actions are available with no facts).
+        let full = registry.context
+        registry.context = []
+        let bare = palette.commandEntries()
+        #expect(cache.builds == 2)
+        #expect(bare.count < everything.count)
+        // Back to the first context: the kept rows, no build.
+        registry.context = full
+        #expect(palette.commandEntries() == everything)
+        #expect(cache.builds == 2)
+        // Another hidden set is another key.
+        palette.hiddenActionIDs = { ["newWindow"] }
+        #expect(!palette.commandEntries().contains { $0.id == "newWindow" })
+        #expect(cache.builds == 3)
+        // A binding change drops every kept list.
+        registry.bind("newWindow") {}
+        _ = palette.commandEntries()
+        #expect(cache.builds == 4)
+    }
+
     @Test func aPlainCommandRunsWithoutShowingThePalette() {
         let registry = Self.registry()
         var ran = 0

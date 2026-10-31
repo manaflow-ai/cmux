@@ -8,12 +8,17 @@ extension PaletteController {
     /// hidden ids, availability and overrides, so another surface's list (the New Tab page's
     /// dropdown) matches the palette. Rows the palette shows dimmed (unavailable here) are
     /// left out: they would not run.
+    ///
+    /// Built once per change of the registry's bindings and kept per focus context
+    /// (``PaletteCommandEntryCache``): a surface that lists them on every open takes the kept rows.
     public func commandEntries() -> [PaletteCommandEntry] {
-        captureContext()
-        return makeRegistryProvider().makeItems().compactMap { item in
-            guard item.isEnabled, let id = item.actionID else { return nil }
-            return PaletteCommandEntry(id: id, title: item.title, section: item.section.title, keywords: item.keywords,
-                                       keycaps: item.keycaps ?? [], symbol: item.symbol)
+        commandEntryCache.entries(registry, hidden: hiddenActionIDs?() ?? []) {
+            captureContext()
+            return makeRegistryProvider().makeItems().compactMap { item in
+                guard item.isEnabled, let id = item.actionID else { return nil }
+                return PaletteCommandEntry(id: id, title: item.title, section: item.section.title, keywords: item.keywords,
+                                           keycaps: item.keycaps ?? [], symbol: item.symbol)
+            }
         }
     }
 
