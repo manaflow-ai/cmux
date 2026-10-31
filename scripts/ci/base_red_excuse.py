@@ -404,6 +404,56 @@ def compile_pass_at(repo: str, sha: str, github) -> str | None:
     return None
 
 
+# The Rust panic ratchet (scripts/cmux-next/rust_panic_ratchet.py, run by .github/scripts/cmux-tui-clippy-changed.py).
+# Its error line names the packages the run checked, and a base run may check the whole workspace while a PR checks
+# only its changed packages, so that line never matches (2026-10-31: cmux#26849's run 41176610742 failed on two rows
+# that base run 41176544319 failed on word for word, and was refused). Its red is judged by the rows of its RED
+# block instead (ratchet_red): each head row `CRATE: clippy::LINT N > WHERE` must be on the base with the same
+# crate, lint and WHERE (`baseline M` or `new crate (must be 0)`) and a count at least the head's; every other
+# line of the block but a hit location must be on the base word for word. A red with no row is never excused.
+RATCHET_SCOPE = re.compile(r"^the panic ratchet is red for .+; its log above names each new hit")
+RATCHET_RED, RATCHET_END = "rust-panic-ratchet: RED", "Fix the hit "
+RATCHET_ROW = re.compile(r"^(\S+): clippy::(\w+) (\d+) > (baseline \d+|new crate \(must be 0\))$")
+RATCHET_HIT = re.compile(r"^[^\s:]+\.rs:\d+:\d+$")
+
+
+def ratchet_red(log: str) -> tuple[dict[tuple[str, str, str], int], set[str]]:
+    """({(crate, lint, where): count} of the ratchet's RED rows, its other RED lines), hit locations left out."""
+    rows: dict[tuple[str, str, str], int] = {}
+    other: set[str] = set()
+    skip = test_reds.echoed(test_reds.log_lines(log))
+    inside = False
+    for n, text in enumerate(lines_of(log)):
+        if n in skip:
+            continue
+        if text == RATCHET_RED:
+            inside = True
+        elif inside and (text.startswith(RATCHET_END) or text.startswith("##[")):
+            inside = False
+        elif inside and text:
+            if row := RATCHET_ROW.match(text):
+                crate, lint, count, where = row.groups()
+                key = (crate, lint, where)
+                rows[key] = max(rows.get(key, 0), int(count))
+            elif not RATCHET_HIT.match(text):
+                other.add(text)
+    return rows, other
+
+
+def ratchet_unmatched(head_log: str, base_log: str) -> list[str]:
+    """The head's panic ratchet failures its base run does not have (empty when every one is covered)."""
+    head_rows, head_other = ratchet_red(head_log)
+    if not head_rows:
+        raise Refused("the panic ratchet is red with no per-lint row to compare with the base "
+                      "(a clippy run that did not finish, say)")
+    base_rows, base_other = ratchet_red(base_log)
+    missing = [f"{crate}: clippy::{lint} {count} > {where}" + (
+                   f" (the base has {base_rows[(crate, lint, where)]})" if (crate, lint, where) in base_rows else "")
+               for (crate, lint, where), count in sorted(head_rows.items())
+               if base_rows.get((crate, lint, where), -1) < count]
+    return missing + sorted(head_other - base_other)
+
+
 def crash_signals(log: str) -> set[str]:
     """The signals a test helper died on, from SwiftPM's or the hang sampler's lines."""
     return {first or second for first, second in CRASH.findall(log)}
@@ -636,13 +686,26 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if missing := sorted(head_crash - crash_signals(base_log)):
             raise Refused(f"'{name}': the process died on signal {', '.join(missing)}, "
                           f"and {base} run {base_run['id']} did not")
+        # The ratchet's error line names the run's packages, not its red: its rows are compared instead (RATCHET_SCOPE).
+        ratchet = {error for error in head_errors if RATCHET_SCOPE.match(error)}
+        if ratchet:
+            try:
+                unmatched = ratchet_unmatched(head_log, base_log)
+            except Refused as error:
+                raise Refused(f"'{name}': {error}") from None
+            if unmatched:
+                raise Refused(f"'{name}': panic ratchet failures not on {base} run {base_run['id']}: "
+                              f"{'; '.join(unmatched)[:600]}")
+            head_errors = head_errors - ratchet
         compared = [("failed steps", head_steps, base_steps), ("failing tests", head_tests, base_tests)]
         if not head_tests:
             compared.append(("errors", head_errors, base_errors))
         for kind, head, seen in compared:
             if missing := sorted(head - seen):
                 raise Refused(f"'{name}': {kind} not on {base} run {base_run['id']}: {'; '.join(missing)[:600]}")
-        what = "; ".join(sorted(head_tests)) or "; ".join(sorted(head_errors))
+        rows = [f"{crate}: clippy::{lint} {count} > {where}"
+                for (crate, lint, where), count in sorted(ratchet_red(head_log)[0].items())] if ratchet else []
+        what = "; ".join(sorted(head_tests)) or "; ".join(rows + sorted(head_errors))
         url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
         # The base verdict is the newest one, not necessarily the base tip's: the base tier runs at most
         # once every 15 minutes, so name the commit and time it is from.

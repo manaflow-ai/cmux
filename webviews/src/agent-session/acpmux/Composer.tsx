@@ -389,6 +389,8 @@ type Props = {
   authBlocked?: boolean;
   /// Opens the Inspector at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
+  /// Sends the agent its `/compact`: the ring's card offers Compact only with it (App.tsx `compactChat`).
+  onCompact?(): void;
 };
 
 /// The prompt box with the agent's `/` command menu:
@@ -460,6 +462,7 @@ export function Composer({
   authBlocked = false,
   placeholder,
   onOpenContext,
+  onCompact,
 }: Props) {
   const t = useT();
   const chrome = useComposerChrome();
@@ -616,6 +619,7 @@ export function Composer({
     cancel,
     retry,
     revive,
+    originalFailures,
     attachError,
     setAttachError,
     drop,
@@ -2000,6 +2004,7 @@ export function Composer({
         }}
         onRetryAttachment={retry}
         onReviveAttachment={revive}
+        originalFailures={originalFailures}
         onPasteFile={(file) => void attach([file], true, "paste")}
         fieldMenu={fieldMenu}
         onFieldMenuOpen={noteSelection}
@@ -2219,6 +2224,7 @@ export function Composer({
               breakdown={snapshot.summary?.contextBreakdown}
               working={snapshot.isWorking}
               onOpenDetails={onOpenContext}
+              onCompact={onCompact}
             />
           )
         }
