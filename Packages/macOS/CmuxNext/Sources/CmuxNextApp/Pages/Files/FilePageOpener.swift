@@ -9,8 +9,8 @@ import typealias CmuxNextDaemon.SurfaceID
 /// in a markdown file) comes here. Markdown files open the markdown page, other files the code
 /// editor page (read only when binary or not UTF-8), in a pane tab; images, PDFs and media keep
 /// the browser tab's preview, which shows them and runs nothing. A web page (HTML, SVG) opens
-/// rendered in a browser tab only on the person's own open (`userChose`); an agent's or a
-/// script's open shows its source in the editor (``FileOpenKind``, the one rule).
+/// rendered in a browser tab on every open, the person's, an agent's or a script's (u18051);
+/// Open as Text (`asText`) and a tab's Edit Source show its source in the editor.
 final class FilePageOpener: FileOpening {
     // crash-allow: AppServices owns ViewerService, which owns this opener, for the app's whole life.
     private unowned let services: AppServices
@@ -19,18 +19,10 @@ final class FilePageOpener: FileOpening {
         self.services = services
     }
 
-    /// Files the browser tab previews (images, PDFs, media). An explicit list, because the system
-    /// types `.ts` (TypeScript) as an MPEG transport stream.
-    nonisolated static let previewExtensions: Set<String> = Set([
-        "png", "jpg", "jpeg", "jpe", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "ico", "avif", "pdf",
-    ]).union(AgentPaneFileOpen.mediaExtensions)
-
     /// Raster and document previews use WebKit's scoped `loadFileURL` path. Chromium can decode a
     /// local PNG (its tab title proves the dimensions), but its sandboxed ImageDocument paints
     /// some large RGBA/color-profile files black; WebKit grants the containing folder explicitly.
-    nonisolated static let webKitPreviewExtensions: Set<String> = [
-        "png", "jpg", "jpeg", "jpe", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "ico", "avif", "pdf",
-    ]
+    nonisolated static let webKitPreviewExtensions = FileOpenKind.previewExtensions.subtracting(AgentPaneFileOpen.mediaExtensions)
 
     /// The engine of the tab that previews `url`: WebKit for video and audio the Chromium build
     /// cannot decode (``LocalFileHandoff``), and for local image/PDF previews whose scoped file
@@ -45,7 +37,8 @@ final class FilePageOpener: FileOpening {
     /// The page that opens `url`, nil for a file the browser tab previews.
     nonisolated static func kind(for url: URL) -> FilePageKind? {
         if FilePageKind.isMarkdown(url) { return .markdown }
-        return previewExtensions.contains(url.pathExtension.lowercased()) ? nil : .editor
+        // Files the browser tab previews (images, PDFs, media), an explicit list (``FileOpenKind``).
+        return FileOpenKind.previewExtensions.contains(url.pathExtension.lowercased()) ? nil : .editor
     }
 
     func open(_ file: URL, in pane: PaneController?) -> String? {
@@ -54,7 +47,7 @@ final class FilePageOpener: FileOpening {
 
     /// Where an open of a file shows it (``route(for:userChose:asText:)``).
     enum Route: Equatable {
-        /// A browser tab renders the page (a person's own open of HTML or SVG).
+        /// A browser tab renders the page (HTML or SVG).
         case renderedPage
         /// The markdown page.
         case markdown
@@ -66,11 +59,11 @@ final class FilePageOpener: FileOpening {
 
     /// The one rule for where `url` opens. `asText` (Open as Text, u9489): a page cmux renders
     /// (``FileOpenKind/opensAsText``) opens as its source in the code editor; other files open as
-    /// they always do.
+    /// they always do. A web page renders whoever opens it (u18051: an agent's `file.open` of an
+    /// HTML report showed its source); `userChose` only decides what is writable.
     nonisolated static func route(for url: URL, userChose: Bool, asText: Bool = false) -> Route {
-        let name = url.lastPathComponent
-        if asText, FileOpenKind(fileName: name, isDirectory: false, isPackage: false).opensAsText { return .editor }
-        if userChose, FileOpenKind(fileName: name, isDirectory: false, isPackage: false) == .web { return .renderedPage }
+        let file = FileOpenKind(fileName: url.lastPathComponent, isDirectory: false, isPackage: false)
+        if file.opensAsText, asText || file == .web { return asText ? .editor : .renderedPage }
         switch kind(for: url) {
         case .markdown?: return .markdown
         case .editor?: return .editor
@@ -85,16 +78,16 @@ final class FilePageOpener: FileOpening {
     /// moved beside `pane`; a tab that already shows the file is selected and focused where it is.
     /// `position` (a Find result): the code editor puts the cursor there; other pages ignore it.
     func open(_ file: URL, in pane: PaneController?, userChose: Bool, asText: Bool = false, at position: FilePosition? = nil,
-              placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String? {
+              placed: (@MainActor (SurfaceID) -> Void)? = nil, shownInPlace: (@MainActor () -> Void)? = nil) -> String? {
         guard let url = AgentPaneFileOpen.resolve(file.path) else { return FilePageStrings.notAFile }
         guard let pane = pane ?? services.windows.active?.focusedPane else { return FilePageStrings.noPane }
         switch Self.route(for: url, userChose: userChose, asText: asText) {
         case .renderedPage:
             pane.newBrowserTab(url: url, background: placed != nil, placementOwner: placed != nil, then: placed)
         case .markdown:
-            services.viewers.markdownPages.open(url, in: pane, focus: placed == nil, userChose: userChose, placed: placed)
+            services.viewers.markdownPages.open(url, in: pane, focus: placed == nil, userChose: userChose, placed: placed, shownInPlace: shownInPlace)
         case .editor:
-            services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, at: position, placed: placed)
+            services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, at: position, placed: placed, shownInPlace: shownInPlace)
         case .preview:
             guard AgentPaneFileOpen.showsInTab(url) else { return FilePageStrings.notAFile }
             pane.newBrowserTab(url: url, engine: Self.tabEngine(for: url), background: placed != nil, placementOwner: placed != nil, then: placed)

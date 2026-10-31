@@ -28,7 +28,8 @@ struct SidebarTabLineTests {
     @Test func aBareHomeFolderNamesWhatRunsThere() {
         #expect(Self.line(Self.tab("~", folder: "~")) == SidebarTabLine(name: "Terminal", detail: nil))
         // A folder other than home is a fact the row does not say.
-        #expect(Self.line(Self.tab("~/src/cmux", folder: "~/src/cmux")) == SidebarTabLine(name: "Terminal", detail: "~/src/cmux"))
+        #expect(Self.line(Self.tab("~/src/cmux", folder: "~/src/cmux")) == SidebarTabLine(name: "~/src/cmux", detail: nil))
+        #expect(Self.line(Self.tab("cmux-demo", folder: "~/src/cmux-demo")) == SidebarTabLine(name: "cmux-demo", detail: "~/src/cmux-demo"))
     }
 
     @Test func theWorkspaceNameIsNotRepeated() {
@@ -118,10 +119,12 @@ struct SidebarTabLineMappingTests {
         #expect(tabs.allSatisfy { $0.workspaceName == "rail-jump-final" })
         #expect(tabs[0].folder == "/srv/lane" && tabs[0].sharesWorkspaceFolder)
         #expect(tabs[1].folder == "/srv/lane/web" && !tabs[1].sharesWorkspaceFolder)
-        // The workspace's folder is no detail, and a title that only names it reads as untitled.
+        // A cwd-derived title is the terminal's existing title source. Keep it in the name so
+        // sibling terminals in different folders are distinguishable in the sidebar.
         var shared = tabs[0]
         shared.title = "/srv/lane"
-        #expect(SidebarTabLine.make(shared, look: .detail, terminalName: "Terminal") == SidebarTabLine(name: "Terminal", detail: nil))
+        #expect(SidebarTabLine.make(shared, look: .detail, terminalName: "Terminal") == SidebarTabLine(name: "/srv/lane", detail: nil))
+        #expect(SidebarTabLine.make(tabs[1], look: .detail, terminalName: "Terminal").name != SidebarTabLine.make(shared, look: .detail, terminalName: "Terminal").name)
         #expect(SidebarTabLine.make(tabs[1], look: .detail, terminalName: "Terminal").detail == "/srv/lane/web")
         #expect(tabs[0].state == .idle)
         #expect(tabs[1].state == .working(progress: nil))

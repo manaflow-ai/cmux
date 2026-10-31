@@ -276,7 +276,7 @@
 .acpmux-chat-inspector__body[data-layout="rules"] .acpmux-chat-inspector-section {
   padding: 4px 0;
 }
-.acpmux-chat-inspector__body[data-layout="rules"] .acpmux-chat-inspector-section:not([data-section="environment"]) {
+.acpmux-chat-inspector__body[data-layout="rules"] > .acpmux-chat-inspector-group .acpmux-chat-inspector-section:not([data-section="environment"]) {
   border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   border-radius: 0;
 }
@@ -290,6 +290,101 @@
   padding: var(--acpmux-inspector-card-pad);
   border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   border-radius: var(--acpmux-inspector-card-radius);
+}
+/* The panel's sections in the person's one order (InspectorGroup.tsx InspectorSectionList): each slot keeps
+   its block (data-group), and a hairline sits wherever two adjacent slots come from different blocks
+   (data-run-start). In the default order this is the three blocks above, pixel for pixel: 6px between
+   a block's sections, none inside where it runs, and 8px, the hairline, 8px between blocks. */
+.acpmux-chat-inspector-sections {
+  position: relative;
+  flex: none;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.acpmux-chat-inspector-slot {
+  position: relative;
+  flex: none;
+  min-width: 0;
+}
+.acpmux-chat-inspector-slot + .acpmux-chat-inspector-slot {
+  margin-top: 6px;
+}
+.acpmux-chat-inspector-slot[data-group="about"] + .acpmux-chat-inspector-slot[data-group="about"] {
+  margin-top: 0;
+}
+.acpmux-chat-inspector__body[data-layout="glance"] .acpmux-chat-inspector-slot[data-run-start] {
+  margin-top: calc(16px + var(--cmux-hairline, 0.5px));
+}
+.acpmux-chat-inspector__body[data-layout="glance"] .acpmux-chat-inspector-slot[data-run-start]::before {
+  content: "";
+  position: absolute;
+  top: calc(-8px - var(--cmux-hairline, 0.5px));
+  right: 0;
+  left: 0;
+  border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  pointer-events: none;
+}
+/* A lifted section (held, or settling after the drop) floats over its neighbours as they slide: it
+   carries no hairline, and only while held does it take a raised surface and a shadow, so it reads over
+   the rows it passes. At rest no section is a box (session-panel.md). */
+.acpmux-chat-inspector-sections[data-dragging] {
+  cursor: grabbing;
+  user-select: none;
+}
+.acpmux-chat-inspector-slot[data-lifted],
+.acpmux-chat-inspector-slot[data-settling] {
+  /* Over the other sections' own raised handles. */
+  z-index: calc(var(--layer-raised) + 1);
+}
+.acpmux-chat-inspector-slot[data-lifted]::before,
+.acpmux-chat-inspector-slot[data-settling]::before {
+  visibility: hidden;
+}
+.acpmux-chat-inspector-slot[data-lifted] > .acpmux-chat-inspector-section {
+  background: color-mix(in srgb, var(--cmux-elevated-background, #1e1e1e) 94%, transparent);
+  box-shadow:
+    var(--elevation-2),
+    0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border);
+}
+/* Gallery alternative (rules): a hairline over every section but the first. */
+.acpmux-chat-inspector__body[data-layout="rules"] .acpmux-chat-inspector-slot {
+  margin-top: 0;
+}
+.acpmux-chat-inspector__body[data-layout="rules"]
+  .acpmux-chat-inspector-slot
+  + .acpmux-chat-inspector-slot
+  > .acpmux-chat-inspector-section {
+  border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  border-radius: 0;
+}
+/* Gallery alternative (groups): each run of a block's sections one hairline card with no fill. */
+.acpmux-chat-inspector__body[data-layout="groups"] .acpmux-chat-inspector-slot {
+  margin-top: 2px;
+  padding: 0 var(--acpmux-inspector-card-pad);
+  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  border-top: 0;
+  border-bottom: 0;
+}
+.acpmux-chat-inspector__body[data-layout="groups"] .acpmux-chat-inspector-slot:first-child {
+  margin-top: 0;
+}
+.acpmux-chat-inspector__body[data-layout="groups"] .acpmux-chat-inspector-slot:first-child,
+.acpmux-chat-inspector__body[data-layout="groups"] .acpmux-chat-inspector-slot[data-run-start] {
+  padding-top: var(--acpmux-inspector-card-pad);
+  border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  border-top-left-radius: var(--acpmux-inspector-card-radius);
+  border-top-right-radius: var(--acpmux-inspector-card-radius);
+}
+.acpmux-chat-inspector__body[data-layout="groups"] .acpmux-chat-inspector-slot[data-run-start] {
+  margin-top: 8px;
+}
+.acpmux-chat-inspector__body[data-layout="groups"] .acpmux-chat-inspector-slot:last-child,
+.acpmux-chat-inspector__body[data-layout="groups"] .acpmux-chat-inspector-slot[data-run-end] {
+  padding-bottom: var(--acpmux-inspector-card-pad);
+  border-bottom: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  border-bottom-left-radius: var(--acpmux-inspector-card-radius);
+  border-bottom-right-radius: var(--acpmux-inspector-card-radius);
 }
 /* A one-line section's icon, as an Environment row's. */
 .acpmux-chat-inspector-section__icon {
@@ -738,7 +833,7 @@ button.acpmux-chat-inspector-port:hover,
   border-radius: var(--acpmux-inspector-row-radius);
   color: inherit;
   text-decoration: none;
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-chat-inspector-source__link:focus-visible {
   outline: 1.5px solid var(--agent-text);

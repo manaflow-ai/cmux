@@ -136,7 +136,7 @@ import Testing
 }
 
 /// An empty initial Chief over the normal in-memory owner; later sends use its real ledger.
-private struct EmptyChiefSource: HomeSource {
+struct EmptyChiefSource: HomeSource {
     let base = MockHomeSource(options: .init(chiefHistory: 1, latency: .zero, replyDelay: .zero))
     func events() async -> AsyncStream<HomeEvent> {
         let snapshot = try? await inbox()

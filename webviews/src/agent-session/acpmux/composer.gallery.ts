@@ -611,7 +611,7 @@ export default agentPaneEntry({
     },
     "agent-home-path": {
       note: "Play: a chat the folder field serves (no folder list from the host): the field reads as a menu row, never a native text box.",
-      ready: { cwd: AGENT_HOME, chooseFolder: true },
+      ready: { newSession: true, cwd: AGENT_HOME, chooseFolder: true },
       snapshot: noChat([], {
         summary: { sessionId: "", cwd: AGENT_HOME, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
@@ -1202,6 +1202,32 @@ export default agentPaneEntry({
         Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
         ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-failed").length === 2);
+      },
+    },
+    "image-original-failed": {
+      note: "A pasted screenshot whose full-size original the app could not save: its preview stays staged and still sends, with a Retry badge whose tooltip says why.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      native: { "chat.upload.begin": { nativeError: { code: "io", userMessage: "The disk is full." } } },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const canvas = new view.OffscreenCanvas(320, 200);
+        const paint = canvas.getContext("2d")!;
+        paint.fillStyle = "#3a7bd5";
+        paint.fillRect(0, 0, 320, 200);
+        paint.fillStyle = "#ffffff";
+        paint.fillRect(40, 60, 240, 16);
+        const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "screenshot.png", {
+          type: "image/png",
+        });
+        pasteFiles(ctx, [file]);
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".acpmux-attachment-image .acpmux-attachment-original-retry"),
+        );
+        const badge = ctx.find({ selector: ".acpmux-attachment-original-retry" });
+        if (!badge.getAttribute("title")?.includes("The disk is full."))
+          throw new Error("the Retry badge's tooltip must say why the original failed");
       },
     },
     draft: {
