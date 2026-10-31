@@ -21,19 +21,10 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 name = "cmux-app-ffi"
 version = "0.1.0"
 dependencies = [
- "cmux-chats-mirror",
  "cmux-layout-reducer-ffi",
  "cmux-motion",
  "cmux-palette-ranker",
  "cmux-rd-ffi",
-]
-
-[[package]]
-name = "cmux-chats-mirror"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]
