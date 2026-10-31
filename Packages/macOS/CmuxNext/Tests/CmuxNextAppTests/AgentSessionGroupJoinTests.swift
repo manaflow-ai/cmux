@@ -103,5 +103,13 @@ import Testing
             .workspace(Self.row("n")),
         ])]
         #expect(SidebarEdits.group(named: "gui push", accepting: WorkspaceID("n"), in: both) == GroupID("lower"))
+
+        // The same for a re-homed lane's row: the exactly named group's row wins over a case variant's.
+        let rows = [SidebarSection(kind: .machine(Self.local), nodes: [
+            .group(SidebarGroup(id: GroupID("upper"), name: "GUI push", workspaces: [Self.row("u", title: "pane-motion")])),
+            .group(SidebarGroup(id: GroupID("lower"), name: "gui push", workspaces: [Self.row("l", title: "pane-motion")])),
+        ])]
+        #expect(SidebarEdits.predecessor(named: "pane-motion", inGroup: "gui push", in: rows) == WorkspaceID("l"))
+        #expect(SidebarEdits.predecessor(named: "pane-motion", inGroup: "GUI push", in: rows) == WorkspaceID("u"))
     }
 }
