@@ -52,6 +52,9 @@ pub enum Item {
 #[derive(Debug, Default, Clone)]
 pub struct Transcript {
     pub items: Vec<Item>,
+    /// Event records currently represented by `items`. Keeping these records lets the TUI
+    /// rebuild the display when an older page is prepended without reordering live updates.
+    pub(crate) raw_events: Vec<Value>,
     /// Earliest item whose layout may have changed since the TUI consumed it.
     /// Streaming invalidates the mutable tail, not the entire conversation.
     pub(crate) layout_dirty_from: usize,
@@ -509,6 +512,11 @@ impl Transcript {
             }
             self.last_seq = seq;
         }
+        self.raw_events.push(ev.clone());
+        self.apply_event_inner(ev);
+    }
+
+    fn apply_event_inner(&mut self, ev: &Value) {
         let dir = ev.get("dir").and_then(Value::as_str).unwrap_or("");
         let kind = ev.get("kind").and_then(Value::as_str).unwrap_or("");
         let msg = ev.get("msg").unwrap_or(&Value::Null);
@@ -809,6 +817,39 @@ impl Transcript {
             }),
             _ => {}
         }
+    }
+
+    /// Prepend an older event page and rebuild the transcript in sequence order. Returns the
+    /// number of display items added, so the caller can keep the user's viewport anchored.
+    pub fn prepend_events(&mut self, older: &[Value]) -> usize {
+        if older.is_empty() {
+            return 0;
+        }
+        let previous_items = self.items.len();
+        let optimistic = self.optimistic.clone();
+        let mut all = older.iter().cloned().chain(self.raw_events.drain(..)).collect::<Vec<_>>();
+        all.sort_by_key(|e| e.get("seq").and_then(Value::as_u64).unwrap_or(0));
+        all.dedup_by(|a, b| {
+            let sa = a.get("seq").and_then(Value::as_u64);
+            let sb = b.get("seq").and_then(Value::as_u64);
+            sa.is_some() && sa == sb
+        });
+        let mut rebuilt = Transcript::default();
+        for event in &all {
+            rebuilt.apply_event(event);
+        }
+        rebuilt.optimistic = optimistic.clone();
+        rebuilt.items.extend(optimistic.into_iter().map(|text| Item::User {
+            text,
+            steer: false,
+            queued: false,
+        }));
+        *self = rebuilt;
+        self.items.len().saturating_sub(previous_items)
+    }
+
+    pub fn oldest_seq(&self) -> Option<u64> {
+        self.raw_events.iter().filter_map(|e| e.get("seq").and_then(Value::as_u64)).min()
     }
 
     pub fn pending_permission(&self) -> Option<&Item> {
