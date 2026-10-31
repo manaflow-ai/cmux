@@ -5,8 +5,8 @@ import CmuxNextCloudCredentials
 import Foundation
 
 /// A `cloud.startChat` chat's harness login, before its first prompt (Leo, 2026-10-31: "A TOKEN GETS
-/// PASSED"). On a machine the signed-in person owns (the attach answer's `vmKind == "owner"`, which
-/// #28788 gives a team machine's creator too), Claude gets the person's own `claude setup-token`
+/// PASSED"). On a machine the signed-in person owns (the attach answer's `vmKind == "owner"`) whose
+/// guest is an owner machine (no teammate shares its Unix user), Claude gets the person's own `claude setup-token`
 /// login through ``CloudCredentialTransfer``: silently when cmux already holds that login for this
 /// account, else after one confirm that runs `setup-token` once in a visible local terminal. Every
 /// later machine of the account then gets it with no prompt.
@@ -70,7 +70,7 @@ extension CloudStartChat {
                 guard await CloudPresenter.confirmFirstLogin(provider: provider, machine: machine.machine.title, services: services) else { return false }
             }
             guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return false }
-            let transfer = CloudCredentialTransfer(provider: provider, machineID: machineID, teamID: teamID, userID: userID, creatorTeamMachine: true,
+            let transfer = CloudCredentialTransfer(provider: provider, machineID: machineID, teamID: teamID, userID: userID,
                 openTerminal: { [weak services] line in await services?.openLocalProviderLogin(line) ?? false })
             try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID }, currentUserID: { cloud.auth.user?.id },
                                    confirmed: true, callerOwnsVM: { try await cloud.callerOwnsVM(machineID) })
