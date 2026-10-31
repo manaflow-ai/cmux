@@ -147,7 +147,7 @@ class FakeAPI:
     def force_cancel(self, run_id):
         self.calls.append("force-cancel")
 
-    def annotations(self, job_id):
+    def annotations(self, job_id, *, final=False):
         self.calls.append(f"annotations:{job_id}")
         return []
 
@@ -1454,7 +1454,7 @@ class CancelledAPI(FakeAPI):
                 if found_job.get("status") == "queued" else {**found_job, "id": index}
                 for index, found_job in enumerate(found, 1)]
 
-    def annotations(self, job_id):
+    def annotations(self, job_id, *, final=False):
         self.calls.append(f"annotations:{job_id}")
         if isinstance(self.note, Exception):
             raise self.note
@@ -7358,6 +7358,167 @@ class SnapshotToken(unittest.TestCase):
             self.assertEqual(api.snapshot_token(), "route-app")  # nothing minted: the read token, as before
             api.mint = lambda: "bot2"
             self.assertEqual(api.snapshot_token(), "bot")
+
+
+class SpendLess(unittest.TestCase):
+    """The cmux-bot budget: repeatable listing URLs, immutable reads read once, the capped rescue history, a spent budget."""
+
+
+    def test_moving_listing_bounds_ask_the_same_url(self):
+        asked = []
+        api = rescue.GitHub("bot", "o/r")
+        oldest = START + dt.timedelta(minutes=7)
+        listed = [{"id": 1, "run_attempt": 1, "path": ".github/workflows/cmux-next.yml", "event": "push",
+                   "created_at": stamp(480), "updated_at": stamp(9000)},
+                  # Let in by the rounded bound only: older than `oldest`, so dropped.
+                  {"id": 2, "run_attempt": 1, "path": ".github/workflows/cmux-next.yml", "event": "push",
+                   "created_at": stamp(60), "updated_at": stamp(9000)}]
+        side = next(iter(rescue.SIDE_WORKFLOW_PATHS))
+        for run in listed:
+            run["path"] = side
+
+        def request(method, path, **_):
+            asked.append(path)
+            return {"workflow_runs": listed if "status=failure" in path and "page=1&" in path else []}
+        api.request = request
+        with unittest.mock.patch.object(rescue, "never_fails_over", lambda path, event: False):
+            first = api.failed_runs(100, oldest)
+            api.failed_runs(100, oldest + dt.timedelta(minutes=3))
+        self.assertEqual(first, [(1, 1)])
+        self.assertEqual(asked[0], asked[2], "a bound that moved by minutes asks the same URL, so a 304 can answer")
+        self.assertIn(f"created=%3E%3D{rescue.created_floor(oldest):%Y-%m-%dT%H:%M:%SZ}", asked[0])
+        self.assertLessEqual(rescue.created_floor(oldest), oldest)
+
+    def test_a_finished_jobs_annotations_are_read_once(self):
+        api = rescue.GitHub("bot", "o/r")
+        asked = []
+
+        def request(method, path, **_):
+            asked.append(path)
+            return [{"message": "The run was canceled by @someone."}]
+        api.request = request
+        jobs = [{"id": 5, "status": "completed", "conclusion": "cancelled"}]
+        for _ in range(3):
+            self.assertEqual(rescue.canceller(api, jobs, lambda seconds: None, lambda text: None), "someone")
+        self.assertEqual(asked, ["/check-runs/5/annotations?per_page=100&page=1"])
+        api.annotations(6)
+        api.annotations(6)
+        self.assertEqual(len(asked), 3, "a job not known to be finished is read every time")
+
+    def test_a_finished_rescue_runs_jobs_are_listed_once(self):
+        api = rescue.GitHub("bot", "o/r")
+        asked = []
+        runs = {"workflow_runs": [
+            {"id": 1, "status": "completed", "conclusion": "success", "run_attempt": 2,
+             "run_started_at": stamp(-600), "updated_at": stamp(60)},
+            {"id": 3, "status": "in_progress", "conclusion": None, "run_attempt": 1, "display_title": "other",
+             "run_started_at": stamp(-600), "updated_at": stamp(60)}]}
+
+        def request(method, path, **_):
+            asked.append(path)
+            if path.startswith("/actions/workflows/"):
+                return runs if "&page=1&" in path else {}
+            return {"jobs": [{"id": int(path.split("/")[3]) * 10, "status": "completed", "conclusion": "success"}]}
+        api.request = request
+        for _ in range(2):
+            self.assertEqual(api.rescue_jobs(START), [10, 10, 30])
+        jobs = [path for path in asked if not path.startswith("/actions/workflows/")]
+        self.assertEqual(jobs, ["/actions/runs/1/attempts/2/jobs?per_page=20", "/actions/runs/1/attempts/1/jobs?per_page=20",
+                                "/actions/runs/3/attempts/1/jobs?per_page=20", "/actions/runs/3/attempts/1/jobs?per_page=20"])
+
+    def test_a_spent_budget_far_from_its_reset_is_not_waited_for(self):
+        reset = str(int(rescue.time.time()) + 3000)
+        refusal = (403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": reset},
+                   b'{"message": "API rate limit exceeded for installation."}')
+        seen, patch = Tokens.refusing(self, [refusal])
+        waits = []
+        with patch, unittest.mock.patch("sys.stderr", io.StringIO()):
+            api = rescue.GitHub("repo-token", "o/r")
+            api.sleep = waits.append
+            with self.assertRaises(rescue.QuotaSpent) as raised:
+                api.cancel(7)
+        self.assertEqual((len(seen), waits), (1, []))
+        self.assertIsInstance(raised.exception, rescue.urllib.error.HTTPError, "still a failed read to its callers")
+        self.assertIn("resets in", rescue.quota_skip(raised.exception))
+        self.assertIsNone(rescue.quota_skip(RuntimeError("x")))
+
+    def test_rate_limit_waits_that_ran_out_end_as_a_spent_budget(self):
+        limited = b'{"message": "secondary rate limit"}'
+        seen, patch = Tokens.refusing(self, [(403, {}, limited)] * 50)
+        with patch, unittest.mock.patch("sys.stderr", io.StringIO()):
+            api = rescue.GitHub("repo-token", "o/r")
+            api.sleep = lambda seconds: None
+            with self.assertRaises(rescue.QuotaSpent):
+                api.cancel(7)
+
+    def test_a_single_watch_ends_instead_of_pacing_through_a_far_reset(self):
+        now = 1_000_000.0
+        api = rescue.GitHub("bot", "o/r")
+        api._budget = (rescue.time.monotonic(), 3, now + 3000)
+        with unittest.mock.patch.object(rescue.time, "time", lambda: now):
+            self.assertEqual(api.pace(20), 3005, "the sweeper (and a nightly's watch) still waits")
+            api.end_on_spent = True
+            with self.assertRaises(rescue.QuotaSpent):
+                api.pace(20)
+            api._budget = (rescue.time.monotonic(), 3, now + 300)
+            self.assertEqual(api.pace(20), 305, "a reset within the wait allowance is still waited for")
+
+    def test_a_watch_out_of_budget_ends_green_with_a_warning(self):
+        class SpentAPI(FakeAPI):
+            def jobs(self, run_id, attempt):
+                raise rescue.QuotaSpent(rescue.urllib.error.HTTPError("u", 403, "no", {}, None), "",
+                                        "the API budget is spent")
+        clock = Clock()
+        api = SpentAPI(clock, persistent_run())
+        api.end_on_spent = False
+        code, summary = run_main(api, clock)
+        self.assertEqual(code, 0, summary)
+        self.assertIn("::warning title=GitHub API budget::infra skip: the API budget is spent", summary)
+        self.assertTrue(api.end_on_spent, "a pull request's watch does not wait through the reset")
+        nightly = SpentAPI(clock, persistent_run())
+        nightly.end_on_spent = True
+        code, summary = run_main(nightly, clock, payload=event(path=".github/workflows/nightly.yml", event="push",
+                                                               head_branch="main"))
+        self.assertFalse(nightly.end_on_spent, "a nightly's watch waits for the reset")
+        self.assertEqual(code, 0, summary)
+        self.assertIn("the nightly-next tick re-runs it", summary)
+
+    def test_any_other_failed_watch_is_still_red(self):
+        class BrokenAPI(FakeAPI):
+            def jobs(self, run_id, attempt):
+                raise rescue.urllib.error.URLError("down")
+        clock = Clock()
+        code, summary = run_main(BrokenAPI(clock, persistent_run()), clock)
+        self.assertEqual(code, 1)
+        self.assertIn("gave up", summary)
+
+    def test_a_rescue_history_github_counts_past_the_cap_costs_one_page(self):
+        api = rescue.GitHub("bot", "o/r")
+        asked = []
+
+        def request(method, path, **_):
+            asked.append(path)
+            return {"total_count": 100 * rescue.RESCUE_RUN_PAGES + 1, "workflow_runs": [
+                {"id": index, "status": "completed", "conclusion": "skipped", "run_attempt": 1} for index in range(100)]}
+        api.request = request
+        with self.assertRaises(rescue.RescueHistoryCapped):
+            api.rescue_jobs(START)
+        self.assertEqual(len(asked), 1)
+
+    def test_a_rescue_history_within_the_cap_is_read_to_its_end(self):
+        api = rescue.GitHub("bot", "o/r")
+        asked = []
+
+        def request(method, path, **_):
+            asked.append(path)
+            if "&page=1&" in path:
+                return {"total_count": 100 * rescue.RESCUE_RUN_PAGES, "workflow_runs": [
+                    {"id": index, "status": "completed", "conclusion": "skipped", "run_attempt": 1}
+                    for index in range(100)]}
+            return {"total_count": 100 * rescue.RESCUE_RUN_PAGES, "workflow_runs": []}
+        api.request = request
+        self.assertEqual(api.rescue_jobs(START), [])
+        self.assertEqual(len(asked), 2)
 
 
 if __name__ == "__main__":
