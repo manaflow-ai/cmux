@@ -871,6 +871,13 @@ export type AcpmuxSnapshot = {
     };
   }[];
   canLoadOlder: boolean;
+  /**
+   * The chat's prompts older than the rows it holds, from acpmux's prompt index (one read at open):
+   * the thread rail lays out every turn from the first frame, and pages loaded later fill them in
+   * instead of adding ticks. Each is a `user` row (`user-<seq>`, its promptId and the start of its
+   * text) that opens a turn. Absent while unread, and for a chat with no older history.
+   */
+  earlierPrompts?: readonly AcpmuxRow[];
   /** The oldest event seq the pane holds: it moves with each older read, even one that drew no row. */
   historyFrom?: number;
   /** The agent's slash commands, for the composer's `/` menu. */

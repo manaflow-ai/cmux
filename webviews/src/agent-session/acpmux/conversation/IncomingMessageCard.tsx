@@ -104,7 +104,8 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
     ? t("subagents.openOnHost", { name, host: sender.host })
     : t("subagents.open", { name });
   return (
-    <span className="cv-received__sender">
+    // Its own part of the line: the name opens the sender's chat or nothing, never the message.
+    <span className="cv-received__sender" data-own-click="">
       <span className="cv-received__mark" aria-hidden="true">
         {icon}
       </span>

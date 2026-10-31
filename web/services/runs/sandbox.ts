@@ -315,7 +315,7 @@ export function sandboxPayloadDigest(value: unknown): string {
 export const RUN_SANDBOX_USERS_ENV = "CMUX_RUN_SANDBOX_USER_IDS";
 
 /**
- * The server half of the sandbox preview gate (the app's Labs flag is the client half). Local dev
+ * The server's per-deployment allowlist for sandboxed Runs (the app has no Labs gate). Local dev
  * allows everyone; a deployment allows only the accounts it names, `*` for all.
  */
 export function sandboxRunsAllowed(userId: string, env: VmRuntimeEnv = process.env): boolean {

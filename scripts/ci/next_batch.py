@@ -399,15 +399,20 @@ def parse_contexts(rollup: list[dict]) -> list[tuple[str, str, str, str, str]]:
     return checks
 
 
+# Conclusions that say nothing about the code (merge_guard.py: SETTLED leaves them out).
+SILENT = frozenset({"cancelled", "skipped"})
+
+
 def newest_checks(runs: list[tuple[str, str, str, str, str]]) -> list[tuple[str, str, str]]:
     """One (name, status, conclusion) per check: its newest run, by start time.
 
     A head keeps every run of a check (a rerun, a second workflow event, a
     concurrency-cancelled one), and an old red would otherwise hold the PR after
     a later run passed. A run not started yet counts as the newest. A cancelled
-    newest run says nothing about the code, so the newest run of the same check
-    that finished otherwise stands instead (a superseded run cancelled late);
-    with none, the cancelled run counts."""
+    or skipped newest run says nothing about the code, so the newest run of the
+    same check that finished otherwise stands instead (a superseded run
+    cancelled late, or a label event a workflow skips: a `risk:*` swap must not
+    hide a red); with none, the cancelled or skipped run counts."""
     by_key: dict[str, list[tuple[str, str, str, str, str]]] = {}
     for run in runs:
         by_key.setdefault(run[0], []).append(run)
@@ -416,8 +421,8 @@ def newest_checks(runs: list[tuple[str, str, str, str, str]]) -> list[tuple[str,
         # Stable sort: among runs with the same start time, the later one in the rollup wins.
         ordered = sorted(items, key=lambda run: run[4] or "\uffff")
         newest = ordered[-1]
-        if newest[2] == "completed" and newest[3] == "cancelled":
-            finished = [run for run in ordered if run[2] == "completed" and run[3] != "cancelled"]
+        if newest[2] == "completed" and newest[3] in SILENT:
+            finished = [run for run in ordered if run[2] == "completed" and run[3] not in SILENT]
             if finished:
                 newest = finished[-1]
         checks.append((newest[1], newest[2], newest[3]))

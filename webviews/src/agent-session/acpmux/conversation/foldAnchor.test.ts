@@ -87,9 +87,14 @@ describe("foldToggleAt", () => {
     ["a sub-session's Raw", '<button class="cv-subsession__toggle" aria-expanded="false">Raw</button>', "button"],
     ["a file list's +N more", '<button class="acpmux-edited-more" aria-expanded="false">+3 more</button>', "button"],
     [
-      "an agent message's words",
-      '<div class="cv-tool cv-agentmsg__line"><span class="cv-agentmsg__words" data-interactive="">Asked</span></div>',
-      "span",
+      "an agent message's line",
+      '<div class="cv-tool cv-agentmsg__line" data-header-toggle=""><span class="cv-agentmsg__words">Asked</span></div>',
+      ".cv-agentmsg__words",
+    ],
+    [
+      "the edits card's header, at its icon",
+      '<div class="acpmux-edited-head" data-header-toggle=""><span class="acpmux-edited-icon"><svg></svg></span></div>',
+      ".acpmux-edited-icon",
     ],
     ["a summary", "<details><summary>Context</summary>body</details>", "summary"],
     [

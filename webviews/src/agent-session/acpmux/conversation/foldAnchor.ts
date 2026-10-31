@@ -17,8 +17,9 @@ import { foldMs } from "./fold";
 
 /// The disclosures a click holds in place: every control that opens or closes something in its row
 /// (a button or a `role="button"` line with `aria-expanded`: a tool or sent message's line, Show
-/// more, Show all lines, Raw, a file list's "+N more"), a `<summary>`, and the words of a line that
-/// toggle with its button (`data-interactive` inside an agent message's line). A menu's trigger
+/// more, Show all lines, Raw, a file list's "+N more"), a `<summary>`, and a header that is its
+/// toggle edge to edge (`data-header-toggle`, headerToggle.ts: an agent message's line, the edits
+/// card's header, a disclosure row's line). A menu's trigger
 /// (`aria-haspopup`) opens no body in the row and is left out. An `aria-pressed` button is held only
 /// when it says it changes its block's height (`data-fold-toggle`: Wrap lines, a tool output's Raw):
 /// a reply's Pin and Read aloud are `aria-pressed` too, and holding them would stop following a
@@ -27,7 +28,7 @@ export const FOLD_TOGGLE = [
   "button[aria-expanded]:not([aria-haspopup])",
   '[role="button"][aria-expanded]:not([aria-haspopup])',
   "summary",
-  ".cv-agentmsg__line > [data-interactive]",
+  "[data-header-toggle]",
   // Toggles that change their block's height in place: Wrap lines, Raw, a diagram's chart or code.
   "button[aria-pressed][data-fold-toggle]",
   "button.cv-diagram__toggle",
@@ -66,7 +67,7 @@ export function foldToggleAt(target: EventTarget | null, scroller: HTMLElement):
 
 /// The lines that open a body under themselves: a click holds the line itself.
 const HEADER_TOGGLE =
-  'button.is-toggle[aria-expanded], button.cv-subagents[aria-expanded], [role="button"][aria-expanded], summary, .cv-agentmsg__line > [data-interactive]';
+  'button.is-toggle[aria-expanded], button.cv-subagents[aria-expanded], [role="button"][aria-expanded], summary, [data-header-toggle]';
 
 /// What a click on `toggle` holds in place. A line that opens a body under itself holds itself. Any
 /// other control (Show more, Show all lines, "+N more", Raw) may sit under or beside the body it
