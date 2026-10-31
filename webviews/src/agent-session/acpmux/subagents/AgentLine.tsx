@@ -133,7 +133,9 @@ export function AgentLine({
       data-status={status}
       aria-current={current ? "true" : undefined}
       aria-expanded={expanded}
-      aria-label={label && progress ? `${label} · ${progress}` : label}
+      // A quiet line names its state here too: an aria-label overrides the line's own text, its
+      // screen-reader state word included.
+      aria-label={label ? [label, trayColumns && quiet ? state : undefined, progress].filter(Boolean).join(" · ") : undefined}
       /* tooltip-allow: the line shows the name; the task appears nowhere else */
       title={card ? undefined : title}
       disabled={!onOpen}

@@ -710,6 +710,9 @@ describe("a tray line says what it is and what a click does", () => {
       );
       expect(finished!.querySelector(".acpmux-summary-agent__state")).toBeNull();
       expect(finished!.querySelector(".acpmux-agent-line__sr")?.textContent).toBe("Done");
+      // The button's accessible name carries the quiet state, since an aria-label overrides its text.
+      expect(finished!.querySelector(".acpmux-agent-line__button")!.getAttribute("aria-label")).toContain("Done");
+      expect(live!.querySelector(".acpmux-agent-line__button")!.getAttribute("aria-label")).toContain("Running");
       expect(finished!.querySelector<HTMLElement>(".acpmux-agent-line__button")!.title).toContain("general-purpose");
       expect(root.querySelector(".acpmux-running-tray")!.hasAttribute("data-settled")).toBe(false);
     } finally {
