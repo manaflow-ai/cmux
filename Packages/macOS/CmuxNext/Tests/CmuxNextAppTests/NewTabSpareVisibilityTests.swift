@@ -64,7 +64,8 @@ struct NewTabSpareVisibilityTests {
             let view = try #require(pool.spare?.view), host = try #require(view.superview)
             // The first remembered cover also uses the injected snapshot, with no compositor.
             view.model.markPainted()
-            try await PasswordManagerRouteTests.until({ view.isHidden })
+            try await PasswordManagerRouteTests.until({ !snapshots.isEmpty })
+            #expect(!view.isHidden, "the parked spare must keep its renderer warm after its cover is captured")
             let frames = AgentPaneNewTabFrame.shared
             let appearance = host.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
             let initial = try #require(snapshots.last)
