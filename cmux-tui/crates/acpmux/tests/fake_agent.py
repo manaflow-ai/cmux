@@ -60,6 +60,13 @@ FAKE_ASK_MODE=1: the sample harness of `cmux harness add sample` (cx-00p) as a r
 start takes it: its one mode is "ask" (an acpmux config.json `webAskingModes` entry
 {"sample": ["ask"]} lists it), and a prompt naming "hostname" runs `hostname` as a tool
 call through the ACP permission flow: announced, asked, run only after an allow.
+
+CPU class (macOS, tests/cpu_class.rs; `ps -o pri=` is 4 at background class):
+FAKE_CLASS_LOG=<path>: on session/new, append {"pid", "pri"} (its own, as it starts) to <path>.
+"class-probe: <path>": start `sleep 120` (a tool its turn runs) and write {"sleeper": pid} to <path>.
+FAKE_BG_ONCE=<path>: the first agent to get `initialize` (<path> does not exist yet) creates <path>,
+has another process put it in background class (an outside cause, not its own call), answers that
+`initialize` with an error and stays alive, as a harness that fails its start at background class.
 """
 import base64
 import hashlib
@@ -828,6 +835,16 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[9:].strip()})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "class-probe: <path>": a tool the turn runs, its pid to <path> (module docs).
+    if text.startswith("class-probe:"):
+        import subprocess
+        sleeper = subprocess.Popen(["sleep", "120"], stdin=subprocess.DEVNULL)
+        out = text[len("class-probe:"):].strip()
+        with open(f"{out}.tmp", "w") as f:
+            f.write(json.dumps({"sleeper": sleeper.pid}))
+        os.replace(f"{out}.tmp", out)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "env: NAME" replies with that environment variable, for spawn-time checks.
     if text.startswith("env:"):
         name = text[4:].strip()
@@ -1257,6 +1274,13 @@ def stdin_lines(early):
     yield from sys.stdin
 
 
+def own_pri():
+    """This process's scheduler base priority (`ps -o pri=`): 4 at background class."""
+    import subprocess
+    out = subprocess.run(["ps", "-o", "pri=", "-p", str(os.getpid())], capture_output=True, text=True)
+    return int(out.stdout.strip() or "0")
+
+
 def main():
     global LAST_MCP_SERVERS
     # `--fake-login` (the terminal sign-in): sign in and exit.
@@ -1299,12 +1323,24 @@ def main():
         # FAKE_SET_MODE_SILENT=1: never answer session/set_mode, while staying alive.
         if m == "session/set_mode" and os.environ.get("FAKE_SET_MODE_SILENT") == "1":
             continue
+        bg_once = os.environ.get("FAKE_BG_ONCE")
+        if m == "initialize" and bg_once and not os.path.exists(bg_once):
+            import subprocess
+            open(bg_once, "w").close()
+            # PRIO_DARWIN_PROCESS (4), PRIO_DARWIN_BG (0x1000), set from another process.
+            lower = "import ctypes, sys; sys.exit(ctypes.CDLL(None).setpriority(4, int(sys.argv[1]), 0x1000))"
+            subprocess.run([sys.executable, "-c", lower, str(os.getpid())], check=True)
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "start failed at background class"}})
+            continue
         if m == "initialize" and os.environ.get("FAKE_DIE_AT_START"):
             sys.stderr.write(os.environ["FAKE_DIE_AT_START"] + "\n")
             sys.stderr.flush()
             sys.exit(1)
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
+        if m == "session/new" and os.environ.get("FAKE_CLASS_LOG"):
+            with open(os.environ["FAKE_CLASS_LOG"], "a") as log:
+                log.write(json.dumps({"pid": os.getpid(), "pri": own_pri()}) + "\n")
         # FAKE_PICKER=1: a harness with session/set_model and an "effort" option (no model
         # option), as Claude Code and Codex are; FAKE_CALLS=<path> logs each model and
         # effort set as one JSON line {method, params}; FAKE_REFUSE_ID=<id> refuses that model.

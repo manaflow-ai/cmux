@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextControl
 import Foundation
 import Testing
 
@@ -256,12 +257,12 @@ struct CloudAPIClientRunTests {
 /// it off. Waiting on or cancelling a run that exists stays open, so its VM is never stranded.
 @Suite struct RunMethodsFeaturePolicyTests {
     @Test func onlyANewRunIsACloudFeatureMethod() {
-        #expect(AppControl.policyFeature(of: "runs.sandbox.create") == .cloud)
-        #expect(AppControl.policyRefusal("runs.sandbox.create", disabled: [.cloud])?.code == "feature.disabled")
-        #expect(AppControl.policyRefusal("runs.sandbox.create", disabled: []) == nil)
+        #expect(ActionFeature(controlMethod: "runs.sandbox.create") == .cloud)
+        #expect(ControlError.policyRefusal("runs.sandbox.create", disabled: [.cloud])?.code == "feature.disabled")
+        #expect(ControlError.policyRefusal("runs.sandbox.create", disabled: []) == nil)
         for method in ["runs.wait", "runs.cancel"] {
-            #expect(AppControl.policyFeature(of: method) == nil)
-            #expect(AppControl.policyRefusal(method, disabled: [.cloud]) == nil)
+            #expect(ActionFeature(controlMethod: method) == nil)
+            #expect(ControlError.policyRefusal(method, disabled: [.cloud]) == nil)
         }
     }
 }

@@ -28,6 +28,7 @@ final class CloudService {
     @ObservationIgnored let machineAPI: CloudAPIClient
     /// The machines a `cloud deliver-secrets` runs for now: one delivery per machine at a time.
     @ObservationIgnored var deliveringSecrets: Set<String> = []
+    @ObservationIgnored let networkAccess = CloudNetworkAccessQueue() // one network policy read-then-write per machine
     @ObservationIgnored let paths: CloudPaths
     /// One app-lifetime owner of confirmed, per-account Codex delivery.
     let codexBroker: CloudCodexBrokerAdapter
@@ -80,6 +81,10 @@ final class CloudService {
     private(set) var hasLoadedMachines = false
     /// Whom the loaded list is for (``listAccount`` when it landed).
     @ObservationIgnored private var loadedAccount: [String?]?
+    /// The machines the loaded list named (and machines made since for that account): a session the
+    /// store keeps while an omission waits on a newer read (``reconcile(_:read:connectsAtRead:)``)
+    /// may be another team's, and is not one of them.
+    private(set) var listedMachineIDs: Set<String> = []
     /// Whether the store holds a list the server answered for the user and
     /// team signed in now. A team switch keeps the user signed in, so the
     /// previous team's list stays in the store until the next refresh lands:
@@ -92,6 +97,8 @@ final class CloudService {
     @ObservationIgnored var confirmCreate: (@MainActor (CloudMachineCreateFlow.Prompt) async -> Bool)?
     /// Machine creations in flight (sidebar can show a placeholder).
     private(set) var creating = 0
+    /// The names app server creates in flight asked for, typed or default: a default picked meanwhile skips them.
+    @ObservationIgnored private var machineNamesInFlight: [String] = []
     /// New Cloud Workspace runs from the click to the open terminal: each
     /// window's progress view and sidebar row (cx-lu8f).
     let creations = CloudCreations()
@@ -103,6 +110,8 @@ final class CloudService {
     @ObservationIgnored let bringBackRetries = CloudMoveRetries(key: "cmux.cloud.bringBackRetries")
     /// The chats moved from this Mac, for Bring Back Local.
     @ObservationIgnored let movedChats = CloudMovedChats()
+    /// The machine each recent `cloud.startChat` send ran on, so its retry stays there.
+    @ObservationIgnored let startChatDestinations = CloudStartChat.Destinations()
     /// Agents' asks to move their chats, and the cards they raise in chats.
     @ObservationIgnored let moveAsks = CloudMoveAsks()
     @ObservationIgnored let toolCards = AgentToolCards()
@@ -216,6 +225,7 @@ final class CloudService {
             hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: Self.deviceName)
         }
         movedChats.defaults = { [weak self] in self?.move.ledger }
+        startChatDestinations.defaults = { [weak self] in self?.move.ledger }
         moveRetries.defaults = { [weak self] in self?.move.ledger }
         bringBackRetries.defaults = { [weak self] in self?.move.ledger }
         moveAsks.defaults = { [weak self] in self?.move.ledger }
@@ -441,6 +451,7 @@ final class CloudService {
         let read = beginRecordRead()
         defer { finishRecordRead(read) }
         let account = listAccount
+        let connectsAtRead = Dictionary(machines.cloud.map { ($0.machineID, $0.connects) }, uniquingKeysWith: { first, _ in first })
         do {
             let list: [CloudMachine]
             let limits: CloudMachineLimits?
@@ -456,9 +467,10 @@ final class CloudService {
             machines.cloudLimits = limits
             if let limits { planObserved(limits.planId) }
             lastError = nil
-            reconcile(list, read: read)
+            reconcile(list, read: read, connectsAtRead: connectsAtRead)
             hasLoadedMachines = true
             loadedAccount = account
+            listedMachineIDs = Set(list.filter { $0.status != .destroyed }.map(\.id))
             listLoadedAt = .now
             await startHubForSSHRoutes()
             return true
@@ -506,13 +518,14 @@ final class CloudService {
         processDeferredRecordRemovals()
     }
 
-    func reconcile(_ list: [CloudMachine], read: Int) {
+    /// `connectsAtRead` fences a list against a connection begun after that list was requested.
+    func reconcile(_ list: [CloudMachine], read: Int, connectsAtRead: [String: Int] = [:]) {
         // A list that arrives after Cloud was turned off connects nothing.
         guard !policyDisabled else { return }
         let visible = list.filter { $0.status != .destroyed }
         for machine in visible {
             if let session = machines.session(machine.id) {
-                apply(machine, to: session, read: read)
+                apply(machine, to: session, read: read, connectsAtRead: connectsAtRead[machine.id])
             } else {
                 // Do not resurrect a machine removed by a newer detail/list response.
                 guard read > recordReadApplied[machine.id, default: 0] else { continue }
@@ -571,22 +584,17 @@ final class CloudService {
     /// machine that stopped being live suspends its link, and one that turned live connects.
     /// `read` (``beginRecordRead(machineID:)``): a record from a read asked before the one the session
     /// holds changes nothing, so answers that land out of order run no stale transition.
-    func apply(_ machine: CloudMachine, to session: CloudMachineSession, read: Int) {
+    func apply(_ machine: CloudMachine, to session: CloudMachineSession, read: Int, connectsAtRead: Int? = nil) {
         // Apply the newer record before releasing any removal it was protecting.
         defer { finishRecordRead(read) }
         guard read > recordReadApplied[machine.id, default: 0], machines.session(machine.id) === session else { return }
         recordReadApplied[machine.id] = read
-        let wasLive = session.machine.status.isLive
-        session.machine = machine
         if machine.status == .destroyed {
+            session.machine = machine
             removeConfirmedMachine(machine.id, destructionConfirmed: true)
             return
         }
-        if wasLive, !machine.status.isLive {
-            session.suspend()
-        } else if !wasLive, machine.status.isLive {
-            session.connect()
-        }
+        session.listed(machine, connectsAtRead: connectsAtRead ?? session.connects)
     }
 
     @discardableResult
@@ -607,6 +615,8 @@ final class CloudService {
             session = CloudMachineSession(machine: machine, link: link, mainWork: mainWork)
         }
         session.daemon.workTracker = machines.local.workTracker
+        session.daemon.onPaneNotReady = machines.local.onPaneNotReady
+        session.daemon.paneNotReadyText = machines.local.paneNotReadyText
         // An attach to a paused machine resumes it through Resume Machine's own path.
         session.resumer = { [weak self] id in try await self?.resumeMachine(id) }
         // An attach reads a record that may be stale (paused behind the app) again first.
@@ -647,7 +657,7 @@ final class CloudService {
                        request: CloudMachineRequest = CloudMachineRequest(), proceed: () throws -> Void = {}) async throws -> CloudMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
-        let name = name ?? request.name
+        var name = name ?? request.name
         // The app server's create takes none of them yet, and its machines have no `/api/vm` file
         // or exec route for a bootstrap: refuse rather than make a machine without what was asked.
         if configuration.linkSource == .appServer, !request.isDefault {
@@ -657,6 +667,24 @@ final class CloudService {
         if configuration.linkSource != .appServer, request.environment != nil {
             throw ActionFailure(message: CloudEnvironmentStrings().unavailable)
         }
+        // The cmux-next backend stores no name and no slug for an unnamed machine, so it would be titled by
+        // its raw id: give it a readable one, unique among this account's machines and creations in flight.
+        // The classic `/api/vm` create names it itself (its slug).
+        var reserved: String?
+        if configuration.linkSource == .appServer {
+            if let pinned = creation?.pinnedMachineName {
+                name = pinned
+            } else if name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
+                name = CloudMachine.defaultName(
+                    taken: machines.cloud.map(\.machine.title) + creations.all.compactMap(\.pinnedMachineName) + machineNamesInFlight,
+                    base: CloudStrings.defaultMachineName, numbered: CloudStrings.defaultMachineName(numbered:))
+            }
+            creation?.pinnedMachineName = name
+            // Held until this create ends, typed names included, so a default picked meanwhile is another one.
+            reserved = name
+            if let name { machineNamesInFlight.append(name) }
+        }
+        defer { if let reserved, let index = machineNamesInFlight.firstIndex(of: reserved) { machineNamesInFlight.remove(at: index) } }
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
@@ -668,8 +696,10 @@ final class CloudService {
                                                       gate: { [weak self, weak creation] in creation?.request.wasSent == true ? .allowed : self?.createGate ?? .allowed },
                                                       confirm: { [weak self] in await self?.confirmCreate?($0) ?? false },
                                                       create: { [api, weak creation] in
-                                                          // The first send's team, for every later call about this machine.
-                                                          let team = creation?.request.wasSent == true ? creation?.request.team : await api.currentTeam()
+                                                          // The first send's team, for every later call about this machine; a
+                                                          // caller that fixed the team (`request.team`) sends every try there.
+                                                          let team = await Self.createTeam(sent: creation?.request.wasSent == true ? .some(creation?.request.team) : nil,
+                                                                                           requested: request.team, current: { await api.currentTeam() })
                                                           creation?.markRequestSent(team: team)
                                                           return try await api.pinningTeam(team).createWithKey(name: name, request: request, idlePause: idlePause, onSent: onSent)
                                                       })
@@ -693,9 +723,18 @@ final class CloudService {
         }
         if let existing = machines.session(machine.id) { existing.sizePick = machine.sizePick ?? existing.sizePick; return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
+        listedMachineIDs.insert(machine.id)
         // A list in flight was asked before this machine existed.
         listGeneration += 1
         return session
+    }
+
+    /// The team a classic create try goes to: the first send's once one was sent (`sent`), else the
+    /// team the caller fixed (`requested`, ``CloudMachineRequest/team``), else the app's team now.
+    nonisolated static func createTeam(sent: String??, requested: String?, current: () async -> String?) async -> String? {
+        if let sent { return sent }
+        if let requested { return requested }
+        return await current()
     }
 
     func deleteMachine(_ machineID: String) async throws {

@@ -21,12 +21,15 @@ dependencies = [
  "cmux-local-auth",
  "cmux-panic-log",
  "cmux-sdk",
+ "cmux-server",
+ "cmux-server-core",
  "cmux-tailnet",
  "cmux-unix-socket",
  "cmux-wg",
  "cmux-worktree-care",
  "crossterm",
  "dirs",
+ "flate2",
  "futures",
  "futures-util",
  "getrandom 0.3.4",
@@ -977,6 +980,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-automations"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
@@ -1367,6 +1380,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-rd-link"
+version = "0.1.0"
+dependencies = [
+ "cmux-transport",
+ "libc",
+ "snow",
+]
+
+[[package]]
 name = "cmux-rd-proto"
 version = "0.1.0"
 dependencies = [
@@ -1631,6 +1653,7 @@ dependencies = [
  "bytes",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
+ "cmux-automations",
  "cmux-build-identity",
  "cmux-chat-index",
  "cmux-config",
@@ -1651,9 +1674,11 @@ dependencies = [
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
  "cmux-unix-socket",
+ "cmux-vnc",
  "cmux-wg",
  "crossbeam-channel",
  "crossterm",
+ "flate2",
  "futures-util",
  "getrandom 0.3.4",
  "ghostty-vt",
@@ -1876,6 +1901,16 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "tempfile",
+]
+
+[[package]]
+name = "cmux-vnc"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "flate2",
+ "getrandom 0.3.4",
+ "num-bigint",
 ]
 
 [[package]]

@@ -71,7 +71,7 @@ pub type AcpmuxStarter = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
 
 /// What kind of machine this daemon runs on, as the binary reads it from the
 /// machine's own identity at each start. A remote start is served on
-/// [`AgentStartHost::Allowed`], and on a Cloud VM with no team evidence only
+/// [`AgentStartHost::Allowed`], and on any Cloud VM (a team VM included) only
 /// when the caller says the Cloud API answered `vmKind: "owner"` for it
 /// (`vm_kind`); a daemon that was never told refuses (fail closed).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -85,8 +85,10 @@ pub enum AgentStartHost {
     OwnerCloud,
     /// A Cloud VM whose kind the daemon cannot tell: as [`Self::OwnerCloud`].
     UnknownCloud,
-    /// A team VM: shared by a team, so no remote start (hq-84 rule until the
-    /// team policy for local-control sessions exists).
+    /// A team VM: shared by a team. A remote start goes on only on the
+    /// caller's `vm_kind: "owner"`, which the Cloud API gives the machine's
+    /// creator alone; anyone else is refused (hq-84 rule for teammates until
+    /// the team's chat grants exist).
     TeamVm,
 }
 
@@ -125,15 +127,19 @@ impl AgentSessionStarts {
     /// lands after the daemon started counts at once. `caller_owns_vm`: the
     /// call's `vm_kind` is exactly `owner` (the Cloud API's answer for the
     /// caller on its link). A Cloud VM goes on only on that word, never on
-    /// its own record, and team evidence refuses even with it.
+    /// its own record. On a team VM the same word lets the caller in: the
+    /// Cloud API answers `owner` per caller, for the machine's creator only
+    /// (web vmKindForCaller since #28788), so a teammate who did not create
+    /// it still gets [`Refusal::TeamVmBlocked`] (Leo, 2026-10-31: "we can't
+    /// simply block always").
     fn host_gate(&self, caller_owns_vm: bool) -> Result<(), Refusal> {
         let source = self.host.lock().unwrap_or_else(|e| e.into_inner()).clone();
         match source.map(|read| read()) {
             Some(AgentStartHost::Allowed) => Ok(()),
+            Some(
+                AgentStartHost::OwnerCloud | AgentStartHost::UnknownCloud | AgentStartHost::TeamVm,
+            ) if caller_owns_vm => Ok(()),
             Some(AgentStartHost::TeamVm) => Err(Refusal::TeamVmBlocked),
-            Some(AgentStartHost::OwnerCloud | AgentStartHost::UnknownCloud) if caller_owns_vm => {
-                Ok(())
-            }
             _ => Err(Refusal::HostUnverified),
         }
     }
@@ -607,7 +613,8 @@ mod tests {
 
     /// A call on a Cloud VM (a start, a chat move in, folder trust) runs only
     /// on the caller's `vm_kind: "owner"`; the VM's own `owner` record never
-    /// allows it, and team evidence refuses even then.
+    /// allows it. On a team VM that word (the creator's, from the Cloud API)
+    /// lets the call in too; without it a team VM still says so.
     #[test]
     fn a_call_on_a_cloud_vm_needs_the_callers_owner_word() {
         use AgentStartHost::{Allowed, OwnerCloud, TeamVm, UnknownCloud};
@@ -619,7 +626,7 @@ mod tests {
             (Allowed, Ok(()), Ok(())),
             (OwnerCloud, Ok(()), unverified),
             (UnknownCloud, Ok(()), unverified),
-            (TeamVm, team, team),
+            (TeamVm, Ok(()), team),
         ];
         for (host, owner_word, no_word) in cases {
             starts.set_host(Arc::new(move || host));
