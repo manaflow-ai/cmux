@@ -728,8 +728,8 @@ async fn a_relayed_guests_prompt_typing_and_view_are_taken_and_its_prompt_waits(
     assert!(!ran(&mut owner, &session, "g-Qm9xV3bT1kLp0aZr8yW2cE").await, "approved the other");
 }
 
-/// Writes the log as an older writer did: a `queued` record with no `awaitingOwner` and no
-/// `approval` on its provenance.
+/// Writes the log as an older writer did: a `queued` record with no `awaitingOwner`, no
+/// `revision` and no `approval` on its provenance.
 struct UnmarkedStore(Box<dyn acpmux::store::Store>);
 
 impl acpmux::store::Store for UnmarkedStore {
@@ -748,6 +748,7 @@ impl acpmux::store::Store for UnmarkedStore {
             && let Some(msg) = record.msg.as_object_mut()
         {
             msg.remove("awaitingOwner");
+            msg.remove("revision");
             if let Some(p) = msg
                 .get_mut("_meta")
                 .and_then(|m| m.get_mut("provenance"))
@@ -807,10 +808,20 @@ async fn an_unmarked_guest_record_still_waits_after_a_restart() {
     assert_eq!(listed.len(), 1, "{listed:?}");
     assert_eq!(listed[0]["awaitingOwner"], true, "it lost its hold: {listed:?}");
     assert!(!ran(&mut c, &session, "g-1").await, "a restart ran it unapproved");
+    // Approved behind a running turn, then a restart before it runs: the approval of its
+    // revision 0 still counts for the record that names no revision.
+    c.busy(&session).await;
     c.call("_acpmux/queue_approve", answer(&hub, &session, "g-1", Some(0))).await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = durable(&dir);
+    let mut c = Client::open(&hub);
+    hub.resume_queues();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     while !ran(&mut c, &session, "g-1").await {
-        assert!(std::time::Instant::now() < deadline, "the approved prompt never ran");
+        assert!(std::time::Instant::now() < deadline, "the approved prompt waited again");
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
     hub.shutdown_all().await;
