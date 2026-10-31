@@ -82,4 +82,13 @@ struct PageImageBackgroundTests {
         #expect(PageImageBackground.cover(nil, color: ThemeTokens.unresolved.surfaceBackground.withAlpha(1), pageIsOpaque: true,
                                           keepsClearAreas: true) == nil)
     }
+
+    /// A picture an older version saved (`AgentPaneLaunchImages`) gets the same rule when it is drawn:
+    /// one with no alpha only over a page that paints opaque; one that keeps clear pixels always.
+    @Test func aSavedPictureWithNoAlphaIsDrawnOnlyOverAnOpaquePage() throws {
+        let flat = PageImageBackground.fill(try Self.page(), ThemeTokens.unresolved.surfaceBackground.withAlpha(1))
+        #expect(!PageImageBackground.covers(flat, pageIsOpaque: false))
+        #expect(PageImageBackground.covers(flat, pageIsOpaque: true))
+        #expect(PageImageBackground.covers(try Self.page(), pageIsOpaque: false))
+    }
 }

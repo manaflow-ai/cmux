@@ -30,6 +30,13 @@ enum PageImageBackground {
     ///   - color: The color the pane shows under the page, which an opaque one is flattened over.
     ///   - pageIsOpaque: Whether the page paints an opaque background of its own.
     ///   - keepsClearAreas: Whether the picture keeps the page's clear pixels (it has alpha).
+    /// Whether a saved `image` may stand in for its page: it keeps clear pixels (it has alpha), or
+    /// the page paints an opaque background so it has none to lose (``cover(_:color:pageIsOpaque:keepsClearAreas:)``).
+    @MainActor
+    static func covers(_ image: NSImage, pageIsOpaque: Bool) -> Bool {
+        pageIsOpaque || image.cgImage(forProposedRect: nil, context: nil, hints: nil)?.keepsClearPixels == true
+    }
+
     @MainActor
     static func cover(_ page: NSImage?, color: ThemeRGB, pageIsOpaque: Bool, keepsClearAreas: Bool) -> NSImage? {
         guard let page, keepsClearAreas || pageIsOpaque else { return nil }

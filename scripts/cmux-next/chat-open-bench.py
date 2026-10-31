@@ -89,6 +89,7 @@ parser.add_argument("--launch-frames", default="artifacts/launch-frames.tar.gz",
 parser.add_argument("--backdrop", choices=["opaque", "frosted", "glass", "glass-clear"], default="opaque",
                     help="the window material (appearance.backgroundBlur at 85%% opacity; opaque leaves the default): "
                          "a page over a translucent window is clear, which a saved picture must keep")
+parser.add_argument("--tag", default="chatopen", help="the tag the app was built with (its state folder)")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts = parser.parse_args()
@@ -98,6 +99,8 @@ CASES = [c.strip() for c in opts.cases.split(",") if c.strip()]
 SUBAGENTS = opts.subagents or opts.runs + 1
 # A new workspace goes last, so `workspace.selectLast` shows the one an open just made (the default
 # placement is the top of the list). Over --config: another placement would show the wrong workspace.
+# The tagged build's state folder (scripts/measure/chat-open.sh builds --tag, default "chatopen").
+TAG_DIR = os.path.join("tags", opts.tag)
 BACKDROP = {} if opts.backdrop == "opaque" else {"appearance": {"backgroundBlur": opts.backdrop, "backgroundOpacity": 0.85}}
 CONFIG = bm.merged(bm.merged(json.loads(opts.config), BACKDROP), {"workspaces": {"newPlacement": "bottom"}})
 AGENT = os.path.join(HERE, "chat_open_agent.py")
@@ -285,11 +288,17 @@ class Run:
         bm.end_bundle(APP)  # the bundle's daemons and helpers: this run's only (bm.launch checked)
 
     def saved_pictures(self):
-        """The agent pages' pictures the last quit saved for this launch's first frame (AgentPaneLaunchImages)."""
+        """The agent pages' pictures the last quit saved for this launch's first frame (AgentPaneLaunchImages).
+
+        In the build's folder under Application Support (SidebarSnapshotFile.buildDirectory), which
+        Foundation resolves from the account's own home, not the scratch HOME; both are read."""
+        import pwd
+        homes = [os.path.join(self.scratch or "", "home"), pwd.getpwuid(os.getuid()).pw_dir]
         found = []
-        for folder, _dirs, files in os.walk(self.scratch or ""):
-            if os.path.basename(folder) == "agent-pane-images":
-                found += sorted(files)
+        for home in homes:
+            for folder, _dirs, files in os.walk(os.path.join(home, "Library", "Application Support", "cmux")):
+                if os.path.basename(folder) == "agent-pane-images" and TAG_DIR in folder:
+                    found += sorted(files)
         return found
 
     def end(self):
