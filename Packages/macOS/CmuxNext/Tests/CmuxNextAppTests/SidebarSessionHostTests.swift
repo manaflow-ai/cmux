@@ -71,6 +71,23 @@ import Testing
         #expect(layout.row(for: .sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(.local))))?.childCount == 2)
     }
 
+    @Test func crossMachineChildStaysUnderItsOwnMachineHeaderWhenMachinesAreHeaded() throws {
+        var options = SidebarLayoutOptions()
+        options.flattensMachines = false
+        options.sessionTree = Self.state(crossHost: true)
+        let layout = SidebarLayout.make(sections: Self.sections(crossMachine: true), metrics: .standard, options: options)
+        let keys = layout.rows.map(\.key)
+        let remoteHeader = try #require(keys.firstIndex(of: .section(.machine(MachineID("remote")))))
+        let child = try #require(keys.firstIndex(of: .workspace(Self.child)))
+        #expect(child > remoteHeader, "a child must not draw under the previous machine's header")
+        #expect(layout.row(for: .workspace(Self.child))?.section == .machine(MachineID("remote")))
+        #expect(layout.row(for: .workspace(Self.parent))?.content?.treeFold == nil)
+        for (index, row) in layout.rows.enumerated() where row.key != .section(row.section) {
+            let header = keys[..<index].last { if case .section = $0 { true } else { false } }
+            if let header { #expect(header == .section(row.section), "\(row.key) drew under \(header)") }
+        }
+    }
+
     @Test func parentAndHostFoldsKeepTheWholeBadgeCount() {
         var state = Self.state()
         state.collapsed = [Self.parent]

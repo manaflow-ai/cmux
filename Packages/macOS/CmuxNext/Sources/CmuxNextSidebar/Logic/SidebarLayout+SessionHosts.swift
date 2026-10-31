@@ -54,9 +54,21 @@ nonisolated extension SidebarLayout {
                   case .machine = rows[i].section else { return nil }
             return id
         })
+        // A child crosses into another machine section only in one list, where neither
+        // section draws a header. Under per-computer headers it stays below its own
+        // machine's header rather than drawing under the previous machine's.
+        let headed = Set(rows.compactMap { row -> SectionID? in if case let .section(id) = row.key { id } else { nil } })
+        let sectionOf = Dictionary(starts.compactMap { i -> (WorkspaceID, SectionID)? in
+            if case let .workspace(id) = rows[i].key { (id, rows[i].section) } else { nil }
+        }, uniquingKeysWith: { first, _ in first })
+        func crossesHeader(_ child: WorkspaceID, _ parent: WorkspaceID) -> Bool {
+            guard let a = sectionOf[child], let b = sectionOf[parent], a != b else { return false }
+            return headed.contains(a) || headed.contains(b)
+        }
         // Preserve the Pinned/custom boundary: a fleet child of a pinned workspace
         // remains in its own machine group rather than being pulled into Pinned.
-        let parents = tree.parents.filter { looseIDs.contains($0.key) && machineParents.contains($0.value) }
+        let parents = tree.parents.filter { looseIDs.contains($0.key) && machineParents.contains($0.value)
+            && !crossesHeader($0.key, $0.value) }
             .merging(folded.compactMap { id in tree.parents[id].map { (id, $0) } }, uniquingKeysWith: { first, _ in first })
         let children = Self.treeChildren(ids, parents: parents)
         let nested = Set(children.values.joined())
