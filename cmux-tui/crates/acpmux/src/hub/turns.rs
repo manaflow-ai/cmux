@@ -558,7 +558,9 @@ impl Hub {
             return Err(e);
         }
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
-        let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
+        // Another agent's message shows as its sender and words (`prompt_line.rs`).
+        let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control)
+            .shown_as(&super::prompt_line::prompt_line(&text, client, provenance.as_ref()));
         let retry = super::subagent_retry::is_retry(run.provenance.as_ref());
         if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, retry, turn) {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
@@ -586,7 +588,8 @@ impl Hub {
         let team_prompt_ids: Vec<_> = std::iter::once(prompt_id.clone())
             .chain(parts.iter().map(|part| part.prompt_id.clone()))
             .collect();
-        let (blocks, text) = if parts.is_empty() {
+        let digested = !parts.is_empty();
+        let (blocks, text) = if !digested {
             (blocks, text)
         } else {
             let sender = run.agent.clone().unwrap_or_default();
@@ -600,13 +603,22 @@ impl Hub {
             (blocks, text)
         };
         let mut blocks = blocks;
+        // Another agent's message leaves its sender and words, not its envelope (`prompt_line.rs`).
+        let line = super::prompt_line::prompt_line(&text, client, provenance.as_ref());
+        // A turn that took in the messages behind its own shows them all, as its last prompt does.
+        if digested
+            && let Some(t) = session.turn.lock().unwrap_or_else(|e| e.into_inner()).as_mut()
+            && t.turn_id == turn_id
+        {
+            t.show(&line);
+        }
         {
             let mut m = session.meta.lock().unwrap();
-            // Another agent's message leaves its sender and words, not its envelope (`prompt_line.rs`).
-            let line = super::prompt_line::prompt_line(&text, client, provenance.as_ref());
             m.last_prompt = Some(short_text(&line, 200));
             drafts::clear_sent_draft(&mut m, &text);
-            super::titles::set_fallback_title(&mut m, &text);
+            // Titled by the sender's words, never the envelope they came in.
+            let words = super::prompt_line::prompt_words(&text, client, provenance.as_ref());
+            super::titles::set_fallback_title(&mut m, &words);
             m.preview = Some(String::new());
             // The sender of a chat's first turn is its delegator (`inbox.rs`): named once the
             // turn starts, so a prompt refused before it names none, and over one a message the
@@ -739,7 +751,7 @@ impl Hub {
                 session,
                 "mux",
                 "turn_started",
-                json!({"prompt": short_text(&text, 200), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate}),
+                json!({"prompt": short_text(&text, 200), "promptLine": super::auto_resume::shown_line(&line), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate}),
             )
             .seq;
         // The prompt as the agent gets it, before the checks below: making its model-sized copies

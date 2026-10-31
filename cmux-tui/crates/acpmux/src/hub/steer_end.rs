@@ -198,6 +198,7 @@ impl Hub {
             let sent = super::carried_turn::SteerSent {
                 client: client.to_owned(),
                 text: text.clone(),
+                line: super::prompt_line::prompt_line(&text, client, opts.provenance.as_ref()),
                 control,
                 continues: super::carried_turn::Continues {
                     from,

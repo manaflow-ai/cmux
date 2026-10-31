@@ -422,7 +422,8 @@ impl Hub {
                 ),
                 started_at: t.started_at,
                 client: t.client,
-                prompt: t.prompt_preview,
+                // Another agent's message as its sender and words, not its envelope; masked.
+                prompt: t.masked_preview,
                 turn_id: t.turn_id,
                 prompt_id: t.prompt_id,
                 turn_seq: t.turn_seq,

@@ -27,6 +27,9 @@ pub(super) struct OpenWork {
     /// `turn_started` without `turn_result`: (seq, turnId, promptId, prompt,
     /// client, control; a Web steer's `turn_control` raises it).
     turn: Option<(u64, String, String, String, String, Control)>,
+    /// That turn's line on the summary (`turn_started` `promptLine`, `prompt_line.rs`); `None`
+    /// for an older record.
+    turn_line: Option<String>,
     /// That turn was carried on from the turn before (`turn_started` `carried`,
     /// `carried_turn.rs`): its prompt is the hub's own, and a steer is never it.
     turn_carried: bool,
@@ -872,6 +875,8 @@ impl Hub {
                             Control::from_recorded(e.msg.get("control").and_then(Value::as_str))
                         },
                     ));
+                    work.turn_line =
+                        e.msg.get("promptLine").and_then(Value::as_str).map(str::to_owned);
                     work.turn_at = e.at;
                     work.turn_carried = e.msg.get("carried").is_some_and(|c| !c.is_null());
                     work.carry_next = None;
@@ -910,6 +915,7 @@ impl Hub {
                         (from.unwrap_or_default(), c.clone())
                     });
                     work.turn = None;
+                    work.turn_line = None;
                     work.turn_carried = false;
                     work.next_raised = false;
                     work.compacting = false;
@@ -1112,6 +1118,9 @@ impl Hub {
             && work.prompt_request.is_none()
         {
             let mut turn = TurnInfo::prompted(&client, &prompt, &turn_id, &prompt_id, control);
+            if let Some(line) = &work.turn_line {
+                turn.show(line);
+            }
             turn.turn_seq = turn_seq;
             if work.turn_at > 0 {
                 turn.started_at = work.turn_at;
@@ -1145,10 +1154,16 @@ impl Hub {
                     let ended = session.steer_end.subscribe();
                     // Its start as logged: a restart does not make it new.
                     let started_at = if work.turn_at > 0 { work.turn_at } else { now_ms() };
+                    // Its line on the summary as the turn showed it (`prompt_line.rs`); an older
+                    // record's as its client tells it.
+                    let line = work
+                        .turn_line
+                        .clone()
+                        .unwrap_or_else(|| super::prompt_line::prompt_line(&prompt, &client, None));
                     *session.turn.lock().unwrap() = Some(TurnInfo {
                         started_at,
                         client,
-                        masked_preview: crate::secret_scan::mask(&prompt),
+                        masked_preview: super::auto_resume::shown_line(&line),
                         prompt_preview: prompt,
                         turn_id: turn_id.clone(),
                         prompt_id: prompt_id.clone(),

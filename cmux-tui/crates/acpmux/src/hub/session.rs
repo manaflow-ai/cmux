@@ -378,7 +378,7 @@ pub fn live_tags(m: &SessionMeta) -> Value {
 
 /// [`short_text`] of `s` with its secrets masked first (`secret_scan`), so a
 /// secret across the cut leaves no head: the sub-session tools' prompt
-/// preview (`TurnInfo::masked_preview`); the owner's views keep it raw.
+/// preview and every summary's running turn (`TurnInfo::masked_preview`).
 pub(crate) fn masked_preview(s: &str, max: usize) -> String {
     short_text(&crate::secret_scan::mask(s), max)
 }

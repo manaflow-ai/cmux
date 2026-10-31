@@ -389,14 +389,33 @@ impl TurnInfo {
             started_at: super::now_ms(),
             client: client.to_owned(),
             prompt_preview: super::short_text(text, 200),
-            masked_preview: super::session::masked_preview(text, 200),
+            masked_preview: String::new(),
             turn_id: turn_id.to_owned(),
             prompt_id: prompt_id.to_owned(),
             turn_seq: 0,
             control,
             doing: Default::default(),
         }
+        .shown_as(&super::prompt_line::prompt_line(text, client, None))
     }
+
+    /// The turn with `line` as the line its prompt leaves on the summary (`prompt_line.rs`): a
+    /// prompt's turn names it from the prompt's provenance (`turns.rs`), which `prompted` lacks.
+    pub(super) fn shown_as(mut self, line: &str) -> Self {
+        self.show(line);
+        self
+    }
+
+    /// Sets the line its prompt leaves on the summary ([`TurnInfo::shown_as`]): masked, then cut
+    /// to 200 characters. A line it gave comes back the same (`promptLine` on a restart).
+    pub(super) fn show(&mut self, line: &str) {
+        self.masked_preview = shown_line(line);
+    }
+}
+
+/// `line` as a turn's summary shows it ([`TurnInfo::show`]): its secrets masked, then cut.
+pub(super) fn shown_line(line: &str) -> String {
+    super::session::masked_preview(line, 200)
 }
 
 impl Hub {
