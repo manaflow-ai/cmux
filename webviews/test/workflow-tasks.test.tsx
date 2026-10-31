@@ -504,7 +504,9 @@ test("a pending phase whose agents arrive queued opens when one of them starts r
     ...before,
     agents: [...before.agents, { ...before.agents[0]!, id: "judge-1", name: "judge", state }],
     phases: before.phases.map((phase) =>
-      phase.id === judge.id ? { ...phase, state: state === "running" ? ("running" as const) : phase.state, agentIds: ["judge-1"] } : phase,
+      phase.id === judge.id
+        ? { ...phase, state: state === "running" ? ("running" as const) : phase.state, agentIds: ["judge-1"] }
+        : phase,
     ),
   });
   const container = dom.window.document.getElementById("root")!;
