@@ -2325,4 +2325,5 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_instant_bench_warm_arm.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "Unit test of a fleet bench's arm logic (no app): its owner runs it with python3 -I before a change to instant-new-surfaces-bench.py; no CI job runs it (CLAUDE.md: no new CI tests)."
