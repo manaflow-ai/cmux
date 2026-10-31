@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 530,
+  "count": 529,
   "sections": [
     {
       "id": "general",
@@ -3499,7 +3499,7 @@
           "title": "Show Workspace Tabs",
           "help": "Lists tabs beneath each workspace in the sidebar.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Sidebar"
         },
         {
@@ -3906,19 +3906,6 @@
             "max": 160,
             "unit": "points"
           }
-        },
-        {
-          "key": "workspaceColors.indicatorStyle",
-          "title": "Workspace Color Style",
-          "help": "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.",
-          "kind": "choice",
-          "default": "dot",
-          "group": "Sidebar",
-          "values": [
-            "dot",
-            "leftRail",
-            "fill"
-          ]
         }
       ]
     },

@@ -915,7 +915,9 @@ def command_check(args: argparse.Namespace) -> int:
     if args.comment and pull is not None:
         try:
             post_comment(args.repo, args.pr, pull, body, found)
-        except (SystemExit, RuntimeError, OSError) as error:  # comment failures never change the verdict
+        # comment failures never change the verdict; a checkout without the writer (main's
+        # pull_request_target sparse list may lag the guard) is one of them
+        except (SystemExit, RuntimeError, OSError, ImportError) as error:
             print(f"::warning title=Defaults comment not posted::{error}")
     if problems:
         return 1
