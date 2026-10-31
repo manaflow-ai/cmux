@@ -100,6 +100,32 @@ fn new_row_takes_client_minted_pane_and_tab_ids() {
     assert_eq!(bad["ok"], false, "a malformed pane id is refused: {bad}");
 }
 
+/// A late reply can be requested again under the shown pane's client key. It returns
+/// the original row, while changing the height under that key is a conflict.
+#[test]
+fn new_row_replays_client_keys_and_refuses_a_changed_height() {
+    let (mut wire, pane) = Wire::lone();
+    let request = json!({
+        "cmd": "new-row", "pane": pane, "height_permille": 400,
+        "pane_id": "pane_0123456789abcdef0123456789abcdef",
+        "tab_id": "tab_0123456789abcdef0123456789abcdef",
+        "terminal_id": "0123456789ab4def8123456789abcdef",
+    });
+    let created = wire.ok(request.clone());
+    let replayed = wire.ok(request.clone());
+    assert_eq!(replayed["surface"], created["surface"]);
+    assert_eq!(replayed["pane"], created["pane"]);
+    assert_eq!(replayed["tab_id"], created["tab_id"]);
+    assert_eq!(wire.rows(0).len(), 2, "a replay must not add another row");
+    let mut changed = request;
+    changed["height_permille"] = json!(500);
+    let refused = wire.send(changed);
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(refused["error_code"], "idempotency.conflict", "{refused}");
+    assert_eq!(wire.rows(0).len(), 2);
+    assert_eq!(wire.rows(0)[1]["height"], 400);
+}
+
 /// New Row on a split screen: the tree becomes the first row of one column,
 /// and a new row with one pane holding one new terminal goes below it.
 #[test]

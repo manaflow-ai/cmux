@@ -175,22 +175,18 @@ impl Mux {
         ]);
         Self::insert_cell_size(&mut fields, size);
         Self::insert_spawn_options(&mut fields, spawn);
-        let commit = self.commit_ordinary_topology_operation_by(
-            actor,
-            ResourceOperation::PaneSplit,
-            selectors,
-            fields,
-        )?;
-        self.emit_resource_topology_legacy_events(ResourceOperation::PaneSplit, &commit);
-        let surface = self.ordinary_created_surface(&commit)?;
-        let screen = self.with_state(|state| {
-            let (workspace, screen) = state.screen_of(state.pane_of(surface.id)?)?;
-            Some(state.workspaces[workspace].screens[screen].id)
-        });
-        if let Some(screen) = screen {
-            self.emit_screen_changed_for_transaction(&[screen], transaction.map(Arc::from));
+        let created =
+            self.commit_pane_creation_by(actor, ResourceOperation::PaneSplit, selectors, fields)?;
+        if !created.replayed {
+            let screen = self.with_state(|state| {
+                let (workspace, screen) = state.screen_of(state.pane_of(created.surface.id)?)?;
+                Some(state.workspaces[workspace].screens[screen].id)
+            });
+            if let Some(screen) = screen {
+                self.emit_screen_changed_for_transaction(&[screen], transaction.map(Arc::from));
+            }
         }
-        Ok(surface)
+        Ok(created.surface)
     }
 
     /// `set-row-heights`: every row height of one column at once. The row

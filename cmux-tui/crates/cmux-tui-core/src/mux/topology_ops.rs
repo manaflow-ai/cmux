@@ -645,13 +645,13 @@ impl Mux {
         self.split_with_as(actor, target, dir, None, Vec::new(), size)
     }
 
-    /// A pane creation of `actor` (`split`, `new-pane`, `new-pane-right`).
+    /// A pane creation of `actor` (`split`, `new-pane`, `new-pane-right`, `new-row`).
     /// Keyed by its client-minted pane id, else by its caller-chosen
     /// terminal id (`split-client-keys-v1`): the creation receipt makes a
     /// retry of the same request return the first result, and the same key
     /// with another request `idempotency.conflict`. Unkeyed, it is an
     /// ordinary creation.
-    fn commit_pane_creation_by(
+    pub(super) fn commit_pane_creation_by(
         self: &Arc<Self>,
         actor: &Actor,
         operation: ResourceOperation,

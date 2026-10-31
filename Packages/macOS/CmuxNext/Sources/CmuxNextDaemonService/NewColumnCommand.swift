@@ -72,4 +72,3 @@ public struct NewColumnCommand: Sendable {
         }
     }
 }
-

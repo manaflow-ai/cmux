@@ -40,6 +40,9 @@ pub(super) struct NewRowParams {
 /// (`split-client-keys-v1`): the app shows the row before the reply.
 pub(super) const ROW_CLIENT_KEYS_CAPABILITY: &str = "row-client-keys-v1";
 
+/// Repeating a keyed `new-row` returns the first creation, without adding another row.
+pub(super) const ROW_CLIENT_REPLAY_CAPABILITY: &str = "row-client-replay-v1";
+
 pub(super) fn new_row(mux: &Arc<Mux>, client: u64, params: NewRowParams) -> anyhow::Result<Value> {
     let NewRowParams {
         pane,
