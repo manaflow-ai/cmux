@@ -19,7 +19,7 @@ struct AgentPaneSavedCoverRevealTests {
         let file = try #require(AgentPageTestRoot.page)
         let hosting = FakeChromiumHosting()
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
-                                              pageHost: chromium, chromium: hosting))
+                                              pageHost: chromium, testRoot: true, chromium: hosting))
         if chromium {
             let page = try #require(view.page)
             await page.chromiumStart?.value
