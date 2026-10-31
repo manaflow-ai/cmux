@@ -89,16 +89,18 @@ struct AcpmuxFeedBridgeQuestionTests {
         #expect(params(["q3": FeedChoiceSelection(selected: ["o0"])]) == nil)
     }
 
-    /// A session answer (a browser, or a process holding the person's session) never answers.
+    /// From the owner, only another install answers a question (as a deny): never a session answer
+    /// (a browser, or a process holding the person's session), never this Mac's own install.
     @Test func aSessionAnswerNeverAnswersAQuestion() {
         func refusal(_ by: String) -> AcpmuxPermissionFeedBridge.Refusal? {
-            if case .failure(let refusal) = AcpmuxPermissionFeedBridge.admitsQuestionAnswer(by: by) { return refusal }
+            if case .failure(let refusal) = AcpmuxPermissionFeedBridge.admits(by: by, ownInstall: "inst_mac") { return refusal }
             return nil
         }
         #expect(refusal("session:usr_1") == .sessionAnswer)
         #expect(refusal("inst_phone") == nil)
-        // This Mac's own install: the person answering in this Mac's feed, as in the chat.
-        #expect(refusal("inst_mac") == nil)
+        // This Mac's own install never answers through the owner: the person answers here
+        // through the bridge directly (`answeredHere`), as in the chat.
+        #expect(refusal("inst_mac") == .ownInstall)
     }
 
     /// A question that does not fit a choice (one option) stays a notice naming the agent.

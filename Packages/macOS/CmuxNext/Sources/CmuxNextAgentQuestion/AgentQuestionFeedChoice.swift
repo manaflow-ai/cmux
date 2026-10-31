@@ -97,7 +97,30 @@ public struct AgentQuestionFeedChoice: Equatable, Sendable {
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
+    /// The choice's title, body and prompt, or nil when a question or label is empty once
+    /// `clean` made it fit to show (the owner would refuse it, and nothing would be posted at all).
+    public func parts(clean: (String) -> String) -> (title: String, body: String, prompt: [String: Any])? {
+        fits(clean: clean) ? (title(clean: clean), body(clean: clean), prompt(clean: clean)) : nil
+    }
+
+    func fits(clean: (String) -> String) -> Bool {
+        question.items.allSatisfy { item in
+            !clean(item.prompt).isEmpty && item.options.allSatisfy { !clean($0.label).isEmpty }
+        }
+    }
+
+    /// `text` within `limit` UTF-16 units (the owner counts JavaScript string length), cut on a
+    /// character boundary with an ellipsis.
     static func cut(_ text: String, _ limit: Int) -> String {
-        text.count <= limit ? text : String(text.prefix(limit - 1)) + "…"
+        guard text.utf16.count > limit else { return text }
+        var out = ""
+        var units = 0
+        for character in text {
+            let width = character.utf16.count
+            if units + width > limit - 1 { break }
+            out.append(character)
+            units += width
+        }
+        return out + "…"
     }
 }
