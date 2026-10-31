@@ -148,6 +148,10 @@ export interface Env {
   readonly PLATFORM_MACHINES?: string
   /** Named AgentGateway binding: on only in development; every MCP write still requires exact approval. */
   readonly PLATFORM_AGENT_GATEWAY?: string
+  /** Service binding to cmux-platform-<env> (platform-forward.ts); absent in every environment until its cutover deploy. */
+  readonly PLATFORM?: Fetcher
+  /** Var: comma-separated surfaces the platform serves ("cloud"); unset or empty = every request stays in this Worker. */
+  readonly PLATFORM_SURFACES?: string
   /**
    * Secret: link-token signing keys (LINK-TOKEN-FORMAT) as JSON {active: kid, keys: {kid: private Ed25519 JWK}}, at most 2 kids.
    * Per environment; never logged, never in a response, error, event or storage. Without it bind and link_token refuse.
