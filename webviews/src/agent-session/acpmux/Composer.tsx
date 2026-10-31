@@ -67,6 +67,7 @@ import {
   type SlashCommand,
   type SlashMatch,
 } from "./slashCommands";
+import { commandWaitsForTurn } from "./cliOnlyCommands";
 import { BoltIcon } from "./BoltIcon";
 import {
   flushPendingDraftWrites,
@@ -97,7 +98,7 @@ import {
   useAttachmentIntake,
   useSendWhenAttached,
 } from "./composer/attachmentIntake";
-import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
+import { keepElsewhere, type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { DropOverlay } from "./composer/DropOverlay";
@@ -267,6 +268,9 @@ type Props = {
   /// A harness switch is under way (another provider's model was picked): the session changes
   /// under the prompt, and the typed text stays instead of the new session's empty draft.
   switching?: boolean;
+  /// False while the pane does not yet know which chat it shows (locationRow.ts paneKnowsNewChat):
+  /// an existing chat being restored or opened draws no location strip. Unset: known.
+  chatKnown?: boolean;
   /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
   leading?: React.ReactNode;
   /// Granted folder trust and chat-wide permission state, rendered inside Access.
@@ -374,6 +378,8 @@ type Props = {
   authBlocked?: boolean;
   /// Opens the Inspector at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
+  /// Sends the agent its `/compact`: the ring's card offers Compact only with it (App.tsx `compactChat`).
+  onCompact?(): void;
 };
 
 /// The prompt box with the agent's `/` command menu:
@@ -396,6 +402,7 @@ export function Composer({
   onQueueSideChat,
   queueImage,
   draft,
+  chatKnown = true,
   leading,
   permissionAccess,
   accessory,
@@ -445,6 +452,7 @@ export function Composer({
   authBlocked = false,
   placeholder,
   onOpenContext,
+  onCompact,
 }: Props) {
   const t = useT();
   const chrome = useComposerChrome();
@@ -600,6 +608,7 @@ export function Composer({
     videoReading,
     cancel,
     retry,
+    originalFailures,
     attachError,
     setAttachError,
     drop,
@@ -625,12 +634,7 @@ export function Composer({
     // A chat on this Mac (Quick Chat too): its attached videos show their posters.
     localChat: opensProcessTerminal(snapshot.summary),
     elsewhere: (chat, chips) => {
-      if (!keptAttachments) return;
-      void keptAttachments
-        .read(chat)
-        .catch(() => [])
-        .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips)))
-        .catch(() => {});
+      if (keptAttachments) void keepElsewhere(keptAttachments, chat, chips);
     },
     carries: () => carryPrompt.current || Boolean(switching),
   });
@@ -1534,7 +1538,10 @@ export function Composer({
   // step ends, and nothing is cancelled. ⌘Return queues the prompt for after the turn (Claude's
   // keys, Leo 2026-10-20). Attachments go along, so staged files alone can steer too. An agent
   // that cannot steer queues on both keys.
-  const steers = queues && snapshot.summary?.steering === true;
+  // One of the agent's own slash commands waits for the turn either way (cliOnlyCommands.ts): it
+  // queues, so it shows as waiting behind the turn and runs as its own turn, never as a steer.
+  const steers =
+    queues && snapshot.summary?.steering === true && !commandWaitsForTurn(text, snapshot.summary?.harness, commands);
   const returnSteers = steers && (Boolean(text.trim()) || attachments.length > 0);
   // Queueing off (ChatGPT's and Codex's "Turn off queueing", queueing.ts): ⌘Return and Send steer
   // too, so nothing new waits. An agent that cannot steer still runs it after the turn.
@@ -1581,9 +1588,18 @@ export function Composer({
         : undefined,
     [headerPullRequest, headerHere],
   );
+  // A new chat before its first send, known as one (locationRow.ts): the location strip and the
+  // suggested prompt are a new chat's. An existing chat opening or loading its rows has neither.
+  const locationVisible = showsLocationRow(snapshot, chatKnown);
   const suggestion = useMemo<PromptSuggestion | undefined>(
     () =>
-      !shell && !snapshot.isWorking && snapshot.rows.length === 0 && remote.canSend && !blockSend && !blocked?.reason
+      locationVisible &&
+      !shell &&
+      !snapshot.isWorking &&
+      snapshot.rows.length === 0 &&
+      remote.canSend &&
+      !blockSend &&
+      !blocked?.reason
         ? promptSuggestion(
             snapshot.sessions,
             { sessionId: snapshot.sessionId, cwd, branch },
@@ -1592,6 +1608,7 @@ export function Composer({
           )
         : undefined,
     [
+      locationVisible,
       shell,
       snapshot.isWorking,
       snapshot.rows.length,
@@ -1718,7 +1735,6 @@ export function Composer({
   // composer is bottom-anchored, so removing the slot in the same render would move every control
   // by the strip's height (cx-ncc.58); the slot is hidden when a queue is present, whose own height
   // becomes the top strip.
-  const locationVisible = showsLocationRow(snapshot);
   const locationKey = snapshot.sessionId ?? snapshot.summary?.sessionId;
   // A gallery or a reopened pane can render an unselected snapshot before its session arrives.
   // Do not let that transient visible strip reserve space for a different, already-started chat.
@@ -1918,6 +1934,7 @@ export function Composer({
           field.current?.focus();
         }}
         onRetryAttachment={retry}
+        originalFailures={originalFailures}
         onPasteFile={(file) => void attach([file], true, "paste")}
         fieldMenu={fieldMenu}
         onFieldMenuOpen={noteSelection}
@@ -2137,6 +2154,7 @@ export function Composer({
               breakdown={snapshot.summary?.contextBreakdown}
               working={snapshot.isWorking}
               onOpenDetails={onOpenContext}
+              onCompact={onCompact}
             />
           )
         }

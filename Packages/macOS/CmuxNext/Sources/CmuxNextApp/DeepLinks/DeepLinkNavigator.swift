@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -51,11 +52,9 @@ struct DeepLinkNavigator {
         case .session(let id, let turn):
             try openSession(id, turn: turn, intent, asking: asking)
         case .chiefSession(let home, let session):
-            // Only this app's Chief home, only a tab that shows that session there; never a
-            // new tab (the session runs in the Chief home's acpmux, not this Mac's).
-            let host = "chief:" + home
-            guard services.agentTabs.chiefHost == host, let shown = services.agentTabs.tab(showing: session, host: host),
-                  services.revealTab(shown, intent: intent) else { throw Self.gone }
+            // This app's Chief home only; its tab, else its chat as the subagent's sidebar row opens it (ChiefSidebar).
+            guard ChiefSidebar.shared.openSubagentLink(session: session, chiefHost: "chief:" + home, registry: services.registry,
+                                                       reveal: { services.revealTab($0, intent: intent) }) else { throw Self.gone }
         case .agent(let harness, let session):
             try openAgent(harness: harness, session: session, message: link.message, intent)
         case .group(let id, let workspace):
