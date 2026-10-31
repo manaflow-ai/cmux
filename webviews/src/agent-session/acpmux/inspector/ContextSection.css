@@ -22,7 +22,7 @@
 .acpmux-chat-inspector-context__actions {
   display: flex;
   justify-content: flex-end;
-  padding: 2px 6px 0;
+  padding: 0 4px;
 }
 .acpmux-chat-inspector-context__bar {
   display: flex;
