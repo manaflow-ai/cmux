@@ -337,6 +337,7 @@ function McpDetails({ tool, reveal = 0, promptFindId }: { tool: Tool; reveal?: n
       call={call}
       raw={mcpRawName(tool, call)}
       output={tool.output}
+      tool={tool}
       strip={false}
       reveal={reveal}
       requestFindAlternatives={promptFindId ? { prompt: promptFindId } : undefined}

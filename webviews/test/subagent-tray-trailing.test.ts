@@ -63,7 +63,9 @@ await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
         more: box(tray.querySelector(".acpmux-running-tray__finished > svg")),
         lines: [...tray.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")].map((line) => ({
           row: box(line)!,
-          state: box(line.querySelector(".acpmux-summary-agent__state"))!,
+          // The lines time: on its row of controls, the last thing before Stops track (a done or
+          // running line says no state word; design/chat-transcript.md "Subagent row anatomy").
+          time: box(line.querySelector(".acpmux-agent-line__time"))!,
           track: box(line.querySelector(".acpmux-agent-line__stop-track"))!,
           stop: box(line.querySelector(".acpmux-agent-line__stop-slot > button")),
           chevron: box(line.querySelector(".acpmux-agent-line__chevron > svg")),
@@ -99,14 +101,14 @@ await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
             expect(stop.left).toBeGreaterThanOrEqual(line.row.left - 0.5);
             expect(stop.right).toBeLessThanOrEqual(line.row.right + 0.5);
             // On the centre line of its row of controls: the line's own when it is one row, its second
-            // row (where its state sits) when the line is narrow.
-            expect(Math.abs(middle(stop) - middle(line.state))).toBeLessThanOrEqual(1);
+            // row (where its time sits) when the line is narrow.
+            expect(Math.abs(middle(stop) - middle(line.time))).toBeLessThanOrEqual(1);
             if (width > 400) expect(Math.abs(middle(stop) - middle(line.row))).toBeLessThanOrEqual(1);
-            // In its own track, between the state and the chevron.
+            // In its own track, between the time and the chevron.
             expect(
               Math.abs((stop.left + stop.right) / 2 - (line.track.left + line.track.right) / 2),
             ).toBeLessThanOrEqual(1);
-            expect(stop.left).toBeGreaterThanOrEqual(line.state.right - 0.5);
+            expect(stop.left).toBeGreaterThanOrEqual(line.time.right - 0.5);
             if (line.chevron) expect(line.chevron.left).toBeGreaterThanOrEqual(stop.right - 0.5);
           }
           // Each Stop, scrolled into the list's view, is the thing under the pointer at its centre.
