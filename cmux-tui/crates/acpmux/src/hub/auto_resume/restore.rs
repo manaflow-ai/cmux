@@ -1046,15 +1046,15 @@ mod tests {
             "mux",
             "auto_resume_manual",
             json!({
-                "turnId": "cut",
-                "promptId": "original",
-                "manualPromptId": "original~resume-1",
+                "turnId": "later-turn",
+                "promptId": "later-prompt",
+                "manualPromptId": "later-prompt~resume-1",
                 "error": "stream disconnected",
                 "control": "local",
                 "trustGate": false
             }),
         );
-        hub.append(&session, "mux", "auto_resume_stopped", json!({"turnId": "cut"}));
+        hub.append(&session, "mux", "auto_resume_stopped", json!({"turnId": "later-turn"}));
         hub.restore_auto_resume(&session);
         assert_eq!(hub.session_summary(&session)["retry"], Value::Null);
     }
