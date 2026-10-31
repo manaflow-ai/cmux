@@ -478,6 +478,21 @@ class Scratch(unittest.TestCase):
             with self.assertRaises(OSError):
                 self.lease()
 
+    def test_a_scratch_entry_that_is_a_link_is_never_linked_pruned_or_built_in(self):
+        outside = Path(self.tmp.name) / "outside-scratch"
+        bundle = outside / "Packages__macOS__B/arm64-apple-macosx/debug/B_Pane.bundle"
+        bundle.mkdir(parents=True)
+        (bundle.parent / "description.json").write_text("{}")
+        (bundle / "keep").write_text("outside\n")
+        self.scratch.mkdir()
+        os.symlink(str(outside), self.scratch / "xcode-a")
+        self.assertEqual(scratch.entries(self.scratch), [])
+        scratch.link(self.workspace, self.store, RUNNER, fingerprint="xcode-a")
+        self.assertEqual((bundle / "keep").read_text(), "outside\n")
+        self.assertEqual(sorted(p.name for p in outside.iterdir()), ["Packages__macOS__B"])
+        self.assertFalse((self.scratch / "xcode-a").is_symlink())
+        self.assertTrue((self.workspace / "Packages/macOS/B/.build").resolve().is_relative_to(self.scratch.resolve()))
+
     def test_a_directory_replaced_by_a_link(self):
         self.checkout()
         source = self.lease()
