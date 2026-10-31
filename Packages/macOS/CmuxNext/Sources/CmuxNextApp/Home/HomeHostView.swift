@@ -296,11 +296,14 @@ final class HomeHostView: NSView {
                 self?.transcript.setFirstRunStarters(state.1)
             }
         }
-        // Onboarding: the Chief's first-open message, contextual (ChiefIntroStore): the only Chief welcomes once per
-        // install; a Chief made beside others asks what to focus on, once per Chief. It shows on the Chief's front
-        // page (no messages yet) and is marked shown the moment it does, so it never returns.
+        // Onboarding: the Chief's first-open message, contextual (ChiefIntroStore). The only Chief welcomes once per
+        // install in the chat itself (ChiefWelcome: its typing dots, then its messages, drawn by the iMessage
+        // transcript); a Chief made beside others asks what to focus on, once per Chief. It shows on the Chief's
+        // front page (no messages yet). A fresh install hides the first-run panel from the start, so it never
+        // flashes before the welcome.
+        let intro = ChiefIntroStore(defaults: .standard)
+        transcript.welcomesInChat = intro.welcomePending && !service.isCloudConversation(id)
         chiefIntroWatch = Task { [weak self] in
-            let intro = ChiefIntroStore(defaults: .standard)
             for await kind in ObservationStream({ () -> ChiefIntroKind? in
                 guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
                       summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return nil }
@@ -311,6 +314,11 @@ final class HomeHostView: NSView {
             }) {
                 guard let kind else { continue }
                 guard let self else { return }
+                // A cloud Chief (no local import) or an owner not connected yet keeps the first-run intro.
+                if kind == .welcome, service.chiefWelcome.play(in: id, source: service.homeSource,
+                                                               connection: service.isCloudConversation(id) ? nil : service.chief.connection,
+                                                               intro: intro) { return }
+                self.transcript.welcomesInChat = false
                 intro.markShown(kind, for: id)
                 self.transcript.showFirstRunIntro(kind)
                 return
