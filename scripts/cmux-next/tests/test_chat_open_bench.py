@@ -93,11 +93,29 @@ class OpenTests(unittest.TestCase):
     def setUp(self):
         self.bench = load_bench()
 
-    def test_open_shows_the_new_workspace(self):
+    def test_open_shows_the_workspace_it_created(self):
+        # By its ref: selectLast read the sidebar's order, which can lag the open on a loaded host,
+        # and showed the previous workspace (a loaded fleet Mac: every open after the first).
         app = FakeApp({"agent.openSessionWorkspace": {"created": ["ws_1"]}})
         reply = self.bench.open_workspace(types.SimpleNamespace(app=app), "s1")
+        self.assertEqual([(c[0], c[1], c[2]) for c in app.calls],
+                         [("agent.openSessionWorkspace", True, {"session": "s1"}),
+                          ("goToWorkspace", True, {"workspace": "ws_1"})])
+        self.assertEqual(reply["created"], ["ws_1"])
+        self.assertEqual(reply["shown"], {"via": "goToWorkspace", "reply": {}})
+
+    def test_open_with_no_created_ref_falls_back_to_the_last_workspace(self):
+        app = FakeApp({"agent.openSessionWorkspace": {}, "workspace.selectLast": {}})
+        reply = self.bench.open_workspace(types.SimpleNamespace(app=app), "s1")
         self.assertEqual([c[0] for c in app.calls], ["agent.openSessionWorkspace", "workspace.selectLast"])
-        self.assertEqual(reply, {"created": ["ws_1"]})
+        self.assertEqual(reply["shown"]["via"], "workspace.selectLast")
+
+    def test_a_refused_switch_falls_back_and_says_so(self):
+        app = FakeApp({"agent.openSessionWorkspace": {"created": ["ws_1"]},
+                       "goToWorkspace": {"error": "No workspace ws_1."}})
+        reply = self.bench.open_workspace(types.SimpleNamespace(app=app), "s1")
+        self.assertEqual([c[0] for c in app.calls], ["agent.openSessionWorkspace", "goToWorkspace", "workspace.selectLast"])
+        self.assertEqual(reply["shown"]["refused"], {"error": "No workspace ws_1."})
 
     def test_a_refused_open_shows_nothing(self):
         app = FakeApp({"agent.openSessionWorkspace": {"error": "daemon offline"}})
@@ -118,6 +136,24 @@ class OpenTests(unittest.TestCase):
                                "marks_ms": {"action": 0.0, "pane_made": None, "page_painted": None}})
         self.assertIn("marks=['action']", line)
         self.assertNotIn("pane_made", line)
+
+    def test_why_shows_how_the_workspace_was_shown_past_a_long_reply(self):
+        reply = {"action": "agent.openSessionWorkspace", "args": {"session": "s" * 300}, "created": ["ws_1"],
+                 "shown": {"via": "workspace.selectLast", "reply": {}, "refused": {"error": "No workspace ws_1."}}}
+        record = {"timed_out": True, "frames": [], "order": ["action"], "open_reply": reply}
+        line = self.bench.why(record)
+        self.assertIn('shown={"via": "workspace.selectLast"', line)
+        self.assertIn("shown", record["open_reply"])  # the record keeps it for the JSON artifact
+
+
+class TableTests(unittest.TestCase):
+    def test_a_measured_table_says_failed_nowhere_but_its_legend(self):
+        # The header's FAILED read as a verdict on a run where every case measured.
+        bench = load_bench("--conditions", "idle", "--cases", "sidebar")
+        ok = cos.summarize([open_(100, 10)])
+        table = bench.markdown({"host": "h", "model": "m", "ncpu": 1, "cases": {"idle": {"sidebar": ok}}})
+        self.assertNotIn("FAILED:", table)
+        self.assertEqual(sum("FAILED" in line for line in table.splitlines()), 1)  # the legend's one mention
 
 
 if __name__ == "__main__":

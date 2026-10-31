@@ -204,6 +204,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // The home and lock this daemon holds, read as soon as it holds them: one replaced during
     // the startup below is then a loss, never the watch's baseline (`daemon/home_watch.rs`).
     let owned_home = home_watch::Owned::now(&[&home(), &lock]);
+    // Every write under the home checks it is still this folder (`config::refuse_lost_home`).
+    crate::config::hold_home();
     // Gone already (removed between taking the lock and here): stop before the startup makes
     // anything there. A relative home is never watched (it reads as missing from the home cwd),
     // and there is no watch off Unix (`Owned::now` is always `None` there).
@@ -558,6 +560,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         let hub = hub.clone();
         tokio::spawn(async move { hub.load_store_async().await })
     };
+    hub.begin_startup_work();
     let startup = {
         let hub = hub.clone();
         tokio::spawn(async move {
