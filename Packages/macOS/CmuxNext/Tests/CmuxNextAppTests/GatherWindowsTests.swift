@@ -142,11 +142,16 @@ struct GatherWindowsTests {
         #expect(services.windows.registry.value.window(there.state.id) == nil, "the emptied window stayed")
         #expect(services.windows.pendingClaims["k-new-1"] == here.state.id, "the claim still names the closed window")
         #expect(services.windows.pendingPlacements["k-new-1"]?.window == here.state.id, "the placement still names the closed window")
+        // A create queued before the move (WorkspaceLanes) claims the closed window only later.
+        services.windows.claimNew(workspaceID: "k-new-3", window: there.state.id)
+        #expect(services.windows.pendingClaims["k-new-3"] == here.state.id, "a later claim reopened the closed window")
 
         try services.windows.mergeWindows(into: here.state)
         #expect(services.windows.registry.value.window(other.state.id) == nil)
         #expect(services.windows.pendingClaims["k-new-2"] == here.state.id, "the claim still names the merged window")
         #expect(services.windows.pendingPlacements["k-new-2"]?.window == here.state.id, "the placement still names the merged window")
+        services.windows.claimNew(workspaceID: "k-new-4", window: other.state.id)
+        #expect(services.windows.pendingClaims["k-new-4"] == here.state.id, "a later claim reopened the merged window")
     }
 
     /// An incognito space, or an incognito window, takes part in no move (rule 2).
