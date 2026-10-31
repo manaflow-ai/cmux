@@ -145,8 +145,9 @@ extension PaneHandlers {
                 // palette/menu runs (which have no key context) target-scoped, but let a sidebar
                 // or native control retain the workspace-terminal action while a chat remains
                 // selected.
-                let chatOwnsKeyboard = invocation.keyContext?.contains(.agentPaneFocused) == true
-                let targetIsChat = invocation.keyContext == nil
+                let inAppUser = invocation.origin == .user && !invocation.viaControlSocket
+                let chatOwnsKeyboard = inAppUser && invocation.keyContext?.contains(.agentPaneFocused) == true
+                let targetIsChat = inAppUser && invocation.keyContext == nil
                     && ctx.scope(invocation).pane.map { if case .agent = $0.currentContent { true } else { false } } == true
                 if chatOwnsKeyboard || targetIsChat {
                     changeChatFontSize(id, ctx)

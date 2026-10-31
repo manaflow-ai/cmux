@@ -90,6 +90,25 @@ struct AgentChatFontSizeShortcutTests {
         }
     }
 
+    @Test func automationKeepsTheWorkspaceFontActionWhileAChatIsSelected() async throws {
+        try await withSettings { services, settings, _ in
+            try await openChat(services)
+            let key = AgentPaneDisplaySetting.fontSizePath
+            try await settings.set(.number(20), at: key)
+            for origin in ActionOrigin.allCases {
+                var invocation = ActionInvocation(origin: origin)
+                // A socket caller can claim user origin; it still is not an in-app gesture.
+                invocation.viaControlSocket = origin == .user || origin == .cli || origin == .mcp
+                for id: ActionID in ["increaseWorkspaceTerminalFontSize", "decreaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize"] {
+                    #expect(services.registry.perform(id, invocation: invocation))
+                    #expect(services.agentChatFontSizeWrites.latest == nil,
+                            "\(origin) must retain the workspace-terminal action")
+                    #expect(settings.fileRoot.value(at: key) == .number(20))
+                }
+            }
+        }
+    }
+
     @Test(arguments: [false, true]) func failedFontWritesReachTheKeyboardOrWaitingCaller(captured: Bool) async throws {
         try await withSettings { services, settings, url in
             try await openChat(services)
