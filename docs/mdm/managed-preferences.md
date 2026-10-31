@@ -26,9 +26,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `app.startAgentGlobalHotKey` | boolean | `false` |  | Start Agent from Any App. Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts. |
 | `app.hideDockIconWithoutWindows` | boolean | `true` |  | Hide Dock Icon When No Windows Are Open. cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens. |
 | `app.showMenuBarIcon` | boolean | `true` |  | Show Menu Bar Icon. A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit. |
-| `tabs.newTabTemplate` | string | `"minimal"` | `minimal`, `cards`, `default`, `composer`, `threads`, `console`, `classic`, `terminal` | New Tab Template. The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it. |
+| `tabs.newTabTemplate` | string | `"minimal"` | `minimal`, `cards`, `default`, `threads`, `console`, `classic`, `terminal` | New Tab Template. The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it. |
 | `tabs.nativeNewTabPage` | boolean | `false` |  | Native New Tab Page. Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now. |
-| `tabs.terminalFirst` | boolean | `false` |  | cmux Classic Mode. New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab. |
 | `tabs.newTabPosition` | string | `"afterCurrent"` | `afterCurrent`, `end`, `start` | New Tab Position. Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab. |
 | `tabs.plusButton` | string | `"hover"` | `hover`, `always` | New Tab Button. On Hover shows each tab bar's + only while the pointer is over that tab bar. |
 | `tabs.barPosition` | string | `"top"` | `top`, `bottom` | Tab Bar Position. Where each pane's tab bar sits. At the bottom, the panes reach the top of the window; the window buttons never cover a pane. |
@@ -61,6 +60,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `updates.notify` | string | `"badge"` | `badge`, `silent` | When an Update Is Ready |
 | `updates.keepPreviousVersions` | real | `1` | 0 to 5 | Keep Previous Versions. Earlier builds kept so you can roll back. Uses almost no disk until files change. |
 | `updates.showWhatsNew` | boolean | `true` |  | Show What's New After Updates. After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it. |
+| `updates.showFeatureTips` | boolean | `true` |  | Show Feature Tips. Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back. |
 | `updates.idleInstallMaxWaitSeconds` | real | `600` | 60 to 7200 | Install Within. A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart. |
 | `updates.idleInstallQuietSeconds` | real | `60` | 5 to 600 | Quiet Time Before Installing. How long the keyboard and mouse must be idle before a downloaded nightly installs by itself. |
 | `announcements.enabled` | boolean | `true` |  | Show Announcements. Short cards from the cmux team above Settings, shown when the pointer is over the sidebar. |
@@ -127,8 +127,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `workspaces.hibernation.enabled` | boolean | `true` |  | Hibernate Idle Workspaces. Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace. |
 | `workspaces.hibernation.idleMinutes` | real | `60` | 5 to 10080 | Hibernate After. A workspace hibernates when you have not opened it and nothing in it changed for this many minutes. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate. |
 | `tasks.layout` | string | `"inbox"` | `list`, `board`, `inbox` | Tasks Layout. Inbox lists what needs you first, with the task beside it. Changes apply at once. |
-| `appearance.theme` | string |  |  | Theme. Colors for cmux and its terminals. A space, workspace or terminal theme overrides it. |
-| `appearance.appTheme` | string | `"followTerminal"` |  | App Theme. Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast. |
+| `appearance.theme` | string |  |  | Theme. Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it. |
+| `appearance.appTheme` | string | `"followTerminal"` |  | App Theme. Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast. |
 | `appearance.themeEdits` | dictionary | `{}` |  | Theme Edits. Your color changes to a theme, such as "Rose Pine/background": "#1f1d2e". The theme itself never changes; remove an entry to reset that color. |
 | `appearance.accent` | string | `"neutral"` | `neutral`, `theme`, `art`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan` | Accent. The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris. |
 | `appearance.highlightColor` | string |  |  | Highlight Color. The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color. |
@@ -261,6 +261,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.inspector.placement` | string | `"overlay"` | `push`, `overlay` | Session Info. Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat. |
 | `agentPane.display.environment.placement` | string | `"left"` | `left`, `right`, `off` | Session Info Chip. Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it. |
 | `agentPane.display.minimap` | string | `"compact"` | `compact`, `full`, `off` | Chat Minimap. What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing. |
+| `agentPane.display.rail.side` | string | `"left"` | `left`, `right` | Prompt Rail Side. The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it. |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
 | `terminal.linkOpener.default` | string | `"cmux"` |  | Open Program Links In. Where a URL goes when a program in a terminal opens a browser, such as aws login or gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, a profile after @ (chrome@Profile 1), or command:<command> to let your script decide. A BROWSER you set yourself wins. |
@@ -317,7 +318,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.topBandMaxShare` | real | `0.3333333333333333` | 0.1 to 0.9 | Top Sections Height. The share of the sidebar the top sections fill before they scroll. |
 | `sidebar.bottomBandMaxShare` | real | `0.25` | 0.1 to 0.9 | Bottom Sections Height. The share of the sidebar the bottom sections fill before they scroll. |
 | `sidebar.pinnedBandsScroll` | boolean | `true` |  | Scroll Tall Sections. Off: the top and bottom sections never scroll and the workspace list gets smaller. |
-| `sidebar.showWorkspaceTabs` | boolean | `true` |  | Show Workspace Tabs. Lists tabs beneath each workspace in the sidebar. |
 | `sidebar.showChats` | boolean | `true` |  | Show All Chats on New Tab. On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only. |
 | `sidebar.sessionTree` | boolean | `false` |  | Session Tree. Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys. |
 | `sidebar.showProjects` | boolean | `true` |  | Show Projects |
@@ -330,6 +330,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.minimal` | boolean | `false` |  | Minimal Mode. Workspace rows show only their icon, name and unread mark, and section titles become thin lines. |
 | `sidebar.style` | string | `"standard"` | `standard`, `rail` | Sidebar Style. Rail shrinks the sidebar to a thin strip with a mark for each workspace. Point at the strip to open the full sidebar over your work. |
 | `sidebar.density` | string | `"compact"` | `compact`, `comfortable`, `expanded` | Sidebar Density. Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer. |
+| `sidebar.textSize` | string | `"default"` | `default`, `large`, `larger` | Sidebar Text Size. Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar. |
 | `sidebar.detailedStatusIcons` | boolean | `false` |  | Detailed Status Icons. Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you. |
 | `sidebar.showTimestamps` | boolean | `false` |  | Show Timestamps. Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does. |
 | `sidebar.showColors` | boolean | `true` |  | Show Workspace Colors. Workspaces and groups draw their colors in the sidebar. Off, the sidebar draws no colors and keeps the colors you set. |
@@ -471,6 +472,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.newTabPage` | string | `""` |  | New Tab Page. An address such as https://example.com. Empty opens a blank page. |
 | `browser.showBookmarksBar` | boolean | `false` |  | Show Bookmarks Bar. A row of bookmarks under each browser toolbar. |
 | `browser.import.enabled` | boolean | `true` |  | Import from Other Browsers. Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays. |
+| `browser.import.cookieBanner` | boolean | `true` |  | Offer to Import Cookies. Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off. |
 | `browser.showAgentCursor` | boolean | `true` |  | Show Agent Cursor. When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots. |
 | `browser.agentMouse.motion` | string | `"human"` | `human`, `instant` | Agent Pointer Motion. How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once. |
 | `browser.agentMouse.maxMoveMs` | real | `350` | 60 to 1000 | Longest Agent Pointer Move. The longest time one agent pointer move takes with human motion. Short moves take less. |
@@ -495,6 +497,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.omnibar.cornerRadius` | string | `"theme"` | `theme`, `capsule` | Address Bar Corners. Match Theme uses the standard bar radius. Capsule rounds the ends fully. Also accepts a number from 0 to 16 in a raw profile. |
 | `browser.omnibar.shadow` | boolean | `false` |  | Address Bar Shadow. A soft shadow under the glass address bar. |
 | `browser.omnibar.backgroundOpacity` | real | `0` | 0 to 1 | Address Bar Opacity. How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable. |
+| `browser.omnibar.height` | string | `"density"` | `density` | Address Bar Height. Match Density follows the density. The bar always grows to fit its text. Also accepts a number from 20 to 56 in a raw profile. |
+| `browser.omnibar.fontSize` | string | `"density"` | `density` | Address Bar Text Size. The size of the address and the suggestions. Match Density follows the density. Also accepts a number from 10 to 24 in a raw profile. |
 | `browser.links.cmdClick` | string | `"linkPlacement"` | `linkPlacement`, `backgroundTab`, `foregroundTab`, `newWindow`, `currentTab`, `download` | Command-Click. In Chromium tabs, Download keeps Chrome's default. |
 | `browser.links.cmdShiftClick` | string | `"foregroundTab"` | `linkPlacement`, `backgroundTab`, `foregroundTab`, `newWindow`, `currentTab`, `download` | Shift-Command-Click. Shift-middle-click does the same. |
 | `browser.links.shiftClick` | string | `"newWindow"` | `linkPlacement`, `backgroundTab`, `foregroundTab`, `newWindow`, `currentTab`, `download` | Shift-Click. In Chromium tabs, Download keeps Chrome's default. |
@@ -595,6 +599,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `macScreen.systemShortcuts` | boolean | `false` |  | Send System Shortcuts to the Remote Mac. While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility. |
 | `macScreen.debug.relayOnly` | boolean | `false` |  | Relay Only. Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect. |
 | `deviceHub.url` | string | `""` |  | Device Hub Address. Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub. |
+| `contextMenus.showCustomizeItem` | boolean | `true` |  | Show Customize Menu…. Adds Customize Menu… to the end of every right-click menu. |
 | `EnrollmentToken` | string |  |  | Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership. |
 | `ManagedTeam` | string |  |  | Team id (team_...) that manages this device. |
 | `RestrictToManagedTeam` | boolean |  |  | Refuse sign-in to any team other than ManagedTeam on this device. |
