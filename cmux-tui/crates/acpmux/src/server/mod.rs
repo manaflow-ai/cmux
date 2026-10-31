@@ -2067,6 +2067,10 @@ mod acp_list_tests;
 mod session_list_pages_tests;
 
 #[cfg(test)]
+#[path = "watch_delta_link_tests.rs"]
+mod watch_delta_link_tests;
+
+#[cfg(test)]
 mod key_route_tests;
 
 #[cfg(test)]

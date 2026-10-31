@@ -232,6 +232,10 @@ pub struct Peer {
     /// next frame, so a `session_changed` the peer sent after the reply reaches the hub after
     /// the list, never before it. A list in pages is published once, whole, after its last.
     watch_key: StdMutex<Option<String>>,
+    /// Whether the peer answers a watch's `known` with a delta, and the rows the last list read
+    /// held (`watch_delta.rs`).
+    watch_delta: AtomicBool,
+    known: StdMutex<crate::watch_delta::Known>,
 }
 
 impl Peer {
@@ -301,6 +305,8 @@ impl Peer {
             health: StdMutex::new(None),
             health_asking: AtomicBool::new(false),
             watch_key: StdMutex::new(None),
+            watch_delta: AtomicBool::new(false),
+            known: StdMutex::new(crate::watch_delta::Known::default()),
         })
     }
 
@@ -1224,6 +1230,7 @@ impl Peer {
             set(&me.upload_resume, crate::hub::file_uploads::RESUME_FEATURE);
             set(&me.session_auth, crate::hub::session_auth::FEATURE);
             set(&me.person_stop, crate::hub::cancel::PERSON_STOP_FEATURE);
+            set(&me.watch_delta, crate::watch_delta::FEATURE);
             let resumes = lists(crate::server::SESSION_RESUME_FEATURE);
             me.session_resume_link.store(if resumes { link + 1 } else { 0 }, Ordering::SeqCst);
             let messages = init
@@ -1241,7 +1248,16 @@ impl Peer {
                 me.watch_row_pages(link).await?;
                 None
             } else {
-                match me.watch_paced(method::MUX_WATCH, watch(true), link).await {
+                // A link that read the list before reads only what changed since
+                // (`watch_delta.rs`): a daemon serving it as a peer answers with a delta.
+                let mut asked = watch(true);
+                let delta = me.watch_delta.load(Ordering::SeqCst)
+                    && me.served_as().as_deref() == Some("peer");
+                let known = delta.then(|| me.known.lock_or_recover().to_param());
+                if let Some(known) = known.filter(|k| k.as_object().is_some_and(|k| !k.is_empty())) {
+                    asked.set("known", known);
+                }
+                match me.watch_paced(method::MUX_WATCH, asked, link).await {
                     // A list too large to send with tools (big-red's, 17 MB with 5241 rows, on
                     // 2026-10-30) is read without them: the link connects with its rows' tools
                     // missing rather than never. A peer on this build leaves its peers' rows out
@@ -1447,6 +1463,15 @@ impl Peer {
                             if let (true, Ok(list)) = (watch, &reply) {
                                 let (mut rows, held) = paged.take().unwrap_or_default();
                                 rows.extend(watch_sessions(list));
+                                // The whole list a delta stands for; the rows of a whole list,
+                                // kept for the next link's delta (`watch_delta.rs`).
+                                let delta = crate::watch_delta::read_delta(list).map(|(_, removed)| removed);
+                                let last = matches!(page_cursor(list), Ok(None));
+                                match delta {
+                                    Some(removed) => rows = self.known.lock_or_recover().patched(std::mem::take(&mut rows), &removed),
+                                    None if last => self.known.lock_or_recover().listed(&rows),
+                                    None => {}
+                                }
                                 match page_cursor(list) {
                                     // More pages: the handshake asks for them.
                                     Ok(Some(_)) => {
