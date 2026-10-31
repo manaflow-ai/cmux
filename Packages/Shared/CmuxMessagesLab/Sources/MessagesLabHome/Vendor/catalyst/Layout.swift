@@ -1017,8 +1017,8 @@ enum RowBuilder {
     /// min), more than 15 min on macOS 26 (the original
     /// recording, macOS 26: "Today 12:06 PM" over "hello world" 21 min after the message above) (cx-3cb row-gap).
     static var separatorGap: TimeInterval { ComposeMetrics.macOS26 ? 15 * 60 : 60 * 60 }
-    /// cmux: the typing row's gap under a bubble: its bubble top 8 pt under the bubble above (a new group's gap).
-    static var typingGapUnderBubble: CGFloat { 8 - (RowDraw.typingBubble.minY - RowDraw.margin) }
+    /// cmux: the typing row's gap under a bubble: its bubble top 14 pt under the bubble above (user, "maybe even more padding").
+    static var typingGapUnderBubble: CGFloat { 14 - (RowDraw.typingBubble.minY - RowDraw.margin) }
 
     /// `previousRow`: the kind of the row just above `range` (gaps depend on it).
     /// `width`: layout width (captured on main). `exact`: message indices to
@@ -1281,10 +1281,10 @@ enum RowBuilder {
         // cmux (user 2026-10-30, "make it just one line with shimmer text"): the status line, shimmering
         // (HomeNoticeShimmer), is the running indicator; no typing bubble under it.
         if !threadMode, span.upperBound == messages.count, s.atNewest, typists, !statusLine {
-            // cmux: right under a bubble the typing bubble keeps a separate message's gap, 8 pt body to body (the
-            // new-group gap above), so it does not touch the bubble above or its tail; it sat 4.3 pt under it (user,
-            // 2026-10-30, "more space in between typing bubble and the latest message"). Under a receipt or a
-            // label row it stays as it was (the status line has no typing bubble under it).
+            // cmux: right under a bubble the typing bubble sits 14 pt under it body to body, so it stays clear of the
+            // bubble above and its tail; it sat 4.3 pt under it (user, 2026-10-30, "more space in between typing bubble
+            // and the latest message"), then 8 pt ("maybe even more padding"). Under a receipt or a label row it stays
+            // as it was (the status line has no typing bubble under it).
             var gap: CGFloat = 0
             switch rows.last?.kind ?? previousRow {
             case .part, .unsent: gap = Self.typingGapUnderBubble

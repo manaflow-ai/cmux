@@ -5,7 +5,8 @@ import UniformTypeIdentifiers
 @testable import MessagesLabHome
 
 /// The picture of the typing bubble under the Chief's newest bubble (user 2026-10-30: "we need more space in
-/// between typing bubble and the latest message"): before (gap 0, the old row) and after, dark and light, in
+/// between typing bubble and the latest message", then "maybe even more padding"): before (8 pt body to body) and
+/// after, dark and light, in
 /// `.build/home-typing-gap.png` (a fleet step returns it with `--artifact`). The bubble above draws through
 /// `RowDraw`; the typing bubble, its tail discs and dots are layers on macOS (RowCell), so this draws them from
 /// the same geometry (`RowDraw.typingBubble`, `.typingDiscs`, `.typingDotCenter`). `HomeTypingGapTests` checks the gap.
@@ -19,7 +20,7 @@ import UniformTypeIdentifiers
         var rows = Fixture.withRenderScale(2) {
             RowBuilder.rows(s, messages: s.conversation.messages, now: HomeTypingGapTests.t0.addingTimeInterval(30), width: 360, scale: 2)
         }.filter { $0.key != "notice" && !$0.key.hasPrefix("sep:") }
-        if before, let i = rows.firstIndex(where: { $0.key == "typing" }) { rows[i].gap = 0 }
+        if before, let i = rows.firstIndex(where: { $0.key == "typing" }) { rows[i].gap = 8 - (RowDraw.typingBubble.minY - RowDraw.margin) }
         return rows
     }
 

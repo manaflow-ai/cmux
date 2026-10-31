@@ -816,6 +816,7 @@ impl Mux {
     /// Resolve one public resource path from a single live-state snapshot.
     /// Direct content IDs use the reverse resource indexes and never trigger
     /// a registry snapshot or process query.
+    #[track_caller]
     pub fn resolve_resource_path(
         &self,
         target: crate::ResourceTarget,
@@ -877,11 +878,13 @@ impl Mux {
         ))
     }
 
+    #[track_caller]
     pub fn surface(&self, id: SurfaceId) -> Option<Arc<Surface>> {
         let state = self.state.lock().unwrap();
         state.surfaces.get(&id).or_else(|| state.terminal_runtime_by_id(id)).cloned()
     }
 
+    #[track_caller]
     pub(crate) fn terminal_resource_surface(
         &self,
         terminal_id: &TerminalPublicId,
@@ -913,6 +916,7 @@ impl Mux {
     ///
     /// The state lock is held for the duration of `f`; do not call back
     /// into `Mux` methods that take it (`surface()`, `close_pane()`, ...).
+    #[track_caller]
     pub fn with_state<R>(&self, f: impl FnOnce(&State) -> R) -> R {
         f(&self.state.lock().unwrap())
     }
@@ -947,6 +951,7 @@ impl Mux {
         Ok(())
     }
 
+    #[track_caller]
     fn workspace_key_for_pane(&self, pane: PaneId) -> Option<String> {
         let state = self.state.lock().unwrap();
         let (workspace, _) = state.screen_of(pane)?;
