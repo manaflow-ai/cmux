@@ -60,7 +60,9 @@ export function measureMenus(page: Page): Promise<MenuMeasure[]> {
       return m[1]!.endsWith("%") ? Number.parseFloat(m[1]!) / 100 : Number(m[1]);
     };
     const trigger = [
-      ...document.querySelectorAll('[aria-haspopup][aria-expanded="true"], [aria-haspopup][data-popup-open]'),
+      ...document.querySelectorAll(
+        ':is([aria-haspopup], [data-field-trigger]):is([aria-expanded="true"], [data-popup-open])',
+      ),
     ].at(-1);
     return [...document.querySelectorAll('[role="menu"]')].filter(visible).map((popup) => {
       const p = popup.getBoundingClientRect();

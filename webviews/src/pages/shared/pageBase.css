@@ -50,25 +50,36 @@ input {
   color: inherit;
 }
 
+/* A page's row menu (History's right-click menu) is the shared menu glass (Leo 2026-10-21: "STOP
+   DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS."): .ui-popup.ui-glass gives the tint, frost, rim
+   and drop (ui/glass/glass.css, ui/popupSurface.css), with the menu tokens' stronger frost so the
+   rows under it do not read through. Reduce Transparency alone makes it solid. Its rows sit on the
+   menu grid (leo-workspace design/menus.md, design/grid.md 5.3): the highlight 5 in from the edge,
+   the text at 15, one row token high. */
 .page-menu {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-tint), transparent);
+  --glass-backdrop: var(--ds-glass-menu-blur);
+  box-sizing: border-box;
   min-width: 180px;
   max-width: 280px;
-  padding: 4px;
-  border-radius: 8px;
-  background: var(--surface-popup);
-  border: 1px solid var(--page-separator);
-  box-shadow: var(--elevation-2);
+  padding: var(--cmux-menu-highlight-inset);
+  border: 0;
+  border-radius: var(--ui-popup-radius, 8px);
   outline: none;
 }
 
 .page-menu-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
   width: 100%;
+  min-height: var(--ds-control-row);
   text-align: left;
   border: 0;
   background: transparent;
-  padding: 3px 10px;
-  border-radius: 5px;
+  padding: 0 calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset)) 0
+    calc(var(--cmux-menu-icon-x) - var(--cmux-menu-highlight-inset));
+  border-radius: var(--cmux-menu-highlight-radius);
 }
 
 .page-menu-item.active:not([data-disabled]):not([aria-disabled="true"]),
@@ -84,7 +95,7 @@ input {
 .page-menu-separator {
   border: 0;
   height: 1px;
-  margin: 4px 6px;
+  margin: var(--ds-space-1) calc(var(--cmux-menu-separator-inset) - var(--cmux-menu-highlight-inset));
   background: var(--page-separator);
 }
 
