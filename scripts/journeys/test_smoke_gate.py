@@ -551,6 +551,10 @@ class Resize(unittest.TestCase):
                 return {"text": screen_text, "cols": daemon[0], "rows": daemon[1]}
 
             def cmux(self_, *args):
+                if args[:1] == ("screen",):
+                    cols = [{"width": w, "root": {"kind": "leaf", "pane_id": k, "tab_ids": ["t"]}}
+                            for k, w in shell.get("daemon_cols", [])]
+                    return {"root": {"kind": "viewport", "columns": cols}} if cols else {}
                 return {"pid": shell["pid"]}
 
         class J:
@@ -566,7 +570,7 @@ class Resize(unittest.TestCase):
                 return x
 
             def topology(self_):
-                return {"workspaces": [{"id": "W", "screens": [{"panes": topo_panes}]}]}
+                return {"workspaces": [{"id": "W", "screens": [{"id": "S", "panes": topo_panes}]}]}
 
             @staticmethod
             def places(topology):
@@ -700,6 +704,24 @@ class Resize(unittest.TestCase):
         del bare.app.panes()[1]["grid"]
         with self.assertRaises(self.NotRun):
             self.ext.step_smoke_widths(bare, {"name": "c1", "frame_wait": 0.3})
+
+    def test_a_hidden_column_is_judged_by_the_daemons_column_width(self):
+        j = self.journey(columns=[(1, "P2", 650.0, 300.0)])
+        j.shell_state["daemon_cols"] = [("P1", 0.5), ("P2", 0.5)]
+        self.ext.step_smoke_widths(j, {"name": "c0"})
+        later = self.journey(columns=[(1, "P2", 650.0, 300.0), (2, "P3", 951.0, 300.0)])
+        later.smoke_width_snaps = j.smoke_width_snaps
+        del later.app.panes()[1]["grid"]  # P2's view is hidden; its terminal lives
+        # The daemon keeps P2's column at 0.5: holds, judged from the daemon.
+        later.shell_state["daemon_cols"] = [("P1", 0.5), ("P2", 0.5), ("P3", 0.5)]
+        ok, detail = self.ext.cond_smoke_same_widths(later, {"since": "c0", "new": 1}, {})
+        self.assertTrue(ok, detail)
+        self.assertEqual(detail["daemon_resolved"]["1"]["source"], "daemon")
+        # The daemon shrank P2's column to 0.25: fails, with both shares.
+        later.shell_state["daemon_cols"] = [("P1", 0.5), ("P2", 0.25), ("P3", 0.5)]
+        ok, detail = self.ext.cond_smoke_same_widths(later, {"since": "c0", "new": 1}, {})
+        self.assertFalse(ok)
+        self.assertEqual((detail["changed"]["1"]["old"], detail["changed"]["1"]["new"]), (0.5, 0.25))
 
     def test_a_new_pane_without_its_frame_yet_does_not_hide_the_old_column(self):
         # Split Down adds P6 to column 1; P6 has no frame yet at this poll. Column 1's width is read from P2 alone.

@@ -663,6 +663,51 @@ def _alive(pid):
     return True
 
 
+def _layout_panes(node, out):
+    """The pane ids of a daemon layout node (leaf, split, rows), in order."""
+    if not isinstance(node, dict):
+        return out
+    if node.get("kind") == "leaf" and node.get("pane_id"):
+        out.append(str(node["pane_id"]))
+    for key in ("a", "b", "root", "first", "second"):
+        _layout_panes(node.get(key), out)
+    for key in ("children", "rows", "columns"):
+        for child in node.get(key) or []:
+            _layout_panes(child.get("root", child) if isinstance(child, dict) else child, out)
+    return out
+
+
+def _daemon_widths(j, workspace):
+    """{frozenset(pane ids): width share} of every viewport column of WORKSPACE's screens, from the daemon's own layout
+    (`cmux screen ID layout export`: root.kind "viewport", columns[].width, a share of the viewport). The daemon's
+    record of the layout, independent of whether the app shows a column's view. {} when it cannot be read."""
+    out = {}
+    for ws in j.topology().get("workspaces", []):
+        if ws.get("id") != workspace:
+            continue
+        for screen in ws.get("screens", []):
+            try:
+                layout = j.app.cmux("screen", str(screen.get("id")), "layout", "export")
+            except D.StepError:
+                continue
+            root = (layout or {}).get("root") if isinstance(layout, dict) else None
+            if not isinstance(root, dict) or root.get("kind") != "viewport":
+                continue
+            for column in root.get("columns") or []:
+                panes = frozenset(_layout_panes(column.get("root"), []))
+                if panes and isinstance(column.get("width"), (int, float)):
+                    out[panes] = float(column["width"])
+    return out
+
+
+def _daemon_width_of(widths, members):
+    """The daemon width share of the column that holds every pane of MEMBERS, or None."""
+    for panes, width in widths.items():
+        if set(members) <= panes:
+            return width
+    return None
+
+
 def _frame_loss(j, panes):
     """For each pane with no view frame: is its terminal only hidden (the view unmounted or discarded, the daemon pane,
     its terminal and the shell process alive) or GONE (no daemon pane or terminal, a dead lifecycle, a failed screen
@@ -747,8 +792,11 @@ def step_smoke_widths(j, step):
     if not hasattr(j, "smoke_width_snaps"):
         j.smoke_width_snaps = {}
     focused = _focused_pane(j)
-    j.smoke_width_snaps[step["name"]] = {"workspace": workspace, "widths": widths, "columns": columns, "focused": focused}
-    return {"workspace": workspace, "widths": widths, "columns": columns, "focused": focused}
+    daemon = _daemon_widths(j, workspace)
+    j.smoke_width_snaps[step["name"]] = {"workspace": workspace, "widths": widths, "columns": columns, "focused": focused,
+                                         "daemon_widths": daemon}
+    return {"workspace": workspace, "widths": widths, "columns": columns, "focused": focused,
+            "daemon_widths": {",".join(sorted(k)): v for k, v in daemon.items()}}
 
 
 def cond_smoke_same_widths(j, want, cache):
@@ -811,6 +859,29 @@ def cond_smoke_same_widths(j, want, cache):
               "old_columns": old_cols, "new_columns": new_cols}
     seen = getattr(j, "smoke_unknown_since", {})
     j.smoke_unknown_since = seen
+    if unknown and not problems:
+        # A hidden view (its terminal alive, proven by _frame_loss) is measured by the daemon's own column width share
+        # instead: the same column (by its panes) before and now. A gone terminal still fails in _no_frame_verdict.
+        hidden = sorted({p for v in unknown.values() for p in v["no_frame"]})
+        evidence, gone = _frame_loss(j, hidden)
+        if not gone:
+            now_daemon = _daemon_widths(j, snap["workspace"])
+            resolved = {}
+            for index, info in unknown.items():
+                before_share = _daemon_width_of(snap.get("daemon_widths") or {}, info["panes"])
+                now_share = _daemon_width_of(now_daemon, info["panes"])
+                if before_share is None or now_share is None:
+                    continue
+                resolved[index] = {"daemon_share_old": before_share, "daemon_share_new": now_share, "source": "daemon"}
+                if abs(before_share - now_share) > 1e-4:
+                    changed[index] = dict(info, **resolved[index], old=before_share, new=now_share)
+            for index in resolved:
+                unknown.pop(index, None)
+            detail["daemon_resolved"] = resolved
+            detail["hidden_evidence"] = evidence
+            if changed:
+                problems.append(f"{len(changed)} existing columns changed width")
+                detail["changed"] = changed
     held = getattr(j, "smoke_width_held", set())
     j.smoke_width_held = held
     if unknown and not problems and want["since"] in held:

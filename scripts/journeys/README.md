@@ -334,11 +334,15 @@ change, a lost or extra column, no split in place) fails first. When an old pane
 (cmux-ad 09:3xZ), the gate tells two cases apart, with the evidence in the result: the terminal is
 GONE (the daemon topology has no pane or terminal tab, its screen read fails, the daemon has no
 process for it, or that shell process is dead): a FAIL, "TERMINAL GONE under memory pressure"
-(a possible P0); or only its view is hidden (daemon pane, screen and shell process alive): not judged.
+(a possible P0); or only its view is hidden (daemon pane, screen and shell process alive; proven on
+v2.2.11-opt 2026-10-31: the app unmounts the view of a far off-screen column after a second New
+Column). A hidden column is then judged by the daemon's own column width (`cmux screen ID layout
+export`: `columns[].width`, a share of the viewport) before and after; only when the daemon width
+cannot be read is the round not judged.
 
 Sources of each check: column membership from the app's topology (`snapshot.get`, each pane's
 `column`); column widths from the app's terminal view frames (`debug.surfaces` `grid.frame_x` and
-`frame_width`); terminal sizes from `debug.surfaces` (grid, fit_grid, drawn_grid, frame and cell size),
+`frame_width`), and for a hidden column from the daemon's layout (`columns[].width`); terminal sizes from `debug.surfaces` (grid, fit_grid, drawn_grid, frame and cell size),
 the daemon (`cmux terminal ID screen read`: cols, rows), the topology tab (columns, rows) and the PTY
 (`stty size`); terminal life from the daemon (`cmux terminal ID process show`) and the process table.
 
