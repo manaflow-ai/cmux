@@ -12,6 +12,7 @@
 //! browser and every other child never inherit the link.
 
 use crate::protocol::{DriverError, ErrorCode};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -103,8 +104,8 @@ impl HistoryLink {
                 format!("{operation}: not a history operation the host may send"),
             ));
         }
-        fields["machine"] = json!("current");
-        fields["session"] = json!("current");
+        fields.set("machine", json!("current"));
+        fields.set("session", json!("current"));
         let id = format!("bh-{}", self.next_id.fetch_add(1, Ordering::Relaxed));
         let mut request = json!({
             "protocol": "cmux.protocol/2",
@@ -115,7 +116,7 @@ impl HistoryLink {
         });
         let mutation = operation != "history.entries.list";
         if mutation {
-            request["idempotency_key"] = json!(format!("bh-{}", random_hex()?));
+            request.set("idempotency_key", json!(format!("bh-{}", random_hex()?)));
         }
         let line = json!({"on_behalf_of": on_behalf_of, "request": request}).to_string();
         let reply = {

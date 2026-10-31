@@ -40,6 +40,7 @@
 use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, HostRecord, Liveness};
+use cmux_json::JsonSet as _;
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
@@ -323,6 +324,7 @@ impl Hub {
             system_prompt_sha256: sha,
             auth: format!("{:016x}", h.finish()),
             account,
+            machine: crate::login_env::machine_stamp(),
         };
         Ok(PoolSpec { key, spawn, draft: draft.clone() })
     }
@@ -700,6 +702,14 @@ impl Hub {
                         self.pool_discard(vec![p]);
                         return None;
                     }
+                    // A delivery or revocation since its key was made (also
+                    // while this claim waited on its start): a cold start
+                    // reads the machine's secrets afresh.
+                    if p.key.machine != crate::login_env::machine_stamp() {
+                        tracing::info!(harness = %spec.key.harness, "pooled session discarded: the machine's delivered secrets changed");
+                        self.pool_discard(vec![p]);
+                        return None;
+                    }
                     // `stop_pool` may have drained the pool and the claims
                     // while the entry was out of both.
                     if self.pool.stopping.load(Ordering::SeqCst) {
@@ -804,7 +814,7 @@ impl Hub {
             "hostBuild": p.record.host_build.clone()
         });
         if session.meta().remote_origin {
-            started["remoteEnvPolicy"] = crate::agent::REMOTE_ENV_POLICY_ID.into();
+            started.set("remoteEnvPolicy", crate::agent::REMOTE_ENV_POLICY_ID.into());
         }
         self.append(session, "mux", "host_started", started);
         // A new host: its log is read back again under MDM's off, no end is pending for it, and

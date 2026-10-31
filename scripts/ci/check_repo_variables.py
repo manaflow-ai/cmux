@@ -35,6 +35,12 @@ from cloud_overflow_switch import RECORD_VARIABLE, parse_record  # noqa: E402
 from signing_runner_variables import allowed_value  # noqa: E402
 
 RUNNER_VARIABLES_ENV = "CMUX_CI_RUNNER_VARIABLES"
+# Blacksmith's 12 vCPU macOS 26 label stalls for hours at a time (2026-10-20, -26, -28: no job started from
+# about 02:11Z with 61 queued). These variables are a job's last resort after its picker, so one naming that
+# label strands every job whose picker answered nothing. MACOS_RUNNER_26_LARGE names it on purpose and is read
+# only where a picker already skips a stalled label. tests/test_ci_runs_on_fallback.py keeps literals off it.
+LARGE_MAC = "blacksmith-12vcpu-macos-26"
+LAST_RESORT_VARIABLES = ("MACOS_RUNNER_PR", "MACOS_RUNNER_26", "MACOS_RUNNER_IOS")
 
 
 def parse_runner_variables(raw: str) -> dict[str, str]:
@@ -73,6 +79,10 @@ def problems(env: dict[str, str]) -> list[str]:
                     # jobs read is never excused for naming a reused machine, record or not.
                     continue
                 found.append(f"{name}={value!r}: {reason}")
+            for name in LAST_RESORT_VARIABLES:
+                if variables.get(name, "").strip() == LARGE_MAC and switched.get(name) != LARGE_MAC:
+                    found.append(f"{name}={LARGE_MAC!r}: a job's last resort on the 12 vCPU Blacksmith label, which "
+                                 "stalls for hours. Fix: gh variable set " + name + " --body blacksmith-6vcpu-macos-26")
         except (ValueError, PolicyUnreadable) as error:
             found.append(str(error))
     for problem in slot_problems(env.get(SLOTS_VARIABLE), env.get(PR_XCODE_VARIABLE)):

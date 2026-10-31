@@ -10,7 +10,7 @@ import { ackWake, chiefPrincipal, chiefRecord, chiefRecordFresh, postReply, read
 import { clip, clipInput, flushMarks, lastTalk, markPending, runError, readRun, readRuns, readSteps, type Run, type Step, type StepPatch, upsertStep } from "./brain-runs.ts"
 import { type BrainConfig, patchError, readConfig, SCHEMA, writeConfig } from "./brain-store.ts"
 import { AUTH_FAILED, claudeAuthFor, forgetClaudeAuth, holderAuth, holderInvalidate, HOLDER, leaseTotal, ownerTurn, turnsObject } from "./claude-auth.ts"
-import { Compactor, type CallRecord } from "./compactor.ts"
+import { Compactor, compactorHold, type CallRecord } from "./compactor.ts"
 import { PrefixCache, ttlMs } from "./cache-prefix.ts"
 import { prunePiEntries } from "./pi-prune.ts"
 import { type LedgerAnswer, type LedgerOp, runLedger } from "../model-gateway/run-ledger.ts"
@@ -30,6 +30,8 @@ import { ccNotes } from "../chief-brain-cc/turn.ts"
 import { toolFiles, toolsCall } from "../chief-brain-cc/tools.ts"
 import { wakeFire } from "../chief-brain-cc/wake.ts"
 import { chiefJobWake, type ChiefJob, type JobDelivery } from "../chief-brain-cc/jobs.ts"
+import { jobsSendDue, jobsStore, type StoreOp } from "../chief-brain-cc/jobs-store.ts"
+import { upstashSender } from "../chief-brain-cc/jobs-upstash.ts"
 import { githubCall, githubDump, type GithubHost, githubPoll, type GithubStatus, githubTurn } from "../chief-brain-cc/github.ts"
 import { ccSandbox, ccSandboxPurge, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
 import type { MemoryExport } from "../chief-durable/durable-do.ts"
@@ -232,6 +234,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
       off: () => (importing(this.sql) ? "a memory copy is under way" : this.compactorName() === undefined ? "no compactor model this owner may use" : undefined),
       onFirstFailure: (l, i, error) => console.warn(JSON.stringify({ msg: "chief_brain.compactor_failed", node: `${l}:${i}`, error: error.slice(0, 300) })),
       onRetryWait: (at) => this.schedule("compact", "compact", at),
+      hold: compactorHold(this.sql),
       retryBaseMs: Number(env.CHIEF_BRAIN_COMPACT_RETRY_BASE_MS) || undefined
     })
   }
@@ -527,10 +530,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   /**
    * The Chief's sandboxes (chief-brain-cc/sandbox.ts), on its `<agent>/sandboxes` object only: one `chief-vm` call.
-   * `legacy`: sandboxes a conversation brain kept before they moved here (adopted once).
+   * `legacy`: sandboxes a conversation brain kept before they moved here (adopted once). `owner`: the Chief's owner,
+   * the Freestyle customer of the VMs it makes.
    */
-  async ccSandboxCall(agent: string, req: unknown, legacy: ReadonlyArray<{ id: string; name: string; created_at: number }> = []): Promise<{ status: number; json: unknown }> {
-    return ccSandbox(this, agent, req, legacy)
+  async ccSandboxCall(agent: string, req: unknown, legacy: ReadonlyArray<{ id: string; name: string; created_at: number }> = [], owner: string | null = null): Promise<{ status: number; json: unknown }> {
+    return ccSandbox(this, agent, req, legacy, owner)
   }
 
   /** The Chief was archived: its sandboxes pause and its Freestyle identity goes, with every token and grant. */
@@ -546,6 +550,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
   /** A run of one of this Chief's jobs (chief-brain-cc/jobs.ts, AutomationRunWorkflow): its note starts a turn here. */
   async chiefJob(j: ChiefJob): Promise<JobDelivery> {
     return chiefJobWake(this, j)
+  }
+
+  /** The Chief jobs of a team on the Upstash engine (chief-brain-cc/jobs-store.ts), on its `<team>/chief-jobs` object only. */
+  async cjStore(team: string, o: StoreOp): Promise<unknown> {
+    return jobsStore(this, team, o, upstashSender(this.env))
   }
 
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
@@ -823,12 +832,16 @@ export class ChiefBrainDO extends DurableObject<Env> {
       const next = await githubPoll(this.githubHost())
       return next === null ? undefined : { rescheduleAt: next }
     }
+    if (job.fn === "cj-send") return void (await jobsSendDue(this, upstashSender(this.env), String(job.id).slice("cj-send:".length)))
     if (job.fn === "spawn-pump") return void (await this.pumpSlots())
     if (job.fn === "spawn-post") return void (await this.deliverReports())
     if (job.fn === "spawn-gc") return this.childGc()
     if (job.fn === "agent-out") return void (await this.flushOutcomes())
     if (job.fn !== "compact" || this.compactor.off()) return
+    // Held after failures (compactor.ts): wake when the hold ends, without keeping the object up meanwhile.
+    const held = this.compactor.cooling()
+    if (held > 0) return { rescheduleAt: Date.now() + Math.max(held, RETRY_MS) }
     this.compactor.pump()
-    if (!(await this.compactor.settle(AbortSignal.timeout(60_000)))) return { rescheduleAt: Date.now() + RETRY_MS }
+    if (!(await this.compactor.settle(AbortSignal.timeout(60_000)))) return { rescheduleAt: Date.now() + Math.max(RETRY_MS, this.compactor.cooling()) }
   }
 }

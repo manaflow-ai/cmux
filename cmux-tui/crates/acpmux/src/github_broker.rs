@@ -1,17 +1,23 @@
 //! GitHub for the person's own machines, through the Mac's `gh` login.
 //!
 //! A machine the person added (the lane) asks the Mac that mirrors it as a peer (the owner) for
-//! one GitHub action: a request on the link the Mac opened to it, never with a credential. The
-//! Mac checks it, runs one fixed `gh` command with its own login, and answers with bounded output
-//! (`peer.rs` takes the request).
+//! one GitHub action: an agent session there asks its daemon (`handle`), which sends the request,
+//! never a credential, up the link the Mac opened to it (`server/client_request.rs`,
+//! `hub/github_owner.rs`). The Mac checks it again, runs one fixed `gh` command with its own
+//! login, and answers with bounded output (`peer.rs` takes the request).
 //!
 //! - The Mac serves only a peer whose saved config says `githubBroker`
 //!   (`PeerConfig::github_broker`); any other peer is refused, as every request from a peer was.
 //! - Only these actions exist: read a repository or a pull request, open an issue, comment on
 //!   one, and open a draft pull request. There is no push, merge, close, delete, edit, settings,
 //!   secret, workflow or `gh api` passthrough.
-//! - The token never leaves the Mac: `gh` reads it from the Mac's keyring, and the answer holds
-//!   only `gh`'s output. Each action is a log line on the Mac, with no title, body or output.
+//! - On the lane only an agent session of that daemon may ask (its caller token, `hub/person.rs`),
+//!   over the unix socket; the Web, the app's pages and peers are refused (`remote_guard.rs`).
+//! - The token never leaves the Mac: `gh` reads it from the Mac's keyring, or, with no keyring
+//!   login, from a token the cmux GitHub App mints for that one action (`github_app_token.rs`);
+//!   the answer holds only `gh`'s output and which of the two ran. Each decision is a
+//!   `github_broker_action` event on the lane session and a log line on the Mac, with no title,
+//!   body, output or token in either.
 
 use crate::rpc::RpcError;
 use serde::{Deserialize, Serialize};
@@ -20,13 +26,24 @@ use std::sync::Arc;
 use tokio::process::Command;
 
 const REPO_MAX: usize = 140;
-const TEXT_MAX: usize = 64 * 1024;
+pub(crate) const TEXT_MAX: usize = 64 * 1024;
 const OUTPUT_MAX: usize = 64 * 1024;
 /// How much of a stream is read before the rest is dropped, so a `gh` that will not stop
 /// talking cannot grow the Mac's daemon for as long as `GH_TIMEOUT` allows.
 const STREAM_READ_MAX: u64 = 2 * OUTPUT_MAX as u64;
 /// A brokered `gh` is one bounded API call; it never waits for a person.
 pub const GH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// How late after the machine sent it a request may still reach the Mac and run, by the Mac's
+/// clock: the link's delay plus how far the Mac's clock runs ahead. The two clocks are taken to
+/// differ by at most this much (both keep network time); past that, a Mac ahead refuses the
+/// machine's requests as late, and one behind refuses a prompt one as too far ahead, so a clock
+/// that is off shows as refusals. Past it the machine stopped waiting, so the action never runs.
+pub const LINK_SLACK: std::time::Duration = std::time::Duration::from_secs(30);
+/// How long the machine waits for the Mac's answer: an action the Mac starts runs at most
+/// `GH_TIMEOUT` from a start at most `LINK_SLACK` after it was sent by the Mac's clock, which is
+/// at most `LINK_SLACK` behind, so it ends before this, with a few seconds for the answer.
+pub const LANE_WAIT: std::time::Duration =
+    std::time::Duration::from_secs(GH_TIMEOUT.as_secs() + 2 * LINK_SLACK.as_secs() + 5);
 /// How many actions one peer (by name, across reconnects) may have running on the Mac at once.
 pub const OWNER_SLOTS: usize = 4;
 
@@ -89,6 +106,34 @@ pub struct GithubActionParams {
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
+    /// Unix ms, by the machine's clock: when it stops waiting for the answer
+    /// ([`deadline_from`]). The lane sets it; the Mac starts nothing that could finish later.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deadline_ms: Option<u64>,
+}
+
+/// The deadline the lane gives an action it sends at `now_ms`.
+pub fn deadline_from(now_ms: u64) -> u64 {
+    now_ms + (GH_TIMEOUT + LINK_SLACK).as_millis() as u64
+}
+
+/// The Mac's check of a deadline at `now_ms`: refused when `gh` could still be running after it
+/// (the request came late, after a stalled or sleeping link, or the clocks differ).
+fn check_deadline(deadline: Option<u64>, now_ms: u64) -> Result<(), RpcError> {
+    let deadline = deadline.ok_or_else(|| invalid("deadlineMs is required"))?;
+    let run = GH_TIMEOUT.as_millis() as u64;
+    if now_ms + run > deadline {
+        let late = format!(
+            "the request reached the Mac too late to run (over {}s after this machine sent it, \
+             or the two clocks differ by that much); nothing was done",
+            LINK_SLACK.as_secs()
+        );
+        return Err(RpcError::new(-32043, late).with_data(json!({"reason": "github.expired"})));
+    }
+    if deadline > now_ms + run + 2 * LINK_SLACK.as_millis() as u64 {
+        return Err(invalid("deadlineMs is further ahead than an action waits"));
+    }
+    Ok(())
 }
 
 fn invalid(message: impl Into<String>) -> RpcError {
@@ -253,30 +298,47 @@ pub(crate) fn redact_github_tokens(text: &str) -> String {
     while let Some(c) = rest.chars().next() {
         let prefix = TOKEN_PREFIXES.iter().find(|p| !after_word && rest.starts_with(**p));
         if let Some(prefix) = prefix {
-            let tail = &rest[prefix.len()..];
+            let tail = rest.get(prefix.len()..).unwrap_or("");
             let end = tail.find(|c: char| !word(c)).unwrap_or(tail.len());
             out.push_str("[redacted]");
-            rest = &tail[end..];
+            rest = tail.get(end..).unwrap_or("");
             after_word = true;
             continue;
         }
         out.push(c);
         after_word = word(c);
-        rest = &rest[c.len_utf8()..];
+        rest = rest.get(c.len_utf8()..).unwrap_or("");
     }
     out
 }
 
-/// What one decision records: never the title, body or output.
-pub fn audit_payload(r: &GithubActionParams, status: &str, error: Option<&RpcError>) -> Value {
+/// What one decision records: never the title, body, output or a token. `source` is the login
+/// the Mac ran it with (`keyring` or `app`, `github_app_token.rs`), when it got that far.
+pub fn audit_payload(
+    r: &GithubActionParams,
+    status: &str,
+    error: Option<&RpcError>,
+    source: Option<&str>,
+) -> Value {
     json!({
         "action": r.action.name(),
         "repo": r.repo,
         "branch": r.branch,
         "issue": r.issue,
         "status": status,
+        "source": source,
         "error": error.map(|e| json!({"code": e.code})),
     })
+}
+
+/// The login an answer from the Mac says it ran with.
+fn source_of(reply: &Result<Value, RpcError>) -> Option<&str> {
+    match reply {
+        Ok(v) => v.get("source"),
+        Err(e) => e.data.as_ref().and_then(|d| d.get("source")),
+    }
+    .and_then(Value::as_str)
+    .filter(|s| matches!(*s, "keyring" | "app"))
 }
 
 /// Read at most `STREAM_READ_MAX` of one pipe, then drain the rest so the child never blocks.
@@ -290,18 +352,24 @@ async fn read_bounded<R: tokio::io::AsyncRead + Unpin>(pipe: Option<R>) -> Vec<u
     kept
 }
 
-/// Run the fixed `gh` command for a checked request on this machine, with its own login.
-async fn execute(r: &GithubActionParams) -> Result<String, RpcError> {
+/// Run the fixed `gh` command for a checked request on this machine with `login`: its own
+/// keyring login, or an App token for this one action and no other, which starts only while the
+/// sign-in it was minted with is still lent (`while_lent`).
+async fn execute(
+    r: &GithubActionParams,
+    login: &crate::github_app_token::Source,
+    app: Option<&crate::github_app_token::AppLease>,
+) -> Result<String, RpcError> {
     let mut gh = Command::new("gh");
     gh.args(gh_args(r));
-    login_env(gh.as_std_mut(), None);
-    let mut child = gh
-        .stdin(std::process::Stdio::null())
+    login_env(gh.as_std_mut(), login.token());
+    gh.stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|e| RpcError::internal(format!("could not start gh on the Mac: {e}")))?;
+        .kill_on_drop(true);
+    let mut child = crate::github_app_token::while_lent(login, app, || {
+        gh.spawn().map_err(|e| RpcError::internal(format!("could not start gh on the Mac: {e}")))
+    })?;
     let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
     let run = async {
         let (out, err, status) =
@@ -362,17 +430,94 @@ pub fn admit_owner(
 }
 
 /// The Mac's side, once `admit_owner` let `peer`'s request in: check it again (the Mac trusts
-/// nothing the lane sends) and run it.
-pub async fn serve_owner(peer: &str, params: Value) -> Result<Value, RpcError> {
+/// nothing the lane sends) and run it with the login `github_app_token::choose` picks; `app` is
+/// the cmux sign-in the app lent this daemon, if any.
+pub async fn serve_owner(
+    peer: &str,
+    params: Value,
+    app: Option<&crate::github_app_token::AppLease>,
+) -> Result<Value, RpcError> {
     let request: GithubActionParams = serde_json::from_value(params)
         .map_err(|e| invalid(format!("invalid GitHub action: {e}")))?;
     validate(&request)?;
-    let result = execute(&request).await;
+    check_deadline(request.deadline_ms, crate::store::now_ms())?;
+    let (source, chosen) = crate::github_app_token::choose(&request, app).await;
+    let result = match &chosen {
+        // Again once the login is chosen (`gh auth status` and a mint take time): `gh` still
+        // starts only if it would end before the machine stops waiting, and an App token only
+        // while the sign-in it was minted with is still lent.
+        Ok(login) => match check_deadline(request.deadline_ms, crate::store::now_ms()) {
+            Ok(()) => execute(&request, login, app).await,
+            Err(e) => Err(e),
+        },
+        Err(e) => Err(e.clone()),
+    };
+    drop(chosen);
     let session = request.session_id.as_deref().unwrap_or("-");
     let status = if result.is_ok() { "allowed" } else { "failed" };
-    let row = audit_payload(&request, status, result.as_ref().err());
+    let row = audit_payload(&request, status, result.as_ref().err(), source);
     tracing::info!(peer, session, "github broker: {row}");
-    Ok(json!({"action": request.action, "repo": request.repo, "output": result?}))
+    let output = result.map_err(|e| with_source(e, source))?;
+    Ok(json!({"action": request.action, "repo": request.repo, "output": output, "source": source}))
+}
+
+/// `e` says which login it ran with, whatever data it had (none, for a `gh` that failed to
+/// start or ran out of time).
+fn with_source(mut e: RpcError, source: Option<&str>) -> RpcError {
+    let Some(source) = source else { return e };
+    let data = e.data.get_or_insert_with(|| json!({}));
+    if let Value::Object(data) = data {
+        data.insert("source".into(), source.into());
+    }
+    e
+}
+
+/// The lane's side: an agent session asked over the unix socket (`remote_guard.rs` refuses
+/// every other origin).
+pub async fn handle(
+    hub: &Arc<crate::hub::Hub>,
+    conn: &Arc<crate::server::Conn>,
+    params: Value,
+) -> Result<Value, RpcError> {
+    if conn.origin != crate::server::Origin::Local {
+        return Err(denied("GitHub actions are asked over this machine's unix socket only"));
+    }
+    let mut request: GithubActionParams = serde_json::from_value(params)
+        .map_err(|e| invalid(format!("invalid GitHub action: {e}")))?;
+    let session = conn
+        .caller()
+        .ok_or_else(|| {
+            denied("GitHub actions are for an acpmux session's agent (run it inside one)")
+        })?
+        .to_owned();
+    request.session_id = Some(session.clone());
+    validate(&request)?;
+    let session = hub.resolve(&session)?;
+    let record = |status: &str, error: Option<&RpcError>, source: Option<&str>| {
+        hub.append_github_audit(&session, audit_payload(&request, status, error, source));
+    };
+    let Some(owner) = hub.github_owner_link() else {
+        let error = RpcError::new(
+            -32042,
+            "no Mac that lends GitHub to this machine is connected (add this machine from the Mac with Add Machine)",
+        )
+        .with_data(json!({"reason": "github.no_owner"}));
+        record("unavailable", Some(&error), None);
+        return Err(error);
+    };
+    // The Mac starts nothing it could not finish before this machine stops waiting.
+    let mut wire = request.clone();
+    wire.deadline_ms = Some(deadline_from(crate::store::now_ms()));
+    let wire = serde_json::to_value(&wire).map_err(|e| RpcError::internal(e.to_string()))?;
+    let budget = LANE_WAIT;
+    let reply = owner.request_client(crate::rpc::method::MUX_GITHUB_ACTION, wire, budget).await;
+    let source = source_of(&reply);
+    match &reply {
+        Ok(_) => record("allowed", None, source),
+        Err(e) if e.code == -32040 => record("denied", Some(e), source),
+        Err(e) => record("failed", Some(e), source),
+    }
+    reply
 }
 
 #[cfg(test)]

@@ -28,6 +28,7 @@ use tokio::sync::mpsc;
 use crate::cli::output::print_json;
 use crate::client::Client;
 use crate::rpc::method;
+use cmux_json::JsonSet as _;
 
 #[derive(Subcommand, Debug, PartialEq, Eq)]
 pub enum ProcessCmd {
@@ -108,7 +109,7 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
         ProcessCmd::Background { session, tool_call } => {
             let mut params = json!({"sessionId": session});
             if let Some(tool) = tool_call {
-                params["toolCallId"] = json!(tool);
+                params.set("toolCallId", json!(tool));
             }
             let v = client.request(method::MUX_PROCESS_BACKGROUND, params).await?;
             if json_out {

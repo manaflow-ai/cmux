@@ -7,7 +7,7 @@
 // The tool limits the schemas name are the kernel's (chief-kernel tools.rs).
 pub use chief_kernel::tools::{
     AUTH_KINDS, CONTROL_ACTIONS, EFFORTS, MAX_SEND_ATTACHMENTS, PLACES, SLEEP_MAX_SECONDS,
-    SLEEP_MIN_SECONDS,
+    SLEEP_MIN_SECONDS, WATCH_DEFAULT_SECONDS, WATCH_MAX_SECONDS, WATCH_MIN_SECONDS, WATCHES_KEPT,
 };
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -45,12 +45,13 @@ impl Memory for OptChat {
 
 /// The Chief tools a turn another person started may call only with
 /// some arguments (`approval::CHIEF_TOOLS`, by their socket names).
-const TURN_GATED: [&str; 11] = [
+const TURN_GATED: [&str; 12] = [
     "send",
     "reply",
     "react",
     "stop",
     "sleep",
+    "watch",
     "spawn",
     "tell",
     "control",
@@ -152,6 +153,13 @@ pub trait Orchestrator: Send + Sync {
     fn sleep(&self, call: SleepCall) -> Result<String, String> {
         let _ = call;
         Err("this Chief host cannot sleep".into())
+    }
+    /// `watch(command, until, timeout_seconds, note)`, or `cancel`, or the
+    /// list (brain/watches.rs): the host runs the command off the turn and
+    /// wakes the Chief once.
+    fn watch(&self, call: WatchCall) -> Result<String, String> {
+        let _ = call;
+        Err("this Chief host cannot watch".into())
     }
     /// `remember(text)` (remember.rs): keeps a lasting preference of the
     /// person in their profile.
@@ -311,6 +319,90 @@ impl SleepCall {
     }
 }
 
+/// One `watch` call: with `command`, a new watch; with `cancel`, a cancel
+/// (a `w<N>` id or `all`); with neither, the list.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WatchCall {
+    /// The shell command (`sh -c`) the host runs off the turn.
+    pub command: Option<String>,
+    /// A regex on its output lines; None: the watch fires when it exits.
+    pub until: Option<String>,
+    /// When it fires as timed out; None: [`WATCH_DEFAULT_SECONDS`].
+    pub timeout_seconds: Option<u64>,
+    /// What to do when it fires: shown in the note.
+    pub note: Option<String>,
+    /// A watch id or `all` to cancel.
+    pub cancel: Option<String>,
+}
+
+impl WatchCall {
+    fn parse(args: &Value) -> Result<WatchCall, String> {
+        let text = |key: &str| {
+            args.get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(str::to_owned)
+        };
+        let command = text("command");
+        let until = text("until");
+        let cancel = text("cancel");
+        let timeout_seconds = match args.get("timeout_seconds") {
+            None | Some(Value::Null) => None,
+            Some(v) => Some(
+                v.as_u64()
+                    .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+                    .ok_or("watch: `timeout_seconds` must be a whole number of seconds")?,
+            ),
+        };
+        if let Some(t) = timeout_seconds
+            && !(WATCH_MIN_SECONDS..=WATCH_MAX_SECONDS).contains(&t)
+        {
+            return Err(format!(
+                "watch: `timeout_seconds` is {WATCH_MIN_SECONDS} to {WATCH_MAX_SECONDS}"
+            ));
+        }
+        if cancel.is_some() && command.is_some() {
+            return Err(
+                "watch: give `command` to start a watch or `cancel` to stop one, not both".into(),
+            );
+        }
+        if command.is_none() && (until.is_some() || timeout_seconds.is_some()) {
+            return Err("watch: `until` and `timeout_seconds` need a `command`".into());
+        }
+        if let Some(u) = &until {
+            regex::Regex::new(u).map_err(|e| format!("watch: `until` is not a regex: {e}"))?;
+        }
+        Ok(WatchCall {
+            command,
+            until,
+            timeout_seconds,
+            note: text("note"),
+            cancel,
+        })
+    }
+
+    fn to_json(&self) -> Value {
+        let mut v = json!({"tool": "watch"});
+        if let Some(c) = &self.command {
+            v["command"] = json!(c);
+        }
+        if let Some(u) = &self.until {
+            v["until"] = json!(u);
+        }
+        if let Some(t) = self.timeout_seconds {
+            v["timeout_seconds"] = json!(t);
+        }
+        if let Some(n) = &self.note {
+            v["note"] = json!(n);
+        }
+        if let Some(c) = &self.cancel {
+            v["cancel"] = json!(c);
+        }
+        v
+    }
+}
+
 /// One `sleep` call.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SleepCall {
@@ -434,6 +526,14 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
             }
             Call::parse("sleep", &v)
         }
+        ("watch", []) => Call::parse("watch", &serde_json::json!({})),
+        ("watch", ["--cancel", id]) => Call::parse("watch", &serde_json::json!({"cancel": id})),
+        ("watch", [args]) if args.trim_start().starts_with('{') => {
+            match serde_json::from_str::<Value>(args) {
+                Ok(v @ Value::Object(_)) => Call::parse("watch", &v),
+                _ => return Ok(Command::Usage(usage(tool))),
+            }
+        }
         ("remember", text) if !text.is_empty() => {
             Call::parse("remember", &serde_json::json!({"text": text.join(" ")}))
         }
@@ -506,6 +606,8 @@ pub fn usage(tool: &str) -> String {
             "stop" => "",
             "transcript" => "[N] [--before SEQ]",
             "sleep" => "SECONDS [\"note\"]",
+            "watch" =>
+                "['{\"command\": \"...\", \"until\": \"REGEX\", \"timeout_seconds\": 1800, \"note\": \"...\"}'] | --cancel ID|all",
             "remember" => "\"the preference, one short line\"",
             "escalate-auth" | "escalate_auth" =>
                 "password|passkey|2fa|oauth SITE URL \"why you need it\"",
@@ -668,6 +770,9 @@ pub enum Call {
     Stop,
     /// `sleep` (brain/wakes.rs): ends the turn and wakes the Chief later.
     Sleep(SleepCall),
+    /// `watch` (brain/watches.rs): a command the host runs off the turn,
+    /// waking the Chief once.
+    Watch(WatchCall),
     /// `remember` (remember.rs): a lasting preference into the profile.
     Remember {
         text: String,
@@ -843,6 +948,7 @@ impl Call {
             "send" => SendCall::parse(args).map(Call::Send),
             "stop" => Ok(Call::Stop),
             "sleep" => SleepCall::parse(args).map(Call::Sleep),
+            "watch" => WatchCall::parse(args).map(Call::Watch),
             "remember" => {
                 let text = args.get("text").and_then(Value::as_str).unwrap_or_default();
                 crate::remember::clean(text).map(|text| Call::Remember { text })
@@ -935,6 +1041,7 @@ impl Call {
             | Call::Transcript { .. }
             | Call::Stop
             | Call::Sleep(_)
+            | Call::Watch(_)
             | Call::Remember { .. }
             | Call::Control(_)
             | Call::CloudWorkspace(_)
@@ -1004,6 +1111,7 @@ impl Call {
             // reaches this socket as a bare `{"tool": "stop"}`.
             Call::Stop => json!({"tool": "stop", "end_turn": true}),
             Call::Sleep(c) => c.to_json(),
+            Call::Watch(c) => c.to_json(),
             Call::Remember { text } => json!({"tool": "remember", "text": text}),
             Call::Control(c) => c.to_json(),
             Call::CloudWorkspace(r) => {
@@ -1383,13 +1491,14 @@ fn connection(conn: UnixStream, served: &Served) {
                         | Call::Transcript { .. }
                         | Call::Stop
                         | Call::Sleep(_)
+                        | Call::Watch(_)
                         | Call::Remember { .. }
                         | Call::Control(_)
                         | Call::CloudWorkspace(_)
                         | Call::Profile { .. }
                         | Call::Chiefs { .. },
                     ) if subagent => Err(
-                        "subagents have no spawn, cloud_workspace, react, reply, send, transcript, stop, sleep, remember, control, profile or chiefs"
+                        "subagents have no spawn, cloud_workspace, react, reply, send, transcript, stop, sleep, watch, remember, control, profile or chiefs"
                             .to_owned(),
                     ),
                     // `chiefs` only for this host's own turn: the turn key the
@@ -1481,6 +1590,10 @@ fn connection(conn: UnixStream, served: &Served) {
                     },
                     Ok(Call::Sleep(call)) => match &served.orchestrator {
                         Some(o) => o.sleep(call),
+                        None => Err("this Chief host runs no turns".to_owned()),
+                    },
+                    Ok(Call::Watch(call)) => match &served.orchestrator {
+                        Some(o) => o.watch(call),
                         None => Err("this Chief host runs no turns".to_owned()),
                     },
                     Ok(Call::Remember { text }) => match &served.orchestrator {

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// The sidebar's bottom band: the footer's accessory slots, the profile
@@ -219,21 +220,27 @@ final class SidebarFooterBand {
 
     /// Opens the profile menu over `anchor`. Returns false when the App gave
     /// no menu. Without an anchor (a hidden sidebar) the menu opens at the pointer.
+    /// It is drawn on the menu grid in the sidebar's theme, as the sidebar's other menus are: the
+    /// avatar on the icon column and every row's text on one column (Leo 2026-10-21: "left
+    /// alignment on the profile settings dropdown/pop i think is similar").
     @discardableResult
     func showProfileMenu(from anchor: NSView?) -> Bool {
-        guard let menu = host?.profileMenuProvider?() else { return false }
-        profileMenuPresenter(menu, anchor)
+        guard let host, let menu = host.profileMenuProvider?() else { return false }
+        profileMenuPresenter(menu.themeRows(in: host.themeScope.fullStrength), anchor)
         return true
     }
 
     /// Pops `menu` up so it opens upward from the control's top edge (the
     /// control sits at the window's bottom), its leading edge on the
-    /// control's. The open happens on the next main-actor turn, so a
+    /// control's. The open happens on a later pass of the main run loop, so a
     /// caller (a socket action, a palette run) returns before the menu's
-    /// modal tracking starts.
+    /// modal tracking starts. A run-loop callout, not a main-actor Task: a
+    /// menu that tracks inside a main-queue job holds the main queue until it
+    /// closes, so the click that closes it waited on everything queued
+    /// meanwhile (Leo, 2026-10-29: "clicking out of a fucking context menu is
+    /// sometimes slow").
     static func popUpProfileMenu(_ menu: NSMenu, from anchor: NSView?) {
-        // task-owner: none needed; one-shot hop to the next main-actor turn, holds no state
-        Task { @MainActor in
+        MainRunLoopBlock.perform {
             guard let anchor, anchor.window != nil else {
                 menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
                 return

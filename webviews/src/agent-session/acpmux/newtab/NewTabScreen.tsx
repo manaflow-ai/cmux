@@ -1,3 +1,5 @@
+import { SignInContext, useSignIn } from "../signIn";
+import { authBlocksSend, authText, useSessionAuth } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -12,6 +14,9 @@ import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
 import { WorktreeFailure } from "../startFolder";
+import { BrowseFailure, browseFailureMessage } from "../BrowseFailure";
+import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "../AddProjectPanel";
+import { errorMessage } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
@@ -74,6 +79,7 @@ import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
 import { screenSections, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
+import { composerPlusSearchExtensions } from "../composerPlusRegistry";
 import { ChromeArea } from "../../../ui/HideableChrome";
 import { Popover } from "../../../ui/Popover";
 import { PromptFocus } from "../promptFocus";
@@ -90,12 +96,16 @@ import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { SlashMenu } from "../SlashMenu";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand } from "../slashCommands";
+import { useNewTabCommand, type NewTabCommandActions } from "./useNewTabCommand";
 import { useHarnessesListed } from "../catalog";
+import { openHarnessesPage } from "../harnesses/harnessesPage";
 import { NewTabExtras } from "./NewTabExtras";
 import type { SuggestionOrder } from "./suggestionOrder";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
-export type NewTabScreenActions = {
+export type NewTabScreenActions = NewTabCommandActions & {
+  /// Setup can start the pending chat with its newly available harness, keeping this draft.
+  onSetup?(continueWith: (harness: string) => void): void;
   /// Enter on a prompt: a chat with `harness` in `cwd` (the project picked on the page).
   /// `model`: the one the chip names, so the chat starts on what the page showed.
   /// `noProject`: Do not work in a project was picked, so the chat starts in no project.
@@ -111,13 +121,16 @@ export type NewTabScreenActions = {
     noProject?: boolean,
     attachments?: ComposerAttachment[],
     saved?: { peer?: string },
-  ): void;
+  ): unknown;
   onOpen(url: string): void;
   onSearch(text: string): void;
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
   onShell(command: string): void;
   /// `here`: an Open Tabs pick, moved into this page's pane (cx-jfo7).
   onJump(target: "tab" | "workspace" | "here" | "closed", id: string): void;
+  /// A Commands palette action row (Cmd-Shift-P's actions, `omnibar.actions`): the host runs it as
+  /// the palette would (`app.action`).
+  onAction?(id: string): void;
   onOpenSession(sessionId: string): void;
   /// A device chat card (acpmux chat index, the sidebar's All chats): the host's Open Chat path.
   onOpenChat?(key: string): void;
@@ -127,6 +140,9 @@ export type NewTabScreenActions = {
   /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
   loadChatsPage?: LoadChatsPage;
   onShowAll(): void;
+  /// The + menu's Search chats and Search pages: runs that app action (PLUS_SEARCH_ACTIONS); it
+  /// rejects when the app refused it, and the page says so. Without it the + menu leaves both rows out.
+  onPlusCommand?(id: string): Promise<unknown>;
   onInputReady?(token: string): void;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
@@ -160,11 +176,12 @@ export type NewTabScreenActions = {
   /// The page goes with an unsent draft (a typed prompt, staged attachments): handed over so the
   /// view that replaces it can keep it (the tab's Sandboxed run taking the chat view).
   onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;
+  startNotice?: React.ReactNode;
 };
 
 /// The agent's model, effort and speed chip (App's composer chips), for the agent and project a
 /// prompt would start in.
-export type NewTabChips = React.ComponentType<{ snapshot: AcpmuxSnapshot; cwd?: string }>;
+export type NewTabChips = React.ComponentType<{ snapshot: AcpmuxSnapshot; cwd?: string; onAddAgent?(): void }>;
 
 type Props = NewTabScreenActions & {
   snapshot: AcpmuxSnapshot;
@@ -203,7 +220,7 @@ type Props = NewTabScreenActions & {
   /// The projects the picker offers (App's newTabProjects).
   projects?: Project[];
   /// The host's folder panel; resolves with the folder picked, if any.
-  onBrowseProject?(): Promise<string | undefined>;
+  onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult>;
   chips?: NewTabChips;
   /// Lazily load the chosen harness's actual commands in a deferred chat.
   onCommands?(harness: string, cwd?: string): void;
@@ -368,6 +385,7 @@ export function NewTabScreen(props: Props) {
     attachments,
     setAttachments,
     pending: reading,
+    originalFailures,
     unsettled,
     videoReading,
     cancel,
@@ -388,6 +406,18 @@ export function NewTabScreen(props: Props) {
   // chat starts, so a file still streaming has no next prompt to go with. A video's read is waited
   // for a few seconds at most (composer/videoAttachments.ts).
   const holdForAttachments = useSendWhenAttached(unsettled + videoReading);
+  const command = useNewTabCommand(
+    text,
+    setText,
+    { ...props, importSandboxed: props.importSandboxed || props.runMode?.mode === "sandboxed" },
+    {
+      attachments,
+      setAttachments,
+      pending: reading,
+      cancel,
+      cancelHeldSend: holdForAttachments.cancel,
+    },
+  );
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page) and staged attachments (pages/shared/webSwap.ts).
   useWebSwapHold(
@@ -412,6 +442,11 @@ export function NewTabScreen(props: Props) {
   }, []);
   const dropLandingTarget = useCallback(() => field.current?.parentElement ?? null, []);
   const submitNow = useRef(() => {});
+  const continueAfterSetup = useRef<(harness: string) => void>(() => {});
+  const openSetup = () => {
+    if (props.onSetup) props.onSetup((agent) => continueAfterSetup.current(agent));
+    else openHarnessesPage();
+  };
   const wholeSelection = useRef(false);
   const inlineCaret = useRef<number | undefined>(undefined);
   const composing = useRef(false);
@@ -467,8 +502,42 @@ export function NewTabScreen(props: Props) {
   /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
   /// and the prompt stays.
   const [sandboxRefusal, setSandboxRefusal] = useState<string>();
+  const [startError, setStartError] = useState<string>();
+  const asking = useRef(false);
+  /// The agent whose chat is starting while the page still shows (a chat on another machine, or in
+  /// no project, leaves only once it has started): the composer says "Starting Claude Code…" until
+  /// the start answers, so a slow start never reads as Return having done nothing.
+  const [starting, setStarting] = useState<string>();
+  const requestChat = (...args: Parameters<NewTabScreenActions["onAsk"]>) => {
+    if (asking.current) return;
+    asking.current = true;
+    setStartError(undefined);
+    setStarting(args[0]);
+    const failed = (error: unknown) => {
+      setStartError(errorMessage(error) || t("switch.unknownError"));
+      created.current = false;
+    };
+    const done = () => {
+      asking.current = false;
+      setStarting(undefined);
+    };
+    try {
+      Promise.resolve(props.onAsk(...args))
+        .catch(failed)
+        .finally(done);
+    } catch (error) {
+      failed(error);
+      done();
+    }
+  };
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
+    // Only a verdict that already says the harness is signed out holds the prompt back. A check
+    // still running never does (Leo 2026-10-30: "I SHOULD BE ALWAYS ABLE TO SATRT NEW FUCKGN
+    // CHATS"): it has no deadline and can take many seconds on a busy daemon, and the turn itself
+    // reports a sign-in that turns out missing.
+    if (authBlocksSend(targetAuth)) return false;
+    if (command.intercept(prompt, agent, attachments.length)) return false;
     if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
       const started = props.onSandbox(agent, prompt, attachments);
       setSandboxRefusal(typeof started === "string" ? started : undefined);
@@ -476,7 +545,7 @@ export function NewTabScreen(props: Props) {
     }
     if (environment) return askInEnvironment(environment, agent, prompt, model);
     if (machine)
-      return props.onAsk(
+      return requestChat(
         agent,
         prompt,
         machine.folder,
@@ -487,8 +556,8 @@ export function NewTabScreen(props: Props) {
           peer: machine.peer,
         },
       );
-    if (attachments.length > 0) return props.onAsk(agent, prompt, cwd, model, none || undefined, attachments);
-    return none ? props.onAsk(agent, prompt, cwd, model, true) : props.onAsk(agent, prompt, cwd, model);
+    if (attachments.length > 0) return requestChat(agent, prompt, cwd, model, none || undefined, attachments);
+    return none ? requestChat(agent, prompt, cwd, model, true) : requestChat(agent, prompt, cwd, model);
   };
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
   const remembered = useLastPick(chatFolder);
@@ -498,6 +567,27 @@ export function NewTabScreen(props: Props) {
     [snapshot, agents, lastAgent, chatFolder, remembered, harnessesListed],
   );
   const chipModel = useNewTabChipModel(chipSnapshot);
+  const parentSignIn = useSignIn();
+  // Auth must follow the same target precedence as askChat: a saved environment wins over a
+  // previously picked machine, so an old machine verdict cannot block this environment's prompt.
+  const targetHost = environment
+    ? environment.kind === "ssh" && environment.host && snapshot.peers?.includes(environment.host)
+      ? environment.host
+      : undefined
+    : machine?.peer;
+  const remoteTarget = environment ? environment.kind === "ssh" : Boolean(machine?.peer);
+  const authQuery =
+    harness && (!remoteTarget || targetHost)
+      ? { target: { harness, ...(targetHost ? { host: targetHost } : {}) } }
+      : undefined;
+  const { auth: targetAuth, recheck: recheckTarget } = useSessionAuth(
+    authQuery,
+    parentSignIn?.readSessionAuth,
+    parentSignIn?.authEpoch,
+    parentSignIn?.authRefresh,
+    parentSignIn?.authObservation,
+  );
+
   // The Ask row names the agent Return asks and the model on its chip.
   const ask = useMemo(() => {
     const entry = snapshot.catalog.find((agent) => agent.id === harness);
@@ -563,18 +653,19 @@ export function NewTabScreen(props: Props) {
     setSelected(row ? rowKey(row) : NO_ROW);
   };
   const t = useT();
+  const targetAuthText = authText(targetAuth, t);
   const chrome = useComposerChrome();
   // The chat composer's footer look (composerSettings.ts plainFooter): the New Tab row draws the
   // same plain chips, so the two composers never disagree (composerLocation.css).
   const { plainFooter, spellChecking } = useComposerSettings();
   // The quiet row's labels step down with the composer's width, as the chat's (composerRowFit.ts).
   const foot = useRef<HTMLDivElement>(null);
-  // The model picker uses one footer position in every New Tab template and composer look.
+  // Every template with chips draws the chat composer's box. Claude's look splits the mode, model and
+  // effort into the quiet row under it; Codex's keeps them in the box's own row (Leo 2026-10-30: "the
+  // bypass/context/model picker stuff should literally be inside the composer box"; "no just codex").
   const look = useComposerLook();
-  const split = props.chips !== undefined;
-  // Folder/computer keep their look-specific placement: Claude's one row, Codex's tray. The footer
-  // row exists only with the chips, so without them the strip stays above the box.
-  const locationInFooter = split && plainFooter && look === "claude" && template !== "default";
+  const chatBox = props.chips !== undefined;
+  const split = chatBox && look !== "codex";
   // Footer look and template can change while this screen stays mounted.
   useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
@@ -775,6 +866,8 @@ export function NewTabScreen(props: Props) {
         return askChat(row.harness, row.text, project, row.harness === harness ? chipModel : undefined);
       case "create":
         return row.kind === "chat" ? startChat() : create(row.kind);
+      case "action":
+        return props.onAction?.(row.id);
     }
   };
   const edit = (next: string) => {
@@ -798,11 +891,14 @@ export function NewTabScreen(props: Props) {
     );
   };
   const submit = () => {
+    const prompt = text.trim();
+    if (command.intercept(prompt, harness, attachments.length, true)) return;
     // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
     // with the address bar's word, and the page keeps the text.
     if (!shell && pairingLinkRefused(text)) return props.onOpen(text.trim());
     // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
     if (holdForAttachments(() => submitNow.current())) return;
+    if (command.intercept(prompt, harness, attachments.length)) return;
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com). So does an
     // address with no row selected (↑ from the top row): there is no prompt to send.
     const list = rows.length ? rows : suggested;
@@ -811,12 +907,27 @@ export function NewTabScreen(props: Props) {
     // Staged attachments go with a chat: a row that opens a page or a tab would drop them.
     const keeps =
       !row || attachments.length === 0 || row.type === "ask" || (row.type === "create" && row.kind === "chat");
+    // With no harness, a default text suggestion would search before setup can open. A row
+    // explicitly selected with the keyboard, and navigation matches, keep their own actions.
+    if (!harness && prompt && !isAddress(prompt, home) && row?.type === "search" && selected === undefined) {
+      openSetup();
+      return;
+    }
     if (row && keeps) return activate(row);
-    const prompt = text.trim();
     // Pasted or dropped attachments alone are a prompt, as in a chat's composer.
-    if (attachments.length === 0 && (!prompt || isAddress(prompt, home))) return;
-    // No agent to ask: the composer's chip says Add harness (ComposerPickers), so Return adds no note.
-    if (!harness) return;
+    if (attachments.length === 0 && (!prompt || isAddress(prompt, home))) {
+      // A fresh install has no harness to ask yet. Return on the empty composer should take the
+      // person to the same setup surface as the visible Add harness chip instead of silently doing
+      // nothing; addresses still follow their normal New Tab path above.
+      if (!prompt && !harness) openSetup();
+      return;
+    }
+    // No agent to ask: the composer's chip says Add harness (ComposerPickers). Keep the draft in
+    // place while the Harnesses page opens, so a successful setup can continue from this intent.
+    if (!harness) {
+      openSetup();
+      return;
+    }
     askChat(harness, prompt, project, chipModel);
   };
   submitNow.current = submit;
@@ -832,10 +943,16 @@ export function NewTabScreen(props: Props) {
   // behind: the chat starts empty).
   const startChat = () => {
     touch();
-    if (!harness) return;
+    // The empty New chat action is another first-run entry point. It must open setup when no
+    // harness is installed, rather than leaving the person on an inert page.
+    if (!harness) {
+      openSetup();
+      return;
+    }
     if (created.current) return;
-    created.current = true;
     const prompt = shell ? "" : text.trim();
+    if (command.intercept(prompt, harness, attachments.length)) return;
+    created.current = true;
     const asked = askChat(
       harness,
       prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
@@ -843,6 +960,19 @@ export function NewTabScreen(props: Props) {
       chipModel,
     );
     // A Sandboxed New chat that started nothing (no prompt, a refusal) leaves the page's creates open.
+    if (asked === false) created.current = false;
+  };
+  continueAfterSetup.current = (agent) => {
+    // Setup may finish while an attachment is still loading. Resume the same draft only once
+    // its files are ready, reading the latest state rather than the setup-opening snapshot.
+    if (holdForAttachments(() => continueAfterSetup.current(agent)) || created.current) return;
+    created.current = true;
+    const prompt = shell ? "" : text.trim();
+    const asked = askChat(
+      agent,
+      prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
+      project,
+    );
     if (asked === false) created.current = false;
   };
   const send = () => {
@@ -1020,8 +1150,20 @@ export function NewTabScreen(props: Props) {
   };
   // Each folder choice takes a number; a worktree reply applies only while its choice is the latest.
   const projectChoice = useRef(0);
+  const browsePending = useRef(false);
+  const browseAlive = useRef(true);
+  useEffect(() => {
+    browseAlive.current = true;
+    return () => {
+      browseAlive.current = false;
+      projectChoice.current += 1;
+      browsePending.current = false;
+    };
+  }, []);
+  const [browseError, setBrowseError] = useState<string>();
   const pickProject = (cwd?: string) => {
     projectChoice.current += 1;
+    setBrowseError(undefined);
     // A folder picked anywhere on the page (a widget card's project) replaces a saved environment,
     // and is on this Mac.
     saved.pick(undefined);
@@ -1040,6 +1182,7 @@ export function NewTabScreen(props: Props) {
   const pickMachine = (next?: { peer: string; folder?: string }) => {
     // A newer choice than any worktree still on its way (`projectChoice`).
     projectChoice.current += 1;
+    setBrowseError(undefined);
     saved.pick(undefined);
     touch();
     setMachine(next);
@@ -1060,9 +1203,9 @@ export function NewTabScreen(props: Props) {
   function askInEnvironment(picked: SavedEnvironment, agent: string, prompt: string, model?: string) {
     const extra = attachments.length > 0 ? attachments : undefined;
     if (picked.kind === "ssh")
-      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, { peer: picked.host });
+      return requestChat(agent, prompt, picked.folder, model, undefined, extra, { peer: picked.host });
     if (!picked.worktree || !picked.folder || !props.onNewWorktree)
-      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, {});
+      return requestChat(agent, prompt, picked.folder, model, undefined, extra, {});
     if (worktreePending.current) return;
     worktreePending.current = true;
     setWorktreeError(undefined);
@@ -1075,7 +1218,7 @@ export function NewTabScreen(props: Props) {
       (folder) => {
         if (!folder) return unstarted();
         worktreePending.current = false;
-        props.onAsk(agent, prompt, folder, model, undefined, extra, {});
+        requestChat(agent, prompt, folder, model, undefined, extra, {});
       },
       (error: unknown) => {
         unstarted();
@@ -1100,18 +1243,55 @@ export function NewTabScreen(props: Props) {
         }
       : undefined;
   const browseProject = props.onBrowseProject
-    ? () => {
-        void props.onBrowseProject?.().then((cwd) => {
-          if (cwd) pickProject(cwd);
-        });
+    ? (request?: BrowseRequest) => {
+        if (!browseAlive.current) return Promise.resolve(undefined);
+        if (browsePending.current) return Promise.resolve(BROWSE_BUSY);
+        const choice = ++projectChoice.current;
+        browsePending.current = true;
+        setBrowseError(undefined);
+        return Promise.resolve()
+          .then(() => props.onBrowseProject?.(request))
+          .then((cwd) => {
+            if (choice !== projectChoice.current) return undefined;
+            if (typeof cwd !== "string" || cwd.length === 0) return cwd;
+            if (request?.deferPick) return cwd;
+            pickProject(cwd);
+            return cwd;
+          })
+          .then(undefined, (error: unknown) => {
+            if (choice !== projectChoice.current) return undefined;
+            if (request?.deferPick) throw error;
+            setBrowseError(browseFailureMessage(error));
+            return undefined;
+          })
+          .finally(() => {
+            browsePending.current = false;
+          });
       }
+    : undefined;
+  // A saved environment owns its draft and the browse failure state. Keep a folder chosen there
+  // from replacing the New Tab project until the person saves the environment.
+  const browseSavedEnvironment = browseProject
+    ? (request?: BrowseRequest) => browseProject({ ...request, deferPick: true })
     : undefined;
   const Chips = props.chips;
   const chooser = useRef<HTMLInputElement>(null);
   /// The Cards template (u2851): the field is a pill of its own and the chips sit under it. The
-  /// split draws the chat composer's box instead.
-  const pill = template === "cards" && !split;
+  /// chat composer's box replaces it.
+  const pill = template === "cards" && !chatBox;
 
+  const onPlusCommand = props.onPlusCommand;
+  const plusSearchRows = useMemo(() => composerPlusSearchExtensions(t), [t]);
+  /// The + search the app refused (turned off, or not for this tab), said over the composer until
+  /// the next pick or the next edit of the prompt.
+  const [plusRefusal, setPlusRefusal] = useState<{ action: string; text: string }>();
+  const plusRefused = plusRefusal && plusRefusal.text === text ? plusRefusal.action : undefined;
+  const runPlusSearch = (id: string) => {
+    setPlusRefusal(undefined);
+    const action = plusSearchRows.find((row) => row.id === id)?.name ?? id;
+    const asked = text;
+    void onPlusCommand?.(id).catch(() => setPlusRefusal({ action, text: asked }));
+  };
   const attachmentPicker = (
     <>
       <input
@@ -1142,6 +1322,22 @@ export function NewTabScreen(props: Props) {
               if (id === "attach") chooser.current?.click();
             },
           },
+          // Search chats and Search pages, as the chat composer's + (the page has no folder to
+          // search files in, so it offers no Search files).
+          ...(onPlusCommand
+            ? [
+                {
+                  title: t("sidebar.searchPlaceholder"),
+                  choices: plusSearchRows.map((row) => ({
+                    id: row.id,
+                    name: row.name,
+                    description: row.description,
+                    icon: <Icon name={row.icon} size={18} />,
+                  })),
+                  onPick: runPlusSearch,
+                },
+              ]
+            : []),
         ]}
       />
     </>
@@ -1167,6 +1363,7 @@ export function NewTabScreen(props: Props) {
         {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
         {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
         {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
+        {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
         {...(props.onRefreshMachines ? { onRefreshMachines: props.onRefreshMachines } : {})}
         onComputer={(computer) => pickMachine(computer === "local" ? undefined : { peer: computer })}
         {...(props.machineName ? { localName: props.machineName } : {})}
@@ -1177,7 +1374,7 @@ export function NewTabScreen(props: Props) {
         {...(browseProject ? { onBrowseProject: browseProject } : {})}
         {...(props.environments ? { environments: true } : {})}
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
-        {...(props.environments && props.onConnect ? { onConnect: props.onConnect } : {})}
+        {...(props.onConnect ? { onConnect: props.onConnect, connectOnlyWhenEmpty: !props.environments } : {})}
         {...(props.environments && props.runMode ? { runMode: props.runMode } : {})}
         {...(saved.on
           ? {
@@ -1185,11 +1382,17 @@ export function NewTabScreen(props: Props) {
                 environments: saved.list,
                 ...(environment ? { current: environment.id } : {}),
                 onPick: (id: string) => {
+                  projectChoice.current += 1;
+                  setBrowseError(undefined);
                   touch();
                   saved.pick(id);
                   requestAnimationFrame(() => field.current?.focus());
                 },
-                onClear: () => saved.pick(undefined),
+                onClear: () => {
+                  projectChoice.current += 1;
+                  setBrowseError(undefined);
+                  saved.pick(undefined);
+                },
                 onCreate: () => saved.edit(null),
                 onEdit: (id: string) => saved.edit(saved.list.find((other) => other.id === id)),
               },
@@ -1217,7 +1420,7 @@ export function NewTabScreen(props: Props) {
       folders={(props.projects ?? [])
         .filter((choice) => !isAgentHome(choice.cwd))
         .map((choice) => ({ id: choice.cwd, label: choice.label }))}
-      {...(props.onBrowseProject ? { onBrowse: props.onBrowseProject } : {})}
+      {...(browseSavedEnvironment ? { onBrowse: browseSavedEnvironment } : {})}
       machines={sshMachines}
       machineFolders={machineFolders}
       {...(props.onConnect ? { onConnectSSH: () => props.onConnect!("ssh") } : {})}
@@ -1233,11 +1436,19 @@ export function NewTabScreen(props: Props) {
   // this page draws no context ring.
   const pickers = (
     <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
-      <div className="nt-pickers" data-footer-look={plainFooter ? "plain" : undefined} onPointerDownCapture={touch}>
+      {/* Codex's look keeps the chips in this row (no quiet row), so its labels step down here. */}
+      <div
+        ref={chatBox && !split ? foot : undefined}
+        className="nt-pickers"
+        data-footer-look={plainFooter ? "plain" : undefined}
+        onPointerDownCapture={touch}
+      >
         {!split && attachmentPicker}
         {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
         switch is the one Enter reuses. */}
-        {!split && Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
+        {!split && Chips && (
+          <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} onAddAgent={openSetup} />
+        )}
         <span className="acpmux-composer-actions">
           {props.accessory}
           {/* Send: a click does what Return does (a prompt, a row, or a shell command). Cards draws
@@ -1285,6 +1496,7 @@ export function NewTabScreen(props: Props) {
       {sections.chats !== "none" && !allChats && widgets.has("chats") && (
         <ChatCards
           cards={cards}
+          pending={props.chatsPending}
           variant={sections.chats}
           onOpen={openCard}
           {...(props.onOpenChatInTerminal ? { onOpenInTerminal: openCardInTerminal } : {})}
@@ -1324,14 +1536,44 @@ export function NewTabScreen(props: Props) {
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
           composer location strip; newtab/screen.css). */}
       <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
+        {authBlocksSend(targetAuth) ? (
+          <p className="acpmux-composer-remote-note" role="alert">
+            {targetAuthText}
+          </p>
+        ) : (
+          starting !== undefined && (
+            <output className="acpmux-composer-remote-note">
+              {t("switch.starting", {
+                agent: snapshot.catalog.find((entry) => entry.id === starting)?.name ?? starting,
+              })}
+            </output>
+          )
+        )}
+        {props.startNotice}
+
+        {startError && (
+          <p role="alert" className="acpmux-switch-notice">
+            {startError}
+          </p>
+        )}
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
+        {browseError && browseProject && (
+          <BrowseFailure error={browseError} onRetry={browseProject} onDismiss={() => setBrowseError(undefined)} />
+        )}
         {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
           <output className="acpmux-switch-notice">
             <span role="alert">{t(sandboxFailureKey(sandboxRefusal) ?? "sandbox.error.failed")}</span>
           </output>
         )}
-        {/* Above the box: the project strip (Cards draws it under the field). */}
-        {!pill && !locationInFooter && <div className="nt-above">{folderStrip}</div>}
+        {plusRefused && (
+          <output className="acpmux-switch-notice">
+            <span role="alert">{t("composer.offloadNotRun", { action: plusRefused })}</span>
+          </output>
+        )}
+        {/* Above the box: the project and machine strip, in every look (Cards draws it under the
+            field). Leo 2026-10-29: "project and cloudness at the top ... and stop making them take
+            up so much space"; the quiet row under the box keeps the mode and the model. */}
+        {!pill && <div className="nt-above">{folderStrip}</div>}
         <div ref={setBox} className="ui-glass ui-glass-floats nt-box">
           {commandsOpen && (
             <SlashMenu
@@ -1404,7 +1646,7 @@ export function NewTabScreen(props: Props) {
           <AttachmentStrip
             attachments={attachments}
             pending={reading}
-            {...(attachError ? { error: attachError } : {})}
+            {...(command.error || attachError ? { error: command.error ?? attachError } : {})}
             codex={harness === "codex"}
             onRemove={(id) => {
               setAttachments((current) => current.filter((item) => item.id !== id));
@@ -1415,17 +1657,18 @@ export function NewTabScreen(props: Props) {
               field.current?.focus();
             }}
             onRetry={retry}
+            originalFailures={originalFailures}
             onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
           />
+          {command.input}
           {!pill && !split && pickers}
         </div>
-        {/* Claude Code's one quiet row: folder and computer lead the mode, model and effort;
-            the box keeps the prompt, the mic and Send (Leo: "one single row"). */}
+        {/* Claude Code's quiet row: the mode, model and effort; the box keeps the prompt, the mic
+            and Send. Folder and computer head the box (above). */}
         {split && Chips && (
           <div className="nt-foot" onPointerDownCapture={touch}>
             <ComposerFoot ref={foot} plain={plainFooter}>
-              {locationInFooter && folderStrip}
-              <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
+              <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} onAddAgent={openSetup} />
             </ComposerFoot>
           </div>
         )}
@@ -1650,10 +1893,10 @@ export function NewTabScreen(props: Props) {
                     aria-selected={index === current}
                     data-type={row.type}
                     className={index === current ? "nt-row is-selected" : "nt-row"}
-                    onMouseMove={() => {
-                      if (index === current) return;
-                      pick(index);
-                    }}
+                    // The pointer only lights the row it rests on (screen.css :hover); Return stays
+                    // the prompt's, or the row the keyboard picked. A hovered row that took Return
+                    // left "helo" unsent (Leo 2026-10-31: "i cant even press enter on that hello
+                    // anymore it doesnt send it to claude"). A press still runs the row it presses.
                     onMouseDown={(event) => {
                       event.preventDefault();
                       activate(row);
@@ -1683,16 +1926,14 @@ export function NewTabScreen(props: Props) {
                       <div
                         key={rowKey(row)}
                         id={`nt-row-${index}`}
+                        ref={index === current ? keepInView : undefined}
                         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
                         role="option"
                         tabIndex={-1}
                         aria-selected={index === current}
                         data-type={row.type}
                         className={index === current ? "nt-create-strip-item is-selected" : "nt-create-strip-item"}
-                        onMouseMove={() => {
-                          if (index === current) return;
-                          pick(index);
-                        }}
+                        // As the rows: hover lights it, only the keyboard makes it Return's.
                         onMouseDown={(event) => {
                           event.preventDefault();
                           activate(row);
@@ -1712,7 +1953,21 @@ export function NewTabScreen(props: Props) {
     </ContextMenu>
   );
   // The chips' menus open down and drop their key hints here (newTabComposer.ts).
-  return <OnNewTab.Provider value={true}>{page}</OnNewTab.Provider>;
+  return (
+    <SignInContext.Provider
+      value={
+        parentSignIn && {
+          ...parentSignIn,
+          signedOut: targetHost ? {} : parentSignIn.signedOut,
+          sessionAuth: targetAuth,
+          recheckSession: recheckTarget,
+          loginSession: () => parentSignIn.loginSession?.(targetAuth),
+        }
+      }
+    >
+      <OnNewTab.Provider value={true}>{page}</OnNewTab.Provider>
+    </SignInContext.Provider>
+  );
 }
 
 /// The stage's widgets in runs: next to each other, Projects and Quick Actions share a cards
@@ -1770,6 +2025,8 @@ function rowKey(row: ScreenRow): string {
       return `workspace:${row.id}`;
     case "create":
       return `create:${row.kind}`;
+    case "action":
+      return `action:${row.id}`;
     default:
       return row.type;
   }
@@ -1798,6 +2055,7 @@ function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
       return row.title ?? canonicalAddress(row.url);
     case "tab":
     case "workspace":
+    case "action":
       return row.title;
     case "create":
       return nt(`create.${row.kind}`);
@@ -1812,6 +2070,7 @@ function rowDetail(row: ScreenRow): string | undefined {
       return row.title ? shortHost(row.url) : undefined;
     case "tab":
     case "workspace":
+    case "action":
       return row.detail;
     case "ask":
       return row.model;
@@ -1835,5 +2094,7 @@ function rowAction(t: Translate, nt: NewTabTranslate, row: ScreenRow): string {
       return t("newTabPage.row.history");
     case "create":
       return t("newTabPage.row.open");
+    case "action":
+      return row.keycaps?.join("") ?? nt("row.run");
   }
 }

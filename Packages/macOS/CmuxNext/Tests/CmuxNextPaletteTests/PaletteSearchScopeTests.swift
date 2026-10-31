@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Testing
 
 /// The sidebar's Search button (plans/cmux-next/sidebar-search.md; Lawrence 2026-10-20: "a search
@@ -8,7 +9,7 @@ import Testing
 /// whose page searches workspaces, groups, panes and tabs, settings, commands and the App's
 /// contributed pages (history, agent chats) with the palette's one ranker, rows grouped by type.
 @MainActor
-@Suite(.paletteRanker)
+@Suite(.paletteRanker, .closesItsWindows)
 struct PaletteSearchScopeTests {
     @MainActor private final class Workspaces: PaletteWorkspaceSource {
         var workspaces: [PaletteWorkspace] = [PaletteWorkspace(id: "w1", title: "Zebra backend"), PaletteWorkspace(id: "w2", title: "Docs")]
@@ -63,7 +64,7 @@ struct PaletteSearchScopeTests {
     /// The scope opens a page of its own, titled Search, with the all-kinds placeholder.
     @Test func theSearchScopeOpensTheSearchPage() async {
         let palette = Self.palette()
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         #expect(palette.show(scope: PaletteScopeID.search))
         await palette.model.settle()
         #expect(palette.model.pageTitle == PaletteStrings.searchEverythingTitle)
@@ -76,7 +77,7 @@ struct PaletteSearchScopeTests {
     /// One query finds every kind, each kind in its own section (not one merged list).
     @Test func oneQuerySearchesEveryKindGroupedByType() async {
         let palette = Self.palette()
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(scope: PaletteScopeID.search)
         await Self.search(palette, "zebra")
 
@@ -99,7 +100,7 @@ struct PaletteSearchScopeTests {
     /// Commands are found too, the same rows as Cmd-Shift-P.
     @Test func commandsAreSearchedToo() async {
         let palette = Self.palette()
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(scope: PaletteScopeID.search)
         await Self.search(palette, "Search Keyboard Shortcuts")
         #expect(palette.model.rows.contains { $0.item.actionID == "palette.searchShortcuts" },
@@ -110,7 +111,7 @@ struct PaletteSearchScopeTests {
     @Test func returnFocusesTheRow() async {
         let workspaces = Workspaces()
         let palette = Self.palette(workspaces: workspaces)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(scope: PaletteScopeID.search)
         await Self.search(palette, "Zebra backend")
         let row = palette.model.rows.first { $0.item.id == "workspace:w1" }
@@ -122,7 +123,7 @@ struct PaletteSearchScopeTests {
     /// Backspace on the empty query leaves Search for the full palette.
     @Test func backspaceOnEmptyReturnsToTheRoot() async {
         let palette = Self.palette()
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(scope: PaletteScopeID.search)
         await palette.model.settle()
         palette.model.send(.backspaceOnEmpty)

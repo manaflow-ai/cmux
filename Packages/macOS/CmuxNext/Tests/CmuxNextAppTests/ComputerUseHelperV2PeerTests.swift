@@ -4,6 +4,16 @@ import Testing
 @testable import CmuxNextComputerUse
 
 struct ComputerUseHelperV2PeerTests {
+    @Test func helperLaunchScopeContainsOnlyItsOwnTaggedDevBundle() {
+        let own = "com.cmuxterm.app.debug.guard-test"
+        let environment = ComputerUseHelperV2.environment(bundleID: own)
+        #expect(environment["CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS"] == own)
+        for bundleID in [nil, "com.cmuxterm.app", "com.cmuxterm.app.nightly",
+                         "com.cmuxterm.app.debug", "com.cmuxterm.app.debug.", "com.apple.Terminal"] {
+            #expect(ComputerUseHelperV2.environment(bundleID: bundleID)["CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS"] == "")
+        }
+    }
+
     @Test func signedAdmissionUsesALiveTeamRequirementInsteadOfAPathHash() {
         let executable = URL(fileURLWithPath: "/mutable/acpmux")
         let signed = ComputerUseHelperV2.acpmuxAdmission(

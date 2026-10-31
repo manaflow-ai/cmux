@@ -71,16 +71,34 @@
   align-items: center;
   /* Keep the folder/computer pair and the optional branch on one optical rhythm.  The
      controls already carry their own hit-area insets; this is the only inter-control gap. */
-  gap: var(--acpmux-location-gap, 6px);
+  gap: var(--acpmux-location-gap, 4px);
   min-width: 0;
   height: 100%;
   margin: 0;
   padding: 0 var(--acpmux-strip-pad, 4px);
   box-sizing: border-box;
 }
+/* A started chat's chooser can fail after its menu closes. Give the recovery line its own flex row
+   below the fixed-height controls instead of letting it overlay the composer box. */
+.acpmux-composer-strip:has(> .acpmux-composer-context > .acpmux-folder-choice),
+.acpmux-composer-context:has(> .acpmux-folder-choice) {
+  height: auto;
+  min-height: var(--acpmux-strip-height);
+}
+.acpmux-composer-context:has(> .acpmux-folder-choice) {
+  flex-wrap: wrap;
+}
+.acpmux-composer-context:has(> .acpmux-folder-choice) > .acpmux-location-picker:last-child {
+  order: 2;
+}
+.acpmux-composer-context > .acpmux-folder-choice {
+  order: 3;
+  flex: 0 0 100%;
+  min-width: 0;
+}
 /* Folder and computer share the same small inter-control gap, told apart by their icons; no "·"
    floats between them against the folder's chevron. */
-.acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: var(--acpmux-location-gap, 6px); min-width: 0; flex: 1 1 0; }
+.acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: var(--acpmux-location-gap, 4px); min-width: 0; flex: 1 1 0; }
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker,
 .acpmux-composer-context > .acpmux-location-picker { flex: 0 1 auto; min-width: 0; }
 /* The folder gives up width before the computer: the computer never shrinks (even a fraction of a
@@ -217,6 +235,8 @@
 .acpmux-location-menu .acpmux-menu-item { width: 100%; text-align: left; }
 .acpmux-location-menu .ui-menu-item[data-highlighted] { background: var(--acpmux-menu-highlight); }
 .acpmux-location-menu .acpmux-menu-description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-location-name[data-warning="true"],
+.acpmux-location-name[data-warning="true"] .acpmux-menu-description { color: var(--acpmux-warning); }
 .acpmux-location-menu .ui-separator { flex: none; height: 1px; border: 0; margin: 4px 6px; background: color-mix(in srgb, var(--agent-text) 12%, transparent); }
 /* A started chat's Choose folder… under the folder field's rows (dogfood 09): a plain row, not a button face. */
 .acpmux-location-choose { border: 0; background: none; color: inherit; font: inherit; }
@@ -321,31 +341,46 @@
   line-height: 16px;
   letter-spacing: var(--text-detail--letter-spacing);
 }
+/* The allowed rules under the modes (Leo 2026-10-27, on the PR button's full-row highlight: "why are you
+   giving it the entire row when it's only this small little section? Just don't do that. Don't ever do
+   that."). A rule's row is not a control, so it takes no hover wash: only its remove x lights, on its
+   own pill. The section's heading and each rule start on the mode rows' text column, and the x
+   centers on their trailing column, where a mode's number or check sits: 16 from the menu's edge.
+   The section sits 4 in from the rows' edges (its hairline is the menu's separator inset), so a mode
+   row's 4px padding is already spent; a menu whose modes draw their shield adds the icon column
+   (16 + 8). A fieldset's own padding (0.35em 0.75em 0.625em) is cleared, never inherited: it put the
+   heading and rules on two other columns. The lead is inline-start padding, so a right-to-left menu
+   keeps the same columns from its right edge. */
 .acpmux-access-grants {
+  --acpmux-grant-lead: 0px;
   min-inline-size: 0;
   border: 0;
   margin: 8px 4px 2px;
-  padding-top: 8px;
+  padding: 8px 0 0;
   border-top: .5px solid var(--acpmux-composer-edge);
 }
+.acpmux-access-menu:has(.acpmux-access-item:not(.acpmux-access-item-iconless)) .acpmux-access-grants {
+  --acpmux-grant-lead: 24px;
+}
 .acpmux-access-grants-heading {
-  padding: 0 8px 4px;
+  padding: 0 0 4px;
+  padding-inline-start: var(--acpmux-grant-lead);
   color: var(--agent-muted);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-access-grant {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px;
   align-items: center;
-  gap: 8px;
+  column-gap: 8px;
   min-height: var(--ui-row-height);
-  padding: 2px 8px 2px 10px;
-  border-radius: var(--ui-row-radius);
+  padding: 0;
+  padding-inline-start: var(--acpmux-grant-lead);
 }
-.acpmux-access-grant:hover { background: var(--acpmux-menu-highlight); }
-.acpmux-access-grant-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--agent-soft); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
+.acpmux-access-grant-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--agent-soft); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
 .acpmux-access-grant-remove {
-  flex: none;
+  justify-self: center;
   width: 22px;
   height: 22px;
   padding: 0;
@@ -356,7 +391,7 @@
   font-family: var(--font-ui);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
-  cursor: pointer;
+  cursor: default;
   letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-access-grant-remove:hover { color: var(--agent-text); background: var(--agent-control-hover); }
@@ -557,12 +592,17 @@
    container queries, or data-fit-model / data-fit-access when a label is too long for its step)
    take the model's name or the mode's label away, its mark or symbol alone shows, so neither chip
    is ever a bare chevron. The widths are COMPOSER_FIT_STEPS modelMark (370) and
-   accessLabelHidden (420). test/composer-footer-plain.test.ts measures it. */
+   accessLabelHidden (420); the quiet row (the plain look) has no width steps (below), so there only
+   data-fit-model brings the model's mark back (the mode's symbol always shows). With the plain footer
+   off the row draws the mark as the one row always did. test/composer-footer-plain.test.ts measures it. */
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] :is(.acpmux-model-name, .acpmux-model-short) { color: inherit; }
 @container composer (width > 370px) {
   :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"]:not([data-fit-model="icon"]) .acpmux-model .acpmux-picker-button .agent-mark {
     display: none;
   }
+}
+.acpmux-composer-foot[data-footer-look="plain"]:not([data-fit-model="icon"]) .acpmux-model .acpmux-picker-button .agent-mark {
+  display: none;
 }
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] .acpmux-picker-button:focus-visible,
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] .acpmux-plan:not([aria-pressed="true"]):focus-visible {
@@ -594,7 +634,8 @@
    New Tab page and interface scale collapse the row the same way; the window's width never decides
    it (agent-pane.narrow, test/narrow-layouts.test.ts). */
 .acpmux-composer,
-.nt-composer {
+.nt-composer,
+.acpmux-newtab {
   container: composer / inline-size;
 }
 /* The row's two clusters (hq#1957 item 15): + and the chips (model, effort, permission mode,
@@ -635,44 +676,61 @@
    scroll width. The container queries are the composer's widths (#20548's `composer` container) (literals:
    test/composer-fit-steps.test.ts holds them to the table); composerRowFit.ts marks the row with
    data-fit-<unit> when a label is too long for its width's step. The short labels are drawn from
-   data-label, so a chip's text stays its full value. */
+   data-label, so a chip's text stays its full value. The quiet row under the box
+   (.acpmux-composer-foot, #22285) takes none of these width steps: it holds only the mode, the model
+   button and the context ring, so composerRowFit.ts fits it on the room it measures (live-qa
+   2026-10-21: a 410 px composer read "Opus Med" with about 250 px of the row free). */
 [data-fit-part]:not([data-fit-forms~="full"]),
 .acpmux-model-short { display: none; }
-.acpmux-composer-bar .acpmux-picker-button { position: relative; overflow: clip; }
-.acpmux-composer-bar .acpmux-picker-button [data-fit-part] { display: block; white-space: nowrap; }
-.acpmux-composer-bar .acpmux-picker-button > span { overflow: visible; text-overflow: clip; }
-.acpmux-composer-bar .acpmux-model-name[data-short] { display: none; }
-.acpmux-composer-bar .acpmux-model-short { color: var(--agent-text); }
+/* New Tab's row takes the same forms: with Codex's look its chips sit there (NewTabScreen.tsx), so
+   the model's family and short names must draw as they do in the chat's box row. */
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button { position: relative; overflow: clip; }
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button [data-fit-part] { display: block; white-space: nowrap; }
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button > span { overflow: visible; text-overflow: clip; }
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-model-name[data-short] { display: none; }
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-model-short { color: var(--agent-text); }
 .acpmux-fit-label::before { content: attr(data-label); }
 .acpmux-composer-bar .acpmux-composer-actions { position: relative; }
 .acpmux-fit-mic { display: inline-flex; }
 /* A mic hidden from the row by its menu leaves no empty slot (and no gap) before Send. */
 .acpmux-fit-mic:empty { display: none; }
-.acpmux-composer-bar[data-fit-model="family"] [data-fit-part="model"][data-fit-forms~="family"],
-.acpmux-composer-bar[data-fit-effort="short"] [data-fit-part="effort"][data-fit-forms~="short"] {
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-model="family"] [data-fit-part="model"][data-fit-forms~="family"],
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-effort="short"] [data-fit-part="effort"][data-fit-forms~="short"] {
   position: static;
   visibility: visible;
   pointer-events: auto;
 }
 .acpmux-composer-bar [data-fit-part]:not([data-fit-forms~="full"]),
-.nt-pickers [data-fit-part="effort"]:not([data-fit-forms~="full"]),
-.acpmux-composer-bar[data-fit-access="icon"] [data-fit-part="access"]:not([data-fit-forms~="icon"]),
-.acpmux-composer-bar[data-fit-effort="short"] [data-fit-part="effort"]:not([data-fit-forms~="short"]),
-.acpmux-composer-bar[data-fit-model="family"] [data-fit-part="model"]:not([data-fit-forms~="family"]),
-.acpmux-composer-bar[data-fit-model="icon"] [data-fit-part="model"]:not([data-fit-forms~="icon"]) {
+/* New Tab's row: the effort always, and with Codex's look the model's and mode's other forms too
+   (its chips sit in this row, NewTabScreen.tsx), as the chat's box row does. */
+.nt-pickers [data-fit-part]:not([data-fit-forms~="full"]),
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-access="icon"] [data-fit-part="access"]:not([data-fit-forms~="icon"]),
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-effort="short"] [data-fit-part="effort"]:not([data-fit-forms~="short"]),
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-model="family"] [data-fit-part="model"]:not([data-fit-forms~="family"]),
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-model="icon"] [data-fit-part="model"]:not([data-fit-forms~="icon"]) {
   position: absolute;
   top: 0;
   inset-inline-start: 0;
   visibility: hidden;
   pointer-events: none;
 }
+/* The width steps below skip the plain quiet row only: ComposerFoot draws the same
+   `.acpmux-composer-bar.acpmux-composer-foot` in both footer looks and marks only the plain one
+   `data-footer-look="plain"`, so with the plain footer off its row takes these steps as the one row
+   always did. The box's own row keeps them whatever its footer look, since Codex's look puts the
+   mode, model and ring there (composerLook.ts). The guard is
+   `:where(:not(.acpmux-composer-foot[data-footer-look="plain"]))`, never a bare `:not(...)`:
+   these rules sit after the hiding rules above and must keep losing to them, so the row's measured
+   fit (data-fit-model="icon" at a width whose step only asks for "family") still wins. A bare
+   `:not()` adds to the selector, ties the hider at (0,4,0) and would bring a label back that the
+   fit had taken away. */
 @container composer (max-width: 470px) {
-  :is(.acpmux-composer-bar, .nt-pickers) [data-fit-part="effort"][data-fit-forms~="short"] {
+  :is(.acpmux-composer-bar:where(:not(.acpmux-composer-foot[data-footer-look="plain"])), .nt-pickers) [data-fit-part="effort"][data-fit-forms~="short"] {
     position: static;
     visibility: visible;
     pointer-events: auto;
   }
-  :is(.acpmux-composer-bar, .nt-pickers) [data-fit-part="effort"]:not([data-fit-forms~="short"]) {
+  :is(.acpmux-composer-bar:where(:not(.acpmux-composer-foot[data-footer-look="plain"])), .nt-pickers) [data-fit-part="effort"]:not([data-fit-forms~="short"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -681,12 +739,12 @@
   }
 }
 @container composer (max-width: 440px) {
-  .acpmux-composer-bar [data-fit-part="model"][data-fit-forms~="family"] {
+  .acpmux-composer-bar:where(:not(.acpmux-composer-foot[data-footer-look="plain"])) [data-fit-part="model"][data-fit-forms~="family"] {
     position: static;
     visibility: visible;
     pointer-events: auto;
   }
-  .acpmux-composer-bar [data-fit-part="model"]:not([data-fit-forms~="family"]) {
+  .acpmux-composer-bar:where(:not(.acpmux-composer-foot[data-footer-look="plain"])) [data-fit-part="model"]:not([data-fit-forms~="family"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -695,7 +753,7 @@
   }
 }
 @container composer (max-width: 370px) {
-  .acpmux-composer-bar [data-fit-part="model"]:not([data-fit-forms~="icon"]) {
+  .acpmux-composer-bar:where(:not(.acpmux-composer-foot[data-footer-look="plain"])) [data-fit-part="model"]:not([data-fit-forms~="icon"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -719,7 +777,7 @@
   }
 }
 @container composer (max-width: 420px) {
-  .acpmux-composer-bar [data-fit-part="access"]:not([data-fit-forms~="icon"]) {
+  .acpmux-composer-bar:where(:not(.acpmux-composer-foot[data-footer-look="plain"])) [data-fit-part="access"]:not([data-fit-forms~="icon"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -735,12 +793,20 @@
   pointer-events: auto;
 }
 /* A tight row (#20548's narrow step): the group gap narrows and the card reaches 10px from the
-   pane's edges. Every chevron and the turn's own controls stay. */
+   pane's edges. Every chevron and the turn's own controls stay. The default queue and its fold
+   continue the card's surface, so all joined edges take the same outset (ask-a1c7dd28ee). */
+.acpmux-composer { --acpmux-composer-narrow-outset: 8px; }
 @container composer (max-width: 297px) {
   .acpmux-composer-bar { --acpmux-row-group-gap: 8px; }
-  .acpmux-composer:not(.acpmux-quick .acpmux-composer) > .acpmux-composer-box { margin-inline: -8px; }
+  .acpmux-composer:not(.acpmux-quick .acpmux-composer) > .acpmux-composer-box,
+  :root:not([data-top-strip]) .acpmux-composer:not(.acpmux-quick .acpmux-composer)
+    > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
+    margin-inline: calc(-1 * var(--acpmux-composer-narrow-outset));
+  }
   /* The quiet row widens with the box, so the mode text stays on the prompt's 16 px edge. */
-  .acpmux-composer:not(.acpmux-quick .acpmux-composer) .acpmux-composer-foot { margin-inline: -8px; }
+  .acpmux-composer:not(.acpmux-quick .acpmux-composer) .acpmux-composer-foot {
+    margin-inline: calc(-1 * var(--acpmux-composer-narrow-outset));
+  }
 }
 /* Keep the complete control rail usable in a very narrow pane: preserve every action and only
    tighten their rhythm. */
@@ -971,6 +1037,12 @@
   border-radius: 14px 14px 0 0;
   background: var(--acpmux-top-tray);
   box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-strip-edge);
+}
+/* Folder-browse recovery adds a second row. In the tray, keep that row below the raised composer
+   instead of letting the fixed tray height clip it under the card. */
+:root[data-top-strip="tray"] .acpmux-composer-strip:has(> .acpmux-composer-context > .acpmux-folder-choice) {
+  height: auto;
+  min-height: calc(var(--acpmux-strip-height) + var(--acpmux-tray-tuck));
 }
 /* The strip keeps the card's blur (composerStates.css), and glass is never opaque: off Reduce
    Transparency the tray's step goes over the card's glass tint, as Codex's tray does
@@ -1203,6 +1275,26 @@
    effort one muted label, as every composer's model chip is. */
 .acpmux-composer-foot .acpmux-access .acpmux-picker-button { color: var(--agent-soft); }
 .acpmux-composer-foot :is(.acpmux-model, .acpmux-effort) .acpmux-picker-button { color: var(--agent-muted); }
+/* The model button is a quiet text button (Leo 2026-10-21, of a bordered capsule: "WTF IS THIS UGLY
+   BULLSHIT"): the model's name in the row's muted ink, its effort one step back of it (secondary
+   ink, in every theme and on hover), no edge and no capsule at rest. Hover draws the row's soft pill, as the mic's. Keyboard focus
+   (a menu closed with Esc hands focus back here) draws the same pill and a hairline in the row's
+   own ink, never the bright shared ring; Increase Contrast keeps the shared ring. */
+.acpmux-composer-foot .acpmux-model .acpmux-model-detail { color: color-mix(in srgb, currentcolor 68%, transparent); }
+/* The shared ring (pages/shared/desktop.css) draws from these two tokens with !important, so the
+   button narrows them on itself. */
+@media not (prefers-contrast: more) {
+  .acpmux-composer-foot .acpmux-model .acpmux-picker-button:focus-visible {
+    --cmux-focus-ring-width: 1px;
+    --cmux-focus-ring-color: color-mix(in srgb, var(--agent-text) 22%, transparent);
+    outline-offset: 0;
+  }
+}
+/* The row sits outside the box, so `.acpmux-composer-box button { font: inherit }` (styles.css) never
+   reached its buttons: they drew in the engine's control font, not the composer's. They take the
+   composer's family as the box's controls do (test/composer-app-font.test.ts); sizes stay the
+   row's own (--text-control). */
+.acpmux-composer-foot button { font-family: inherit; }
 .acpmux-composer-foot .acpmux-effort { margin-inline-start: 1px; }
 /* Neighbouring chips on the right (the model, Plan, a harness's Options, the effort) keep their
    labels 8 px apart, as with the old 4 px inset: each one after the first tucks its leading pill
@@ -1303,26 +1395,29 @@
   top: calc(11px * var(--cmux-interface-scale, 1));
   right: calc(8px * var(--cmux-interface-scale, 1));
 }
-.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-shell-field {
-  min-height: 44px;
-  padding: 11px 8px 11px 23px;
-}
-.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-shell-glyph {
-  left: 7px;
-  top: 11px;
+/* Shell mode draws from the prompt's insets (composerStates.css), so this look gives it the ones it
+   gives the prompt: the 44 px row's 11 px above and below, the 7 px the placeholder starts at, and
+   the 8 px right. The glyph then stands on the caret's column and the command keeps the prompt's
+   line, at every chrome size. */
+.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) {
+  --acpmux-shell-inset-top: var(--acpmux-prompt-inset);
+  --acpmux-shell-inset-right: calc(8px * var(--cmux-interface-scale, 1));
+  --acpmux-shell-inset-bottom: var(--acpmux-prompt-inset);
+  --acpmux-shell-inset-left: calc(7px * var(--cmux-interface-scale, 1));
 }
 /* Under the attachments' band the prompt starts one gap down, as in the other look
-   (composerAttachments.css), at this look's specificity. */
+   (composerAttachments.css), at this look's specificity. Shell mode takes the band there, through
+   the one inset it draws from, for this look too. */
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner)
   > .acpmux-attachments
   ~ .acpmux-composer-field-menu
-  :is(.acpmux-md-field, .acpmux-shell-field) {
+  .acpmux-md-field {
   padding-top: var(--acpmux-attach-gap);
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner)
   > .acpmux-attachments
   ~ .acpmux-composer-field-menu
-  :is(.acpmux-md-placeholder, .acpmux-shell-glyph) {
+  .acpmux-md-placeholder {
   top: var(--acpmux-attach-gap);
 }
 /* The context ring ends the quiet row, as Claude Code's does: no pill on hover or while its card

@@ -163,6 +163,7 @@ pub struct CloudConnectInfo {
     pub gateway: Option<CloudConnectInfoGateway>,
     pub services: Vec<CloudConnectInfoServicesItem>,
     pub daemon: CloudConnectInfoDaemon,
+    pub vm_kind: CloudConnectInfoVmKind,
     pub revision: Revision,
 }
 
@@ -194,6 +195,13 @@ wire_enum! {
 pub struct CloudConnectInfoDaemon {
     pub version: Option<String>,
     pub capabilities: Vec<String>,
+}
+
+wire_enum! {
+    CloudConnectInfoVmKind {
+        Owner = "owner",
+        Team = "team",
+    }
 }
 
 pub type CloudConnectServices = Vec<CloudConnectServicesInnerItem>;

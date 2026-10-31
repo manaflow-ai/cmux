@@ -11,6 +11,10 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::UnixListener;
 use tokio::sync::mpsc;
 
+/// A host's own end once no daemon controls it ([`OrphanExit`]).
+mod orphan;
+use orphan::Orphan;
+
 /// Entry point of `acpmux __agent-host`: read the spawn spec from stdin,
 /// start the harness, answer on stdout, then serve controllers until the
 /// harness ended and its exit was logged.
@@ -94,6 +98,8 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         // started (background shells included).
         .process_group(0)
         .kill_on_drop(false);
+    // Below the GUI's CPU class (macOS), the tools it starts with it.
+    spec.cpu_class.apply(&mut cmd);
     // Bind before the harness starts, so a failure leaves nothing running.
     let _ = std::fs::remove_file(&spec.socket);
     let listener = UnixListener::bind(&spec.socket)
@@ -193,6 +199,12 @@ enum Event {
     DrainOver(u64),
     /// [`POOLED_OWNER_WAIT`] passed since the host started serving.
     OwnerWaitOver,
+    /// The output held after a carry (its carry's number) is read now, its prompt or not
+    /// (`claude_stdio/carry.rs`).
+    HoldOver(u64),
+    /// With no controller: a wait (its generation) ended, or its census answered (`Some`,
+    /// `host/orphan.rs`).
+    Orphan(u64, Option<bool>),
 }
 
 /// How long a pooled host waits for its first controller. A daemon that
@@ -274,6 +286,16 @@ struct State {
     last_owner: Option<u64>,
     /// Never answer `Hello` (debug builds' test seam, [`claim_hello_stall`]).
     stall_hello: bool,
+    /// Claude's output lines after a carry, read once the next turn's prompt came
+    /// (`claude_stdio/carry.rs` `holding`), oldest first.
+    held: VecDeque<String>,
+    /// The carry that holds the output now (its number, `claude_stdio/carry.rs` `holding`), and
+    /// whether its bound passed: each carry holds once, with a bound of its own.
+    hold: (u64, bool),
+    /// Its own end once no daemon controls it, and what it tracks for it (`host/orphan.rs`).
+    orphan: Orphan,
+    /// The output ended: what a carry held is read, and no carry holds more.
+    read_all: bool,
 }
 
 /// The debug builds' hello-stall seam's variable ([`claim_hello_stall`]):
@@ -480,6 +502,10 @@ impl Started {
             under: Vec::new(),
             last_owner: None,
             stall_hello: claim_hello_stall(),
+            held: VecDeque::new(),
+            hold: (0, false),
+            orphan: Orphan::default(),
+            read_all: false,
         };
         // The app-server's initialize goes out at spawn, before the hub's.
         if let Some(cx) = state.codex.clone() {
@@ -502,6 +528,7 @@ impl Started {
             });
         }
 
+        state.orphan_follow(&events_tx).await; // Its wait starts with no event (`host/orphan.rs`).
         while let Some(event) = events.recv().await {
             match event {
                 // Output after the Exit entry (an escaped process) is dropped.
@@ -511,10 +538,20 @@ impl Started {
                     permit_out = false;
                     drain_gen += 1;
                     drain_armed = false;
-                    state.on_stdout(line).await;
+                    state.held.push_back(line);
+                    state.read_held(&events_tx).await;
+                }
+                Event::HoldOver(hold) => {
+                    if state.hold.0 == hold {
+                        state.hold.1 = true;
+                    }
+                    state.read_held(&events_tx).await;
                 }
                 Event::Stdout(None) => {
                     permit_out = false;
+                    // What a carry held is read before the output's end.
+                    state.read_all = true;
+                    state.read_held(&events_tx).await;
                     if state.exit_h.is_none() {
                         state.end_background_shells().await;
                         state.codex_closed();
@@ -597,8 +634,15 @@ impl Started {
                     });
                     state.pending_conns.push((id, tx));
                 }
-                Event::Frame(id, frame) => state.on_frame(id, frame).await,
+                Event::Frame(id, frame) => {
+                    state.on_frame(id, frame).await;
+                    // The next turn's prompt may have come: what a carry held is read.
+                    state.read_held(&events_tx).await;
+                }
                 Event::Written(receipt, written) => state.receipt(receipt, written),
+                Event::Orphan(generation, census) => {
+                    state.orphan_look(&events_tx, generation, census).await;
+                }
             }
             if state.unadoptable {
                 // As SIGTERM: end the harness while its group is ours, then the host.
@@ -614,7 +658,13 @@ impl Started {
             if state.finished() {
                 break;
             }
-            let wanted = !state.stdout_done && state.weight <= state.spec.buffer_cap;
+            if state.orphan_follow(&events_tx).await {
+                break;
+            }
+            // Nothing more is read while a carry holds what was read (`read_held`).
+            let wanted = !state.stdout_done
+                && state.weight <= state.spec.buffer_cap
+                && state.held.is_empty();
             if wanted && !permit_out && pace_tx.try_send(()).is_ok() {
                 permit_out = true;
             }
@@ -656,6 +706,7 @@ impl State {
 
     /// Number and retain one entry, and send it to a resumed controller.
     fn push(&mut self, entry: Entry) {
+        self.orphan.note_entry(&entry);
         self.next_h += 1;
         let h = self.next_h;
         let weight = entry.weight();
@@ -723,6 +774,32 @@ impl State {
     /// The harness ended and the controller logged its exit.
     fn finished(&self) -> bool {
         self.exit_h.is_some_and(|h| self.acked_h >= h)
+    }
+
+    /// Reads the held output lines in order, until a carry holds the rest (`claude_stdio/carry.rs`
+    /// `holding`): each carry's hold starts its own bound ([`crate::claude_stdio::CARRY_HOLD_MAX`]),
+    /// also one made while an earlier carry still holds.
+    async fn read_held(&mut self, events: &mpsc::Sender<Event>) {
+        while !self.holds(events) {
+            let Some(line) = self.held.pop_front() else { return };
+            self.on_stdout(line).await;
+        }
+    }
+
+    /// Whether a carry holds the output now: one that holds anew starts its bound.
+    fn holds(&mut self, events: &mpsc::Sender<Event>) -> bool {
+        let carry = self.translator.as_ref().and_then(|tr| tr.holding());
+        let Some(carry) = carry.filter(|_| !self.read_all) else { return false };
+        if self.hold.0 != carry {
+            self.hold = (carry, false);
+            let events = events.clone();
+            // task-owner: one bounded wait; the runtime ends it with the host.
+            tokio::spawn(async move {
+                tokio::time::sleep(crate::claude_stdio::CARRY_HOLD_MAX).await;
+                let _ = events.send(Event::HoldOver(carry)).await;
+            });
+        }
+        !self.hold.1
     }
 
     async fn on_stdout(&mut self, line: String) {
@@ -849,6 +926,7 @@ impl State {
     /// Logs a line's receipt (`WRITTEN_METHOD`) as an entry, which reaches this controller or
     /// the next one exactly once.
     fn receipt(&mut self, receipt: u64, written: bool) {
+        self.orphan.unwritten = self.orphan.unwritten.saturating_sub(1);
         let note = serde_json::json!({"receipt": receipt, "written": written});
         self.push(Entry::Tap {
             dir: TapDir::Out,
@@ -873,6 +951,7 @@ impl State {
         {
             self.max_out_id = self.max_out_id.max(n);
         }
+        self.orphan.note_request(&message);
         if let Some(cx) = self.codex.clone() {
             self.push(Entry::Tap {
                 dir: TapDir::Out,
@@ -916,7 +995,8 @@ impl State {
             return;
         };
         if let ControllerFrame::Hello { min, max, token, .. } = &frame {
-            if self.stall_hello {
+            // An orphaned host that ends its harness answers once it is reaped (`orphan.rs`).
+            if self.stall_hello || self.orphan.hold_hello(id, &frame, &self.leader_alive) {
                 return;
             }
             let Some(pos) = self.pending_conns.iter().position(|(pid, _)| *pid == id) else {
@@ -987,6 +1067,7 @@ impl State {
                 self.on_line(msg).await;
                 // Behind every line of it: the writer answers once they are written.
                 // Its stdin writer stopped (the harness's stdin closed): never written.
+                self.orphan.unwritten += usize::from(receipt.is_some());
                 if let Some(receipt) = receipt
                     && self.stdin_tx.send(Stdin::Receipt(receipt)).is_err()
                 {
@@ -995,29 +1076,7 @@ impl State {
             }
             ControllerFrame::Ack { h } => self.drop_through(h),
             ControllerFrame::Terminate { grace_ms } => {
-                if let Some(pg) = self
-                    .pgid
-                    .filter(|_| self.leader_alive.load(std::sync::atomic::Ordering::SeqCst))
-                {
-                    self.under = tokio::task::spawn_blocking(|| {
-                        super::tree::descendants(&[std::process::id()])
-                    })
-                    .await
-                    .unwrap_or_default();
-                    // SAFETY: the harness leads this process group.
-                    unsafe { libc::killpg(pg, libc::SIGTERM) };
-                    let grace = std::time::Duration::from_millis(grace_ms);
-                    let alive = self.leader_alive.clone();
-                    // A bounded kill deadline, not synchronization: the exit
-                    // entry is the signal that the harness ended.
-                    tokio::spawn(async move {
-                        tokio::time::sleep(grace).await;
-                        if alive.load(std::sync::atomic::Ordering::SeqCst) {
-                            // SAFETY: the leader is unreaped, so the group is ours.
-                            unsafe { libc::killpg(pg, libc::SIGKILL) };
-                        }
-                    });
-                }
+                self.terminate_group(std::time::Duration::from_millis(grace_ms)).await;
                 if let Some(c) = self.controller.as_ref() {
                     let _ = c.tx.send(HostFrame::TerminateAck);
                 }

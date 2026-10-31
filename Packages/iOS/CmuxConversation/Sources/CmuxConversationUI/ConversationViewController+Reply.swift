@@ -21,6 +21,11 @@ final class ReplyThreadOverlay: UIView {
     var contentHeight: CGFloat = 0
     /// The bubble that lifts out of the transcript and settles back into it.
     var anchorMessageID: String?
+    /// The thread's root message.
+    var rootID: String?
+    /// The thread's messages as last laid out (a store change that leaves
+    /// them alone leaves the thread alone).
+    var messages: [ConversationMessage] = []
     var onClose: (() -> Void)?
     /// Thread messages whose transcript rows hide while their copies show.
     var hiddenMessageIDs: Set<String> = []
@@ -204,8 +209,11 @@ extension ConversationViewController {
         replyOverlay?.removeFromSuperview()
         replyTarget = replyTo ?? root
         let overlay = ReplyThreadOverlay(frame: view.bounds)
+        overlay.rootID = rootID
         overlay.onClose = { [weak self] in self?.exitReplyMode() }
-        view.insertSubview(overlay, belowSubview: composerContainer)
+        // The host material also blurs reply copies as they scroll under the
+        // floating header; do not clip the thread at the name capsule.
+        view.insertSubview(overlay, belowSubview: headerMaterial.superview == nil ? composerContainer : headerMaterial)
         // The thread's own interactive dismissal moves the composer too.
         keyboardDock.trackInteractiveDismissal(of: overlay.content)
         populate(overlay, rootID: rootID)
@@ -311,24 +319,34 @@ extension ConversationViewController {
         }
     }
 
-    private func populate(_ overlay: ReplyThreadOverlay, rootID: String) {
+    private func threadMessages(rootID: String) -> [ConversationMessage] {
+        store.messages.filter { $0.id == rootID || $0.replyToID == rootID }
+    }
+
+    /// `followsBottom` false keeps the thread where the reader scrolled it.
+    private func populate(_ overlay: ReplyThreadOverlay, rootID: String, followsBottom: Bool = true) {
         overlay.content.subviews.forEach { $0.removeFromSuperview() }
-        let thread = store.messages.filter { $0.id == rootID || $0.replyToID == rootID }
+        let thread = threadMessages(rootID: rootID)
+        overlay.messages = thread
         var models = ConversationRowBuilder.rows(store: store).compactMap { row -> MessageRowModel? in
             guard case var .message(model) = row, thread.contains(where: { $0.id == model.message.id }) else { return nil }
             // Inside the thread, replies render without their quote.
             model.replyQuote = nil
             model.showsTail = true
-            model.showsSenderName = !model.isOutgoing
+            // Names are a group's: a 1:1 thread shows none, as its transcript.
+            model.showsSenderName = model.isGroup && !model.isOutgoing
             model.showsAvatar = model.reservesAvatarColumn
             model.message.replyCount = 0
             return model
         }
-        // The thread is its own transcript: only its newest outgoing message
-        // keeps a delivery status.
-        let lastOutgoing = models.lastIndex { $0.isOutgoing }
-        for index in models.indices where index != lastOutgoing && models[index].footer != .notDelivered {
-            models[index].footer = .none
+        // The thread is its own transcript, so its run plan places the
+        // delivery status: under the thread's newest delivered message of
+        // mine, even when the main transcript shows it on a later one.
+        let plan = ConversationRunPlan(messages: thread, meID: store.meID)
+        let isGroup = store.info?.kind == .group
+        for index in models.indices {
+            guard let position = thread.firstIndex(where: { $0.id == models[index].message.id }) else { continue }
+            models[index].footer = ConversationRowBuilder.footer(for: plan.entries[position].status, isGroup: isGroup)
         }
         let width = view.bounds.width
         var y: CGFloat = 0
@@ -339,7 +357,8 @@ extension ConversationViewController {
             stamp.isUserInteractionEnabled = false
             overlay.content.addSubview(stamp)
             stamp.layoutIfNeeded()
-            y += TimestampCell.height
+            // As in the transcript: the first row starts `nextRowGap` under the heading.
+            y += TimestampCell.height + TimestampCell.nextRowGap
         }
         for (index, model) in models.enumerated() {
             if index > 0 { y += Self.threadRowSpacing(after: models[index - 1], before: model) }
@@ -353,7 +372,7 @@ extension ConversationViewController {
             y += cellLayout.height
         }
         overlay.contentHeight = y
-        layoutReplyOverlay()
+        layoutReplyOverlay(followsBottom: followsBottom)
     }
 
     /// Thread rows sit as they would in a transcript: a run from one sender
@@ -367,8 +386,15 @@ extension ConversationViewController {
     /// each line added to or removed from the draft in the same frame as
     /// the field, keeping the bottom bubble 16.7 pt above it, and jumps it
     /// to the risen keyboard's layout at once (iOS 26.5 and 27.0).
-    func layoutReplyOverlay() {
+    /// The thread stays at its end only when the reader was there (or
+    /// `followsBottom` says so: opening, a reply of mine); a reader scrolled
+    /// up keeps their place through header, field and keyboard changes.
+    func layoutReplyOverlay(followsBottom: Bool? = nil) {
         guard let overlay = replyOverlay else { return }
+        let content = overlay.content
+        let wasAtBottom = content.bounds.height == 0
+            || content.contentOffset.y >= content.contentSize.height - content.bounds.height - 1
+        let followsBottom = followsBottom ?? wasAtBottom
         overlay.frame = view.bounds
         overlay.blur.frame = overlay.bounds
         overlay.dim.frame = overlay.bounds
@@ -385,7 +411,9 @@ extension ConversationViewController {
             overlay.content.contentSize = CGSize(width: width, height: y)
             let inset = max(0, available - y)
             overlay.content.contentInset = UIEdgeInsets(top: inset, left: 0, bottom: 0, right: 0)
-            overlay.content.contentOffset = CGPoint(x: 0, y: max(-inset, y - available))
+            let bottom = max(-inset, y - available)
+            let offset = followsBottom ? bottom : min(max(-inset, overlay.content.contentOffset.y), bottom)
+            overlay.content.contentOffset = CGPoint(x: 0, y: offset)
         }
         let after = overlay.content.frame.minY - overlay.content.contentOffset.y
         overlay.motion?.containerMoved(by: after - before)
@@ -427,10 +455,98 @@ extension ConversationViewController {
         }
     }
 
-    /// `settling` returns the thread's rows to their transcript twins; a
-    /// send passes false because the transcript scrolls to the new reply
-    /// underneath, so the thread just fades as the reply flies in.
-    func exitReplyMode(settling: Bool = true) {
+    /// The open thread follows the store: Messages keeps the thread open
+    /// after a reply is sent, so the reply joins it right above the field it
+    /// left and the rows above move up on the thread's layout dynamics, with
+    /// the composer still in reply mode (iOS 27.0). An incoming reply or a
+    /// delivery status lands the same way.
+    func refreshReplyThread() {
+        guard let overlay = replyOverlay, overlay.isUserInteractionEnabled, let rootID = overlay.rootID else { return }
+        guard store.messages.contains(where: { $0.id == rootID && !$0.isUnsent }) else {
+            // The root was unsent or left the loaded window: nothing to reply to.
+            exitReplyMode()
+            return
+        }
+        let thread = threadMessages(rootID: rootID)
+        guard thread != overlay.messages else { return }
+        let fieldFrame = composer.fieldFrame(in: view)
+        let before = threadScreenTops(in: overlay)
+        // A swiped bubble still unwinding keeps its swing through the refresh.
+        var swings: [String: CGFloat] = [:]
+        for item in overlay.motion?.items ?? [] {
+            if let id = (item.view as? MessageCell)?.model?.message.id, item.trip.offsetX != 0 { swings[id] = item.trip.offsetX }
+        }
+        overlay.motion?.stop()
+        // The thread follows a reply of mine, or a reader already at its end;
+        // a status or tapback landing while they read further up leaves them there.
+        let known = Set(overlay.messages.map(\.id))
+        let sentByMe = thread.contains { !known.contains($0.id) && $0.senderID == store.meID }
+        let content = overlay.content
+        let atBottom = content.contentOffset.y >= content.contentSize.height - content.bounds.height - 1
+        let focused = focusedThreadMessageID(in: overlay)
+        populate(overlay, rootID: rootID, followsBottom: sentByMe || atBottom)
+        overlay.hiddenMessageIDs = Set(overlay.content.subviews.compactMap { ($0 as? MessageCell)?.model?.message.id })
+        refreshReplyBacking(hiddenOnly: true)
+        // The rows were rebuilt: VoiceOver stays on the message it was reading.
+        if let focused {
+            // Elements live on the content view (MessageCellAccessibility); a
+            // message that left the thread hands focus back to VoiceOver.
+            let cell = overlay.content.subviews.lazy.compactMap { $0 as? MessageCell }.first { $0.model?.message.id == focused }
+            UIAccessibility.post(notification: .layoutChanged, argument: cell.map { $0.contentView.accessibilityElements?.first ?? $0 })
+        }
+        guard !UIAccessibility.isReduceMotionEnabled else { return }
+        let fieldTop = overlay.content.convert(CGPoint(x: 0, y: fieldFrame.minY), from: view).y
+        let rows = overlay.content.subviews.compactMap { view -> ReplyThreadRow? in
+            guard view is MessageCell || view is TimestampCell else { return nil }
+            let target = view.frame.minY
+            let start: CGFloat
+            if let id = (view as? MessageCell)?.model?.message.id, let top = before[id] {
+                start = overlay.content.convert(CGPoint(x: 0, y: top), from: nil).y
+            } else if view is TimestampCell, let top = before[Self.threadHeadingKey] {
+                start = overlay.content.convert(CGPoint(x: 0, y: top), from: nil).y
+            } else {
+                // The new reply rises from the field it was typed in.
+                let bubbleTop = (view as? MessageCell)?.cellLayout?.contentFrame.minY ?? 0
+                start = max(target, fieldTop - bubbleTop)
+            }
+            let swing = (view as? MessageCell)?.model.flatMap { swings[$0.message.id] } ?? 0
+            return (view: view, baseY: target, startY: start, targetY: target, initialOffsetX: swing)
+        }
+        let motion = ReplyThreadMotion(rows: rows, animatingOut: false, viewHeight: view.bounds.height, scale: traitCollection.displayScale)
+        overlay.motion = motion
+        motion.start()
+    }
+
+    /// The thread message VoiceOver is on, if its focus is inside the thread.
+    private func focusedThreadMessageID(in overlay: ReplyThreadOverlay) -> String? {
+        guard UIAccessibility.isVoiceOverRunning,
+              let focused = UIAccessibility.focusedElement(using: .notificationVoiceOver) else { return nil }
+        let container = (focused as? UIAccessibilityElement)?.accessibilityContainer as? UIView ?? focused as? UIView
+        for case let cell as MessageCell in overlay.content.subviews where container?.isDescendant(of: cell) == true {
+            return cell.model?.message.id
+        }
+        return nil
+    }
+
+    private static let threadHeadingKey = "\u{0}heading"
+
+    /// Where each thread row's top shows now (window space), by message id.
+    private func threadScreenTops(in overlay: ReplyThreadOverlay) -> [String: CGFloat] {
+        var tops: [String: CGFloat] = [:]
+        for view in overlay.content.subviews {
+            let top = view.convert(CGPoint.zero, to: nil).y
+            if let id = (view as? MessageCell)?.model?.message.id {
+                tops[id] = top
+            } else if view is TimestampCell {
+                tops[Self.threadHeadingKey] = top
+            }
+        }
+        return tops
+    }
+
+    /// The thread's rows return to their transcript twins (Reduce Motion:
+    /// the thread fades).
+    func exitReplyMode() {
         guard let overlay = replyOverlay, overlay.isUserInteractionEnabled else { return }
         overlay.isUserInteractionEnabled = false
         replyTarget = nil
@@ -441,7 +557,7 @@ extension ConversationViewController {
         collectionView.accessibilityElementsHidden = false
         UIAccessibility.post(notification: .screenChanged, argument: nil)
         overlay.dimsBacking = false
-        let settles = settling && !UIAccessibility.isReduceMotionEnabled
+        let settles = !UIAccessibility.isReduceMotionEnabled
         if !settles {
             overlay.hiddenMessageIDs = []
             refreshReplyBacking(hiddenOnly: true)

@@ -102,6 +102,8 @@ impl CliError {
             "client-session list" | "client-session revoke" => {
                 format!("cmux-vm client-session list {vm_id}")
             }
+            // A 404 means the VM itself is gone, so `get` would fail too.
+            _ if self.status == Some(404) => "cmux-vm list".to_owned(),
             _ => format!("cmux-vm get {vm_id}"),
         };
         self.message = format!(
@@ -136,13 +138,15 @@ impl CliError {
                 }
                 Self::from_status(status, &body)
             }
-            Error::CommunicationError(e) | Error::ResponseBodyError(e) => {
-                Self::network(format!("could not reach the cmux VM API: {e}"))
-            }
+            Error::CommunicationError(e) | Error::ResponseBodyError(e) => Self::network(format!(
+                "could not reach the cmux VM API: {e}; check your network; run `cmux-vm list` to check connectivity"
+            )),
             Error::InvalidRequest(message) => Self::usage(message),
             Error::InvalidResponsePayload(_, e) => Self::local(
                 exit::UNEXPECTED,
-                format!("the cmux VM API sent a response this CLI cannot read: {e}"),
+                format!(
+                    "the cmux VM API sent a response this CLI cannot read: {e}; update cmux-vm and retry"
+                ),
             ),
             other => Self::local(exit::UNEXPECTED, other.to_string()),
         }
@@ -160,6 +164,10 @@ impl CliError {
         let tag = field("_tag");
         let budget = field("budget");
         let server_message = field("message");
+        let missing_scope = field("missingScope").or_else(|| field("scope"));
+        let field_name = field("field");
+        let state = field("state");
+        let action = field("action");
         let code = exit::for_status(status);
         let fallback = match status {
             400 => "the request was rejected as invalid",
@@ -176,8 +184,26 @@ impl CliError {
             _ => "the cmux VM API returned an error",
         };
         let mut message = server_message.unwrap_or_else(|| fallback.to_owned());
+        if let Some(scope) = missing_scope {
+            message = format!("{message}; this credential lacks the required `{scope}` scope");
+        }
+        if let Some(field_name) = field_name {
+            message = format!("{message} (field `{field_name}`)");
+        }
+        if let Some(state) = state {
+            message = format!("{message}; VM state is `{state}`");
+        }
+        if let Some(action) = action {
+            message = format!("{message}; action: {action}");
+        }
         if status == 501 && !message.contains("not available yet") {
-            message = format!("not available yet: {message}");
+            message = format!("not available yet: {message}; update cmux-vm and retry");
+        }
+        if status == 400 {
+            message.push_str("; check the command's flags and run `cmux-vm --help`");
+        }
+        if status == 402 {
+            message.push_str("; check the team's plan at https://cmux.com/pricing");
         }
         Self {
             code,
@@ -243,4 +269,42 @@ async fn read_stream(stream: ByteStream) -> Vec<u8> {
 fn append_capped(body: &mut Vec<u8>, chunk: &[u8]) {
     let room = MAX_ERROR_BODY.saturating_sub(body.len());
     body.extend_from_slice(&chunk[..chunk.len().min(room)]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vm_errors_preserve_server_details_and_status() {
+        for (status, body, fragments) in [
+            (403, json!({"scope":"vm:exec"}), vec!["vm:exec"]),
+            (
+                400,
+                json!({"field":"linuxUser", "message":"invalid user", "action":"choose root"}),
+                vec!["linuxUser", "invalid user", "choose root"],
+            ),
+            (409, json!({"state":"paused"}), vec!["paused"]),
+            (404, json!({}), vec!["cmux-vm list"]),
+        ] {
+            let error = CliError::from_status(status, &serde_json::to_vec(&body).unwrap())
+                .for_vm("vm_example", "exec");
+            assert_eq!(error.exit_code(), exit::for_status(status));
+            assert!(error.message.contains("VM vm_example exec failed"));
+            for fragment in fragments {
+                assert!(error.message.contains(fragment), "{}", error.message);
+            }
+            assert!(!error.message.contains("cmux-vm ls"));
+        }
+    }
+
+    #[test]
+    fn fork_recovery_preserves_the_original_idempotency_key() {
+        let error = CliError::network("connection closed")
+            .with_idempotency_hint("original-key")
+            .for_vm("vm_example", "fork");
+        assert!(error.message.contains("--idempotency-key original-key"));
+        assert!(error.message.contains("cmux-vm get vm_example"));
+        assert!(!error.message.contains("cmux-vm fork"));
+    }
 }

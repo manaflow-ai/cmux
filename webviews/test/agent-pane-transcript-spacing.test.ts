@@ -193,7 +193,8 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
       const afterFirst = rowAfter(userRow("Is the hosted test run done?"));
       const firstContent = afterFirst.querySelector(".cv-md, .cv-worked") ?? afterFirst;
       const worked = rowAfter(userRow("Ship it when green.")).querySelector(".cv-worked");
-      const footers = [...document.querySelectorAll<HTMLElement>(".cv-turn-actions")];
+      // Turn footers only: a reply's own row (cv-reply-actions) reuses their look.
+      const footers = [...document.querySelectorAll<HTMLElement>(".cv-turn-actions:not(.cv-reply-actions)")];
       const lastFooterTime = footers.at(-1)!.querySelector(".cv-turn-time")!;
       const lastReply = reply("Meanwhile the PR checks");
       const dock = document.querySelector<HTMLElement>(".acpmux-main[data-dock=float] > .acpmux-dock")!;

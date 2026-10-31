@@ -1,5 +1,6 @@
 public import CmuxUpdater
 public import CmuxNextWakeups
+import CmuxNextSettings
 import Network
 public import Foundation
 import Observation
@@ -59,6 +60,9 @@ public final class UpdaterService {
     @ObservationIgnored let snoozeTimer: DemandTimer
     /// The pulled-build banner (made on first use; it needs `self`).
     @ObservationIgnored public private(set) lazy var pulledWatch = PulledBuildWatch(updater: self)
+    /// The app-owned per-PR kill-switch reader; retaining it cancels its observation with the updater.
+    /// ``startKillSwitchReader()`` stops the one before through this property.
+    @ObservationIgnored var killSwitchReader: KillSwitchReader?
     /// The notice whose timeout is pending, and its one-shot deadline on the
     /// injected clock (no `asyncAfter`).
     @ObservationIgnored var expiringCard: UpdateCard?
@@ -162,6 +166,12 @@ public final class UpdaterService {
     /// The install click replaced a stale staged build (``StagedUpdateRefresh/beforeInstall(updater:install:)``):
     /// the click carries over to the newer build's check and download (``carryInstallClick(_:)``).
     @ObservationIgnored var installAfterSwap = false
+    /// Why the newest build downloads in place of a stale or pulled one, or nil (``followNewestFetch(_:previous:)``).
+    var newestFetch: NewestFetch?
+    /// Pulled staged builds already dropped once (``followPulled()``).
+    @ObservationIgnored var droppedPulled: Set<String> = []
+    /// The running build's pull started its fetch of the newest build (once per launch).
+    @ObservationIgnored var runningPulledHandled = false
     /// Replaces the install click's disk preflight (``installPreflightFailure()``) in tests.
     @ObservationIgnored var preflightOverride: (() -> UpdateInstallPreflight.Failure?)?
     /// The cancel returns whether an installer was held and is now cancelled.
@@ -316,7 +326,18 @@ public final class UpdaterService {
         restoreRollbackSkip()
         releasePush.onNewerBuild = { [weak self] in self?.releasePushed($0) }
         tipState = TipState(defaults: defaults)
+        // The app settled the install before making the updater (AppServices): an install that ran
+        // before tips counts as having used the catalog's basics.
+        storeTipState(TipChooser.settleInstall(tipState, catalog: TipCatalog.all, install: tipBudget.install))
         updateSnooze = UpdateSnooze(defaults: defaults)
+    }
+
+    /// Makes this updater's kill-switch reader and follows it; the reader started before stops.
+    func startKillSwitchReader() {
+        killSwitchReader?.stop()
+        let reader = KillSwitchReader(updater: self)
+        killSwitchReader = reader
+        reader.follow()
     }
 
     /// Why Sparkle does not run right now, or nil.
@@ -331,26 +352,41 @@ public final class UpdaterService {
     public func start() {
         guard !started else { return }
         started = true
+        if presentUpdateUI != nil { startKillSwitchReader() }
         observeFlowPhase()
         refreshAnnouncements()
         refreshTip()
         refreshUpdateSnooze()
         tipCheck.refresh(self)
         refreshReleasePush()
+        pulledWatch.onRefresh = { [weak self] in self?.followPulled() }
         guard let controller else {
             log.append("sparkle not started (\(disabledReason?.rawValue ?? "no driver"), track=\(identity.track.rawValue))")
             return
         }
         controller.actionDelegate = self
-        pulledWatch.start(controller: controller)
-        controller.startUpdaterIfNeeded()
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if UpdateHarness.current?.backgroundCheck == true {
-            UpdateHarness.mark("background_check")
-            controller.checkInBackground()
+        // A found build known pulled never downloads, even when downloads are automatic.
+        controller.refusesUpdate = { [weak self] in self?.isKnownPulled($0) ?? false }
+        controller.prepareUpdate = { [weak self] in
+            guard let self else { return }
+            await self.pulledWatch.refresh().value
         }
-        #endif
-        recheckRequiredUpdate()
+        let pulledListReady = pulledWatch.start(controller: controller)
+        // Do not let Sparkle's launch/background check race the pulled-build list. Until that
+        // read completes, a pulled appcast item is not yet known to ``refusesUpdate`` and could
+        // be accepted and downloaded before ``followPulled()`` gets a chance to cancel it.
+        Task { @MainActor [weak self, weak controller] in
+            await pulledListReady.value
+            guard let self, let controller, self.started else { return }
+            controller.startUpdaterIfNeeded()
+            #if DEBUG || CMUX_BENCH_HOOKS
+            if UpdateHarness.current?.backgroundCheck == true {
+                UpdateHarness.mark("background_check")
+                controller.checkInBackground()
+            }
+            #endif
+            self.recheckRequiredUpdate()
+        }
     }
 
     /// The user asked to check. With Sparkle it starts a foreground Sparkle

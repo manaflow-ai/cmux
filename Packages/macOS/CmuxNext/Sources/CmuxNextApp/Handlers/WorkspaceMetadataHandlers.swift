@@ -6,7 +6,7 @@ import CmuxNextDesign
 import CmuxNextCompat
 import CmuxNextSidebar
 
-/// Workspace names, colors, notifications, identifiers, and Finder reveal.
+/// Workspace names, colors, notifications, and Finder reveal (identifier copies: `TabHandlers.bindIdentifiers`).
 /// Colors go through the sidebar bridge (optimistic row update, then
 /// `set-workspace-metadata`), the same path as the row's context menu.
 /// Pin goes through the one pin path (`PinCommands`).
@@ -62,11 +62,6 @@ enum WorkspaceMetadataHandlers {
             let workspace = try context.workspace(invocation).model
             guard let cwd = directory(of: workspace, context) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceHasNoDirectory) }
             NSWorkspace.shared.revealInBackground([URL(fileURLWithPath: cwd)])
-        })
-        registry.bind("palette.copyWorkspaceID", run: { invocation in context.copy(try context.workspace(invocation).key.rawValue) })
-        registry.bind("palette.copyWorkspaceIDAndRef", run: { invocation in
-            let key = try context.workspace(invocation).key.rawValue
-            context.copy("\(key)\n\(ActionTargetRef(kind: .workspace, id: key))")
         })
 
         registry.bind("palette.markWorkspaceUnread", requires: DaemonCapability.notificationMarkUnread.rawValue, daemon: context.services.activeDaemon, run: { invocation in

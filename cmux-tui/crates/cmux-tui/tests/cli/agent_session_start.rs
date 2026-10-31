@@ -228,6 +228,12 @@ impl Daemon {
                         "harness": harness, "cwd": work.to_str().unwrap()}))
     }
 
+    fn start_chat_with_model(&self, surface: u64, harness: &str, model: &str) -> Value {
+        let work = self.dir.join("work");
+        self.rpc(json!({"id": 8, "cmd": "agent-session-start", "surface": surface,
+                        "harness": harness, "model": model, "cwd": work.to_str().unwrap()}))
+    }
+
     /// One call on this machine's acpmux unix socket (the local owner).
     fn acpmux_call(&self, method: &str, params: Value) -> Value {
         let stream = UnixStream::connect(self.dir.join("acpmux/acpmux.sock")).unwrap();
@@ -356,8 +362,10 @@ fn agent_session_start_passes_the_host_gate_on_an_ssh_host() {
 
 /// The guest's own `owner` record never allows a start on a Cloud VM (its
 /// agents keep sudo): only the caller's `vm_kind: "owner"`, the Cloud API's
-/// answer for it, does, and team evidence refuses even then. A machine that
-/// is not a Cloud VM needs no word.
+/// answer for it, does. On a team VM that word is the creator's (the Cloud
+/// API gives it to nobody else), so it goes on there too; any other word or
+/// none is still `team_vm_blocked`. A machine that is not a Cloud VM needs no
+/// word.
 #[test]
 fn a_cloud_vm_start_needs_the_callers_owner_word_not_the_vms_record() {
     let owner = Daemon::start_cloud("vmowner", "owner");
@@ -374,7 +382,12 @@ fn a_cloud_vm_start_needs_the_callers_owner_word_not_the_vms_record() {
 
     let team = Daemon::start_cloud("vmteam", "team");
     let surface = team.own_agent_tab();
+    // The creator's word: past the host gate, the next check is the folder's trust.
     let reply = team.start_chat_as(surface, "owner");
+    assert_eq!(reply["error_code"], "agent_session.untrusted_folder", "{reply}");
+    let reply = team.start_chat(surface);
+    assert_eq!(reply["error_code"], "agent_session.team_vm_blocked", "{reply}");
+    let reply = team.start_chat_as(surface, "team");
     assert_eq!(reply["error_code"], "agent_session.team_vm_blocked", "{reply}");
 
     let ssh = Daemon::start("vmssh", None);
@@ -394,8 +407,8 @@ fn a_cloud_vm_start_needs_the_callers_owner_word_not_the_vms_record() {
 }
 
 /// Folder trust on a Cloud VM takes the start's rule: only the caller's
-/// `vm_kind: "owner"` reaches it, never the VM's own record, and team
-/// evidence refuses even then. A page cannot vouch for the Cloud API's
+/// `vm_kind: "owner"` reaches it, never the VM's own record; on a team VM
+/// that word is the creator's and reaches it too. A page cannot vouch for the Cloud API's
 /// answer, so its routed operations never reach a Cloud VM's trust.
 #[test]
 fn agent_session_trust_on_a_cloud_vm_needs_the_callers_owner_word() {
@@ -433,8 +446,13 @@ fn agent_session_trust_on_a_cloud_vm_needs_the_callers_owner_word() {
 
     let team = Daemon::start_cloud("trustteam", "team");
     let surface = team.own_agent_tab();
-    let reply = trust(&team, surface, json!("owner"));
-    assert_eq!(reply["error_code"], "agent_session.team_vm_blocked", "{reply}");
+    for kind in [json!(null), json!("team")] {
+        let reply = trust(&team, surface, kind);
+        assert_eq!(reply["error_code"], "agent_session.team_vm_blocked", "{reply}");
+    }
+    // The creator's word (the Cloud API's owner answer) reaches the trust read.
+    let read = trust(&team, surface, json!("owner"));
+    assert_eq!(read["ok"], true, "{read}");
 
     // A machine that shows no Cloud sign (its root may have removed them):
     // a word that is not `owner`, an explicit `null` included, refuses.
@@ -607,6 +625,22 @@ fn agent_session_start_sends_the_tab_workspace_to_acpmux() {
     assert_eq!(acpmux["workspaceId"], json!(key), "{new}");
     assert_eq!(acpmux.get("env"), None, "{new}");
     assert_eq!(acpmux["policy"], "ask", "{new}");
+    let _ = fs::remove_file(daemon.dir.join("acpmux/acpmux.sock"));
+}
+
+/// The optional model chosen by `cmux agent new-chat --model` reaches the remote
+/// machine's first `session/new`, while the daemon still validates the folder and
+/// keeps the model behind its additive capability.
+#[test]
+fn agent_session_start_relays_the_requested_model() {
+    let daemon = Daemon::start_with("model", None, None);
+    let new_sessions = fake_acpmux(daemon.dir.join("acpmux/acpmux.sock"));
+    let surface = daemon.own_agent_tab();
+    let started = daemon.start_chat_with_model(surface, "fake", "model-x");
+    assert_eq!(started["ok"], true, "{started}");
+    let new = new_sessions.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(new["_meta"]["acpmux"]["model"], "model-x", "{new}");
+    assert!(new["cwd"].as_str().unwrap().ends_with("/work"), "{new}");
     let _ = fs::remove_file(daemon.dir.join("acpmux/acpmux.sock"));
 }
 

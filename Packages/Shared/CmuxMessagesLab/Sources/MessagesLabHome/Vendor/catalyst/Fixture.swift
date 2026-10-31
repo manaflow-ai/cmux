@@ -56,12 +56,23 @@ enum Fixture {
     /// Light system appearance (the host sets it from its effective appearance).
     /// Link cards follow it: Messages' light card is the light incoming grey
     /// (#E9E9EB) with dark text. A change bumps `paletteGeneration`.
-    static var lightAppearance = false { didSet { if lightAppearance != oldValue { paletteGeneration += 1 } } }
+    static var lightAppearance = false { didSet { if lightAppearance != oldValue { PaletteScope.bumpBaseGeneration() } } }
     /// Bumped by an appearance or a colour space change: cached bitmaps are stale (not by a window's key state).
-    static fileprivate(set) var paletteGeneration = 0
+    // cmux: written on the main thread and read by off-main renders (their cache keys, `generationIsLive`), so it
+    // sits behind PaletteScope's lock.
+    static var baseGeneration: Int { PaletteScope.baseGeneration }
+    /// cmux: the palette generation of the drawing that runs now: the base generation and the palette's id (the
+    /// scope's, a window view's own Chat Colors, else the process palette, PaletteScope). Every palette-dependent
+    /// cache is keyed by it, so two chats with different colours keep separate bitmaps and tiles.
+    static var paletteGeneration: Int { generation(of: PaletteScope.current) }
+    /// cmux: the generation drawing in a scope of `box` has now (nil: the process palette's).
+    static func generation(of box: PaletteBox?) -> Int { PaletteScope.generation(of: box) }
+    /// cmux: `generation` was made since the last appearance or colour space change (its palette may be another
+    /// view's): a result drawn for it is still good under its own key.
+    static func generationIsLive(_ generation: Int) -> Bool { generation / 1_000_003 == baseGeneration }
     /// The bitmaps' colour space changed (a window moved to a display of another colour space): every cache keyed
     /// on the palette generation draws again (MessagesWindowView.displayColorSpaceChanged).
-    static func colorSpaceChanged() { paletteGeneration += 1 }
+    static func colorSpaceChanged() { PaletteScope.bumpBaseGeneration() }
 
     /// Palette, measured with `screencapture -l` on macOS 27 Messages
     /// (cmux-lawrence-2, 2026-10-05): key and non-key windows are identical
@@ -75,10 +86,15 @@ enum Fixture {
         UIColor(displayP3Red: r / 255, green: g / 255, blue: b / 255, alpha: 1)
     }
     /// cmux: the app theme's colours (the cmux-next Ghostty theme and the
-    /// user's accent), set by the Home host; a change bumps
+    /// user's accent, and a chat's Chat Colors), set by the Home host: the
+    /// scope's window view's palette, else the process palette (PaletteScope);
+    /// setting it sets the process palette. Another palette has another
     /// `paletteGeneration`. nil keeps the measured Messages palette below
     /// (fixtures, the differential harness), light or dark (`lightAppearance`).
-    static var theme: FixtureTheme? { didSet { if theme != oldValue { paletteGeneration += 1 } } }
+    static var theme: FixtureTheme? {
+        get { PaletteScope.effective?.theme }
+        set { PaletteScope.setProcess(newValue) }
+    }
     private static func themed(_ pick: (FixtureTheme.Colors) -> UIColor) -> UIColor? {
         theme.map { pick($0.active) }
     }
@@ -197,9 +213,33 @@ enum Fixture {
     private static var themedLink: UIColor? { themedAccent ? themed(\.caret) : nil }
     static var incomingLink: UIColor { themedLink ?? UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1) }
     static var labelLink: UIColor { themedLink ?? UIColor(red: 0.2, green: 0.55, blue: 1, alpha: 1) }
+    /// cmux: the outline and text of my quoted root above a reply (macOS 27 Messages, dark, the user's 2x reference of
+    /// 2026-10-28: outline sRGB 56/96/139, text 60/124/212 on the dark background). Light mode and a themed accent mix the
+    /// outgoing blue into the background instead: UNVERIFIED against a light Messages reference.
+    static var quoteOutline: UIColor {
+        if !themedAccent, !lightAppearance { return UIColor(srgbRed: 56 / 255, green: 96 / 255, blue: 139 / 255, alpha: 1) }
+        return mix(outgoing, into: background, 0.45)
+    }
+    static var quoteText: UIColor {
+        if !themedAccent, !lightAppearance { return UIColor(srgbRed: 60 / 255, green: 124 / 255, blue: 212 / 255, alpha: 1) }
+        return mix(outgoing, into: background, 0.85)
+    }
+    /// cmux: the outline of a group's quote of another person's message, drawn at `ThreadPreview.cmuxGroupOpacity`
+    /// (macOS Messages, dark, the user's 2x group reference of 2026-10-29: sRGB 80 on the 30 background, the incoming
+    /// text half way into the background at half opacity). Light mode and themes follow the same mix: UNVERIFIED against
+    /// a light Messages reference.
+    static var groupQuoteOutline: UIColor { mix(incomingText, into: background, 0.5) }
+    /// `c` at `amount` over `base`, in sRGB.
+    private static func mix(_ c: UIColor, into base: UIColor, _ amount: CGFloat) -> UIColor {
+        guard let a = c.usingColorSpace(.sRGB), let b = base.usingColorSpace(.sRGB) else { return c }
+        func m(_ x: CGFloat, _ y: CGFloat) -> CGFloat { y + (x - y) * amount }
+        return UIColor(srgbRed: m(a.redComponent, b.redComponent), green: m(a.greenComponent, b.greenComponent),
+                       blue: m(a.blueComponent, b.blueComponent), alpha: 1)
+    }
     static var repliesTint: UIColor { themedLink ?? PreviewStyle.repliesBlue }
     static var outgoingGradient: CGGradient? {
-        if let t = theme, themedAccent { return t.active.outgoingGradient }
+        // cmux: the palette's own gradient, made once per palette (PaletteBox.outgoingGradient), not once per draw.
+        if themedAccent, let box = PaletteScope.effective { return box.outgoingGradient.gradient }
         return measuredGradient
     }
     /// Text colours measured with screencapture -l (macOS 27, 2026-10-05).
