@@ -225,7 +225,9 @@ await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
               Math.abs(was.data[index + 1]! - now.data[index + 1]!),
               Math.abs(was.data[index + 2]! - now.data[index + 2]!),
             );
-            if (step > 24) differing += 1;
+            // Any visible step: the light theme's resting ticks are a few levels off the page, and
+            // the same rows drawn the same way match exactly.
+            if (step > 2) differing += 1;
           }
           results.push({ scheme, ...shown, differing, pixels: was.data.length / 4 });
           if (process.env.CMUX_RAIL_STILLS) {
