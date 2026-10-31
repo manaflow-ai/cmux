@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1240,
+    "entries": 1242,
     "shortcuts": 189
   },
   "sections": [
@@ -26,6 +26,12 @@
           "title": "Attach Files…",
           "shortcut": null,
           "command": "cmux home attach"
+        },
+        {
+          "id": "automations.show",
+          "title": "Automations",
+          "shortcut": null,
+          "command": "cmux automation show-page"
         },
         {
           "id": "home.chatColors",
@@ -6062,6 +6068,12 @@
           "title": "Set Agent Chat Model…",
           "shortcut": null,
           "command": "cmux agent set-model"
+        },
+        {
+          "id": "agent.share",
+          "title": "Share Chat with Guest…",
+          "shortcut": null,
+          "command": "cmux share chat"
         },
         {
           "id": "chief.screenShare.start",
