@@ -47,10 +47,11 @@ impl Daemon {
         std::fs::create_dir_all(&holds).unwrap();
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
         let config = json!({"harnesses": {"fake": {"argv": ["python3", fake]}},
-                            "defaultHarness": "fake", "permissionPolicy": "approve-all",
+                            "defaultHarness": "fake", "permissionPolicy": "ask",
                             "agentInbox": false, "autoResumeDelaysMs": [],
-                            // Both of the stand-in's modes ask, so the socket may set either
-                            // (`hub/person.rs`: a mode that does not ask is the person's).
+                            // A policy and modes that ask, so the socket may change the rules and
+                            // set either of the stand-in's modes (`hub/person.rs`: what does
+                            // not ask is the person's).
                             "webAskingModes": {"fake": ["normal", "strict"]}});
         std::fs::write(home.join("config.json"), config.to_string()).unwrap();
         std::fs::set_permissions(home.join("config.json"), std::fs::Permissions::from_mode(0o600))

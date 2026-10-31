@@ -17,9 +17,18 @@ pub(super) fn hold_seam(session_id: &str) {
         return;
     }
     let release = dir.join(format!("release-{session_id}"));
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    while !release.exists() && std::time::Instant::now() < deadline {
-        std::thread::sleep(std::time::Duration::from_millis(5));
+    let wait = || {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while !release.exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    };
+    // On a worker of the daemon's runtime, the wait hands the worker's other tasks to another
+    // thread first, so the requests the test sends meanwhile run (a task in a blocked worker's
+    // LIFO slot is not stolen).
+    match tokio::runtime::Handle::try_current().map(|h| h.runtime_flavor()) {
+        Ok(tokio::runtime::RuntimeFlavor::MultiThread) => tokio::task::block_in_place(wait),
+        _ => wait(),
     }
     let _ = std::fs::remove_file(release);
 }
