@@ -20,6 +20,10 @@ attempt 2) of a trusted run. Each job in JOBS, in priority order, gets:
    none while a nightly or release job is queued on any label of its family (the janitor
    snapshot's `reserved_queued`): nightly jobs come first on the fleet. An unread runner list or
    no fresh snapshot places nothing there (nothing is known to be free or to have no nightly).
+   A nightly run's own jobs (NIGHTLY=1, nightly.yml) skip that refusal: they are the nightly
+   jobs that come first. They still take only runners idle now beyond the label's queue, and
+   once queued there the janitor counts them as `reserved_queued`, so pull request placements
+   stay off those minis while they wait.
 3. the job's own Blacksmith expression, which the workflow keeps as the last alternative of
    runs-on (with its CI_CLOUD_OVERFLOW_SAVED failover).
 
@@ -159,7 +163,7 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
     if not route:
         return done(f"no online runner carries `{label}` or a wider class of it")
     waiting = nightly_waiting(snapshot, route)
-    if waiting:
+    if waiting and env.get("NIGHTLY") != "1":
         return done(f"{waiting} nightly or release job(s) wait on `{family(route)}`, so its minis take none")
     idle = pool.live_owned_free(runners, [route])[route]
     free = max(0, idle - queued_on(snapshot, route))

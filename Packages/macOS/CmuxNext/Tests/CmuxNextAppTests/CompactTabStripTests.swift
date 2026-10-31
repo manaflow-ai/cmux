@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Familiar first (Lawrence 2026-10-14): the default tab strip keeps the size people know, a
@@ -9,10 +10,10 @@ import Testing
 /// cx-ag5.12 (Leo 2026-10-12) is the Compact tabs toggle, off by default; there a tab is shorter
 /// than a sidebar row and starts closer to its icon, and the close and + buttons keep their size
 /// and still take a click.
-@MainActor @Suite(.serialized) struct CompactTabStripTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CompactTabStripTests {
     @Test func theDefaultStripKeepsItsFamiliarSize() throws {
         let (strip, window) = Self.strip()
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let cell = try #require(strip.cells[TabID("tab1")])
         #expect(strip.bounds.height == 28, "the strip is \(strip.bounds.height) pt")
         #expect(cell.frame.height == 24, "a tab is \(cell.frame.height) pt")
@@ -41,7 +42,7 @@ import Testing
         try #require(TunableStore.shared.set(key, .bool(true)) == .bool(true), "the toggle takes the override")
         defer { TunableStore.shared.set(key, nil) }
         let (strip, window) = Self.strip()
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         var intents: [TabStripIntent] = []
         strip.model.intentHandler = { intents.append($0) }
 
