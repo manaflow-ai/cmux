@@ -578,6 +578,16 @@ export function NewTabScreen(props: Props) {
     parentSignIn?.authRefresh,
     parentSignIn?.authObservation,
   );
+  const authTarget = JSON.stringify(authQuery ?? null);
+  /// The ask that waits on the harness's sign-in check (askChat refuses while it runs: Return, an
+  /// Ask row or New chat right after Cmd-T, or setup's resume), with the check's target. It runs
+  /// again once the check settles on that target; a sign-in it then finds missing keeps the draft.
+  /// One slot: a later ask replaces it, so one ask goes. An edit drops it, except setup's resume,
+  /// which reads the draft as it is then.
+  const afterAuth = useRef<{ target: string; run: () => void; keepOnEdit?: true }>(undefined);
+  const waitForAuth = (run: () => void, keepOnEdit = false) => {
+    afterAuth.current = { target: authTarget, run, ...(keepOnEdit ? { keepOnEdit } : {}) };
+  };
 
   // The Ask row names the agent Return asks and the model on its chip.
   const ask = useMemo(() => {
@@ -858,6 +868,7 @@ export function NewTabScreen(props: Props) {
       case "workspace":
         return props.onJump("workspace", row.id);
       case "ask":
+        if (targetAuthPending) return waitForAuth(() => activateNow.current(row));
         return askChat(row.harness, row.text, project, row.harness === harness ? chipModel : undefined);
       case "create":
         return row.kind === "chat" ? startChat() : create(row.kind);
@@ -865,8 +876,12 @@ export function NewTabScreen(props: Props) {
         return props.onAction?.(row.id);
     }
   };
+  const activateNow = useRef(activate);
+  activateNow.current = activate;
   const edit = (next: string) => {
     touch();
+    // An ask still waiting on the sign-in check was for the draft before this edit.
+    if (!afterAuth.current?.keepOnEdit) afterAuth.current = undefined;
     setTouched(true);
     const entry = composing.current || shell ? undefined : shellEntry(text, next, wholeSelection.current);
     wholeSelection.current = false;
@@ -923,6 +938,7 @@ export function NewTabScreen(props: Props) {
       openSetup();
       return;
     }
+    if (targetAuthPending) return waitForAuth(() => submitNow.current());
     askChat(harness, prompt, project, chipModel);
   };
   submitNow.current = submit;
@@ -947,6 +963,7 @@ export function NewTabScreen(props: Props) {
     if (created.current) return;
     const prompt = shell ? "" : text.trim();
     if (command.intercept(prompt, harness, attachments.length)) return;
+    if (targetAuthPending) return waitForAuth(() => startChatNow.current());
     created.current = true;
     const asked = askChat(
       harness,
@@ -957,9 +974,8 @@ export function NewTabScreen(props: Props) {
     // A Sandboxed New chat that started nothing (no prompt, a refusal) leaves the page's creates open.
     if (asked === false) created.current = false;
   };
-  /// The harness a setup resume waits on while its sign-in check runs, with the check's target.
-  const resumeAfterAuth = useRef<{ agent: string; target: string } | undefined>(undefined);
-  const authTarget = JSON.stringify(authQuery ?? null);
+  const startChatNow = useRef(startChat);
+  startChatNow.current = startChat;
   continueAfterSetup.current = (agent) => {
     // Setup may finish while an attachment is still loading. Resume the same draft only once
     // its files are ready, reading the latest state rather than the setup-opening snapshot.
@@ -967,10 +983,7 @@ export function NewTabScreen(props: Props) {
     // Setup just made the harness ready, so its sign-in check is usually still running, and askChat
     // refuses while it does. Resume once that harness's check settles; a sign-in it then finds
     // missing keeps the draft.
-    if (targetAuthPending && harness === agent) {
-      resumeAfterAuth.current = { agent, target: authTarget };
-      return;
-    }
+    if (targetAuthPending && harness === agent) return waitForAuth(() => continueAfterSetup.current(agent), true);
     created.current = true;
     const prompt = shell ? "" : text.trim();
     const asked = askChat(
@@ -981,16 +994,16 @@ export function NewTabScreen(props: Props) {
     if (asked === false) created.current = false;
   };
   useEffect(() => {
-    const waiting = resumeAfterAuth.current;
+    const waiting = afterAuth.current;
     if (!waiting) return;
     // The person picked another harness or machine meanwhile: send nothing; the draft stays.
     if (waiting.target !== authTarget) {
-      resumeAfterAuth.current = undefined;
+      afterAuth.current = undefined;
       return;
     }
     if (targetAuthPending) return;
-    resumeAfterAuth.current = undefined;
-    continueAfterSetup.current(waiting.agent);
+    afterAuth.current = undefined;
+    waiting.run();
   }, [targetAuthPending, authTarget]);
   const send = () => {
     touch();
@@ -1848,10 +1861,10 @@ export function NewTabScreen(props: Props) {
                     aria-selected={index === current}
                     data-type={row.type}
                     className={index === current ? "nt-row is-selected" : "nt-row"}
-                    onMouseMove={() => {
-                      if (index === current) return;
-                      pick(index);
-                    }}
+                    // The pointer only lights the row it rests on (screen.css :hover); Return stays
+                    // the prompt's, or the row the keyboard picked. A hovered row that took Return
+                    // left "helo" unsent (Leo 2026-10-31: "i cant even press enter on that hello
+                    // anymore it doesnt send it to claude"). A press still runs the row it presses.
                     onMouseDown={(event) => {
                       event.preventDefault();
                       activate(row);
@@ -1891,10 +1904,7 @@ export function NewTabScreen(props: Props) {
                         title={rowTitle(nt, row)}
                         data-type={row.type}
                         className={index === current ? "nt-create-strip-item is-selected" : "nt-create-strip-item"}
-                        onMouseMove={() => {
-                          if (index === current) return;
-                          pick(index);
-                        }}
+                        // As the rows: hover lights it, only the keyboard makes it Return's.
                         onMouseDown={(event) => {
                           event.preventDefault();
                           activate(row);

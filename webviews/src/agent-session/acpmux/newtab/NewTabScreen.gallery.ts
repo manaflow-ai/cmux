@@ -1129,6 +1129,31 @@ export default agentPaneEntry({
         await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
       },
     },
+    "typed-hover": {
+      note: 'Leo 2026-10-31 ("i cant even press enter on that hello anymore it doesnt send it to claude"): "helo" typed, the pointer resting on New browser tab. The hovered item is only lit (a neutral fill); Ask Claude Code keeps Return\'s highlight and its ↵, so Return sends the prompt.',
+      ready: newTab({ projects: [CWD] }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("helo", { selector: ".nt-field" });
+        await ctx.hover({ role: "option", name: "New browser tab" });
+      },
+    },
+    "typed-hover-return": {
+      note: 'The same, then Return: the page asks Claude Code with "helo" (chat.new), never opens the hovered browser tab.',
+      ready: newTab({ projects: [CWD] }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("helo", { selector: ".nt-field" });
+        await ctx.hover({ role: "option", name: "New browser tab" });
+        await ctx.press("Enter");
+        // Ends on the unpatched base too (it opens the browser tab, and the state fails there).
+        await ctx.waitFor(() =>
+          galleryNativeCalls(ctx.document).some((call) => call.method === "chat.new" || call.method === "tab.open"),
+        );
+        if (galleryNativeCalls(ctx.document).some((call) => call.method === "tab.open"))
+          throw new Error("Return opened the hovered row instead of asking the agent");
+      },
+    },
     "typed-keywords": {
       note: 'Leo 2026-10-20 (no Search | Ask switch) and 2026-10-24 ("Search the web. Do you really want that first?"): plain keywords. Ask Claude Code leads (Return\'s, highlighted), the web search is the last row.',
       ready: newTab({ projects: [CWD] }),
