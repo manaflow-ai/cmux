@@ -464,3 +464,71 @@ async fn a_digest_steered_past_the_cap_waits_for_the_next_turn() {
     tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
     tokio::time::timeout(WAIT, steered).await.unwrap().unwrap().unwrap();
 }
+
+/// A turn that started before its timer was armed (one a restart adopts, `hosts.rs`,
+/// `carried_turn.rs` `recover_carried`): its cap counts from its own start, not from the arming.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_adopted_turns_timer_counts_from_the_turns_start() {
+    let mut f = fixture().await;
+    let cap = 600_000;
+    f.hub.set_turn_cap(&f.session, Some(cap));
+    let turn = f.gated_turn("g").await;
+    let turn_id = f.session.turn().unwrap().turn_id;
+    let (queued, _) = f.send("report from lane a", Some("lane-a"), false, false).await;
+    assert_eq!(queued.unwrap()["queued"], true);
+    // Past its cap when it is adopted: the timer wakes at once, not a whole cap later.
+    f.age_turn(cap);
+    f.hub.arm_turn_cap(&f.session, &turn_id);
+    f.heard(&format!("steer: {}", notice_text(cap))).await;
+    assert_eq!(f.notices(), [turn_id]);
+    f.open("g").await;
+    tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
+}
+
+/// Another agent's message the inbox holds under the cap (`inbox.rs`: the person's prompt waits,
+/// so no inbox notice steers in, and past the cap none does) waits for the turn too: the timer
+/// sends the notice at the cap.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_inbox_message_held_under_the_cap_gets_the_notice_at_the_cap() {
+    let mut f = fixture().await;
+    let cap = 1_500;
+    f.hub.set_turn_cap(&f.session, Some(cap));
+    let turn = f.gated_turn("g").await;
+    let turn_id = f.session.turn().unwrap().turn_id;
+    let (person, _next) = f.send("next from the person", None, false, false).await;
+    assert_eq!(person.unwrap()["queued"], true);
+    let opts =
+        PromptOptions { agent: Some("lane-a".into()), inbox: true, ..PromptOptions::default() };
+    let (held, _held) = f.send_with("from lane a", false, opts).await;
+    held.unwrap();
+    let in_inbox = |f: &Fixture| f.session.inbox.lock().unwrap().items.iter().any(|i| !i.noticed);
+    assert!(in_inbox(&f), "held in the inbox, no notice carries it");
+    f.heard(&format!("steer: {}", notice_text(cap))).await;
+    assert_eq!(f.notices(), [turn_id]);
+    f.open("g").await;
+    tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
+}
+
+/// An inbox notice refused as its turn crosses the cap (written to no agent) leaves its message
+/// waiting in the inbox, which steers none into a turn past its cap: the turn gets the cap's
+/// notice then. The timer, which ran while the notice carried it, saw nothing waiting.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_inbox_notice_refused_past_the_cap_leaves_its_message_waiting_and_sends_the_notice() {
+    let mut f = fixture().await;
+    let cap = 600_000;
+    f.hub.set_turn_cap(&f.session, Some(cap));
+    let turn = f.gated_turn("g").await;
+    let turn_id = f.session.turn().unwrap().turn_id;
+    let ids = vec!["m-1".to_owned()];
+    {
+        let mut inbox = f.session.inbox.lock().unwrap();
+        inbox.items.push(super::inbox::Item::carried("m-1", "lane-a", "from lane a"));
+        inbox.in_flight = Some(("n-1".into(), ids.clone()));
+    }
+    f.age_turn(cap);
+    f.hub.inbox_notice_refused(&f.session, "n-1", &ids);
+    f.heard(&format!("steer: {}", notice_text(cap))).await;
+    assert_eq!(f.notices(), [turn_id]);
+    f.open("g").await;
+    tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
+}

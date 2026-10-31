@@ -51,6 +51,7 @@ mod fix_command;
 mod frontend_browser;
 #[cfg(unix)]
 mod host_mount;
+mod internal;
 mod launch_credential;
 mod lifecycle;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
@@ -98,6 +99,7 @@ mod skew;
 #[cfg(unix)]
 mod status;
 mod surface;
+mod tab_capabilities;
 #[cfg(unix)]
 mod terminal_talk;
 mod topology_help;
@@ -747,11 +749,9 @@ fn parse_command(
 }
 
 fn unknown_scope(scope: &str, surface: Surface) -> UsageError {
-    UsageError::new(
-        crate::localization::catalog()
-            .local_server
-            .unknown_scope(scope, suggestion(scope, surface.scopes())),
-    )
+    let suggestion = internal::classic_verbs::resource_command(scope)
+        .or_else(|| suggestion(scope, surface.scopes()));
+    UsageError::new(crate::localization::catalog().local_server.unknown_scope(scope, suggestion))
 }
 
 /// A `cmux-tui` scope named through `cmux`, which refuses it by name
