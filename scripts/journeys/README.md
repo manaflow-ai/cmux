@@ -328,8 +328,11 @@ view frames) keeps exactly its width; Cmd-D (Split Right) splits the focused pan
 (Lawrence 2026-10-01, plans/cmux-next/column-sizing.md; Cmd-D is a Ghostty-reserved key, so a change
 needs his own "Ghostty-defaults-OK"): no new column, that column gains one pane, every OTHER column
 keeps exactly its width; Cmd-Shift-D (Split Down) adds no column and every column keeps its width
-(`smoke_same_widths`; each old and new width in the result). A column whose pane has no frame (an
-off-screen column whose terminal was closed under memory pressure) has an unknown width: not judged.
+(`smoke_same_widths`; each old and new width in the result). Each old column is measured from its
+old panes only, so a pane a split just added (no frame yet) never hides it. Any real problem (a width
+change, a lost or extra column, no split in place) fails first; when the only problem is an old pane
+with no frame (an off-screen column whose terminal was closed under memory pressure) for 3 s, the
+round is not judged.
 
 **No pass without the resize checks** (cmux-ad 06:38Z): a round passes only when it reached and passed,
 exactly once each, the 2 R3a checks and the 4 R3b checks (`REQUIRED_CHECKS` in smoke-gate.py: their

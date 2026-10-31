@@ -575,6 +575,10 @@ def cond_smoke_r3(j, want, cache):
     return not problems, detail
 
 
+# An old column whose pane has no frame for this long is not judged (smoke_same_widths).
+UNKNOWN_SECONDS = 3.0
+
+
 # ---- R3b: new columns never resize old ones (cmux-ad, Lawrence's P0 rule) ------------------------
 
 def _widths(j, workspace, cache=None, frames_out=None):
@@ -607,6 +611,22 @@ def _widths(j, workspace, cache=None, frames_out=None):
     if frames_out is not None:
         frames_out.update(missing_frames)
     return out
+
+
+def _span(j, members, cache=None):
+    """(width in points, [members with no frame]) of the panes MEMBERS: the union of their horizontal extents in the
+    window (debug.surfaces view frames, floats); width None when any of them has no frame."""
+    panes = {p.get("pane"): p for p in (_surfaces(j, cache) if cache is not None else j.app.panes())}
+    spans, missing = [], []
+    for pane in members:
+        grid = (panes.get(pane) or {}).get("grid")
+        if not isinstance(grid, dict) or "frame_width" not in grid or "frame_x" not in grid:
+            missing.append(pane)
+        else:
+            spans.append((float(grid["frame_x"]), float(grid["frame_width"])))
+    if missing or not spans:
+        return None, missing
+    return round(max(x0 + w for x0, w in spans) - min(x0 for x0, _w in spans), 2), []
 
 
 def _columns(j, workspace, cache=None):
@@ -650,8 +670,7 @@ def cond_smoke_same_widths(j, want, cache):
     # Columns are matched by their content, not their index: a new column after the focused one shifts the
     # indexes of the columns right of it. Each old column is its set of panes.
     old_cols, new_cols = snap["columns"], _columns(j, snap["workspace"], cache)
-    no_frame = {}
-    widths_now = _widths(j, snap["workspace"], cache, no_frame)
+    widths_now = {}
     changed, gone, unknown = {}, [], {}
     split_in = None
     if want.get("split_in_place"):
@@ -666,9 +685,12 @@ def cond_smoke_same_widths(j, want, cache):
             continue
         if index == split_in:
             continue
-        after = widths_now.get(match)
+        # The old column's width now, from its OLD panes only: a pane a split just added to it (Split Down) may not
+        # have its frame yet, and the column's width is the span of the panes it already had.
+        after, missing = _span(j, members, cache)
+        widths_now[match] = after
         if before is None or after is None:
-            unknown[index] = {"old": before, "new": after, "panes": members}
+            unknown[index] = {"old": before, "new": after, "panes": members, "no_frame": missing}
         elif abs(before - after) > 0.01:
             changed[index] = {"old": before, "new": after, "panes": members}
     matched = {next((k for k, m in new_cols.items() if set(members) <= set(m)), None) for members in old_cols.values()}
@@ -676,11 +698,6 @@ def cond_smoke_same_widths(j, want, cache):
     problems = []
     if changed:
         problems.append(f"{len(changed)} existing columns changed width")
-    if unknown and not changed:
-        # Width unknown (no frame, e.g. an off-screen column closed under memory pressure) and no column seen to
-        # change: not judged. A column seen to change still fails.
-        raise D.NotRun(f"no frame for the panes of {len(unknown)} existing columns, their widths are unknown "
-                       f"(not judged): {sorted({p for v in unknown.values() for p in v['panes']})}")
     if gone:
         problems.append(f"{len(gone)} existing columns are gone")
     if len(added) != int(want.get("new", 1)):
@@ -694,9 +711,24 @@ def cond_smoke_same_widths(j, want, cache):
             grown = len(new_cols.get(match, [])) - len(members) if match is not None else None
             if grown != 1:
                 problems.append(f"the focused pane's column has {grown} more panes, not 1 (no split in place)")
-    return not problems, {"problems": problems, "changed": changed, "gone": gone, "added": added,
-                          "unknown": unknown, "no_frame": no_frame, "split_in_column": split_in,
-                          "old_widths": snap["widths"], "new_widths": widths_now, "old_columns": old_cols, "new_columns": new_cols}
+    detail = {"problems": problems, "changed": changed, "gone": gone, "added": added, "unknown": unknown,
+              "split_in_column": split_in, "old_widths": snap["widths"], "new_widths": widths_now,
+              "old_columns": old_cols, "new_columns": new_cols}
+    seen = getattr(j, "smoke_unknown_since", {})
+    j.smoke_unknown_since = seen
+    if unknown and not problems:
+        # Only unknown widths (an old column's pane has no frame, e.g. an off-screen column whose terminal the app
+        # closed under memory pressure): not yet judged this poll; past UNKNOWN_SECONDS, not judged at all (the
+        # round is "not run"). Any real problem (a width change, a lost or extra column, no split in place) is
+        # judged first and fails.
+        first = seen.setdefault(want["since"], D.now())
+        if D.now() - first >= float(want.get("unknown_seconds", UNKNOWN_SECONDS)):
+            raise D.NotRun(f"no frame for old panes {sorted({p for v in unknown.values() for p in v['no_frame']})}: "
+                           f"the widths of {len(unknown)} existing columns are unknown (not judged)")
+        return False, dict(detail, waiting_for_frames=True)
+    seen.pop(want["since"], None)
+    return not problems, detail
+
 
 STEPS = {"smoke_ready": step_smoke_ready, "smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,
          "smoke_remember_workspaces": step_smoke_remember_workspaces, "smoke_close_all": step_smoke_close_all,

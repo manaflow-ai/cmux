@@ -667,8 +667,15 @@ class Resize(unittest.TestCase):
         self.ext.step_smoke_widths(j, {"name": "c0"})
         later = self.journey(columns=[(1, "P2", 650.0, 300.0), (2, "P3", 951.0, 300.0)])
         later.smoke_width_snaps = j.smoke_width_snaps
-        del later.app.panes()[1]["grid"]  # P2 has no frame now (off screen, closed under memory pressure)
-        # Not judged (the round is "not run"), never a fail or a pass.
+        del later.app.panes()[1]["grid"]  # old P2 has no frame now (off screen, closed under memory pressure)
+        clock = {"t": 0.0}
+        self.ext.D.now = staticmethod(lambda: clock["t"])
+        # Not judged yet while frames may still come: this poll does not hold.
+        ok, detail = self.ext.cond_smoke_same_widths(later, {"since": "c0", "new": 1}, {})
+        self.assertFalse(ok)
+        self.assertTrue(detail["waiting_for_frames"])
+        # Past UNKNOWN_SECONDS: not judged (the round is "not run"), never a fail or a pass.
+        clock["t"] = self.ext.UNKNOWN_SECONDS + 0.1
         with self.assertRaises(self.NotRun) as caught:
             self.ext.cond_smoke_same_widths(later, {"since": "c0", "new": 1}, {})
         self.assertIn("P2", str(caught.exception))
@@ -676,6 +683,28 @@ class Resize(unittest.TestCase):
         del bare.app.panes()[1]["grid"]
         with self.assertRaises(self.NotRun):
             self.ext.step_smoke_widths(bare, {"name": "c1"})
+
+    def test_a_new_pane_without_its_frame_yet_does_not_hide_the_old_column(self):
+        # Split Down adds P6 to column 1; P6 has no frame yet at this poll. Column 1's width is read from P2 alone.
+        j = self.journey(columns=[(1, "P2", 650.0, 300.0)])
+        self.ext.step_smoke_widths(j, {"name": "c0"})
+        down = self.journey(columns=[(1, "P2", 650.0, 300.0), (1, "P6", 650.0, 300.0)])
+        down.smoke_width_snaps = j.smoke_width_snaps
+        del down.app.panes()[2]["grid"]
+        ok, detail = self.ext.cond_smoke_same_widths(down, {"since": "c0", "new": 0}, {})
+        self.assertTrue(ok, detail)
+
+    def test_a_real_failure_is_judged_even_when_a_width_is_unknown(self):
+        # Column 0's pane has no frame, and Cmd-D opened a column instead of splitting: a FAIL, not "not judged".
+        j = self.journey(columns=[(1, "P2", 650.0, 300.0)])
+        j.app.panes()[1]["focused"], j.app.panes()[0]["focused"] = True, False
+        self.ext.step_smoke_widths(j, {"name": "c0"})
+        opened = self.journey(columns=[(1, "P2", 650.0, 300.0), (2, "P5", 951.0, 300.0)])
+        opened.smoke_width_snaps = j.smoke_width_snaps
+        del opened.app.panes()[0]["grid"]
+        ok, detail = self.ext.cond_smoke_same_widths(opened, {"since": "c0", "new": 0, "split_in_place": True}, {})
+        self.assertFalse(ok)
+        self.assertTrue(any("new columns" in p for p in detail["problems"]), detail["problems"])
 
     def test_cmd_d_splits_in_place_and_no_other_column_changes(self):
         base = [(1, "P2", 650.0, 300.0)]
