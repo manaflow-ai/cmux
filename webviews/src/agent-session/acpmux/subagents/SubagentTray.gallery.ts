@@ -286,7 +286,7 @@ export default agentPaneEntry({
   experiment: { definition: trayPanelLook, script: panelScript },
   variants: {
     "panel-two": {
-      note: 'Leo\'s panel with two chats running and three ended (2026-10-25: "this section, the whatever background tasks ... it\'s kind of wack"): the header pinned on top, running first, then the latest that ended; no line carries a subtitle, so none shows a raw shell line.',
+      note: "Leo's panel with two chats running and three ended (2026-10-25: \"this section, the whatever background tasks ... it's kind of wack\"): the header pinned on top, running first, then the latest that ended; no line carries a subtitle, so none shows a raw shell line.",
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         headInView(ctx);

@@ -473,11 +473,7 @@ const quietAgent = (agent: Subagent, waiting: ReadonlySet<string>) => {
 /// while it runs, what it does now.
 function agentTooltip(t: Translate, agent: Subagent): string | undefined {
   const doing =
-    agent.state !== "running"
-      ? undefined
-      : agent.actionShell
-        ? toolDetail(t, agent.action, true)
-        : agent.action;
+    agent.state !== "running" ? undefined : agent.actionShell ? toolDetail(t, agent.action, true) : agent.action;
   const lines = [agent.task, agent.kind && agent.kind !== agent.name ? agent.kind : undefined, doing];
   return lines.filter((line): line is string => Boolean(line)).join("\n") || undefined;
 }

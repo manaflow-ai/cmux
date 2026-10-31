@@ -664,7 +664,12 @@ describe("a tray line says what it is and what a click does", () => {
   test("a subagent leads with one glyph: the spinner while it runs, the fork once it ended", async () => {
     const now = Date.now();
     const running = agent("Reviewer", { startedAt: now, action: "Read src/app.ts", tokens: 236_600, toolUses: 112 });
-    const ended = agent("Linter", { state: "completed", kind: "general-purpose", startedAt: now - 90_000, endedAt: now - 6000 });
+    const ended = agent("Linter", {
+      state: "completed",
+      kind: "general-purpose",
+      startedAt: now - 90_000,
+      endedAt: now - 6000,
+    });
     const { root, done } = await render(
       createElement(SubagentTray, {
         items: trayItems([running], [], NONE, true),
@@ -698,9 +703,11 @@ describe("a tray line says what it is and what a click does", () => {
         live!.querySelector(".acpmux-lineage__icon [data-spinner], .acpmux-lineage__icon .cv-spinner"),
       ).not.toBeNull();
       // Its stats stay on the line; the done line says no Done.
-      expect(live!.querySelector(".acpmux-agent-line__stats")?.textContent).toBe("236.6K tokens · 112 tool uses");
-      // In the trailing meta, not on a second line under the title.
-      expect(live!.querySelector(".acpmux-summary-text .acpmux-agent-line__progress")).toBeNull();
+      // jsdom has no width, so the tray reads as narrow and the stats wrap under the title; the
+      // browser test (subagent-tray-columns.test.ts "row anatomy") checks the trailing meta.
+      expect(
+        live!.querySelector(".acpmux-agent-line__stats, .acpmux-agent-line__progress")?.textContent,
+      ).toBe("236.6K tokens · 112 tool uses");
       expect(finished!.querySelector(".acpmux-summary-agent__state")).toBeNull();
       expect(finished!.querySelector(".acpmux-agent-line__sr")?.textContent).toBe("Done");
       expect(finished!.querySelector<HTMLElement>(".acpmux-agent-line__button")!.title).toContain("general-purpose");
@@ -817,15 +824,8 @@ describe("the tray tells the truth", () => {
       expect(names(ended)).toEqual(["Fuzzer", "Linter", "Fix the dock", "Retry the upload"]);
       // Failed says so; Done is the quiet line's, read only by screen readers.
       expect(
-        ended.map(
-          (line) => line.querySelector(".acpmux-summary-agent__state, .acpmux-agent-line__sr")?.textContent,
-        ),
-      ).toEqual([
-        "Failed",
-        "Done",
-        "Done",
-        "Failed",
-      ]);
+        ended.map((line) => line.querySelector(".acpmux-summary-agent__state, .acpmux-agent-line__sr")?.textContent),
+      ).toEqual(["Failed", "Done", "Done", "Failed"]);
       expect(more.textContent).toContain("Show fewer");
       expect(more.getAttribute("aria-expanded")).toBe("true");
       expect(liveLines(root).length).toBe(5);

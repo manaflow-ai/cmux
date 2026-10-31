@@ -622,6 +622,8 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                   gap: name.left - slot.right,
                   subtitle: Boolean(row.querySelector(".acpmux-summary-agent__kind, .acpmux-agent-line__kind-icon")),
                   words: visibleText,
+                  stats: row.querySelector(".acpmux-agent-line__meta > .acpmux-agent-line__stats")?.textContent ?? null,
+                  statsBelow: Boolean(row.querySelector(".acpmux-summary-text > .acpmux-agent-line__progress")),
                   timeLeft: time.left,
                   metaRight: meta?.right,
                 };
@@ -639,6 +641,11 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             expect(row.words).not.toContain("Done");
             expect(row.words).not.toContain("Running");
             if (row.metaRight !== undefined) expect(row.metaRight).toBeLessThanOrEqual(row.timeLeft + 0.5);
+          }
+          // A running line's stats sit in its trailing meta, never on a second line under the title.
+          if (variant === "running-stats") {
+            expect(anatomy.rows.some((row) => row.stats === "236.6K tokens · 112 tool uses")).toBe(true);
+            expect(anatomy.rows.every((row) => !row.statsBelow)).toBe(true);
           }
           expect(anatomy.settled).toBe(variant === "done-one");
           if (anatomy.settled) {

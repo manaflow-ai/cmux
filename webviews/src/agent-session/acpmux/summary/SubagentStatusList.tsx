@@ -207,7 +207,10 @@ export function SubagentStatusList({
                 current={agent.id === current}
                 // Its kind is no subtitle on the line (Leo, 2026-10-31: "a lot of these subtitles
                 // are bad"): the tooltip keeps it under its task.
-                title={[agent.task, agent.kind !== agent.name ? agent.kind : undefined].filter(Boolean).join("\n") || undefined}
+                title={
+                  [agent.task, agent.kind !== agent.name ? agent.kind : undefined].filter(Boolean).join("\n") ||
+                  undefined
+                }
                 onOpen={onOpen ? () => onOpen(agent.id) : undefined}
               />
             </li>
