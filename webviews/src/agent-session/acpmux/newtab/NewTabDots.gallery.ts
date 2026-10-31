@@ -7,6 +7,7 @@ import type { PlayContext } from "../../../gallery/play";
 import { CWD, manySessions, noChat } from "../../../gallery/fixtures/acpmux";
 import { setComposerLook } from "../composerLook";
 import { DOT_STATES, type NewTabDot } from "./tabDots";
+import { translateNewTab } from "./strings";
 
 const page = (dot: NewTabDot) => ({
   newTab: {
@@ -31,7 +32,9 @@ const pick = (dot: NewTabDot) => async (ctx: PlayContext) => {
   const dots = ctx.document.querySelectorAll(".nt-style input[type=radio]").length;
   if (dots !== 3) throw new Error(`the page shows ${dots} dots, not three`);
   const actionsLabel = ctx.document.querySelector<HTMLInputElement>('.nt-look-dots input[value="claudeActions"]')?.getAttribute("aria-label");
-  if (actionsLabel !== "Claude Minimal + Quick Actions") throw new Error(`wrong actions dot label: ${actionsLabel}`);
+  const locale = (ctx.document.documentElement.lang || "en") as Parameters<typeof translateNewTab>[2];
+  const expectedActionsLabel = `Claude ${translateNewTab("template.minimal", {}, locale)} + ${translateNewTab("widget.actions", {}, locale)}`;
+  if (actionsLabel !== expectedActionsLabel) throw new Error(`wrong actions dot label: ${actionsLabel}`);
 };
 
 export default agentPaneEntry({
