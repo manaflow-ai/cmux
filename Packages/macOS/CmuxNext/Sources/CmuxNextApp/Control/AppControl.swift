@@ -289,7 +289,7 @@ final class AppControl {
             },
             .mainActor("debug.window_record") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(DebugWindowRecord.start(call.params, services: services))
+                return .value(services.windowRecord.start(call.params, services: services))
             },
             .async("debug.shortcut_hints") { [weak services] call in
                 await DebugShortcutHintControl().handle(call.params, services: services)
