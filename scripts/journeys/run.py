@@ -341,6 +341,7 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
     mask = signal.pthread_sigmask(signal.SIG_BLOCK, STOP_SIGNALS)  # see STOP_SIGNALS: no stop between lease and try
     try:
         out.mkdir(parents=True, exist_ok=True)
+        set_aside_old_results(out, ids)
         acquired = acquire_lease(ch, exclusive, out / "acquire.log", whole_host=whole_host)
     except (RuntimeError, subprocess.TimeoutExpired) as error:
         signal.pthread_sigmask(signal.SIG_SETMASK, mask)
@@ -483,6 +484,16 @@ def take_results(files, out, ids):
             target = out / name
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(tar.extractfile(member).read())
+
+
+def set_aside_old_results(out, ids):
+    """Moves an earlier run's journey folders out of the way before this lease, so `collect` can never report an old
+    result.json as this round's: a reused --out folder plus a launch that fails before the driver writes anything gave
+    the earlier round's result (resize P0, 2026-10-31: the 11:32Z rounds reported the 11:22Z ones)."""
+    for i in ids:
+        old = out / i
+        if old.exists():
+            old.rename(out / f"{i}.old-{time.strftime('%Y%m%dT%H%M%S', time.gmtime())}-{os.getpid()}")
 
 
 def collect(out, ids, host, missing_reason):
