@@ -133,10 +133,15 @@ mod agent_inventory;
 mod agent_session_attach;
 #[cfg(unix)]
 pub use agent_session_attach::{
-    AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
-    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
-    AGENT_SESSION_START_VM_KIND_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY,
-    AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
+    AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
+    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
+    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
+    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
+    AgentStartHost, AgentStartHostSource, start_link_share_bridge,
+};
+#[cfg(unix)]
+pub(crate) use agent_session_attach::{
+    close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares, open_chat_shares,
 };
 #[cfg(unix)]
 pub mod agent_transfer;
@@ -189,6 +194,7 @@ mod history_search;
 mod home;
 mod icon_assets;
 mod launch_snapshot;
+pub(crate) use launch_snapshot::MAX_LAUNCH_SNAPSHOT_BYTES;
 mod new_screen;
 mod personal;
 mod raw_tab;
@@ -2630,7 +2636,7 @@ use connection_scheduler::{
 mod bounded_outbound;
 use bounded_outbound::{
     BoundedOutbound, ConnectionPermit, OutboundItem, QueuedSink, SinkControl,
-    SynchronizedTcpStream, claim_connection, write_line_outbound_item,
+    SynchronizedTcpStream, claim_connection, claim_watched_connection, write_line_outbound_item,
 };
 #[cfg(test)]
 use bounded_outbound::{ControlOutbound, websocket_server_frame_header};

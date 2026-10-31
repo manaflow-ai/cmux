@@ -21,13 +21,40 @@ const message = (
   raw = text,
   sessionId?: string,
   ids: { msgId?: string; threadId?: string } = {},
+  details?: { session?: string; commits?: readonly string[] },
 ) => ({
   kind: "message" as const,
-  message: { name, text, raw, ...(sessionId ? { sessionId } : {}), ...ids },
+  message: { name, text, raw, ...(sessionId ? { sessionId } : {}), ...ids, ...(details ? { details } : {}) },
 });
 
 const gridFix = "The grid fix is on cmux/grid-fix; tests pass.";
 const chiefReport = "Sidebar fix is up as #24012; the review passed and CI is green.";
+const laneVerdict = "[builder] SHIP at abcdef123456 · no findings · turn 2, idle";
+const laneVerdictSnapshot = chat([
+  user("Ask the lanes for their reports", 9),
+  assistant("Asked them.", 8.5),
+  summary(8.5, { status: "completed" }),
+  user(laneVerdict, 6, {
+    incoming: message(
+      "builder",
+      laneVerdict,
+      laneVerdict,
+      "lane-7",
+      {},
+      {
+        session: "gcp/builder",
+        commits: ["abcdef1234567890", "fedcba6543210000"],
+      },
+    ),
+    untyped: true,
+  }),
+]);
+const openLaneDetails: Play = async (ctx) => {
+  ctx.document.querySelector<HTMLButtonElement>(RECEIVED_LINE)?.click();
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-received__details .cv-received__more"));
+  ctx.document.querySelector<HTMLButtonElement>(".cv-received__details .cv-received__more")?.click();
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-received__details pre") !== null);
+};
 
 // A lane's report as Leo got it (2026-10-21): signed with its name, a pull request written two
 // ways, a commit, and its screenshots in /tmp, the first by its full path and the rest by name.
@@ -253,7 +280,28 @@ export default agentPaneEntry({
       native: { "agent.avatar": { src: UPLOADED_AVATAR } },
       play: async (ctx) => {
         avatarsChanged(ctx.document, ["parent-1"]);
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-received .cv-disclosure__icon img.cv-agent-avatar"));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received .cv-received__mark img.cv-agent-avatar"));
+      },
+    },
+    chief: {
+      note: "A Chief's message to this chat (acpmux `fromChief`): the line names the Chief and draws its avatar as the sidebar does, never the turn's session name (optchat-…) with a robot (manaflow-ai/cmux#27914).",
+      snapshot: chat([
+        user("Ship the sidebar fix and tell the Chief when CI is green.", 9),
+        assistant("On it.", 8.5),
+        summary(8.5, { status: "completed" }),
+        user(chiefReport, 6, {
+          incoming: {
+            kind: "message",
+            message: { name: "optchat-b902d10e-2991", chief: "agent_ops", text: chiefReport, raw: chiefReport },
+          },
+          untyped: true,
+        }),
+      ]),
+      native: { "chief.face": { name: "Ops Chief", src: UPLOADED_AVATAR } },
+      play: async (ctx) => {
+        for (const toggle of ctx.document.querySelectorAll<HTMLButtonElement>(RECEIVED_LINE)) toggle.click();
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received .cv-received__mark img.cv-agent-avatar"));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received__from")?.textContent?.includes("Ops Chief"));
       },
     },
     links: {
@@ -366,7 +414,7 @@ export default agentPaneEntry({
       ]),
     },
     "sender-hover": {
-      note: "A lane on another machine (studio-mac) messages this chat. Hovering its line shows Open chat at the line's end; a click opens that chat beside this one, or focuses its tab when one shows it.",
+      note: "A lane on another machine (studio-mac) messages this chat. Hovering its name lights the name alone; a click opens that chat beside this one, or focuses its tab when one shows it.",
       snapshot: chat(
         [
           user("Ask chief-ui where the sidebar fix stands", 9),
@@ -390,9 +438,14 @@ export default agentPaneEntry({
         },
       ),
       play: async (ctx) => {
-        await ctx.hover({ selector: ".cv-received > .cv-disclosure__line" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-received .cv-disclosure__open"));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received__from--open"));
+        await ctx.hover({ selector: ".cv-received__from--open" });
       },
+    },
+    "lane-verdict": {
+      note: "A compact SHIP lane report keeps the verdict and turn on its line; Session and Commits stay in the existing collapsed Details disclosure.",
+      snapshot: laneVerdictSnapshot,
+      play: openLaneDetails,
     },
     files: {
       note: 'A lane\'s report, opened: its "[name]" signature is out, #23825 written twice is one chip, and the SHAs are quiet monospace.',

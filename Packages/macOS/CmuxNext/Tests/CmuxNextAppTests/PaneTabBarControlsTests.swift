@@ -6,6 +6,7 @@ import CmuxNextBridge
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import QuartzCore
 import Testing
@@ -13,7 +14,8 @@ import Testing
 /// Leo 2026-10-28: "WHY WAS THIS NEW TAB BUTTON CHANGED TO BE A DROPDOWN????????????????" Every
 /// tab-strip + is a plain one-click action; the chooser remains on hold/right-click. The pane top bar
 /// keeps only "⋮", whose menu holds the creation rows.
-@MainActor @Suite(.serialized) struct PaneTabBarControlsTests {
+/// Leo's "+ (v)" adds a separate pane-type chooser beside the pane's + without changing that plain-plus action.
+@MainActor @Suite(.closesItsWindows, .serialized) struct PaneTabBarControlsTests {
     private static func tree(_ surfaces: [UInt64]) -> DaemonTree {
         let pane = PaneSnapshot(id: PaneID(rawValue: 1), tabs: surfaces.map { TabSnapshot(surface: SurfaceID(rawValue: $0), title: "~") })
         let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(PaneID(rawValue: 1)), panes: [pane])
@@ -48,6 +50,105 @@ import Testing
         #expect(!pane.view.stripView.opensNewTabMenuOnPress, "a press opens the default tab, not the type menu")
         #expect(!plus.showsChevron, "no caret on the pane's +")
         #expect(plus.accessibilityRole() == .button)
+
+        let strip = pane.view.stripView
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 40),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = strip
+        window.orderFrontRegardless()
+        defer { window.closeAfterTest() }
+        strip.syncFromModel()
+        let chooser = try #require(strip.accessibilityChildren()?.compactMap { $0 as? PaneTypeMenuButton }
+            .first { $0.accessibilityIdentifier() == "cmux.tabs.newTabMenu" }, "pane types have their own visible chevron")
+        #expect(!chooser.isHidden)
+        #expect(chooser.accessibilityRole() == .popUpButton)
+        strip.frame = NSRect(x: 0, y: 0, width: 600, height: 40)
+        strip.layoutSubtreeIfNeeded()
+        #expect(chooser.frame.minX >= plus.frame.maxX)
+        #expect(chooser.frame.maxX <= strip.bounds.width)
+        let chooserPoint = chooser.convert(NSPoint(x: chooser.bounds.midX, y: chooser.bounds.midY), to: strip)
+        #expect(strip.titlebarHit(at: chooserPoint) == .strip, "the chooser never drags the window")
+
+        var intents: [TabStripIntent] = []
+        strip.model.intentHandler = { intents.append($0) }
+        let paneTarget = ActionTargetRef(kind: .pane, id: pane.paneKey)
+        var presentations = 0
+        var expectsHighlight = true
+        strip.presentNewTabMenu = { menu, _, _ in
+            presentations += 1
+            let actions = menu.items.compactMap { ActionRegistry.menuRun(of: $0) }
+            #expect(Array(actions.prefix(3).map(\.id.rawValue)) == ["newSurface", "openBrowser.chromium", "palette.newAgentChat"])
+            #expect(actions.prefix(3).allSatisfy { $0.target == paneTarget })
+            #expect(chooser.isHighlighted == expectsHighlight, "only the menu's owning chooser stays lit while it tracks")
+            #expect(plus.isMenuOpen == !expectsHighlight, "the + stays lit only for its own hold/right-click menu")
+        }
+        let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown,
+                                                  location: strip.convert(chooserPoint, to: nil), modifierFlags: [], timestamp: 0,
+                                                  windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        window.sendEvent(event)
+        #expect(presentations == 1, "mouse-down opens the menu immediately")
+        #expect(intents.isEmpty)
+        #expect(!strip.pressedNewTab)
+        #expect(!chooser.isHighlighted)
+        #expect(chooser.accessibilityPerformPress())
+        #expect(presentations == 2, "VoiceOver opens the same pane-target menu")
+        #expect(chooser.accessibilityPerformShowMenu())
+        #expect(presentations == 3, "the accessibility menu action shares that entry point")
+
+        #expect(plus.accessibilityPerformPress())
+        #expect(intents == [.newTab(after: nil, sameKind: false)], "the plain + still creates the default tab")
+        expectsHighlight = false
+        strip.showNewTabMenu()
+        #expect(presentations == 4, "the existing hold/right-click entry point keeps the same menu")
+    }
+
+    @Test func thePaneChooserStaysBesidePlusDuringMovementAndInterruptedScroll() throws {
+        _ = NSApplication.shared
+        let tabs = [TabItem(id: TabID("first"), title: "First"), TabItem(id: TabID("last"), title: "Last")]
+        let strip = TabStripView(model: TabStripModel(tabs: tabs, selectedID: tabs[0].id))
+        strip.showsNewTabMenuButton = true
+        strip.frame = NSRect(x: 0, y: 0, width: 1000, height: 40)
+        let window = NSWindow(contentRect: strip.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = strip
+        defer { window.closeAfterTest() }
+        strip.layoutSubtreeIfNeeded()
+        let plus = try #require(strip.newTabButton.layer)
+        let chooser = try #require(strip.newTabMenuButton.layer)
+        let spacing = chooser.position.x - plus.position.x
+        // Drive the same frame transition a collapsing group produces, then interrupt its scroll.
+        // An explicit motion makes sampling deterministic even when the test host disables animations.
+        let motion = MotionMove(curve: .tween(.tabMove), duration: 0.2)
+        let before = plus.position.x
+        let last = try #require(strip.placed[tabs[1].id])
+        strip.placed[tabs[1].id] = TabPlace(x: last.x, width: last.width - 60)
+        let move = TabStripMove(generation: 100, motion: motion, closing: nil)
+        strip.applyFrames(move: move)
+        try #require(abs(plus.position.x - before) > 1, "the fixture must move the controls")
+        for fraction in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            let time = move.begin + motion.duration * fraction
+            #expect(abs(MotionPath(chooser, "position").value(at: time).x
+                - MotionPath(plus, "position").value(at: time).x - spacing) < 0.5)
+        }
+        // Finish the layout movement before isolating a scroll and its cancellation.
+        TabStripMove.cancel(plus)
+        TabStripMove.cancel(chooser)
+        let mapping = strip.scrollMapping
+        strip.scrollOffset += 20
+        let scroll = TabStripMove(generation: 101, motion: motion, closing: nil, isScroll: true)
+        strip.applyFrames(move: scroll, scrollFrom: mapping)
+        let start = MotionPath(plus, "position").value(at: scroll.begin).x
+        let end = MotionPath(plus, "position").value(at: scroll.begin + motion.duration).x
+        try #require(abs(start - end) > 1, "the fixture must scroll the controls")
+        strip.settleScroll()
+        strip.applyFrames()
+        let now = CACurrentMediaTime()
+        for fraction in [0.0, 0.5, 1.0] {
+            let time = now + motion.duration * fraction
+            #expect(abs(MotionPath(chooser, "position").value(at: time).x - chooser.position.x) < 0.5,
+                    "a wheel interrupt leaves no chooser drift")
+            #expect(abs(MotionPath(chooser, "position").value(at: time).x
+                - MotionPath(plus, "position").value(at: time).x - spacing) < 0.5)
+        }
     }
 
     @Test func theScreenBarPlusIsPlainAndHasNoChevron() throws {
@@ -63,6 +164,9 @@ import Testing
         let bar = content.screenBar.view
         #expect(!bar.opensNewTabMenuOnPress, "a screen-bar + makes a screen on a plain click")
         #expect(!bar.newTabButton.showsChevron, "the screen-bar + has no dropdown chevron")
+        #expect(bar.accessibilityChildren()?.compactMap { $0 as? PaneTypeMenuButton }
+            .contains { $0.accessibilityIdentifier() == "cmux.tabs.newTabMenu" } != true,
+            "a screen bar does not gain the pane-type chooser")
         #expect(bar.newTabToolTip == nil, "the + makes a screen, not a tab: no tab tooltip")
     }
 
@@ -80,7 +184,10 @@ import Testing
 
     @Test func theSidebarWorkspacePlusIsPlainAndItsNeighborOwnsTheChooser() {
         _ = NSApplication.shared
-        let sidebar = SidebarView(model: SidebarModel(), design: DesignSettings())
+        // The chevron is opt-in (`sidebar.showNewWorkspaceChooser`, off by default since 2026-10-30).
+        let design = DesignSettings()
+        design.sidebarSections.showNewWorkspaceChooser = true
+        let sidebar = SidebarView(model: SidebarModel(), design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 280, height: 480)
         sidebar.layoutSubtreeIfNeeded()
         let menu = NSMenu()
@@ -158,15 +265,18 @@ import Testing
     /// right-click menu still opens the chooser.
     @Test func theSidebarChevronHidesBeforeItReachesTheLeadingReserve() {
         _ = NSApplication.shared
-        let sidebar = SidebarView(model: SidebarModel(), design: DesignSettings())
+        // The chevron is opt-in (`sidebar.showNewWorkspaceChooser`, off by default since 2026-10-30).
+        let design = DesignSettings()
+        design.sidebarSections.showNewWorkspaceChooser = true
+        let sidebar = SidebarView(model: SidebarModel(), design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 280, height: 480)
         sidebar.layoutSubtreeIfNeeded()
         #expect(!sidebar.newWorkspaceOptionsButton.isHidden, "a roomy sidebar shows the chevron")
         let leftmost = { ([sidebar.newButton, sidebar.newWorkspaceOptionsButton, sidebar.priorityButton] as [NSView])
             .filter { !$0.isHidden }.map(\.frame.minX).min() ?? .infinity }
         let roomy = leftmost()
-        // Room for exactly what sat beside the + before the chevron existed, and not one point more.
-        sidebar.titlebarLeadingReserve = roomy + Metrics.space1 + SidebarStyle.toolbarButtonSize
+        // One point less room than the + and its chevron segment need together.
+        sidebar.titlebarLeadingReserve = roomy + 1
         sidebar.layoutSubtreeIfNeeded()
         #expect(sidebar.newWorkspaceOptionsButton.isHidden, "the chevron gives way on a narrow sidebar")
         #expect(leftmost() >= sidebar.titlebarLeadingReserve, "no titlebar control enters the reserve")

@@ -54,6 +54,7 @@ export class HistoryStore {
   private unsubscribe?: () => void;
   private unpage?: () => void;
   private starting = false;
+  private lifetime = 0;
 
   constructor(
     private readonly client: PageClient | null,
@@ -83,36 +84,51 @@ export class HistoryStore {
 
   /** Subscribes to changes and loads the first window. Idempotent. */
   async start(): Promise<void> {
-    if (!this.client || this.unsubscribe || this.starting) return;
+    if (!this.client || this.unsubscribe || this.unpage || this.starting) return;
+    const lifetime = ++this.lifetime;
     this.starting = true;
     try {
-      const unsubscribe = await this.client.subscribe<HistoryChanged>(HistoryOps.changed, () => void this.reload());
-      if (this.listeners.size === 0 && !this.starting) {
-        unsubscribe();
-        return;
+      try {
+        const unsubscribe = await this.client.subscribe<HistoryChanged>(HistoryOps.changed, () => {
+          if (lifetime === this.lifetime) void this.reload();
+        });
+        if (lifetime !== this.lifetime) {
+          unsubscribe();
+          return;
+        }
+        this.unsubscribe = unsubscribe;
+      } catch (error) {
+        if (lifetime !== this.lifetime) return;
+        // Older owners without a change stream can still answer reads.
+        if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op")) {
+          this.set({ connection: "disconnected", loading: false, error: message(error) });
+          return;
+        }
       }
-      this.unsubscribe = unsubscribe;
-    } catch (error) {
-      // An owner without the change stream still answers reads: show the list without live
-      // updates. Any other failure is a lost host.
-      if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op")) {
-        this.set({ connection: "disconnected", loading: false, error: message(error) });
-        return;
+      try {
+        const unpage = await subscribePageStreams(this.client, {
+          onConnection: (connected) => {
+            if (lifetime === this.lifetime) this.onConnection(connected);
+          },
+        });
+        if (lifetime !== this.lifetime) {
+          unpage();
+          return;
+        }
+        this.unpage = unpage;
+      } catch (error) {
+        if (lifetime !== this.lifetime) return;
+        this.set(failure(error));
       }
+      if (lifetime === this.lifetime) await this.reload();
     } finally {
-      this.starting = false;
+      if (lifetime === this.lifetime) this.starting = false;
     }
-    try {
-      this.unpage = await subscribePageStreams(this.client, {
-        onConnection: (connected) => this.onConnection(connected),
-      });
-    } catch (error) {
-      this.set(failure(error));
-    }
-    await this.reload();
   }
 
   stop(): void {
+    ++this.lifetime;
+    ++this.generation;
     this.starting = false;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
@@ -211,16 +227,19 @@ export class HistoryStore {
 
   private async intent(op: string, params: unknown, reread = true): Promise<void> {
     if (!this.client) return;
+    const lifetime = this.lifetime;
     try {
       await this.client.call(op, params);
+      if (lifetime !== this.lifetime) return;
       if (this.snapshot.error) this.set({ error: undefined });
     } catch (error) {
+      if (lifetime !== this.lifetime) return;
       this.set(failure(error));
       return;
     }
     // The provider also emits `cmux.history.changed`; re-reading here keeps the page correct when
     // the event is late, and the generation check drops the duplicate reply.
-    if (reread) await this.reload();
+    if (lifetime === this.lifetime && reread) await this.reload();
   }
 
   private key(): string {

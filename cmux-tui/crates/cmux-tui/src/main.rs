@@ -42,6 +42,8 @@ mod local_actor;
 mod page_listener;
 mod private_mode;
 #[cfg(unix)]
+mod share_room;
+#[cfg(unix)]
 mod signal_sender;
 mod websocket_credential;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
@@ -51,6 +53,10 @@ mod hook_helper;
 mod host_colors;
 mod keys;
 mod layout_undo;
+// Decided on every Unix so its tests run off the Mac; used on macOS only.
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod launchd_refresh;
 #[cfg(unix)]
 mod link;
 mod local_owner;
@@ -2270,6 +2276,16 @@ fn run_server(
     let ws_addr = args.ws.clone().or(config.server.ws.clone());
     let headless::WsToken { token: ws_token, minted: ws_token_minted } =
         headless::ws_token(&args, &ws_addr, &config.server.ws_token)?;
+    // Whether clients find this owner only through its socket's folder (the
+    // lost-paths watch, headless/lost_paths.rs): not a Cloud daemon's remote
+    // runtime or link entry, not a provider management socket from systemd,
+    // and no WebSocket listener but a loopback one whose token is minted into
+    // a file beside the socket.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    let reached_only_by_socket = !args.remote
+        && !args.link_entry
+        && provider_management_listener.is_none()
+        && (ws_addr.is_none() || ws_token_minted);
     let mut loopback_forward_policy =
         loopback_forward_policy(config.server.loopback_forward.as_ref());
     // Compute the socket path up front so a normal interactive launch can
@@ -2502,7 +2518,7 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
-    let pending_server = restoring_server.attach(mux.clone());
+    let pending_server = hook_helper::resume(restoring_server.attach(mux.clone()), &socket_path);
     // From here the restoring server's waiting clients get answers.
     startup_timings.lap("server.attach");
     mux.record_startup_timings(&startup_timings);
@@ -2627,6 +2643,8 @@ fn run_server(
     let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
     #[cfg(unix)]
     cloud_conversations_backend::install(&mux);
+    #[cfg(unix)]
+    cmux_tui_core::server::start_link_share_bridge(&mux, share_room::url().as_deref());
     // Ends terminals that have had no tab placement for the reap grace
     // period and are not marked keep (`terminal-reap-v1`). Opt-in: a close
     // has always left the terminal running unplaced, and clients built
@@ -2686,12 +2704,27 @@ fn run_server(
             config.machine_sidebar.create_sources.clone(),
         )
     });
+    // Read before the readiness byte: once `server ensure` has it, the
+    // process that started this owner may exit and remove the owner's root
+    // at once (headless/lost_paths.rs).
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    let reachable = (args.headless && reached_only_by_socket)
+        .then(|| headless::lost_paths::Reachable::for_owner(&mux, &socket_path))
+        .flatten();
     let result = if args.headless {
         mux.mark_server_lifecycle_ready();
         if let Some(fd) = args.owner_ready_fd {
             local_owner::signal_ready(fd);
         }
-        #[cfg(unix)]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        {
+            run_headless(&mux, &socket_path, args.exit_with_pid, reachable, || {
+                remote_runtime
+                    .as_ref()
+                    .is_some_and(remote_runtime::DaemonRuntimeHandle::is_finished)
+            })
+        }
+        #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
         {
             run_headless(&mux, &socket_path, args.exit_with_pid, || {
                 remote_runtime

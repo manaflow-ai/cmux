@@ -12,19 +12,23 @@ public struct ConversationPresentationOptions {
     public var serviceSubtitle: String
     public var unreadCount: Int
     public var trailingSymbol: String
+    /// Host customization; the default retains the Messages presentation.
+    public var header: ConversationHeaderPresentation
 
     public init(
         placeholder: String? = nil,
         serviceTitle: String = "iMessage",
         serviceSubtitle: String? = nil,
         unreadCount: Int = 0,
-        trailingSymbol: String = "video"
+        trailingSymbol: String = "video",
+        header: ConversationHeaderPresentation = .init()
     ) {
         self.placeholder = placeholder
         self.serviceTitle = serviceTitle
         self.serviceSubtitle = serviceSubtitle ?? String(localized: "conversation.start.encrypted", defaultValue: "Encrypted", bundle: .module)
         self.unreadCount = unreadCount
         self.trailingSymbol = trailingSymbol
+        self.header = header
     }
 }
 
@@ -32,6 +36,11 @@ public struct ConversationPresentationOptions {
 public final class ConversationViewController: UIViewController {
     public let store: ConversationStore
     public var onBack: (() -> Void)?
+    /// Replaces the details page when the name or avatar is activated.
+    public var onHeaderInfo: (() -> Void)?
+    /// Runs only in the normal header state. Reply/edit/select still dismiss
+    /// through their own close action. The view anchors a host's popover.
+    public var onHeaderAction: ((UIView) -> Void)?
     /// Select mode's Forward button. The host presents New Message prefilled
     /// with the draft; when unset, a minimal placeholder sheet stands in.
     public var onForward: ((ConversationForwardDraft) -> Void)?
@@ -47,6 +56,8 @@ public final class ConversationViewController: UIViewController {
     /// bottom in landscape.
     private lazy var headerBottom = header.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: ConversationHeaderView.contentHeight)
     let topEdgeFade = ConversationTopEdgeFade()
+    /// Opt-in material above both transcript rows and reply-thread copies.
+    let headerMaterial = ConversationHeaderMaterial()
     /// The conversation background, behind the transcript (see +Background).
     let backdropView = ConversationBackdropView()
     weak var detailsController: ConversationDetailsViewController?
@@ -264,12 +275,16 @@ public final class ConversationViewController: UIViewController {
 
         header.translatesAutoresizingMaskIntoConstraints = false
         header.trailingSymbol = options.trailingSymbol
+        header.presentation = options.header
         header.setTrailingMode(.action, animated: false)
         header.onBack = { [weak self] in self?.handleBack() }
         header.onInfo = { [weak self] in self?.openInfo() }
         header.onTrailing = { [weak self] in self?.handleHeaderTrailing() }
         topEdgeFade.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(topEdgeFade)
+        if #available(iOS 26.0, *), options.header.scrollEdge == .system {
+            view.insertSubview(headerMaterial, belowSubview: composerContainer)
+        }
         view.addSubview(header)
 
         let keyboardDock = MobileKeyboardDock(view: view, usesBottomSafeArea: true, keyboard: keyboard)
@@ -435,7 +450,9 @@ public final class ConversationViewController: UIViewController {
         let fieldBottom = composerContainer.frame.maxY - 4
         composer.maximumFieldHeight = max(ConversationTheme.composerMinHeight, fieldBottom - header.frame.maxY - 3.3)
         layoutReplyOverlay()
-        if store.background != nil, !Self.usesSystemTopPocket {
+        headerMaterial.frame = CGRect(x: view.bounds.minX, y: view.bounds.minY, width: view.bounds.width,
+                                      height: header.frame.maxY - view.bounds.minY + ConversationTopEdgeGeometry.extent)
+        if store.background != nil, !wantsSystemTopPocket {
             collectionView.topFadeHeaderBottom = header.frame.maxY - collectionView.frame.minY
         }
     }
@@ -491,7 +508,9 @@ public final class ConversationViewController: UIViewController {
         // the bottom of our header (iOS 26.5 and 27.0).
         // Landscape (compact bar): the transcript starts at the bar's bottom
         // (Messages 27, iPhone 17 Pro Max: content inset 78 = 24 + 54).
-        let top = header.frame.maxY + (header.isCompact ? 0 : 10.0 / 3.0)
+        let spacing = options.header.transcriptTopSpacing ?? (header.isCompact ? 0 : 10.0 / 3.0)
+        let top = header.frame.maxY + max(0, spacing)
+        collectionView.edgeTopInset = options.header.scrollEdge == .system ? top : 0
         // The last body rests 16.71 pt above the field (ChatKit's send
         // lands it there on iOS 26 and 27): the field sits 4 pt into the
         // container and the content ends 6 pt below the last row.
@@ -715,6 +734,9 @@ public final class ConversationViewController: UIViewController {
             // it starts inside a scroll frame: skip the full rebuild.
             return
         default:
+            // The open reply thread reads the store itself, so it follows
+            // even a change the live gate holds back from the transcript.
+            defer { refreshReplyThread() }
             if pendingFlight != nil, case let .live(insertedRowIDs, sentByMe: true) = change {
                 pendingFlightRowIDs = Set(insertedRowIDs)
             }
@@ -1620,6 +1642,8 @@ public final class ConversationViewController: UIViewController {
             setSelecting(false)
         } else if replyTarget != nil {
             exitReplyMode()
+        } else {
+            onHeaderAction?(header.trailingButton)
         }
     }
 
@@ -1629,7 +1653,12 @@ public final class ConversationViewController: UIViewController {
     /// CKAvatarButton, clear dimming, alignment rect 208 pt around the
     /// details avatar). UIKit runs the open and close springs.
     func openInfo() {
-        guard store.info != nil, detailsController == nil, presentedViewController == nil else { return }
+        guard detailsController == nil, presentedViewController == nil else { return }
+        if let onHeaderInfo {
+            onHeaderInfo()
+            return
+        }
+        guard store.info != nil else { return }
         view.endEditing(true)
         guard let details = ConversationDetailsViewController(store: store, showsBackgrounds: store.supportsBackgrounds) else { return }
         details.background = store.background
@@ -1945,6 +1974,9 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         let previousLayout = layoutCache.layout(for: previous, width: width, margin: layoutMargin)
         let overhang = previousLayout.tailOverhang
         var gap = model.isFirstInGroup ? ConversationTheme.ungroupedSpacing : ConversationTheme.groupedSpacing
+        // An inline reply stands apart: Messages adds `selfReplyTranscriptSpace`
+        // above its quote and under the reply (iPhone 17 Pro Max, iOS 27).
+        if model.replyQuote != nil || previous.replyQuote != nil { gap += ConversationTheme.transcriptSpace(ConversationTranscriptMetrics.replyBlockSpace) }
         // Under a status line ChatKit keeps `smallTranscriptSpace` (6 pt at
         // Large, iOS 27.0 "Delivered" to the next bubble), even in a run.
         if previousLayout.endsWithCaption { gap = max(gap, ConversationTheme.footerGap) }
@@ -2067,6 +2099,11 @@ private struct PrefetchText: @unchecked Sendable {
 /// wherever it sits instead of the screen edge behind the keyboard. Content
 /// insets are managed by hand (adjustment is off), so this changes nothing else.
 final class TranscriptCollectionView: UICollectionView {
+    /// The host's opt-in system edge covers the full avatar/name header,
+    /// rather than ending at the status bar's safe area.
+    var edgeTopInset: CGFloat = 0 {
+        didSet { if edgeTopInset != oldValue { safeAreaInsetsDidChange() } }
+    }
     var edgeBottomInset: CGFloat = 0 {
         didSet { if edgeBottomInset != oldValue { safeAreaInsetsDidChange() } }
     }
@@ -2178,6 +2215,7 @@ final class TranscriptCollectionView: UICollectionView {
 
     override var safeAreaInsets: UIEdgeInsets {
         var insets = super.safeAreaInsets
+        insets.top = max(insets.top, edgeTopInset)
         insets.bottom = max(insets.bottom, edgeBottomInset)
         return insets
     }
