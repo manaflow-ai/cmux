@@ -34,10 +34,8 @@ struct CloseThenTypeKeysTests {
     private static func withTwoTerminals(_ body: (Panes) async throws -> Void) async throws {
         try await PinnedPageTests.withApp { services, connection in
             let content = try #require(services.windows.active?.workspaceContent)
-            let original = try #require(content.focusedPane, "the window has no focused pane")
-            var terminal = ActionInvocation(origin: .user)
-            terminal.opensTerminal = true
-            #expect(services.registry.perform("splitRight", invocation: terminal))
+            // The window's first pane may show an agent chat, not a terminal: both terminals are new panes (Cmd-D twice,
+            // the second split from the first new terminal, so it opens on its right).
             @MainActor func shown(_ pane: PaneController) -> Terminal? {
                 guard pane.pane.handle.rawValue < ProvisionalPane.firstHandle, let tab = pane.currentTabKey,
                       case .terminal? = pane.currentContent,
@@ -45,21 +43,30 @@ struct CloseThenTypeKeysTests {
                 else { return nil }
                 return (pane, tab, model.surface)
             }
-            @MainActor func added() -> PaneController? { content.panes.values.first { $0 !== original && shown($0) != nil } }
-            try await PinnedPageTests.until({ shown(original) != nil && added() != nil }, report: {
+            @MainActor func terminals() -> [Terminal] { content.panes.values.compactMap(shown) }
+            @MainActor func panes() -> String {
                 "panes \(content.panes.values.map { "\($0.pane.handle.rawValue): \($0.pane.tabs.map { "\($0.kind) \($0.surface.rawValue)" })" })"
-            })
+            }
+            var terminal = ActionInvocation(origin: .user)
+            terminal.opensTerminal = true
+            #expect(services.registry.perform("splitRight", invocation: terminal))
+            try await PinnedPageTests.until({ terminals().count == 1 }, report: { "waiting for the first split's terminal pane: \(panes())" })
+            let first = try #require(terminals().first)
+            PaneHandlers.focus(first.pane.layoutPaneID, in: content)
+            try await PinnedPageTests.until({ content.focus.state.resolved == .terminal(pane: first.pane.paneKey, tab: first.tab) },
+                                            report: { "waiting for the focus on the first terminal: \(content.focus.state.resolved)" })
+            #expect(services.registry.perform("splitRight", invocation: terminal))
+            try await PinnedPageTests.until({ terminals().count == 2 }, report: { "waiting for the second split's terminal pane: \(panes())" })
+            let second = try #require(terminals().first { $0.pane !== first.pane })
             let window = try #require(content.layoutView.window)
             let coordinator = services.keyRouter.creationInputCoordinator
-            try await PinnedPageTests.until({ !coordinator.isHolding(in: window) }, report: { "the split's creation hold never ended" })
+            try await PinnedPageTests.until({ !coordinator.isHolding(in: window) }, report: { "waiting for the splits' creation hold to end" })
             // A held key runs again through the same key path as a typed one (the test window is never key).
             let router = services.keyRouter
             coordinator.runKey = { [weak router] event, window in
                 if router?.interceptKeyDown(event, in: window) != true { window.sendEvent(event) }
             }
-            let addedPane = try #require(added())
-            let p = Panes(services: services, connection: connection, content: content, window: window,
-                          left: try #require(shown(original)), right: try #require(shown(addedPane)))
+            let p = Panes(services: services, connection: connection, content: content, window: window, left: first, right: second)
             try await Self.focus(p.right, in: p)
             try await body(p)
         }
@@ -71,7 +78,7 @@ struct CloseThenTypeKeysTests {
         try await PinnedPageTests.until({
             p.content.focus.state.resolved == .terminal(pane: terminal.pane.paneKey, tab: terminal.tab)
                 && (p.window.firstResponder as? NSView)?.isDescendant(of: terminal.pane.view) == true
-        }, report: { "focus \(p.content.focus.state.resolved), first responder \(String(describing: p.window.firstResponder))" })
+        }, report: { "waiting for the focus and the keyboard on \(terminal.tab): focus \(p.content.focus.state.resolved), first responder \(String(describing: p.window.firstResponder))" })
     }
 
     /// A key-down of the window through the app's key path: the key router, then the window (its first responder).
@@ -119,7 +126,7 @@ struct CloseThenTypeKeysTests {
             try Self.type("echo cw\(nonce)x$((6*7))\r", in: p)
 
             try await PinnedPageTests.until({ store.tab(surface: p.right.surface) == nil },
-                                            report: { "the right terminal did not close" })
+                                            report: { "waiting for the right terminal to close: reading \(TabCloseGuard.reading), asking \(TabCloseGuard.asking)" })
             let ran = try await Self.shows("cw\(nonce)x42", on: p.left.surface, in: p)
             let left = await Self.screen(p.left.surface, in: p)
             #expect(ran, "the line typed right after Cmd-W did not run whole in the left terminal (keys went into the closing terminal): \(left.suffix(400))")
@@ -158,11 +165,11 @@ struct CloseThenTypeKeysTests {
             let nonce = String(UInt32.random(in: 100_000...999_999))
             try Self.type("zq\(nonce)\r", in: p)
 
-            try await PinnedPageTests.until({ warning() != nil }, report: { "the close warning never showed" })
+            try await PinnedPageTests.until({ warning() != nil }, report: { "waiting for the close warning: dialogs \(dialogs.records.map { $0.spec.identifier ?? "-" }), asking \(TabCloseGuard.asking)" })
             let shown = try #require(warning())
             if focusElsewhereFirst { PaneHandlers.focus(p.left.pane.layoutPaneID, in: p.content) }
             #expect(dialogs.press(shown.id, button: "cancel"))
-            try await PinnedPageTests.until({ !TabCloseGuard.asking.contains(p.right.tab) }, report: { "the close still asks" })
+            try await PinnedPageTests.until({ !TabCloseGuard.asking.contains(p.right.tab) }, report: { "waiting for the cancelled close to stop asking: asking \(TabCloseGuard.asking)" })
 
             // `cat` writes the line back after the terminal's own echo: two lines on the right, none on the left.
             _ = try await Self.shows("zq\(nonce)", on: p.right.surface, in: p)
