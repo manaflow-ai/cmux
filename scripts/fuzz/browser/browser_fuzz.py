@@ -64,8 +64,34 @@ DEVTOOLS_OWNER = "the DevTools main-thread stall owner"
 
 
 # What runs now, for the watchdog thread and the signal handler (one run per process).
-LIVE: dict = {"session": None, "ops": [], "findings": [], "watch": None}
+LIVE: dict = {"session": None, "ops": [], "findings": [], "watch": None, "pending": None, "out": None}
 WATCH_POLL_S = 5.0
+# The run has one final verdict: the first thread that claims it (the watchdog, a signal handler or the main thread at
+# the run's end) prints it and exits; every later claim, and the main thread's verdict, finding and launch paths once
+# the run is ending, wait until the process exits (review of #29662: a HANG line was followed by the main thread's PASS).
+FINAL = threading.Lock()
+ENDING = threading.Event()
+
+
+def claim_final() -> bool:
+    """True for the one caller that ends the run. A loser never returns: it waits for that caller's os._exit."""
+    if FINAL.acquire(blocking=False):
+        ENDING.set()
+        return True
+    park()
+    return False
+
+
+def park():
+    """Waits for the process to exit (another thread ends the run)."""
+    while True:
+        time.sleep(3600)
+
+
+def yield_if_ending():
+    """The main thread's guard before a verdict, a finding or a launch: once the run is ending, stop here."""
+    if ENDING.is_set():
+        park()
 
 
 class Failure(Exception):
@@ -734,12 +760,16 @@ def run_ops(opts, site, ops: list[dict], run_token: str, log, label: str, seed: 
     the op that hung) and runs under the op watchdog; past `deadline` the seed stops between ops (counts.budget_stop).
     Raises HarnessError when the app did not launch or the harness itself broke."""
     import traceback
+    yield_if_ending()
     try:
         session = Session(opts, site, run_token, log)
     except BaseException as error:  # bench_memory.launch ends with SystemExit when the app opens no socket
         if isinstance(error, KeyboardInterrupt):
             raise
         raise HarnessError(f"the app did not launch: {str(error)[:800]}") from None
+    if ENDING.is_set():
+        session.bm.end_bundle(opts.app)
+        park()
     try:
         session.settle_launch()
         LIVE["ops"] = ops
@@ -773,30 +803,78 @@ def run_ops(opts, site, ops: list[dict], run_token: str, log, label: str, seed: 
         LIVE["session"] = None
 
 
-def end_now(verdict: str, code: int):
-    """Prints the verdict line, ends the app this run launched (bounded), and exits at once: the main thread may be
-    stuck in a call, so this runs from the watchdog thread or a signal handler."""
+def end_now(verdict: str, code: int, claimed: bool = False):
+    """Ends the run from the watchdog thread or a signal handler (the main thread may be stuck in a call): claims the
+    final verdict (unless the caller did), prints a shrink that was cut short as its unshrunk finding, prints the
+    verdict, starts a detached process that ends the app this run launched, and exits at once, so no line of this
+    process can follow the verdict. browser-fuzz.sh's EXIT trap (tag_teardown.py) also ends the tag's processes."""
+    if not claimed:
+        claim_final()
+    pending = LIVE.get("pending")
+    if pending:
+        print("BROWSER-FUZZ-FINDING " + json.dumps(dict(pending, note="its shrink was cut short; the ops are unshrunk")),
+              flush=True)
+        write_finding(pending)
     print(f"BROWSER-FUZZ-VERDICT {verdict}", flush=True)
     session = LIVE.get("session")
-    if session is not None:
-        closer = threading.Thread(target=lambda: session.bm.end_bundle(session.opts.app), daemon=True)
-        closer.start()
-        closer.join(120)
+    app = getattr(getattr(session, "opts", None), "app", None)
+    if app and os.path.isdir(app):
+        helpers = os.path.join(HERE, "..", "..", "cmux-next")
+        subprocess.Popen([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); import bench_memory; "
+                          "bench_memory.end_bundle(sys.argv[2])", helpers, app],
+                         start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    sys.stdout.flush()
     os._exit(code)
+
+
+def write_finding(finding: dict):
+    """finding-N.json in --out, as every finding has (the step's artifact)."""
+    out = LIVE.get("out")
+    if not out:
+        return
+    try:
+        count = len(glob.glob(os.path.join(out, "finding-*.json"))) + 1
+        with open(os.path.join(out, f"finding-{count}.json"), "w") as handle:
+            json.dump(finding, handle, indent=1)
+    except OSError:
+        pass
+
+
+def answers(sock: str, method: str, timeout: float) -> tuple[bool, float]:
+    """Whether the app answered `method` (a result or a typed error) within `timeout`, and the seconds it took. A
+    refused connection, a missing socket or a timeout is no answer (review of #29662: rpc's error dict is not one)."""
+    started = time.monotonic()
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.settimeout(timeout)
+            conn.connect(sock)
+            conn.sendall((json.dumps({"id": 1, "method": method, "params": {}}) + "\n").encode())
+            buf = b""
+            while not buf.endswith(b"\n"):
+                chunk = conn.recv(1 << 16)
+                if not chunk:
+                    return False, time.monotonic() - started
+                buf += chunk
+        json.loads(buf)
+        return True, time.monotonic() - started
+    except (OSError, ValueError):
+        return False, time.monotonic() - started
 
 
 def handle_hang(hung: dict, opts):
     """An op ran past --op-deadline. Probes the app, prints the Python stacks, a finding when the app is at fault, and
     the verdict, then ends the run."""
     import traceback
+    claim_final()  # from here on the main thread prints no verdict, finding or launch (it may still finish its op)
     session = LIVE.get("session")
     alive, ping, main_ms = False, False, None
     if session is not None:
         alive = not session.app_gone()
-        _, _, ping_timed_out = rpc(session.sock, "system.ping", {}, 5)  # answered off the main thread
-        reply, seconds, focus_timed_out = rpc(session.sock, "debug.focus", {}, 5)  # answered on the main actor
-        ping = alive and not ping_timed_out
-        main_ms = 5000.0 if focus_timed_out else seconds * 1000
+        # system.ping is answered off the main thread unless the snapshot is stale; debug.focus on the main actor.
+        ping, _ = answers(session.sock, "system.ping", 5)
+        ping = alive and ping
+        focus, seconds = answers(session.sock, "debug.focus", 5)
+        main_ms = seconds * 1000 if focus else 5000.0
     print(f"browser-fuzz: HANG: {hung['label']} op {hung['index']} {hung['op'].get('op')} ran {hung['elapsed_s']:.0f} s "
           f"(limit {opts.op_deadline:.0f} s); app alive {alive}, system.ping answered {ping}, main-thread call "
           f"{'not asked (no app)' if main_ms is None else 'no answer in 5 s' if main_ms == 5000.0 else f'{main_ms:.0f} ms'}",
@@ -817,7 +895,13 @@ def handle_hang(hung: dict, opts):
                   "failed_op": hung["op"], "reproduced": False, "ops": ops[:hung["index"] + 1],
                   "extra": {"app_alive": alive, "ping_answered": ping, "main_call_ms": main_ms}}
         print("BROWSER-FUZZ-FINDING " + json.dumps(record), flush=True)
-    end_now(line, 1 if finding else 2)
+        write_finding(record)
+    # Findings of earlier seeds (and a shrink that the hang cut short) stay in the verdict: a harness hang after a
+    # finding is a FAIL with that finding, not a NOVERDICT.
+    earlier = len(LIVE.get("findings") or []) + (1 if LIVE.get("pending") else 0)
+    if not finding and earlier:
+        line, finding = f"FAIL {earlier} finding(s) before {line[len('NOVERDICT '):]}", True
+    end_now(line, 1 if finding else 2, claimed=True)
 
 
 def watchdog(opts):
@@ -829,18 +913,28 @@ def watchdog(opts):
         try:
             handle_hang(hung, opts)
         except BaseException as error:  # noqa: BLE001 (a hang must always end the run with a verdict line)
+            # handle_hang claimed the verdict first (its first line), so this thread is the one that ends the run.
             end_now(f"NOVERDICT HANG at op {hung['index']} {hung['op'].get('op')} (seed {hung['seed']}); the hang report "
-                    f"itself failed: {type(error).__name__}: {error}", 2)
+                    f"itself failed: {type(error).__name__}: {error}", 2, claimed=FINAL.locked())
 
 
 def stopped(signum, _frame):
-    """The step was stopped from outside (a cancel or the controller's limits): say so, with the op that ran."""
+    """The step was stopped from outside (a cancel or the controller's limits): say so, with the op that ran. When the
+    watchdog already ends the run, its verdict stands (the handler parks)."""
+    claim_final()
     watch = LIVE.get("watch")
     cur = (watch.current or {}) if watch else {}
     where = f" at {cur.get('label')} op {cur.get('index')} {(cur.get('op') or {}).get('op')}" if cur else ""
-    found = LIVE.get("findings") or []
-    head = f"FAIL {len(found)} finding(s) before" if found else "NOVERDICT"
-    end_now(f"{head} the run was stopped by signal {signum}{where}", 1 if found else 2)
+    found = len(LIVE.get("findings") or []) + (1 if LIVE.get("pending") else 0)
+    head = f"FAIL {found} finding(s) before" if found else "NOVERDICT"
+    end_now(f"{head} the run was stopped by signal {signum}{where}", 1 if found else 2, claimed=True)
+
+
+def final_verdict(line: str, code: int) -> int:
+    """The main thread's verdict at the run's end: printed only when no other thread ended the run first."""
+    claim_final()
+    print(f"BROWSER-FUZZ-VERDICT {line}", flush=True)
+    return code
 
 
 def main() -> int:
@@ -859,6 +953,7 @@ def main() -> int:
     parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="browser-fuzz-"))
     opts = parser.parse_args()
     os.makedirs(opts.out, exist_ok=True)
+    LIVE["out"] = opts.out
     os.environ.setdefault("CMUX_BENCH_LAUNCH", "direct")
     deadline = time.monotonic() + opts.minutes * 60
     LIVE["watch"] = model.OpWatch(opts.op_deadline)
@@ -880,16 +975,13 @@ def main() -> int:
             failure, counts, stalls = run_ops(opts, site, repro["ops"], f"rp{uuid.uuid4().hex[:6]}", log, "replay",
                                               seed=int(repro.get("seed") or 0))
         except HarnessError as error:
-            print(f"BROWSER-FUZZ-VERDICT NOVERDICT replay of {opts.replay}: {str(error)[:400]}", flush=True)
-            return 2
+            return final_verdict(f"NOVERDICT replay of {opts.replay}: {str(error)[:400]}", 2)
         wanted = repro.get("extra", {}).get("signature")
         if failure is None and wanted and wanted in stalls:
             failure = stalls[wanted]
         if failure:
-            print(f"BROWSER-FUZZ-VERDICT FAIL {failure.oracle}: {failure.detail[:400]} (replay of {opts.replay})", flush=True)
-            return 1
-        print(f"BROWSER-FUZZ-VERDICT PASS replay of {opts.replay}: {len(repro['ops'])} ops, counts {json.dumps(counts)}", flush=True)
-        return 0
+            return final_verdict(f"FAIL {failure.oracle}: {failure.detail[:400]} (replay of {opts.replay})", 1)
+        return final_verdict(f"PASS replay of {opts.replay}: {len(repro['ops'])} ops, counts {json.dumps(counts)}", 0)
 
     seed = opts.seed if opts.seed is not None else random.randrange(1 << 31)
     findings: list[dict] = LIVE["findings"]
@@ -938,6 +1030,10 @@ def main() -> int:
             replays["failed"] += int(hit)
             return hit
 
+        # Until the shrink ends, a hang or a stop prints this failure unshrunk (end_now), so it is never lost.
+        LIVE["pending"] = {"target": "browser", "id": f"{failure.oracle}-{seed}", "seed": seed, "ops_per_seed": opts.ops,
+                           "build_config": opts.build_config, "oracle": failure.oracle, "detail": failure.detail[:1500],
+                           "op_index": failure.op_index, "reproduced": None, "ops": prefix, "extra": failure.extra}
         reproduced = opts.shrink_replays > 0 and fails(prefix)
         shrunk = prefix
         if reproduced and len(prefix) > 1:
@@ -946,9 +1042,10 @@ def main() -> int:
                    "build_config": opts.build_config, "oracle": failure.oracle, "detail": failure.detail[:1500],
                    "op_index": failure.op_index, "failed_op": ops[failure.op_index] if 0 <= failure.op_index < len(ops) else None,
                    "reproduced": reproduced, "replays": replays, "ops": shrunk, "extra": failure.extra}
+        yield_if_ending()
         findings.append(finding)
-        with open(os.path.join(opts.out, f"finding-{len(findings)}.json"), "w") as out:
-            json.dump(finding, out, indent=1)
+        LIVE["pending"] = None
+        write_finding(finding)
         print("BROWSER-FUZZ-FINDING " + json.dumps(finding), flush=True)
 
     while time.monotonic() < deadline - 150:
@@ -988,14 +1085,11 @@ def main() -> int:
                f"advisory debug stalls {len(advisory)}, counts {json.dumps(totals)}")
     if findings:
         kinds = ", ".join(sorted({f["oracle"] for f in findings}))
-        print(f"BROWSER-FUZZ-VERDICT FAIL {len(findings)} finding(s) ({kinds}); {summary}", flush=True)
-        return 1
+        return final_verdict(f"FAIL {len(findings)} finding(s) ({kinds}); {summary}", 1)
     if total_ops == 0 or harness_errors * 2 >= attempts:
-        print(f"BROWSER-FUZZ-VERDICT NOVERDICT {harness_errors} of {attempts} seeds ended in a harness error; {summary}", flush=True)
-        return 2
+        return final_verdict(f"NOVERDICT {harness_errors} of {attempts} seeds ended in a harness error; {summary}", 2)
     caveat = f"(harness errors {harness_errors}) " if harness_errors else ""
-    print(f"BROWSER-FUZZ-VERDICT PASS {caveat}{summary}", flush=True)
-    return 0
+    return final_verdict(f"PASS {caveat}{summary}", 0)
 
 
 if __name__ == "__main__":

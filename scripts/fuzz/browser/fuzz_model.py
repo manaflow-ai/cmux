@@ -355,8 +355,9 @@ class OpWatch:
 def hang_verdict(seed: int, index: int, op: dict, elapsed_s: float, *, app_alive: bool, ping_answered: bool,
                  main_stall_ms: float | None) -> tuple[str, bool]:
     """The verdict line (after "BROWSER-FUZZ-VERDICT ") for an op that ran past its deadline, and whether it is a
-    product finding. The app is at fault when its process ended, it does not answer system.ping, or its main thread is
-    stalled now (debug.hangs answers off the main thread); else the harness itself is stuck (no verdict)."""
+    product finding. The app is at fault when its process ended, it does not answer system.ping, or its main thread does
+    not answer debug.focus (a main-actor call) within a second; else the harness itself is stuck (no verdict). A
+    system.ping that waits for a stale snapshot can also time out during a main-thread stall: the verdict is FAIL either way."""
     what = f"HANG at op {index} {op.get('op')} after {elapsed_s:.0f} s (seed {seed})"
     if not app_alive:
         return f"FAIL {what}: the app process ended", True
