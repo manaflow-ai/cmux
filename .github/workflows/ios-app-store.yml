@@ -51,7 +51,10 @@ jobs:
     # The app source is always main, including dispatches of workflow repairs.
     if: github.event_name == 'workflow_dispatch'
     needs: runners
-    runs-on: ${{ fromJSON(needs.runners.outputs.map).macos_26_ios }}
+    # It holds the App Store Connect key, so the capability map's answer is used only
+    # when it is the Blacksmith label: the map reads CMUX_CI_RUNNER_OVERRIDES, which may
+    # name any machine (tests/test_ci_fork_runner_routing.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-26"]'), fromJSON(needs.runners.outputs.map).macos_26_ios) && fromJSON(needs.runners.outputs.map).macos_26_ios || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 90
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
@@ -180,7 +183,9 @@ jobs:
         env:
           IOS_APPSTORE_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_PROVISIONING_PROFILE_BASE64 }}
           IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64 }}
-          IOS_APPSTORE_ENABLE_CLOUD_VPN: "1"
+          # The public App Store binary must not contain the unapproved system
+          # VPN API. Beta/internal lanes keep that feature separately.
+          IOS_APPSTORE_ENABLE_CLOUD_VPN: "0"
           IOS_PROD_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROD_PROVISIONING_PROFILE_BASE64 }}
           IOS_BETA_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_BETA_PROVISIONING_PROFILE_BASE64 }}
           APPLE_RELEASE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_RELEASE_PROVISIONING_PROFILE_BASE64 }}
@@ -304,10 +309,41 @@ jobs:
       - name: Ensure App Store availability
         run: python3 ios/scripts/asc_bootstrap_app_availability.py --app "$ASC_APP_ID"
 
+      # The archive used to resolve every Swift package from the network
+      # (about 129 s of the 592 s archive step in run 36522549397). Restore
+      # the ios-spm- package checkouts that ios-testflight.yml's upload lane
+      # saves from main (and test-ios.yml's seed_cache dispatch), under the
+      # same key, through the same CMUX_IOS_SPM_CACHE_DIR hook in
+      # upload-testflight.sh. Restore only: this release job never writes a
+      # cache. DerivedData stays fresh, so the archive compiles clean, as the
+      # macOS release.yml build does (it caches only .spm-cache). A miss or a
+      # failed restore resolves from the network as before; xcodebuild checks
+      # every checkout against Package.resolved.
+      - name: Restore iOS SwiftPM cache
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          # r2-cache.sh reads through this public URL; without it every R2
+          # restore is a miss (ios-testflight.yml sets it workflow-wide).
+          CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/cmux-ios-spm
+          key: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            ios-spm-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Sanitize iOS SwiftPM cache
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cmux-ios-spm"
+          python3 scripts/ci/sanitize-xcode-source-packages-cache.py "$RUNNER_TEMP/cmux-ios-spm"
+
       - name: Archive, export, and upload production build
         id: upload
         env:
           CMUX_BUILD_NUMBER_OUT_FILE: ${{ runner.temp }}/cmux-final-appstore-build-number.txt
+          CMUX_IOS_SPM_CACHE_DIR: ${{ runner.temp }}/cmux-ios-spm
         run: |
           set -euo pipefail
           ARGS=(--signing manual)

@@ -52,5 +52,72 @@
     "manaflow-ai": "blacksmith"
   },
 
-  "default_fleet": "hosted"
+  "default_fleet": "hosted",
+
+  "pools": {
+    "$comment": [
+      "The one routing source (scripts/ci/runner_pools.py, docs/ci-runners.md \"Runner pools\").",
+      "Each pool is a class of work and its members in order. The RUNNER_POOLS repository variable",
+      "holds each pool's live member; a job reads fromJSON(vars.RUNNER_POOLS).<pool> and names no",
+      "label itself (tests/test_ci_runner_set.py). runner_pools.py moves a pool to its next member",
+      "when the queue janitor or the overflow probe sees the current one start nothing.",
+      "Members are ephemeral only: owned Macs come first through a picker's output, never a pool.",
+      "Only a pool marked hosted may name a GitHub-hosted label, and it says why."
+    ],
+    "linux": {
+      "why": "Every Linux job: the runner set's Blacksmith sizes (Leo, 2026-10-28: \"just pin the set of the shit that isn't hilariously slow\")",
+      "members": [
+        "blacksmith-32vcpu-ubuntu-2404",
+        "blacksmith-16vcpu-ubuntu-2404"
+      ]
+    },
+    "linux_arm64": {
+      "why": "Native ARM64 Linux package checks",
+      "members": [
+        "blacksmith-4vcpu-ubuntu-2404-arm"
+      ]
+    },
+    "windows": {
+      "why": "Windows builds and tests",
+      "members": [
+        "blacksmith-4vcpu-windows-2025"
+      ]
+    },
+    "macos_15": {
+      "why": "The macOS 15 image (its default SDK), after any owned-Mac picker",
+      "members": [
+        "blacksmith-6vcpu-macos-15"
+      ]
+    },
+    "macos_26": {
+      "why": "The macOS 26 image, after any owned-Mac picker",
+      "members": [
+        "blacksmith-6vcpu-macos-26",
+        "blacksmith-12vcpu-macos-26"
+      ]
+    },
+    "macos_26_large": {
+      "why": "macOS 26 work that needs the 12 vCPU, 48 GB SKU",
+      "members": [
+        "blacksmith-12vcpu-macos-26",
+        "blacksmith-6vcpu-macos-26"
+      ]
+    },
+    "provenance": {
+      "why": "npm and PyPI provenance publishing and artifact attestations",
+      "hosted": true,
+      "hosted_why": "npm provenance, PyPI trusted publishing and artifact attestations accept only GitHub's OIDC from a GitHub-hosted runner",
+      "members": [
+        "ubuntu-24.04"
+      ]
+    },
+    "macos_intel": {
+      "why": "The Intel macOS leg of the dispatch-only compatibility suite",
+      "hosted": true,
+      "hosted_why": "Blacksmith has no Intel macOS image; GitHub's macos-15-intel is the only x86_64 Mac",
+      "members": [
+        "macos-15-intel"
+      ]
+    }
+  }
 }

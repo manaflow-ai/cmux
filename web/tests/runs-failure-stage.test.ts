@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { RunCloudHttpError } from "../services/runs/cloudClientContract";
-import { labelRunStage, runFailureDetail } from "../services/runs/failureStage";
+import { RunCloudHttpError } from "../services/runs/legacy/cloudClientContract";
+import { labelRunStage, runFailureDetail } from "../services/runs/legacy/failureStage";
 
 // Staging dogfood run 39363650255 ended "Run source/setup, recipe, or Cloud
 // operation failed" with nothing to say which step. The receipt names the step
