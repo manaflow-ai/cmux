@@ -92022,19 +92022,19 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud"
+            "value": "السحابة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud"
+            "value": "Oblak"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud"
+            "value": "Sky"
           }
         },
         "de": {
@@ -92052,7 +92052,7 @@
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud"
+            "value": "Nube"
           }
         },
         "fr": {
@@ -92070,79 +92070,79 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud"
+            "value": "クラウド"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud"
+            "value": "ពពក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud"
+            "value": "클라우드"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud"
+            "value": "Sky"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud"
+            "value": "Chmura"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud"
+            "value": "Nuvem"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud"
+            "value": "Облако"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud"
+            "value": "คลาวด์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud"
+            "value": "Bulut"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud"
+            "value": "Хмара"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud"
+            "value": "Đám mây"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud"
+            "value": "云端"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud"
+            "value": "雲端"
           }
         }
       }
