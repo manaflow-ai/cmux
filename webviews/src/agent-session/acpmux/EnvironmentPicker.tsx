@@ -96,7 +96,7 @@ export type SavedEnvironmentRows = {
   onEdit(id: string): void;
 };
 
-/// The environment picker (preview, `labs.previewFeatures`): where a chat runs, as Codex's "Where
+/// The environment picker (not behind Labs since Leo's 2026-10-30 order): where a chat runs, as Codex's "Where
 /// should this chat run?" menu has it (Leo, 2026-10-31). Two rows, This Mac and Cloud (a pick opens
 /// New Cloud Machine), then a hairline and every other machine acpmux lists, the ones a chat can
 /// start on first and the rest greyed with their state; ⌥⌘1–9 on the first nine that can take a
@@ -106,7 +106,7 @@ export type SavedEnvironmentRows = {
 /// environment) are the control's right-click menu, besides their homes in the app. On the New Tab
 /// page it also lists the saved environments. A started chat's picker lists only where it runs and
 /// its move (`offload`): Move to Cloud from this Mac, Bring Back Local from a Cloud machine. A new
-/// chat with `runMode` (Labs, hq#3367) also offers Sandboxed as Cloud's other face, with no row of
+/// chat with `runMode` (hq#3367) also offers Sandboxed as Cloud's other face, with no row of
 /// its own: shown while ⌥ is held, while the search names it, and while it is the pick.
 export function EnvironmentPicker({
   label,
@@ -148,7 +148,7 @@ export function EnvironmentPicker({
   /// A started chat's move, run by `onOffload`.
   offload?: OffloadKind;
   onOffload?(kind: OffloadKind): void;
-  /// A new chat's Run as (preview, hq#3367): Persistent (a chat, as before) or Sandboxed (the
+  /// A new chat's Run as (hq#3367): Persistent (a chat, as before) or Sandboxed (the
   /// first message runs once on a throwaway Cloud VM).
   runMode?: RunModeRows;
   /// A trust question is the blocking surface; close an already-open destination menu so its
@@ -463,7 +463,12 @@ export function EnvironmentPicker({
         {/* A machine a chat cannot start on yet says why, greyed; one that can shows a status dot.
             Only an SSH or Cloud machine acpmux lists has a status; this Mac never shows one. */}
         {!ready && <span className="acpmux-env-state">{environmentStateLabel(environment)}</span>}
-        {ready && environment.kind !== "local" && environment.connected !== undefined && (
+        {ready && environment.loadWarning && (
+          <span className="acpmux-env-state" data-warning="true">
+            {environment.loadWarning}
+          </span>
+        )}
+        {ready && !environment.loadWarning && environment.kind !== "local" && environment.connected !== undefined && (
           <span className="acpmux-env-status" data-connected={String(environment.connected)}>
             <span className="acpmux-env-status-text">
               {t(environment.connected ? "composer.envConnected" : "composer.envNotConnected")}

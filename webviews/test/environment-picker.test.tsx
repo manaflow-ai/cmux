@@ -566,6 +566,21 @@ test("a started Cloud chat: the picker shows its machine and Bring Back Local", 
   expect(calls).toEqual([["offload", "bringBack"]]);
 });
 
+test("a started Cloud chat's picker keeps its machine's load warning", async () => {
+  const { setComposerSettings, DEFAULT_COMPOSER } = await import("../src/agent-session/acpmux/composerSettings");
+  setComposerSettings(DEFAULT_COMPOSER);
+  await mount(true, {
+    ...startedOn("cloud"),
+    onOffload: () => {},
+    peerResources: { "build-cloud": { ramFreeGB: 8, coresBusy: 14, cores: 10, busy: true, lowMemory: false } },
+  });
+  await openPicker();
+  expect(machineRows()).toHaveLength(1);
+  expect(machineRows()[0]!.querySelector('.acpmux-env-state[data-warning="true"]')?.textContent).toBe(
+    t("composer.machineHighLoad", { busy: 14, cores: 10 }),
+  );
+});
+
 test("Return on a search never moves a chat by itself", async () => {
   const { calls } = await mountStarted("local");
   await openPicker();
@@ -1045,6 +1060,40 @@ test("turning the warning setting off updates an already-open menu", async () =>
   expect(row().querySelector(".acpmux-location-name")?.getAttribute("data-warning")).toBeNull();
   expect(row().querySelector(".acpmux-menu-description")).toBeNull();
   setComposerSettings(DEFAULT_COMPOSER);
+});
+
+test("the environment picker warns on a ready machine at its CPU budget, as the plain menu does", async () => {
+  const { setComposerSettings, DEFAULT_COMPOSER } = await import("../src/agent-session/acpmux/composerSettings");
+  setComposerSettings(DEFAULT_COMPOSER);
+  await mount(true, {
+    peerResources: {
+      "gpu-box": { ramFreeGB: 8, coresBusy: 14, cores: 10, busy: true, lowMemory: false },
+    },
+  });
+  await openPicker();
+  const row = () =>
+    [...doc().querySelectorAll<HTMLElement>(".acpmux-env-popover .acpmux-env-row")].find(
+      (item) => item.querySelector(".acpmux-menu-label")?.textContent === "gpu-box",
+    )!;
+  const warning = row().querySelector('.acpmux-env-state[data-warning="true"]');
+  expect(warning?.textContent).toBe(t("composer.machineHighLoad", { busy: 14, cores: 10 }));
+  await act(async () => setComposerSettings({ showMachineLoadWarnings: false }));
+  expect(row().querySelector('.acpmux-env-state[data-warning="true"]')).toBeNull();
+  setComposerSettings(DEFAULT_COMPOSER);
+});
+
+test("the environment picker withholds a warning while a machine is not ready", async () => {
+  await mount(true, {
+    peerConnected: { "gpu-box": false },
+    peerResources: {
+      "gpu-box": { ramFreeGB: 1.2, coresBusy: 14, cores: 10, busy: true, lowMemory: true },
+    },
+  });
+  await openPicker();
+  const row = [...doc().querySelectorAll<HTMLElement>(".acpmux-env-popover .acpmux-env-row")].find(
+    (item) => item.querySelector(".acpmux-menu-label")?.textContent === "gpu-box",
+  )!;
+  expect(row.querySelector('.acpmux-env-state[data-warning="true"]')).toBeNull();
 });
 
 test("an open machine list reads the machines again until it closes", async () => {

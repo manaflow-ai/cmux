@@ -84,10 +84,20 @@ fn main() -> std::process::ExitCode {
             flags.words.get(3).cloned().unwrap_or_default(),
         );
         let home = home(&flags);
+        // The composition root of the launchers: this Chief home's store, the process's stdio.
+        let store_of =
+            |p: &optchat_chief::toolpacks::Pack| optchat_chief::toolpacks::store(&home, p);
         let out = if args[1] == "mcp" {
-            optchat_chief::toolpacks::serve_mcp(&home, &pack, &server)
+            optchat_chief::toolpacks::serve_mcp(
+                &home,
+                &pack,
+                &server,
+                &store_of,
+                Box::new(std::io::BufReader::new(std::io::stdin())),
+                Box::new(std::io::stdout()),
+            )
         } else {
-            optchat_chief::toolpacks::mcp_headers(&home, &pack, &server).map(|h| {
+            optchat_chief::toolpacks::mcp_headers(&home, &pack, &server, &store_of).map(|h| {
                 println!("{h}");
                 0
             })

@@ -135,13 +135,13 @@ struct SidebarClickMovesNoRowTests {
         rows.show(start)
         record()
         let moving = [start[0].workspaces[2].id, start[0].workspaces[3].id]
-        let edit = rows.add(.reorder(moving, to: DropPosition(section: start[0].id, index: 0)))
+        let edit = rows.edits.add(.reorder(moving, to: DropPosition(section: start[0].id, index: 0)))
         record()
         rows.show(Self.reordered(start, [2, 0, 1, 3])) // the first command's echo
         record()
         rows.show(Self.reordered(start, [2, 3, 0, 1])) // the second's
         record()
-        rows.settle(edit)
+        rows.edits.settle(edit)
         record()
         #expect(orders == [["w1", "w2", "w3", "w4"], ["w3", "w4", "w1", "w2"]], "the move showed \(orders.count - 1) order changes: \(orders)")
     }
