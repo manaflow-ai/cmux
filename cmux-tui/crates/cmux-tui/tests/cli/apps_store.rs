@@ -58,6 +58,13 @@ impl Apps {
             .env("CMUX_APPS_FIRST_PARTY_DIR", self.dir.join("first-party"))
             .env("CMUX_APPS_DIRS", self.dir.join("bundled"))
             .env("CMUX_CUSTOMIZE_DIR", self.dir.join("customize"));
+        // Fake remote tools (`ssh`, `docker`, ...) a test puts in `<dir>/bin` come first.
+        if self.dir.join("bin").is_dir() {
+            let path = std::env::var_os("PATH").unwrap_or_default();
+            let mut dirs = vec![self.dir.join("bin")];
+            dirs.extend(std::env::split_paths(&path));
+            command.env("PATH", std::env::join_paths(dirs).unwrap());
+        }
         // By default a daemon with no login session (cx-9mmyz: rbx, containers,
         // cron) has no runtime dir, and its `<state>/apps-tmp/<ns>` is too long
         // for a socket path: app servers must still get a socket folder.
@@ -1179,7 +1186,12 @@ fn the_store_examples_list_and_install_for_the_user() {
     let ids = copy_store_examples(&apps.dir.join("bundled"));
     assert_eq!(
         ids,
-        ["manaflow-ai/cmux-docs", "manaflow-ai/quick-links", "manaflow-ai/standup"],
+        [
+            "manaflow-ai/cmux-docs",
+            "manaflow-ai/hello-deploy",
+            "manaflow-ai/quick-links",
+            "manaflow-ai/standup"
+        ],
         "the shipped examples"
     );
     apps.start();
@@ -1275,4 +1287,141 @@ fn apps_list_and_info_read_the_store_from_the_cli() {
     let out = cli(&["apps", "info", "acme/nothing"]);
     assert_eq!(out.status.code(), Some(1), "an unknown app fails");
     assert!(String::from_utf8_lossy(&out.stderr).contains("apps.unknown"));
+}
+
+/// Fake remote tools for the deploy tests in `<dir>/bin`: `ssh` logs its
+/// destination and runs the script it gets on stdin here; `docker` logs each
+/// call and answers `port` with 49153; `curl` passes the health check unless
+/// `<dir>/health-fail` exists; `tailscale ip -4` answers 100.64.0.9.
+fn fake_remote_tools(dir: &Path) {
+    let bin = dir.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let log = |name: &str| dir.join(name).display().to_string();
+    write_script(
+        &bin.join("ssh"),
+        &format!(
+            "#!/bin/sh\nfor a in \"$@\"; do last=\"$a\"; done\nprintf '%s\\n' \"$*\" >> '{ssh}'\n# the destination is the word after --\nexec sh -s\n",
+            ssh = log("ssh.log")
+        ),
+    );
+    write_script(
+        &bin.join("docker"),
+        &format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{docker}'\ncase \"$1\" in\n  port) echo '100.64.0.9:49153' ;;\n  logs) echo 'fake container log' ;;\nesac\nexit 0\n",
+            docker = log("docker.log")
+        ),
+    );
+    write_script(
+        &bin.join("curl"),
+        &format!("#!/bin/sh\n[ -e '{fail}' ] && exit 22\nexit 0\n", fail = log("health-fail")),
+    );
+    write_script(&bin.join("wget"), "#!/bin/sh\nexit 1\n");
+    write_script(&bin.join("tailscale"), "#!/bin/sh\necho 100.64.0.9\n");
+    // A short health wait so the failure case ends quickly.
+    write_script(&bin.join("sleep"), "#!/bin/sh\nexit 0\n");
+}
+
+/// The installed row of `app` once `done` accepts its instance, within 20 s.
+fn wait_instance(app_client: &mut Client, app: &str, done: impl Fn(&Value) -> bool) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let reply = app_client.store("cmux.apps.installed.list", json!({}), "user");
+        let row = ok(&reply)["apps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["app"] == app)
+            .cloned()
+            .unwrap_or(Value::Null);
+        if done(&row) {
+            return row;
+        }
+        assert!(Instant::now() < deadline, "{app}: {row}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Install = deploy + pin on a self-hosted machine (docs/app-store-platonic-ideal.md
+/// 8a, 15): the person's install with `deploy: {target: "self-hosted:<host>"}`
+/// runs the app's container on that host over SSH, waits for its health check
+/// and records a running instance with its URL, with no cmux Cloud call;
+/// removing the app removes the container; a failed health check rolls the
+/// install back; an agent cannot deploy.
+#[test]
+fn self_hosted_deploy_runs_the_container_and_rolls_back_on_failure() {
+    let apps = Apps::new("deploy");
+    copy_store_examples(&apps.dir.join("bundled"));
+    fake_remote_tools(&apps.dir);
+    apps.start();
+    let target = json!({ "target": "self-hosted:ops@build-01.corp" });
+    let install = |key: &str| json!({ "app": "manaflow-ai/hello-deploy", "grant_optional": false, "idempotency_key": key, "deploy": target });
+
+    let mut agent = apps.agent();
+    let refused = agent.store("cmux.apps.install", install("d0"), "user");
+    assert_eq!(error_code(&refused), "origin.forbidden", "{refused}");
+
+    let mut app = apps.app();
+    let reply = app.store("cmux.apps.install", install("d1"), "user");
+    let data = ok(&reply);
+    assert_eq!(data["app"]["state"]["installed"], true, "{reply}");
+    assert_eq!(data["instance"]["target"], "self-hosted:ops@build-01.corp", "{reply}");
+    let row = wait_instance(&mut app, "manaflow-ai/hello-deploy", |row| {
+        row["instance"]["state"] == "running"
+    });
+    assert_eq!(row["instance"]["url"], "http://100.64.0.9:49153/", "{row}");
+    let ssh = std::fs::read_to_string(apps.dir.join("ssh.log")).unwrap();
+    assert!(ssh.contains("ops@build-01.corp"), "deployed over SSH to the host: {ssh}");
+    let docker = std::fs::read_to_string(apps.dir.join("docker.log")).unwrap();
+    assert!(
+        docker.contains("run -d") && docker.contains("docker.io/traefik/whoami:v1.10"),
+        "{docker}"
+    );
+    assert!(docker.contains("cmux-app-manaflow_ai.hello_deploy"), "{docker}");
+
+    // `cmux apps list` shows the instance too.
+    let listed = app.rpc(json!({ "cmd": "apps-list" }));
+    let entry = ok(&listed)["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["id"] == "manaflow-ai/hello-deploy")
+        .cloned()
+        .unwrap();
+    assert_eq!(entry["instance"]["state"], "running", "{entry}");
+
+    // Remove stops the container and drops the instance.
+    let removed = app.store(
+        "cmux.apps.uninstall",
+        json!({ "app": "manaflow-ai/hello-deploy", "idempotency_key": "d2" }),
+        "user",
+    );
+    assert_eq!(ok(&removed)["app"]["state"]["installed"], false, "{removed}");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !std::fs::read_to_string(apps.dir.join("docker.log"))
+        .unwrap()
+        .contains("rm -f cmux-app-manaflow_ai.hello_deploy\n")
+        || std::fs::read_to_string(apps.dir.join("docker.log")).unwrap().matches("rm -f").count()
+            < 2
+    {
+        assert!(Instant::now() < deadline, "the container is removed");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    // A failed health check rolls the install back.
+    std::fs::write(apps.dir.join("health-fail"), "").unwrap();
+    let reply = app.store("cmux.apps.install", install("d3"), "user");
+    assert_eq!(ok(&reply)["app"]["state"]["installed"], true, "{reply}");
+    let row = wait_instance(&mut app, "manaflow-ai/hello-deploy", |row| row.is_null());
+    assert!(row.is_null(), "rolled back: no longer installed");
+    let logs = app.rpc(json!({ "cmd": "apps-logs", "app": "manaflow-ai/hello-deploy" }));
+    let text = ok(&logs).to_string();
+    assert!(text.contains("health check failed"), "{text}");
+
+    // A target the manifest does not allow is refused before anything installs.
+    let refused = app.store(
+        "cmux.apps.install",
+        json!({ "app": "manaflow-ai/hello-deploy", "idempotency_key": "d4", "deploy": { "target": "team-vm:t1" } }),
+        "user",
+    );
+    assert_eq!(error_code(&refused), "deploy.target_not_allowed", "{refused}");
 }
