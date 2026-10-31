@@ -313,7 +313,16 @@
          default: return 0
          }
          return h.finalize()
-@@ -858,6 +1008,8 @@
+@@ -850,6 +1000,8 @@
+     /// min), more than 15 min on macOS 26 (the original
+     /// recording, macOS 26: "Today 12:06 PM" over "hello world" 21 min after the message above) (cx-3cb row-gap).
+     static var separatorGap: TimeInterval { ComposeMetrics.macOS26 ? 15 * 60 : 60 * 60 }
++    /// cmux: the typing row's gap under a bubble: its bubble top 8 pt under the bubble above (a new group's gap).
++    static var typingGapUnderBubble: CGFloat { 8 - (RowDraw.typingBubble.minY - RowDraw.margin) }
+ 
+     /// `previousRow`: the kind of the row just above `range` (gaps depend on it).
+     /// `width`: layout width (captured on main). `exact`: message indices to
+@@ -858,6 +1010,8 @@
                       previousRow: RowSpec.Kind? = nil, width: CGFloat = Metrics.current.width, exact: Range<Int>? = nil,
                       scale: CGFloat = Fixture.renderScale, threadCounts: [ID: Int]? = nil) -> [RowSpec] {
          let me = s.me
@@ -322,7 +331,7 @@
          var rows: [RowSpec] = []
          var span = (range ?? 0..<loaded.count).clamped(to: 0..<loaded.count) // a range from an older window stays inside
          // The host's streaming bubbles with text (ask 11, HostHooks.swift) follow the newest message as the messages
-@@ -911,6 +1063,8 @@
+@@ -911,6 +1065,8 @@
              let outgoing = m.senderId == me
              var gap: CGFloat
              var connector: String?
@@ -331,7 +340,7 @@
              if prev.map({ m.date.timeIntervalSince($0.date) > separatorGap }) ?? true { // no force unwrap
                  // The time label sits 17.5 pt under a thread reply and 13.5 pt under any other bubble, and the next
                  // bubble 5 pt under the label (macOS 27, AX walk of the real transcript, 2026-10-14, cx-3cb row-gap:
-@@ -973,13 +1127,22 @@
+@@ -973,13 +1129,22 @@
              if let r = m.replyTo, !threadMode, connector == nil, let p = prev, p.id != r.messageId, p.replyTo != r {
                  let root = s.conversation.messages.first { $0.id == r.messageId }
                  let part = root.flatMap { r.partIndex < $0.parts.count ? $0.parts[r.partIndex] : nil }
@@ -355,7 +364,7 @@
              }
  
              if m.retractedAt != nil {
-@@ -989,6 +1152,23 @@
+@@ -989,6 +1154,23 @@
                  let lastOfGroup = next.map { next in next.senderId != m.senderId || next.date.timeIntervalSince(m.date) >= groupGap
                      || next.retractedAt != nil || next.replyTo != m.replyTo
                      || thread(next, at: idx + 1) != thread(m, at: idx) } ?? true
@@ -379,7 +388,7 @@
                  for (pi, part) in m.parts.enumerated() {
                      // A streaming bubble (past the loaded messages) is always measured: it draws now.
                      let measured = MeasureCache.shared.size(m, pi, width: width, estimate: idx < loaded.count && (exact.map { !$0.contains(idx) } ?? false), scale: scale)
-@@ -1015,21 +1195,40 @@
+@@ -1015,21 +1197,40 @@
                                        tail: lastOfGroup && pi == m.parts.count - 1, reactions: reactions,
                                        myReaction: reactions.firstIndex { $0.senderId == me }, failed: failed,
                                        size: size, text: tl, connectorRoot: pi == 0 ? connector : nil, markdown: measured.markdown,
@@ -424,7 +433,7 @@
                  }
                  // ThreadMode.tree thread view: "N Replies" under a reply that has replies opens its
                  // branch (drill-in). `threadCounts` is nil in `.messages` mode and in the transcript.
-@@ -1043,16 +1242,23 @@
+@@ -1043,17 +1244,33 @@
              }
              prev = m; prevIndex = idx
          }
@@ -436,24 +445,35 @@
          // A stream with text is its sender's bubble (no typing indicator for them); one without text is the indicator.
          let typists = s.ui.typing.contains { t in t != me && !writing.contains { $0.sender == t } }
              || (tail && s.ui.streams.contains { $0.parts.isEmpty && $0.sender != me })
-+        // cmux: the host's status line (ask 9) goes above the typing indicator, not under it (upstream: last,
-+        // centered): the Chief's "working on" line reads as a caption of the bubble it heads (RowDraw `.notice`
-+        // draws it at the bubble's left edge). Same gap and height as upstream's.
-+        if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice, !notice.isEmpty {
-+            // cmux: one caption row per line (the running indicator's folded steps, narration and step: HomeNoticeRows).
-+            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: HomeNoticeRows.height(notice)))
-+        }
-         if !threadMode, span.upperBound == messages.count, s.atNewest, typists {
-             rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
+-        if !threadMode, span.upperBound == messages.count, s.atNewest, typists {
+-            rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
 -        }
 -        // The host's status line (ask 9), last, under the typing indicator: drawn like Messages' own notice in the
 -        // transcript ("You unsent a message": 11 pt, secondary, centered) at the unsent row's gap and height.
--        if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice, !notice.isEmpty {
++        // cmux: the host's status line (ask 9) goes above the typing indicator, not under it (upstream: last,
++        // centered): the Chief's "working on" line reads as a caption of the bubble it heads (RowDraw `.notice`
++        // draws it at the bubble's left edge). Same gap and height as upstream's.
+         if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice, !notice.isEmpty {
 -            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: 16))
++            // cmux: one caption row per line (the running indicator's folded steps, narration and step: HomeNoticeRows).
++            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: HomeNoticeRows.height(notice)))
          }
++        if !threadMode, span.upperBound == messages.count, s.atNewest, typists {
++            // cmux: right under a bubble the typing bubble keeps a separate message's gap, 8 pt body to body (the
++            // new-group gap above), so it does not touch the bubble above or its tail; it sat 4.3 pt under it (user,
++            // 2026-10-30, "more space in between typing bubble and the latest message"). Under the status line,
++            // a receipt or a label row it stays as it was.
++            var gap: CGFloat = 0
++            switch rows.last?.kind ?? previousRow {
++            case .part, .unsent: gap = Self.typingGapUnderBubble
++            default: break
++            }
++            rows.append(RowSpec(key: "typing", kind: .typing, gap: gap, height: 35))
++        }
          rows = rows.map { var r = $0; r.width = width; return r } // no index writes
          return rows
-@@ -1076,7 +1282,9 @@
+     }
+@@ -1076,7 +1293,9 @@
              var row = row
              row.width = width
              if case let .threadPreview(pv) = row.kind, pv.isText {
@@ -464,7 +484,7 @@
                  row.kind = .threadPreview(again)
                  row.height = again.height(scale: scale)
              }
-@@ -1118,6 +1326,8 @@
+@@ -1118,6 +1337,8 @@
      }
  
      private static func isText(_ p: Part?) -> Bool { if case .text = p { return true } else { return false } }
@@ -473,7 +493,7 @@
  
      /// "Read <time>" under my latest read message; "Delivered" under my
      /// latest delivered message when it is newer.
-@@ -1145,7 +1355,7 @@
+@@ -1145,7 +1366,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -482,7 +502,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -1164,7 +1374,7 @@
+@@ -1164,7 +1385,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -491,7 +511,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -1214,7 +1424,8 @@
+@@ -1214,7 +1435,8 @@
  enum MessagesLabLocalization {
      private final class Token {}
      private static let lock = NSLock()
@@ -501,7 +521,7 @@
      static var bundle: Bundle {
          get { lock.lock(); defer { lock.unlock() }; return current }
          set { lock.lock(); current = newValue; lock.unlock() }
-@@ -1255,7 +1466,8 @@
+@@ -1255,7 +1477,8 @@
          default: return MessagesLabLocalization.string("file.kind.document", "Document")
          }
      }
