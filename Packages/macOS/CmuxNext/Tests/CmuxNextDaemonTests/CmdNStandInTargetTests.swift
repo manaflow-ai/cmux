@@ -98,6 +98,41 @@ struct CmdNStandInTargetTests {
         #expect(outcome.error is PendingPaneNotCreated, "ended with \(String(describing: outcome.error)), not PendingPaneNotCreated")
     }
 
+    /// The second refusal kind of the probe (16 of 20 lost presses): the Ctrl-` was pressed on Cmd-N's stand-in, and its
+    /// target is read after the daemon's workspace took the stand-in over (the stand-in is gone from the store). It named
+    /// nothing (`PendingPaneNotCreated`, shown as "the daemon refused the new tab", with no request sent): it must name
+    /// the daemon's pane, while Cmd-N's intent is still in the log and after it left.
+    @Test func aCreateOnCmdNsStandInReadAfterTheHandOverNamesTheDaemonsPane() async throws {
+        for settled in [false, true] {
+            let store = Self.store()
+            let key = WorkspaceKey.generate()
+            let workspace = ProvisionalWorkspace(key: key, name: "2", tab: Self.page())
+            let cmdN = ClientTransactionID.generate()
+            store.intend(.createWorkspace(provisional: workspace, index: nil), transaction: cmdN)
+            let daemonPane = PaneID(rawValue: 11)
+            store.apply(snapshot: DaemonTree(workspaceRevision: 2,
+                                             workspaces: [Self.base, Self.daemonWorkspace(key, pane: daemonPane, surface: SurfaceID(rawValue: 12))]))
+            if settled {
+                store.noteSettledAtNextSnapshot(cmdN)
+                store.apply(snapshot: DaemonTree(workspaceRevision: 3,
+                                                 workspaces: [Self.base, Self.daemonWorkspace(key, pane: daemonPane, surface: SurfaceID(rawValue: 12))]))
+                #expect(!store.pendingIntents.contains { if case .createWorkspace = $0 { true } else { false } }, "Cmd-N's intent did not leave the log")
+            }
+            #expect(store.panesByHandle[workspace.pane] == nil, "the stand-in still shows after the hand-over")
+            // A window that still shows the stand-in for a frame: the Ctrl-` names it.
+            let terminal = ProvisionalTab()
+            store.intend(.createTab(pane: workspace.pane, provisional: terminal.terminal(TerminalID.generate(), cwd: nil)),
+                         transaction: .generate())
+            var target: PaneID?
+            var failure: (any Error)?
+            do { target = try await store.daemonTarget(workspace.pane) } catch { failure = error }
+            #expect(failure == nil, "settled \(settled): the create on the handed-over stand-in failed: \(String(describing: failure))")
+            #expect(target == daemonPane, "settled \(settled): named \(String(describing: target)), not the daemon's pane \(daemonPane)")
+            #expect(store.panesByHandle[daemonPane]?.tabs.map(\.surface) == [SurfaceID(rawValue: 12), terminal.surface],
+                    "settled \(settled): the Ctrl-` tab does not show after the page in the daemon's pane")
+        }
+    }
+
     @Test func aDaemonPaneIsItsOwnTarget() async throws {
         let store = Self.store()
         let target = try await store.daemonTarget(Self.pane)
