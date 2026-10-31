@@ -21,11 +21,14 @@ public final class CredentialVaultBoard {
 
     @ObservationIgnored public let vault: CredentialVault
     @ObservationIgnored private var started = false
+    @ObservationIgnored private let enabled: @MainActor () -> Bool
     /// The newest read: an older one that ends later never replaces it.
     @ObservationIgnored private var generation = 0
 
-    public init(vault: CredentialVault) {
+    public init(vault: CredentialVault,
+                enabled: @escaping @MainActor () -> Bool = { CredentialVault.rolloutEnabled.value }) {
         self.vault = vault
+        self.enabled = enabled
         vault.onChange { [weak self] in
             // task-owner: one read of the index; it ends by itself
             Task { @MainActor in self?.reload() }
@@ -75,6 +78,7 @@ public final class CredentialVaultPageRoute: PageProvider {
     public nonisolated static let prefix = "cmux.settings.credential_vault."
 
     private let board: CredentialVaultBoard
+    private let enabled: @MainActor () -> Bool
     private let window: @MainActor () -> NSWindow?
     /// The gesture the last call used (``PageCallContext/gestureEvent``).
     private var spentGesture: TimeInterval?
@@ -83,8 +87,10 @@ public final class CredentialVaultPageRoute: PageProvider {
 
     /// `window`: the window Settings shows in, for the sheets. `approve`: tests answer the approval.
     public init(board: CredentialVaultBoard, window: @escaping @MainActor () -> NSWindow?,
+                enabled: @escaping @MainActor () -> Bool = { CredentialVault.rolloutEnabled.value },
                 approve: (@MainActor (CredentialVault.Approval) async -> Bool)? = nil) {
         self.board = board
+        self.enabled = enabled
         self.window = window
         self.approve = approve
     }

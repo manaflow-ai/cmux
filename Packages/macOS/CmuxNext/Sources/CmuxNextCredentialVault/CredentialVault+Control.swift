@@ -121,8 +121,9 @@ nonisolated extension CredentialVault {
 
     /// The `vault.*` methods over this vault, with `ask` as the person's entry sheet and `approve`
     /// as their approval of what only they may do (``Approval``).
-    public func controlMethods(ask: @escaping Ask, approve: @escaping Approve) -> [ControlMethod] {
-        VaultControl.methods(vault: self, ask: ask, approve: approve)
+    public func controlMethods(ask: @escaping Ask, approve: @escaping Approve,
+                               enabled: @escaping @Sendable () -> Bool = { CredentialVault.rolloutEnabled.value }) -> [ControlMethod] {
+        VaultControl.methods(vault: self, ask: ask, approve: approve, enabled: enabled)
     }
 }
 
@@ -134,6 +135,7 @@ nonisolated enum VaultControl {
     typealias Approve = CredentialVault.Approve
 
     static func methods(vault: CredentialVault, ask: @escaping Ask, approve: @escaping Approve,
+                        enabled: @escaping @Sendable () -> Bool = { true },
                         now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }) -> [ControlMethod] {
         /// Who calls, as its params claim; a claim to be the person counts only once the person
         /// allowed the call on their sheet (``ApprovalGate``).

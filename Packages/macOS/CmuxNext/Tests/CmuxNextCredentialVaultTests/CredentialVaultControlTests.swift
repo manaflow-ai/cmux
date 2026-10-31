@@ -64,7 +64,7 @@ import Testing
         let onAsk = Mutex<(@Sendable () -> Void)?>(nil)
     }
 
-    private func fixture(answer: CredentialVault.EntryAnswer? = nil) throws -> Fixture {
+    private func fixture(answer: CredentialVault.EntryAnswer? = nil, enabled: @escaping @Sendable () -> Bool = { true }) throws -> Fixture {
         let folder = FileManager.default.temporaryDirectory.appending(path: "vault-\(UUID().uuidString)", directoryHint: .isDirectory)
         let secrets = MemorySecrets()
         let vault = CredentialVault(secrets: secrets, folder: folder)
@@ -88,7 +88,7 @@ import Testing
             }
             approver.onAsk.withLock { $0 }?()
             return approver.allows.withLock { $0 }
-        }, now: { clock.at.withLock { $0 } }))
+        }, enabled: enabled, now: { clock.at.withLock { $0 } }))
         return Fixture(router: router, vault: vault, secrets: secrets, person: person, folder: folder, approver: approver, clock: clock)
     }
 
@@ -106,6 +106,25 @@ import Testing
     private func files(_ fixture: Fixture) throws -> String {
         let names = try FileManager.default.contentsOfDirectory(atPath: fixture.folder.path)
         return try names.map { try String(contentsOf: fixture.folder.appending(path: $0), encoding: .utf8) }.joined(separator: "\n")
+    }
+
+    @Test func rolloutBlocksEverySocketMethodUntilOptedInAndAfterSwitchingOff() async throws {
+        let store = TunableStore()
+        store.register([CredentialVault.rolloutEnabled.descriptor])
+        store.set(CredentialVault.rolloutEnabled.key, .bool(true))
+        #expect(!CredentialVault.rolloutEnabled.value(in: store), "Release ignores overrides")
+        store.activate(file: nil)
+        store.set(CredentialVault.rolloutEnabled.key, .bool(false))
+        let f = try fixture(enabled: { CredentialVault.rolloutEnabled.value(in: store) })
+        #expect(error(await call(f, "vault.list", [:]))?.code == "vault.disabled")
+        store.set(CredentialVault.rolloutEnabled.key, .bool(true))
+        _ = try await call(f, "vault.list", [:]).get()
+        store.set(CredentialVault.rolloutEnabled.key, .bool(false))
+        for method in ["vault.list", "vault.audit", "vault.set", "vault.scope", "vault.remove", "vault.resolve", "vault.request"] {
+            #expect(error(await call(f, method, [:]))?.code == "vault.disabled", "\(method) stays off")
+        }
+        #expect(f.person.asked.withLock { $0.isEmpty })
+        #expect(f.secrets.values.withLock { $0.isEmpty })
     }
 
     @Test func thePersonStoresAndAnAgentUsesItByNameWithoutAnyRecordHoldingTheValue() async throws {

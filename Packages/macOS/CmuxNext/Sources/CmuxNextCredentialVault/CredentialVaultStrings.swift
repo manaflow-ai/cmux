@@ -7,6 +7,9 @@ nonisolated enum CredentialVaultStrings {
         String(localized: key, defaultValue: value, table: "CredentialVault", bundle: .module)
     }
 
+    static var rolloutTitle: String { text("credentialVault.rollout.title", "Credential Vault") }
+    static var disabled: String { text("credentialVault.rollout.disabled", "Enable Credential Vault in Debug Settings to use it.") }
+
     // MARK: Callers (audit log)
 
     static var you: String { text("credentialVault.caller.you", "you") }

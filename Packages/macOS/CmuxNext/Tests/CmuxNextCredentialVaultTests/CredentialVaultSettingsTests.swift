@@ -28,10 +28,31 @@ import Testing
         board.hostJSON["secrets"]?.arrayValue ?? []
     }
 
+    @Test func rolloutHidesMetadataAndRefusesNativePageOperationsWhileOff() async throws {
+        let store = TunableStore()
+        store.register([CredentialVault.rolloutEnabled.descriptor])
+        store.activate(file: nil)
+        let board = CredentialVaultBoard(vault: vault(), enabled: { CredentialVault.rolloutEnabled.value(in: store) })
+        let route = CredentialVaultPageRoute(board: board, window: { nil }, enabled: { CredentialVault.rolloutEnabled.value(in: store) })
+        #expect(board.hostJSON == .null)
+        for action in ["add", "replace", "remove", "scope"] {
+            do {
+                _ = try await route.call(CredentialVaultPageRoute.prefix + action, params: [:], context: Self.settings)
+                Issue.record("disabled vault accepted \(action)")
+            } catch let error as PageError {
+                #expect(error.code == "vault.disabled")
+            }
+        }
+        store.set(CredentialVault.rolloutEnabled.key, .bool(true))
+        #expect(board.hostJSON != .null)
+        store.set(CredentialVault.rolloutEnabled.key, .bool(false))
+        #expect(board.hostJSON == .null)
+    }
+
     @Test func theBoardListsNamesAndScopesAndFollowsEveryChangeWithoutAValue() async throws {
         let vault = vault()
         try vault.set("GH_TOKEN", value: Self.secret, scope: [.user], note: "work", by: Self.person)
-        let board = CredentialVaultBoard(vault: vault)
+        let board = CredentialVaultBoard(vault: vault, enabled: { true })
         await board.reload().value
         let row = try #require(secrets(board).first?.objectValue)
         #expect(row["name"] == "GH_TOKEN")
@@ -52,9 +73,9 @@ import Testing
     @Test func theScopeSwitchWritesOnlyOnThePersonsClickOnSettings() async throws {
         let vault = vault()
         try vault.set("GH_TOKEN", value: Self.secret, scope: nil, note: nil, by: Self.person)
-        let board = CredentialVaultBoard(vault: vault)
+        let board = CredentialVaultBoard(vault: vault, enabled: { true })
         await board.reload().value
-        let route = CredentialVaultPageRoute(board: board, window: { nil })
+        let route = CredentialVaultPageRoute(board: board, window: { nil }, enabled: { true })
         let op = CredentialVaultPageRoute.prefix + "scope"
         let params: JSONValue = ["name": "GH_TOKEN", "scope": ["user"]]
         for context in [PageCallContext(page: PageDescriptor.settings.id), PageCallContext(page: "cmux.history", userGesture: true, gestureEvent: 1),
@@ -89,11 +110,11 @@ import Testing
     @Test func lettingAgentsUseASecretWaitsForThePersonsApproval() async throws {
         let vault = vault()
         try vault.set("PROD_DB", value: Self.secret, scope: [.user], note: nil, by: Self.person)
-        let board = CredentialVaultBoard(vault: vault)
+        let board = CredentialVaultBoard(vault: vault, enabled: { true })
         await board.reload().value
         let answer = Mutex(false)
         let asked = Mutex([CredentialVault.Approval]())
-        let route = CredentialVaultPageRoute(board: board, window: { nil }, approve: { approval in
+        let route = CredentialVaultPageRoute(board: board, window: { nil }, enabled: { true }, approve: { approval in
             asked.withLock { $0.append(approval) }
             return answer.withLock { $0 }
         })
@@ -114,10 +135,10 @@ import Testing
     @Test func aStaleBoardCannotRestoreAgentAccessWithoutApproval() async throws {
         let vault = vault()
         try vault.set("PROD_DB", value: Self.secret, scope: [.user, .agents], note: nil, by: Self.person)
-        let board = CredentialVaultBoard(vault: vault)
+        let board = CredentialVaultBoard(vault: vault, enabled: { true })
         await board.reload().value
         let asked = Mutex([CredentialVault.Approval]())
-        let route = CredentialVaultPageRoute(board: board, window: { nil }, approve: { approval in
+        let route = CredentialVaultPageRoute(board: board, window: { nil }, enabled: { true }, approve: { approval in
             asked.withLock { $0.append(approval) }
             return false
         })
