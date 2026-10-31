@@ -994,10 +994,14 @@ mark {
   padding: 4px 0 0;
 }
 
+.accounts-row {
+  --accounts-mark-width: 20px;
+}
+
 .accounts-mark {
   display: inline-flex;
   flex: none;
-  width: 20px;
+  width: var(--accounts-mark-width);
 }
 
 .accounts-status {
@@ -1031,7 +1035,7 @@ mark {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  /* Under the title: the mark's 20 px plus the row's 20 px gap (layout.css .row-main). */
+  /* Under the title: the mark plus the row's gap; refined.css sets it from --row-main-gap. */
   padding: 6px 0 0 40px;
 }
 
