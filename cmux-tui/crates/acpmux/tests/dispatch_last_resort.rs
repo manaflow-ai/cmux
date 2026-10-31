@@ -32,6 +32,8 @@ fn hub() -> Arc<Hub> {
         "harnesses": {"fake": {"argv": ["python3", FAKE]}},
         "defaultHarness": "fake",
         "webRoots": [std::env::temp_dir()],
+        // A peer's dispatch runs only a harness with a reviewed asking mode (`remote_guard.rs`).
+        "webAskingModes": {"fake": ["normal", "strict"]},
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
