@@ -340,7 +340,7 @@ def main():
             spec = importlib.util.spec_from_file_location("perf_stress_session", path)
             stress = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(stress)
-            summary = stress.Stress(rpc).build()
+            summary = stress.Stress(rpc, log=lambda message: print(message, flush=True)).build()
             print("STRESS-SESSION", json.dumps(summary)[:600], flush=True)
         report = {"tag": TAG, "stress": opts.stress, "seed_chats": opts.seed_chats, "search_keys": search_report(opts.search_keys)}
         if opts.json:
@@ -410,6 +410,11 @@ def main():
 
 try:
     main()
+except Exception as error:  # noqa: BLE001  (a bench step: print why, the finally block exits with the rows)
+    import traceback
+    traceback.print_exc()
+    sys.stdout.flush()
+    row("bench", "ran to the end", f"{type(error).__name__}: {str(error)[:300]}", False)
 finally:
     cleanup()
     print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
