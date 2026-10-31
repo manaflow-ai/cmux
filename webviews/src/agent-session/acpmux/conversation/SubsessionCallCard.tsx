@@ -8,10 +8,11 @@
 import type { ReactNode } from "react";
 import { useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { type Translate, useT } from "../i18n";
-import { Icon } from "../icons/Icon";
 import type { AcpmuxActivity } from "../model";
 import { AgentCard } from "../subagents/AgentCard";
 import { DisclosureRow } from "../subagents/DisclosureRow";
+import { AgentIdentity } from "../subagents/AgentIdentity";
+import { agentTone } from "../subagents/agentTones";
 import {
   SubsessionContext,
   useSenderChat,
@@ -92,7 +93,13 @@ function StartedGroup({ entries }: { entries: readonly StartedGroupEntry[] }) {
     <DisclosureRow
       disclosureKey={`subsession-group:${entries[0]?.tool.id}`}
       findItems={findItems}
-      icon={<Icon name="agent.session" size={16} />}
+      icon={
+        <AgentIdentity
+          harness={children.find(Boolean)?.harness}
+          tone={agentTone(entries.map(({ call }) => call.sessionId ?? "").join("\u0000"))}
+          size={16}
+        />
+      }
       label={t("subsession.startedGroup", { n: entries.length, names: names.join(", ") })}
       status={
         status ? (
@@ -381,7 +388,7 @@ function SessionCards({ call, tool }: { call: Extract<SubsessionCall, { tool: "w
     return (
       <div className="cv-tool cv-subsession">
         <span className="cv-tool__icon">
-          <Icon name="agent.session" size={16} />
+          <AgentIdentity harness={undefined} tone={agentTone(tool.id)} size={16} />
         </span>
         <span className="cv-tool__text">{t(call.tool === "wait" ? "subsession.waitNone" : "subsession.listNone")}</span>
       </div>

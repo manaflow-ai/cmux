@@ -1398,6 +1398,10 @@ path = "tests/test_ci_side_lane_placement.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_portable_job_placement.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_session_label_routing.py"
 lane = "linux-guard"
 
@@ -2326,3 +2330,8 @@ reason = "Run by hand (cmux-ci) before changing the devbox bubblewrap recipe: it
 [[test]]
 path = "tests/test_chromium_staleness.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_instant_bench_warm_arm.py"
+lane = "manual"
+reason = "Unit test of a fleet bench's arm logic (no app): its owner runs it with python3 -I before a change to instant-new-surfaces-bench.py; no CI job runs it (CLAUDE.md: no new CI tests)."

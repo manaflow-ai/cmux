@@ -198,9 +198,13 @@ fn enabling_a_pack_adds_its_skills_and_servers_and_disabling_removes_them() {
     }
 
     // The launcher hands the secret to the server and keeps only the allowed tools.
+    // The test wrote the secret to the file store. On macOS the launcher reads the login
+    // keychain, which a test must never write: this debug-build seam makes it read the file
+    // store (`toolpacks::store`), as it does off macOS.
     let mut child = Command::new(env!("CARGO_BIN_EXE_optchat-chief"))
         .args(["pack", "mcp", "acme", "acme", "--mux-home"])
         .arg(home)
+        .env("OPTCHAT_CHIEF_TEST_FILE_SECRETS", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
