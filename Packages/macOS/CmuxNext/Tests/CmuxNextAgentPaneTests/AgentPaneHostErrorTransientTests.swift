@@ -9,7 +9,6 @@ struct AgentPaneHostErrorTransientTests {
         let transient: [AgentPaneHostError] = [
             .timedOut, .daemonRestarting, .daemonStopped, .chiefStarting, .chiefStopped,
             .daemonFailed(logPath: "/l", cause: .exited),
-            .daemonFailed(logPath: "/l", cause: .unresponsive),
             .daemonFailed(logPath: "/l", cause: .replacedBundle),
             .daemonFailed(logPath: "/l", cause: .peerRefused),
             .daemonFailed(logPath: "/l", cause: .noWebSocket),

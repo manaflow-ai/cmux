@@ -33,6 +33,8 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
 @Observable
 public final class DesignSettings {
     public static let shared = DesignSettings()
+    /// Every motion-setting change, for hosts outside Observation (``Motion/changes``).
+    public let motionChanges = MotionChanges()
 
     /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
     public var showModifierHoldHints = true
@@ -59,18 +61,24 @@ public final class DesignSettings {
     /// Whether `interfaceScale` applies: the Debug Settings toggle `chrome.interfaceSize`, off by
     /// default (and always off in Release, where the tunable store is inert).
     public var interfaceScaleEnabled: Bool { ChromeTunables.interfaceSize.override ?? false }
-    /// Sets the `--cmux-interface-scale` token web chrome reads: the multiplier, or 1 when it is off.
-    public var interfaceScaleScript: String {
-        "document.documentElement.style.setProperty('--cmux-interface-scale', '\(interfaceScaleEnabled ? interfaceScale : 1)')"
+    /// Sets the chrome multiplier and the effective page zoom used by web column sizing. The latter
+    /// is passed explicitly by page hosts so Agent Chat Zoom is included without making generic pages
+    /// depend on the agent setting; a change event lets chat row measurement follow CSS immediately.
+    public func interfaceScaleScript(pageZoom: Double? = nil) -> String {
+        let effectivePageZoom = max(pageZoom ?? Double(uiScale), 0.01)
+        return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(interfaceScaleEnabled ? interfaceScale : 1)');"
+            + "document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)');"
+            + "window.dispatchEvent(new Event('cmux-ui-scale-change'))"
     }
     /// `agentPane.zoom`, the focused agent chat's own display scale.
     public var agentPaneZoom: CGFloat = 1
     /// `ui.animationSpeed`: how fast chrome animates (see `Motion`). A change posts
-    /// `Motion.speedDidChange` for hosts outside Observation (a video wallpaper's player).
+    /// `Motion.speedDidChange` and tells `motionChanges`, for hosts outside Observation (a video
+    /// wallpaper's player).
     public var animationSpeed: MotionSpeed = .fast {
         didSet {
             guard animationSpeed != oldValue else { return }
-            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+            motionChanges.post(.speed)
         }
     }
     /// `ui.animations.enabled`, the master motion switch: false makes every
@@ -79,7 +87,7 @@ public final class DesignSettings {
     public var animationsEnabled = true {
         didSet {
             guard animationsEnabled != oldValue else { return }
-            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+            motionChanges.post(.speed)
         }
     }
     /// The categories whose `ui.animations.<category>` is false: their
@@ -87,7 +95,7 @@ public final class DesignSettings {
     public var disabledAnimationCategories: Set<MotionCategory> = [] {
         didSet {
             guard disabledAnimationCategories != oldValue else { return }
-            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+            motionChanges.post(.speed)
         }
     }
     /// `appearance.colorTransition.*`: how theme and color changes animate (``ColorTransition``;
@@ -160,10 +168,9 @@ public final class DesignSettings {
     public var calmMode: CalmMode = .off {
         didSet {
             guard calmMode != oldValue else { return }
-            let center = NotificationCenter.default
-            center.post(name: Motion.speedDidChange, object: nil)
-            center.post(name: Motion.reduceMotionDidChange, object: nil)
-            center.post(name: Self.hoverCardsDidChange, object: nil)
+            motionChanges.post(.speed)
+            motionChanges.post(.reduceMotion)
+            NotificationCenter.default.post(name: Self.hoverCardsDidChange, object: nil)
             ThemeScope.app.store.repaintAll()
         }
     }

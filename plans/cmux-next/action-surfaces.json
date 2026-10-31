@@ -19030,6 +19030,34 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "file open-recovered-draft",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "file.openRecoveredDraft",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Recovered Draft…",
+      "title_key" : "action.file.openRecoveredDraft",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "browser page-info",
       "context_menu" : "offered",
       "context_menus" : [
@@ -27812,6 +27840,34 @@
       "palette_suggested" : null,
       "title" : "Search Keyboard Shortcuts…",
       "title_key" : "action.palette.searchShortcuts",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "settings customize-menus",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "settings.customizeMenus",
+      "main_menu" : "app",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Customize Right-Click Menus…",
+      "title_key" : "action.settings.customizeMenus",
       "title_table" : "ActionCatalog"
     },
     {
