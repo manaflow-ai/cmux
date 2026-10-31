@@ -42,7 +42,7 @@ import Testing
     }
 
     @Test func aRealFullScreenTitlebarIsNotAPage() throws {
-        let type = try #require(NSClassFromString("NSToolbarFullScreenWindow") as? NSWindow.Type)
+        let type = try Self.standaloneTitlebarClass()
         let titlebar = type.init(contentRect: CGRect(x: 0, y: 0, width: 800, height: 28), styleMask: [.borderless],
                                  backing: .buffered, defer: true)
         defer { titlebar.closeAfterTest() }

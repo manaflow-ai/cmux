@@ -357,14 +357,17 @@ import CmuxNextTestSupport
             hibernation.pressureDidChange(.critical)
             folder = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cn-hidden-hibernation-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             window.isReleasedWhenClosed = false
+            var completed = false
+            defer { if !completed { close() } }
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             window.orderFrontRegardless()
             hibernation.now = { [weak self] in .now + (self?.skipped ?? .zero) }
             // No test here checks a page that does not answer (UnansweredPageProbeTests does): a probe
             // starved past its 2 s by a full parallel run would keep the page as `unanswered`, and
             // nothing would ask it again.
             hibernation.pageDeadline = .seconds(120)
+            completed = true
         }
 
         /// A loaded WebKit page showing `body`, titled `name`.

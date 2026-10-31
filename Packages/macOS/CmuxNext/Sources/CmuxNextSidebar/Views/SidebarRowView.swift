@@ -102,6 +102,14 @@ class SidebarRowView: NSView {
     @objc dynamic var titleFrame: NSRect { .zero }
     @objc dynamic var titleFont: NSFont { SidebarStyle.titleFont }
     @objc dynamic func setTitleHidden(_ hidden: Bool) {}
+    /// Where the title's first glyph starts on its baseline (the pen origin), in this row's
+    /// coordinates: inline rename puts the editor's text exactly there, so nothing moves as
+    /// editing starts. Nil: the row has no title to edit.
+    @objc dynamic var titlePenOrigin: NSValue? { nil }
+    /// The title's ink: the editor's text keeps it.
+    @objc dynamic var titleInk: NSColor? { nil }
+    /// Where the rename editor may end, in this row's coordinates.
+    @objc dynamic var titleEditMaxX: CGFloat { bounds.width - Metrics.space3 }
 
     @objc dynamic func hoverChanged() {
         // Hover entry is immediate; clearing a row's fill uses the `hoverOut` token (instant by

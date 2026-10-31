@@ -65,6 +65,25 @@ import Testing
 
     // MARK: Overrides
 
+    @Test func currentTextFollowsInterfaceSizeWhilePureMetricsKeepTheirReferenceSize() {
+        let design = DesignSettings.shared
+        let previous = design.overrides[.chromeFontSize]
+        defer { design.setOverride(.chromeFontSize, previous) }
+        OmnibarGlassAppearance.$scoped.withValue(OmnibarGlassAppearance()) {
+            DensityTokens.$scoped.withValue(.compact) {
+                design.setOverride(.chromeFontSize, nil)
+                let original = OmnibarMetrics.current
+                design.setOverride(.chromeFontSize, 16)
+                let enlarged = OmnibarMetrics.current
+                #expect(enlarged.fontSize == original.fontSize * Typography.userScale)
+                #expect(enlarged.barHeight >= OmnibarMetrics.minimumBarHeight(fontSize: enlarged.fontSize))
+                #expect(OmnibarMetrics(tokens: .compact).fontSize == original.fontSize)
+                design.setOverride(.chromeFontSize, nil)
+                #expect(OmnibarMetrics.current == original)
+            }
+        }
+    }
+
     @Test func overridesBeatDensity() {
         let metrics = OmnibarMetrics(tokens: DensityPreset.comfortable.tokens, height: 30, fontSize: 13)
         #expect(metrics.barHeight == 30)
