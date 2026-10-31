@@ -1336,11 +1336,13 @@ impl Peer {
             // A list too large for one message comes in pages (a peer served as Web, over
             // plain ws://, gets the whole list): every page is read before the link connects,
             // and the reader publishes the list once, whole, after the last.
-            // The next delta is asked for as this list was read (`watch_delta.rs`).
-            me.known_tools.store(first.as_ref().is_some_and(|(_, tools)| *tools), Ordering::SeqCst);
+            let tools = first.as_ref().is_some_and(|(_, tools)| *tools);
             if let Some((first, tools)) = first {
                 me.watch_pages(first, tools, link).await?;
             }
+            // Read whole (its last page too, or the delta): the next delta is asked for as this
+            // list was read (`watch_delta.rs`).
+            me.known_tools.store(tools, Ordering::SeqCst);
             // Connected only now, and ready with it, so its state note follows `connected`.
             // `run` moves the epoch on before it clears `connected` and takes the link down, so
             // a link that dropped meanwhile is seen here: it is not made ready again, and never
