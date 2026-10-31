@@ -99511,7 +99511,7 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Boje terminala i cmuxa, osim ako je postavljena tema aplikacije"
+            "value": "Boje terminala i cmuxa ako tema aplikacije nije postavljena"
           }
         },
         "da": {
@@ -99523,25 +99523,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Farben für Terminals und cmux, außer ein App-Theme ist gesetzt"
+            "value": "Farben für Terminals und cmux, außer bei gesetztem App-Theme"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Colores de los terminales, y de cmux si no hay tema de la app"
+            "value": "Colores de terminales, y de cmux si no hay tema de la app"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couleurs des terminaux, et de cmux sauf si un thème de l’app est choisi"
+            "value": "Couleurs des terminaux, et de cmux sans thème de l’app"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Colori dei terminali, e di cmux se non è impostato un tema dell’app"
+            "value": "Colori dei terminali, e di cmux senza un tema dell’app"
           }
         },
         "ja": {
@@ -99565,13 +99565,13 @@
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Farger for terminaler, og cmux med mindre et apptema er valgt"
+            "value": "Farger for terminaler, og cmux om ikke et apptema er valgt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kolory terminali, a także cmux, jeśli nie ustawiono motywu aplikacji"
+            "value": "Kolory terminali i cmux, gdy nie ustawiono motywu aplikacji"
           }
         },
         "pt-BR": {
@@ -99595,7 +99595,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminallerin renkleri; uygulama teması ayarlı değilse cmux'un da"
+            "value": "Terminal renkleri; uygulama teması yoksa cmux'unkiler de"
           }
         },
         "uk": {
@@ -99667,7 +99667,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couleurs de la fenêtre, de la barre latérale, des onglets et des pages"
+            "value": "Couleurs de la fenêtre, barre latérale, onglets et pages"
           }
         },
         "it": {
