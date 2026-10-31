@@ -39,7 +39,25 @@ RUNNER_TEMP="$out" GITHUB_PATH="$out/bun-path" ./scripts/cmux-next/private-bun.s
 PATH="$(tail -n 1 "$out/bun-path"):$PATH"
 export PATH
 apps=()
-echo "DEVTOOLS-CALLS-DISK free at start: $(df -g "$out" | awk 'NR == 2 {print $4}') GiB"
+# Each arm's setup (worktree, submodules, GhosttyKit) takes about 2 GiB before reload.sh checks its 40 GiB floor
+# (CMUX_NEXT_MIN_FREE_GIB, tour-requirements.json), and only one build is on disk at a time (below). The floor is
+# kept; before each arm, a home volume with less than 43 GiB free stops the step there, before the arm's clone,
+# instead of four minutes into it (run 1, job b872d155: 40 GiB at start, 38 GiB at the first build). Arm 2 also
+# finds arm 1's app and the step's build caches still on disk. The mini scheduler admits this step at 48 GiB.
+need_gib=43
+check_free() {
+  local free
+  free="$(df -g "$HOME" | awk 'NR == 2 {print $4}')"
+  if ! [[ "$free" =~ ^[0-9]+$ ]]; then
+    echo "devtools-calls: cannot read the free space of the home volume ($HOME): '$free'" >&2
+    exit 1
+  fi
+  echo "DEVTOOLS-CALLS-DISK free before $1: $free GiB"
+  if [ "$free" -lt "$need_gib" ]; then
+    echo "devtools-calls: $free GiB free on the home volume before $1; this step needs $need_gib GiB (reload.sh's 40 GiB floor after the arm's ~2 GiB setup)" >&2
+    exit 1
+  fi
+}
 IFS=',' read -r -a arm_list <<< "$arms"
 for arm in "${arm_list[@]}"; do
   label="${arm%%:*}" sha="${arm#*:}"
@@ -47,6 +65,7 @@ for arm in "${arm_list[@]}"; do
     echo "devtools-calls: arm '$arm' is not LABEL:SHA (lowercase label, full 40-hex sha)" >&2
     exit 2
   fi
+  check_free "arm $label"
   tree="$out/tree-$label"
   [ ! -e "$tree" ] || { echo "devtools-calls: arm label '$label' given twice" >&2; exit 2; }
   # A host-reference checkout has no origin remote (the worker fetches by URL), so fetch by URL, and only
@@ -80,14 +99,21 @@ for arm in "${arm_list[@]}"; do
     grep -E "error:|BUILD FAILED" "$out/reload-$label.log" | head -n 60 >&2 || true
     exit 1
   fi
-  # Two cold app builds take about 27 GiB each, and a measure mini may start this step with 40 GiB free: once the
-  # app is built, its build's intermediates go (the bundle in Build/Products is self-contained), so the next arm
-  # builds in the space this one used. Only inside this arm's own per-tag DerivedData.
+  # Only one build at a time fits: reload.sh needs 40 GiB free before each build, a cold build takes about 27 GiB,
+  # and a perf mini has 40-60 GiB free. The app bundle is self-contained (embed-cef.sh copies Chromium in; cmux-tui
+  # and acpmux are copied in), so it moves out to $out/apps and the arm's whole per-tag DerivedData and worktree go
+  # before the next arm builds; the next arm then starts with about the space the step started with.
   derived="$(cd "$app/../../../.." && pwd)"
-  if [[ "$(basename "$derived")" == cmux-* && "$app" == "$derived/Build/Products/"* ]]; then
-    rm -rf "$derived/Build/Intermediates.noindex" "$derived/Index.noindex"
+  if [[ "$(basename "$derived")" != cmux-* || "$app" != "$derived/Build/Products/"* ]]; then
+    echo "devtools-calls: unexpected app path $app (not under a per-tag DerivedData)" >&2
+    exit 1
   fi
-  echo "DEVTOOLS-CALLS-ARM $label $sha $app (free after build: $(df -g "$out" | awk 'NR == 2 {print $4}') GiB)"
+  mkdir -p "$out/apps/$label"
+  mv "$app" "$out/apps/$label/"
+  app="$out/apps/$label/$(basename "$app")"
+  rm -rf "$derived"
+  git -C "$root" worktree remove --force "$tree" >/dev/null 2>&1 || rm -rf "$tree"
+  echo "DEVTOOLS-CALLS-ARM $label $sha $app (free after build: $(df -g "$HOME" | awk 'NR == 2 {print $4}') GiB)"
   apps+=(--app "$label=$app")
 done
 mkdir -p artifacts
