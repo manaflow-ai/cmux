@@ -11,13 +11,13 @@ import Testing
 /// for review (written to `$CMUX_AUTOMATIONS_SHOTS`, else the repository's `.build/artifacts/automations-page.png`).
 @MainActor @Suite(.serialized) struct AutomationsPageTests {
     /// Friday 2026-10-30 08:00 local.
-    static let now: Date = {
+    nonisolated static let now: Date = {
         var c = DateComponents()
         (c.year, c.month, c.day, c.hour, c.minute) = (2026, 10, 30, 8, 0)
         return Calendar.current.date(from: c)!
     }()
 
-    static let localJSON = Data("""
+    nonisolated static let localJSON = Data("""
     {"automations": [
       {"id": "auto_aaaaaaaaaaaaaaaaaaaa", "name": "Unblock agents", "enabled": true, "trigger": {"type": "every", "seconds": 1800},
        "body": {"type": "prompt", "prompt": "Check my stuck agents"}, "next_run_at": \(now.timeIntervalSince1970 + 720), "last_run": {"state": "succeeded"}},
@@ -28,7 +28,7 @@ import Testing
     ]}
     """.utf8)
 
-    static let cloudJSON = Data("""
+    nonisolated static let cloudJSON = Data("""
     {"automations": [
       {"id": "auto_dddddddddddddddddddd", "name": "Morning brief", "enabled": true,
        "triggers": [{"id": "trg_1", "status": "active", "spec": {"type": "cron", "expr": "0 9 * * 1-5", "tz": "America/Los_Angeles"}, "next_at": 1},
