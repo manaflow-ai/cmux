@@ -46,7 +46,7 @@ export class StreamReveal {
   private gaps: number[] = [];
   private smoothedRate = 0;
   private drainUntil: number | undefined;
-  private readonly reduceMotion: boolean;
+  reduceMotion: boolean;
 
   constructor(options: StreamRevealOptions = {}) {
     this.shown = options.initial?.length ?? 0;
