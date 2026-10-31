@@ -1,5 +1,6 @@
 public import CmuxUpdater
 public import CmuxNextWakeups
+import CmuxNextSettings
 import Network
 public import Foundation
 import Observation
@@ -60,6 +61,7 @@ public final class UpdaterService {
     /// The pulled-build banner (made on first use; it needs `self`).
     @ObservationIgnored public private(set) lazy var pulledWatch = PulledBuildWatch(updater: self)
     /// The app-owned per-PR kill-switch reader; retaining it cancels its observation with the updater.
+    /// ``startKillSwitchReader()`` stops the one before through this property.
     @ObservationIgnored var killSwitchReader: KillSwitchReader?
     /// The notice whose timeout is pending, and its one-shot deadline on the
     /// injected clock (no `asyncAfter`).
@@ -324,7 +326,18 @@ public final class UpdaterService {
         restoreRollbackSkip()
         releasePush.onNewerBuild = { [weak self] in self?.releasePushed($0) }
         tipState = TipState(defaults: defaults)
+        // The app settled the install before making the updater (AppServices): an install that ran
+        // before tips counts as having used the catalog's basics.
+        storeTipState(TipChooser.settleInstall(tipState, catalog: TipCatalog.all, install: tipBudget.install))
         updateSnooze = UpdateSnooze(defaults: defaults)
+    }
+
+    /// Makes this updater's kill-switch reader and follows it; the reader started before stops.
+    func startKillSwitchReader() {
+        killSwitchReader?.stop()
+        let reader = KillSwitchReader(updater: self)
+        killSwitchReader = reader
+        reader.follow()
     }
 
     /// Why Sparkle does not run right now, or nil.
@@ -339,7 +352,7 @@ public final class UpdaterService {
     public func start() {
         guard !started else { return }
         started = true
-        if presentUpdateUI != nil { killSwitchReader = KillSwitchReader.start(updater: self) }
+        if presentUpdateUI != nil { startKillSwitchReader() }
         observeFlowPhase()
         refreshAnnouncements()
         refreshTip()

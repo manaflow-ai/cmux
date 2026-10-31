@@ -30,7 +30,7 @@ final class CEFDevToolsWindow: NSPanel {
         let content = NSView(frame: CGRect(origin: .zero, size: frame.size))
         content.wantsLayer = true
         setAccessibilityIdentifier("browser.devtools.window")
-        install(kind: .devTools, content: content, scope: owner?.themeScope ?? .app)
+        install(kind: .devTools, content: content, scope: owner?.themeScope ?? .app, activeLook: owner?.backdropActiveLook)
         // The initializer places the rect relative to the main screen; set
         // the global frame so the window opens over the cmux window's screen.
         setFrame(frame, display: false)
