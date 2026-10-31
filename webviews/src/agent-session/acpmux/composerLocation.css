@@ -967,11 +967,12 @@
 }
 
 /* plain: the content edge is the card's first column, the + glyph's box: 14 px in the chat's card (its
-   center 22 px in under the box's 8 px grid inset, composer-alignment-centers.test.ts), 23 px in the
-   New Tab's (its + since #25125: an 18 px glyph in a 28 px button 18 px in). A small ghost button's
-   icon ink sits 6 px in from its edge (ui/ghost.css). */
+   center 22 px in under the box's 8 px grid inset, composer-alignment-centers.test.ts), and in the
+   New Tab's the 18 px glyph's box in its 28 px button, which stands --nt-composer-inset off the box
+   (newtab/screen.css): inset + 5 (23 px at the old fixed 18 px inset). A small ghost button's icon
+   ink sits 6 px in from its edge (ui/ghost.css). */
 :root[data-top-strip="plain"] .acpmux-composer { --acpmux-top-strip-edge: 14px; }
-:root[data-top-strip="plain"] .nt-composer { --acpmux-top-strip-edge: 23px; }
+:root[data-top-strip="plain"] .nt-composer { --acpmux-top-strip-edge: calc(var(--nt-composer-inset) + 5px); }
 :root[data-top-strip="plain"] .acpmux-composer-strip,
 :root[data-top-strip="plain"] .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
   height: auto;
@@ -1029,7 +1030,7 @@
 }
 /* The same column as plain's (above): the + glyph's box in each card. */
 :root[data-top-strip="tray"] .acpmux-composer { --acpmux-top-strip-edge: 14px; }
-:root[data-top-strip="tray"] .nt-composer { --acpmux-top-strip-edge: 23px; }
+:root[data-top-strip="tray"] .nt-composer { --acpmux-top-strip-edge: calc(var(--nt-composer-inset) + 5px); }
 :root[data-top-strip="tray"] .acpmux-composer > .acpmux-composer-box,
 :root[data-top-strip="tray"] .nt-composer .nt-box { z-index: var(--layer-raised, 1); }
 /* A small ghost button's icon ink sits 6 px in from the button's edge (ui/ghost.css). */
