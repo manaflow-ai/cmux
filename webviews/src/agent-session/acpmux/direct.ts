@@ -1664,6 +1664,8 @@ export class AcpmuxDirectClient {
   private localOrigin = false;
   /// The origin acpmux names for this connection; `unknown` until (or unless) it names one.
   private origin: NonNullable<AcpmuxSnapshot["origin"]> = "unknown";
+  /// The app's wire says this chat runs on the person's own Cloud machine (`ownerCloud`).
+  private ownerCloud = false;
   /// `sessions` holds the daemon's list: its first page has been read.
   private listedSessions = false;
   /// This page drew a chat from a kept tail (`drawKeptTail`), so those rows were on screen before
@@ -2046,6 +2048,7 @@ export class AcpmuxDirectClient {
       this.localOrigin = initialized?._meta?.acpmux?.origin === "local";
       const origin = initialized?._meta?.acpmux?.origin;
       this.origin = origin === "local" || origin === "remote" || origin === "peer" ? origin : "unknown";
+      this.ownerCloud = this.origin === "remote" && initialized?._meta?.acpmux?.ownerCloud === true;
       this.handoffSupported = supportsHandoff(initialized);
       const groupedPermissionsSupported = supportsPermissionGroups(initialized);
       if (!groupedPermissionsSupported) this.groupedPermissions.clear();
@@ -5729,6 +5732,7 @@ export class AcpmuxDirectClient {
         : {}),
       ...(this.chatRead() ? { chatRead: true as const } : {}),
       ...(this.extensions.includes("acp.trust.set") ? { answersTrust: true } : {}),
+      ...(this.ownerCloud ? { ownerCloud: true as const } : {}),
       ...(this.extensions.includes(MCP_RECONNECT_METHOD) ? { reconnectsMcp: true } : {}),
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
