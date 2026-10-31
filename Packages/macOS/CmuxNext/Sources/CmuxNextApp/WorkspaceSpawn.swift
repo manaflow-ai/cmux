@@ -19,9 +19,7 @@ extension WindowManager {
     /// the workspace id (`WorkspaceSpawner.start`).
     func startWorkspace(_ spawn: WorkspaceSpawn, on daemon: DaemonService? = nil, into windowID: String? = nil,
                         frame: CGRect? = nil) -> () async throws -> String {
-        var spawn = spawn
-        spawn.followClassicMode(services)
-        return WorkspaceSpawner(windows: self, spawn: spawn, daemon: daemon ?? services.daemon, windowID: windowID, frame: frame).start()
+        WorkspaceSpawner(windows: self, spawn: spawn, daemon: daemon ?? services.daemon, windowID: windowID, frame: frame).start()
     }
 }
 

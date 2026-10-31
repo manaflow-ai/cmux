@@ -14,3 +14,9 @@ test("a harness that offers no models names itself on the model chip, not 'Model
   expect(modelChipFallback({ id: "codex", models: [] }, [{ id: "gpt" }])).toBeUndefined();
   expect(modelChipFallback(undefined, [])).toBeUndefined();
 });
+
+test("acpmux's placeholder default model is no model", () => {
+  // acpmux lists a harness that reports none with `default (agent's choice)` only.
+  const only = [{ id: "default", name: "default (agent's choice)" }];
+  expect(modelChipFallback({ id: "chief", name: "Chief", models: only }, only)).toBe("Chief");
+});

@@ -57,7 +57,10 @@ struct SidebarTabLine: Equatable {
     /// rail-jump-final reads "gcp-codex-lane-1").
     static func cleanName(_ tab: SidebarTab, workspace: String) -> String? {
         let title = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if title.isEmpty || title == "~" || title == tab.folder { return nil }
+        if title.isEmpty || title == "~" { return nil }
+        // A cwd-derived title is the existing terminal title source. Keep a
+        // non-home folder visible so sibling terminals remain distinguishable.
+        if title == tab.folder { return title == "~" ? nil : title }
         let ws = workspace.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !ws.isEmpty else { return title }
         if fold(title) == fold(ws) { return nil }
