@@ -116,6 +116,10 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
   // Whether a closed call has anything to open, read once per output, not on every render.
   const hasOutput = useMemo(() => Boolean(tool.output && cleanText(tool.output).trim()), [tool.output]);
   const opens = shell ? Boolean(body) : hasOutput;
+  // A label-only row is useful only when the label itself is long enough for the ellipsis to hide
+  // content. Short calls such as "Wait 60000 ms" have no detail to reveal and stay plain rows.
+  const hasLongLabel = !shell && !hasOutput && !hasDiff && label.length > 60;
+  const expandable = opens || shell || hasDiff || hasLongLabel;
   const images = useMemo(() => toolImages(tool), [tool]);
   const content = (
     <>
@@ -145,16 +149,15 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
       )}
     </>
   );
-  // Every call's line opens (Leo, ask-486cb2cec3: "why the fuck did you guys ffucking ellipsis
-  // EVERYTHING WITH NO WAY TO EXPAND WHAT WAS SAID TO SEE"): opened, a line that is no shell's (whose
-  // Shell block shows its whole command) wraps to its whole label, so a search pattern, a URL or a
-  // path cut at the row's edge reads whole, and a call with no output opens to that alone.
+  // A call with output opens its details. A no-output line opens only when its label is long enough
+  // for the row's ellipsis to hide content (Leo, ask-486cb2cec3); a short status such as "Wait
+  // 60000 ms" stays a plain row because it has no details or hidden label to reveal.
   return (
     <>
-      {opens || shell || hasDiff || label ? (
+      {expandable ? (
         <button
           type="button"
-          className={`cv-tool is-toggle${shell ? "" : " is-whole-open"}${running ? " is-live" : " is-strong"}`}
+          className={`cv-tool is-toggle${!shell ? " is-whole-open" : ""}${running ? " is-live" : " is-strong"}`}
           data-tool-id={tool.id}
           aria-expanded={open}
           aria-controls={open && (shell || files.length > 0 || body) ? detailsId : undefined}
