@@ -6493,9 +6493,14 @@ jobs:
           API: ${{ github.api_url }}/repos/${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           RESULTS: https://gh-events.cmux.com/compile-checks/v1
+          # The pull request this head belongs to (empty on a push). A head whose run the controller never
+          # saw has no check; a read that names its pull request has the controller queue one
+          # (cmuxterm-hq#5571), instead of this step waiting 40 minutes for a check that never comes.
+          PR: ${{ github.event.pull_request.number }}
         run: |
           set -uo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Compile check::bad head sha '$SHA'"; exit 1; }
+          [[ -z "${PR:-}" || "$PR" =~ ^[1-9][0-9]*$ ]] || PR=""
           # One deadline for the pending post and the wait (40 min); the terminal post comes after it
           # (at most 110 s), so the step (50 min) and the App token (60 min) always outlast both.
           deadline=$((SECONDS + ${WAIT_SECONDS:-2400}))
@@ -6520,7 +6525,7 @@ jobs:
             # and a 404 (no result yet) is retried by curl inside the same bound.
             if ! timeout "$left" curl -sS --fail --connect-timeout 10 --max-time "$((wait + 30))" \
                 --retry 60 --retry-delay 30 --retry-max-time "$left" --retry-all-errors \
-                -o "$reply" "$RESULTS/$SHA?repo=${REPO/\//%2F}&wait=$wait"; then
+                -o "$reply" "$RESULTS/$SHA?repo=${REPO/\//%2F}${PR:+&pr=$PR}&wait=$wait"; then
               echo "::warning title=Compile check::no result for $SHA from the controller (attempt $attempt)"
               continue
             fi

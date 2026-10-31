@@ -118,6 +118,13 @@ nonisolated enum AgentTabRemoteStart {
         return (listed + machine).filter { seen.insert($0).inserted }
     }
 
+    /// The project list of a chat on another machine: its workspaces' folders, then the folders the
+    /// machine lists itself, each once, in that order.
+    static func folders(listed: [String], machine: [String]) -> [String] {
+        var seen = Set<String>()
+        return (listed + machine).filter { seen.insert($0).inserted }
+    }
+
     struct Started: Sendable, Equatable {
         let surface: UInt64
         let session: String
