@@ -223,6 +223,25 @@ pub(super) trait Backend {
             idempotency_key: None,
         })
     }
+
+    /// A scoped chat read for agent waits. The session is routed by the same
+    /// owner policy as a daemon read; the default does not guess another session.
+    fn chat_in_session(
+        &self,
+        session: Option<&str>,
+        command: &super::agents::chat::ChatCommand,
+        idempotency_key: Option<&str>,
+        origin: &str,
+    ) -> Result<Value, CallFailure> {
+        if session.is_some() {
+            return Err(CallFailure::local(
+                FailureKind::NotRun,
+                "chat.unavailable",
+                "this backend cannot route chats to another cmux session",
+            ));
+        }
+        self.chat(command, idempotency_key, origin)
+    }
 }
 
 /// The CLI's transport, with the CLI's global options.
@@ -323,6 +342,16 @@ impl Backend for LiveBackend {
         origin: &str,
     ) -> Result<Value, CallFailure> {
         super::agents::chat::run(&self.global, command, idempotency_key, origin)
+    }
+
+    fn chat_in_session(
+        &self,
+        session: Option<&str>,
+        command: &super::agents::chat::ChatCommand,
+        idempotency_key: Option<&str>,
+        origin: &str,
+    ) -> Result<Value, CallFailure> {
+        super::agents::chat::run(&self.routed(session)?, command, idempotency_key, origin)
     }
 }
 
