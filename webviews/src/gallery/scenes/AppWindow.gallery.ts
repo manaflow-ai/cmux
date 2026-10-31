@@ -238,7 +238,7 @@ export default agentPaneEntry({
       snapshot: newChat,
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-context"));
-        await ctx.click({ role: "button", name: /^Computer/ });
+        await ctx.click({ role: "button", name: /^(Computer|Environment)/ });
         await ctx.waitFor(() =>
           ctx.document.querySelector(
             '.acpmux-location-menu [role="option"], [role="menu"] [role="menuitemradio"], .acpmux-env-popover [role="option"]',
