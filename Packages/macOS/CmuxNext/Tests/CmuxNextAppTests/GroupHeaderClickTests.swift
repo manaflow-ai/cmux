@@ -46,6 +46,8 @@ import Testing
         }
     }
 
+    /// The fold of a click on the name waits out the double-click interval (a double-click
+    /// renames in place, `SidebarRenameInPlaceTests`), then runs.
     @Test func aClickOnTheNameOnlyTogglesTheGroup() throws {
         let harness = try Harness()
         defer { harness.sidebar.list.groupEditor.hide(); harness.window.close() }
@@ -53,6 +55,9 @@ import Testing
         header.layoutSubtreeIfNeeded()
         let name = header.titleFrame
         try harness.click(at: NSPoint(x: name.midX, y: name.midY))
+        #expect(harness.toggles == 0, "the name's click folded before the double-click interval ended")
+        #expect(harness.sidebar.list.groupNameClick.isWaiting)
+        harness.sidebar.list.groupNameClick.flush()
         #expect(!harness.sidebar.list.groupEditor.isVisible, "a plain click on the group's name opened the group editor")
         #expect(harness.toggles == 1, "a plain click on the group's name did not toggle it: \(harness.intents)")
     }
