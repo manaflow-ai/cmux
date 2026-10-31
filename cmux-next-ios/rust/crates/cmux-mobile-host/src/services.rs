@@ -1566,14 +1566,14 @@ mod tests {
             browser: crate::browser::BrowserConfig::default(),
             surface: Default::default(),
         };
-        assert_eq!(capabilities(&config), ["removal-v1", "file-preview-v1"]);
+        assert_eq!(capabilities(&config), ["removal-v1", "file-preview-v1", "localhost-forward-v1"]);
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
             Box::pin(async { Err::<crate::browser::RunningHost, _>("none".to_owned()) })
         });
         config.browser = crate::browser::BrowserConfig::new(Some(launcher), 1);
         assert_eq!(
             capabilities(&config),
-            ["removal-v1", "file-preview-v1", BROWSER_STREAM, BROWSER_VIDEO_TRACK]
+            ["removal-v1", "file-preview-v1", "localhost-forward-v1", BROWSER_STREAM, BROWSER_VIDEO_TRACK]
         );
     }
 
