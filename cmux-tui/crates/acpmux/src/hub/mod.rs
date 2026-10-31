@@ -199,6 +199,7 @@ mod transfer_in;
 mod transfer_out;
 mod transfer_watch;
 mod trust_wait;
+mod turn_attestation;
 mod turn_git;
 mod turn_usage;
 mod usage_view;
