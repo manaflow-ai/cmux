@@ -678,8 +678,8 @@ def resolved_rows(xml):
     import xml.etree.ElementTree as ET
     try:
         root = ET.fromstring(xml)
-    except ET.ParseError:
-        return []
+    except ET.ParseError as error:
+        return error
     by_id = {el.get("id"): el.get("fmt") or (el.text or "") for el in root.iter() if el.get("id") is not None}
     rows = []
     for row in root.iter("row"):
@@ -696,8 +696,11 @@ def app_initializer_rows(xml, app):
     the 15 longest initializer rows of any image, with their durations in µs."""
     # The row names the image by its file name after the address ("Run static initializer  0x1ab83124b  dyld").
     ours_names = {os.path.basename(p) for p in macho_files(app)}
-    rows = []
-    for cells in resolved_rows(xml):
+    rows, parsed = [], resolved_rows(xml)
+    if not isinstance(parsed, list):
+        return {"error": f"xctrace export did not parse: {parsed}"[:300], "ours": [], "ours_total_us": None, "count": None}
+    app_root = os.path.realpath(app) + "/"
+    for cells in parsed:
         text = " | ".join(value for _, value in cells)
         if "static initializer" not in text.lower():
             continue
@@ -705,7 +708,7 @@ def app_initializer_rows(xml, app):
         match = re.search(r"Run static initializer\s+0x[0-9a-f]+\s+([^|]*?)\s*(?:\||$)", text)
         image = match.group(1).strip() if match else ""
         path = next((value for _, value in cells if value.startswith("/") and value.endswith("/" + image)), None) if image else None
-        rows.append({"us": us, "image": image, "path": path, "ours": image in ours_names and (path is None or path.startswith(app)),
+        rows.append({"us": us, "image": image, "path": path, "ours": image in ours_names and (path is None or os.path.realpath(path).startswith(app_root)),
                      "row": text[:300]})
     ours = [r for r in rows if r["ours"]]
     return {"ours": ours, "ours_total_us": round(sum(r["us"] or 0 for r in ours), 1),
