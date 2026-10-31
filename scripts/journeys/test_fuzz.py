@@ -227,21 +227,37 @@ class Verdicts(unittest.TestCase):
 
         def scheduler():
             for _ in range(4):
+                go.mkdir(parents=True, exist_ok=True)
+                before = len(list(go.glob("*.done"))) and (go / "fz.done").stat().st_mtime
+                (go / "fz.go").write_text(json.dumps({"spec": "fz", "host": "cmux19", "until": time.time() + 300}))
                 end = time.time() + 30
-                while time.time() < end and not (go / "want").exists():
+                while time.time() < end and (go / "fz.go").exists():
                     time.sleep(0.05)
-                seen.append(json.loads((go / "want").read_text())["what"])
-                (go / "go").write_text(json.dumps({"host": "cmux19"}))
+                seen.append("go")
                 end = time.time() + 30
-                while time.time() < end and (go / "go").exists():
+                while time.time() < end and not ((go / "fz.done").exists() and (go / "fz.done").stat().st_mtime != before):
                     time.sleep(0.05)
         t = threading.Thread(target=scheduler, daemon=True)
         t.start()
         done, summary, calls, _ = self.run_fuzz({"jobT": {"seconds": 400}, "jobB": {}}, "--base", "jobB", "--diagnostic",
-                                                "--hosts", "cmux19 cmux20", "--go-dir", str(go))
-        self.assertEqual(seen[:2], ["round 1 test", "round 1 base"])
+                                                "--hosts", "cmux19 cmux20", "--go-dir", str(go), "--go-spec", "fz")
+        self.assertGreaterEqual(len(seen), 2)
         self.assertTrue(all(c["hosts"] == "cmux19" for c in calls), calls[:2])
-        self.assertTrue((go / "done").exists())
+        self.assertTrue((go / "fz.done").exists())
+
+    def test_expired_or_foreign_go_is_dropped(self):
+        import types
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "fz.go").write_text(json.dumps({"host": "cmux22", "until": time.time() + 300}))
+        opts = types.SimpleNamespace(go_dir=str(tmp), go_spec="fz", host=None, hosts="cmux19")
+        import threading
+        def later():
+            time.sleep(6)
+            (tmp / "fz.go").write_text(json.dumps({"host": "cmux19", "until": time.time() - 10}))
+            time.sleep(6)
+            (tmp / "fz.go").write_text(json.dumps({"host": "cmux19", "until": time.time() + 300}))
+        threading.Thread(target=later, daemon=True).start()
+        self.assertEqual(fuzz.wait_go(opts, "round 1 test"), "cmux19")
 
     def test_cmux17_refused(self):
         tmp = Path(tempfile.mkdtemp())
