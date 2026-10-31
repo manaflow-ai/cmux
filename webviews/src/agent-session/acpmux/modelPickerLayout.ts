@@ -73,10 +73,10 @@ export type ModelPickerProps = {
   /// yet leaves it unset and keeps the whole rail.
   harnessFixed?: boolean;
   /// With `harnessFixed`, the started chat can fork to another harness (Leo 2026-10-22: "need to be
-  /// able to switch to different harnesses, can expose as fork"): the compact menu keeps the whole
-  /// rail, and another harness's tab, or another account of the chat's own, offers Fork to it.
+  /// able to switch to different harnesses, can expose as fork"): the compact menu keeps the chat's
+  /// own models and offers Fork to for the eligible profile IDs in `targets` (continueTargets).
   /// `to` gets the acpmux profile id; `ready` false (a turn running, a queued prompt) disables it.
-  fork?: { to(harness: string): void; ready: boolean };
+  fork?: { to(harness: string): void; ready: boolean; targets: ReadonlySet<string> };
   /// The installed acpmux profiles each catalog entry stands for, by its id (pickerProfiles.ts): the
   /// launch configurations shown as named harness entries. An entry with none listed is its own profile.
   profiles?: Readonly<Record<string, readonly PickerProfile[]>>;
