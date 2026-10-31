@@ -662,127 +662,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "`plan` must be pro, max or team."
+            "value": "`plan` must be go, pro, max or team."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يجب أن تكون `plan` إحدى القيم pro أو max أو team."
+            "value": "يجب أن تكون `plan` إحدى القيم go أو pro أو max أو team."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "`plan` mora biti pro, max ili team."
+            "value": "`plan` mora biti go, pro, max ili team."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "`plan` skal være pro, max eller team."
+            "value": "`plan` skal være go, pro, max eller team."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "`plan` muss pro, max oder team sein."
+            "value": "`plan` muss go, pro, max oder team sein."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "`plan` debe ser pro, max o team."
+            "value": "`plan` debe ser go, pro, max o team."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "`plan` doit valoir pro, max ou team."
+            "value": "`plan` doit valoir go, pro, max ou team."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "`plan` deve essere pro, max o team."
+            "value": "`plan` deve essere go, pro, max o team."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "`plan` には pro、max、team のいずれかを指定してください。"
+            "value": "`plan` には go、pro、max、team のいずれかを指定してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "`plan` ត្រូវតែជា pro, max ឬ team។"
+            "value": "`plan` ត្រូវតែជា go, pro, max ឬ team។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "`plan`은 pro, max, team 중 하나여야 합니다."
+            "value": "`plan`은 go, pro, max, team 중 하나여야 합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "`plan` må være pro, max eller team."
+            "value": "`plan` må være go, pro, max eller team."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "`plan` musi mieć wartość pro, max lub team."
+            "value": "`plan` musi mieć wartość go, pro, max lub team."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "`plan` deve ser pro, max ou team."
+            "value": "`plan` deve ser go, pro, max ou team."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "`plan` должен быть pro, max или team."
+            "value": "`plan` должен быть go, pro, max или team."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "`plan` ต้องเป็น pro, max หรือ team"
+            "value": "`plan` ต้องเป็น go, pro, max หรือ team"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "`plan` değeri pro, max veya team olmalıdır."
+            "value": "`plan` değeri go, pro, max veya team olmalıdır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "`plan` має бути pro, max або team."
+            "value": "`plan` має бути go, pro, max або team."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "`plan` phải là pro, max hoặc team."
+            "value": "`plan` phải là go, pro, max hoặc team."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "`plan` 必须是 pro、max 或 team。"
+            "value": "`plan` 必须是 go、pro、max 或 team。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "`plan` 必須是 pro、max 或 team。"
+            "value": "`plan` 必須是 go、pro、max 或 team。"
           }
         }
       }

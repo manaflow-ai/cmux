@@ -513,6 +513,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         services?.crashRecovery.applicationWillTerminate()
+        services?.crashReporting.reporter.stallSummary.close()  // the open hour's stall counts
         // The release push's socket closes and nothing reconnects (ReleasePushListener).
         services?.updater.stopReleasePush()
         services?.agentTabs.pageChats.stopNotices()
