@@ -152,6 +152,10 @@ test("a prose file wraps by default and code does not; Wrap lines sits beside Co
     expect(wrap?.nextElementSibling?.getAttribute("aria-label")).toBe("Copy diff");
     // A visible-text-free icon button names itself by aria-label only (no title tooltip).
     expect(wrap?.hasAttribute("title")).toBe(false);
+    // It changes its block's height, so the transcript holds it in place while it lays out
+    // (foldAnchor.ts), unlike a reply's Pin or Read aloud.
+    const { FOLD_TOGGLE } = await import("../src/agent-session/acpmux/conversation/foldAnchor");
+    expect(wrap?.matches(FOLD_TOGGLE)).toBe(true);
   }
 });
 

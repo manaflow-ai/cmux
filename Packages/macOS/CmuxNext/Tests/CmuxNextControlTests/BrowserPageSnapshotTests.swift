@@ -4,12 +4,13 @@ import CmuxNextSettings
 import Foundation
 import Testing
 import WebKit
+import CmuxNextTestSupport
 
 /// `browser.page.snapshot`: the agent's page outline (`- role "name" [ref=eN]`) as real sites need it.
 /// Accessible names from images, SVG titles, labels and `aria-labelledby`; open shadow roots and
 /// same-origin frames walked, with refs that click there; `cursor: pointer` clickables; control
 /// state; select options; and offscreen refs marked. The scripts run in a real WebKit page.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct BrowserPageSnapshotTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2))) struct BrowserPageSnapshotTests {
     static let html = """
     <!doctype html><html><head><title>Snapshot</title><style>
       body { margin: 0; font: 14px sans-serif; }
@@ -113,6 +114,7 @@ import WebKit
 
     @Test func namesComeFromImagesSvgTitlesChildLabelsAndLabels() async throws {
         let page = await loaded()
+        defer { page.window.closeAfterTest() }
         let outline = try await snapshot(page)
         #expect(try await line(page, outline, Self.top("up")).contains("- link \"upvote\""))
         #expect(try await line(page, outline, Self.top("imgbtn")).contains("- button \"Search icon\""))
@@ -127,6 +129,7 @@ import WebKit
 
     @Test func aPasswordValueNeverAppears() async throws {
         let page = await loaded()
+        defer { page.window.closeAfterTest() }
         let outline = try await snapshot(page)
         #expect(try await line(page, outline, Self.top("pw")).contains("- textbox"))
         #expect(!outline.contains("hunter2secret"))
@@ -134,6 +137,7 @@ import WebKit
 
     @Test func shadowRootAndFrameButtonsAppearAndTheirRefsClick() async throws {
         let page = await loaded()
+        defer { page.window.closeAfterTest() }
         let outline = try await snapshot(page, interactive: true)
         #expect(try await line(page, outline, Self.inShadow).contains("- button \"Shadow button\""))
         #expect(try await line(page, outline, Self.inFrame).contains("- button \"Frame button\""))
@@ -149,6 +153,7 @@ import WebKit
 
     @Test func aPointerCursorMakesAClickableOnce() async throws {
         let page = await loaded()
+        defer { page.window.closeAfterTest() }
         let outline = try await snapshot(page, interactive: true)
         let card = try await line(page, outline, Self.top("pointer"))
         #expect(card.contains("\"Pointer card inner\""))
@@ -162,6 +167,7 @@ import WebKit
 
     @Test func controlsShowTheirState() async throws {
         let page = await loaded()
+        defer { page.window.closeAfterTest() }
         let outline = try await snapshot(page)
         #expect(try await line(page, outline, Self.top("remember")).contains("[checked]"))
         #expect(try await line(page, outline, Self.top("news")).contains("[checked=false]"))
@@ -174,6 +180,7 @@ import WebKit
 
     @Test func aSelectShowsItsValueAndListsItsOptions() async throws {
         let page = await loaded()
+        defer { page.window.closeAfterTest() }
         let outline = try await snapshot(page, interactive: true)
         let lines = outline.split(separator: "\n").map(String.init)
         let size = try await line(page, outline, Self.top("size"))
@@ -195,6 +202,7 @@ import WebKit
 
     @Test func refsOutsideTheViewportAreMarked() async throws {
         let page = await loaded()
+        defer { page.window.closeAfterTest() }
         let outline = try await snapshot(page)
         #expect(try await line(page, outline, Self.top("far")).contains("[offscreen]"))
         let up = try await line(page, outline, Self.top("up"))
@@ -203,6 +211,7 @@ import WebKit
 
     @Test func aNewSnapshotRetiresOldRefsEverywhere() async throws {
         let page = await loaded()
+        defer { page.window.closeAfterTest() }
         _ = try await snapshot(page)
         let first = try await ref(page, Self.inFrame)
         _ = try await snapshot(page, interactive: true)
