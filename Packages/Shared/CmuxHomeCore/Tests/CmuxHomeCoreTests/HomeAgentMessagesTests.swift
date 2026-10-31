@@ -49,8 +49,9 @@ struct HomeAgentMessagesTests {
         stale.threadRoot = MessageID("wrong-thread")
         let changed4 = book.apply(stale)
         #expect(changed4)
-        let rows = book.inserting(into: [question(), question("other")], summary: nil)
-        #expect(rows.count == 4)
+        let rows = book.inserting(into: [question(), question("other")], summary: nil,
+                                  expanded: [HomeAgentMessageRow.groupID(author: chief, anchor: IdempotencyKey("question"))])
+        #expect(rows.count == 5)
         #expect(rows.last?.key == IdempotencyKey("other"))
         let reports = rows.filter(\.isReadOnly)
         #expect(reports.allSatisfy { $0.threadRoot == MessageID("thread") })
@@ -127,8 +128,9 @@ struct HomeAgentMessagesTests {
         _ = book.apply(tell)
         let reply = TranscriptItem(key: IdempotencyKey("reply"), seq: 2, author: chief,
                                    parts: [.text("done")], createdAt: date, delivery: .committed)
-        let rows = book.inserting(into: [question(), reply], summary: nil)
-        #expect(rows.map(\.plainText) == ["question", "[agent_mux → a1]\nplease check", "[a1 → agent_mux]\nchecked", "done"])
+        let group = HomeAgentMessageRow.groupID(author: chief, anchor: IdempotencyKey("question"))
+        let rows = book.inserting(into: [question(), reply], summary: nil, expanded: [group])
+        #expect(rows.map(\.plainText) == ["question", "▾ a1", "[agent_mux → a1]\nplease check", "[a1 → agent_mux]\nchecked", "done"])
     }
 
     /// User 2026-10-30: Chief's messages to its agents and their reports fold into one row per
@@ -149,6 +151,59 @@ struct HomeAgentMessagesTests {
         #expect(!fold.plainText.contains("checked"))
     }
 
+    @Test func expandedFoldKeepsItsRowFirstAndShowsEveryMessageInOrder() throws {
+        var book = HomeAgentMessages()
+        _ = book.apply(run(revision: 1, messages: [
+            .init(id: "tell", sequence: 1, revision: 1, peer: "a1", outgoing: true, text: "please check", date: date),
+            .init(id: "tell2", sequence: 2, revision: 1, peer: "a2", outgoing: true, text: "please build", date: date),
+            .init(id: "report", sequence: 3, revision: 1, peer: "a1", outgoing: false, text: "checked", date: date),
+        ]))
+        let group = HomeAgentMessageRow.groupID(author: chief, anchor: IdempotencyKey("question"))
+        let rows = book.inserting(into: [question()], summary: nil, expanded: [group])
+        #expect(rows.count == 5)
+        #expect(rows[1].agentMessage == HomeAgentMessageRow(group: group, kind: .fold(count: 3, peers: ["a1", "a2"], expanded: true)))
+        #expect(rows[2].agentMessage?.kind == .message(from: "agent_mux", to: "a1", outgoing: true, text: "please check"))
+        #expect(rows[3].agentMessage?.kind == .message(from: "agent_mux", to: "a2", outgoing: true, text: "please build"))
+        #expect(rows[4].agentMessage?.kind == .message(from: "a1", to: "agent_mux", outgoing: false, text: "checked"))
+        #expect(rows.dropFirst().allSatisfy { $0.isReadOnly && $0.messageID == nil && $0.agentMessage?.group == group })
+        // The fold row keeps its key while it opens and closes, so the view updates it in place.
+        let folded = book.inserting(into: [question()], summary: nil)
+        #expect(folded[1].key == rows[1].key)
+        #expect(folded[1].agentMessage?.kind == .fold(count: 3, peers: ["a1", "a2"], expanded: false))
+    }
+
+    @Test func loneAgentMessageShowsAsItselfWithNoFold() throws {
+        var book = HomeAgentMessages()
+        _ = book.apply(run(revision: 1, messages: [message(revision: 1, text: "checked")]))
+        let rows = book.inserting(into: [question()], summary: nil)
+        #expect(rows.count == 2)
+        let row = try #require(rows.last)
+        #expect(row.agentMessage?.kind == .message(from: "a1", to: "agent_mux", outgoing: false, text: "checked"))
+    }
+
+    @Test func foldToggleLinkRoundTripsOnlyItsOwnForm() throws {
+        let group = HomeAgentMessageRow.groupID(author: chief, anchor: IdempotencyKey("question"))
+        #expect(group.count == 16)
+        #expect(group == HomeAgentMessageRow.groupID(author: chief, anchor: IdempotencyKey("question")))
+        #expect(group != HomeAgentMessageRow.groupID(author: chief, anchor: IdempotencyKey("other")))
+        let url = try #require(URL(string: HomeAgentMessageRow.toggleLink(group: group)))
+        #expect(HomeAgentMessageRow.group(toggledBy: url) == group)
+        for other in ["cmux://agent-messages/xyz", "cmux://agent-messages/\(group)?a=b", "https://agent-messages/\(group)",
+                      "cmux://session/\(group)", "cmux://agent-messages/\(group)/x"] {
+            #expect(HomeAgentMessageRow.group(toggledBy: try #require(URL(string: other))) == nil)
+        }
+    }
+
+    @MainActor @Test func toggleOpensAndClosesAFoldInTheStoreTranscript() async {
+        let store = HomeStore(source: MockHomeSource(options: .immediate))
+        let id = ConversationID("conv_aziz")
+        #expect(!store.isAgentMessagesExpanded("0123456789abcdef", in: id))
+        store.toggleAgentMessages("0123456789abcdef", in: id)
+        #expect(store.isAgentMessagesExpanded("0123456789abcdef", in: id))
+        store.toggleAgentMessages("0123456789abcdef", in: id)
+        #expect(!store.isAgentMessagesExpanded("0123456789abcdef", in: id))
+    }
+
     @Test func reportFragmentsWithTheSameTimestampKeepTheirStepSequence() {
         var book = HomeAgentMessages()
         let fragments = (0..<12).reversed().map { index in
@@ -156,8 +211,9 @@ struct HomeAgentMessagesTests {
                                  peer: "a1", outgoing: false, text: "fragment \(index)", date: date)
         }
         _ = book.apply(run(revision: 1, messages: fragments))
-        let rows = book.inserting(into: [question()], summary: nil)
-        #expect(rows.dropFirst().map(\.plainText) == (0..<12).map { "[a1 → agent_mux]\nfragment \($0)" })
+        let group = HomeAgentMessageRow.groupID(author: chief, anchor: IdempotencyKey("question"))
+        let rows = book.inserting(into: [question()], summary: nil, expanded: [group])
+        #expect(rows.dropFirst(2).map(\.plainText) == (0..<12).map { "[a1 → agent_mux]\nfragment \($0)" })
     }
 
     @Test(arguments: [false, true])
