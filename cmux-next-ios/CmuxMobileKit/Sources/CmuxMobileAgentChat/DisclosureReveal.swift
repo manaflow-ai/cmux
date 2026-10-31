@@ -12,13 +12,14 @@ import SwiftUI
 /// Asks the transcript to keep the tapped line where it is drawn while its body opens or closes
 /// (`ChatTranscriptController.holdForDisclosure`). A no-op outside the transcript.
 struct TranscriptFoldHold {
-    let hold: @MainActor () -> Void
-
-    @MainActor func callAsFunction() { hold() }
+    /// Holds the tapped line from the tap.
+    let begin: @MainActor () -> Void
+    /// Lets go when the disclosure's animation completes.
+    let end: @MainActor () -> Void
 }
 
 extension EnvironmentValues {
-    @Entry var transcriptFoldHold = TranscriptFoldHold {}
+    @Entry var transcriptFoldHold = TranscriptFoldHold(begin: {}, end: {})
 }
 
 /// The body's insertion and removal: revealed from the top edge down (a mask the height of the
@@ -40,16 +41,19 @@ extension AnyTransition {
     static var disclosureReveal: AnyTransition { AnyTransition(DisclosureReveal()) }
 }
 
-/// One disclosure tap: the transcript holds the tapped line, then the change plays on the shared
-/// spring. Reduce Motion opens and closes at once, the line still held.
+/// One disclosure tap: the transcript holds the tapped line, the change plays on the shared spring,
+/// and the hold ends when that animation completes. Reduce Motion opens and closes at once, and
+/// lets go on the next turn of the main loop (after the change is laid out).
 @MainActor func toggleDisclosure(_ hold: TranscriptFoldHold, _ change: () -> Void) {
-    hold()
+    hold.begin()
     if UIAccessibility.isReduceMotionEnabled {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction, change)
+        let end = hold.end
+        Task { @MainActor in end() }
     } else {
-        withAnimation(.cmuxMobileSmooth, change)
+        withAnimation(.cmuxMobileSmooth, completionCriteria: .logicallyComplete, change) { hold.end() }
     }
 }
 #endif

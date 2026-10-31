@@ -104,13 +104,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     static let jumpHostSize: CGFloat = 44
     /// The external stack's bottom with the keyboard down, view coordinates.
     private var externalRest: CGFloat?
-    /// A disclosure the person tapped is opening or closing (`holdForDisclosure`): until then the
-    /// tapped line stays where it is drawn.
-    private var foldHoldUntil: CFTimeInterval = 0
-    private var foldHoldEnd: Task<Void, Never>?
-    private var foldHolding: Bool { foldHoldUntil > 0 }
-    /// The disclosure spring (`Animation.cmuxMobileSmooth`, 0.35 s) and the frames it takes to settle.
-    static let foldHoldSeconds: Double = 0.5
+    /// A disclosure the person tapped is opening or closing (`holdForDisclosure`): until its
+    /// animation completes, the tapped line stays where it is drawn.
+    private var foldHolding = false
+    /// A safety cap on the hold, should the animation's completion never come (a view torn down
+    /// mid-animation). The hold normally ends on that completion (`toggleDisclosure`).
+    private var foldHoldCap: Task<Void, Never>?
+    static let foldHoldCapSeconds: Double = 1.5
     #if DEBUG
     private var trace: ChatKeyboardTrace?
     #endif
@@ -161,7 +161,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
 
     /// The transcript's hosted root: measured, and able to hold a tapped disclosure's line.
     private func transcriptRoot(_ content: AnyView) -> AnyView {
-        Self.measuring(AnyView(content.environment(\.transcriptFoldHold, TranscriptFoldHold { [weak self] in self?.holdForDisclosure() })),
+        Self.measuring(AnyView(content.environment(\.transcriptFoldHold, TranscriptFoldHold(
+            begin: { [weak self] in self?.holdForDisclosure() },
+            end: { [weak self] in self?.endFoldHold() }
+        ))),
                        alignment: .top) { [weak self] in self?.contentHeightChanged($0) }
     }
 
@@ -173,6 +176,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// session was replaced) sets them again.
     func update(identity: ObjectIdentifier, content: AnyView, empty: AnyView, dock: AnyView?, jump: AnyView?) {
         if let shown = shownIdentity, shown != identity {
+            endFoldHold()
             contentHost.rootView = transcriptRoot(content)
             emptyHost.rootView = empty
             if let dock {
@@ -536,33 +540,39 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// button shows); closing at the end lets the rows above come down with the same spring.
     func holdForDisclosure() {
         guard isViewLoaded, positionedInitially, !scrollView.isTracking else { return }
-        foldHoldUntil = CACurrentMediaTime() + Self.foldHoldSeconds
+        foldHolding = true
         surface.following = false
-        foldHoldEnd?.cancel()
-        // An intentional bounded delay: the spring's length, cancelled by a later tap or a drag.
-        foldHoldEnd = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(Self.foldHoldSeconds))
+        foldHoldCap?.cancel()
+        // A bounded safety cap only; the animation's completion ends the hold.
+        foldHoldCap = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.foldHoldCapSeconds))
             guard !Task.isCancelled else { return }
             self?.endFoldHold()
         }
     }
 
-    private func endFoldHold() {
+    func endFoldHold() {
         guard foldHolding else { return }
-        foldHoldUntil = 0
-        foldHoldEnd?.cancel()
-        foldHoldEnd = nil
+        foldHolding = false
+        foldHoldCap?.cancel()
+        foldHoldCap = nil
         if contentHeightConstraint?.constant != contentHeight {
             contentHeightConstraint?.constant = contentHeight
             view.setNeedsLayout()
         }
         UIView.performWithoutAnimation { view.layoutIfNeeded() }
-        if !scrollView.isTracking, !scrollView.isDecelerating, abs(distanceFromBottom) < 2, surface.find?.currentMatch == nil {
+        guard !scrollView.isTracking, !scrollView.isDecelerating, surface.find?.currentMatch == nil else { return }
+        // Resting on the newest row follows it again. Otherwise the view stays where the reader
+        // put it: an open pushed the newest row down, or one streamed in meanwhile, and the jump
+        // button shows (as the Mac transcript does, foldAnchor.ts). Snapping back here would
+        // move the line the reader just opened.
+        if abs(distanceFromBottom) < 2 {
             surface.following = true
         }
     }
 
-    /// The hold's layout pass: no following and no snap. Only when the change leaves the view
+    /// The hold's layout pass: no following and no snap. A keyboard that moves meanwhile (a tap
+    /// that dismisses it) keeps the line too; the offset only stays in range. Only when the change leaves the view
     /// past what the content now allows (a body closing at the end, a short chat that sits on the
     /// stack) does the offset glide into range, on the disclosure's spring.
     private func holdFoldLine(top: CGFloat, bottom: CGFloat, headerBottom: CGFloat) {
