@@ -39,13 +39,18 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
           const page = await browser.newPage({ viewport: { width, height: 560 }, deviceScaleFactor: 2 });
           try {
             const port = (vite.httpServer!.address() as { port: number }).port;
-            await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.composer-look", {
-              variant: `${look}-chat`, theme: theme === "light" ? "Apple System Colors Light" : "Apple System Colors",
-            })}`);
+            await page.goto(
+              `http://127.0.0.1:${port}${galleryFrame("agent-pane.composer-look", {
+                variant: `${look}-chat`,
+                theme: theme === "light" ? "Apple System Colors Light" : "Apple System Colors",
+              })}`,
+            );
             await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
             await page.evaluate(() => document.fonts.ready);
             await page.mouse.move(0, 0);
-            await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+            await page.evaluate(
+              () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+            );
             const geometry = await page.evaluate(() => {
               const composer = document.querySelector(".acpmux-composer")!;
               const box = composer.querySelector(".acpmux-composer-box")!;
@@ -53,7 +58,14 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
                 const r = el.getBoundingClientRect();
                 return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, cy: (r.top + r.bottom) / 2 };
               };
-              const controls = [".acpmux-composer-plus .acpmux-picker-button", ".acpmux-access-trigger", ".acpmux-model .acpmux-picker-button", ".acpmux-context-ring", ".acpmux-mic", ".acpmux-send"].flatMap((selector) => {
+              const controls = [
+                ".acpmux-composer-plus .acpmux-picker-button",
+                ".acpmux-access-trigger",
+                ".acpmux-model .acpmux-picker-button",
+                ".acpmux-context-ring",
+                ".acpmux-mic",
+                ".acpmux-send",
+              ].flatMap((selector) => {
                 const el = composer.querySelector(selector);
                 return el ? [{ selector, inside: box.contains(el), ...bounds(el) }] : [];
               });
@@ -62,7 +74,13 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
               const dotsEl = composer.querySelector(".acpmux-composer-under .acpmux-look-dots");
               const dots = dotsEl && dotsEl.getBoundingClientRect().width > 0 ? dotsEl : null;
               // A press at each control's centre reaches that control, not the dots' host over the row.
-              const unreachable = [".acpmux-composer-plus .acpmux-picker-button", ".acpmux-access-trigger", ".acpmux-model .acpmux-picker-button", ".acpmux-mic", ".acpmux-send"].filter((selector) => {
+              const unreachable = [
+                ".acpmux-composer-plus .acpmux-picker-button",
+                ".acpmux-access-trigger",
+                ".acpmux-model .acpmux-picker-button",
+                ".acpmux-mic",
+                ".acpmux-send",
+              ].filter((selector) => {
                 const el = composer.querySelector(selector);
                 if (!el) return false;
                 const r = el.getBoundingClientRect();
@@ -73,15 +91,25 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
               const probe = document.createElement("div");
               probe.className = "acpmux-main";
               probe.dataset.dock = "float";
-              probe.innerHTML = '<div class="acpmux-dock"><form class="acpmux-composer" data-composer-look="codex"><div class="acpmux-composer-under"></div></form></div>';
+              probe.innerHTML =
+                '<div class="acpmux-dock"><form class="acpmux-composer" data-composer-look="codex"><div class="acpmux-composer-under"></div></form></div>';
               document.body.append(probe);
               const floatHost = getComputedStyle(probe.querySelector(".acpmux-composer-under")!).pointerEvents;
               probe.remove();
-              return { box: bounds(box), controls, bar: bounds(bar), dots: dots ? bounds(dots) : null, unreachable, floatHost,
-                emptyAttachments: !!box.querySelector(".acpmux-attachments:empty") };
+              return {
+                box: bounds(box),
+                controls,
+                bar: bounds(bar),
+                dots: dots ? bounds(dots) : null,
+                unreachable,
+                floatHost,
+                emptyAttachments: !!box.querySelector(".acpmux-attachments:empty"),
+              };
             });
             const stem = `${look}-${theme}-${width}`;
-            await page.locator(".acpmux-composer").screenshot({ path: path.join(out, `${stem}.png`), animations: "disabled", caret: "hide" });
+            await page
+              .locator(".acpmux-composer")
+              .screenshot({ path: path.join(out, `${stem}.png`), animations: "disabled", caret: "hide" });
             writeFileSync(path.join(out, `${stem}.json`), JSON.stringify(geometry, null, 2));
             console.log(`COMPOSER_GEOMETRY ${stem} ${JSON.stringify(geometry)}`);
             expect(geometry.emptyAttachments).toBe(false);
@@ -108,13 +136,18 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
               if (geometry.dots) {
                 expect(geometry.dots.top).toBeGreaterThanOrEqual(geometry.bar.top);
                 expect(geometry.dots.bottom).toBeLessThanOrEqual(geometry.bar.bottom);
-                const leftEdge = Math.max(...geometry.controls.filter((c) => /plus|access/.test(c.selector)).map((c) => c.right));
-                const rightEdge = Math.min(...geometry.controls.filter((c) => !/plus|access/.test(c.selector)).map((c) => c.left));
+                const leftEdge = Math.max(
+                  ...geometry.controls.filter((c) => /plus|access/.test(c.selector)).map((c) => c.right),
+                );
+                const rightEdge = Math.min(
+                  ...geometry.controls.filter((c) => !/plus|access/.test(c.selector)).map((c) => c.left),
+                );
                 expect(geometry.dots.left).toBeGreaterThanOrEqual(leftEdge);
                 expect(geometry.dots.right).toBeLessThanOrEqual(rightEdge);
               }
             } else {
-              for (const control of geometry.controls.filter((c) => /access|model|context/.test(c.selector))) expect(control.inside).toBe(false);
+              for (const control of geometry.controls.filter((c) => /access|model|context/.test(c.selector)))
+                expect(control.inside).toBe(false);
             }
           } finally {
             await page.close();
@@ -129,11 +162,15 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
       try {
         await page.addInitScript(() => localStorage.setItem("cmux.composer.look", "codex"));
         const port = (vite.httpServer!.address() as { port: number }).port;
-        await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.new-tab", { variant: "minimal-default", width })}`);
+        await page.goto(
+          `http://127.0.0.1:${port}${galleryFrame("agent-pane.new-tab", { variant: "minimal-default", width })}`,
+        );
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
         await page.waitForSelector('.nt-composer[data-composer-look="codex"] .nt-box .nt-pickers .acpmux-model');
         await page.evaluate(() => document.fonts.ready);
-        await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        await page.evaluate(
+          () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+        );
         const geometry = await page.evaluate(() => {
           const box = document.querySelector(".nt-composer .nt-box")!.getBoundingClientRect();
           const row = document.querySelector(".nt-composer .nt-box .nt-pickers")!;
@@ -143,18 +180,30 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
             const r = el.getBoundingClientRect();
             return [{ selector, left: r.left, right: r.right, cy: (r.top + r.bottom) / 2 }];
           });
-          return { box: { left: box.left, right: box.right }, parts, foot: !!document.querySelector(".nt-composer .acpmux-composer-foot") };
+          return {
+            box: { left: box.left, right: box.right },
+            parts,
+            foot: !!document.querySelector(".nt-composer .acpmux-composer-foot"),
+          };
         });
-        await page.locator(".nt-composer").screenshot({ path: path.join(out, `codex-newtab-${width}.png`), animations: "disabled", caret: "hide" });
+        await page
+          .locator(".nt-composer")
+          .screenshot({ path: path.join(out, `codex-newtab-${width}.png`), animations: "disabled", caret: "hide" });
         expect(geometry.foot).toBe(false);
-        expect(geometry.parts.map((p) => p.selector)).toEqual([".acpmux-access", ".acpmux-model", ".acpmux-mic", ".acpmux-send"]);
+        expect(geometry.parts.map((p) => p.selector)).toEqual([
+          ".acpmux-access",
+          ".acpmux-model",
+          ".acpmux-mic",
+          ".acpmux-send",
+        ]);
         for (const part of geometry.parts) {
           expect(Math.abs(part.cy - geometry.parts[0]!.cy)).toBeLessThanOrEqual(1);
           expect(part.left).toBeGreaterThanOrEqual(geometry.box.left - 0.5);
           expect(part.right).toBeLessThanOrEqual(geometry.box.right + 0.5);
         }
         const sorted = [...geometry.parts].sort((a, b) => a.left - b.left);
-        for (let i = 1; i < sorted.length; i++) expect(sorted[i]!.left).toBeGreaterThanOrEqual(sorted[i - 1]!.right - 0.5);
+        for (let i = 1; i < sorted.length; i++)
+          expect(sorted[i]!.left).toBeGreaterThanOrEqual(sorted[i - 1]!.right - 0.5);
       } finally {
         await page.close();
       }

@@ -227,8 +227,9 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     expect(actualDots.y).toBeGreaterThanOrEqual(bar.y);
     expect(actualDots.y + actualDots.height).toBeLessThanOrEqual(bar.y + bar.height);
     const mode = (await (await page.$(`${form} .acpmux-access`))!.boundingBox())!;
-    const rightStart = await page.$$eval(`${form} .acpmux-composer-box :is(.acpmux-context, .acpmux-model, .acpmux-composer-actions)`, (els) =>
-      Math.min(...els.map((el) => el.getBoundingClientRect().left)),
+    const rightStart = await page.$$eval(
+      `${form} .acpmux-composer-box :is(.acpmux-context, .acpmux-model, .acpmux-composer-actions)`,
+      (els) => Math.min(...els.map((el) => el.getBoundingClientRect().left)),
     );
     expect(actualDots.x).toBeGreaterThanOrEqual(mode.x + mode.width);
     expect(actualDots.x + actualDots.width).toBeLessThanOrEqual(rightStart);

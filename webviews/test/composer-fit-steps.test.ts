@@ -55,7 +55,9 @@ describe("composer fit steps", () => {
     // an attribute, ties the hiding rule at (0,4,0) and brings back a label the fit had taken away.
     const GUARD = ':where(:not(.acpmux-composer-foot[data-footer-look="plain"]))';
     const bare = blocks
-      .filter(({ body }) => /:not\((\.acpmux-composer-foot)?\[data-footer-look="plain"\]\)/.test(body.replaceAll(GUARD, "")))
+      .filter(({ body }) =>
+        /:not\((\.acpmux-composer-foot)?\[data-footer-look="plain"\]\)/.test(body.replaceAll(GUARD, "")),
+      )
       .map(({ width }) => width);
     expect(bare, `use ${GUARD}, which adds no specificity`).toEqual([]);
     // Every rule that lays a label out of the row carries the guard. The widths' other rules (the
