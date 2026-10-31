@@ -327,7 +327,7 @@ function useMediaPreviewAllowed(): boolean {
 /// A video before it plays: its poster frame (the frame just after the start, read with the
 /// metadata), a glass play button in its middle and its length in a corner. The pointer resting on
 /// it previews it muted after the shared hover-intent dwell; a click plays it from the start with
-/// sound and the player's controls. Every part a click lands on shows the pointing hand.
+/// sound and the player's controls. Every part a click lands on shows the arrow.
 export function VideoThumbnail({
   src,
   name,

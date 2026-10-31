@@ -385,8 +385,8 @@ struct ThreadPreview: Hashable {
     }
     /// cmux: a text root (2026-10-20, plans/cmux-next/reply-thread-gallery.html variant A): a smaller copy of the
     /// root's own bubble, its fill and text colour at `quoteOpacity`, 12 pt text a bubble's 12 pt in from each end, 28 pt
-    /// tall for one line (half-circle ends, as a real one-line bubble), 46 pt for 2 (a 2-line bubble's corners), at most 2 lines
-    /// with "…" at the end of the last, and no tail (a quote is never the last bubble of a run). A wrapped root
+    /// tall for one line (half-circle ends, as a real one-line bubble), 46 pt for 2 (a 2-line bubble's corners), at most `maxTextLines`
+    /// lines with "…" at the end of the last, and no tail (a quote is never the last bubble of a run). A wrapped root
     /// takes the full quote column; the column scales with the bubble column (`Metrics.maxTextWidth`). It
     /// replaces the outlined 10 pt copy of macOS Messages' preview, which did not look like the quoted bubble.
     var isText: Bool { if case .text = part { return true }; return false }
@@ -407,8 +407,10 @@ struct ThreadPreview: Hashable {
     static let textFirstBaselineY: CGFloat = 16
     /// The quote's tail is the bubbles' tail at this scale (Messages: it hangs 4 pt under the quote, the bubbles' 5.1).
     static let tailScale: CGFloat = 0.8
-    /// cmux: Messages shows a 3-line root whole (2026-10-29 group reference: a 182-character root on 3 lines, 45.5 pt).
-    static let maxTextLines = 3
+    /// cmux: a root of up to 8 lines shows whole, every line wrapped inside the outline; a longer one shows 8 lines, the
+    /// last ending in "…" (user, 2026-10-30, "handle like multi-multi line": a 5-line root lost its last two lines under
+    /// Messages' 3-line cap of the 2026-10-29 group reference).
+    static let maxTextLines = 8
     /// How far above the quote's bottom the scaled tail joins its end (the tail's top inner point, 2.52 pt x 0.8).
     static let tailJoinHeight: CGFloat = 2.02
     /// cmux: how far in to move the tail on an end of radius `endRadius` so it joins the curve as it joins the one-line
@@ -464,31 +466,46 @@ struct ThreadPreview: Hashable {
     /// Word-wrapped lines of a root text at `maxWidth` (newlines read as spaces, as before), at most
     /// `maxTextLines`; the last line ends in "…" when text is left over.
     static func wrap(_ text: String, maxWidth: CGFloat) -> [String] {
-        // A root can be a 100k-character message: only the characters that 4 lines can hold are laid out
-        // (no 10 pt glyph is narrower than 2 pt, so 2 per pt of width is more than 4 lines), at most 2000;
-        // a cut text always ends in "…".
-        let limit = 16 + 2 * CrashGuard.int(maxWidth.isFinite ? min(992, max(0, maxWidth)) : 0, in: 0...992)
+        // A root can be a 100k-character message: only the characters that `maxTextLines` + 1 lines can hold are laid
+        // out (no 10 pt glyph is narrower than 2 pt, so a line holds at most half its width in characters), at most
+        // 16 + 4.5 x 992; a cut text always ends in "…".
+        let column = CrashGuard.int(maxWidth.isFinite ? min(992, max(0, maxWidth)) : 0, in: 0...992)
+        let limit = 16 + (maxTextLines + 1) * column / 2
         let head = text.prefix(limit)
         let cut = head.endIndex < text.endIndex
         let flat = String(head).replacingOccurrences(of: "\n", with: " ")
-        let tl = TextLayout.make(flat, runs: [], maxWidth: maxWidth, font: textFont)
         let ns = flat as NSString
+        let ts = CTTypesetterCreateWithAttributedString(NSAttributedString(string: flat, attributes: [.font: textFont]))
         var lines: [String] = []
-        for (i, line) in tl.lines.enumerated() {
-            let last = i == maxTextLines - 1 || i == tl.lines.count - 1
-            guard !last || tl.lines.count <= maxTextLines && !cut else {
+        var start = 0
+        while start < ns.length, lines.count < maxTextLines {
+            // At least one whole composed character per line, never past the end (crash ratchet).
+            let first = ns.rangeOfComposedCharacterSequence(at: start)
+            var n = min(max(CTTypesetterSuggestLineBreak(ts, start, Double(maxWidth)), first.length), ns.length - start)
+            // cmux (user, 2026-10-30, "handle like multi-multi line"): a break inside a long word or URL drops the kern
+            // to the next glyph, so the line drawn alone is up to 1 pt wider than the typesetter measured it: give back
+            // characters until it fits the column (the text then never reaches the outline).
+            while n > first.length, TextDraw.width(Self.trimmed(ns.substring(with: NSRange(location: start, length: n))),
+                                                   font: textFont) > maxWidth + 0.01 {
+                n = ns.rangeOfComposedCharacterSequence(at: start + n - 1).location - start
+            }
+            let end = start + max(n, first.length)
+            if lines.count == maxTextLines - 1, end < ns.length || cut {
                 // The last allowed line: the rest of the text, cut to fit with "…" (tail truncation).
-                let rest = ns.substring(from: line.range.location)
-                lines.append(truncate(rest, maxWidth: maxWidth))
+                lines.append(truncate(ns.substring(from: start), maxWidth: maxWidth))
                 break
             }
-            guard TextLayout.range(line.range.location, line.range.length, in: ns.length) != nil else { break }
             // cmux: a wrapped line's trailing space is not drawn, so it does not widen the quote (user, 2026-10-28).
-            var text = ns.substring(with: line.range)
-            while text.last == " " { text.removeLast() }
-            lines.append(text)
+            lines.append(Self.trimmed(ns.substring(with: NSRange(location: start, length: end - start))))
+            start = end
         }
         return lines.isEmpty ? [""] : lines
+    }
+    /// `s` without its trailing spaces.
+    private static func trimmed(_ s: String) -> String {
+        var s = s
+        while s.last == " " { s.removeLast() }
+        return s
     }
     /// `s` cut at the last character that leaves room for "…", trailing spaces dropped, then "…".
     static func truncate(_ s: String, maxWidth: CGFloat) -> String {
@@ -1000,6 +1017,8 @@ enum RowBuilder {
     /// min), more than 15 min on macOS 26 (the original
     /// recording, macOS 26: "Today 12:06 PM" over "hello world" 21 min after the message above) (cx-3cb row-gap).
     static var separatorGap: TimeInterval { ComposeMetrics.macOS26 ? 15 * 60 : 60 * 60 }
+    /// cmux: the typing row's gap under a bubble: its bubble top 14 pt under the bubble above (user, "maybe even more padding").
+    static var typingGapUnderBubble: CGFloat { 14 - (RowDraw.typingBubble.minY - RowDraw.margin) }
 
     /// `previousRow`: the kind of the row just above `range` (gaps depend on it).
     /// `width`: layout width (captured on main). `exact`: message indices to
@@ -1253,12 +1272,25 @@ enum RowBuilder {
         // cmux: the host's status line (ask 9) goes above the typing indicator, not under it (upstream: last,
         // centered): the Chief's "working on" line reads as a caption of the bubble it heads (RowDraw `.notice`
         // draws it at the bubble's left edge). Same gap and height as upstream's.
+        var statusLine = false
         if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice, !notice.isEmpty {
             // cmux: one caption row per line (the running indicator's folded steps, narration and step: HomeNoticeRows).
             rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: HomeNoticeRows.height(notice)))
+            statusLine = true
         }
-        if !threadMode, span.upperBound == messages.count, s.atNewest, typists {
-            rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
+        // cmux (user 2026-10-30, "make it just one line with shimmer text"): the status line, shimmering
+        // (HomeNoticeShimmer), is the running indicator; no typing bubble under it.
+        if !threadMode, span.upperBound == messages.count, s.atNewest, typists, !statusLine {
+            // cmux: right under a bubble the typing bubble sits 14 pt under it body to body, so it stays clear of the
+            // bubble above and its tail; it sat 4.3 pt under it (user, 2026-10-30, "more space in between typing bubble
+            // and the latest message"), then 8 pt ("maybe even more padding"). Under a receipt or a label row it stays
+            // as it was (the status line has no typing bubble under it).
+            var gap: CGFloat = 0
+            switch rows.last?.kind ?? previousRow {
+            case .part, .unsent: gap = Self.typingGapUnderBubble
+            default: break
+            }
+            rows.append(RowSpec(key: "typing", kind: .typing, gap: gap, height: 35))
         }
         rows = rows.map { var r = $0; r.width = width; return r } // no index writes
         return rows

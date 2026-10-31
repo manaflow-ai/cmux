@@ -139,15 +139,17 @@
 /* The ticks' entrance (Leo 2026-10-25: "the animation ... those sort of lines pop up. There should
    be a little bit more easing"): each new tick grows out from the rail's edge on the hover's spring
    and fades in ease-out over the micro step, staggered down the rows on screen by their place in the
-   rail's room (--acpmux-minimap-row from --acpmux-minimap-first, over --acpmux-minimap-rows), so the
+   rail's room (--acpmux-minimap-place, the row's place in the list's view as the tick mounted, over
+   --acpmux-minimap-rows; no per-scroll value the list's rows inherit), so the
    whole rail is in by the micro step plus TICK_STAGGER (72 ms), under 200 ms. Only the initial visible
-   ticks and newly appended prompts enter; virtualization remounts draw immediately. It stops at its
-   end; it holds no timer and nothing to clean up. A scrolled-past row has a negative place and starts
-   at once. None under Reduce Motion (the system's, the app's motion gate, or the rail's own check). The full-height map (ScrollMap.tsx) keeps its marks still. */
+   ticks and newly appended prompts enter (data-entering); virtualization remounts draw immediately. It
+   stops at its end; it holds no timer and nothing to clean up. A scrolled-past row has a negative place
+   and starts at once. None under Reduce Motion (the system's, the app's motion gate, or the rail's own
+   check). The full-height map (ScrollMap.tsx) keeps its marks still. */
 .acpmux-minimap__tick {
   --acpmux-minimap-stagger: clamp(
     0ms,
-    calc((var(--acpmux-minimap-row, 0) - var(--acpmux-minimap-first, 0)) * 72ms / var(--acpmux-minimap-rows, 1)),
+    calc(var(--acpmux-minimap-place, 0) * 72ms / var(--acpmux-minimap-rows, 1)),
     72ms
   );
 }
@@ -347,7 +349,7 @@
   border-radius: 4px;
   background: none;
   color: var(--agent-muted);
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-minimap__bookmark:hover {
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
@@ -459,7 +461,7 @@
    tick starts at the rail's edge; a reply's is shorter, dimmer and set in 4 px. The bar behind
    them is the view; it moves by transform on the scroll's frame. */
 .acpmux-scrollmap {
-  cursor: pointer;
+  cursor: default;
   touch-action: none;
 }
 .acpmux-scrollmap__view {
