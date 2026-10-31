@@ -55,8 +55,9 @@ jobs queued on a pool they hold exceeds a threshold:
      re-runs its failed jobs as cmux-bot at the same head (rerun_open_head()), and the
      pending re-run state, written before the cancel's first read, carries
      it to the next sweep when the cancel has not settled or the re-run was
-     refused. A bot's re-run, a run that already failed, one a newer run
-     took over, and a nightly, DEV or promote run keep OPEN_HEAD_RULE, as
+     refused. A bot's re-run at LOST_FAILOVER_MAX_ATTEMPT or later, a run
+     that already failed with an unfinished job that is not lost, one a newer
+     run took over, and a nightly, DEV or promote run keep OPEN_HEAD_RULE, as
      does every open head while this sweep has no cmux-bot token or no
      re-run state. On 2026-10-30 23 such runs had waited 1.5 to 10 hours
      on glaeda-side-std, glaeda-gui-std and Blacksmith 6 vCPU while newer
@@ -1424,6 +1425,9 @@ class LostJob:
     skipped: int
     # The job's id: in a run that already failed, the failover re-runs this job alone (open_head_lost()).
     job_id: int | None = None
+    # Every lost job of the run (their ids), this one among them: a failed run whose unfinished jobs are all
+    # lost re-runs its failed jobs, bringing every one of them back (open_head_lost()).
+    job_ids: tuple[int, ...] = ()
 
 
 def _overdue(run_jobs: Sequence[Mapping[str, Any]], now: dt.datetime) -> Iterable[tuple[Mapping[str, Any], dt.datetime]]:
@@ -1495,7 +1499,9 @@ def find_lost(
                 job_id = job.get("id") if isinstance(job.get("id"), int) else None
                 found.append((job, LostJob(str(job.get("name") or ""), job_pool_key(job), since, skipped, job_id)))
         if found and not _gated(run_jobs, [job for job, _ in found]):
-            lost[run["id"]] = min((item for _, item in found), key=lambda item: item.queued_since)
+            oldest = min((item for _, item in found), key=lambda item: item.queued_since)
+            ids = tuple(item.job_id for _, item in found if item.job_id is not None)
+            lost[run["id"]] = dataclasses.replace(oldest, job_ids=ids if len(ids) == len(found) else ())
     return lost
 
 
@@ -1607,6 +1613,16 @@ OPEN_HEAD_FAILOVER = ("stall-aware failover at the open head: cancelled and its 
 OPEN_HEAD_JOB_FAILOVER = ("stall-aware failover at the open head: the run already failed, so it is cancelled and "
                           "only the lost job is re-run as cmux-bot at the same head, keeping that red, in this sweep "
                           "(or the next, if the cancel has not settled)")
+OPEN_HEAD_LOST_JOBS_FAILOVER = ("stall-aware failover at the open head: the run already failed and every unfinished "
+                                "job is lost, so it is cancelled and its failed jobs (the red among them) re-run as "
+                                "cmux-bot at the same head in this sweep (or the next, if the cancel has not settled)")
+# A bot's re-run (bot_rerun()) whose job is lost again fails over again while its attempt is below this: the
+# janitor's own attempt 2 of a cmux-next fast tier takes CI_SIDE_LANE_RUNNER again, the backed-up label it was
+# lost on, and attempt 3 takes MACOS_RUNNER_26. On 2026-10-31 at 12:49Z 28 of the 30 lost runs kept at open
+# heads were such attempts, PR #29228's `cmux-next fast tier` 2h46m among them, held by the old "never cancel a
+# bot's attempt again" rule. That rule dates from run 40398277457, whose cancel waited on a later sweep's re-run
+# and got none; the same sweep re-runs it now (rerun_open_head()), so the bound only keeps the loop finite.
+LOST_FAILOVER_MAX_ATTEMPT = 3
 
 
 def open_pr_at_head(run: Mapping[str, Any], prs: Sequence[Mapping[str, Any]] | None) -> Mapping[str, Any] | None:
@@ -1658,7 +1674,8 @@ class LostVerdict:
 
 def open_head_lost(run: Mapping[str, Any], run_jobs: Sequence[Mapping[str, Any]], evidence: str,
                    pr: Mapping[str, Any], *, rerun_state: bool, newer: Mapping[str, Any] | None,
-                   cmux_bot: bool, lost_job_id: int | None = None) -> LostVerdict:
+                   cmux_bot: bool, lost_job_id: int | None = None,
+                   lost_job_ids: Sequence[int] = ()) -> LostVerdict:
     """Category e at the head of open pull request `pr`: the stall-aware failover, or OPEN_HEAD_RULE.
 
     A job GitHub never assigned (runner_id 0, no runner name), queued 30 minutes or more since it could run
@@ -1670,14 +1687,19 @@ def open_head_lost(run: Mapping[str, Any], run_jobs: Sequence[Mapping[str, Any]]
     keeps OPEN_HEAD_RULE:
     - a branch whose open pull requests were not all read (OPEN_PRS_UNREAD);
     - a nightly, DEV or promote run (_lost_scope() already leaves out protected runs; checked again here);
-    - an attempt a bot started (bot_rerun()): run 40398277457, the rescue's attempt 2, was cancelled at its
-      head and never re-run; such an attempt is never cancelled a second time;
-    - a run that already failed, unless the lost job (`lost_job_id`) is its only unfinished job: then the
-      cancel kills nothing else and only that job is re-run (`rerun_job`, POST /actions/jobs/{id}/rerun),
-      so the red stays as it is. Run 41150189497 (PR #28544, 2026-10-31): `cmux-next fast tier` on
-      glaeda-side-std-xcode-26.6 queued from 00:36Z with no runner while newer jobs on that label ran, kept
-      here for 2.5 hours because `cmux-next swift test` had failed, until a person failed it over by hand.
-      Re-running the run's failed jobs would repeat that red, so any other unfinished job keeps the rule;
+    - an attempt a bot started (bot_rerun()) at LOST_FAILOVER_MAX_ATTEMPT or later. Run 40398277457, the
+      rescue's attempt 2, was cancelled at its head and never re-run, because its re-run waited on a later
+      sweep; this sweep re-runs what it cancels (rerun_open_head()), so a bot's attempt below the bound that
+      is lost again fails over again, and the bound keeps that finite;
+    - a run that already failed, unless its unfinished jobs are all lost. When the lost job (`lost_job_id`)
+      is the only one, the cancel kills nothing else and only that job is re-run (`rerun_job`, POST
+      /actions/jobs/{id}/rerun), so the red stays as it is. Run 41150189497 (PR #28544, 2026-10-31):
+      `cmux-next fast tier` on glaeda-side-std-xcode-26.6 queued from 00:36Z with no runner while newer jobs
+      on that label ran, kept here for 2.5 hours because `cmux-next swift test` had failed, until a person
+      failed it over by hand. When several are (`lost_job_ids`), a one-job re-run would leave the others
+      cancelled, so the run's failed jobs are re-run, the red among them: run 41192867338 (PR #28562,
+      2026-10-31) held `cmux-next fast tier` and `cmux-next swift test` lost for 2h16m beside a failed
+      `cmux-next daemon tests`. Any other unfinished job keeps the rule;
     - a run a newer run at its head took over, which reports for that head;
     - no re-run state (rerun_state) or no cmux-bot token this sweep (cmux_bot): the cancel could not be
       carried or re-run as cmux-bot, so nothing is cancelled.
@@ -1692,12 +1714,13 @@ def open_head_lost(run: Mapping[str, Any], run_jobs: Sequence[Mapping[str, Any]]
     if protected_reason(run) is not None or is_delivery_run(str(run.get("path") or ""), run.get("name"),
                                                             run.get("display_title")):
         return keep("a nightly, DEV or promote run")
-    if bot_rerun(run):
+    if bot_rerun(run) and int(run.get("run_attempt") or 1) >= LOST_FAILOVER_MAX_ATTEMPT:
         return keep(f"attempt {run.get('run_attempt')} is a bot's re-run")
     failed = any(job.get("status") == "completed" and job.get("conclusion") == "failure" for job in run_jobs)
-    unfinished = [job for job in run_jobs if job.get("status") != "completed"]
-    alone = lost_job_id is not None and [job.get("id") for job in unfinished] == [lost_job_id]
-    if failed and not alone:
+    unfinished = [job.get("id") for job in run_jobs if job.get("status") != "completed"]
+    alone = lost_job_id is not None and unfinished == [lost_job_id]
+    all_lost = len(unfinished) > 1 and None not in unfinished and set(unfinished) <= set(lost_job_ids)
+    if failed and not (alone or all_lost):
         return keep("the run already failed, and a re-run of its failed jobs would repeat that red")
     if newer is not None:
         return keep(f"newer run {newer.get('id')} at its head took over")
@@ -1705,9 +1728,11 @@ def open_head_lost(run: Mapping[str, Any], run_jobs: Sequence[Mapping[str, Any]]
         return keep("no re-run state to fall back on")
     if not cmux_bot:
         return keep("no cmux-bot token this sweep to re-run it")
-    if failed:
+    if failed and alone:
         return LostVerdict("cancel", f"{reason}: {OPEN_HEAD_JOB_FAILOVER}", rerun=True, pr=pr, open_head=True,
                            rerun_job=lost_job_id)
+    if failed:
+        return LostVerdict("cancel", f"{reason}: {OPEN_HEAD_LOST_JOBS_FAILOVER}", rerun=True, pr=pr, open_head=True)
     return LostVerdict("cancel", f"{reason}: {OPEN_HEAD_FAILOVER}", rerun=True, pr=pr, open_head=True)
 
 
@@ -1761,7 +1786,7 @@ def classify_lost(
     at_head = open_pr_at_head(run, prs)
     if at_head is not None:
         return open_head_lost(run, run_jobs, evidence, at_head, rerun_state=rerun_state, newer=newer,
-                              cmux_bot=cmux_bot, lost_job_id=lost.job_id)
+                              cmux_bot=cmux_bot, lost_job_id=lost.job_id, lost_job_ids=lost.job_ids)
     if state == "stale":
         return LostVerdict("cancel", f"{evidence}; {why}", pr=pr)
     if bot_rerun(run):
