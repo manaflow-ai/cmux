@@ -81,7 +81,14 @@ await requireBrowserLane("agent-pane-paste-anywhere.test.ts", async () => {
 
   const inPrompt = (page: Page) =>
     page.evaluate(() => document.activeElement?.closest(".acpmux-composer-prompt") != null);
-  const promptText = (page: Page) => page.locator(PROMPT).evaluate((node) => node.textContent ?? "");
+  /// The prompt's typed text: an attachment in it is its chip, whose own text (a failed original's Retry,
+  /// #28833) is no text of the prompt's.
+  const promptText = (page: Page) =>
+    page.locator(PROMPT).evaluate((node) => {
+      const copy = node.cloneNode(true) as Element;
+      for (const chip of copy.querySelectorAll("[data-inline-attachment]")) chip.remove();
+      return copy.textContent ?? "";
+    });
 
   /// Dispatches the paste the app's Paste sends to the focused element, carrying `clipboard`; a PNG
   /// drawn in the page stands for a copied image. Returns whether the page cancelled it.
