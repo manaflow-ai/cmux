@@ -33,11 +33,28 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         var height: CGFloat
     }
 
+    /// A row's heights per disclosure state (`Item.fold`): closing a row again takes the
+    /// height it was measured at closed, at once, instead of an estimate until a cell
+    /// measures it again (a jump below the row, and a wrong height on a busy device).
+    private struct RowHeights {
+        /// Few states per row (each disclosure open or closed): the newest few are kept.
+        static let limit = 4
+        private(set) var states: [Measured] = []
+
+        func height(fold: Int) -> Measured? { states.last { $0.fold == fold } }
+
+        mutating func record(_ measured: Measured) {
+            states.removeAll { $0.fold == measured.fold }
+            states.append(measured)
+            if states.count > Self.limit { states.removeFirst(states.count - Self.limit) }
+        }
+    }
+
     private(set) var items: [Item] = []
     private var heights: [CGFloat] = []
     private var tops: [CGFloat] = []
     private var index: [String: Int] = [:]
-    private var measured: [String: Measured] = [:]
+    private var measured: [String: RowHeights] = [:]
     private var dirtyFrom: Int? = 0
     private var width: CGFloat = 0
     private(set) var contentHeight: CGFloat = 0
@@ -83,7 +100,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     }
 
     private func height(for item: Item) -> CGFloat {
-        guard !item.exact, let known = measured[item.id], known.fold == item.fold else { return item.estimate }
+        guard !item.exact, let known = measured[item.id]?.height(fold: item.fold) else { return item.estimate }
         return known.width == width || width == 0 ? known.height : item.estimate
     }
 
@@ -105,8 +122,8 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     /// The height a cell measured for this row's current revision at this width, if any:
     /// a cell showing it again needs no SwiftUI sizing pass.
     func knownHeight(of id: String) -> (height: CGFloat, width: CGFloat)? {
-        guard let row = index[id], row < items.count, let known = measured[id], known.revision == items[row].revision,
-              known.fold == items[row].fold else { return nil }
+        guard let row = index[id], row < items.count, let known = measured[id]?.height(fold: items[row].fold),
+              known.revision == items[row].revision else { return nil }
         return (known.height, known.width)
     }
 
@@ -207,7 +224,8 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         guard row < items.count else { return false }
         measurements += 1
         let item = items[row]
-        measured[item.id] = Measured(revision: item.revision, fold: item.fold, width: width, height: preferred.size.height)
+        measured[item.id, default: RowHeights()].record(Measured(revision: item.revision, fold: item.fold, width: width,
+                                                                 height: preferred.size.height))
         return abs(preferred.size.height - heights[row]) > 0.25
     }
 
