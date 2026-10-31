@@ -24,8 +24,9 @@ struct ApprovalCardView: View {
             if let detail = banner.detail {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(banner.detailLabel).font(.caption).foregroundStyle(.secondary)
-                    // Wraps (up to four lines): what is approved is never cut to one line.
-                    Text(detail).font(.system(.callout, design: .monospaced)).lineLimit(4)
+                    // Wraps in full, as the plain view showed it: what is approved is never cut.
+                    // The Mac caps the title (PROTOCOL.md), so the card stays inside the long look.
+                    Text(detail).font(.system(.callout, design: .monospaced))
                         .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                 }
             }
