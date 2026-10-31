@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1227,
+    "entries": 1228,
     "shortcuts": 189
   },
   "sections": [
@@ -6750,6 +6750,12 @@
         {
           "id": "appearance.customize",
           "title": "Customize Appearance…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "settings.customizeMenus",
+          "title": "Customize Right-Click Menus…",
           "shortcut": null,
           "command": null
         },
