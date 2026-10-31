@@ -75,8 +75,8 @@ extension IPhoneHostService {
     private var phoneRows: [JSONValue] {
         let local = (pairedStore.current?.devices ?? []).filter { $0.transport == .iroh }.map { phone -> JSONValue in
             ["id": .string("iroh:" + phone.id), "title": .string(IPhoneHostStrings.phoneAccessPhone(phone.name)),
-             "subtitle": .string(IPhoneHostStrings.pairKey(phone.identityKey)), "paired": .bool(true),
-             "fingerprint": .string(phone.identityKey), "connected": .bool(false), "removable": .bool(true),
+             "subtitle": .string(IPhoneHostStrings.pairKey(phone.fingerprint)), "paired": .bool(true),
+             "fingerprint": .string(phone.fingerprint), "connected": .bool(false), "removable": .bool(true),
              "transport": .string("iroh"), "path": .null]
         }
         // The iPhone-host toggle does not hide the separately served Phone Access list.

@@ -7,6 +7,14 @@ import Testing
 /// Fleet capture of the real dialog with synthetic device/account data. Run this test by name;
 /// the before image has no prompt, matching the base behavior. No admission is granted.
 @MainActor struct PhoneAdmissionCaptureTests {
+    /// The window backdrop, drawn in `draw(_:)` so `cacheDisplay` paints it in the window's appearance.
+    final class Backdrop: NSView {
+        override func draw(_ dirtyRect: NSRect) {
+            NSColor.windowBackgroundColor.setFill()
+            dirtyRect.fill()
+        }
+    }
+
     /// Writes before/after stills, 2x, in light and dark, to `artifacts/phone-access-capture/` at the
     /// repository root (found from this file), so a fleet step can return them by path.
     @Test(arguments: ["light", "dark"])
@@ -22,8 +30,8 @@ import Testing
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: appearance == "dark" ? .darkAqua : .aqua)
         defer { window.close() }
-        let content = try #require(window.contentView)
-        content.wantsLayer = true
+        let content = Backdrop(frame: NSRect(x: 0, y: 0, width: 560, height: 360))
+        window.contentView = content
         let caption = NSTextField(labelWithString: "Phone Access")
         caption.frame = NSRect(x: 24, y: 320, width: 200, height: 24)
         content.addSubview(caption)
@@ -31,7 +39,6 @@ import Testing
             content.layoutSubtreeIfNeeded()
             var png: Data?
             window.effectiveAppearance.performAsCurrentDrawingAppearance {
-                content.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
                 let size = content.bounds.size
                 guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2),
                                                     pixelsHigh: Int(size.height * 2), bitsPerSample: 8,
