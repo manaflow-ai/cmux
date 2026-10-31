@@ -957,11 +957,20 @@ impl Mux {
                 let column = LayoutColumn::single(split_id.expect("column id"), width, pane_id);
                 let base = base_column_id.expect("viewport column reserved a base id");
                 // `direction: "left"` (`column-left-v1`) opens the column before the target's.
-                let before = split_direction.is_some_and(|(_, before_target)| before_target);
+                let left = split_direction.is_some_and(|(_, before_target)| before_target);
+                let columns = layout_invariants::project_screen(screen);
                 anyhow::ensure!(
-                    screen.insert_layout_column_beside(target, base, column, before),
+                    screen.insert_layout_column_beside(target, base, column, left),
                     "target pane disappeared from its layout"
                 );
+                // R3b: the new column is new space; every column there keeps its width.
+                // A refusal puts the screen back as it was: nothing of the create stays.
+                if let Err(error) =
+                    layout_invariants::ensure_columns_kept(operation, &columns, screen)
+                {
+                    screen.restore_layout_snapshot(before);
+                    return Err(error);
+                }
             } else if let Some((dir, before_target)) = split_direction {
                 let split = split_id.expect("split direction reserves an id");
                 let in_viewport_column = screen.layout_columns_active();
