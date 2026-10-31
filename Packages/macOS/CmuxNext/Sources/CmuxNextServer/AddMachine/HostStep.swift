@@ -26,9 +26,12 @@ public nonisolated struct HostStep: RawRepresentable, Hashable, Sendable, Codabl
     public static let peer = HostStep(rawValue: "peer")
     public static let peerBack = HostStep(rawValue: "peer-back")
     public static let identity = HostStep(rawValue: "identity")
+    /// The machine lists this Mac's cmux app key, so the app here may answer its agents' prompts
+    /// (acpmux `host_approvals.rs`). Never a failure: without it, prompts are answered on that machine.
+    public static let approvals = HostStep(rawValue: "approvals")
 
     /// The steps in the order they run. A newer cmux-tui may send others; they show by their raw name.
-    public static let known: [HostStep] = [.reach, .install, .daemon, .update, .harness, .peer, .peerBack, .identity]
+    public static let known: [HostStep] = [.reach, .install, .daemon, .update, .harness, .peer, .peerBack, .identity, .approvals]
 }
 
 public nonisolated enum HostStepState: String, Equatable, Sendable, Codable {
