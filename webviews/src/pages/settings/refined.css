@@ -108,6 +108,7 @@
 
 :root[data-settings-look="refined"] .settings .section-link:hover { background: var(--polish-hover); }
 :root[data-settings-look="refined"] .settings .section-icon { color: var(--polish-muted); }
+:root[data-settings-look="refined"] .settings .sidebar-section-title { color: var(--polish-muted); }
 :root[data-settings-look="refined"] .settings .section-link[aria-current] .section-icon { color: var(--polish-ink); }
 :root[data-settings-look="refined"] .settings .section-icon svg { width: 16px; height: 16px; }
 
@@ -205,7 +206,7 @@
   border-color: transparent;
   background: color-mix(in srgb, var(--polish-ink) 16%, transparent);
 }
-:root[data-settings-look="refined"] .settings .switch .knob { border-color: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / 0.2); border-radius: 50%; }
+:root[data-settings-look="refined"] .settings .switch .knob { border-color: #fff; box-shadow: var(--elevation-1); border-radius: 50%; }
 :root[data-settings-look="refined"] .settings .switch[aria-checked="true"] { background: var(--accent); }
 :root[data-settings-look="refined"] .settings .switch[aria-checked="true"] .knob { border-color: var(--on-accent); }
 :root[data-settings-look="refined"] .settings .segmented { padding: 2px; border-radius: 8px; background: var(--polish-hover); }

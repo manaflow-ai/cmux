@@ -21,7 +21,7 @@ import { AnsweredBy, AuthorChip } from "./multiplayer/Faces";
 import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
 import { flushSync } from "react-dom";
 import { composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
-import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind } from "./environments";
+import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, thisMacName } from "./environments";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { restoreForkSource } from "./handoff/restoreForkSource";
 import { rowPresence } from "./conversation/rowPresence";
@@ -52,9 +52,11 @@ import {
   isContinuationFooter,
   QUEUED_MESSAGE,
   PENDING_MESSAGES,
+  LANE_NOTICE_BATCH,
 } from "./model";
-import { ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
+import { lacksImageBytes, ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
 import { pendingMessagesRow, searchablePendingRows } from "./conversation/pendingMessages";
+import { LaneNoticeBatch } from "./conversation/LaneNoticeBatch";
 import { PendingMessagesCard } from "./conversation/PendingMessagesCard";
 import {
   QueuedMessageCard,
@@ -118,6 +120,14 @@ import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
+import {
+  clearScrollOrigin,
+  layoutScrollTop,
+  physicalScrollTop,
+  retainScrollOrigin,
+  scrollOrigin,
+  writeAnchorScrollTop,
+} from "./conversation/scrollCoordinates";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import { composerDraft, DRAFT_SETTLE_MS, notifyDraftActionsChanged, settleDraftWithin } from "./composerDraft";
 import { paneContext } from "./paneContext";
@@ -167,7 +177,7 @@ import { useCloudChatRecovery } from "./useCloudChatRecovery";
 import { cloudChatRecoveryActive, cloudChatUnavailable, type CloudChatIdentity } from "./cloudChatRecovery";
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
-import { byRecentUse, parseProjectRepos, projectRows } from "./projectRepos";
+import { byRecentUse, parseProjectRepos } from "./projectRepos";
 import { answerFromHome } from "./HomeInbox";
 import { HomeLists } from "./HomeLists";
 import { endsTurn, lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
@@ -217,7 +227,11 @@ import {
   type ProcessSource,
   useProcessRegistry,
 } from "./inspector/processes";
-import { useInspectorOpen } from "./inspector/inspectorState";
+import {
+  setInspectorOpen as setInspectorPanelOpen,
+  setInspectorSection,
+  useInspectorOpen,
+} from "./inspector/inspectorState";
 import { openCommand, opensProcessTerminal } from "./processTerminal";
 import { descendants, subagentChangesFolder, type SubagentScope } from "./inspector/subagentScope";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
@@ -250,6 +264,7 @@ import { WorkflowSideTab } from "./summary/WorkflowSideTab";
 import {
   openSubagentPane,
   revealedSubagent,
+  subagentTabTitle,
   useAutoOpenSubagents,
   useOpenNewSubagents,
 } from "./subagents/subagentPanes";
@@ -328,12 +343,19 @@ import {
 } from "./conversation/runInBackground";
 import { UserBubble } from "./conversation/UserBubble";
 import { ChiefPromptBubble } from "./conversation/ChiefPromptBubble";
-import { editableKey, editableSeqs, editableTurns, promptTurns } from "./conversation/editPrompt";
+import {
+  editableKey,
+  editableSeqs,
+  promptTurns,
+  trackEditableTurns,
+  type EditableTurns,
+} from "./conversation/editPrompt";
 import {
   clearFindHighlights,
   FIND_ACTIVE_HIGHLIGHT,
   FindReveal,
   findRowIndex,
+  findMemberRowId,
   isFindRow,
   paintFindHighlights,
   type ChatFind,
@@ -461,7 +483,7 @@ import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
-import { HostError, HostUnavailableLine } from "./HostError";
+import { HostError, HostUnavailableLine, HostWaitingLine } from "./HostError";
 import {
   AcpmuxRestartGate,
   hostErrorShows,
@@ -576,6 +598,7 @@ import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type RunMode } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
+import { PaneFeatureTips } from "./featureTips";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -584,7 +607,9 @@ import { SandboxRunView } from "./SandboxRunView";
 const loadDiffPanel = () => import("./DiffPanel");
 const DiffPanel = lazy(() => loadDiffPanel().then((module) => ({ default: module.DiffPanel })));
 
-type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
+type MeasurableRenderer = React.ComponentType<RowProps> & {
+  measure?: (row: AcpmuxRow, width: number) => number;
+};
 type NativeRegistry = Record<string, MeasurableRenderer>;
 /// `onOpenDiff` opens the changes of the turn holding `rowId`, at `path` when given; focus
 /// returns to `opener` when the view closes.
@@ -696,7 +721,11 @@ function emptySnapshot(): AcpmuxSnapshot {
 /// grew with the chat: it is written at most every SNAPSHOT_SAVE_MS, and at once as the page hides
 /// or unloads, so a reload still finds the latest one.
 const SNAPSHOT_SAVE_MS = 250;
-const snapshotSave: { next?: AcpmuxSnapshot; timer?: ReturnType<typeof setTimeout>; hooked?: boolean } = {};
+const snapshotSave: {
+  next?: AcpmuxSnapshot;
+  timer?: ReturnType<typeof setTimeout>;
+  hooked?: boolean;
+} = {};
 function writeSnapshot(): void {
   clearTimeout(snapshotSave.timer);
   snapshotSave.timer = undefined;
@@ -895,7 +924,13 @@ const keptAttachments: KeptAttachments = {
 /// Where chat `sessionId` rests, kept by its tab so a relaunch reopens it there (cx-6bgzj).
 const postScrollAnchor = (sessionId: string, anchor: ScrollAnchor | null) => {
   const place = { sessionId, rowId: anchor?.rowId ?? null, offset: anchor?.offset ?? 0 };
-  const write = anchorWrites.get(sessionId) ?? { sent: 0, kept: 0, inFlight: 0, failed: false, place };
+  const write = anchorWrites.get(sessionId) ?? {
+    sent: 0,
+    kept: 0,
+    inFlight: 0,
+    failed: false,
+    place,
+  };
   write.place = place;
   anchorWrites.set(sessionId, write);
   sendScrollAnchor(write);
@@ -949,7 +984,9 @@ const CHAT_DRAW_HOLD_MS = 10_000;
 /// Where chat `sessionId` rested when it was last shown; undefined when nothing is kept.
 const fetchScrollAnchor = async (sessionId: string): Promise<(ScrollAnchor & { sessionId: string }) | undefined> => {
   const anchor = await Promise.race([
-    callNative<{ rowId?: unknown; offset?: unknown } | null>("chat.scrollAnchor.get", { sessionId }).catch(() => null),
+    callNative<{ rowId?: unknown; offset?: unknown } | null>("chat.scrollAnchor.get", {
+      sessionId,
+    }).catch(() => null),
     new Promise<null>((resolve) => setTimeout(() => resolve(null), SCROLL_ANCHOR_READ_MS)),
   ]);
   return typeof anchor?.rowId === "string" && typeof anchor.offset === "number"
@@ -1031,7 +1068,12 @@ const trustSource: TrustSource = {
 const changesSource: ChangesSource = {
   diff: (scope) => callNative("git.diff", { scope, include_patch: true }),
   wholeFile: (scope, path) =>
-    callNative("git.diff", { scope, include_patch: true, paths: [path], context_lines: WHOLE_FILE_CONTEXT }),
+    callNative("git.diff", {
+      scope,
+      include_patch: true,
+      paths: [path],
+      context_lines: WHOLE_FILE_CONTEXT,
+    }),
   status: () => callNative("git.status", {}),
   commit: (params) => callNative("git.commit", params),
   push: (params) => callNative("git.push", params),
@@ -1171,7 +1213,9 @@ const MessageRow = memo(
                   type="button"
                   className="cv-user__cancel"
                   onClick={() =>
-                    void window.cmuxAcpmuxActions?.["chat.harness.cancelPrompt"]?.({ promptId: row.queued })
+                    void window.cmuxAcpmuxActions?.["chat.harness.cancelPrompt"]?.({
+                      promptId: row.queued,
+                    })
                   }
                 >
                   {t("switch.cancelPrompt")}
@@ -1532,7 +1576,9 @@ const QueuedMessageRow = memo(
 const PendingMessagesRow = memo(
   function PendingMessagesRow(props: RowProps) {
     const renderMessage = (message: AcpmuxRow) =>
-      message.kind === QUEUED_MESSAGE ? (
+      message.kind === LANE_NOTICE_BATCH ? (
+        <LaneNoticeBatch row={message} renderMessage={renderMessage} />
+      ) : message.kind === QUEUED_MESSAGE ? (
         <QueuedMessageRow {...props} row={message} />
       ) : (
         <MessageRow {...props} row={message} />
@@ -1541,6 +1587,9 @@ const PendingMessagesRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.githubRepository === b.githubRepository,
 );
+const LaneNoticeBatchRow = memo(function LaneNoticeBatchRow(props: RowProps) {
+  return <LaneNoticeBatch row={props.row} renderMessage={(row) => <MessageRow {...props} row={row} />} />;
+});
 /// Reply on another agent's message card (`chat.message.reply`): its sender gets it in the thread.
 const replyToMessage = (message: IncomingMessage, text: string) =>
   callNative<void>("chat.message.reply", {
@@ -1574,6 +1623,7 @@ const OfferResultRow = memo(
 );
 
 const NO_STARTED: readonly StartedSession[] = [];
+const NO_SESSION_IDS: ReadonlySet<string> = new Set();
 const NO_ROWS: readonly AcpmuxRow[] = [];
 const NO_EXPANDED: ReadonlySet<string> = new Set();
 const NO_SPAWNED: readonly AcpmuxSessionEntry[] = [];
@@ -1619,6 +1669,7 @@ const defaultRegistry: NativeRegistry = {
   [OFFER_RESULT]: OfferResultRow,
   [QUEUED_MESSAGE]: QueuedMessageRow,
   [PENDING_MESSAGES]: PendingMessagesRow,
+  [LANE_NOTICE_BATCH]: LaneNoticeBatchRow,
   [STARTED_SESSIONS]: StartedSessionsRow,
   typing: NoticeRow,
   permission: PermissionRow,
@@ -1920,6 +1971,8 @@ const RowFrame = React.memo(function RowFrame({
     lastTurn,
     report,
   ]);
+  const placedTop = top + THREAD_TOP;
+  const integralTop = Math.floor(placedTop);
   return (
     <article
       ref={ref}
@@ -1937,7 +1990,9 @@ const RowFrame = React.memo(function RowFrame({
       // `top`, not a transform: in the app (the page at its UI-scale zoom) a drag over a row placed
       // by `translateY` selected the line above the pointer (user 2026-10-21). A set `top` counts
       // from the thread's padding edge, not where an unset one sat, so it adds the padding.
-      style={{ top: top + THREAD_TOP }}
+      // Large CSS numeric offsets lose fractional bits in WebKit. Keep the integer offset and
+      // its subpixel remainder separate so animated row heights remain adjacent in long chats.
+      style={{ top: integralTop, marginTop: placedTop - integralTop }}
       onFocus={() => onFocus(row.id)}
     >
       {messageEntering ? (
@@ -2002,7 +2057,7 @@ export const FOLLOW_BOTTOM_DEADBAND_PX = 4;
 /// Where a scroller sits, read while its content still matches `totalHeight`.
 const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
   top: node.scrollTop,
-  atLatest: node.scrollTop >= totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX,
+  atLatest: layoutScrollTop(node) >= totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX,
 });
 
 /// Puts a following view at the latest row. Anything past the browser's rounding is corrected: the
@@ -2015,9 +2070,13 @@ function settleFollowBottom(node: HTMLElement, latest: number): boolean {
   const end = Math.ceil(latest - 0.01);
   // Where the write lands: a scroller already clamped there is at its end.
   const lands = Math.min(end, Math.max(0, node.scrollHeight - node.clientHeight));
-  if (Math.abs(lands - node.scrollTop) <= 0.5) return false;
-  node.scrollTop = end;
-  return true;
+  const moved = Math.abs(lands - node.scrollTop) > 0.5;
+  if (moved) node.scrollTop = end;
+  // Measurements above the view can move the logical end by half a pixel while the physical
+  // end stays rounded. Keep that fraction even when the browser already clamped to the end,
+  // so releasing follow before the next wheel does not inherit a half-pixel row jump.
+  retainScrollOrigin(node, latest);
+  return moved;
 }
 
 /// Scroll steps of rows mounted ahead in the scroll direction, capped in viewports.
@@ -2384,10 +2443,9 @@ export function VirtualTranscript({
   const scrollPacer = useRef<ReturnType<typeof createScrollPacer> | undefined>(undefined);
   scrollPacer.current ??= createScrollPacer((frame: ScrollFrame) => {
     if (!transcriptMounted.current) return;
-    // A rail jump, a wheel glide, a layout correction or any other frame callback may move the live
-    // scroller after an event queued this frame. The queued state is stale, but dropping it starves
-    // virtualization until motion stops. Commit the live offset and preserve the synchronous reader
-    // or jump intent instead.
+    // A wheel/default write or a rail jump may move the live scroller after an event queued this
+    // frame. The queued state is stale, but dropping it starves virtualization until motion stops.
+    // Commit the live offset and preserve the synchronous reader/jump intent instead.
     if (ref.current && Math.abs(ref.current.scrollTop - frame.top) > 0.5) {
       const node = ref.current;
       const top = node.scrollTop;
@@ -2401,19 +2459,21 @@ export function VirtualTranscript({
       });
       scrollRef.current = { top, delta: top - scrollRef.current.top || scrollRef.current.delta };
       // Route recovery through the authoritative setter so the parent callback and synchronous
-      // intent ref agree; a stale queued atLatest must not retake a parked reader. The flush below
-      // commits `followingRef.current`, which `follow` has just set, never `frame.atLatest`, so
-      // React state ends this batch with the same value as the ref and the parent.
-      followRef.current(atLatest);
+      // intent ref agree; a stale queued `atLatest` must not retake a parked reader.
+      flushSync(() => {
+        followRef.current(atLatest);
+        setScroll(scrollRef.current);
+      });
+      return;
     }
-    // One commit a frame, flushed in the pacer's own frame callback: React would otherwise render an
-    // update made here in a later task, after the frame paints with the rows of the last offset.
-    acpmuxPerf.timed("flush.scroll", () =>
+    acpmuxPerf.timed("flush.scroll", () => {
       flushSync(() => {
         setScroll(scrollRef.current);
+        // Upward intent can arrive before the browser's default moves the offset. Even at the
+        // queued frame's exact position, its old follow state must not replace that live intent.
         setFollowing(followingRef.current);
-      }),
-    );
+      });
+    });
   });
   const queueScroll = (top: number, atLatest: boolean) => {
     // Keep the intent ref synchronous so a second scroll event before the next frame sees the
@@ -2585,7 +2645,10 @@ export function VirtualTranscript({
     { rows: readonly AcpmuxRow[]; layout: ConversationLayout; width: number; sessionId?: string } | undefined
   >(undefined);
   /// Estimated heights by row object, for the registry they were measured with.
-  const rowHeights = useRef<{ registry: NativeRegistry; heights: RowHeights }>({ registry, heights: new WeakMap() });
+  const rowHeights = useRef<{ registry: NativeRegistry; heights: RowHeights }>({
+    registry,
+    heights: new WeakMap(),
+  });
   const measurementSession = useRef(sessionId);
   if (measurementSession.current !== sessionId) {
     // Row ids and versions are local to an acpmux session. A new session can reuse both, so
@@ -2996,10 +3059,9 @@ export function VirtualTranscript({
   const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
   /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
   const readerAt = useRef(Number.NEGATIVE_INFINITY);
-  /// When the reader's latest input moved the transcript up (wheel up, ArrowUp/PageUp/Home, an
-  /// upward drag) and the transcript has not processed a scroll event since. Any other input, and
-  /// the next processed scroll event, clears it: that event made the live offset the acknowledged one.
-  const readerUpAt = useRef(Number.NEGATIVE_INFINITY);
+  /// The last upward input has not yet been acknowledged by the native scroll event. A tiny real
+  /// wheel at the old end must not be mistaken for the browser's clamp window during a layout correction.
+  const readerUpPending = useRef(false);
   // Scroll frames re-render with the same rows; only rows, width or the registry
   // change an estimate.
   const estimated = useMemo(() => {
@@ -3208,7 +3270,8 @@ export function VirtualTranscript({
   const renderFollowing = sessionSwitched || following;
   // The content in view starts at the offset less `lift`: rows drawn up by it show content that much
   // further down.
-  const shownTop = renderScroll.top - lift;
+  const origin = !sessionSwitched && ref.current ? scrollOrigin(ref.current) : 0;
+  const shownTop = renderScroll.top - lift - origin;
   const ahead = scrollLeadRanges(
     layout,
     shownTop,
@@ -3223,7 +3286,7 @@ export function VirtualTranscript({
   // The rows a viewport either side of where the reader was also mount, in a deferred render
   // between frames: a scroll then finds the rows it brings in already drawn and measured instead
   // of building them in its own frame. A jump past them mounts only what it shows.
-  const warmTop = useDeferredValue(renderScroll.top);
+  const warmTop = useDeferredValue(renderScroll.top - origin);
   const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
   const scrolledRanges = mergeRowRanges(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]);
   // A held row (gutterSelect.ts) is at its index, or as far from the end as it was when older history
@@ -3317,10 +3380,12 @@ export function VirtualTranscript({
       const top = layout.tops[nextIndex] ?? 0;
       const maximum = Math.max(0, layout.totalHeight - node.clientHeight);
       const nextTop = Math.max(0, Math.min(maximum, top));
-      const delta = nextTop - node.scrollTop;
-      node.scrollTop = nextTop;
+      const physicalTop = physicalScrollTop(node, nextTop);
+      const before = node.scrollTop;
+      node.scrollTop = physicalTop;
+      const delta = node.scrollTop - before;
       scrollPacer.current?.cancel();
-      setScrollAt(nextTop, delta || nextTop - scrollRef.current.top);
+      setScrollAt(node.scrollTop, delta || node.scrollTop - scrollRef.current.top);
     },
     [layout, rows, unlift],
   );
@@ -3421,9 +3486,11 @@ export function VirtualTranscript({
   useLayoutEffect(() => {
     const switched = previousSession.current !== sessionId;
     if (switched) {
+      if (ref.current) clearScrollOrigin(ref.current);
       // A single VirtualTranscript is reused while the selected chat changes. Discard every
       // scroll anchor from the old session before the placement pass chooses the new session's
       // openAt position or latest row.
+      readerUpPending.current = false;
       previousSession.current = sessionId;
       wheelGlide.current?.stop();
       didOpenAtLatest.current = false;
@@ -3450,7 +3517,10 @@ export function VirtualTranscript({
     // reader sees moves.
     if (old && node && !following && appliedLift.current) {
       node.scrollTop -= appliedLift.current;
-      scrolledTo.current = { ...scrolledTo.current, top: scrolledTo.current.top - appliedLift.current };
+      scrolledTo.current = {
+        ...scrolledTo.current,
+        top: scrolledTo.current.top - appliedLift.current,
+      };
       // The rows mounted for this frame read the offset too, before its scroll event comes.
       const moved = node.scrollTop;
       scrollPacer.current?.cancel();
@@ -3479,26 +3549,26 @@ export function VirtualTranscript({
       // A viewport that grew clamps at the end the content had then: the room a queued prompt's
       // card leaves (`floor`) can make the content taller again in this same commit.
       const live = node.scrollTop;
+      const previousOrigin = scrollOrigin(node);
       // The browser rounds the height it clamps to, so the old end allows a pixel either way.
       // The live extent may already have shrunk and clamped the offset before reconciliation.
       // Keep that boundary as well as the old total so the clamp never reads as upward input.
       const end = Math.min(node.scrollHeight, old.totalHeight) - height;
-      const clamped = live < scrolledTo.current.top - 0.5 && live >= end - 1;
+      const recentUp = readerUpPending.current && live < scrolledTo.current.top;
+      const clamped = !recentUp && live < scrolledTo.current.top - 0.5 && live >= end - 1;
       // A reader's move can reach the live offset before its scroll event. Layout changes alone
       // never release or reacquire follow; the input window only identifies this event race.
       // A reader can already be parked before the next wheel/default write. The live offset is
       // still authoritative for that recent upward input; gating this on `following` reused the
       // stale acknowledged top and produced a one-frame jump when an unseen row remeasured.
-      // A parked reader's other input (a click, a downward key or wheel) does not move the view up,
-      // and neither does an upward input whose scroll event was already processed: a live offset
-      // above the acknowledged one then already holds a layout adjustment, and using it as the base
-      // would apply that row's height change twice. Only unprocessed upward input counts.
-      const inputAt = followingRef.current ? readerAt.current : readerUpAt.current;
+      // When already parked, only an unacknowledged upward input may explain a live offset above
+      // the stored one. A click or downward input refreshes readerAt too, but must not turn a
+      // layout correction into a new reader move (the base reader intent rule).
+      const inputAt = followingRef.current || readerUpPending.current ? readerAt.current : Number.NEGATIVE_INFINITY;
       const readerLeft =
-        !clamped &&
-        performance.now() - inputAt <= READER_SCROLL_MS &&
-        scrolledTo.current.top - live > FOLLOW_BOTTOM_DEADBAND_PX;
+        !clamped && performance.now() - inputAt <= READER_SCROLL_MS && scrolledTo.current.top - live > 0;
       if (readerLeft) follow(false);
+      if (readerUpPending.current && readerLeft) readerUpPending.current = false;
       // A real wheel can move the live offset before its scroll event reaches React. Keep that
       // movement for this pass and mark the view away from the latest row; otherwise the stored
       // bottom offset would immediately snap the reader back. Once the event is acknowledged,
@@ -3531,16 +3601,17 @@ export function VirtualTranscript({
         // so the row is found again by its id; at offset 0 too, when older history arrived above.
         // A row older history completed (a turn cut at the page's edge) has a new id: the next row
         // that kept its own anchors instead.
+        const logicalTop = top - previousOrigin;
         const nextTop = preserveScrollAnchorTop({
           oldLayout: old,
           newLayout: layout,
           oldRows,
           newRows: rows,
-          liveTop: top,
-          anchorTop: top,
+          liveTop: logicalTop,
+          anchorTop: logicalTop,
         });
-        if (nextTop !== undefined && (clamped || Math.abs(nextTop - top) > 0.5)) {
-          node.scrollTop = nextTop;
+        if (nextTop !== undefined && (clamped || nextTop !== logicalTop)) {
+          writeAnchorScrollTop(node, nextTop);
           // Keep React's rendered offset in the same frame as the anchor correction. Otherwise a
           // rounded DOM offset arrives through scroll later and can briefly show Jump to latest.
           scrollPacer.current?.cancel();
@@ -3574,10 +3645,12 @@ export function VirtualTranscript({
         setSeeking(false);
       } else {
         const top = at < 0 ? latest : Math.min(latest, layout.tops[at] + openAt!.offset);
-        node.scrollTop = top;
-        followTrace.set(top);
+        clearScrollOrigin(node);
+        if (at < 0) node.scrollTop = top;
+        else writeAnchorScrollTop(node, top);
+        followTrace.set(node.scrollTop);
         scrollPacer.current?.cancel();
-        setScrollAt(top, 0);
+        setScrollAt(node.scrollTop, 0);
         follow(top >= latest - 1);
         didOpenAtLatest.current = true;
         endSeek();
@@ -3612,7 +3685,7 @@ export function VirtualTranscript({
     if (!holding && !queueLeft.current) heldFor.current.clear();
     if (node && node.clientHeight > 0 && height > 0 && didOpenAtLatest.current) {
       scrolledTo.current = { top: node.scrollTop, atLatest: followingRef.current };
-      seenAnchor.current = restingAnchor(node.scrollTop, scrolledTo.current.atLatest, layout, rows);
+      seenAnchor.current = restingAnchor(layoutScrollTop(node), scrolledTo.current.atLatest, layout, rows);
     }
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     // The minimap's band reads the offset this pass settled on.
@@ -3654,7 +3727,11 @@ export function VirtualTranscript({
             host,
             id,
             !foldInputs.current.expanded.has(id),
-            { count: shown.length, idAt: (index) => shown[index]?.id, tops: foldInputs.current.layout.tops },
+            {
+              count: shown.length,
+              idAt: (index) => shown[index]?.id,
+              tops: foldInputs.current.layout.tops,
+            },
             foldInputs.current.sessionId,
           )
         : undefined;
@@ -3664,7 +3741,11 @@ export function VirtualTranscript({
         const placed = rowsRef.current;
         const { layout, sessionId } = foldInputs.current;
         return {
-          placed: { count: placed.length, idAt: (index: number) => placed[index]?.id, tops: layout.tops },
+          placed: {
+            count: placed.length,
+            idAt: (index: number) => placed[index]?.id,
+            tops: layout.tops,
+          },
           sessionId,
         };
       };
@@ -3695,10 +3776,10 @@ export function VirtualTranscript({
   const findIndex = findTargetRowId !== undefined ? findRowIndex(rows, findTargetRowId) : -1;
   const drawnId = rows[findIndex]?.id;
   const drawnCard = Boolean(rows[findIndex]?.ended);
-  // A match in a message of the group of waiting messages is that message's own: it is drawn in the
-  // group, under its own row id (PendingMessagesCard.tsx), and counted there.
-  const inGroup = rows[findIndex]?.kind === PENDING_MESSAGES && findTargetRowId !== drawnId;
-  const paintedId = inGroup ? findTargetRowId : drawnId;
+  // Pending and delivered notice batches retain the matched member for disclosure and highlighting.
+  const matchRowId = findMemberRowId(rows[findIndex], findTargetRowId);
+  const inGroup = matchRowId !== undefined;
+  const paintedId = matchRowId ?? drawnId;
   const revealing = useRef<string | undefined>(undefined);
   const targetKey =
     findTargetRowId !== undefined && findTargetOccurrence !== undefined && findQuery && drawnId !== undefined
@@ -3717,10 +3798,10 @@ export function VirtualTranscript({
             card: drawnCard,
             needle: findQuery.toLocaleLowerCase(),
             repaint: () => setRevealed((count) => count + 1),
-            ...(inGroup ? { matchRowId: findTargetRowId } : {}),
+            ...(matchRowId !== undefined ? { matchRowId } : {}),
           }
         : undefined,
-    [drawnId, drawnCard, findQuery, inGroup, findTargetRowId],
+    [drawnId, drawnCard, findQuery, matchRowId],
   );
   // Find chooses the reader's new place. Discard the previous scroll owners synchronously;
   // closing Find, a query edit or a measurement must never put that old place back.
@@ -3763,13 +3844,13 @@ export function VirtualTranscript({
     const top = layout.tops[findIndex];
     const bottom = top + layout.heights[findIndex];
     // In view where it draws (`lift` from its place while the rows follow a grown composer).
-    const drawn = node.scrollTop - liftRef.current;
+    const drawn = layoutScrollTop(node) - liftRef.current;
     if (top >= drawn && bottom <= drawn + node.clientHeight - dockSpaceRef.current) {
       findMoved(node);
       return;
     }
     unlift();
-    node.scrollTop = Math.max(0, top - node.clientHeight / 3);
+    node.scrollTop = physicalScrollTop(node, Math.max(0, top - node.clientHeight / 3));
     findMoved(node);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new target scrolls, not a layout change
   }, [targetKey]);
@@ -3779,7 +3860,13 @@ export function VirtualTranscript({
   const countReveal = useMemo(
     () =>
       reveal && revealIndex >= 0
-        ? { rowId: rows[revealIndex]!.id, card: false, needle: "", toolId: reveal.toolId, repaint: () => {} }
+        ? {
+            rowId: rows[revealIndex]!.id,
+            card: false,
+            needle: "",
+            toolId: reveal.toolId,
+            repaint: () => {},
+          }
         : undefined,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one reveal per key, once its row is drawn
     [reveal?.key, revealIndex >= 0],
@@ -3790,16 +3877,16 @@ export function VirtualTranscript({
     const top = layout.tops[revealIndex];
     const bottom = top + layout.heights[revealIndex];
     // In view where it draws (`lift` from its place while the rows follow a grown composer).
-    const drawn = node.scrollTop - liftRef.current;
+    const drawn = layoutScrollTop(node) - liftRef.current;
     if (top >= drawn && bottom <= drawn + node.clientHeight - dockSpaceRef.current) return;
     unlift();
     // The reader asked for this row: the view stops following the reply, or the run opening below
     // would pull it back to the latest line.
     const next = Math.max(0, top - node.clientHeight / 3);
     stopJump();
-    scrolledTo.current = { top: next, atLatest: false };
+    node.scrollTop = physicalScrollTop(node, next);
+    scrolledTo.current = { top: node.scrollTop, atLatest: false };
     follow(false);
-    node.scrollTop = next;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new reveal scrolls, not a layout change
   }, [reveal?.key, revealIndex >= 0]);
   useLayoutEffect(() => {
@@ -3906,13 +3993,14 @@ export function VirtualTranscript({
     // again once it shows.
     if (anchorDeferred.current && seenAnchor.current === undefined) return;
     const { layout: placed, rows: shown } = latestLayout.current;
-    const index = visibleLayoutRange(placed, node.scrollTop, 0, 0).first;
+    const logicalTop = layoutScrollTop(node);
+    const index = visibleLayoutRange(placed, logicalTop, 0, 0).first;
     const row = shown[index];
     const anchor: ScrollAnchor | null = anchorDeferred.current
       ? (seenAnchor.current ?? null)
       : scrolledTo.current.atLatest || !row
         ? null
-        : { rowId: row.id, offset: node.scrollTop - placed.tops[index] };
+        : { rowId: row.id, offset: logicalTop - placed.tops[index] };
     const key = JSON.stringify(anchor);
     if (key === reportedAnchor.current) return;
     reportedAnchor.current = key;
@@ -3958,6 +4046,7 @@ export function VirtualTranscript({
     // those values avoids forcing a style/layout flush from the send effect before the new row
     // paints; the following placement pass reconciles any drawn-height correction. A fractional
     // end is rounded up, as settleFollowBottom does, so WebKit's floor never rests a pixel short.
+    clearScrollOrigin(node);
     node.scrollTop = Math.max(0, Math.ceil(layout.totalHeight - height - 0.01));
     const top = node.scrollTop;
     scrolledTo.current = { top, atLatest: true };
@@ -3986,9 +4075,6 @@ export function VirtualTranscript({
     checkOlderNow.current();
     const node = event.currentTarget;
     const next = node.scrollTop;
-    // Every path below acknowledges `next`: upward input before this event is processed now, so a
-    // later live offset above it is layout work until the reader moves up again.
-    readerUpAt.current = Number.NEGATIVE_INFINITY;
     // A step of Jump to latest's glide: the view is following on its way to the end, not snapped
     // there (a first step inside the deadband read as layout work), and not stopped (a longer one
     // read as the reader's scroll up).
@@ -4020,14 +4106,15 @@ export function VirtualTranscript({
       Math.abs(next - scrolledTo.current.top) <= FOLLOW_BOTTOM_DEADBAND_PX;
     if (layoutDriven) {
       const latest = Math.max(0, layout.totalHeight - node.clientHeight);
-      const settled = settleFollowBottom(node, latest);
-      const resting = settled ? latest : next;
+      settleFollowBottom(node, latest);
+      const resting = node.scrollTop;
       scrolledTo.current = { top: resting, atLatest: true };
       followTrace.set(resting);
       queueScroll(resting, true);
       return;
     }
     const was = scrolledTo.current;
+    if (readerUpPending.current) readerUpPending.current = false;
     const measured = scrollPosition(node, layout.totalHeight);
     // A recent upward input is authoritative even when it moved only a pixel or two. The
     // deadband absorbs layout rounding, but must not turn a real trackpad step into bottom follow.
@@ -4048,7 +4135,7 @@ export function VirtualTranscript({
         clientHeight: node.clientHeight,
       });
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
-    seenAnchor.current = restingAnchor(next, scrolledTo.current.atLatest, layout, rows);
+    seenAnchor.current = restingAnchor(layoutScrollTop(node), scrolledTo.current.atLatest, layout, rows);
     queueScroll(next, scrolledTo.current.atLatest);
     if (onAnchor) {
       clearTimeout(anchorTimer.current);
@@ -4067,6 +4154,7 @@ export function VirtualTranscript({
     // The room the stack grew while scrolled up comes first, out of view, so following again moves
     // nothing and the glide runs to the end above the card instead of snapping there.
     takeRoom();
+    clearScrollOrigin(node);
     follow(true);
     if (focused) focusComposer?.();
     // cmux's animations off (ui.animations) or the system's Reduce Motion: it lands in one frame, and
@@ -4139,13 +4227,12 @@ export function VirtualTranscript({
       if (event?.type === "touchstart") touchY = (event as TouchEvent).touches[0]?.clientY;
       else if (touch) touchY = touch.clientY;
       readerAt.current = performance.now();
-      // Only the reader's latest input counts: a click or downward move after an upward one ends it.
-      readerUpAt.current = movingUp ? readerAt.current : Number.NEGATIVE_INFINITY;
       followTrace.input();
       // Release the follow intent synchronously when a reader starts moving up. The browser can
       // deliver the input before its scroll event; a streamed snapshot in that gap must not pin
       // the view back to the bottom. Capture the event so nested rows cannot commit first.
       if (movingUp) followIntent(false);
+      readerUpPending.current = movingUp;
       if (jumpTarget.current !== undefined) {
         stopJump();
         scrolledTo.current = { top: node?.scrollTop ?? 0, atLatest: false };
@@ -4160,11 +4247,19 @@ export function VirtualTranscript({
     };
     const readerReleased = () => {
       dragging = false;
+      readerUpPending.current = false;
+    };
+    const readerCanceled = (event: Event) => {
+      if (event.defaultPrevented && node?.contains(event.target as Node)) readerUpPending.current = false;
     };
     const ownerDocument = node?.ownerDocument;
     ownerDocument?.addEventListener("pointermove", readerMove, { capture: true, passive: true });
     ownerDocument?.addEventListener("pointerup", readerReleased, { capture: true });
     ownerDocument?.addEventListener("pointercancel", readerReleased, { capture: true });
+    ownerDocument?.addEventListener("lostpointercapture", readerReleased, { capture: true });
+    ownerDocument?.defaultView?.addEventListener("blur", readerReleased);
+    const canceledInputs = ["wheel", "keydown"] as const;
+    for (const name of canceledInputs) ownerDocument?.addEventListener(name, readerCanceled, { passive: true });
     const inputs = ["wheel", "pointerdown", "touchstart", "touchmove", "keydown"] as const;
     for (const name of inputs) node?.addEventListener(name, reader, { capture: true, passive: true });
     // A click on a disclosure line holds it where it is (foldAnchor.ts), before the row's own handler
@@ -4223,7 +4318,10 @@ export function VirtualTranscript({
                 held
                   ? {
                       session: heldSession.current,
-                      rows: held.map((row) => ({ ...row, fromEnd: rowsRef.current.length - row.index })),
+                      rows: held.map((row) => ({
+                        ...row,
+                        fromEnd: rowsRef.current.length - row.index,
+                      })),
                     }
                   : undefined,
               ),
@@ -4240,6 +4338,9 @@ export function VirtualTranscript({
       ownerDocument?.removeEventListener("pointermove", readerMove, { capture: true });
       ownerDocument?.removeEventListener("pointerup", readerReleased, { capture: true });
       ownerDocument?.removeEventListener("pointercancel", readerReleased, { capture: true });
+      ownerDocument?.removeEventListener("lostpointercapture", readerReleased, { capture: true });
+      ownerDocument?.defaultView?.removeEventListener("blur", readerReleased);
+      for (const name of canceledInputs) ownerDocument?.removeEventListener(name, readerCanceled);
       node?.removeEventListener("click", holdClicked, { capture: true });
       node?.removeEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
       for (const name of releases) node?.removeEventListener(name, release);
@@ -4347,12 +4448,8 @@ export function VirtualTranscript({
     pointedTurn.current = footer;
     markTurns();
   };
-  // Jump to latest shows once the latest message is JUMP_LATEST_DISTANCE below, and then stays shown
-  // until the view is back at it: following it again, at its end, or in a chat with nothing below.
-  // Read from the distance alone, it went off and on each time a gesture turned back across that
-  // line, restarting its fade (Leo 2026-10-28: "jump to bottom button be jumping around jittering and
-  // flickering like that").
-  const below = layout.totalHeight - height - renderScroll.top;
+  // Jump to latest remains shown once the reader is far behind, avoiding flicker near the threshold.
+  const below = layout.totalHeight - height - (renderScroll.top - origin);
   if (seeking || renderFollowing || below <= FOLLOW_BOTTOM_DEADBAND_PX) jumpShown.current = false;
   else if (below > JUMP_LATEST_DISTANCE) jumpShown.current = true;
   const behind = jumpShown.current;
@@ -4375,8 +4472,10 @@ export function VirtualTranscript({
         // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
         data-seeking={seeking || undefined}
         aria-busy={seeking || undefined}
-        data-fade-top={renderScroll.top > 0.5 || undefined}
-        data-fade-bottom={(!renderFollowing && layout.totalHeight - renderScroll.top - height > 0.5) || undefined}
+        data-fade-top={renderScroll.top - origin > 0.5 || undefined}
+        data-fade-bottom={
+          (!renderFollowing && layout.totalHeight - (renderScroll.top - origin) - height > 0.5) || undefined
+        }
         // Jump to latest stands in that band: the fade reaches past it, so rows (a date line) pass
         // out of sight behind it instead of reading through its glass.
         data-jump-shown={(jumpButton && behind) || undefined}
@@ -4391,7 +4490,7 @@ export function VirtualTranscript({
             sessionId={sessionId}
             layout={layout}
             scroller={ref}
-            scrollTop={renderScroll.top}
+            scrollTop={renderScroll.top - origin}
             // Above the room under the last row, so a composer that grows while the reader is scrolled
             // up leaves the map as it was, as it does the scrollbar.
             viewportHeight={height - room}
@@ -4422,12 +4521,15 @@ export function VirtualTranscript({
         <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
           <div
             className="acpmux-spacer"
-            style={{ height: layout.totalHeight, width: lane > 0 ? `calc(100% + ${lane}px)` : undefined }}
+            style={{
+              height: layout.totalHeight,
+              width: lane > 0 ? `calc(100% + ${lane}px)` : undefined,
+            }}
           >
             <div
               ref={thread}
               className="acpmux-thread"
-              style={lift ? { top: lift } : undefined}
+              style={{ top: `calc(${lift}px + var(--acpmux-scroll-origin, 0px))` }}
               onPointerOver={(event) => pointAt(event.target)}
               onPointerLeave={() => pointAt(null)}
             >
@@ -4815,7 +4917,19 @@ function AcpmuxPane() {
   /// handshake: the field types from its first render, a chat needs acpmux.
   const withSubmitAfterHandshake = (actions: NewTabScreenActions): NewTabScreenActions => ({
     ...actions,
-    onAsk: (...args) => whenHandshaken(() => actions.onAsk(...args)),
+    onAsk: (...args) => {
+      setNewTabStartPage(newTabGeneration);
+      newTabRetainsDraft.current = true;
+      return new Promise<void>((resolve, reject) => {
+        whenHandshaken(() => {
+          try {
+            Promise.resolve(actions.onAsk(...args)).then(() => resolve(), reject);
+          } catch (error) {
+            reject(error);
+          }
+        });
+      });
+    },
     onOpenSession: (...args) => whenHandshaken(() => actions.onOpenSession(...args)),
   });
   // An unsent chat can choose its folder even before an agent is available.
@@ -4875,6 +4989,8 @@ function AcpmuxPane() {
   const allShellRuns = useSyncExternalStore(shellRuns.subscribe, shellRuns.snapshot, shellRuns.snapshot);
   /// This Mac's name, from the handshake.
   const [machineName, setMachineName] = useState<string | undefined>();
+  // This Mac's own name (`localMachineName`): `machineName` names a seeded chat's machine instead.
+  const [localMachineName, setLocalMachineName] = useState<string | undefined>();
   const [cloudMachineID, setCloudMachineID] = useState<string | undefined>();
   const [cloudChatIdentity, setCloudChatIdentity] = useState<CloudChatIdentity>();
   const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
@@ -4911,8 +5027,10 @@ function AcpmuxPane() {
   // The pane keeps the last client's catalog until the next client's arrives;
   // ids only grow, so a new client never reads an older client's cache entry.
   const catalogClientId = useRef(0);
+
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   const [catalogSource, setCatalogSource] = useState<{ id: number; client: HarnessCatalogSource }>();
+
   /// A chat acpmux would not start because its folder harness needs the user's Enable or the
   /// folder's Trust answer first (`harness.needs_enable` / `harness.needs_trust`).
   const [blockedHarness, setBlockedHarness] = useState<HarnessBlock | undefined>();
@@ -5024,7 +5142,11 @@ function AcpmuxPane() {
   );
   const openArtifact = useCallback(
     (next: Artifact) =>
-      setArtifact((current) => ({ ...next, sessionId: artifactSession, opened: (current?.opened ?? 0) + 1 })),
+      setArtifact((current) => ({
+        ...next,
+        sessionId: artifactSession,
+        opened: (current?.opened ?? 0) + 1,
+      })),
     [artifactSession],
   );
   // Repository context follows the selected session, connection origin and cwd. A reconnect
@@ -5061,7 +5183,11 @@ function AcpmuxPane() {
   const checkpoints = useCheckpoints({
     request: callNative,
     target: snapshot.summary?.cwd
-      ? { cwd: snapshot.summary.cwd, sessionId: snapshot.sessionId, hostKind: snapshot.summary.hostKind }
+      ? {
+          cwd: snapshot.summary.cwd,
+          sessionId: snapshot.sessionId,
+          hostKind: snapshot.summary.hostKind,
+        }
       : undefined,
     online: snapshot.connection === "connected",
     strings: checkpointLabels,
@@ -5131,9 +5257,13 @@ function AcpmuxPane() {
   // Keep the same served/connected gate as ordinary forks, but do not use `forkable`, which excludes
   // a working chat (Leo, 2026-10-24).
   const editsServed = snapshot.canFork && connected && !snapshot.summary?.peer;
-  const editSeqs = editableTurns(editsServed ? snapshot.rows : [], snapshot.summary?.family);
-  const editSeqsKey = editableKey(editSeqs);
-  const stableEditSeqs = useMemo(() => editableSeqs(editSeqsKey), [editSeqsKey]);
+  const lastEditTurns = useRef<EditableTurns | undefined>(undefined);
+  const rowsForEdits = editsServed ? snapshot.rows : NO_ROWS;
+  const editFamily = snapshot.summary?.family;
+  const stableEditSeqs = useMemo(
+    () => (lastEditTurns.current = trackEditableTurns(rowsForEdits, editFamily, lastEditTurns.current)).seqs,
+    [rowsForEdits, editFamily],
+  );
   // Each prompt's own turn, for the Fork under its bubble; rebuilt only when the turns change.
   const promptSeqsKey = editableKey(promptTurns(forkable ? snapshot.rows : []));
   const stablePromptSeqs = useMemo(() => editableSeqs(promptSeqsKey), [promptSeqsKey]);
@@ -5423,7 +5553,10 @@ function AcpmuxPane() {
   const continueAvailable = canContinueIn(snapshot);
   /// Takes acpmux's trust refusal of a prompt (useFolderTrustAsk.ts): the question shows for the
   /// folder it named, and `again` sends the held prompt after Trust.
-  const trustRefused = useRef<((error: unknown, again?: () => void) => boolean) | undefined>(undefined);
+
+  const trustRefused = useRef<((error: unknown, again?: () => void, declined?: () => void) => boolean) | undefined>(
+    undefined,
+  );
   const trustCancelEpoch = useRef(0);
   const pendingTrustRefusal = useRef<
     | {
@@ -5433,12 +5566,14 @@ function AcpmuxPane() {
         cancelEpoch: number;
         error: unknown;
         again?: () => void;
+        declined?: () => void;
       }
     | undefined
   >(undefined);
   const trustRouteOwner = useRef<
     { client: AcpmuxDirectClient; generation: number; sessionId?: string; cancelEpoch: number } | undefined
   >(undefined);
+
   /// Keeps a send's gesture for the prompt acpmux held behind the trust question (heldPrompt.ts).
   const holdPrompt = useRef<(() => void) | undefined>(undefined);
   // A folder without a trust answer is asked about beside the chat's other permission asks as
@@ -5499,7 +5634,7 @@ function AcpmuxPane() {
       (pending.sessionId !== undefined && client.shownSession()?.sessionId !== pending.sessionId)
     )
       return;
-    if (trustRoute(pending.error, pending.again)) pendingTrustRefusal.current = undefined;
+    if (trustRoute(pending.error, pending.again, pending.declined)) pendingTrustRefusal.current = undefined;
   }, [trustRoute]);
   const individualPermission =
     snapshot.permission?.pending && !(snapshot.permissionGroups?.supported && snapshot.permission.groupId)
@@ -5512,10 +5647,12 @@ function AcpmuxPane() {
   // screencapture's own pick and answers the PNG; a cancelled pick answers no data, and a capture
   // that would not fit the image cap answers `tooLarge` with its name.
   const captureScreen = useCallback(async (mode: "screen" | "window") => {
-    const shot = await callNative<{ name?: string; mimeType?: string; data?: string; tooLarge?: boolean } | null>(
-      "composer.capture",
-      { mode },
-    ).catch(() => null);
+    const shot = await callNative<{
+      name?: string;
+      mimeType?: string;
+      data?: string;
+      tooLarge?: boolean;
+    } | null>("composer.capture", { mode }).catch(() => null);
     if (shot?.tooLarge) return { name: shot.name ?? "Screenshot.png", reason: "tooLarge" } as const;
     if (!shot?.data) return undefined;
     const bytes = Uint8Array.from(atob(shot.data), (char) => char.charCodeAt(0));
@@ -5528,7 +5665,12 @@ function AcpmuxPane() {
   // A chat on this Mac links a dropped or pasted folder, or a file no block takes, where it is.
   const localPaths = useCallback((kind: DroppedKind, files: File[]) => droppedPaths(kind, files, callNative), []);
   const searchFiles = useCallback<FileSearchSource>(
-    (query) => callNative("file.search", { ...(fileRoot ? { path: fileRoot } : {}), query, limit: FILE_SEARCH_LIMIT }),
+    (query) =>
+      callNative("file.search", {
+        ...(fileRoot ? { path: fileRoot } : {}),
+        query,
+        limit: FILE_SEARCH_LIMIT,
+      }),
     [fileRoot],
   );
   const chatShellRuns = useMemo(
@@ -5567,6 +5709,15 @@ function AcpmuxPane() {
     () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
     [snapshot.rows, snapshot.subagentViews],
   );
+  /// The name a subagent's pane tab shows (subagentPanes.ts subagentTabTitle): its own, else "Subagent of" the chat.
+  const subagentTitle = (id: string) =>
+    subagentTabTitle(
+      freshAgents.find((agent) => agent.id === id),
+      `${t("subagents.of")} ${chatName}`,
+    );
+  // For callbacks that keep one identity (showSubagent names a pane's tab with it).
+  const subagentTitleRef = useRef(subagentTitle);
+  subagentTitleRef.current = subagentTitle;
   const workflowAdapter = useMemo(createWorkflowAdapter, []);
   const workflows = useMemo(
     () => (workflowLabsEnabled && shownSessionId ? workflowAdapter(freshAgents, shownSessionId) : []),
@@ -5686,7 +5837,11 @@ function AcpmuxPane() {
         : NO_STARTED,
     [startedOn, spawned, offered, snapshot.sessionId],
   );
-  const startedKept = useRef<{ fresh: readonly StartedSession[]; key: string; started: readonly StartedSession[] }>({
+  const startedKept = useRef<{
+    fresh: readonly StartedSession[];
+    key: string;
+    started: readonly StartedSession[];
+  }>({
     fresh: NO_STARTED,
     key: "[]",
     started: NO_STARTED,
@@ -6323,15 +6478,28 @@ function AcpmuxPane() {
     ),
   );
   const stableBranches = useMemo(() => branchesFromKey(versionsKey), [versionsKey]);
-  const runningBranchSessions = useMemo(
-    () =>
-      new Set(
-        snapshot.sessions
-          .filter((entry) => entry.lane === "working" || entry.indicator === "working" || entry.status === "running")
-          .map((entry) => entry.sessionId),
-      ),
-    [snapshot.sessions],
-  );
+  // Which of the chats a prompt's versions open are working (UserBubble.tsx's spinner). Only those:
+  // every other chat starting or ending a turn (a sub-session, a lane) would make a new set, and
+  // with it new turn actions, which every received card and bubble reads and so draws again for.
+  // The same set while its members are the same.
+  const lastRunningBranches = useRef<ReadonlySet<string>>(NO_SESSION_IDS);
+  const runningBranchSessions = useMemo(() => {
+    if (stableBranches.size === 0) return (lastRunningBranches.current = NO_SESSION_IDS);
+    const versions = new Set<string>();
+    for (const branch of stableBranches.values()) for (const id of branch.sessions) versions.add(id);
+    const running = new Set(
+      snapshot.sessions
+        .filter(
+          (entry) =>
+            versions.has(entry.sessionId) &&
+            (entry.lane === "working" || entry.indicator === "working" || entry.status === "running"),
+        )
+        .map((entry) => entry.sessionId),
+    );
+    const last = lastRunningBranches.current;
+    if (running.size === last.size && [...running].every((id) => last.has(id))) return last;
+    return (lastRunningBranches.current = running);
+  }, [snapshot.sessions, stableBranches]);
   const restartChat = restartOwner({
     connected,
     sessionId: snapshot.sessionId,
@@ -6369,6 +6537,7 @@ function AcpmuxPane() {
             ),
         },
       }),
+
       ...(connected &&
         ((resend: (rowId: string, prompt: string) => Promise<unknown>) => ({
           retry: (rowId: string, prompt: string) => void resend(rowId, prompt).catch(() => undefined),
@@ -6404,6 +6573,7 @@ function AcpmuxPane() {
           const draft = await directClient.current?.resendPrompt(rowId, prompt);
           return callNative("chat.send", { text: draft?.input ?? prompt, attachments: draft?.attachments ?? [] });
         })),
+
       // Continue after a stop (Codex's) sends its prompt as the composer would: it shows as the
       // reader's prompt and starts the next turn, or queues behind one already sent. Like Restart
       // (restart.ts), never to a View Only chat, a subagent's read-only pane or where the composer
@@ -6539,7 +6709,11 @@ function AcpmuxPane() {
     const activity = turnRows(snapshot.rows, diffView.rowId).filter((row) => row.kind === "activity");
     const key = `${diffView.rowId}\u0000${activity.map((row) => `${row.id}:${row.version}`).join("|")}`;
     if (diffActivity.current?.key !== key)
-      diffActivity.current = { key, files: turnFiles(activity), pathsOnly: turnPathsOnly(activity) };
+      diffActivity.current = {
+        key,
+        files: turnFiles(activity),
+        pathsOnly: turnPathsOnly(activity),
+      };
     return diffActivity.current;
   }, [diffView, diffOpen, snapshot.rows]);
   const diffFiles = diffTurnFiles?.files;
@@ -6609,7 +6783,12 @@ function AcpmuxPane() {
     // Keyed by the chat too: another chat's rows never read as this one's.
     const key = `${snapshot.sessionId}\u0000${edit.id}\u0000${activity.map((row) => `${row.id}:${row.version}`).join("|")}`;
     if (lastEdit.current?.key !== key)
-      lastEdit.current = { key, rowId: edit.id, files: turnFiles(activity), pathsOnly: turnPathsOnly(activity) };
+      lastEdit.current = {
+        key,
+        rowId: edit.id,
+        files: turnFiles(activity),
+        pathsOnly: turnPathsOnly(activity),
+      };
     return lastEdit.current;
   }, [snapshot.rows, snapshot.sessionId]);
   // Its files are the diff's own (the checkpoint's once loaded), so each opens at its file there.
@@ -6668,6 +6847,10 @@ function AcpmuxPane() {
     setProjectDraft(named);
   }, []);
   const newTabGeneration = useNewTabAdoption(adoptNewTab);
+  // A start owns this visit's screen until accepted, even while a switch publishes queued rows.
+  // A new adoption has a different generation and never inherits this pending/error view.
+  const [newTabStartPage, setNewTabStartPage] = useState<number>();
+  const newTabRetainsDraft = useRef(false);
   useNewTabPlaces(setNewTab);
   useNewTabWeather(setNewTab);
   // Whether the page knows it is a New Tab page or a chat: the host's context came with the
@@ -6868,14 +7051,36 @@ function AcpmuxPane() {
   /// this pane when this is a subagent's pane or the host opens none.
   const showSubagent = useCallback((id: string, focus = true) => {
     if (subagentPane.current) return setSubagentView(id);
+    // Its tab takes the subagent's own name (its task; the Agent tool's description), never the chat's bare name.
+    const title = subagentTitleRef.current(id);
     // The pane the app opens is a new tab on this chat's own session (subagentPanes.ts). Hand the
     // chat over first, as openOwnTab does before `chat.openTab`, so that tab draws it from the
     // host's kept tail (tailCache.ts) before its own attach answers, instead of opening blank.
     directClient.current?.handOverCurrentTail();
-    void openSubagentPane(callNative, id, focus).then((opened) => {
+    void openSubagentPane(callNative, id, focus, title).then((opened) => {
       if (!opened && focus) setSubagentView(id);
     });
   }, []);
+  // A pane opened on a subagent shows the chat's other subagents in place, and its "Subagent of" pill goes
+  // back to the chat: its tab's name follows what it shows (review of #28497 at 995299ff). Not before
+  // the subagent it was opened on has shown, or the name the app gave the tab would flash away; and not
+  // while this page has no rows for the subagent yet (they load after the pane opens), which would name
+  // it "Subagent of" over the name the chat's page gave it.
+  const shownSubagentKnown = !!subagentView && freshAgents.some((agent) => agent.id === subagentView);
+  const shownSubagentTitle =
+    ownSubagentPane && subagentView && shownSubagentKnown ? subagentTitle(subagentView) : undefined;
+  const subagentShownOnce = useRef(false);
+  useEffect(() => {
+    if (!ownSubagentPane) return;
+    if (subagentView) {
+      subagentShownOnce.current = true;
+      if (!shownSubagentTitle) return;
+    } else if (!subagentShownOnce.current) return;
+    void callNative(
+      "chat.subagentShown",
+      subagentView ? { subagent: subagentView, title: shownSubagentTitle } : {},
+    ).catch(() => undefined);
+  }, [ownSubagentPane, subagentView, shownSubagentTitle]);
   const showWorkflowAgent = useCallback(
     (agent: WorkflowAgent) => {
       const workflow = workflows.find((entry) => entry.agents.some((candidate) => candidate.id === agent.id));
@@ -7044,6 +7249,21 @@ function AcpmuxPane() {
       workflows.length > 0 ? { list: workflows, onStop: stopSubagent, onOpenAgent: showWorkflowAgent } : undefined,
     [workflows, stopSubagent, showWorkflowAgent],
   );
+  // Compact from Session Info's Context and the composer ring's card sends the agent's own /compact
+  // with the reach a context-full failure's Compact has: only where the agent lists it, never to a
+  // View Only chat or a read-only pane, never the next chat during a switch's hold (#17537 had it on
+  // the ring; #20454 dropped its wiring).
+  const compactOffered = offersCompact(snapshot.commands);
+  const compactChat = useMemo(
+    () =>
+      restartChat && compactOffered
+        ? () => {
+            if (restartReaches(restartChat, sessionIdRef.current, directClient.current?.selectedSession))
+              void compactThrough(callNative)();
+          }
+        : undefined,
+    [restartChat, compactOffered],
+  );
   const inspector = useChatInspector({
     snapshot,
     machineName,
@@ -7074,6 +7294,7 @@ function AcpmuxPane() {
     onSaveEnvironment: undefined,
     // A failed MCP server's Reconnect in Connectors, where acpmux offers it (a Claude Code chat's).
     onReconnectMcp: snapshot.reconnectsMcp ? reconnectMcp : undefined,
+    onCompact: compactChat,
     // Quick Chat's panel has no room beside it for the side panel.
     onOpenDocument: quick ? undefined : openArtifact,
     onShowCall: quick ? undefined : showCall,
@@ -7089,6 +7310,21 @@ function AcpmuxPane() {
     // A handoff review's form is wider than the transcript's column: the chat's shift is measured against it.
     wide: reviewing,
   });
+  // The summary card is the fallback surface while the Session Info feature is disabled in the
+  // header state. Its open-in-pane row enables that same panel before revealing the requested list.
+  const revealInspector = inspector.reveal;
+  const openSummarySection = useCallback(
+    (section: "subagents" | "tasks") => {
+      if (revealInspector) {
+        revealInspector(section);
+        return;
+      }
+      setHeaderState({ inspector: true });
+      setInspectorSection(section, true);
+      setInspectorPanelOpen(true);
+    },
+    [revealInspector],
+  );
   // Labs: a workflow's card opens Session Info's Background tasks, which lists its phases and agents.
   const toggleSessionInfo = useRef(inspector.toggle);
   useLayoutEffect(() => {
@@ -7099,7 +7335,6 @@ function AcpmuxPane() {
     sessionId: "",
     commands: {},
   });
-  const revealInspector = inspector.reveal;
   useEffect(() => {
     const openCard = revealInspector
       ? () => {
@@ -7374,7 +7609,11 @@ function AcpmuxPane() {
   };
   /// Return's send in the Quick Composer: hand the chat to the sidebar once it lands.
   const startInBackground = (text: string, taken: Promise<unknown>) => {
-    const next = { pending: true, landed: false, background: { name: quickChatName(text), accepted: false } };
+    const next = {
+      pending: true,
+      landed: false,
+      background: { name: quickChatName(text), accepted: false },
+    };
     handOff.current = next;
     void taken.then(
       () => {
@@ -7512,6 +7751,8 @@ function AcpmuxPane() {
       remove: removeQueued,
       edit: async (promptId, text, images) => {
         const attachments = await queuedAttachments(images, readQueuedImage);
+        // An image that could not be read would be lost with the prompt: it stays queued.
+        if (lacksImageBytes(attachments)) return false;
         const removed = await removeQueued(promptId);
         if (removed) restoreComposerDraft(composerHandle, heldBack, text, attachments);
         return removed;
@@ -7600,8 +7841,7 @@ function AcpmuxPane() {
       else if (!audio.path) directClient.current?.notice(translate(recordingLeftOutNotice("tooLarge")));
       // A chat on another computer: the host sends its file there. Until it answers, the recording
       // is a pending chip that a send (Return, Send, the auto-send) waits for, as for a dropped
-      // file still uploading; one that fails says so on its chip, with Retry, and the send keeps
-      // waiting until Retry makes it or its × takes it out. A chip made after the
+      // file still uploading; one that fails says so on its chip, with Retry. A chip made after the
       // pane moved to another chat is that chat's (it names a file on that chat's machine).
       else
         composerHandle.current?.attachLater(
@@ -7635,6 +7875,14 @@ function AcpmuxPane() {
   /// old daemon again while it stops, hostRetry.ts).
   const [restartingAcpmux, setRestartingAcpmux] = useState(false);
   const [restartGate] = useState(() => new AcpmuxRestartGate());
+  /// When the handshake in flight began (`Date.now()` time), while it waits for acpmux; undefined
+  /// when none waits. The waiting line (HostWaitingLine) counts from it and offers Restart agent
+  /// service: a slow acpmux is never restarted by the app on its own (rule R5).
+  const [waitingSince, setWaitingSince] = useState<number | undefined>();
+  /// The host said it cannot restart what this wait waits on (a remote or Cloud chat, the Chief
+  /// home's acpmux, or no lookup of this app's acpmux in flight): the line keeps its time and drops
+  /// the button until the next wait.
+  const [restartUnavailable, setRestartUnavailable] = useState(false);
   // The host covers the pane with its loading state until this document first draws what it is:
   // the handshake's answer, or the host error when there is none (a failed start must show, not
   // stay behind the loading state). The frames before (no hero yet, "Connecting") stay hidden.
@@ -7754,6 +8002,7 @@ function AcpmuxPane() {
   const folderPick = useRef(0);
   const shownSession = useRef(snapshot.sessionId);
   shownSession.current = snapshot.sessionId;
+
   const requestFolder = useCallback(
     (cwd: string, use: (folder: string) => void, cancel?: () => void) => {
       const pick = ++folderPick.current;
@@ -7767,14 +8016,20 @@ function AcpmuxPane() {
       // The pick lands only in the chat it was made in: a chat switched to meanwhile gets nothing.
       const asked = { sessionId, ...visitOf(visit) };
       const stillHere = () => inThisVisit(asked, shownSession.current, trustVisit());
-      void pickFolder(callNative, cwd, (folder) => {
-        if (pick === folderPick.current && stillHere()) use(folder);
-      }).then((ask) => {
+      void pickFolder(
+        callNative,
+        cwd,
+        (folder) => {
+          if (pick === folderPick.current && stillHere()) use(folder);
+        },
+        cancel,
+      ).then((ask) => {
         if (ask && pick === folderPick.current) setFolderAsk({ ask, use, cancel, sessionId, ...visitOf(visit) });
       });
     },
     [trustVisit],
   );
+
   const freshRef = useRef(false);
   freshRef.current = freshChat && !snapshot.sessionId;
   /// The project the person picked in this pane's project picker, until they send in it: that send
@@ -7799,6 +8054,7 @@ function AcpmuxPane() {
     [requestFolder],
   );
   /// New Worktree (cx-lyqio.2): the new chat starts in a worktree of its folder, or says why not.
+
   const [worktreeError, setWorktreeError] = useState<{ message: string; sessionId?: string; visit?: string }>();
   const startInWorktree = useCallback(
     (cwd: string) => {
@@ -8089,7 +8345,13 @@ function AcpmuxPane() {
     window.cmuxAcpmuxDebug = createAcpmuxDebug({
       replaceRows(rows) {
         rowsRef.current = rows;
-        setSnapshot((current) => ({ ...current, rows, connection: "debug", isWorking: false, canLoadOlder: false }));
+        setSnapshot((current) => ({
+          ...current,
+          rows,
+          connection: "debug",
+          isWorking: false,
+          canLoadOlder: false,
+        }));
       },
       rowCount: () => rowsRef.current.length,
       sessionId: () => directClient.current?.selectedSession,
@@ -8160,6 +8422,8 @@ function AcpmuxPane() {
       try {
         acpmuxPerf.markAgent("handshakeStart");
         acpWire.lifecycle("handshake", { reconnect });
+        setWaitingSince(Date.now());
+        setRestartUnavailable(false);
         const host = await callNative<{
           protocolVersion: number;
           transport?: string;
@@ -8185,6 +8449,7 @@ function AcpmuxPane() {
           folderNeeded?: { reason?: unknown };
           pastTurns?: unknown;
           machineName?: unknown;
+          localMachineName?: unknown;
           cloudMachineID?: unknown;
           cloudAccount?: unknown;
           cloudCredentialRecoveryAvailable?: unknown;
@@ -8240,9 +8505,16 @@ function AcpmuxPane() {
         )
           // The chats list and peers stay (the New Tab page, the hero's projects and Recents draw from
           // them); the client's first frame replaces them.
-          setSnapshot((previous) => ({ ...emptySnapshot(), sessions: previous.sessions, peers: previous.peers }));
+          setSnapshot((previous) => ({
+            ...emptySnapshot(),
+            sessions: previous.sessions,
+            peers: previous.peers,
+          }));
         if (!reconnect) setSurface(readSurface(host.surface));
         setMachineName(typeof host.machineName === "string" && host.machineName ? host.machineName : undefined);
+        setLocalMachineName(
+          typeof host.localMachineName === "string" && host.localMachineName ? host.localMachineName : undefined,
+        );
         // Before the transcript's rows arrive: it opens where the reader left it (cx-6bgzj).
         // A woken page (its last one let go while hidden) comes back as it was left.
         const wake = !reconnect ? readWake(host.wake) : undefined;
@@ -8292,7 +8564,10 @@ function AcpmuxPane() {
           typeof host.promptTicket?.promptId === "string" &&
           typeof host.promptTicket.ticket === "string"
         )
-          pendingTicket = { promptId: host.promptTicket.promptId, ticket: host.promptTicket.ticket };
+          pendingTicket = {
+            promptId: host.promptTicket.promptId,
+            ticket: host.promptTicket.ticket,
+          };
         if (typeof host.harness === "string" && host.harness) pendingHarness = host.harness;
         if (typeof host.model === "string" && host.model) pendingModel = host.model;
         // Mock mode runs this same client against an in-page daemon.
@@ -8407,12 +8682,9 @@ function AcpmuxPane() {
         });
         // Every trust refusal (a new chat, a resumed one, a switch, a prewarm, a prompt) shows the
         // folder's one question above the composer; Trust re-runs the refused step (cx-nn3e).
-        client.onTrustRefused = (refusal, again) => {
+        client.onTrustRefused = (refusal, again, declined) => {
           if (directClient.current !== client) return;
           const shownSessionId = client.shownSession()?.sessionId;
-          // A New Tab has no shown session while ensureSession is creating its first one. A
-          // refusal in that window belongs to the client/generation that produced it; once a
-          // rendered session exists, reject a stale route from another selection.
           if (
             shownSessionId !== undefined &&
             sessionIdRef.current !== undefined &&
@@ -8428,9 +8700,9 @@ function AcpmuxPane() {
           routeCurrentTrustRefusal(
             current,
             trustRouteOwner.current,
-            () => trustRefused.current?.(refusal, again) ?? false,
+            () => trustRefused.current?.(refusal, again, declined) ?? false,
             () => {
-              pendingTrustRefusal.current = { ...current, error: refusal, again };
+              pendingTrustRefusal.current = { ...current, error: refusal, again, declined };
             },
           );
         };
@@ -8476,7 +8748,10 @@ function AcpmuxPane() {
           accepted?: () => void,
           steer = false,
           promptId?: string,
+          expectedSessionId?: string,
         ) => {
+          if (expectedSessionId && (directClient.current !== client || client.selectedSession !== expectedSessionId))
+            throw new Error(translate("switch.cancelled"));
           // The reader sent it: by default the transcript goes to its latest message now, even
           // scrolled up. With the preference off, only a reader already at the latest row follows;
           // an up-scroll keeps its row and offset while this prompt and its reply arrive below.
@@ -8491,7 +8766,7 @@ function AcpmuxPane() {
             counted = false;
           };
           try {
-            return await sendThrough(text, attachments, accepted, steer, promptId, handedOn);
+            return await sendThrough(text, attachments, accepted, steer, promptId, handedOn, expectedSessionId);
           } finally {
             handedOn();
           }
@@ -8499,7 +8774,12 @@ function AcpmuxPane() {
         /// The chat a trust refusal belongs to: the client, its selection generation and the session.
         type TrustOwner = TrustRefusalOwner<AcpmuxDirectClient>;
         // A trust refusal belongs to the request's selection and cancellation epoch.
-        const routeTrustFor = (owner: TrustOwner, error: unknown, again?: () => void): boolean => {
+        const routeTrustFor = (
+          owner: TrustOwner,
+          error: unknown,
+          again?: () => void,
+          declined?: () => void,
+        ): boolean => {
           if (!isTrustRefusal(error)) return false;
           return routeOwnedTrustRefusal(
             owner,
@@ -8513,7 +8793,8 @@ function AcpmuxPane() {
             pendingTrustRefusal,
             error,
             again,
-            () => trustRefused.current?.(error, again) ?? false,
+            () => trustRefused.current?.(error, again, declined) ?? false,
+            declined,
           );
         };
         // A failed row's Retry that acpmux refuses for the folder's trust shows the Trust question,
@@ -8534,6 +8815,7 @@ function AcpmuxPane() {
           steer: boolean,
           promptId: string | undefined,
           handedOn: () => void,
+          expectedSessionId?: string,
         ) => {
           // A New Tab send may create/select its session inside ensureSession. Route a refusal by
           // the client's current selection generation rather than a render-time hook closure:
@@ -8544,7 +8826,8 @@ function AcpmuxPane() {
             sessionId: client.shownSession()?.sessionId ?? sessionIdRef.current,
             cancelEpoch: trustCancelEpoch.current,
           };
-          const routeForSend: TrustRouter = (error, again) => routeTrustFor(sendOwner, error, again);
+          const routeForSend: TrustRouter = (error, again, declined) =>
+            routeTrustFor(sendOwner, error, again, declined);
           // acpmux holds the prompt while the folder's trust question is open (on session/new
           // or session/prompt): the question shows for the folder acpmux named, and Trust sends
           // the prompt the composer kept. `inComposer`: the composer still holds the prompt (or got it back); else it goes back.
@@ -8558,13 +8841,25 @@ function AcpmuxPane() {
               if (row) {
                 // After Trust, the row's whole run goes again, as its card's Retry sends it.
                 rowRetry.replayAfterTrust(error, routeForSend);
-              } else if (routeForSend(error, () => composerHandle.current?.send())) {
-                void heldPrompt.hold();
-                if (!inComposer) restorePrompt(text, attachments);
+              } else {
+                const retry =
+                  newTabRetainsDraft.current && expectedSessionId
+                    ? () =>
+                        void send(text, attachments, accepted, steer, promptId, expectedSessionId).catch(
+                          () => undefined,
+                        )
+                    : () => composerHandle.current?.send();
+                if (routeForSend(error, retry)) {
+                  void heldPrompt.hold();
+                  if (!newTabRetainsDraft.current && !inComposer) restorePrompt(text, attachments);
+                }
               }
             }
             throw error;
           };
+          const ownsSession = () =>
+            !expectedSessionId || (directClient.current === client && client.selectedSession === expectedSessionId);
+          if (!ownsSession()) throw new Error(translate("switch.cancelled"));
           // A harness switch holds the prompt in its own row until its session is ready, and
           // hands it back to the composer when the switch fails.
           const switchPromptId = promptId ?? crypto.randomUUID();
@@ -8596,6 +8891,7 @@ function AcpmuxPane() {
             if (isStartRefusal(error)) client.notice(failedSendText(error, false));
             return refused(error, Boolean(accepted));
           });
+
           // ensureSession may intentionally create/select the New Tab's first chat. Transfer the
           // send owner only after that successful handoff; a later navigation must not rewrite it.
           sendOwner = {
@@ -8605,11 +8901,14 @@ function AcpmuxPane() {
             // Creating the first session must not renew a canceled send's intent.
             cancelEpoch: sendOwner.cancelEpoch,
           };
+          if (!ownsSession()) throw new Error(translate("switch.cancelled"));
           await persistSession(sessionId);
+          if (!ownsSession()) throw new Error(translate("switch.cancelled"));
           if (client.trustGeneration !== sendOwner.generation || client.selectedSession !== sendOwner.sessionId) {
             if (!accepted) restorePrompt(text, attachments);
             throw new Error("agent_session.changed_during_send");
           }
+
           const turn = client
             .send(text, attachments, kept?.promptId, accepted, kept?.ticket, steer)
             .catch((error: unknown) => refused(error, Boolean(accepted)));
@@ -8621,12 +8920,14 @@ function AcpmuxPane() {
         };
         window.cmuxAcpmuxActions = {
           // `accepted` (in-page only): the composer holds the prompt until acpmux takes it.
-          "chat.send": ({ text, attachments, accepted, steer }) =>
+          "chat.send": ({ text, attachments, accepted, steer, expectedSessionId }) =>
             send(
               String(text ?? ""),
               Array.isArray(attachments) ? attachments : [],
               typeof accepted === "function" ? (accepted as () => void) : undefined,
               steer === true,
+              undefined,
+              typeof expectedSessionId === "string" ? expectedSessionId : undefined,
             ),
           "chat.cancel": () => client.cancel(),
           "chat.typing": async ({ text, sessionId }) =>
@@ -8749,6 +9050,7 @@ function AcpmuxPane() {
               peer ? String(peer) : undefined,
               noProject === true,
               peer && model ? String(model) : undefined,
+              newTabRetainsDraft.current,
             );
             await persistSession(started);
             return started;
@@ -8778,7 +9080,11 @@ function AcpmuxPane() {
                 return result;
               },
               (error: unknown) => {
-                const refused = error as { code?: unknown; detail?: unknown; reason?: unknown } | null;
+                const refused = error as {
+                  code?: unknown;
+                  detail?: unknown;
+                  reason?: unknown;
+                } | null;
                 if (typeof refused?.detail === "string") client.notice(refused.detail);
                 else if (refused?.reason === "harness.prompt_unavailable")
                   client.notice(translate("harnesses.enableUnavailable"));
@@ -8976,7 +9282,10 @@ function AcpmuxPane() {
             const id = String(sessionId);
             try {
               // `sender`: a message's sender, any listed chat (AgentPaneOfferOpen).
-              await postNative("chat.offer.open", { sessionId: id, ...(sender === true && { sender: true }) });
+              await postNative("chat.offer.open", {
+                sessionId: id,
+                ...(sender === true && { sender: true }),
+              });
             } catch (error) {
               // The app refused a session outside this chat's family: nothing opens, not even here.
               if (error instanceof NativeError && error.code === "chat.offer.refused") return;
@@ -9138,7 +9447,11 @@ function AcpmuxPane() {
         };
         notifyDraftActionsChanged();
         harnessSwitch.setHandlers({
-          restore: restorePrompt,
+          restore: (text, attachments) => {
+            // A failed New Tab start never surrendered this draft. Restoring it into the future
+            // chat composer too would duplicate the prompt and attachments after a successful retry.
+            if (!newTabRetainsDraft.current) restorePrompt(text, attachments);
+          },
           opened: (sessionId) => {
             void persistSession(sessionId);
             // The harness has started and probed its models: refresh the catalog behind the picker.
@@ -9217,6 +9530,7 @@ function AcpmuxPane() {
         }
       } finally {
         connecting = false;
+        setWaitingSince(undefined);
         // The Retry this attempt ran for (`retryNow`) has its answer.
         setRetryQueued(false);
         if (retryPending) {
@@ -9384,7 +9698,14 @@ function AcpmuxPane() {
     // Changes offers the chat's latest turn as the diff tab's Last turn (a chat on this Mac: `cwd`).
     const pair = id === HEADER_ACTIONS.changes && cwd ? latestTurnCheckpointPair(snapshot.rows) : undefined;
     const turn = pair ? { turn: { ...pair, show: false } } : {};
-    ignoreFailure(callNative("pane.action", { id, ...(cwd ? { cwd } : {}), ...(mode ? { mode } : {}), ...turn }));
+    ignoreFailure(
+      callNative("pane.action", {
+        id,
+        ...(cwd ? { cwd } : {}),
+        ...(mode ? { mode } : {}),
+        ...turn,
+      }),
+    );
   };
   const runHeaderActionRef = useRef(runHeaderAction);
   runHeaderActionRef.current = runHeaderAction;
@@ -9996,8 +10317,8 @@ function AcpmuxPane() {
     // Sandboxed isn't offered until a read answers, and the chat view offers Check again.
     sandboxView === undefined &&
     !sandboxDraftMoved &&
-    (sessionSelection?.state === "pending" || !snapshot.sessionId) &&
-    snapshot.rows.length === 0 &&
+    (newTabStartPage === newTabGeneration ||
+      ((sessionSelection?.state === "pending" || !snapshot.sessionId) && snapshot.rows.length === 0)) &&
     (handshaken || hostError === undefined);
   // Activity disconnects the hidden page's draft/attachment/choice holds during setup. Keep
   // the reload hold in the parent until the page is visible and its own effects reconnect.
@@ -10007,6 +10328,7 @@ function AcpmuxPane() {
       clearWorkflowSideTab();
     }
   }, [artifact, diffView, harnessesOpen, imageView, inspectorOpen, replaying, showNewTab, clearWorkflowSideTab]);
+  newTabRetainsDraft.current = showNewTab && newTabStartPage === newTabGeneration;
   const commandSession = showNewTab ? switchView.intent?.sessionId : undefined;
   const commandRevision = clientSnapshot.sessions.find((session) => session.sessionId === commandSession);
   const readSessionCommands = useCallback(
@@ -10143,7 +10465,9 @@ function AcpmuxPane() {
   /// reads it, from its first render, while its own is pending or if it fails (Codex review of
   /// #24274).
   /// `projects` undefined: not answered yet.
-  const [loadedProjects, setDirectProjects] = useState<{ page: number; projects?: Project[] }>({ page: 0 });
+  const [loadedProjects, setDirectProjects] = useState<{ page: number; projects?: Project[] }>({
+    page: 0,
+  });
   const projectsAnswered = loadedProjects.page === newTabGeneration && loadedProjects.projects !== undefined;
   const directProjects = projectsAnswered ? loadedProjects.projects! : NO_PROJECTS;
   const onNewTab = Boolean(newTab);
@@ -10254,7 +10578,12 @@ function AcpmuxPane() {
     for (const session of composerSnapshot.sessions) {
       const peer = session.peer ?? (session.hostKind === "cloud" ? session.host : undefined);
       if (!peer || typeof session.cwd !== "string" || !session.cwd || isAgentHome(session.cwd)) continue;
-      const project = { cwd: session.cwd, label: projectLabel(session.cwd), peer, host: session.host ?? peer };
+      const project = {
+        cwd: session.cwd,
+        label: projectLabel(session.cwd),
+        peer,
+        host: session.host ?? peer,
+      };
       remote.set(`${peer}\u0000${session.cwd}`, project);
     }
     const summary = composerSnapshot.summary;
@@ -10262,13 +10591,8 @@ function AcpmuxPane() {
     // The machine as the rows key it (ComposerContext.computerId): a peer, else a Cloud host.
     const peer = summary?.peer || (summary?.hostKind === "cloud" ? summary.host : undefined);
     return {
-      projects: [
-        ...projectRows(
-          newTabProjects.filter((project) => !isAgentHome(project.cwd)),
-          cwd?.replace(/(.)\/+$/, "$1"),
-        ),
-        ...remote.values(),
-      ],
+      // Every folder: the chooser lists one row per repository and finds the rest by search.
+      projects: [...newTabProjects.filter((project) => !isAgentHome(project.cwd)), ...remote.values()],
       current: cwd && !isAgentHome(cwd) ? cwd.replace(/(.)\/+$/, "$1") : undefined,
       currentPeer: peer,
       // In no project only when it is: its folder is agent-home, or the host starts it there. A chat
@@ -10542,6 +10866,18 @@ function AcpmuxPane() {
       onCancel={cancelPendingFolder}
     />
   ) : null;
+  const trustQuestion =
+    trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted") ? (
+      <TrustAsk
+        ask={trustAsk.ask}
+        agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
+        onTrust={trustAsk.trust}
+        onTrustRepo={trustAsk.trustRepo}
+        onDistrust={trustAsk.distrust}
+        onUndo={trustAsk.undo}
+        answers={answersTrust}
+      />
+    ) : undefined;
   const asks = hasBottomAsk ? (
     <div className="acpmux-permission acpmux-asks-stack">
       {trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted") && (
@@ -10555,6 +10891,7 @@ function AcpmuxPane() {
           answers={answersTrust}
         />
       )}
+
       {!trustPending && hasPermissionGroups && snapshot.permissionGroups && (
         <PermissionPanel
           state={snapshot.permissionGroups}
@@ -10663,9 +11000,10 @@ function AcpmuxPane() {
         ? {
             action: t("harness.enable"),
             onRetry: () =>
-              void callNative("chat.harness.enable", { folder: block.folder, id: block.harness }).catch(
-                () => undefined,
-              ),
+              void callNative("chat.harness.enable", {
+                folder: block.folder,
+                id: block.harness,
+              }).catch(() => undefined),
           }
         : {})}
     />
@@ -10890,6 +11228,7 @@ function AcpmuxPane() {
             chips={ComposerChips}
             permissionAccess={permissionAccess}
             onOpenContext={inspector.reveal ? () => inspector.reveal?.("context") : undefined}
+            onCompact={compactChat}
             draft={draft}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
             onTyping={quick ? undefined : postTyping}
@@ -10998,7 +11337,12 @@ function AcpmuxPane() {
                       throw error;
                     },
                   );
-                return callNative("chat.send", { text, attachments, accepted: () => accept(true), steer });
+                return callNative("chat.send", {
+                  text,
+                  attachments,
+                  accepted: () => accept(true),
+                  steer,
+                });
               };
               // The composer that holds the prompt: a refusal that comes once it is gone (the pane
               // swaps it when the chat's session starts) puts the prompt in the one shown now.
@@ -11113,7 +11457,7 @@ function AcpmuxPane() {
                       ...(snapshot.sessionId ? { sessionId: snapshot.sessionId } : {}),
                     })
             }
-            localName={machineName}
+            localName={thisMacName(localMachineName, machineName, composerSnapshot.summary)}
             environments={preview}
             {...(sandboxOffered ? { runMode: sandboxModeRows } : {})}
             onBrowseFolder={
@@ -11173,6 +11517,21 @@ function AcpmuxPane() {
       </>
     )
   );
+  // A handshake that still waits for acpmux: once it has waited long, one line says how long, with
+  // Restart agent service. The person decides; the app never restarts a slow acpmux by itself.
+  const restartStuck = () =>
+    void restartGate.run(
+      () =>
+        callNative<{ stopped?: unknown } | null>("acpmux.restartStuck").then((reply) => {
+          if (reply?.stopped !== true) setRestartUnavailable(true);
+        }),
+      {
+        cancelRetries: () => cancelRetry.current?.(),
+        changed: setRestartingAcpmux,
+        connected: () => !!directClient.current,
+        ask: () => retryHost.current?.(),
+      },
+    );
   // While the host recovers nothing shows (no card, no spinner, no button) and the composer stays
   // usable; a failure past its deadline, or a refusal, is one line (HostUnavailableLine).
   const hostErrorCard = (
@@ -11200,6 +11559,19 @@ function AcpmuxPane() {
       />
     </Notice>
   );
+  // One host line at a time, the newest state winning: a long wait replaces the line of an
+  // earlier failed handshake (HostWaitingLine's `otherwise`).
+  const hostLine =
+    waitingSince !== undefined ? (
+      <HostWaitingLine
+        since={waitingSince}
+        restarting={restartingAcpmux}
+        onRestart={restartUnavailable ? undefined : restartStuck}
+        otherwise={hostErrorCard}
+      />
+    ) : (
+      hostErrorCard
+    );
   // The floating chat's compact bar shows whether the chat is working or waiting on the user, and
   // the reply's last line.
   let lastReply: (typeof snapshot.rows)[number] | undefined;
@@ -11276,7 +11648,7 @@ function AcpmuxPane() {
             asks={
               <>
                 {asks}
-                {hostErrorCard}
+                {hostLine}
               </>
             }
             composer={composer}
@@ -11335,6 +11707,7 @@ function AcpmuxPane() {
             tools={chatTools}
             workflows={workflows}
             workflowActionsFor={workflowActionsFor}
+            onOpenInspector={openSummarySection}
           />
         </SubagentHarnessContext.Provider>
       </SubagentClockContext.Provider>
@@ -11489,6 +11862,7 @@ function AcpmuxPane() {
                       {sandboxUncheckedNotice && sandboxUnchecked}
                     </>
                   }
+                  startNotice={trustQuestion}
                   // The host answers only for a page on this Mac; another machine's keeps the refusal.
                   {...(!quick ? { localPaths } : {})}
                   template={screenTemplate(shownTemplate(newTab))}
@@ -11538,6 +11912,19 @@ function AcpmuxPane() {
                       chatCwd: startFolder,
                       requestFolder,
                       startsHere: () => !directClient.current?.startsOnSend,
+                      // A start belongs to this New Tab visit. Cmd-T adoption, chat selection,
+                      // or another start advances the marker and fences every late completion.
+                      // Harness starts may reconnect their client while the queued prompt waits;
+                      // direct starts remain tied to the client that received the click.
+                      startScope: (allowReconnect) => {
+                        const generation = newTabStartGeneration.current;
+                        const page = newTabGeneration;
+                        const client = directClient.current;
+                        return () =>
+                          newTabStartGeneration.current === generation &&
+                          newTabGeneration === page &&
+                          (allowReconnect || directClient.current === client);
+                      },
                       leave: () => setNewTab(undefined),
                       selectSession,
                       showAllChats,
@@ -11692,7 +12079,10 @@ function AcpmuxPane() {
                       onApplyWorktree={
                         snapshot.sessionId && localCwd
                           ? (key: string) =>
-                              callNative("git.worktree.apply", { session_id: snapshot.sessionId, idempotency_key: key })
+                              callNative("git.worktree.apply", {
+                                session_id: snapshot.sessionId,
+                                idempotency_key: key,
+                              })
                           : undefined
                       }
                       // Remove cleans the worktree up (cx-lyqio.5); discard only on "Remove anyway".
@@ -11711,7 +12101,10 @@ function AcpmuxPane() {
                         localCwd
                           ? ({ number, url }) =>
                               callNative("git.pullRequest", { action: "merge", number, url }).then((value) => {
-                                const result = value as { merged?: unknown; queued?: unknown } | null;
+                                const result = value as {
+                                  merged?: unknown;
+                                  queued?: unknown;
+                                } | null;
                                 if (result?.merged !== true && result?.queued !== true)
                                   throw new Error(translate("header.prMergeFailed"));
                                 void callNative("pane.tabState", { refresh: true })
@@ -11731,7 +12124,11 @@ function AcpmuxPane() {
                       previewUrl={previewUrl}
                       onPreview={(url, mode) => {
                         ignoreFailure(
-                          callNative("pane.action", { id: HEADER_ACTIONS.preview, ...(url ? { url } : {}), mode }),
+                          callNative("pane.action", {
+                            id: HEADER_ACTIONS.preview,
+                            ...(url ? { url } : {}),
+                            mode,
+                          }),
                         );
                         window.setTimeout(refreshTabState, 400);
                       }}
@@ -11757,6 +12154,8 @@ function AcpmuxPane() {
                     />
                   </div>
                 </header>
+                {/* A feature tip under its header control (featureTips.tsx; it portals out). */}
+                {!quick && !showNewTab && snapshot.sessionId && <PaneFeatureTips streaming={turnWorking} />}
                 {!inspector.on && !summaryCard.column && summaryPanel}
                 {!diffView && checkpoints.review}
                 {/* The lines under the header drop in from the top (ui/popupSurface.css `data-enter`). */}
@@ -11925,7 +12324,7 @@ function AcpmuxPane() {
                     />
                   </div>
                 )}
-                {hostErrorCard}
+                {hostLine}
                 <LiveTypingLine
                   sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                   fallback={snapshot.presence}
