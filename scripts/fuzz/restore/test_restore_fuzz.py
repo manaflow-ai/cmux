@@ -30,7 +30,8 @@ vd = load("verdict", os.path.join(HERE, "verdict.py"))
 
 
 def ws(name, tabs, panes=1):
-    return {"name": name, "tabs": {f"tab_{t}": f"term_{t}" for t in tabs}, "panes": [f"pane_{i}" for i in range(panes)]}
+    return {"name": name, "tabs": {f"tab_{t}": f"term_{t}" for t in tabs}, "panes": [f"pane_{i}" for i in range(panes)],
+            "raw_tabs": [f"tab_{t}" for t in tabs], "raw_terms": [f"term_{t}" for t in tabs]}
 
 
 class Oracle(unittest.TestCase):
@@ -65,9 +66,19 @@ class Oracle(unittest.TestCase):
     def test_effect_ok_catches_a_silent_loss(self):
         self.assertIsNone(rf.effect_ok("ws_create", {"name": "fz-3"}, self.confirmed,
                                        dict(self.confirmed, w3=ws("fz-3", ["d"])), {}))
-        self.assertIn("not listed", rf.effect_ok("ws_create", {"name": "fz-3"}, self.confirmed, self.confirmed, {}))
-        self.assertIn("still listed", rf.effect_ok("tab_close", {"ws": "w2", "tab": "tab_b"}, self.confirmed, self.confirmed, {}))
+        self.assertIsNotNone(rf.effect_ok("ws_create", {"name": "fz-3"}, self.confirmed, self.confirmed, {}))
+        self.assertIsNotNone(rf.effect_ok("tab_close", {"ws": "w2", "tab": "tab_b"}, self.confirmed, self.confirmed, {}))
         self.assertIsNone(rf.effect_ok("write", {"ws": "w1"}, self.confirmed, self.confirmed, {}))
+
+    def test_effect_ok_catches_collateral_change(self):
+        # Review finding 3: an ok split in fz-1 that also drops a tab of fz-2 is a silent loss.
+        p = {"ws": "w1", "pane": "pane_0", "dir": "right"}
+        after = {"w1": ws("fz-1", ["a", "x"], 2), "w2": ws("fz-2", ["b"], 2)}
+        self.assertIsNotNone(rf.effect_ok("split", p, self.confirmed, after, {}))
+        # A split that adds a tab but no pane is not a split.
+        no_pane = dict(self.confirmed, w1=ws("fz-1", ["a", "x"], 1))
+        self.assertIsNotNone(rf.effect_ok("split", p, self.confirmed, no_pane, {}))
+        self.assertIsNone(rf.effect_ok("tab_new", p, self.confirmed, no_pane, {}))
 
     def test_pick_action_respects_limits(self):
         run = rf.Run(7)
@@ -85,6 +96,63 @@ class Oracle(unittest.TestCase):
         a = [rf.pick_action(rf.Run(42), state) for _ in range(5)]
         b = [rf.pick_action(rf.Run(42), state) for _ in range(5)]
         self.assertEqual(a, b)
+
+
+class Judge(unittest.TestCase):
+    def setUp(self):
+        rf.MARKS.clear()
+        rf.app_state = lambda: None  # no app here: the app row is checked on the mini
+        self.wait = rf.wait
+        rf.wait = lambda pred, seconds, step=0.25: pred()
+
+    def tearDown(self):
+        rf.wait = self.wait
+
+    def problems(self, restored, confirmed, inflight=None):
+        return [p for p in rf.judge(restored, confirmed, inflight) if "the app does not show" not in p]
+
+    def test_replaced_terminal_is_a_lost_terminal(self):
+        # Review finding 5: same tab id, new terminal id.
+        confirmed = {"w1": ws("fz-1", ["a"])}
+        restored = {"w1": dict(ws("fz-1", ["a"]), tabs={"tab_a": "term_new"}, raw_terms=["term_new"])}
+        self.assertTrue(any("term_a is not in the restored" in p for p in self.problems(restored, confirmed)))
+
+    def test_duplicate_in_one_list_is_seen(self):
+        # Review finding 4: a tab listed twice in one workspace's list.
+        confirmed = {"w1": ws("fz-1", ["a"])}
+        restored = {"w1": dict(ws("fz-1", ["a"]), raw_tabs=["tab_a", "tab_a"])}
+        self.assertIn("a tab is listed twice", self.problems(restored, confirmed))
+        restored = {"w1": dict(ws("fz-1", ["a"]), dup_ws=1)}
+        self.assertIn("a workspace id is listed twice", self.problems(restored, confirmed))
+
+    def test_inflight_ok_answer_must_land(self):
+        # Review finding 2: an ok answer is a commit, whenever it came.
+        confirmed = {"w1": ws("fz-1", ["a"])}
+        p = {"name": "fz-2"}
+        self.assertTrue(any("answered ok" in x for x in self.problems(confirmed, confirmed, ("ws_create", p, True))))
+        self.assertEqual(self.problems(confirmed, confirmed, ("ws_create", p, False)), [])
+
+    def test_inflight_close_does_not_count_its_terminal_as_lost(self):
+        confirmed = {"w1": ws("fz-1", ["a"]), "w2": ws("fz-2", ["b"])}
+        restored = {"w1": ws("fz-1", ["a"])}
+        self.assertEqual(self.problems(restored, confirmed, ("ws_close", {"ws": "w2"}, True)), [])
+
+
+class Zombie(unittest.TestCase):
+    def test_a_reaped_child_is_not_alive(self):
+        # Review finding 1: a killed child of ours is a zombie until reaped; alive() must say it is gone.
+        import signal
+        import subprocess
+        app = rf.App.__new__(rf.App)
+        app.child = subprocess.Popen(["sleep", "30"])
+        app.pid = app.child.pid
+        self.assertTrue(app.alive())
+        os.kill(app.child.pid, signal.SIGKILL)
+        import time
+        deadline = time.time() + 5
+        while app.alive() and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertFalse(app.alive())
 
 
 class Answers(unittest.TestCase):
@@ -105,6 +173,11 @@ class Verdict(unittest.TestCase):
         log = "RESTORE-FUZZ VIOLATION seed=5 what=lost\nRESTORE-FUZZ SUMMARY seed=1 judged=3 violations=1\n"
         self.assertTrue(vd.verdict(log).startswith("FAIL 1 violation(s): seed=5"))
         self.assertEqual(vd.verdict("FUZZ-G SUMMARY seeds=4 ops=900 kills=20 violations=0\n"), "PASS")
+        # Review finding 8: no work counted is no verdict.
+        self.assertTrue(vd.verdict("FUZZ-G SUMMARY seeds=4 ops=0 kills=0 violations=0\n").startswith("NOVERDICT"))
+        self.assertTrue(vd.verdict("FUZZ-G SUMMARY seeds=4 violations=0\n").startswith("NOVERDICT"))
+        self.assertTrue(vd.verdict("RESTORE-FUZZ SUMMARY seed=1 violations=0\n").startswith("NOVERDICT"))
+        self.assertTrue(vd.verdict("RESTORE-FUZZ SUMMARY seed=1 judged=5 violations=0 chaos_lost=1\n").startswith("NOVERDICT"))
 
 
 if __name__ == "__main__":

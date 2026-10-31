@@ -19,9 +19,17 @@ def verdict(text):
     if int(found.group(1)):
         first = re.search(r"^.*(?:RESTORE-FUZZ|FUZZ-G) VIOLATION (.*)$", text, re.M)
         return f"FAIL {found.group(1)} violation(s): {(first.group(1) if first else last)[:300]}"
-    judged = re.search(r"judged=(\d+)", last)
-    if judged and not int(judged.group(1)):
-        return "NOVERDICT no iteration was judged"
+    if "RESTORE-FUZZ SUMMARY" in last:
+        judged = re.search(r"judged=(\d+)", last)
+        if not judged or not int(judged.group(1)):
+            return "NOVERDICT no iteration was judged"
+        lost = re.search(r"chaos_lost=(\d+)", last)
+        if lost and int(lost.group(1)):
+            return "NOVERDICT the chaos process ended early"
+    else:
+        ops = re.search(r"ops=(\d+)", last)
+        if not ops or not int(ops.group(1)):
+            return "NOVERDICT the SUMMARY line has no operations"
     return "PASS"
 
 

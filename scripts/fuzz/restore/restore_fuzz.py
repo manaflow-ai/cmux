@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Restore fuzz (fuzz catalog row f) and its chaos modes (row h), on a fleet capture slot.
 
-    restore-fuzz-slot.sh JOB OUT -- --seed S [--chaos none|hog|cpu|fd] [--targets app,daemon,acpmux]
+    RJ_DRIVER=scripts/fuzz/restore/restore_fuzz.py RJ_DRIVER_FILES=scripts/cmux-next/austins-day/hog.py \
+      scripts/cmux-next/restore-journey-slot.sh JOB OUT -- --seed S [--chaos none|hog|cpu|fd|slowdisk] [--targets ...]
 
-restore-fuzz-slot.sh leases an exclusive slot, launches build JOB in it and runs this file on the mini
+restore-journey-slot.sh leases an exclusive slot, launches build JOB in it and runs this file on the mini
 (stock /usr/bin/python3, standard library only) against the slot's control socket. Each iteration:
 
   1. Starts from a fresh fuzz state: closes the fz-* workspaces, makes 1 to 3 new ones.
@@ -18,9 +19,11 @@ restore-fuzz-slot.sh leases an exclusive slot, launches build JOB in it and runs
   4. Relaunches what is needed (the app as a person does: `open -g -n -a` with its own launch
      variables; a killed daemon or acpmux is the app's to restart), and waits for restore to settle.
   5. The oracle: the restored daemon topology equals the last confirmed one (with an action in flight:
-     the confirmed one, or the confirmed one plus exactly that action, and the action's effect when it
-     answered ok before the kill); every confirmed terminal is there and still shows its marker line;
-     no workspace or tab twice; the app shows the same workspaces and tabs as the daemon.
+     the confirmed one, or the confirmed one plus exactly that action; an ok answer is the daemon's commit, so
+     an action that answered ok must land, whenever the answer came); every confirmed terminal is there (same
+     terminal id) and still shows its marker line; no workspace, tab or terminal twice (counted in the raw
+     lists); the app shows the same workspaces and tabs as the daemon. An ok action must change only what it
+     says (the other fz workspaces and the pane count included).
 
 Chaos (row h), on top of the same oracle: `hog` runs the Austin's-day memory hog (hog.py, the smoke
 gate's) for the whole run; `cpu` runs one busy process per core at user-interactive QoS; `fd` relaunches
@@ -156,6 +159,8 @@ class App:
             problems.append(f"bundle id {self.bundle_id!r} is not a DEV build's")
         if not self.bundle or self.bundle.startswith("/Applications/"):
             problems.append(f"bundle {self.bundle!r} is an installed app")
+        if not (self.bundle or "").endswith(".app") or not os.path.isabs(self.bundle or ""):
+            problems.append(f"bundle {self.bundle!r} is not an absolute .app path")
         if "capslot" not in self.bundle_id and not self.env.get("CMUX_CAPTURE_SLOT"):
             problems.append("not a capture slot's app")
         if problems:
@@ -171,9 +176,14 @@ class App:
                 env[key] = value
         return env
 
+    child = None  # the Popen of an app this run started itself (fd, slowdisk): reaped, so a killed one is not a zombie
+
     def alive(self, pid=None):
+        pid = pid or self.pid
+        if self.child is not None and self.child.pid == pid:
+            return self.child.poll() is None
         try:
-            os.kill(pid or self.pid, 0)
+            os.kill(pid, 0)
             return True
         except ProcessLookupError:
             return False
@@ -220,7 +230,9 @@ class App:
             argv = [os.path.join(self.bundle, "Contents", "MacOS", exe)]
             if opts.chaos == "slowdisk":
                 argv = ["/usr/sbin/taskpolicy", "-d", "throttle", *argv]
-            subprocess.Popen(argv, env=env, preexec_fn=lower if opts.chaos == "fd" else os.setsid,
+            if self.child is not None:
+                self.child.poll()
+            self.child = subprocess.Popen(argv, env=env, preexec_fn=lower if opts.chaos == "fd" else os.setsid,
                              stdin=subprocess.DEVNULL, stdout=open(os.path.join(opts.out, "app-fd.out"), "a"),
                              stderr=subprocess.STDOUT)
         else:
@@ -233,6 +245,9 @@ class App:
         if not up:
             return False
         self.refresh()
+        if self.info.get("app_bundle_path") != self.bundle or (self.info.get("bundle_id") or "") != self.bundle_id:
+            sys.exit(f"restore-fuzz: the relaunched app is not the slot build: {self.info.get('app_bundle_path')} "
+                     f"{self.info.get('bundle_id')}")
         say(f"  relaunched: pid {self.pid}")
         return True
 
@@ -315,12 +330,15 @@ def daemon_state():
         wid = first(ws, "id", "workspace_id")
         if not str(name).startswith("fz-") and wid not in FZ_IDS:
             continue
+        if wid in out:  # the same workspace id listed twice: kept as evidence, never folded away
+            out[wid]["dup_ws"] = out[wid].get("dup_ws", 0) + 1
+            continue
         tabs, _ = cli("tab", "list", "--workspace", wid)
         panes, _ = cli("pane", "list", "--workspace", wid)
         if "error" in tabs or "error" in panes:
             return None
-        out[wid] = {"name": name,
-                    "tabs": {first(t, "id", "tab_id"): first(t, "terminal_id", "terminal") for t in listed(tabs, "tabs")},
+        raw = [(first(t, "id", "tab_id"), first(t, "terminal_id", "terminal")) for t in listed(tabs, "tabs")]
+        out[wid] = {"name": name, "tabs": dict(raw), "raw_tabs": [t for t, _ in raw], "raw_terms": [x for _, x in raw if x],
                     "panes": sorted(first(p, "id", "pane_id") for p in listed(panes, "panes"))}
     return out
 
@@ -425,22 +443,12 @@ def do_action(kind, p):
 
 
 def effect_ok(kind, p, before, after, answer):
-    """Did an action that answered ok change the topology as it says? (reason or None)"""
-    b, a = canon(before), canon(after)
-    if kind == "ws_create":
-        return None if p["name"] in a and len(a) == len(b) + 1 else f"ws_create {p['name']} answered ok but is not listed"
-    name = (before or {}).get(p.get("ws"), {}).get("name")
-    if kind in ("split", "tab_new"):
-        got = len(a.get(name, ([], 0))[0]) - len(b.get(name, ([], 0))[0])
-        return None if got == 1 else f"{kind} in {name} answered ok but the tab count changed by {got}"
-    if kind == "tab_close":
-        tabs = a.get(name, ([], 0))[0]
-        return None if p["tab"] not in tabs else f"tab_close {p['tab']} answered ok but the tab is still listed"
-    if kind == "ws_close":
-        return None if name not in a else f"ws_close {name} answered ok but it is still listed"
-    if kind == "rename":
-        return None if p["name"] in a and name not in a else f"rename {name} -> {p['name']} answered ok but names are {sorted(a)}"
-    return None if a == b else "write changed the topology"
+    """Did an action that answered ok change the topology exactly as it says, and nothing else? (reason or None)"""
+    if allowed_after(kind, p, before, after):
+        return None
+    return (f"{kind} {json.dumps(p, sort_keys=True)[:160]} answered ok, but the topology is not the one before plus "
+            f"exactly that action: before {json.dumps(canon(before), sort_keys=True)[:400]} "
+            f"after {json.dumps(canon(after), sort_keys=True)[:400]}")
 
 
 def allowed_after(kind, p, confirmed, restored):
@@ -454,11 +462,13 @@ def allowed_after(kind, p, confirmed, restored):
     if kind in ("split", "tab_new"):
         if {k: v for k, v in r.items() if k != name} != {k: v for k, v in c.items() if k != name} or name not in r:
             return False
-        return set(c[name][0]) < set(r[name][0]) and len(r[name][0]) == len(c[name][0]) + 1
+        panes = c[name][1] + (1 if kind == "split" else 0)  # a split makes a pane; a new tab joins one
+        return set(c[name][0]) < set(r[name][0]) and len(r[name][0]) == len(c[name][0]) + 1 and r[name][1] == panes
     if kind == "tab_close":
         if {k: v for k, v in r.items() if k != name} != {k: v for k, v in c.items() if k != name} or name not in r:
             return False
-        return sorted(t for t in c[name][0] if t != p["tab"]) == r[name][0]
+        # The pane goes with its last tab.
+        return sorted(t for t in c[name][0] if t != p["tab"]) == r[name][0] and r[name][1] in (c[name][1], c[name][1] - 1)
     if kind == "ws_close":
         return r == {k: v for k, v in c.items() if k != name}
     if kind == "rename":
@@ -523,6 +533,23 @@ def restore(target, killed_at, old_daemons):
     return state, timings, None
 
 
+def duplicates(state):
+    """Problems for a workspace, tab or terminal listed twice, counted in the raw lists."""
+    problems = []
+    names = [w["name"] for w in state.values()]
+    if len(names) != len(set(names)):
+        problems.append(f"a workspace name is listed twice: {sorted(names)}")
+    if any(w.get("dup_ws") for w in state.values()):
+        problems.append("a workspace id is listed twice")
+    tabs = [t for w in state.values() for t in w.get("raw_tabs", list(w["tabs"]))]
+    if len(tabs) != len(set(tabs)):
+        problems.append("a tab is listed twice")
+    terms = [t for w in state.values() for t in w.get("raw_terms", list(w["tabs"].values())) if t]
+    if len(terms) != len(set(terms)):
+        problems.append("a terminal is listed twice")
+    return problems
+
+
 def judge(state, expected, inflight):
     """The oracle after a restore: a list of problems (empty = pass)."""
     problems = []
@@ -531,24 +558,24 @@ def judge(state, expected, inflight):
         kind, p, answered_ok = inflight
         ok_after = allowed_after(kind, p, expected, state)
         if answered_ok and not ok_after and not (kind == "write" and ok_exact):
-            problems.append(f"{kind} answered ok before the kill, but its effect is not in the restored topology")
+            problems.append(f"{kind} answered ok, but its effect is not in the restored topology")
         elif not answered_ok and not (ok_exact or ok_after):
             problems.append(f"restored topology is neither the confirmed one nor the confirmed one plus the in-flight {kind}")
     elif not ok_exact:
         problems.append("restored topology differs from the last confirmed one")
     if problems:
         problems.append(f"confirmed {json.dumps(canon(expected), sort_keys=True)[:600]} restored {json.dumps(canon(state), sort_keys=True)[:600]}")
-    names = [w["name"] for w in state.values()]
-    if len(names) != len(set(names)):
-        problems.append(f"a workspace name is listed twice: {sorted(names)}")
-    tabs = [t for w in state.values() for t in w["tabs"]]
-    if len(tabs) != len(set(tabs)):
-        problems.append("a tab is listed twice")
-    terms = [t for w in state.values() for t in w["tabs"].values() if t]
-    if len(terms) != len(set(terms)):
-        problems.append("a terminal is listed twice")
-    # No lost terminal: every confirmed terminal that is still listed shows its marker line.
+    problems += duplicates(state)
+    terms = [t for w in state.values() for t in w.get("raw_terms", list(w["tabs"].values())) if t]
+    # No lost terminal: every confirmed terminal is listed again (same id: a tab that comes back with a new,
+    # empty terminal lost its terminal), and shows its marker line.
     want = {t for w in expected.values() for t in w["tabs"].values() if t}
+    if inflight and inflight[0] in ("tab_close", "ws_close") and allowed_after(inflight[0], inflight[1], expected, state):
+        kind, p = inflight[0], inflight[1]
+        gone = expected.get(p["ws"], {}).get("tabs", {})
+        want -= {gone.get(p["tab"])} if kind == "tab_close" else set(gone.values())
+    for terminal in sorted(want - set(terms)):
+        problems.append(f"confirmed terminal {terminal} is not in the restored topology")
     for terminal in sorted(want & set(terms)):
         if terminal in MARKS and not wait(lambda: screen_has(terminal, MARKS[terminal]), 10, 0.5):
             problems.append(f"terminal {terminal} is listed but no longer shows its line {MARKS[terminal]}")
@@ -617,8 +644,13 @@ def iteration(seed, targets, keep=None):
             if silent:
                 rec["problems"].append("silent loss: " + silent)
         rec["actions"].append(entry)
-        if after is not None:
-            state = confirmed = after
+        if after is None:
+            # The confirmed topology is unknown now: judging against the old one would be a false red.
+            rec["problems"].append(f"the daemon topology could not be read after {kind}")
+            rec["verdict"] = "not run"
+            return rec
+        rec["problems"] += [f"after {kind}: {d}" for d in duplicates(after)]
+        state = confirmed = after
     rec.update(target=target, point="in flight" if inflight_kill else "between", pause_s=round(pause, 3))
     old_daemons = APP.daemon_pids()
     inflight = None
@@ -627,17 +659,21 @@ def iteration(seed, targets, keep=None):
         box = {}
 
         def go():
+            started = time.time()
             box["answer"], box["s"] = do_action(kind, p)
-            box["at"] = time.time()
+            box["answered_at"] = started + box["s"]  # the action's own answer, before the marker write
         th = threading.Thread(target=go, daemon=True)
         th.start()
         time.sleep(pause)
         killed_at = time.time()
         pids = kill(target)
         th.join(ACTION_BOUND + 5)
-        answered_ok = "at" in box and box["at"] <= killed_at and "error" not in box.get("answer", {"error": 1})
+        # An ok answer is the daemon's commit (only the daemon answers the CLI), so it must land whenever it
+        # came: before the kill, or after it from a daemon that the kill did not touch (app, acpmux).
+        answered_ok = "answered_at" in box and isinstance(box.get("answer"), (dict, list)) and "error" not in box["answer"]
         inflight = (kind, p, answered_ok)
-        rec["actions"].append({"i": count - 1, "kind": kind, "params": p, "inflight": True, "answered_ok_before_kill": answered_ok,
+        rec["actions"].append({"i": count - 1, "kind": kind, "params": p, "inflight": True, "answered_ok": answered_ok,
+                               "answered_after_kill_s": round(box["answered_at"] - killed_at, 3) if "answered_at" in box else None,
                                "answer": str(box.get("answer"))[:200]})
     else:
         time.sleep(pause)
@@ -683,15 +719,19 @@ CHAOS_PROCS = []
 def start_chaos():
     if opts.chaos == "hog":
         hog = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hog.py")
+        if not os.path.isfile(hog):
+            say("RESTORE-FUZZ SUMMARY seed=none chaos=hog iterations=0 judged=0 not_run=0 violations=0 "
+                "chaos_lost=1 (hog.py was not shipped: RJ_DRIVER_FILES)")
+            sys.exit(75)
         CHAOS_PROCS.append(subprocess.Popen(
-            ["/usr/bin/python3", hog, "--swap-gb", str(opts.hog_swap_gb), "--deadline", str(int(T0 + opts.max_seconds + 60)),
+            ["/usr/bin/python3", hog, "--swap-gb", str(opts.hog_swap_gb), "--deadline", str(int(T0 + opts.max_seconds)),
              "--log", os.path.join(opts.out, "hog.jsonl")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
         say(f"chaos hog: pid {CHAOS_PROCS[-1].pid}, --swap-gb {opts.hog_swap_gb}")
         time.sleep(20)  # let it reach pressure before the first iteration
     elif opts.chaos == "cpu":
         burn = ("import ctypes,time\n"
                 "ctypes.CDLL(None).pthread_set_qos_class_self_np(0x21,0)\n"  # QOS_CLASS_USER_INTERACTIVE
-                f"end=time.time()+{opts.max_seconds + 60}\n"
+                f"end={T0 + opts.max_seconds}\n"
                 "while time.time()<end: pass\n")
         for _ in range(os.cpu_count() or 8):
             CHAOS_PROCS.append(subprocess.Popen(["/usr/bin/python3", "-c", burn]))
@@ -724,6 +764,7 @@ def main():
     master = random.Random(seed)
     deadline = T0 + opts.max_seconds
     records, violations = [], []
+    chaos_lost = [0]
     start_chaos()
     try:
         if opts.replay:
@@ -733,6 +774,11 @@ def main():
             seeds = None
         i = 0
         while time.time() < deadline - 60 and (not opts.iterations or i < opts.iterations):
+            dead = [proc.pid for proc in CHAOS_PROCS if proc.poll() is not None]
+            if dead:
+                chaos_lost[0] = 1
+                say(f"chaos process(es) {dead} ended early; stopping (the iterations after this would not be under chaos)")
+                break
             it_seed = seeds[0] if seeds else master.randrange(1 << 31)
             rec = iteration(it_seed, targets)
             rec["iteration"] = i
@@ -765,8 +811,9 @@ def main():
     p = lambda q: settle[min(len(settle) - 1, int(q * len(settle)))] if settle else None
     say(f"RESTORE-FUZZ SUMMARY seed={seed} chaos={opts.chaos} iterations={len(records)} judged={len(judged)} "
         f"not_run={len(records) - len(judged)} kills={json.dumps(kills, sort_keys=True)} violations={len(violations)} "
+        f"chaos_lost={chaos_lost[0]} "
         f"settle_s p50={p(0.5)} p95={p(0.95)} max={settle[-1] if settle else None}")
-    sys.exit(1 if violations else (0 if judged else 75))
+    sys.exit(1 if violations else (0 if judged and not chaos_lost[0] else 75))
 
 
 if __name__ == "__main__":
