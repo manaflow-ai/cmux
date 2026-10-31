@@ -199,6 +199,13 @@ extension SidebarListViewComponents {
                                             gapHeight: displayed.gapShift, current: drag.docTarget, reversing: reversing) else { return }
             if let hit = geometry.hit(CGPoint(x: point.x, y: edge)), rows[hit.slot.key] != nil { y = edge }
         }
+        // A block item's card back over its own slot drops where it came from. The base has the dragged items out, so
+        // that slot's centre is the next item's middle there, and a point either way picked a neighbour's half: a
+        // release where the drag started moved the item one place (Lawrence 2026-10-30, the stuck Home drag).
+        if let source = drag.tileSource, displayY >= drag.restFrame.minY, displayY < drag.restFrame.maxY,
+           let home = originHit(geometry, source: source, items: drag.docItems ?? [], x: point.x) {
+            y = home
+        }
         guard let hit = geometry.hit(CGPoint(x: point.x, y: y)) else {
             // Nowhere to drop: no gap shows.
             drag.docTarget = nil
