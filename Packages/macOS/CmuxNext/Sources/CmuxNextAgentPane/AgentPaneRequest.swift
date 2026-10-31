@@ -325,6 +325,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `tips.state`: read the feature tip records, keep one, or ask to show a tip
     /// (``AgentPaneFeatureTipRecords``).
     case featureTips(AgentPaneFeatureTipRequest)
+    /// `pane.setRemoteControl {on}`: Session Info's Remote Control switch (``AgentPaneRemoteControl``),
+    /// whether cmux on iPhone may open this Mac's chats. Only with the person's own click.
+    case remoteControl(on: Bool)
     /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
     /// with what the person typed in its field.
     case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)
