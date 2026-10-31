@@ -340,6 +340,16 @@ class PullRequestTiers(unittest.TestCase):
                 for tier in ("native", "scheme", "macos", "swift", "generated", "daemon"):
                     self.assertEqual(result[tier], "false", tier)
 
+    def test_the_selector_lint_table_runs_no_mac_compile(self):
+        """#29032 changed only scripts/cmux-next/objc-selector-table.json, which the crash-class lint
+        reads on Linux, and waited on the fleet Release compile."""
+        for path in ("scripts/cmux-next/objc-selector-table.json", "scripts/cmux-next/check-objc-selectors.py",
+                     "scripts/cmux-next/check-objc-selectors.sh"):
+            with self.subTest(path=path):
+                result = tiers([path])
+                for tier in ("native", "scheme", "macos", "swift", "generated", "daemon"):
+                    self.assertEqual(result[tier], "false", tier)
+
     def test_a_path_no_mac_build_reads_beside_swift_keeps_the_swift_tiers(self):
         swift = f"{PACKAGE}/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift"
         mixed, alone = tiers(["images/cmux-vm/inputs.lock.json", swift]), tiers([swift])
