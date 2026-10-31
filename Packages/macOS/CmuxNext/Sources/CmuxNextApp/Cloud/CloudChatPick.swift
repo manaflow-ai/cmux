@@ -28,7 +28,7 @@ struct CloudChatPick {
     /// The chat tab of this Mac an action was asked from (the composer's New Cloud Machine names
     /// its tab); nil from anywhere else (the palette, the CLI, a chat on another machine).
     static func chatTab(_ invocation: ActionInvocation, _ services: AppServices) -> TabModel? {
-        guard let target = invocation.target, target.kind == .tab, let (tab, _) = services.locateTab(target.id),
+        guard let target = invocation.target, target.kind == .tab, let (tab, _) = services.locateTab(target.id, onMachine: services.machines.local.machineID),
               let record = tab.agentSession, services.machines.daemon(forTab: tab).isLocal,
               !record.host.hasPrefix(MachineRegistry.registryHostPrefix) else { return nil }
         return tab
