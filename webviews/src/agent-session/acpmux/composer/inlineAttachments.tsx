@@ -38,6 +38,9 @@ type Options = {
   placing(): boolean;
   /// A Codex chat: a PDF's chip says it goes as a file (attachmentIntake.tsx PdfAttachmentChip).
   codex?: boolean;
+  /// Why a staged image's original failed to upload, by id: its chip in the text shows Retry, as the
+  /// strip's does (attachmentIntake.tsx `originalFailures`).
+  originalFailures?: Readonly<Record<string, string>>;
 };
 
 export function useInlineAttachments(options: Options) {
@@ -239,6 +242,7 @@ export function useInlineAttachments(options: Options) {
         onRetry={api.retry}
         onExpand={api.expand}
         codex={options.codex ?? false}
+        originalFailed={options.originalFailures?.[id]}
       />,
       dom,
       id,
@@ -260,6 +264,7 @@ const InlineChip = memo(function InlineChip({
   onRetry,
   onExpand,
   codex,
+  originalFailed,
 }: {
   id: string;
   attachment: ComposerAttachment | undefined;
@@ -269,6 +274,7 @@ const InlineChip = memo(function InlineChip({
   onRetry(id: string): void;
   onExpand(id: string): void;
   codex: boolean;
+  originalFailed: string | undefined;
 }) {
   const t = useT();
 
@@ -325,7 +331,12 @@ const InlineChip = memo(function InlineChip({
   // (an image that cannot be drawn) as it does there.
   return (
     <span className="acpmux-md-inline-chip" data-state="ready" data-chip="strip">
-      <AttachmentChip attachment={attachment} codex={codex} onRemove={onRemove} />
+      <AttachmentChip
+        attachment={attachment}
+        codex={codex}
+        onRemove={onRemove}
+        {...(originalFailed ? { onRetry, originalFailed } : {})}
+      />
     </span>
   );
 });

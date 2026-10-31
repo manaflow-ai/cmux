@@ -123,6 +123,8 @@ async function render(initial: {
   pending?: PendingAttachment[];
   /// The intake's revive (attachmentIntake.tsx): whether the chip's file is kept to read again.
   revives?: boolean;
+  /// Why a staged image's original failed to upload, by id (attachmentIntake.tsx `originalFailures`).
+  originalFailures?: Readonly<Record<string, string>>;
 }) {
   const { createRoot } = await import("react-dom/client");
   const { AttachmentStrip } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
@@ -148,7 +150,7 @@ async function render(initial: {
         calls.push(`cancel ${id}`);
         setPending((chips) => chips.filter((chip) => chip.id !== id));
       },
-      retry: () => {},
+      retry: (id) => calls.push(`retry ${id}`),
       revive: (id) => {
         calls.push(`revive ${id}`);
         const chip = initial.pending?.find((each) => each.id === id);
@@ -158,6 +160,7 @@ async function render(initial: {
       },
       expand: () => {},
       placing: () => placing,
+      ...(initial.originalFailures ? { originalFailures: initial.originalFailures } : {}),
     });
     controls.current = {
       attachments: () => attachmentsRef.current,
@@ -404,3 +407,23 @@ for (const revives of [true, false])
     } else expect(nodes()).toEqual([]);
     expect(text()).toContain("logs");
   });
+
+// Review of #26545 at a29c21e7: inline is the default view, so an image whose original failed to
+// upload must show its Retry in the text, as the strip's chip does (#28833).
+test("an image in the text whose original failed to upload shows Retry, which retries it", async () => {
+  const { calls } = await render({
+    text: `look ${inlineToken(IMAGE.id)} here`,
+    attachments: [IMAGE],
+    originalFailures: { [IMAGE.id]: "The disk is full." },
+  });
+  await until(() => !!inlineChip(IMAGE.id)?.querySelector(".acpmux-attachment-original-retry"));
+  const retry = inlineChip(IMAGE.id)!.querySelector<HTMLButtonElement>(".acpmux-attachment-original-retry")!;
+  await act(async () => retry.click());
+  expect(calls).toContain(`retry ${IMAGE.id}`);
+});
+
+test("an image in the text whose original did not fail shows no Retry", async () => {
+  await render({ text: `look ${inlineToken(IMAGE.id)} here`, attachments: [IMAGE] });
+  await until(() => !!inlineChip(IMAGE.id)?.querySelector("img"));
+  expect(inlineChip(IMAGE.id)!.querySelector(".acpmux-attachment-original-retry")).toBeNull();
+});
