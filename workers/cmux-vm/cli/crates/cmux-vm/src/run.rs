@@ -29,6 +29,7 @@
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
@@ -219,6 +220,9 @@ pub async fn run(
         }
     };
     note(stderr, &format!("vm {vm_id} created"));
+    // Set once an archive may be on the guest, so every exit path below
+    // (a failure or an interrupt included) removes it.
+    let staged = AtomicBool::new(false);
     // From here every exit path ends the VM: a boot failure or timeout too.
     let outcome = if interrupted {
         Ok(Outcome::Interrupted)
@@ -226,13 +230,16 @@ pub async fn run(
         tokio::select! {
             result = async {
                 wait_running(client, &vm_id).await?;
-                work(client, &vm_id, &args, archive.as_deref(), &command, &local, stdout, stderr).await
+                work(client, &vm_id, &args, archive.as_deref(), &command, &local, &staged, stdout, stderr).await
             } => result,
             () = &mut signal => Ok(Outcome::Interrupted),
         }
     };
     if matches!(outcome, Ok(Outcome::Interrupted)) {
         note(stderr, "interrupted");
+    }
+    if staged.load(Ordering::SeqCst) {
+        remove_archives(client, &vm_id, args.keep, stderr).await;
     }
     let ended = finish(client, &vm_id, args.keep).await;
     let p = crate::error::program();
@@ -470,9 +477,13 @@ async fn work(
     archive: Option<&[u8]>,
     command: &str,
     local: &Path,
+    staged: &AtomicBool,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<Outcome, CliError> {
+    if archive.is_some() {
+        staged.store(true, Ordering::SeqCst);
+    }
     let workdir = prepare(client, vm_id, archive).await?;
     let launch = format!(
         "set -e; rm -rf {RUN_DIR}; mkdir -p {RUN_DIR}; cd {}; \
@@ -491,7 +502,8 @@ async fn work(
     .await?;
     let outcome = follow(client, vm_id, args.timeout, stdout, stderr).await?;
     if !args.pull.is_empty() && !matches!(outcome, Outcome::Interrupted) {
-        pull(client, vm_id, &workdir, &args.pull, local, stderr).await?;
+        staged.store(true, Ordering::SeqCst);
+        pull_archive(client, vm_id, &workdir, &args.pull, local, stderr).await?;
     }
     Ok(outcome)
 }
@@ -501,12 +513,13 @@ async fn prepare(client: &Client, vm_id: &str, archive: Option<&[u8]>) -> Result
     if let Some(archive) = archive {
         for (index, chunk) in archive.chunks(CHUNK_BYTES).enumerate() {
             let redirect = if index == 0 { ">" } else { ">>" };
-            let script = format!("cat {redirect} /tmp/cmux-run.tgz");
+            let script = format!("cat {redirect} {SYNC_ARCHIVE}");
             exec_stdin(client, vm_id, &script, chunk).await?;
         }
     }
+    // The archive goes when the script exits, whether tar succeeded or not.
     let unpack = if archive.is_some() {
-        "tar -xzf /tmp/cmux-run.tgz -C \"$W\" && rm -f /tmp/cmux-run.tgz"
+        "trap 'rm -f /tmp/cmux-run.tgz' EXIT; tar -xzf /tmp/cmux-run.tgz -C \"$W\""
     } else {
         "true"
     };
@@ -622,29 +635,37 @@ fn poll_wait_tenths(deadline: Option<Instant>, now: Instant) -> u32 {
         .clamp(1, POLL_WAIT_TENTHS)
 }
 
-async fn pull(
-    client: &Client,
-    vm_id: &str,
-    workdir: &str,
-    paths: &[String],
-    local: &Path,
-    stderr: &mut dyn Write,
-) -> Result<(), CliError> {
-    let result = pull_archive(client, vm_id, workdir, paths, local, stderr).await;
-    // The guest's copy never outlives the pull (a kept VM is billed for it).
-    let _ = exec(
-        client,
-        vm_id,
-        &format!("rm -f {PULL_ARCHIVE} {PULL_ARCHIVE}.rc"),
-        &[],
-        30_000,
-    )
-    .await;
-    result
-}
-
+/// The guest's archive for `--sync`.
+const SYNC_ARCHIVE: &str = "/tmp/cmux-run.tgz";
 /// The guest's archive for `--pull`.
 const PULL_ARCHIVE: &str = "/tmp/cmux-pull.tgz";
+
+/// The guest command that removes every archive a run may leave.
+fn remove_archives_script() -> String {
+    format!("rm -f {SYNC_ARCHIVE} {PULL_ARCHIVE} {PULL_ARCHIVE}.rc")
+}
+
+/// Removes the run's archives from the guest, whatever happened before: a
+/// kept VM is billed for them and they hold the user's files. A failure is
+/// reported when the VM is kept, with the command that finishes the job; a
+/// VM that is not kept is deleted with them.
+async fn remove_archives(client: &Client, vm_id: &str, keep: bool, stderr: &mut dyn Write) {
+    let script = remove_archives_script();
+    let why = match exec(client, vm_id, &script, &[], 30_000).await {
+        Ok(result) if result.code == Some(0) => return,
+        Ok(result) => result.stderr.trim().to_owned(),
+        Err(error) => error.message().to_owned(),
+    };
+    if keep {
+        let p = crate::error::program();
+        note(
+            stderr,
+            &format!(
+                "could not remove the run's archives from the kept VM: {why}; run `{p} exec {vm_id} -- '{script}'`"
+            ),
+        );
+    }
+}
 
 /// Packs `paths` into `archive` on the guest and prints "SIZE TAR_STATUS".
 /// It writes at most one byte over `limit`, so an oversized pull stops there
