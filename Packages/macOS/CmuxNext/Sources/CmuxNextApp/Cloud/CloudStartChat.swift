@@ -14,7 +14,8 @@ import Foundation
 /// gesture, as onboarding's first task). This Mac's tab, which never started a chat, then closes.
 ///
 /// Progress and failures are Move to Cloud's toasts, and the page gets the failure's message.
-/// Not behind Labs: it needs Cloud allowed and a signed-in account (``refusal(_:)``).
+/// Not behind Labs: it needs Cloud allowed and a signed-in account (``refusal(_:)``). A chat with no
+/// project (``AgentPaneCloudStart/home``) copies nothing and opens in the machine's own folder.
 @MainActor
 struct CloudStartChat {
     let services: AppServices
@@ -77,6 +78,7 @@ struct CloudStartChat {
 
     /// The start; returns the machine's name.
     private func run(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (AgentPaneCloudStart.Step) -> Void) async throws -> String {
+        guard !start.home else { return try await runHome(start, tab: tab, report: report) }
         // The folder the page named, as Move to Cloud's `path` takes one: an existing folder, never
         // the home folder or the disk's root. A page could already start a chat on this Mac in it.
         guard let chat = start.cwd ?? tab.cwd, await Self.isFolder(chat),
@@ -118,23 +120,40 @@ struct CloudStartChat {
         // The copy may take long: a chat whose account changed meanwhile opens nowhere, and this
         // Mac's tab stays.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
+        report(.init(name: "opening", folder: folderName, machine: name, size: size))
+        return try await open(start, tab: tab, on: machine, cwd: remoteChat, tabKey: plan.tabKey)
+    }
+
+    /// Opens the chat on `machine` in `cwd` under the plan's `tabKey` (a retry gets the same tab) and closes
+    /// this Mac's tab: the chat is the machine's now.
+    private func open(_ start: AgentPaneCloudStart, tab: TabModel, on machine: CloudMachineSession, cwd: String?,
+                      tabKey: String) async throws -> String {
         let context = AppActionContext(services: services)
         let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
-        report(.init(name: "opening", folder: folderName, machine: name, size: size))
-        let seed = start.seed(cwd: remoteChat)
-        let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(seed),
-                                                 idempotencyKey: plan.tabKey)
+        let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(start.seed(cwd: cwd)),
+                                                 idempotencyKey: tabKey)
         let opened = try await pending.value()
         CloudHandlers.show(anchor.id, context)
         if let pane = await machine.daemon.store.firstPane(mirroring: anchor.key) {
             for window in services.windows.controllers { window.state.selection.select(opened.key, in: pane.id) }
         }
-        // This Mac's tab never started a chat: the chat is the machine's now.
         do {
             try await services.daemon.connection?.closeTabs([tab.surface], endTerminals: false, reason: .sessionEnd)
         } catch {
             services.cloud.logger.error("cloud start chat: closing this Mac's tab failed: \(String(describing: error), privacy: .public)")
         }
-        return name
+        return machine.machine.title
+    }
+
+    /// A chat with no project: nothing is read or copied; the account is checked again as above.
+    private func runHome(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (AgentPaneCloudStart.Step) -> Void) async throws -> String {
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user), account = services.cloud.account
+        guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
+        report(.init(name: "machine"))
+        let (machine, plan) = try await self.machine(for: start, account: account, cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout),
+                                                     invocation: invocation) { await CloudChatPick(services: services).read(folder: nil, tab: tab) }
+        try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
+        report(.init(name: "opening", machine: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size)))
+        return try await open(start, tab: tab, on: machine, cwd: nil, tabKey: plan.tabKey)
     }
 }
