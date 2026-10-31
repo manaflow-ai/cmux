@@ -14,6 +14,8 @@ import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
 import { WorktreeFailure } from "../startFolder";
+import { BrowseFailure, browseFailureMessage } from "../BrowseFailure";
+import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "../AddProjectPanel";
 import { errorMessage } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunModeRows } from "../sandboxRun";
@@ -218,7 +220,7 @@ type Props = NewTabScreenActions & {
   /// The projects the picker offers (App's newTabProjects).
   projects?: Project[];
   /// The host's folder panel; resolves with the folder picked, if any.
-  onBrowseProject?(): Promise<string | undefined>;
+  onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult>;
   chips?: NewTabChips;
   /// Lazily load the chosen harness's actual commands in a deferred chat.
   onCommands?(harness: string, cwd?: string): void;
@@ -1145,8 +1147,20 @@ export function NewTabScreen(props: Props) {
   };
   // Each folder choice takes a number; a worktree reply applies only while its choice is the latest.
   const projectChoice = useRef(0);
+  const browsePending = useRef(false);
+  const browseAlive = useRef(true);
+  useEffect(() => {
+    browseAlive.current = true;
+    return () => {
+      browseAlive.current = false;
+      projectChoice.current += 1;
+      browsePending.current = false;
+    };
+  }, []);
+  const [browseError, setBrowseError] = useState<string>();
   const pickProject = (cwd?: string) => {
     projectChoice.current += 1;
+    setBrowseError(undefined);
     // A folder picked anywhere on the page (a widget card's project) replaces a saved environment,
     // and is on this Mac.
     saved.pick(undefined);
@@ -1165,6 +1179,7 @@ export function NewTabScreen(props: Props) {
   const pickMachine = (next?: { peer: string; folder?: string }) => {
     // A newer choice than any worktree still on its way (`projectChoice`).
     projectChoice.current += 1;
+    setBrowseError(undefined);
     saved.pick(undefined);
     touch();
     setMachine(next);
@@ -1225,11 +1240,36 @@ export function NewTabScreen(props: Props) {
         }
       : undefined;
   const browseProject = props.onBrowseProject
-    ? () => {
-        void props.onBrowseProject?.().then((cwd) => {
-          if (cwd) pickProject(cwd);
-        });
+    ? (request?: BrowseRequest) => {
+        if (!browseAlive.current) return Promise.resolve(undefined);
+        if (browsePending.current) return Promise.resolve(BROWSE_BUSY);
+        const choice = ++projectChoice.current;
+        browsePending.current = true;
+        setBrowseError(undefined);
+        return Promise.resolve()
+          .then(() => props.onBrowseProject?.(request))
+          .then((cwd) => {
+            if (choice !== projectChoice.current) return undefined;
+            if (typeof cwd !== "string" || cwd.length === 0) return cwd;
+            if (request?.deferPick) return cwd;
+            pickProject(cwd);
+            return cwd;
+          })
+          .then(undefined, (error: unknown) => {
+            if (choice !== projectChoice.current) return undefined;
+            if (request?.deferPick) throw error;
+            setBrowseError(browseFailureMessage(error));
+            return undefined;
+          })
+          .finally(() => {
+            browsePending.current = false;
+          });
       }
+    : undefined;
+  // A saved environment owns its draft and the browse failure state. Keep a folder chosen there
+  // from replacing the New Tab project until the person saves the environment.
+  const browseSavedEnvironment = browseProject
+    ? (request?: BrowseRequest) => browseProject({ ...request, deferPick: true })
     : undefined;
   const Chips = props.chips;
   const chooser = useRef<HTMLInputElement>(null);
@@ -1339,11 +1379,17 @@ export function NewTabScreen(props: Props) {
                 environments: saved.list,
                 ...(environment ? { current: environment.id } : {}),
                 onPick: (id: string) => {
+                  projectChoice.current += 1;
+                  setBrowseError(undefined);
                   touch();
                   saved.pick(id);
                   requestAnimationFrame(() => field.current?.focus());
                 },
-                onClear: () => saved.pick(undefined),
+                onClear: () => {
+                  projectChoice.current += 1;
+                  setBrowseError(undefined);
+                  saved.pick(undefined);
+                },
                 onCreate: () => saved.edit(null),
                 onEdit: (id: string) => saved.edit(saved.list.find((other) => other.id === id)),
               },
@@ -1371,7 +1417,7 @@ export function NewTabScreen(props: Props) {
       folders={(props.projects ?? [])
         .filter((choice) => !isAgentHome(choice.cwd))
         .map((choice) => ({ id: choice.cwd, label: choice.label }))}
-      {...(props.onBrowseProject ? { onBrowse: props.onBrowseProject } : {})}
+      {...(browseSavedEnvironment ? { onBrowse: browseSavedEnvironment } : {})}
       machines={sshMachines}
       machineFolders={machineFolders}
       {...(props.onConnect ? { onConnectSSH: () => props.onConnect!("ssh") } : {})}
@@ -1502,6 +1548,9 @@ export function NewTabScreen(props: Props) {
           </p>
         )}
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
+        {browseError && browseProject && (
+          <BrowseFailure error={browseError} onRetry={browseProject} onDismiss={() => setBrowseError(undefined)} />
+        )}
         {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
           <output className="acpmux-switch-notice">
             <span role="alert">{t(sandboxFailureKey(sandboxRefusal) ?? "sandbox.error.failed")}</span>
