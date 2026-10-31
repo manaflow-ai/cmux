@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { DriverError } from "../src/providers/contract.ts"
+import { FILE_MAX_BYTES, OUTPUT_MAX_BYTES } from "../src/cloud-machine-guest.ts"
 import { EXEC_RESPONSE_MAX_BYTES, EXEC_RESPONSE_MAX_CHUNKS, freestyleExecStdin } from "../src/providers/freestyle/exec.ts"
 
 /**
@@ -82,5 +83,47 @@ describe("Freestyle guest exec errors", () => {
       }
     }))
     expect(await freestyleExecStdin(chunks, "https://freestyle.test", "key", "vm-1", "true", null, 5_000)).toEqual({ exitCode: 0, stdout: "café", stderr: "" })
+  })
+
+  // The provider's JSON of the largest answers the exec and file routes allow (cloud-machine-guest.ts),
+  // sent in 64 KiB chunks: the bound is on that JSON, so output that escapes 6x (NUL and other control
+  // bytes as \u0000) and an 8 MiB file read as base64 must both fit.
+  const streamed = (json: string): typeof fetch => async () => {
+    const body = new TextEncoder().encode(json)
+    return new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let at = 0; at < body.byteLength; at += 64 * 1024) controller.enqueue(body.slice(at, at + 64 * 1024))
+        controller.close()
+      }
+    }))
+  }
+  const NOTE = `\ncmux: output cut at ${OUTPUT_MAX_BYTES} bytes per stream\n`
+
+  it("reads an exec whose two capped output streams are all NUL bytes (6x as JSON)", async () => {
+    const stdout = "\0".repeat(OUTPUT_MAX_BYTES)
+    const stderr = "\0".repeat(OUTPUT_MAX_BYTES) + NOTE
+    const json = JSON.stringify({ statusCode: 0, stdout, stderr })
+    expect(json.length).toBeGreaterThan(12 * OUTPUT_MAX_BYTES)
+    expect(json.length).toBeLessThanOrEqual(EXEC_RESPONSE_MAX_BYTES)
+    const r = await freestyleExecStdin(streamed(json), "https://freestyle.test", "key", "vm-1", "true", null, 5_000)
+    expect(r.exitCode).toBe(0)
+    expect(r.stdout === stdout && r.stderr === stderr).toBe(true)
+  })
+
+  it("reads the largest file read (FILE_MAX_BYTES as base64 in the file program's JSON)", async () => {
+    const dataBase64 = "A".repeat(Math.ceil(FILE_MAX_BYTES / 3) * 4)
+    const stdout = JSON.stringify({ path: "/home/cmux/big.bin", dataBase64, size: FILE_MAX_BYTES })
+    const json = JSON.stringify({ statusCode: 0, stdout, stderr: "" })
+    expect(json.length).toBeGreaterThan(FILE_MAX_BYTES)
+    const r = await freestyleExecStdin(streamed(json), "https://freestyle.test", "key", "vm-1", "true", null, 5_000)
+    expect(r.stdout === stdout).toBe(true)
+  })
+
+  it("keeps the bound above every supported answer, with room for the envelope", () => {
+    const envelope = 64 * 1024
+    expect(EXEC_RESPONSE_MAX_BYTES).toBeGreaterThanOrEqual(2 * 6 * (OUTPUT_MAX_BYTES + 64) + envelope)
+    expect(EXEC_RESPONSE_MAX_BYTES).toBeGreaterThanOrEqual(Math.ceil(FILE_MAX_BYTES / 3) * 4 + envelope)
+    // A largest answer in 256-byte chunks still reads.
+    expect(EXEC_RESPONSE_MAX_CHUNKS * 256).toBeGreaterThanOrEqual(EXEC_RESPONSE_MAX_BYTES)
   })
 })
