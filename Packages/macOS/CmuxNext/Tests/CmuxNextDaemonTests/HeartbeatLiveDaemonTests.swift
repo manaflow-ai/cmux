@@ -19,6 +19,7 @@ import Testing
         let daemon = try SlowDaemon()
         defer { daemon.stop() }
         let transport = try LineTransport(path: daemon.path)
+        defer { transport.close() }
         let closes = Mutex<[TransportCloseReason]>([])
         transport.start(onEvent: { _, _, _ in }, onClose: { reason in closes.withLock { $0.append(reason) } })
         let heartbeat = ConnectionHeartbeat()

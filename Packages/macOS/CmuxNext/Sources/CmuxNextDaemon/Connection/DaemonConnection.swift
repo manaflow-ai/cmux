@@ -278,6 +278,8 @@ public actor DaemonConnection {
         if case .ready = phase {} else if case .connecting = phase {} else { return }
         phase = .waiting
         healthy.cancel()
+        // The connection ended: nothing answers on it, and the next connection's run starts answering.
+        heartbeat.stop()
         let detail: String = switch reason {
         case .closedByClient: "closed"
         case .daemonShutdown: "daemon shut down"

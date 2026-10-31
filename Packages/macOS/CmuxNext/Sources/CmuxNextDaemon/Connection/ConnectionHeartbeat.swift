@@ -35,19 +35,24 @@ final class ConnectionHeartbeat: Sendable {
     /// (its process is alive); true again at its next answer, a new start or a stop.
     var answering: Bool { state.withLock { $0.answering } }
 
-    /// Calls `observer` with ``answering`` after each change, on the heartbeat's timer task; nil stops.
+    /// Calls `observer` on the heartbeat's timer task: with true when the daemon answers again, and with false
+    /// at each unanswered ask past the misses while its connection stays open (one per interval), so the owner
+    /// can probe it then (``DaemonRecovery`` runs one `server ensure` per call); nil stops. The value is a hint
+    /// of the moment: read ``answering`` for the current one.
     func observeAnswering(_ observer: (@Sendable (Bool) -> Void)?) {
         self.observer.withLock { $0 = observer }
     }
 
-    /// Sets ``answering`` for run `run` (any run when nil) and tells the observer when it changed.
+    /// Sets ``answering`` for run `run` (any run when nil) and tells the observer when it changed, and at
+    /// every unanswered ask past the misses.
     private func setAnswering(_ answering: Bool, run: UInt64?) {
-        let changed = state.withLock { state -> Bool in
-            guard run.map({ $0 == state.run }) ?? true, state.answering != answering else { return false }
+        let tell = state.withLock { state -> Bool in
+            guard run.map({ $0 == state.run }) ?? true else { return false }
+            let changed = state.answering != answering
             state.answering = answering
-            return true
+            return changed || !answering
         }
-        if changed, let observer = observer.withLock({ $0 }) { observer(answering) }
+        if tell, let observer = observer.withLock({ $0 }) { observer(answering) }
     }
 
     /// Starts asking on `transport`; a later start (a reconnect) or `stop`

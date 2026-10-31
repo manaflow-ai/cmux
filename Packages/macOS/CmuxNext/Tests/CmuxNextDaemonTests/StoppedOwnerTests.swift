@@ -34,9 +34,10 @@ struct StoppedOwnerTests {
         try await store.waitUntil("connected") { store.connectionState.isConnected }
 
         kill(owner, SIGSTOP)
-        let noticed = await Self.holds { try await Self.waitUntil(seconds: 20) { !connection.daemonAnswering } }
-        // Sent while the owner is stopped, with no client deadline (as a create waits for its daemon).
+        // Sent while the owner is stopped, with no client deadline (as a create waits for its daemon); it goes out
+        // well before SIGCONT, which waits for at least two missed asks below.
         let pending = Task { try await connection.request(IdentifyRequest(), timeout: nil) }
+        let noticed = await Self.holds { try await Self.waitUntil(seconds: 20) { !connection.daemonAnswering } }
         let stayedConnected = await store.connectionState.isConnected
         kill(owner, SIGCONT)
         #expect(noticed, "the heartbeat did not mark a stopped owner not answering")

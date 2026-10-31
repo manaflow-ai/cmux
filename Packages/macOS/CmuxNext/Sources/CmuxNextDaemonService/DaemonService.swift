@@ -349,12 +349,18 @@ public final class DaemonService {
     private func didConnect(_ connection: DaemonConnection, identity: DaemonIdentity) {
         Self.launchMark("daemon_connected")
         self.connection = connection
-        recovery.noteDaemonAnswering(connection.daemonAnswering)
         let recovery = recovery
-        connection.observeAnswering { answering in
-            // task-owner: one hop to main per change of the daemon's answering; nothing to cancel
-            Task { @MainActor in recovery.noteDaemonAnswering(answering) }
+        connection.observeAnswering { [weak connection] answering in
+            // task-owner: one hop to main per heartbeat edge or unanswered ask; nothing to cancel. On main it reads the
+            // connection's answering again, so hops that land out of order never leave a stale state; an unanswered
+            // ask that still holds probes the owner once more.
+            Task { @MainActor in
+                guard let connection else { return }
+                let now = connection.daemonAnswering
+                if now == answering || now { recovery.noteDaemonAnswering(now) }
+            }
         }
+        recovery.noteDaemonAnswering(connection.daemonAnswering)
         rememberLaunchSnapshot(identity)
         resumeConnectionWaiters()
         store.noteHandshake(identity)
