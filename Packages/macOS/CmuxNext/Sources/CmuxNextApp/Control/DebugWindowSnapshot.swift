@@ -115,6 +115,15 @@ enum DebugWindowSnapshot {
         let kind = kind(of: window, services: services)
         let path = params["path"]?.stringValue.map { ($0 as NSString).expandingTildeInPath }
             ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-window-\(kind)-\(window.windowNumber).png")
+#if DEBUG || CMUX_BENCH_HOOKS
+        // An inactive floating palette can have a blank standalone window-server image.
+        // Its existing renderer captures the panel's content without Screen Recording.
+        if services.palette.owns(window) {
+            var paletteParams = params
+            paletteParams["path"] = .string(path)
+            return DebugPaletteCapture.capture(paletteParams, services: services)
+        }
+#endif
         do {
             let webViews = visibleWebViews(in: window)
             // The window server's image first: the window as on screen, WebKit

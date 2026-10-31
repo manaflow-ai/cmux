@@ -3,6 +3,7 @@ import { pressToOpen } from "../../ui/pressToOpen";
 import { HomeInbox, type HomeInboxActions, type HomeInboxLook } from "./HomeInbox";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
 import { needsYouItems, type NeedsYouItem, type WatchedAsk } from "./needsYou/model";
+import type { AttentionTab } from "./needsYou/attentionTabs";
 import { activityTime, type AcpmuxSessionEntry, listed, projectLabel, withoutChildren } from "./sessionList";
 
 /// Home-list copy: keys of the pane's string table.
@@ -23,13 +24,14 @@ export function homeLists(
   sessions: AcpmuxSessionEntry[],
   currentId?: string,
   asks: readonly WatchedAsk[] = [],
+  tabs: readonly AttentionTab[] = [],
 ): { waiting: NeedsYouItem[]; review: AcpmuxSessionEntry[] } {
   const others = withoutChildren(sessions.filter(listed))
     .filter((session) => session.sessionId !== currentId)
     .sort((left, right) => (activityTime(right) ?? 0) - (activityTime(left) ?? 0));
   const shown = new Set(others.map((session) => session.sessionId));
   return {
-    waiting: needsYouItems({ sessions, asks }).filter((item) => shown.has(item.sessionId)),
+    waiting: needsYouItems({ sessions, asks, tabs }).filter((item) => item.kind === "tab" || shown.has(item.sessionId)),
     review: others
       .filter((session) => session.pullRequest?.state === "open" && session.pullRequest.reviewReady)
       .slice(0, HOME_ROWS),
@@ -60,7 +62,9 @@ export function HomeLists({
   sessions,
   currentId,
   asks,
+  tabs,
   onSelect,
+  onOpen,
   onAnswer,
   look,
   shortcuts = true,
@@ -69,14 +73,17 @@ export function HomeLists({
   currentId?: string;
   /// Every chat's open requests (snapshot `asks`), for the inbox.
   asks?: readonly WatchedAsk[];
+  /// Marked tabs have no session id; callers route them through chat.attention.open.
+  tabs?: readonly AttentionTab[];
   onSelect: (sessionId: string) => void;
+  onOpen?: HomeInboxActions["open"];
   /// Answers another chat's ask in place; rejects when it did not go through.
   onAnswer: HomeInboxActions["answer"];
   look?: HomeInboxLook;
   /// False while the home's own chat shows an ask card, which takes the permission shortcuts.
   shortcuts?: boolean;
 }) {
-  const { waiting, review } = homeLists(sessions, currentId, asks);
+  const { waiting, review } = homeLists(sessions, currentId, asks, tabs);
   const t = useT();
   if (waiting.length === 0 && review.length === 0) return null;
   return (
@@ -86,7 +93,16 @@ export function HomeLists({
         sessions={sessions}
         look={look}
         shortcuts={shortcuts}
-        actions={{ answer: onAnswer, open: (item) => onSelect(item.sessionId) }}
+        actions={{
+          answer: onAnswer,
+          open: (item) => {
+            if (onOpen) {
+              onOpen(item);
+            } else {
+              onSelect(item.sessionId);
+            }
+          },
+        }}
       />
       {review.length > 0 && (
         <HomeList label={t(HOME_LABELS.readyForReview)}>

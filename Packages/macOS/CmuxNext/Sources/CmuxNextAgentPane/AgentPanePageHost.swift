@@ -34,6 +34,7 @@ enum AgentPanePageHost {
         events.append(.deviceChats(AgentPaneDeviceChat.shown(view.deviceChats, in: view)))
         events.append(view.recentlyClosed.event)
         events.append(AgentPaneNowPlaying.shared.event(for: view))
+        if let tabs = view.model.attentionTabs { events.append(tabs.event(for: view)) }
         if let readAloud = view.model.readAloud { events.append(readAloud.event(for: view)) }
         events.append(.editedFiles(view.editedFiles))
         events.append(.composer(view.model.composer))

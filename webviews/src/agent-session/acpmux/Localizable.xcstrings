@@ -94,6 +94,138 @@
     "workflow.state": {"comment":"Agent pane: workflow side-tab table state column heading","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الحالة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Stanje"}},"da":{"stringUnit":{"state":"needs_review","value":"Status"}},"de":{"stringUnit":{"state":"needs_review","value":"Status"}},"en":{"stringUnit":{"state":"translated","value":"State"}},"es":{"stringUnit":{"state":"needs_review","value":"Estado"}},"fr":{"stringUnit":{"state":"needs_review","value":"État"}},"it":{"stringUnit":{"state":"needs_review","value":"Stato"}},"ja":{"stringUnit":{"state":"needs_review","value":"状態"}},"km":{"stringUnit":{"state":"needs_review","value":"ស្ថានភាព"}},"ko":{"stringUnit":{"state":"needs_review","value":"상태"}},"nb":{"stringUnit":{"state":"needs_review","value":"Status"}},"pl":{"stringUnit":{"state":"needs_review","value":"Stan"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Estado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Состояние"}},"th":{"stringUnit":{"state":"needs_review","value":"สถานะ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Durum"}},"uk":{"stringUnit":{"state":"needs_review","value":"Стан"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trạng thái"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"状态"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"狀態"}}}},
     "workflow.closeSideTab": {"comment":"Agent pane: close button for the full-height workflow side tab","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إغلاق علامة التبويب الجانبية"}},"bs":{"stringUnit":{"state":"needs_review","value":"Zatvori bočnu karticu"}},"da":{"stringUnit":{"state":"needs_review","value":"Luk sidefane"}},"de":{"stringUnit":{"state":"needs_review","value":"Seitenregisterkarte schließen"}},"en":{"stringUnit":{"state":"translated","value":"Close workflow side tab"}},"es":{"stringUnit":{"state":"needs_review","value":"Cerrar pestaña lateral"}},"fr":{"stringUnit":{"state":"needs_review","value":"Fermer l’onglet latéral"}},"it":{"stringUnit":{"state":"needs_review","value":"Chiudi scheda laterale"}},"ja":{"stringUnit":{"state":"needs_review","value":"サイドタブを閉じる"}},"km":{"stringUnit":{"state":"needs_review","value":"បិទផ្ទាំងចំហៀង"}},"ko":{"stringUnit":{"state":"needs_review","value":"사이드 탭 닫기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Lukk sidetab"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zamknij boczną kartę"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Fechar aba lateral"}},"ru":{"stringUnit":{"state":"needs_review","value":"Закрыть боковую вкладку"}},"th":{"stringUnit":{"state":"needs_review","value":"ปิดแท็บด้านข้าง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yan sekmeyi kapat"}},"uk":{"stringUnit":{"state":"needs_review","value":"Закрити бічну вкладку"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đóng tab bên"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"关闭侧边标签页"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"關閉側邊標籤頁"}}}},
     "workflow.kind": {"comment":"Agent pane: what a finished workflow task is, before how it ended","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Workflow"}},"ja":{"stringUnit":{"state":"translated","value":"ワークフロー"}},"de":{"stringUnit":{"state":"translated","value":"Workflow"}},"fr":{"stringUnit":{"state":"translated","value":"Workflow"}},"es":{"stringUnit":{"state":"translated","value":"Flujo de trabajo"}},"it":{"stringUnit":{"state":"translated","value":"Workflow"}},"da":{"stringUnit":{"state":"translated","value":"Arbejdsgang"}},"pl":{"stringUnit":{"state":"translated","value":"Przepływ pracy"}},"ru":{"stringUnit":{"state":"translated","value":"Рабочий процесс"}},"bs":{"stringUnit":{"state":"translated","value":"Tok rada"}},"ar":{"stringUnit":{"state":"translated","value":"سير عمل"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Fluxo de trabalho"}},"th":{"stringUnit":{"state":"translated","value":"เวิร์กโฟลว์"}},"tr":{"stringUnit":{"state":"translated","value":"İş akışı"}},"km":{"stringUnit":{"state":"translated","value":"លំហូរការងារ"}},"uk":{"stringUnit":{"state":"translated","value":"Робочий процес"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"工作流"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"工作流程"}},"nb":{"stringUnit":{"state":"translated","value":"Arbeidsflyt"}},"vi":{"stringUnit":{"state":"translated","value":"Quy trình"}},"ko":{"stringUnit":{"state":"translated","value":"워크플로"}}}},
+    "needsYou.kind.tab": {
+      "comment": "Agent pane: tag on a Needs you item for a tab an agent marked for the person to act in (log in, confirm, approve)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في علامة تبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "U kartici"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I en fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In einem Tab"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In a tab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En una pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dans un onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In una scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "タブ内"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្នុងផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭에서"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I en fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "W karcie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Em uma aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Во вкладке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ในแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir sekmede"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У вкладці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trong một thẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在标签页中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在分頁中"
+          }
+        }
+      }
+    },
     "composer.speedLabel": {
       "comment": "Agent pane: the composer's speed toggle (lightning bolt left of the mic); {tier} is Standard, Fast or Ultrafast",
       "extractionState": "manual",

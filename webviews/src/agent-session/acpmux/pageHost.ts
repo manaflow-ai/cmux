@@ -14,6 +14,7 @@ import { setToolCards } from "./toolCards/toolCardStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { setReadAloudState } from "./conversation/readAloud";
+import { setAttentionTabs } from "./needsYou/attentionTabs";
 import { setHeaderState } from "./header/headerState";
 import { setTabRow } from "./header/tabRow";
 import { receiveNativeRowToolInvocation } from "./header/nativeRowTools";
@@ -131,6 +132,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "readAloud":
       // The app's voice (conversation/readAloud.ts): which message it reads, on every change.
       return setReadAloudState(event.value);
+    case "attentionTabs":
+      // Keep a push that arrives before the Needs you header mounts.
+      return setAttentionTabs(event.value);
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
       return setToolCards(event.value);

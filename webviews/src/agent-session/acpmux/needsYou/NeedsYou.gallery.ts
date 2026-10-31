@@ -174,6 +174,27 @@ export default agentPaneEntry({
       snapshot: snapshot(),
       play: openList,
     },
+    "marked-tab": {
+      note: "An agent marked a tab for the person (`cmux attention request`): the tab item reads what to do, the workspace and the tab by their titles, with Go to and no answers; it sits among the asks by when it was marked.",
+      snapshot: snapshot(),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView as unknown as {
+          cmuxAcpmuxBridge?: { applyAttentionTabs?(tabs: unknown): void };
+        };
+        view.cmuxAcpmuxBridge?.applyAttentionTabs?.([
+          {
+            kind: "tab",
+            tabId: "tab_0f3c",
+            reason: "Log in to GitHub so I can open the PR",
+            workspaceTitle: "cmux next",
+            tabTitle: "GitHub · Sign in",
+            atMs: ago(2),
+          },
+        ]);
+        await openList(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-needs-you-item[data-kind="tab"]'));
+      },
+    },
     "badge-and-pill": {
       note: "Closed: the badge counts six asks. Only this chat's is the pill's, and its card waits at the latest message, so Jump to latest stays hidden there.",
       snapshot: snapshot(),

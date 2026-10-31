@@ -431,6 +431,10 @@ final class AppServices {
     var glassWatch: GlassModeWatch?
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
     var updateFeedObservation: Task<Void, Never>?
+    /// One marked-tab list for the palette and every agent page.
+    let attentionTabs = AgentPaneAttentionTabs()
+    /// Keeps Needs you's marked tabs and Go to What Needs Me current (`AttentionTabsWatch`).
+    var attentionTabsWatch: AttentionTabsWatch?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
     let contextMenus: BrowserContextMenuBuilder
     /// Sized browser popups (OAuth, payment), each in its own Chrome-style popup window.

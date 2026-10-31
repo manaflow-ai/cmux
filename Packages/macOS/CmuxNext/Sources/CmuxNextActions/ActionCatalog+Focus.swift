@@ -19,7 +19,7 @@ nonisolated extension ActionCatalog {
         "goToWorkspace", "search.chats", "workspace.selectFirst", "workspace.selectLast", "workspace.selectLastUsed",
         "space.next", "space.previous", "space.selectByNumber", "space.switch", "home.show", "home.switchView", "home.openConversation", "home.previousConversation", "home.nextConversation",
         // Focus history and notifications
-        "focusHistoryBack", "focusHistoryForward", "focusHistoryLast", "jumpToUnread", "jumpToLastPrompt", "markOldestUnreadAndJumpNext",
+        "focusHistoryBack", "focusHistoryForward", "focusHistoryLast", "jumpToUnread", "jumpToLastPrompt", "attention.goTo", "markOldestUnreadAndJumpNext",
         "notificationOpen", "vaultFocusSession", "computerUseFocus", "computerUseFocusCallingTerminal",
         // Chief subagents: show a subagent's tab, else open a workspace on it
         "chief.openSubagent",
