@@ -89,11 +89,14 @@ export function TranscriptActivityRowShell({
   headerRef?: Ref<HTMLDivElement>;
   onClick?: MouseEventHandler<HTMLDivElement>;
 }) {
+  /* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */
   return (
     <div
       className={`${className ?? ""}${className ? " " : ""}cv-agent-activity-row`}
       ref={headerRef}
       onClick={onClick}
+      onKeyDown={() => undefined}
+      role="presentation"
       {...attributes}
     >
       {children}
