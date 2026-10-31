@@ -164,11 +164,16 @@ fn claude(env: Value) -> Value {
 /// One prompt in a new session on `harness`: Ok(the reply as JSON) or
 /// Err(the turn's error text), plus the turn_result record.
 async fn ask(d: &Daemon, harness: &str) -> (Result<Value, String>, Value) {
+    ask_as(d, harness, "auth").await
+}
+
+/// `ask`, in a session named `name` (one daemon, several sessions).
+async fn ask_as(d: &Daemon, harness: &str, name: &str) -> (Result<Value, String>, Value) {
     let mut rpc = Rpc::connect(&d.socket).await;
     let s = rpc
         .call(
             "session/new",
-            json!({"cwd": d.dir, "mcpServers": [], "_meta": {"acpmux": {"harness": harness, "name": "auth"}}}),
+            json!({"cwd": d.dir, "mcpServers": [], "_meta": {"acpmux": {"harness": harness, "name": name}}}),
         )
         .await;
     let id = s["sessionId"].as_str().unwrap().to_owned();
@@ -761,19 +766,19 @@ async fn a_secret_delivered_after_start_reaches_the_next_agent() {
          f=\"$HOME/.config/cmux/machine-secrets.env\"; [ -f \"$f\" ] && . \"$f\"\n",
     );
     let d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;
-    let (reply, _) = ask(&d, "claude").await;
+    let (reply, _) = ask_as(&d, "claude", "before").await;
     assert_eq!(found(&reply)["loginOnly"], json!([]));
     let conf = dir.join("home/.config/cmux");
     std::fs::create_dir_all(&conf).unwrap();
     std::fs::write(conf.join("machine-secrets.env"), "export DEMO_KEY='dummy-delivered-value'\n")
         .unwrap();
-    let (reply, _) = ask(&d, "claude").await;
+    let (reply, _) = ask_as(&d, "claude", "delivered").await;
     assert_eq!(found(&reply)["loginOnly"], json!(["DEMO_KEY"]));
     let cache = std::fs::read_to_string(dir.join("login-env.json")).unwrap();
     assert!(!cache.contains("dummy-delivered-value"), "the delivered value is in the cache");
     assert!(cache.contains("DEMO_KEY"), "the cache lists DEMO_KEY as a secret name: {cache}");
     std::fs::remove_file(conf.join("machine-secrets.env")).unwrap();
-    let (reply, _) = ask(&d, "claude").await;
+    let (reply, _) = ask_as(&d, "claude", "revoked").await;
     assert_eq!(found(&reply)["loginOnly"], json!([]), "a revoked secret still reached the agent");
 }
 

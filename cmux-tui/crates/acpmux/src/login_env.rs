@@ -92,10 +92,6 @@ struct State {
     last_check: Option<Instant>,
     /// Machine-env metadata from the last successful shell import.
     applied_machine_stamp: Option<String>,
-    /// Names delivered in `~/.config/cmux/machine-secrets.env` at the last
-    /// shell import (`cmux cloud deliver-secrets`): the person sent them to
-    /// this machine for its shells and agents, so they pass the allow-list.
-    delivered_names: Vec<String>,
 }
 
 static STATE: RwLock<State> = RwLock::new(State {
@@ -105,8 +101,13 @@ static STATE: RwLock<State> = RwLock::new(State {
     secret_names: Vec::new(),
     last_check: None,
     applied_machine_stamp: None,
-    delivered_names: Vec::new(),
 });
+
+/// Names delivered in `~/.config/cmux/machine-secrets.env` at the last shell
+/// import (`cmux cloud deliver-secrets`): the person sent them to this
+/// machine for its shells and agents, so they pass the allow-list. Its own
+/// lock, never `STATE`'s: the allow-list runs while `STATE` is held.
+static DELIVERED: RwLock<Vec<String>> = RwLock::new(Vec::new());
 static ENABLED: AtomicBool = AtomicBool::new(false);
 static REFRESHING: AtomicBool = AtomicBool::new(false);
 /// Coalesce concurrent agent starts awaiting a changed machine secret file.
@@ -242,7 +243,7 @@ async fn import_once(read: &str) -> bool {
     let machine_stamp = machine_files_stamp();
     // Names only, read with the stamp: the values still come from the shell.
     let delivered = delivered_names();
-    STATE.write().unwrap_or_else(|e| e.into_inner()).delivered_names = delivered;
+    *DELIVERED.write().unwrap_or_else(|e| e.into_inner()) = delivered;
     let output = run_shell(&shell, &marker).await;
     let elapsed = started.elapsed();
     let Some(text) = output else {
@@ -665,9 +666,9 @@ pub fn allowed_with(
     }
 }
 
-/// A name delivered to this machine's secrets file (`State::delivered_names`).
+/// A name delivered to this machine's secrets file (`DELIVERED`).
 fn delivered(key: &str) -> bool {
-    STATE.read().unwrap_or_else(|e| e.into_inner()).delivered_names.iter().any(|n| n == key)
+    DELIVERED.read().unwrap_or_else(|e| e.into_inner()).iter().any(|n| n == key)
 }
 
 fn extra_exact(key: &str) -> bool {
