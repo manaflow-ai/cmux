@@ -229,7 +229,11 @@ pub(super) const GUIDES: &[Guide] = &[
         agents chat send CHAT -- TEXT` (agents_chat_send, an agent message), `chat read CHAT \
         --after N` (agents_chat_read), `chat state CHAT` (agents_chat_state: status, running, \
         pending permissions), `chat interrupt CHAT` (agents_chat_interrupt, stops its turn) and \
-        `chat continue CHAT [TEXT]` (a nudge). Wait for its answer with agents_wait or read on \
+        `chat continue CHAT [TEXT]` (a nudge), `chat follow-up CHAT -- TEXT` (queued behind its \
+        turn), `chat steer CHAT -- TEXT` (agents_chat_steer, into its running turn), `chat rename \
+        CHAT NAME` (agents_chat_rename), `chat set CHAT [--model M] [--effort E] [--mode \
+        M|full-access]` (agents_chat_set), `chat close CHAT` (agents_chat_close, its tabs) and \
+        `chat move CHAT --workspace WS` (agents_chat_move). Wait for its answer with agents_wait or read on \
         from next_after. See a pane or tab: `cmux pane screenshot --target pane_ID --out PATH` or \
         `cmux tab screenshot --target tab_ID --out PATH` (browser pages come out blacked out; a \
         browser page's own pixels are `cmux browser page screenshot`).",
