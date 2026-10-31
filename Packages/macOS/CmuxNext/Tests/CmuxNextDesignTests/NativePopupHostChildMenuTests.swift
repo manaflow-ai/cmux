@@ -72,4 +72,52 @@ import Testing
         #expect(!host.isShown)
         #expect(dismissed == 1)
     }
+
+    /// A press in the popup at its window (the event AppKit is handling when the panel resigns).
+    private static func press(in panel: NSPanel) throws -> NSEvent {
+        try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: NSPoint(x: 20, y: 20), modifierFlags: [],
+                                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber,
+                                        context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+    }
+
+    /// The main queue gets a turn (the check a key loss during a press schedules).
+    private static func afterThePress() async throws {
+        try await Task.sleep(for: .milliseconds(50))
+    }
+
+    /// AppKit may resign the panel before the picker's menu begins tracking: the press in the
+    /// popup holds the dismiss until the menu shows, and the menu keeps the bubble open.
+    @Test func theKeysLostBeforeThePickersMenuBeginsLeaveTheBubbleOpen() async throws {
+        let (window, host, picker) = try Self.bubble()
+        defer { Self.close(window, host) }
+        var dismissed = 0
+        host.onDismiss = { dismissed += 1 }
+        let menu = try #require(picker.menu)
+
+        host.lostKeys(elsewhere: false, press: try Self.press(in: host.panel))
+        NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
+        try await Self.afterThePress()
+        #expect(host.isShown, "the Folder picker's menu closed the bubble")
+
+        NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
+        try await Self.afterThePress()
+        #expect(host.isShown)
+        #expect(dismissed == 0)
+    }
+
+    /// A press in the popup that gives the keys to a window that is not its child (no menu of the
+    /// popup began) still closes it: the popup never sticks open.
+    @Test func aPressInThePopupThatGivesTheKeysAwayStillClosesIt() async throws {
+        let (window, host, _) = try Self.bubble()
+        defer { Self.close(window, host) }
+        var dismissed = 0
+        host.onDismiss = { dismissed += 1 }
+
+        host.lostKeys(elsewhere: false, press: try Self.press(in: host.panel))
+        #expect(host.isShown, "the check waits until the press is handled")
+        try await Self.afterThePress()
+
+        #expect(!host.isShown, "a press that opened no menu of the popup left it stuck open")
+        #expect(dismissed == 1)
+    }
 }

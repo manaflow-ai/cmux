@@ -39,29 +39,45 @@ public final class NativePopupHost {
     public init(panel: NSPanel) {
         self.panel = panel
         if let keyed = panel as? NativePopupPanel {
-            keyed.onLostKeys = { [weak self, weak keyed] elsewhere in
-                guard let self, let keyed else { return }
-                // A menu or window opened from inside the popup took the keys: the popup stays,
-                // and takes them back when the menu closes.
-                if hasOpenChild { return }
-                // A press on the control that toggles the popup makes its window key first; the
-                // control closes the popup itself, so that key loss is not a dismiss.
+            keyed.onLostKeys = { [weak self] elsewhere in
                 let press = NSApp.currentEvent.flatMap { [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains($0.type) ? $0 : nil }
-                if let press, press.window !== keyed, keepsOpen(press) { return }
-                // A press inside the popup that cost it the keys opened a menu from it (whose
-                // tracking may begin after the key change); the popup takes them back after.
-                if let press, contains(press.window) { return }
-                // Shown without the keys, a window of the app took them without a press (Cmd-Tab
-                // into the app, a focus request): the popup takes them over, as a popup shown with
-                // the app active has them; it never takes them while the app is inactive
-                // (ActiveAppKeyPanel). A press elsewhere closes it through the click monitor.
-                if elsewhere, press == nil, isShown {
-                    keyed.makeKey()
-                    return
-                }
-                dismiss()
+                self?.lostKeys(elsewhere: elsewhere, press: press)
             }
         }
+    }
+
+    /// The panel lost the keys (``NativePopupPanel/onLostKeys``) during `press`, the mouse-down
+    /// being handled then (nil for none).
+    func lostKeys(elsewhere: Bool, press: NSEvent?) {
+        guard let keyed = panel as? NativePopupPanel else { return }
+        // A menu or window opened from inside the popup took the keys: the popup stays, and takes
+        // them back when the menu closes.
+        if hasOpenChild { return }
+        // A press on the control that toggles the popup makes its window key first; the control
+        // closes the popup itself, so that key loss is not a dismiss.
+        if let press, press.window !== keyed, keepsOpen(press) { return }
+        // A press inside the popup lost it the keys before a menu it opened began tracking (AppKit
+        // may resign the panel first). Once the press is handled (the menu's tracking, which
+        // starts inside it, is noted synchronously) the popup closes unless a child took them.
+        if let press, contains(press.window) {
+            let showing = generation
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated { // main-proof: DispatchQueue.main
+                    guard let self, self.generation == showing, self.isShown, !self.hasOpenChild, !self.panel.isKeyWindow else { return }
+                    self.dismiss()
+                }
+            }
+            return
+        }
+        // Shown without the keys, a window of the app took them without a press (Cmd-Tab into the
+        // app, a focus request): the popup takes them over, as a popup shown with the app active
+        // has them; it never takes them while the app is inactive (ActiveAppKeyPanel). A press
+        // elsewhere closes it through the click monitor.
+        if elsewhere, press == nil, isShown {
+            keyed.makeKey()
+            return
+        }
+        dismiss()
     }
 
     /// The popup is on screen and not closing.
@@ -205,18 +221,16 @@ public final class NativePopupHost {
                 Task { @MainActor in self?.dismiss() }
             }
         }
-        // A menu opened from inside the popup: noted when it begins, before it takes the keys.
-        observers.append(center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { [weak self] note in
-            let menu = note.object as? NSMenu
-            MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                if let menu { self?.menuBegan(menu) }
-            }
+        // A menu opened from inside the popup, noted as AppKit posts it (no queue: delivered at
+        // once on the posting thread, inside the press that opens the menu) so a key loss checked
+        // after the press sees it.
+        observers.append(center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { [weak self] note in
+            guard Thread.isMainThread, let menu = note.object as? NSMenu else { return } // main-proof: returns off the main thread
+            MainActor.assumeIsolated { self?.menuBegan(menu) }
         })
-        observers.append(center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main) { [weak self] note in
-            let menu = note.object as? NSMenu
-            MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                if let menu { self?.menuEnded(menu) }
-            }
+        observers.append(center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { [weak self] note in
+            guard Thread.isMainThread, let menu = note.object as? NSMenu else { return } // main-proof: returns off the main thread
+            MainActor.assumeIsolated { self?.menuEnded(menu) }
         })
         let clicks = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             guard let self, !self.contains(event.window), !self.hasOpenChild, !self.keepsOpen(event) else { return event }
