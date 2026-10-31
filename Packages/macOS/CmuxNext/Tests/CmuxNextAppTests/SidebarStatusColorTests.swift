@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence msg 11983: "make sure sidebar has blue, orange/yellow for needs attention, and red for errors".
@@ -9,7 +10,7 @@ import Testing
 /// is an error. A group header, open or collapsed, rolls up its subtree's most urgent state: red, then orange,
 /// then blue. Measured on the real ``SidebarView``: each row's visible status glyph and the color its
 /// indicator draws, in light and dark. Each case prints a `STATUSCOLOR|` line so a fleet log shows them.
-@MainActor @Suite(.serialized) struct SidebarStatusColorTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarStatusColorTests {
     enum Meaning: String, CustomStringConvertible {
         case unread, attention, error
         var description: String { rawValue }

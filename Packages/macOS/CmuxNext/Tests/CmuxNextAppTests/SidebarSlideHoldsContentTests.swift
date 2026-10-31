@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// GPU audit 2026-10-21, offender #1: the sidebar's show/hide slide moved the main pane's edge on
@@ -10,7 +11,7 @@ import Testing
 /// laid out at a new width per frame (6.7 to 7.4 ms of main thread a frame, 81 to 89% of a 120 Hz
 /// frame). The content now keeps one width for the whole slide, the widest the card reaches, rides
 /// the moving edge, and lays out once: at the start of a hide, at the landing of a show.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarSlideHoldsContentTests {
     /// What a workspace does (`WorkspaceContentView`): its layout child has no autoresizing mask
     /// and is sized in `layout()`, so a frame change reaches it only on the next layout pass.
