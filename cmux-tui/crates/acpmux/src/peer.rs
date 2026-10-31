@@ -236,6 +236,8 @@ pub struct Peer {
     /// held (`watch_delta.rs`).
     watch_delta: AtomicBool,
     known: StdMutex<crate::watch_delta::Known>,
+    /// Whether the list `known` holds was read with tools: a delta is asked for the same way.
+    known_tools: AtomicBool,
     /// This link's messages from the peer so far: the bytes of their frames, and of their JSON
     /// text (more when the peer compresses them, `frame_compress.rs`).
     received: ReceivedBytes,
@@ -335,6 +337,7 @@ impl Peer {
             watch_key: StdMutex::new(None),
             watch_delta: AtomicBool::new(false),
             known: StdMutex::new(crate::watch_delta::Known::default()),
+            known_tools: AtomicBool::new(false),
             received: ReceivedBytes::default(),
         })
     }
@@ -1280,22 +1283,33 @@ impl Peer {
             // The reader published the reply's list (`watch_key`), so Connected follows it.
             let watch = |tools| json!({"enabled": true, "withTools": tools});
             let row_pages = build.is_some() && *me.row_pages_for.lock_or_recover() == build;
-            let first = if row_pages {
+            // A link that read the list before reads only what changed since (`watch_delta.rs`),
+            // with or without tools as that list was: a daemon serving it as a peer answers
+            // with a delta. One too large to send is read as the whole list is.
+            let delta =
+                me.watch_delta.load(Ordering::SeqCst) && me.served_as().as_deref() == Some("peer");
+            let known = delta.then(|| me.known.lock_or_recover().to_param());
+            let known = known.filter(|k| k.as_object().is_some_and(|k| !k.is_empty()));
+            let mut answered = None;
+            if let Some(known) = known {
+                let tools = me.known_tools.load(Ordering::SeqCst);
+                let mut asked = watch(tools);
+                asked.set("known", known);
+                match me.watch_paced(method::MUX_WATCH, asked, link).await {
+                    Err(e) if too_large(&e) => {
+                        tracing::warn!(peer = %me.name, "the watch delta is too large ({}); reading the whole list", e.message);
+                    }
+                    answer => answered = Some((answer?, tools)),
+                }
+            }
+            let first = if answered.is_some() {
+                answered
+            } else if row_pages {
                 tracing::info!(peer = %me.name, "the watch list needed pages of rows last time; reading it so");
                 me.watch_row_pages(link).await?;
                 None
             } else {
-                // A link that read the list before reads only what changed since
-                // (`watch_delta.rs`): a daemon serving it as a peer answers with a delta.
-                let mut asked = watch(true);
-                let delta = me.watch_delta.load(Ordering::SeqCst)
-                    && me.served_as().as_deref() == Some("peer");
-                let known = delta.then(|| me.known.lock_or_recover().to_param());
-                if let Some(known) = known.filter(|k| k.as_object().is_some_and(|k| !k.is_empty()))
-                {
-                    asked.set("known", known);
-                }
-                match me.watch_paced(method::MUX_WATCH, asked, link).await {
+                match me.watch_paced(method::MUX_WATCH, watch(true), link).await {
                     // A list too large to send with tools (big-red's, 17 MB with 5241 rows, on
                     // 2026-10-30) is read without them: the link connects with its rows' tools
                     // missing rather than never. A peer on this build leaves its peers' rows out
@@ -1322,6 +1336,8 @@ impl Peer {
             // A list too large for one message comes in pages (a peer served as Web, over
             // plain ws://, gets the whole list): every page is read before the link connects,
             // and the reader publishes the list once, whole, after the last.
+            // The next delta is asked for as this list was read (`watch_delta.rs`).
+            me.known_tools.store(first.as_ref().is_some_and(|(_, tools)| *tools), Ordering::SeqCst);
             if let Some((first, tools)) = first {
                 me.watch_pages(first, tools, link).await?;
             }
