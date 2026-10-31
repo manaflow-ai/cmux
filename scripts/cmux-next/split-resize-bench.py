@@ -38,7 +38,7 @@ parser.add_argument("--tag")
 # (live: AsyncLiveResize, the behaviour before cmux#25842; hold; synced: AsyncLiveResize off).
 parser.add_argument("--variants", default="")
 opts, _ = parser.parse_known_args()
-VARIANTS = ("live", "hold", "synced")
+VARIANTS = ("live", "hold", "synced", "resizeSync")
 variants = [v for v in opts.variants.split(",") if v] or [None]
 for variant in variants:
     if variant is not None and variant not in VARIANTS:
