@@ -1,0 +1,202 @@
+{
+ "id": "r3-reattach",
+ "priority": "P1",
+ "title": "R3 (g, e2 replay): resize, then quit and reopen (the terminal reattaches by replay): one size everywhere, and the app shows the daemon's screen",
+ "why": "Lawrence's v2.2.11-opt capture (2026-10-31): grid 297x87 but fit_grid 126x87 in a 2088x1233 view. After a resize the shown terminal must have one size in the app, Ghostty, the PTY and the daemon, and a typed long line must wrap at it. Fuzzer e2 (STATUS 950): after a resize the attach replay drew a row 43 columns off.",
+ "source": "cmux-ad P0 2026-10-31 (Lawrence on v2.2.11-opt: resizing terminals is broken); R3 invariant",
+ "budget_seconds": 255,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-r3-reattach"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo base-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "base-${nonce}",
+   "as": "main"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 70% x 70% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.7,
+    0.7
+   ]
+  },
+  {
+   "do": "expect",
+   "title": "baseline: the terminal fits the placed window (R3, settled)",
+   "timeout": 15,
+   "settle": 1.5,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "main"
+     }
+    }
+   ]
+  },
+  {
+   "do": "remember",
+   "as": "start",
+   "pane": "main"
+  },
+  {
+   "do": "type",
+   "text": "seq -f 'row-%03g-${nonce}' 1 60",
+   "enter": true
+  },
+  {
+   "do": "window_drag",
+   "title": "drag the bottom-right corner 300 left, 200 up",
+   "by": [
+    -300,
+    -200
+   ],
+   "events": 30,
+   "mark": "shrink"
+  },
+  {
+   "do": "type",
+   "text": "echo r3gs-${nonce} $(stty size)",
+   "enter": true
+  },
+  {
+   "do": "r3_long_line",
+   "tag": "r3gsw${nonce}"
+  },
+  {
+   "do": "expect",
+   "title": "r3gs: after the layout settles, main: grid == fit(bounds) == drawn == PTY == daemon == topology, and a long line wraps at the new width",
+   "since": "shrink",
+   "timeout": 20,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "main",
+      "pty_tag": "r3gs-${nonce}",
+      "long_tag": "r3gsw${nonce}",
+      "vs": "start",
+      "cols": "narrower"
+     }
+    },
+    {
+     "pty_size": {
+      "tag": "r3gs-${nonce}",
+      "pane": "main"
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  },
+  {
+   "do": "remember",
+   "as": "small",
+   "pane": "main"
+  },
+  {
+   "do": "relaunch",
+   "how": "quit",
+   "mark": "reopen"
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "base-${nonce}",
+   "as": "again"
+  },
+  {
+   "do": "expect",
+   "title": "after the reattach: the replayed screen is the live one (last 20 lines), and one size everywhere",
+   "since": "reopen",
+   "timeout": 30,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "again"
+     }
+    },
+    {
+     "at_bottom": {
+      "pane": "again",
+      "lines": 20
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  },
+  {
+   "do": "use_pane",
+   "pane": "again",
+   "click": true,
+   "title": "click into the reattached terminal"
+  },
+  {
+   "do": "window_drag",
+   "title": "after the reattach: drag the corner 200 right, 120 down",
+   "by": [
+    200,
+    120
+   ],
+   "events": 30,
+   "mark": "grow2"
+  },
+  {
+   "do": "type",
+   "text": "echo r3gg-${nonce} $(stty size)",
+   "enter": true
+  },
+  {
+   "do": "r3_long_line",
+   "tag": "r3ggw${nonce}"
+  },
+  {
+   "do": "expect",
+   "title": "r3gg: after the layout settles, again: grid == fit(bounds) == drawn == PTY == daemon == topology, and a long line wraps at the new width",
+   "since": "grow2",
+   "timeout": 20,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "again",
+      "pty_tag": "r3gg-${nonce}",
+      "long_tag": "r3ggw${nonce}",
+      "vs": "small",
+      "cols": "wider"
+     }
+    },
+    {
+     "pty_size": {
+      "tag": "r3gg-${nonce}",
+      "pane": "again"
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}
