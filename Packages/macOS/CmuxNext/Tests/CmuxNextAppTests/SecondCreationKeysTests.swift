@@ -94,10 +94,10 @@ struct SecondCreationKeysTests {
         return held
     }
 
-    /// Starts a reader in the focused terminal: it prints `R42x<nonce>` when it waits, then the hex of the next 4 bytes
+    /// Starts a reader in the focused terminal: it prints `R42x<nonce>` when it waits, then the hex of the next `count` bytes
     /// the terminal sends it, as `K42x<nonce><hex>K`.
-    private static func startByteReader(nonce: String, on surface: SurfaceID, in p: Panes) async throws {
-        let command = "stty raw -echo; echo R$((6*7))x\(nonce); b=$(head -c 4 | od -An -tx1 | tr -d ' \\n'); stty sane; echo K$((6*7))x\(nonce)${b}K\r"
+    private static func startByteReader(nonce: String, count: Int = 4, on surface: SurfaceID, in p: Panes) async throws {
+        let command = "stty raw -echo; echo R$((6*7))x\(nonce); b=$(head -c \(count) | od -An -tx1 | tr -d ' \\n'); stty sane; echo K$((6*7))x\(nonce)${b}K\r"
         _ = try Self.type(command, in: p)
         let started = try await Self.ran("R42x\(nonce)", on: surface, in: p)
         let screen = await Self.screen(surface, in: p)
@@ -216,6 +216,56 @@ struct SecondCreationKeysTests {
             let first = await Self.screen(p.first.surface, in: p)
             #expect(inFirst, "Ctrl-C and Up held for the first terminal did not reach it as 03 and cursor-up: \(first.suffix(300))")
             #expect(!second.contains("K42x\(nonce)"), "a key held for the first terminal reached the second one: \(second.suffix(300))")
+        }
+    }
+
+    /// cmux-ad 11:15Z: Cmd-D, "ls", Up, Ctrl-C, Cmd-D, a line, all held for the first creation, whose terminal never got
+    /// the keyboard. Each key goes to its own terminal at its place: "ls", Up and Ctrl-C to the first terminal (its own
+    /// encoding: 6c 73, cursor-up, 03), the second Cmd-D runs as the app's split at its place, and the line after it goes
+    /// to the pane that split made. Nothing of the first terminal's keys reaches the focused one.
+    @Test func eachHeldKeyRunsAtItsPlaceInItsOwnTerminal() async throws {
+        try await Self.withTwoTerminals { p in
+            let router = p.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            coordinator.holdLimit = .milliseconds(300)
+            // A test window is never key: run held keys as `CmuxApplication.sendEvent` does (the key router, then the window).
+            coordinator.runKey = { event, window in if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) } }
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            try await Self.focus(p.second.pane, tab: p.second.tab, in: p)
+            try await Self.startByteReader(nonce: nonce, count: 6, on: p.second.surface, in: p)
+            try await Self.focus(p.first.pane, tab: p.first.tab, in: p)
+            try await Self.startByteReader(nonce: nonce, count: 6, on: p.first.surface, in: p)
+
+            let generation = p.content.beginFocusIntent()
+            p.content.focus.expect(.tab(p.first.tab), awayFrom: p.first.pane.paneKey, generation: generation)
+            let creation = try #require(coordinator.begin(in: p.window, generation: generation, earlyTab: p.first.tab, tab: p.first.tab))
+            p.window.makeFirstResponder(nil)
+            var held = try Self.type("ls", in: p)
+            held.append(try Self.press("\u{F700}", [.function, .numericPad], keyCode: 126, in: p))
+            held.append(try Self.press("\u{3}", [.control], keyCode: 8, ignoring: "c", in: p))
+            held.append(try Self.press("d", [.command], keyCode: 2, in: p))
+            held += try Self.type("echo n3x\(nonce)x$((6*7))\r", in: p)
+            try #require(held.allSatisfy { $0 }, "the test needs every key held for the first creation: \(held)")
+
+            // The hold ends with the keyboard on the second terminal.
+            let before = Set(p.content.panes.keys)
+            try await Self.focus(p.second.pane, tab: p.second.tab, in: p)
+            coordinator.resolve(creation, landed: true, in: p.window)
+
+            let inFirst = try await Self.ran("K42x\(nonce)6c731b(5b|4f)4103K", on: p.first.surface, in: p)
+            @MainActor func split() -> SurfaceID? {
+                p.content.panes.filter { !before.contains($0.key) }.values.compactMap { pane in
+                    pane.pane.tabs.first { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) }?.surface
+                }.first
+            }
+            try await PinnedPageTests.until({ split() != nil }, report: { "the held Cmd-D made no pane: \(p.content.panes.count) panes" })
+            let inSplit = try await Self.ran("n3x\(nonce)x42", on: try #require(split()), in: p)
+            let first = await Self.screen(p.first.surface, in: p)
+            let second = await Self.screen(p.second.surface, in: p)
+            #expect(inFirst, "ls, Up and Ctrl-C held for the first terminal did not reach it in order: \(first.suffix(300))")
+            #expect(inSplit, "the line typed after the held Cmd-D did not run in the pane it made")
+            #expect(!second.contains("K42x\(nonce)") && !second.contains("n3x\(nonce)x42"),
+                    "a key held for another terminal reached the focused one: \(second.suffix(300))")
         }
     }
 }
