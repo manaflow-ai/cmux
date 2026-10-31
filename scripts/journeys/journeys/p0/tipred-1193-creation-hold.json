@@ -2,7 +2,7 @@
   "id": "tipred-1193-creation-hold",
   "priority": "P0",
   "title": "TIP RED 1193 red journey with the creation hold: the smoke gate's steps 1-18, then debug.creation.hold of the first Cmd-D's creation, Cmd-D, d1 at once, Cmd-D, d2 at once, release, and step 23's checks: each line in its own new pane",
-  "why": "TIP RED 1193 (STATUS 1202, 1226): the second Cmd-D's keys go to the FIRST new pane while creation 1 is still pending. The P0 owner's DEBUG hook debug.creation.hold {n: 1} keeps creation 1's daemon reply until release (cmux-ad 11:25Z), so the second Cmd-D and the d2 keys are typed while creation 1 is pending in EVERY round, with no hog and no product timing change. smoke_hold_path runs before the release: the second Cmd-D must be held (handled_by app and no dispatcher trace) and d2 needs a held key; else not run. On #29301's red ref (base product code) step 23 must fail every round; on its head it must pass every round.",
+  "why": "TIP RED 1193 (STATUS 1202, 1226): the second Cmd-D's keys go to the FIRST new pane while creation 1 is still pending. The P0 owner's DEBUG hook debug.creation.hold {n: 1} keeps creation 1's daemon reply until release (cmux-ad 11:25Z), so the second Cmd-D and the d2 keys are typed while creation 1 is pending in EVERY round, with no hog and no product timing change. smoke_hold_path runs after step 23's checks (so a red is never hidden) and proves the hold path from the hook's release reply: creation 1 was still pending and creation 2 had started. Each key's path (handled_by, trace) is recorded as data. A build without the hook is not run. On #29301's red ref (base product code) step 23 must fail every round; on its head it must pass every round.",
   "source": "journeys/p0/tipred-1193-split-type-at-once.json (the smoke gate's steps 1-23) + the P0 owner's debug.creation.hold / release (#29301)",
   "budget_seconds": 200,
   "steps": [
@@ -163,11 +163,9 @@
       "name": "before_splits"
     },
     {
-      "do": "rpc",
-      "method": "debug.creation.hold",
-      "params": {
-        "n": 1
-      }
+      "do": "smoke_creation",
+      "action": "hold",
+      "n": 1
     },
     {
       "do": "key",
@@ -194,21 +192,9 @@
       "text": "echo d2-${nonce}-$((6*7))"
     },
     {
-      "do": "smoke_hold_path",
-      "lines": [
-        "echo d2-${nonce}-$((6*7))"
-      ],
-      "every_line": true,
-      "held_marks": [
-        "split2"
-      ]
-    },
-    {
-      "do": "rpc",
-      "method": "debug.creation.release",
-      "params": {
-        "n": 1
-      }
+      "do": "smoke_creation",
+      "action": "release",
+      "n": 1
     },
     {
       "do": "expect",
@@ -256,14 +242,20 @@
       ]
     },
     {
+      "do": "smoke_hold_path",
+      "lines": [
+        "echo d2-${nonce}-$((6*7))"
+      ],
+      "creation_held": 1
+    },
+    {
       "do": "smoke_no_key_gaps"
     }
   ],
   "finally": [
     {
-      "do": "rpc",
-      "method": "debug.creation.release",
-      "params": {}
+      "do": "smoke_creation",
+      "action": "release"
     },
     {
       "do": "smoke_close_all"

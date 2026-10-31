@@ -1144,6 +1144,15 @@ def step_smoke_hold_path(j, step):
             marks[mark] = {"handled_by": str(reply.get("handled_by")), "trace": trace[:8],
                            "held": reply.get("handled_by") == "app" and not ran}
     result = {"hold_path": held > 0, "held_keys": held, "lines": lines, "burst_holds": burst, "marks": marks}
+    if step.get("creation_held"):
+        # The creation hold's own report proves the hold path: creation N stayed pending (its reply held by the hook)
+        # while the keys after it were typed, and the next creation started meanwhile. The key paths are data only.
+        pending, reply = _creation_proof(j, int(step["creation_held"]))
+        result.update({"creation_pending": pending, "creation_release": reply, "hold_path": pending})
+        if not pending:
+            raise D.NotRun(f"hold path not proven: creation {step['creation_held']} was not held while the keys "
+                           f"were typed (release reply {json.dumps(reply)[:300]}) ({json.dumps(result)[:400]})")
+        return result
     why = []
     if held <= 0:
         why.append("no key typed at once was handled_by app" if lines else "no typed line recorded")
@@ -1159,6 +1168,42 @@ def step_smoke_hold_path(j, step):
         result["hold_path"] = False
         raise D.NotRun(f"hold path not proven: {'; '.join(why)} ({json.dumps(result)[:500]})")
     return result
+
+
+def step_smoke_creation(j, step):
+    """The P0 1193 owner's DEBUG hook (#29301): ACTION "hold" (`debug.creation.hold {n}`: the n-th creation that
+    starts keeps its daemon reply, so it stays pending) or "release" (`debug.creation.release {n}`, or every hold with
+    no n). Records each reply for smoke_hold_path. A build without the hook (feat, a dogfood line) cannot run the
+    journey: not run, never a red."""
+    method = "debug.creation." + step["action"]
+    params = {"n": step["n"]} if "n" in step else {}
+    try:
+        reply = j.app.rpc(method, params)
+    except D.StepError as error:
+        text = str(error)
+        if "method_not_found" in text or "unknown method" in text.lower() or "not found" in text.lower():
+            raise D.NotRun(f"this build has no {method} (the creation hold of #29301): {text[:200]}")
+        raise
+    j.smoke_creation = {**getattr(j, "smoke_creation", {}), step["action"]: reply, step["action"] + "_at": D.now()}
+    return {"reply": reply}
+
+
+def _creation_proof(j, n):
+    """(creation N was pending when it was released, and a later creation had started, the release reply)."""
+    seen = getattr(j, "smoke_creation", {})
+    reply = seen.get("release")
+    if not isinstance(reply, dict):
+        return False, reply
+    ints = lambda key: [int(x) for x in reply.get(key) or [] if isinstance(x, (int, float))]
+    # "started" >= N + 1: creation N and the next one (the second Cmd-D) both started after the hold was armed.
+    started = int(reply.get("started") or 0) >= n + 1
+    if "resumed" in reply:  # a hook that names the creations it really resumed: the direct proof
+        return started and n in ints("resumed"), reply
+    # Else: "released" names N even when N never waited, so the proof is that N started under the armed hold and was
+    # released before the hook's own 30 s limit (it would have gone on by itself). The non-optimistic split path
+    # has no hook; it is not used by a key-made split.
+    in_time = (seen.get("release_at", 0) - seen.get("hold_at", 0)) < 25
+    return started and n in ints("released") + ints("held") and in_time, reply
 
 
 def step_smoke_burst(j, step):
@@ -1205,7 +1250,7 @@ def step_smoke_burst(j, step):
     return {"steps": len(steps), "reply": reply, "held_keys": held}
 
 
-STEPS = {"smoke_burst": step_smoke_burst, "smoke_hold_path": step_smoke_hold_path, "smoke_no_key_gaps": step_smoke_no_key_gaps, "smoke_ready": step_smoke_ready, "smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,
+STEPS = {"smoke_burst": step_smoke_burst, "smoke_creation": step_smoke_creation, "smoke_hold_path": step_smoke_hold_path, "smoke_no_key_gaps": step_smoke_no_key_gaps, "smoke_ready": step_smoke_ready, "smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,
          "smoke_remember_workspaces": step_smoke_remember_workspaces, "smoke_close_all": step_smoke_close_all,
          "smoke_snapshot": step_smoke_snapshot, "smoke_adopt_line": step_smoke_adopt_line,
          "smoke_long_line": step_smoke_long_line, "smoke_widths": step_smoke_widths}

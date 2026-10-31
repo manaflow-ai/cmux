@@ -1233,6 +1233,34 @@ class HoldPath(unittest.TestCase):
         with self.assertRaises(self.NotRun):
             self.ext.step_smoke_hold_path(j, want)
 
+    def test_the_creation_hold_report_proves_the_hold_path_and_a_build_without_the_hook_is_not_run(self):
+        calls = []
+
+        class App:
+            def __init__(self_, replies):
+                self_.replies = replies
+
+            def rpc(self_, method, params=None):
+                calls.append((method, params))
+                reply = self_.replies[method]
+                if isinstance(reply, Exception):
+                    raise reply
+                return reply
+        j = self._j(("echo d2", ["responder"]))
+        j.app = App({"debug.creation.hold": {"armed": [1], "started": 0, "held": [], "released": []},
+                     "debug.creation.release": {"armed": [1], "started": 2, "held": [], "released": [1]}})
+        self.ext.step_smoke_creation(j, {"action": "hold", "n": 1})
+        self.ext.step_smoke_creation(j, {"action": "release", "n": 1})
+        self.assertEqual(calls, [("debug.creation.hold", {"n": 1}), ("debug.creation.release", {"n": 1})])
+        done = self.ext.step_smoke_hold_path(j, {"lines": ["echo d2"], "creation_held": 1})
+        self.assertTrue(done["creation_pending"])
+        j.smoke_creation["release"] = {"started": 1, "held": [], "released": [1]}  # the second Cmd-D never started
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_hold_path(j, {"creation_held": 1})
+        j.app = App({"debug.creation.hold": self.ext.D.StepError("debug.creation.hold: method_not_found")})
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_creation(j, {"action": "hold", "n": 1})
+
     def test_a_burst_without_a_hold_counter_is_not_proven(self):
         with self.assertRaises(self.NotRun) as no:
             self.ext.step_smoke_hold_path(self._j(burst=None), {})
