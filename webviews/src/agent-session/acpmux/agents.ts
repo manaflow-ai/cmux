@@ -15,6 +15,8 @@ const KNOWN: Record<string, string> = {
   qwen: "Qwen Code",
   copilot: "GitHub Copilot",
   aider: "Aider",
+  // acpmux's built-in Chief harness (`cmux chief acp`): the person's chat with their Chief.
+  chief: "Chief",
 };
 
 /// The agent's name for a harness id. Variants share their agent's name ("claude-sr" is

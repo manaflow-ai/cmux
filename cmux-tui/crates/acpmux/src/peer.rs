@@ -26,6 +26,9 @@ mod health;
 
 #[path = "peer_ssh.rs"]
 mod ssh_errors;
+#[path = "peer_wanted.rs"]
+mod wanted;
+use wanted::BackoffWait;
 
 #[cfg(test)]
 #[path = "peer_state_tests.rs"]
@@ -82,17 +85,6 @@ pub enum PeerNotice {
         /// The link it came on (`Peer::link_epoch` when it was read).
         link: u64,
     },
-}
-
-/// How a backoff wait between attempts ended (`Peer::wait_backoff`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BackoffWait {
-    /// The delay passed.
-    Done,
-    /// This computer slept through it: the attempt goes now.
-    Woke,
-    /// The peer was stopped.
-    Stopped,
 }
 
 /// A deliberate restart is not a transport failure and does not advance retry backoff.
@@ -201,13 +193,19 @@ pub struct Peer {
     /// requests and notifications are refused, so none goes out on a link
     /// that is dropped to reconnect as a peer, or waits to go out on the next.
     admitting: AtomicBool,
-    attached: StdMutex<HashSet<String>>,
+    /// The chats local clients want streamed, each with the ticket of its latest mark: a client
+    /// that relies on a mark already there renews it, so an attach refused meanwhile does not
+    /// take it away (`attach_hidden`).
+    attached: StdMutex<HashMap<String, u64>>,
+    marks: AtomicU64,
     notices: mpsc::Sender<(String, u64, PeerNotice)>,
     stop: AtomicBool,
     /// A replacement requested now attempts immediately, even if its cache is parked.
     retry_immediately: AtomicBool,
     /// Wakes `serve` so `stop` closes the live connection.
     stop_signal: Notify,
+    /// A client waits on the peer: reconnects come within seconds (`peer_wanted.rs`).
+    wanted: wanted::Wanted,
     /// Counts connect attempts that settled (ready or failed), bumped by the
     /// hub once it applied the outcome, so a caller can await the next one.
     settled: tokio::sync::watch::Sender<u64>,
@@ -288,11 +286,13 @@ impl Peer {
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
             admitting: AtomicBool::new(false),
-            attached: StdMutex::new(HashSet::new()),
+            attached: StdMutex::new(HashMap::new()),
+            marks: AtomicU64::new(0),
             notices,
             stop: AtomicBool::new(false),
             retry_immediately: AtomicBool::new(false),
             stop_signal: Notify::new(),
+            wanted: Default::default(),
             settled: tokio::sync::watch::channel(0).0,
             link: StdMutex::new(Link::default()),
             states: StdMutex::new(None),
@@ -744,9 +744,36 @@ impl Peer {
     }
 
     /// Remember that local clients want this session's stream, so it is
-    /// re-attached after a reconnect.
+    /// re-attached after a reconnect. True when it was not marked yet; a mark already there is
+    /// renewed, since this caller now relies on it.
     pub fn mark_attached(&self, session_id: &str) -> bool {
-        self.attached.lock_or_recover().insert(session_id.to_owned())
+        // The ticket is taken under the lock, so a later mark always holds a newer one.
+        let mut marks = self.attached.lock_or_recover();
+        let ticket = self.marks.fetch_add(1, Ordering::SeqCst) + 1;
+        marks.insert(session_id.to_owned(), ticket).is_none()
+    }
+
+    /// The link's own attach of the peer's chat `id` ([`hidden_attach`]), marked already. Its
+    /// error goes to the log at warn: a chat whose attach failed got no stream, and said
+    /// nothing of why. One the peer refused ([`refuses_attach`]: the chat is gone there, or the
+    /// peer takes no such attach) is no longer marked, so no reconnect asks for it again and the
+    /// next prompt attaches it anew, unless a client marked it again while this attach was out:
+    /// that client relies on the mark. Any other failure (the link dropped, a timeout, a full
+    /// queue) keeps the mark, and the next link's handshake attaches it again.
+    pub async fn attach_hidden(&self, id: &str) -> Result<Value, RpcError> {
+        let ticket = self.attached.lock_or_recover().get(id).copied();
+        let attached = self.request(method::MUX_ATTACH, hidden_attach(id)).await;
+        if let Err(e) = &attached {
+            let refused = refuses_attach(e);
+            if refused {
+                let mut marks = self.attached.lock_or_recover();
+                if marks.get(id).copied() == ticket {
+                    marks.remove(id);
+                }
+            }
+            tracing::warn!(peer = %self.name, session = %id, refused, "the peer's chat was not attached, so it streams nothing until it is again: {}", e.message);
+        }
+        attached
     }
 
     /// How many requests wait for the peer's answer now.
@@ -956,44 +983,27 @@ impl Peer {
         }
     }
 
-    /// Waits out one backoff delay. A wait that this
-    /// computer slept through ends at the wake, with the backoff started over: the delay ran on
-    /// the monotonic clock, which stood still, so the attempt would otherwise come up to a
-    /// minute after the wake, while the network that failed before the sleep is likely back.
-    async fn wait_backoff(&self, delay: Duration) -> BackoffWait {
-        let deadline = tokio::time::Instant::now() + delay;
-        let mut watch = SleepWatch::now();
-        loop {
-            let check = (tokio::time::Instant::now() + SleepWatch::EVERY).min(deadline);
-            tokio::select! {
-                _ = tokio::time::sleep_until(check) => {
-                    if let Some(slept) = watch.check() {
-                        tracing::info!(peer = %self.name, "this computer slept {}s; reconnecting now", slept.as_secs());
-                        return BackoffWait::Woke;
-                    }
-                    if tokio::time::Instant::now() >= deadline {
-                        return BackoffWait::Done;
-                    }
-                }
-                _ = self.stop_signal.notified() => return BackoffWait::Stopped,
-            }
-        }
-    }
-
     /// Publish the link ending before settling requests. Restart neither increments failed
-    /// attempts nor resets/draws from backoff, even when the previous link was stable.
+    /// attempts nor draws from backoff; it starts backoff over when the previous link was stable.
     fn finish_link(
         &self,
         outcome: Result<LinkEnd, String>,
         backoff: &mut Backoff,
     ) -> Option<PeerNotice> {
         *self.last_error.lock_or_recover() = outcome.as_ref().err().cloned();
+        self.link_ending(matches!(&outcome, Ok(LinkEnd::Restarting)));
         // The epoch moves first: a finishing handshake cannot leave a dead link ready.
         self.link_ended();
         self.open.store(false, Ordering::SeqCst);
         self.connected.store(false, Ordering::SeqCst);
         if matches!(&outcome, Ok(LinkEnd::Restarting)) {
-            self.with_link(|l| l.restarting(crate::store::now_ms()));
+            // The peer's daemon restarts (an update): a stable link's backoff starts over, as at
+            // its drop, or each restart's failures add up and the next waits out a minute.
+            let now = crate::store::now_ms();
+            if self.link().ready_for(now).is_some_and(|up| up >= self.timings.stable_after) {
+                backoff.reset();
+            }
+            self.with_link(|l| l.restarting(now));
             return Some(PeerNotice::Restarting);
         }
         // A genuinely stable link starts failure backoff over; a flapping one does not.
@@ -1293,10 +1303,15 @@ impl Peer {
             }
             tracing::info!(peer = %me.name, "connected to {}", me.url);
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
-            let attached: Vec<String> = me.attached.lock_or_recover().iter().cloned().collect();
-            for sid in attached {
-                let _ = me.request(method::MUX_ATTACH, hidden_attach(&sid)).await;
-            }
+            // Several at once: a chat the peer is slow on holds up no other's stream, and a
+            // link with many chats does not fill its send queue with them.
+            let attached: Vec<String> = me.attached.lock_or_recover().keys().cloned().collect();
+            let link = &me;
+            futures::stream::iter(attached.iter())
+                .for_each_concurrent(REATTACHES_AT_ONCE, |sid| async move {
+                    let _ = link.attach_hidden(sid).await;
+                })
+                .await;
             me.refresh_health();
             Ok::<(), RpcError>(())
         });
@@ -1579,6 +1594,17 @@ fn lends_over(url: &str) -> bool {
         }
         _ => false,
     }
+}
+
+/// How many of a link's chats its handshake attaches again at once after a reconnect.
+const REATTACHES_AT_ONCE: usize = 16;
+
+/// Whether the peer itself refused an attach (`Peer::attach_hidden`): the chat is not there, or
+/// the peer takes no such request. The link's own failures (dropped, timed out, too large, a
+/// full queue) are internal errors or carry `peer_unreachable` / `peer_disconnected`, never
+/// these codes.
+fn refuses_attach(e: &RpcError) -> bool {
+    matches!(e.code, -32002 | -32601 | -32602)
 }
 
 /// The sessions an `_acpmux/watch` reply lists, without the rows the peer itself mirrors.
@@ -2000,6 +2026,10 @@ impl Drop for ForgetPending {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "peer_attach_tests.rs"]
+mod attach_tests;
 
 #[cfg(test)]
 mod remote_config_tests {
