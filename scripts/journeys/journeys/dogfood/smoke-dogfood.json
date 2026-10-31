@@ -92,6 +92,13 @@
        {"smoke_same_widths": {"since": "cols1", "new": 1}},
        {"smoke_frame": {}}
      ]},
+    {"do": "smoke_widths", "name": "cols2"},
+    {"do": "key", "key": "d", "modifiers": ["cmd"], "mark": "r3b-splitright"},
+    {"do": "expect", "title": "R3b: Cmd-D (Split Right) adds a column and every existing column keeps exactly its width", "since": "r3b-splitright", "timeout": 15, "settle": 1.5,
+     "all": [
+       {"smoke_same_widths": {"since": "cols2", "new": 1}},
+       {"smoke_frame": {}}
+     ]},
     {"do": "smoke_snapshot", "name": "before_tabs"},
     {"do": "key", "key": "`", "modifiers": ["control"], "mark": "tab1"},
     {"do": "smoke_type_now", "text": "echo t1-${nonce}-$((6*7))"},
@@ -128,7 +135,7 @@
        {"app_rpc": {"method": "debug.crashes", "path": "launch.recovery", "equals": "clean"}},
        {"app_rpc": {"method": "debug.surfaces", "path": "blank_panes", "equals": 0}},
        {"smoke_workspaces": {"new": 3, "same_as": "before_splits"}},
-       {"smoke_panes": {"line": "d2-${nonce}-42", "count": 5}},
+       {"smoke_panes": {"line": "d2-${nonce}-42", "count": 6}},
        {"smoke_daemon_lines": {"lines": ["w1-${nonce}-42", "w2-${nonce}-42", "w3-${nonce}-42", "d1-${nonce}-42", "d2-${nonce}-42", "t1-${nonce}-42", "t2-${nonce}-42"]}},
        {"frame_text": "documentation examples"}
      ]},

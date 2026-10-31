@@ -496,18 +496,34 @@ def _wrap_rows(text, tag, length):
     return None
 
 
+def _screen_retry(j, term):
+    """The daemon screen of TERM; one failed read (a slow reply under memory pressure) is read again once."""
+    try:
+        return j.app.screen(term)
+    except D.StepError:
+        time.sleep(0.2)
+        return j.app.screen(term)
+
+
 def cond_smoke_r3(j, want, cache):
     rec = _named(j, want["pane"])
     row, grid = _pane_grid(j, rec["pane"], cache)
     surface, info = (row or {}).get("surface") or {}, (row or {}).get("grid") or {}
     fit, drawn = _grid(surface.get("fit_grid")), _grid(surface.get("drawn_grid"))
-    bounds = None
+    bounds, slack = None, None
     cw, ch = info.get("cell_width"), info.get("cell_height")
     if cw and ch and "frame_width" in info:
         pad_x = max(0.0, info.get("origin_x", 0) - info.get("frame_x", 0))
         pad_y = max(0.0, info.get("origin_y", 0) - info.get("frame_y", 0))
-        bounds = (int((info["frame_width"] - 2 * pad_x + 1e-6) // cw), int((info["frame_height"] - 2 * pad_y + 1e-6) // ch))
-    screen = j.app.screen(rec["term"])
+        bounds = (int((info["frame_width"] - 2 * pad_x + 0.5) // cw), int((info["frame_height"] - 2 * pad_y + 0.5) // ch))
+        if grid:
+            # The far side's padding the grid leaves (any split of the leftover between the sides): it must be at least
+            # the near side's (no cell drawn past the view) and less than it plus one cell (no whole column unused).
+            far = (info["frame_width"] - pad_x - grid[0] * cw, info["frame_height"] - pad_y - grid[1] * ch)
+            slack = [round(far[0], 2), round(far[1], 2)]
+            if pad_x - 0.5 <= far[0] < pad_x + cw and pad_y - 0.5 <= far[1] < pad_y + ch:
+                bounds = tuple(grid)
+    screen = _screen_retry(j, rec["term"])
     daemon = (screen.get("cols"), screen.get("rows"))
     topo_size = None
     for _ws, pane, tab, term in j.places(j.topology()):
@@ -516,7 +532,8 @@ def cond_smoke_r3(j, want, cache):
     pty = _pty_size(screen.get("text"), j.sub(want["pty_tag"])) if want.get("pty_tag") else None
     sizes = {"grid": grid, "fit_grid": fit, "drawn_grid": drawn, "fit_bounds": bounds, "pty": pty, "daemon": daemon,
              "topology": topo_size}
-    detail = {"pane": rec["pane"], "terminal": rec["term"], "sizes": sizes, "frame": [info.get("frame_width"), info.get("frame_height")],
+    detail = {"pane": rec["pane"], "terminal": rec["term"], "sizes": sizes, "far_padding": slack,
+              "frame": [info.get("frame_width"), info.get("frame_height")],
               "cell": [cw, ch], "content_size": (row or {}).get("content_size")}
     problems = []
     if row is None:
@@ -557,12 +574,13 @@ def cond_smoke_r3(j, want, cache):
 
 # ---- R3b: new columns never resize old ones (cmux-ad, Lawrence's P0 rule) ------------------------
 
-def _widths(j, workspace, cache=None):
+def _widths(j, workspace, cache=None, frames_out=None):
     """{column index: width in points} of every column of WORKSPACE: the topology's `column` of each pane, and the
-    union of its panes' horizontal extents in the window (debug.surfaces: the view frame, floats; content_size,
-    whole points, only when a pane has no frame). Panes stacked in one column share its width."""
+    union of its panes' horizontal extents in the window (debug.surfaces: the view frame, floats). A column with a
+    pane that has no frame has width None (FRAMES_OUT gets {column: [pane ids]}). Panes stacked in one column share
+    its width."""
     panes = {p.get("pane"): p for p in (_surfaces(j, cache) if cache is not None else j.app.panes())}
-    extents = {}
+    extents, missing_frames = {}, {}
     for ws in j.topology().get("workspaces", []):
         if ws.get("id") != workspace:
             continue
@@ -571,27 +589,20 @@ def _widths(j, workspace, cache=None):
                 column = pane.get("column")
                 row = panes.get(pane.get("id")) or {}
                 grid = row.get("grid") if isinstance(row.get("grid"), dict) else {}
-                if "frame_width" in grid:
-                    x0, w = float(grid.get("frame_x", 0.0)), float(grid["frame_width"])
-                else:
-                    size = str(row.get("content_size") or "")
-                    head = size.split("x")[0] if "x" in size else ""
-                    if not head.replace(".", "", 1).isdigit():
-                        extents.setdefault(column, None)
-                        continue
-                    x0, w = None, float(head)
-                if extents.get(column, 0) is None:
+                if "frame_width" not in grid or "frame_x" not in grid:
+                    # No frame for this pane (off screen, a page, not drawn yet): the column's width is unknown;
+                    # never guessed from another pane.
+                    extents[column] = None
+                    missing_frames.setdefault(str(column), []).append(pane.get("id"))
                     continue
-                spans = extents.setdefault(column, [])
-                spans.append((x0, w))
+                if column in extents and extents[column] is None:
+                    continue
+                extents.setdefault(column, []).append((float(grid["frame_x"]), float(grid["frame_width"])))
     out = {}
     for column, spans in extents.items():
-        if not spans:
-            out[str(column)] = None
-        elif all(x0 is not None for x0, _w in spans):
-            out[str(column)] = round(max(x0 + w for x0, w in spans) - min(x0 for x0, _w in spans), 2)
-        else:
-            out[str(column)] = round(max(w for _x0, w in spans), 2)
+        out[str(column)] = None if not spans else round(max(x0 + w for x0, w in spans) - min(x0 for x0, _w in spans), 2)
+    if frames_out is not None:
+        frames_out.update(missing_frames)
     return out
 
 
@@ -616,7 +627,10 @@ def _current_workspace(j):
 
 def step_smoke_widths(j, step):
     workspace = _current_workspace(j)
-    widths, columns = _widths(j, workspace), _columns(j, workspace)
+    no_frame = {}
+    widths, columns = _widths(j, workspace, None, no_frame), _columns(j, workspace)
+    if no_frame:
+        raise D.StepError(f"smoke_widths: no frame for panes {no_frame} (their column widths are unknown)")
     if not hasattr(j, "smoke_width_snaps"):
         j.smoke_width_snaps = {}
     j.smoke_width_snaps[step["name"]] = {"workspace": workspace, "widths": widths, "columns": columns}
@@ -630,8 +644,9 @@ def cond_smoke_same_widths(j, want, cache):
     # Columns are matched by their content, not their index: a new column after the focused one shifts the
     # indexes of the columns right of it. Each old column is its set of panes.
     old_cols, new_cols = snap["columns"], _columns(j, snap["workspace"], cache)
-    widths_now = _widths(j, snap["workspace"], cache)
-    changed, gone = {}, []
+    no_frame = {}
+    widths_now = _widths(j, snap["workspace"], cache, no_frame)
+    changed, gone, unknown = {}, [], {}
     for index, members in old_cols.items():
         match = next((k for k, m in new_cols.items() if set(members) <= set(m)), None)
         before = snap["widths"].get(index)
@@ -639,18 +654,24 @@ def cond_smoke_same_widths(j, want, cache):
             gone.append(index)
             continue
         after = widths_now.get(match)
-        if before is None or after is None or abs(before - after) > 0.01:
+        if before is None or after is None:
+            unknown[index] = {"old": before, "new": after, "panes": members}
+        elif abs(before - after) > 0.01:
             changed[index] = {"old": before, "new": after, "panes": members}
     matched = {next((k for k, m in new_cols.items() if set(members) <= set(m)), None) for members in old_cols.values()}
     added = sorted(k for k in new_cols if k not in matched)
     problems = []
     if changed:
         problems.append(f"{len(changed)} existing columns changed width")
+    if unknown:
+        problems.append(f"no frame for the panes of {len(unknown)} existing columns (width unknown): "
+                        f"{sorted({p for v in unknown.values() for p in v['panes']})}")
     if gone:
         problems.append(f"{len(gone)} existing columns are gone")
     if len(added) != int(want.get("new", 1)):
         problems.append(f"{len(added)} new columns, not {want.get('new', 1)}")
     return not problems, {"problems": problems, "changed": changed, "gone": gone, "added": added,
+                          "unknown": unknown, "no_frame": no_frame,
                           "old_widths": snap["widths"], "new_widths": widths_now, "old_columns": old_cols, "new_columns": new_cols}
 
 STEPS = {"smoke_ready": step_smoke_ready, "smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,

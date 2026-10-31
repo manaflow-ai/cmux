@@ -322,10 +322,15 @@ in the shown terminal: grid == fitted grid == drawn grid == fit(the view's bound
 the PTY's size (`stty size`) == the daemon's screen size == the topology tab's size, and a line longer
 than the old width wraps at the new width (`smoke_r3`; every size is in the result; the window check
 also needs the window 160 points narrower and the pane narrower than before). Both are re-read through
-a 1.5 s settle. Then New Column twice (the action, then its key Ctrl-Cmd-D): every existing column
-(matched by its panes, width from the float view frames) keeps exactly its width, and there is one
-more column each time (`smoke_same_widths`; each old and new width in the result). Cmd-D (Split
-Right) is not used here: it never opens a column (`SplitRoomCheck.toolSplit`), it splits the pane.
+a 1.5 s settle. Then the column-adding actions, each from the layout the one before left: New Column
+(the action), its key Ctrl-Cmd-D, and Cmd-D (Split Right; cmux-ad 06:38Z: Split Right adds a column,
+Split Down does not). After each, every existing column (matched by its panes, width from the float
+view frames) keeps exactly its width, and there is one more column (`smoke_same_widths`; each old and
+new width in the result; a column whose pane has no frame fails as unknown).
+
+**No pass without the resize checks** (cmux-ad 06:38Z): a round passes only when it REACHED and passed
+every R3a check (2) and every R3b check (3) (`REQUIRED_CHECKS` in smoke-gate.py). A round that ends
+before them, at any step, is a fail with the missing checks named, never "skipped and OK".
 
 **Typed at once** (`smoke_type_now`): no wait for the creation hold, the case Lawrence reports
 (keys into a terminal while it is created). A capture slot's window is never key

@@ -10,7 +10,8 @@ journey is checked by the app's own state (socket and CLI reads) and, where the 
 read by text recognition (run.py keeps each checked frame as <round>/smoke-dogfood/check-NN.png).
 
 Verdict:
-  - PASS only when every round's journey status is `pass` (10 of 10 by default). Then it writes
+  - PASS only when every round's journey status is `pass` (10 of 10 by default) and each round reached and passed
+    every R3a and R3b resize check (REQUIRED_CHECKS); a round that ends before them is never a pass. Then it writes
     HANDOFF/<JOB>.pass (default /Users/lawrence/fun/wt/handoff/dogfood-smoke): the summary, the build, every
     round's lease and results, and this gate's own git commit. A gate with uncommitted changes never writes it.
   - FAIL when any round failed: the summary names each failing round, its step and the reason.
@@ -40,6 +41,10 @@ JOURNEY = "smoke-dogfood"
 HANDOFF = Path("/Users/lawrence/fun/wt/handoff/dogfood-smoke")
 # The perf minis' owner-only pool (hq fleet.json owner_only_hosts): the owner's opt-in for their exclusive lease.
 OWNER_POOL = "perf-lead"
+# cmux-ad 06:38Z (binding): a round passes only when the resize steps were REACHED and passed: every R3a and R3b
+# check of the journey (expect steps whose title starts with the key), at least this many each. A round that ends
+# before them (a relaunch, close-all or any earlier step) is not a pass, never "skipped and OK".
+REQUIRED_CHECKS = {"R3a": 2, "R3b": 3}
 # Everything run.py ships to the mini: a change in any of them means the gate is not its commit.
 GATE_PATHS = ("scripts/journeys", "scripts/cmux-next/build_names.py", "scripts/ci/pr_media_ocr.swift")
 # The gate cmux-ad set (2026-10-30): a .pass file needs at least this many rounds under at least this much hog.
@@ -136,6 +141,29 @@ def failing_step(out):
         if step.get("ok") is False:
             return {"do": step.get("do"), "title": step.get("title"), "error": (step.get("error") or "")[:400]}
     return None
+
+
+def required_checks(out):
+    """{key: [ok of each expect step whose title starts with key]} for REQUIRED_CHECKS, from the round's result.json."""
+    found = {key: [] for key in REQUIRED_CHECKS}
+    path = out / JOURNEY / "result.json"
+    try:
+        steps = json.loads(path.read_text()).get("steps", []) if path.is_file() else []
+    except ValueError:
+        steps = []
+    for st in steps:
+        if st.get("do") != "expect" or st.get("finally"):
+            continue
+        for key in REQUIRED_CHECKS:
+            if str(st.get("title") or "").startswith(key):
+                found[key].append(st.get("ok") is True)
+    return found
+
+
+def missing_checks(found):
+    """The REQUIRED_CHECKS a round did not reach or did not pass, as text; empty when all passed."""
+    return [f"{key}: {sum(found[key])} of {need} passed ({len(found[key])} reached)"
+            for key, need in REQUIRED_CHECKS.items() if len(found[key]) < need or not all(found[key])]
 
 
 def typed_steps(out):
@@ -239,6 +267,10 @@ def main(argv=None):
         hog = pressure(round_out, opts.swap_gb)
         if row.get("status") == "pass" and not hog["ok"]:
             row = dict(row, status="not run", reason=f"no memory pressure shown by the hog log: {json.dumps(hog)}")
+        checks = required_checks(round_out)
+        missing = missing_checks(checks)
+        if row.get("status") == "pass" and missing:
+            row = dict(row, status="fail", reason="the resize checks were not all reached and passed: " + "; ".join(missing))
         typed = typed_steps(round_out)
         late = [st for st in typed if st.get("at_once") is not True] or ([] if typed else [{"none": True}])
         if row.get("status") == "pass" and not opts.diagnostic and late:
@@ -252,6 +284,7 @@ def main(argv=None):
         record = {"round": n, "steps": step_results(round_out), "status": row.get("status"), "reason": row.get("reason"), "host": row.get("host"),
                   "seconds": round(time.time() - started), "failing_step": failing_step(round_out),
                   "frames": frames(round_out), "hog_logs": sorted(p.name for p in round_out.glob("hog-*.jsonl")), "pressure": hog, "hosts_offered": hosts, "exclusive": exclusive,
+                  "required_checks": checks, "required_missing": missing,
                   "known_gap": "known gap" in str(row.get("reason") or ""), "leases": leases}
         rounds.append(record)
         print(f"round {n}: {record['status']}" + (f" ({record['reason'][:160]})" if record.get("reason") else "")

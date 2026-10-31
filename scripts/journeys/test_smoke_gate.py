@@ -46,12 +46,23 @@ if status == "pass" and "--journey-option" not in args:
     late = os.environ.get("SMOKE_LATE") == "yes"
     typed = [] if os.environ.get("SMOKE_LATE") == "none" else [{"index": 7, "do": "smoke_type_now", "ok": True,
                                                                  "result": {"at_once": not late}}]
+    r3 = os.environ.get("SMOKE_R3", "all")  # all | none (the round ended before R3) | r3b-failed | one-r3b
+    checks = [("R3a split", True), ("R3a window", True), ("R3b New Column", True), ("R3b Ctrl-Cmd-D", True),
+              ("R3b Cmd-D", r3 != "r3b-failed")]
+    if r3 == "none":
+        checks = []
+    if r3 == "one-r3b":
+        checks = checks[:3]
+    typed += [{"do": "expect", "title": title, "ok": ok} for title, ok in checks]
     json.dump({"steps": typed},
               open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
 if "--journey-option" in args:
     open(os.path.join(out, "options.txt"), "w").write(args[args.index("--journey-option") + 1])
     json.dump({"steps": [{"index": 5, "do": "expect", "title": "Cmd-D twice fast", "ok": status == "pass",
-                          "error": "" if status == "pass" else "no new pane"}]},
+                          "error": "" if status == "pass" else "no new pane"}]
+                        + ([{"do": "expect", "title": t, "ok": True} for t in
+                            ("R3a split", "R3a window", "R3b New Column", "R3b Ctrl-Cmd-D", "R3b Cmd-D")]
+                           if status == "pass" else [])},
               open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
 open(os.path.join(out, "results.jsonl"), "w").write(json.dumps(row) + "\n")
 print("leased slot-cmux99-abc")
@@ -137,6 +148,15 @@ class Verdicts(unittest.TestCase):
             code, summary = gate(["pass"] * 10, tmp, ("--diagnostic",))
             self.assertEqual((code, summary["verdict"]), (75, "DIAGNOSTIC (NOT JUDGED)"))
             self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+
+    def test_a_round_that_did_not_reach_or_pass_every_resize_check_is_no_pass(self):
+        for r3, want in (("none", "0 of 2 passed (0 reached)"), ("r3b-failed", "R3b: 2 of 3 passed (3 reached)"),
+                         ("one-r3b", "R3b: 1 of 3 passed (1 reached)")):
+            with tempfile.TemporaryDirectory() as tmp:
+                code, summary = gate(["pass"] * 10, tmp, env_extra={"SMOKE_R3": r3})
+                self.assertEqual((code, summary["verdict"], summary["passed"]), (1, "FAIL", 0), r3)
+                self.assertIn(want, summary["rounds_detail"][0]["reason"], r3)
+                self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
 
     def test_a_strict_pass_whose_lines_were_not_typed_at_once_does_not_count(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -589,6 +609,49 @@ class Resize(unittest.TestCase):
                 self.ext.step_smoke_long_line(j, {"tag": "LL2"})
         finally:
             self.ext.time.sleep = sleep
+
+    def test_r3_reads_the_screen_again_once_after_a_failed_read(self):
+        j = self.journey()
+        calls = {"n": 0}
+        real = j.app.screen
+
+        def flaky(term):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise self.StepError("slow reply")
+            return real(term)
+        j.app.screen = flaky
+        sleep = self.ext.time.sleep
+        self.ext.time.sleep = lambda s: None
+        try:
+            ok, detail = self.r3(j)
+        finally:
+            self.ext.time.sleep = sleep
+        self.assertTrue(ok, detail)
+        self.assertEqual(calls["n"], 2)
+
+    def test_uneven_padding_is_not_a_misfit_but_a_spare_column_is(self):
+        # 80 columns of 8 points, left padding 4, right padding 9 (an uneven split of the leftover): fits.
+        ok, detail = self.r3(self.journey(frame=(4 + 80 * 8 + 9, 24 * 16 + 8)))
+        self.assertTrue(ok, detail)
+        # Right padding 4 + 8: a whole column is left unused: misfit.
+        ok, detail = self.r3(self.journey(frame=(4 + 80 * 8 + 12, 24 * 16 + 8)))
+        self.assertFalse(ok, detail)
+        self.assertTrue(any("fit(bounds)" in p for p in detail["problems"]), detail["problems"])
+
+    def test_r3b_a_column_with_no_frame_fails_with_its_panes(self):
+        j = self.journey(columns=[(1, "P2", 650.0, 300.0)])
+        self.ext.step_smoke_widths(j, {"name": "c0"})
+        later = self.journey(columns=[(1, "P2", 650.0, 300.0), (2, "P3", 951.0, 300.0)])
+        later.smoke_width_snaps = j.smoke_width_snaps
+        del later.app.panes()[1]["grid"]  # P2 has no frame now (off screen)
+        ok, detail = self.ext.cond_smoke_same_widths(later, {"since": "c0", "new": 1}, {})
+        self.assertFalse(ok)
+        self.assertTrue(any("no frame" in p and "P2" in p for p in detail["problems"]), detail["problems"])
+        bare = self.journey(columns=[(1, "P2", 650.0, 300.0)])
+        del bare.app.panes()[1]["grid"]
+        with self.assertRaises(self.StepError):
+            self.ext.step_smoke_widths(bare, {"name": "c1"})
 
     def test_r3b_any_old_column_width_change_fails_with_old_and_new(self):
         base = [(1, "P2", 650.0, 300.0)]
