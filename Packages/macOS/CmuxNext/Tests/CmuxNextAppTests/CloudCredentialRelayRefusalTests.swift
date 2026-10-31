@@ -33,10 +33,10 @@ struct CloudCredentialRelayRefusalTests {
                 return (200, Data(#"{"op":"cloud.machine.list","value":{"machines":[]},"revision":"1","stream":"s"}"#.utf8))
             },
             token: { "install-token-for-test" },
-            installID: { "install-test" },
             invalidate: {},
             session: { CloudCredentialRelay.Session(signedIn: true, team: "team_test") },
-            allowedOps: { if let allowed { allowed } else { await CloudCredentialRelay.bundledServedOps() } })
+            allowedOps: { if let allowed { allowed } else { await CloudCredentialRelay.bundledServedOps() } },
+            installID: { "install-test" })
     }
 
     /// The daemon's provider line for a `credential.relay` of `op`.

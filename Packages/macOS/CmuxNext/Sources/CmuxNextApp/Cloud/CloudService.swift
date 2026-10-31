@@ -199,7 +199,6 @@ final class CloudService {
         let relay = CloudCredentialRelay(
             post: { path, body, bearer in try await transport.post(path, json: body, bearer: bearer, headers: clientHeaders) },
             token: { try await identity.installToken() },
-            installID: { await identity.installID() },
             invalidate: { await identity.invalidate() },
             // The team is the backend team the relay bills: the install
             // token's team claim (never the Stack team id) (cx-i6g4).
@@ -208,7 +207,8 @@ final class CloudService {
                 let token = try? await identity.installToken()
                 return CloudCredentialRelay.Session(signedIn: true, team: token.flatMap(MacInstallIdentity.team(ofToken:)))
             },
-            allowedOps: { await CloudCredentialRelay.bundledServedOps() }
+            allowedOps: { await CloudCredentialRelay.bundledServedOps() },
+            installID: { await identity.installID() }
         )
         credentialProvider = CloudCredentialProvider(relay: relay)
         let launcher = configuration.linkSource == .appServer
