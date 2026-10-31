@@ -14,48 +14,6 @@ import Observation
 import os
 import CmuxNextWakeups
 
-@MainActor
-private final class CloudNativeRouteHolder: CloudLinkLaunching {
-    private let identity: MacInstallIdentity
-    private let auth: CloudAuth
-    private let paths: CloudPaths
-    private let bundle: Bundle
-    private let directory: URL
-    private var route: NativeCloudRoute?
-    private var routeTeam: String?
-
-    init(identity: MacInstallIdentity, auth: CloudAuth, paths: CloudPaths, directory: URL,
-         bundle: Bundle = .main) {
-        self.identity = identity; self.auth = auth; self.paths = paths; self.directory = directory; self.bundle = bundle
-    }
-
-    func ensure(install: String) async throws -> CloudLinkLauncher.Ensured {
-        guard let team = auth.teamID, !team.isEmpty else { throw NativeDeviceEnrollmentError.signedOut }
-        if route == nil || routeTeam != team {
-            try await route?.revoke()
-            let auth = auth
-            let created = try await NativeCloudRoute.make(team: team, identity: identity, paths: paths,
-                                                           session: { [auth] in try await auth.tokens().access },
-                                                           deviceName: CloudService.deviceName, bundle: bundle,
-                                                           directory: directory, home: FileManager.default.homeDirectoryForCurrentUser)
-            route = created
-            routeTeam = team
-        }
-        guard let route else { throw NativeDeviceEnrollmentError.invalidState }
-        let ready = try await route.ensure()
-        return CloudLinkLauncher.Ensured(status: ready.status, pid: ready.pid, socket: ready.socket)
-    }
-
-    func stop(install: String?) async { await route?.suspend() }
-
-    func archive(install: String?) async {
-        do { try await route?.revoke() }
-        catch { }
-        route = nil
-        routeTeam = nil
-    }
-}
-
 /// Cloud orchestration: sign-in state, the configured machine list, and
 /// one `CloudMachineSession` per live machine in `MachineRegistry`. The
 /// list is fetched when the session restores or signs in, after every
@@ -109,7 +67,6 @@ final class CloudService {
     @ObservationIgnored let binary: URL?
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
-    @ObservationIgnored private let nativeRoute: CloudNativeRouteHolder
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     /// The local side event subscription for `cloud.link.changed` (app link).
@@ -244,13 +201,9 @@ final class CloudService {
             allowedOps: { await CloudCredentialRelay.bundledServedOps() })
         credentialProvider = CloudCredentialProvider(relay: relay)
         let launcher = configuration.linkSource == .appServer
-            ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build, relay: relay) : nil
-        let nativeDirectory = launcher?.stateDirectory
-            ?? paths.root.appendingPathComponent("link", isDirectory: true)
-        nativeRoute = CloudNativeRouteHolder(identity: identity, auth: auth, paths: paths, directory: nativeDirectory)
-        let linkLauncher: (any CloudLinkLaunching)? = configuration.linkSource == .appServer
-            ? nativeRoute : launcher
-        link = CloudLinkLifecycle(launcher: linkLauncher, installID: { [identity] in await identity.installID() },
+            ? CloudNativeRouteHolder.forApp(identity: identity, auth: auth, paths: paths,
+                                           build: LaunchIdentity.current().build, deviceName: Self.deviceName) : nil
+        link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
                                   connection: { [machines] in machines.local.connection })
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         move.cli = binary
