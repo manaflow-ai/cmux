@@ -174,6 +174,14 @@ fn stage_failure(mut failure: SendFailure, send_id: &str, phase: &str) -> SendFa
     failure.failure.error.set_path(&["details", "send_id"], json!(send_id));
     failure.failure.error.set_path(&["details", "phase"], json!(phase));
     if failure.failure.kind == FailureKind::InProgress {
+        let original = failure.failure.error["message"]
+            .as_str()
+            .unwrap_or("terminal write acknowledgement lost")
+            .to_owned();
+        failure.failure.error.set(
+            "message",
+            json!(format!("{original}; {phase} may have applied; retry with --idempotency-key {send_id}")),
+        );
         failure.failure.error.set("retryable", json!(true));
     }
     failure.failure.idempotency_key = Some(send_id.to_owned());
