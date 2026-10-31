@@ -10,6 +10,7 @@ import { Lexer, lexer, type Token, walkTokens } from "marked";
 import { turnRows } from "../diff";
 import type { AcpmuxSnapshot } from "../model";
 import { menuPartAt, type MenuPart } from "./menuParts";
+import { retryHelps, sendCause } from "../sendFailure";
 
 export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
 
@@ -142,7 +143,8 @@ export function messageMenuTarget(
     row.kind === "user" ? { text: row.text } : { text: plainText(row.text), markdown: row.text };
   if (forkSeq !== undefined) target.forkSeq = forkSeq;
   if (forkSeq !== undefined && sideChat) target.sideChat = true;
-  if (row.kind === "user" && row.failed) target.retryRowId = row.id;
+  // A prompt too large to send is refused the same way again: no Retry, Edit takes an attachment out.
+  if (row.kind === "user" && row.failed && retryHelps(sendCause(row.delivery))) target.retryRowId = row.id;
   const links = webLinks(row.text);
   if (links.length > 0) target.links = links;
   return target;

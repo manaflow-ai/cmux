@@ -767,6 +767,15 @@ body,
 .hc-gate-error {
   color: var(--hc-danger);
 }
+/* A connect that lasted past the grace (DaemonGate.tsx): one quiet muted line, no title. */
+.hc-gate-line {
+  display: block;
+  margin: 0;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  overflow-wrap: anywhere;
+}
 /* The field's right-click menu host adds no box of its own. */
 .hc-composer-field-menu {
   display: contents;
