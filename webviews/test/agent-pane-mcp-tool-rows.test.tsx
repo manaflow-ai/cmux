@@ -248,7 +248,6 @@ test("only id-named arguments resolve to titles, and a message names its recipie
   expect(mcpTarget({ server: "s", tool: "send_email", args: { subject: "Re: lunch" } }, names)).toBeUndefined();
 });
 
-
 test("three running MCP calls keep activity only in their group header", async () => {
   const items = [1, 2, 3].map((n) => {
     const item = claudeCall(`spinner-mcp-${n}`, "read_thread", { threadId: THREAD });
