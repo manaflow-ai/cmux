@@ -2,9 +2,9 @@
 // A fast wheel over the session rail keeps every row in its view drawn on every painted frame
 // (Leo, 2026-10-31: "if i scroll too fast in the left scroll rail it can flicker and disapper at the
 // edges"). The rail draws only the rows near its view (tickWindow.ts) and moves that window from its
-// list's scroll event. The window used to follow a frame late and only 12 rows past each edge, so a
-// wheel step longer than 120 px showed blank spacer rows at the edge the list scrolled toward for a
-// frame, then the ticks popped in: the flicker at the edges.
+// list's scroll event. The window followed a frame late and only 12 rows past each edge, and the rows
+// past it were an empty spacer, so a fast wheel showed a blank strip at the edge the list scrolled
+// toward for a frame, then the ticks popped in: the flicker at the edges.
 //
 // Each frame's drawn rows are read in its frame callbacks (they are what that frame paints) and the
 // list's offset after the frame has painted (support/paintedFrames.ts); a row in the list's view with
@@ -46,30 +46,56 @@ await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
     await pane?.close();
   });
 
-  type Frame = { top: number; height: number; missing: number[]; entering: number };
-  /// Starts recording every painted frame of the rail's list; `stop` returns the frames.
+  /// A painted frame: the list's offset and view, the rows in that view with nothing on them (no tick
+  /// drawn and no gap that paints resting ticks), the rows in it not drawn as ticks (the gap's), and
+  /// the drawn ones in it that showed faded out (an entrance replayed at opacity 0).
+  type Frame = { top: number; height: number; blank: number[]; undrawn: number; faded: number[] };
+  /// Starts recording every painted frame of the rail's list; `__railFrames()` stops and returns them.
   const record = (page: Page) =>
     page.evaluate(() => {
       const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+      const count = Number(list.querySelector("li[aria-setsize]")?.getAttribute("aria-setsize") ?? 0);
       const frames: Frame[] = [];
-      let drawn = new Set<number>();
-      let entering = 0;
+      let drawn = new Map<number, HTMLElement>();
+      let gaps: Array<[number, number, boolean]> = [];
       const stop = window.cmuxAfterPaint(
         () => {
           const top = list.scrollTop;
           const height = list.clientHeight;
-          const count = Number(list.querySelector("li[aria-setsize]")?.getAttribute("aria-setsize") ?? 0);
-          const missing: number[] = [];
+          const blank: number[] = [];
+          const faded: number[] = [];
+          let undrawn = 0;
           // Every row the view shows at least half of.
-          const first = Math.ceil(top / 10 - 0.5);
+          const first = Math.max(0, Math.ceil(top / 10 - 0.5));
           const last = Math.min(count, Math.floor((top + height) / 10 + 0.5));
-          for (let row = Math.max(0, first); row < last; row++) if (!drawn.has(row)) missing.push(row);
-          frames.push({ top, height, missing, entering });
+          for (let row = first; row < last; row++) {
+            const tick = drawn.get(row);
+            if (tick) {
+              const bar = tick.querySelector(".acpmux-minimap__bar");
+              if (bar && Number(getComputedStyle(bar).opacity) < 0.39) faded.push(row);
+              continue;
+            }
+            undrawn += 1;
+            if (!gaps.some(([from, to, paints]) => paints && row >= from && row < to)) blank.push(row);
+          }
+          frames.push({ top, height, blank, undrawn, faded });
         },
         () => {
-          // What this frame paints: the frame's callbacks run after its input and scroll events.
-          drawn = new Set([...list.querySelectorAll<HTMLElement>("[data-tick]")].map((tick) => Number(tick.dataset.tick)));
-          entering = list.querySelectorAll("[data-entering]").length;
+          // What this frame paints: its callbacks run after its input and scroll events.
+          drawn = new Map(
+            [...list.querySelectorAll<HTMLElement>("[data-tick]")].map((tick) => [Number(tick.dataset.tick), tick]),
+          );
+          gaps = [];
+          let row = 0;
+          for (const item of list.children as HTMLCollectionOf<HTMLElement>) {
+            if (!item.classList.contains("acpmux-minimap__gap")) {
+              row += 1;
+              continue;
+            }
+            const rows = Math.round(Number.parseFloat(item.style.height) / 10);
+            gaps.push([row, row + rows, getComputedStyle(item).backgroundImage.includes("gradient")]);
+            row += rows;
+          }
         },
       );
       (window as unknown as { __railFrames: () => Frame[] }).__railFrames = () => {
@@ -113,12 +139,18 @@ await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
         expect(moved.length).toBeGreaterThan(10);
         expect(Math.max(...seen.map((frame) => frame.top))).toBeGreaterThan(20_000);
         expect(Math.min(...seen.map((frame) => frame.top))).toBe(0);
-        const blank = seen.filter((frame) => frame.missing.length > 0);
+        const undrawn = seen.filter((frame) => frame.undrawn > 0);
+        console.log(
+          `${name}: ${seen.length} frames, ${moved.length} moved; ${undrawn.length} showed rows past the drawn ticks (most ${Math.max(0, ...seen.map((frame) => frame.undrawn))})`,
+        );
+        // No frame shows a blank strip: a row past the drawn ticks shows its resting tick.
+        const blank = seen.filter((frame) => frame.blank.length > 0);
         expect(
-          blank.slice(0, 3).map((frame) => ({ top: frame.top, height: frame.height, missing: frame.missing.length, first: frame.missing[0] })),
+          blank.slice(0, 3).map((frame) => ({ top: frame.top, height: frame.height, blank: frame.blank.length, first: frame.blank[0] })),
         ).toEqual([]);
         // No row the fling brings into view replays the entrance (#26635): it would start at opacity 0.
-        expect(Math.max(...seen.map((frame) => frame.entering))).toBe(0);
+        const faded = seen.filter((frame) => frame.faded.length > 0);
+        expect(faded.slice(0, 3).map((frame) => ({ top: frame.top, faded: frame.faded.slice(0, 5) }))).toEqual([]);
       } finally {
         await page.close();
       }

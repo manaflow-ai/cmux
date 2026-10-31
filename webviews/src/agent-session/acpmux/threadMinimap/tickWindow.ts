@@ -10,12 +10,12 @@ import { ROW_PITCH } from "./model";
 /// few rows shows rows already laid out.
 export const TICK_OVERSCAN = 12;
 
-/// Rows past each edge of a view `rows` tall: half the view, at least TICK_OVERSCAN. A fast wheel
-/// or fling moves the list hundreds of px a frame, and the browser can scroll it (on its compositor)
-/// a frame before the list's scroll event moves the window: 12 rows (120 px) left blank spacer rows
-/// at the edge the list scrolled toward, the "flicker and disappear at the edges" Leo saw.
+/// Rows past each edge of a view `rows` tall: a quarter of the view, at least TICK_OVERSCAN. A fast
+/// wheel or fling moves the list hundreds of px a frame, and Chromium can scroll it on its compositor
+/// a frame before the list's scroll event moves the window; the rows past the window are the gap,
+/// which paints resting ticks (threadMinimap.css) so even such a frame shows no blank strip.
 export function tickOverscan(rows: number): number {
-  return Math.max(TICK_OVERSCAN, Math.ceil(rows / 2));
+  return Math.max(TICK_OVERSCAN, Math.ceil(rows / 4));
 }
 
 /// Half-open ranges of row indexes to draw, sorted and disjoint: the rows the list's view shows
