@@ -9,6 +9,8 @@ const NATIVE_SCHEMES = new Set([
   "cmux-rc",
   // nightly-next's cmux NEXT, installed beside cmux NIGHTLY.
   "cmux-next",
+  // signed NEXT DEV uses the staging Stack app and development Worker.
+  "cmux-next-dev",
 ]);
 
 export function nativeCallbackHrefForScheme(scheme: string): string {

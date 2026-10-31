@@ -201,6 +201,21 @@ describe("after sign-in native handoff", () => {
     expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-next");
   });
 
+  test("redirects verified signed NEXT DEV handoffs directly to cmux-next-dev", async () => {
+    // Signed NEXT DEV is a Release build that signs into staging, so its
+    // callback must survive the deployed after-sign-in handoff.
+    handoffCookie = "handoff-nonce";
+    const nativeReturnTo = "cmux-next-dev://auth-callback?cmux_auth_state=state-next-dev";
+
+    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+
+    expect(response.status).toBe(307);
+    const callbackURL = new URL(response.headers.get("location")!);
+    expect(callbackURL.protocol).toBe("cmux-next-dev:");
+    expect(callbackURL.hostname).toBe("auth-callback");
+    expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-next-dev");
+  });
+
   test("keeps the manual return page when the handoff nonce is not verified", async () => {
     handoffCookie = "different-nonce";
     const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
