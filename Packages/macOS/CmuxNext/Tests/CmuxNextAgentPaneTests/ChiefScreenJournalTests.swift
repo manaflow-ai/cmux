@@ -68,7 +68,7 @@ import Testing
             _ = await journal.record(try frame("frame \(second)"), at: Date(timeIntervalSince1970: 1_793_382_120 + Double(second)), remember: true)
         }
         #expect(names(journal.frames.appending(path: "2026-10-30")) == ["174202-000.jpg", "174203-000.jpg"])
-        #expect(names(journal.inbox).count == 4)
+        #expect(names(journal.inbox) == ["1793382122000.json", "1793382123000.json"], "the inbox keeps the newest keepFrames entries too")
     }
 
     @Test func cmuxAndPasswordManagersAreNeverShared() {

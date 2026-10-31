@@ -116,7 +116,7 @@ private actor FakeJournal: ChiefScreenJournaling {
         clock.advance(by: .seconds(60))
         #expect(await screen.captures == 1)
         await share.settled()
-        #expect(await journal.ends == 1)
+        #expect(await journal.ends == 2, "once at construction (a quit's leftovers), once at stop")
         #expect(await journal.sharing == false)
     }
 

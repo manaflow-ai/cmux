@@ -83,14 +83,18 @@ private actor EchoJournal: ChiefScreenJournaling {
         #expect(!indicator.isVisible)
     }
 
-    @Test func mcpMayStopAndLookButNeverStart() throws {
+    /// Only the person starts capture: start and toggle are person-only (the control socket, so the
+    /// CLI from any terminal agent, is refused) and no MCP tool; stop and look are offered.
+    @Test func onlyThePersonStartsAndAgentsMayStopAndLook() throws {
         let plan = { (id: ActionID) in ActionCatalog.all.first { $0.id == id }?.surfacePlan }
         for id in [ChiefScreenShareActions.startID, ChiefScreenShareActions.toggleID] {
             #expect(try #require(plan(id)).mcp?.isOffered == false, "\(id) must not be an MCP tool")
             #expect(try #require(plan(id)).cli?.isOffered == true)
+            #expect(ActionCatalog.all.first { $0.id == id }?.isPersonOnly == true)
         }
         for id in [ChiefScreenShareActions.stopID, ChiefScreenShareActions.lookID] {
             #expect(try #require(plan(id)).mcp?.isOffered == true)
+            #expect(ActionCatalog.all.first { $0.id == id }?.isPersonOnly == false)
         }
     }
 

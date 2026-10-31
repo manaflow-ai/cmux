@@ -55,6 +55,8 @@ public final class ChiefScreenShare {
     private var rememberedText: String?
     /// The last journal begin or end: the next one waits for it, so a quick stop and start keep their order.
     private var journalTail: Task<Void, Never>?
+    /// Counts sharing sessions: work started in one session never writes into a later one.
+    private var session = 0
 
     /// - Parameters:
     ///   - capture: Reads the screen.
@@ -69,6 +71,10 @@ public final class ChiefScreenShare {
         self.interval = interval
         self.now = now
         timer = DemandTimer(owner: "chief.screenShare", clock: clock)
+        // Off at every launch means nothing kept: a quit or a crash while sharing left the
+        // current-screen files behind, and this deletes them before any start.
+        // task-owner: one actor call at construction; later journal steps wait for it.
+        journalTail = Task { await journal.endSharing() }
     }
 
     /// Starts sharing: asks for Screen Recording when needed, then looks at once and every
@@ -80,12 +86,14 @@ public final class ChiefScreenShare {
         rememberedText = nil
         remembered = 0
         latest = nil
+        session += 1
         let capture = capture, journal = journal, tail = journalTail
         starting = Task { [weak self] in
             await tail?.value
             var allowed = await capture.isAllowed()
             if !allowed { allowed = await capture.requestAccess() }
-            if allowed { await journal.beginSharing() }
+            // A stop during the permission check cancels this task; its endSharing runs after it.
+            if allowed, !Task.isCancelled { await journal.beginSharing() }
             guard let self, !Task.isCancelled, state == .starting else { return }
             starting = nil
             guard allowed else { return end(.needsPermission) }
@@ -106,12 +114,15 @@ public final class ChiefScreenShare {
     /// - Throws: ``ChiefScreenShareError``.
     public func look() async throws(ChiefScreenShareError) -> ChiefScreenObservation {
         guard state == .sharing else { throw .notSharing }
+        let mine = session
         let frame: ChiefScreenFrame?
         do { frame = try await capture.capture(changedSince: nil) } catch { throw .unreadable }
-        guard let frame, state == .sharing,
-              let seen = await journal.record(frame, at: now(), remember: true) else { throw .notSharing }
+        guard let frame, state == .sharing, session == mine else { throw .notSharing }
         previous = frame.signature
         rememberedText = frame.text
+        guard let seen = await journal.record(frame, at: now(), remember: true), state == .sharing, session == mine else {
+            throw .notSharing
+        }
         remembered += 1
         latest = seen
         return seen
@@ -127,16 +138,20 @@ public final class ChiefScreenShare {
 
     private func end(_ final: State) {
         timer.cancel()
-        starting?.cancel()
+        let start = starting
+        start?.cancel()
         starting = nil
         reading?.cancel()
         reading = nil
         previous = nil
+        session += 1
         state = final
         let journal = journal, tail = journalTail
-        // task-owner: one actor call after the previous one; it deletes the current-screen files and the journal refuses later writes.
+        // task-owner: one actor call after the previous one and after a cancelled start's own step; it
+        // deletes the current-screen files and the journal refuses later writes.
         journalTail = Task {
             await tail?.value
+            await start?.value
             await journal.endSharing()
         }
     }
@@ -147,26 +162,26 @@ public final class ChiefScreenShare {
 
     private func read() {
         guard state == .sharing, reading == nil else { return }
-        let capture = capture, journal = journal, previous = previous
+        let capture = capture, journal = journal, previous = previous, mine = session
         reading = Task { [weak self] in
             let frame: ChiefScreenFrame?
             do { frame = try await capture.capture(changedSince: previous) } catch {
                 guard let self, !Task.isCancelled else { return }
                 return end(.failed)
             }
-            guard let self, !Task.isCancelled, state == .sharing else { return }
+            guard let self, !Task.isCancelled, state == .sharing, session == mine else { return }
             if let frame {
                 self.previous = frame.signature
                 let remember = frame.text != rememberedText
-                if let seen = await journal.record(frame, at: now(), remember: remember), !Task.isCancelled, state == .sharing {
+                // Claimed before the write, so a look meanwhile does not remember the same text again.
+                if remember { rememberedText = frame.text }
+                if let seen = await journal.record(frame, at: now(), remember: remember), !Task.isCancelled,
+                   state == .sharing, session == mine {
                     latest = seen
-                    if remember {
-                        rememberedText = frame.text
-                        remembered += 1
-                    }
+                    if remember { remembered += 1 }
                 }
             }
-            guard !Task.isCancelled, state == .sharing else { return }
+            guard !Task.isCancelled, state == .sharing, session == mine else { return }
             reading = nil
             schedule()
         }

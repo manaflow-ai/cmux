@@ -86,11 +86,12 @@ public struct ChiefScreenShareActions {
 
     private func watch() {
         let (share, registry, indicator, openSettings) = (share, registry, indicator, openPermissionSettings)
-        // task-owner: the app's one sharing watch; event-driven (Observation), ends when the model goes.
+        // task-owner: the app's one sharing watch; event-driven (Observation). It holds the model
+        // weakly and ends when the model is gone.
         Task { @MainActor [weak share, weak registry] in
-            guard let share else { return }
             var last = ChiefScreenShare.State.off
-            for await state in ObservationStream({ [weak share] in share?.state ?? .off }) {
+            for await state in ObservationStream({ [weak share] in share?.state }) {
+                guard let state else { break }
                 indicator.setVisible(state == .sharing || state == .starting)
                 defer { last = state }
                 guard state != last else { continue }
@@ -104,6 +105,7 @@ public struct ChiefScreenShareActions {
                     break
                 }
             }
+            indicator.setVisible(false)
         }
     }
 

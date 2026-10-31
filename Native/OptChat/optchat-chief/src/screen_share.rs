@@ -5,8 +5,9 @@
 //! entry per changed frame whose text changed into `optchat/screen/inbox/`,
 //! each whole (a temporary file, then a rename), and the frame itself under
 //! `optchat/screen/frames/<day>/`. At each turn start the brain takes every
-//! entry into ONE quiet note: the time span, then one line per frame (time,
-//! app, window, its text cut short, the frame's file), so the turn's delta
+//! entry into quiet notes of at most [`PER_NOTE`] frames (one note for a short
+//! share, never a cut): the time span, then one line per frame (time, app,
+//! window, its text cut short, the frame's file), so the turn's delta
 //! carries what was on screen and compaction folds it into the view like any
 //! other line. The entries leave the inbox; the frames stay on disk, named in
 //! the note. Nothing here wakes the Chief, and an entry that does not parse is
@@ -16,8 +17,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-/// Most frames one note lists: the newest; the rest are counted.
-pub const MAX_LISTED: usize = 12;
+/// Most frames one note lists; a longer share is several notes.
+pub const PER_NOTE: usize = 20;
 /// Most characters of one frame's text in the note.
 pub const MAX_TEXT: usize = 280;
 
@@ -35,13 +36,18 @@ pub struct Entry {
     pub frame: String,
 }
 
-/// What one ingest takes: the note to log and the inbox files it consumed
-/// (the unreadable ones too).
+/// One note to log: its text and its dedupe key (its first and last entry names).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Note {
+    pub text: String,
+    pub key: String,
+}
+
+/// What one ingest takes: the notes to log, oldest first, and the inbox
+/// files they consumed (the unreadable ones too).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Taken {
-    pub note: String,
-    /// The note's dedupe key: the first and last entry names.
-    pub key: String,
+    pub notes: Vec<Note>,
     pub files: Vec<PathBuf>,
 }
 
@@ -70,24 +76,32 @@ pub fn take(screen: &Path) -> Option<Taken> {
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(u64::MAX)
     });
-    let entries: Vec<Entry> = files
+    let entries: Vec<(String, Entry)> = files
         .iter()
-        .filter_map(|p| std::fs::read(p).ok())
-        .filter_map(|bytes| serde_json::from_slice(&bytes).ok())
+        .filter_map(|p| {
+            let entry = serde_json::from_slice(&std::fs::read(p).ok()?).ok()?;
+            Some((stem(p), entry))
+        })
         .collect();
-    let name = |p: Option<&PathBuf>| {
-        p.and_then(|p| p.file_stem())
-            .and_then(|s| s.to_str())
-            .unwrap_or_default()
-            .to_owned()
-    };
-    let key = format!("screen:{}-{}", name(files.first()), name(files.last()));
-    let note = if entries.is_empty() {
-        String::new()
-    } else {
-        note(&entries)
-    };
-    Some(Taken { note, key, files })
+    let notes = entries
+        .chunks(PER_NOTE)
+        .map(|chunk| {
+            let list: Vec<Entry> = chunk.iter().map(|(_, e)| e.clone()).collect();
+            Note {
+                text: note(&list),
+                key: format!("screen:{}-{}", chunk[0].0, chunk[chunk.len() - 1].0),
+            }
+        })
+        .collect();
+    Some(Taken { notes, files })
+}
+
+/// An inbox file's stem (its epoch milliseconds).
+fn stem(p: &Path) -> String {
+    p.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default()
+        .to_owned()
 }
 
 /// The note for `entries`, oldest first (at least one).
@@ -119,11 +133,7 @@ pub fn note(entries: &[Entry]) -> String {
          each frame's image is the file named):",
         entries.len()
     );
-    let skipped = entries.len().saturating_sub(MAX_LISTED);
-    if skipped > 0 {
-        out.push_str(&format!("\n- ({skipped} earlier frames not listed)"));
-    }
-    for e in &entries[skipped..] {
+    for e in entries {
         out.push_str(&format!("\n- {}", line(e)));
     }
     out
@@ -203,7 +213,7 @@ mod tests {
         write(
             dir.path(),
             "1793382125000.json",
-            &entry("17:42:05", "Merged  pull\nrequest #12"),
+            &entry("17:42:05", "Merged  pull\\nrequest #12"),
         );
         write(
             dir.path(),
@@ -213,35 +223,47 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("frames")).unwrap();
         std::fs::write(dir.path().join("frames/x.jpg"), b"jpeg").unwrap();
         let taken = take(dir.path()).unwrap();
+        assert_eq!(taken.notes.len(), 1);
         assert_eq!(
-            taken.note,
+            taken.notes[0].text,
             "screen share 2026-10-30 17:40–17:42, 2 changed frames (what the person's screen showed while they shared it \
              with you; each frame's image is the file named):\n\
              - 17:40 Safari — \"PR #12\": Review requested [/h/optchat/screen/frames/2026-10-30/174001.jpg]\n\
              - 17:42 Safari — \"PR #12\": Merged pull request #12 [/h/optchat/screen/frames/2026-10-30/174205.jpg]"
         );
-        assert_eq!(taken.key, "screen:999-1793382125000");
+        assert_eq!(taken.notes[0].key, "screen:999-1793382125000");
         consume(&taken);
         assert_eq!(take(dir.path()), None, "the inbox is empty after the note");
         assert!(dir.path().join("frames/x.jpg").exists(), "frames stay");
     }
 
     #[test]
-    fn a_long_session_lists_the_newest_frames_and_cuts_long_text() {
+    fn a_long_session_is_several_notes_and_loses_no_frame() {
         let dir = tempfile::tempdir().unwrap();
         let long = "word ".repeat(200);
-        for i in 0..(MAX_LISTED + 3) {
+        let n = PER_NOTE * 2 + 3;
+        for i in 0..n {
             write(
                 dir.path(),
                 &format!("{}.json", 1000 + i),
                 &entry(&format!("17:{:02}:00", i), long.trim()),
             );
         }
-        let note = take(dir.path()).unwrap().note;
-        assert!(note.contains("15 changed frames"));
-        assert!(note.contains("\n- (3 earlier frames not listed)\n- 17:03 "));
-        assert_eq!(note.lines().count(), 1 + 1 + MAX_LISTED);
-        let first = note.lines().nth(2).unwrap();
+        let taken = take(dir.path()).unwrap();
+        assert_eq!(taken.notes.len(), 3);
+        assert_eq!(taken.files.len(), n);
+        let lines: usize = taken
+            .notes
+            .iter()
+            .map(|note| note.text.lines().count() - 1)
+            .sum();
+        assert_eq!(lines, n, "every frame has its line");
+        assert_eq!(
+            taken.notes[0].key,
+            format!("screen:1000-{}", 1000 + PER_NOTE - 1)
+        );
+        assert!(taken.notes[2].text.contains("3 changed frames"));
+        let first = taken.notes[0].text.lines().nth(1).unwrap();
         assert!(first.contains('…'));
         assert!(first.chars().count() < MAX_TEXT + 140);
     }
@@ -251,7 +273,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         write(dir.path(), "1000.json", "{not json");
         let taken = take(dir.path()).unwrap();
-        assert_eq!(taken.note, "");
+        assert!(taken.notes.is_empty());
         assert_eq!(taken.files.len(), 1);
         consume(&taken);
         assert_eq!(take(dir.path()), None);

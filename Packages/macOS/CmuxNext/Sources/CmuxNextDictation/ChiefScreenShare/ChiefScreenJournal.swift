@@ -96,8 +96,12 @@ public actor ChiefScreenJournal: ChiefScreenJournaling {
         try files.createDirectory(at: url, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     }
 
-    /// Deletes the oldest remembered frames past `keepFrames` (names sort by day, then time).
+    /// Deletes the oldest remembered frames past `keepFrames` (names sort by day, then time), and
+    /// the oldest inbox entries past `keepFrames` when no Chief host takes them.
     private func prune() {
+        let entries = ((try? files.contentsOfDirectory(atPath: inbox.path)) ?? []).filter { $0.hasSuffix(".json") }
+            .sorted { (Int64($0.dropLast(5)) ?? 0) < (Int64($1.dropLast(5)) ?? 0) }
+        for old in entries.dropLast(keepFrames) { try? files.removeItem(at: inbox.appending(path: old)) }
         let days = ((try? files.contentsOfDirectory(atPath: frames.path)) ?? []).sorted()
         var all: [URL] = []
         for day in days {

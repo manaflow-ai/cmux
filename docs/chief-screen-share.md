@@ -30,9 +30,10 @@ ChiefScreenShare (@MainActor @Observable, CmuxNextChiefScreenShare)
          frames/<day>/<time>.jpg       the source frame of each memory entry
          inbox/<ms>.json               one entry per changed frame whose text changed
 optchat-chief brain (Rust, screen_share.rs)
-    at each turn start: the inbox's entries become ONE quiet note in the Chief's log
-    ("screen share 17:40-17:52, 3 changed frames: ..."), with each frame's file; the
-    entries leave the inbox, the frames stay. Notes never wake the Chief.
+    at each turn start: the inbox's entries become quiet notes in the Chief's log, one
+    per 20 frames ("screen share 17:40-17:52, 3 changed frames: ..."), each line naming
+    its frame's file; no entry is dropped; the entries leave the inbox, the frames
+    stay. Notes never wake the Chief.
 OptChat compaction then summarizes those notes like any other line, so the view keeps a
 dated summary that `zoom` opens back to the note and the note names the frame on disk.
 ```
@@ -51,12 +52,14 @@ Why this shape:
 
 ## Privacy rules
 
-- Never on by itself: only the person's action starts it, every launch starts with it off.
+- Never on by itself: only the person's action starts it, every launch starts with it off and
+  deletes any current-screen files a quit or a crash left behind.
 - Excluded from every frame: cmux itself (the Chief's own chat would echo back), 1Password,
   Bitwarden, Dashlane, LastPass, KeePassXC, Keychain Access and Apple Passwords
   (`ChiefScreenShareExclusions`).
-- MCP may stop sharing and look while it is on, but cannot start it (`systemChange` exemption):
-  an agent never turns on capture of the person's screen.
+- Only the person starts it: Share and Toggle are person-only actions (the control socket refuses
+  them, so neither `cmux chief share-screen` from a terminal agent nor MCP can start capture).
+  Stop and Look Now are open to the CLI and MCP while sharing is on.
 - Screen Recording not granted: the first start asks macOS; when that is refused the share stays
   off, the action says why and opens System Settings > Privacy & Security > Screen Recording.
 
@@ -78,4 +81,6 @@ Why this shape:
 - A model-written summary per sharing session (the compactor's deny-all model, as image
   descriptions do), and sending a frame to the turn as an image when the person asks "what do you see".
 - Named Chiefs and the Cloud Chief: today only this Mac's main Chief home gets the notes.
-- Frame retention setting (today: the newest 1000 frames are kept, older ones deleted).
+- Frame retention setting (today: the newest 1000 frames and inbox entries are kept, older ones
+  deleted, so an old note can name a frame that is gone).
+- Delete the current-screen files at quit as well (today: at the next launch).
