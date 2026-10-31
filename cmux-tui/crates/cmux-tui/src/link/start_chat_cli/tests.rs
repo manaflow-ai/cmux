@@ -293,7 +293,7 @@ fn a_copied_folder_keeps_move_to_clouds_name_under_the_sends_place() {
     let (folder, chat) = copy.remote("/home/cmux/work", &place);
     assert_eq!(folder, format!("/home/cmux/work/{place}/paint-33f597"));
     assert_eq!(chat, format!("/home/cmux/work/{place}/paint-33f597/web/app"));
-    let top = StartCopy { subpath: String::new(), ..copy.clone() };
+    let top = StartCopy { subpath: String::new(), ..copy };
     assert_eq!(top.remote("/root/work/", &place).1, format!("/root/work/{place}/paint-33f597"));
 }
 
