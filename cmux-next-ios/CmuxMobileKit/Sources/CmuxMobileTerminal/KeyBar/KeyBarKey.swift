@@ -45,7 +45,8 @@ enum KeyBarKey: Hashable, Sendable {
         case .paste: "doc.on.clipboard"
         case .zoomOut: "minus.magnifyingglass"
         case .zoomIn: "plus.magnifyingglass"
-        case .composer: "square.and.pencil"
+        // Shows or hides the text field (not "compose a new message").
+        case .composer: "character.textbox"
         case .hideChrome: "chevron.down.square"
         default: nil
         }
@@ -71,7 +72,7 @@ enum KeyBarKey: Hashable, Sendable {
         case .paste: "Paste"
         case .zoomOut: "Zoom Out"
         case .zoomIn: "Zoom In"
-        case .composer: "Composer"
+        case .composer: "Text Field"
         case .hideChrome: "Hide Toolbar"
         case .chord("l"): "Clear (Control-L)"
         case .chord(let letter): "Control " + String(letter).uppercased()

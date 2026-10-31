@@ -257,6 +257,11 @@ targets:
         CmuxMobileKeychainGroup: $(CMUX_MOBILE_KEYCHAIN_GROUP)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # A browser tab opened on the iPhone loads a Mac's `localhost:<port>` dev
+        # server, forwarded over the link (SECURITY.md `localhost`), usually plain
+        # http. Local hosts only: other http:// sites stay refused.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         # WireGuard (boringtun), WebRTC (DTLS-SRTP) and rustls use standard
         # algorithms outside the OS. Lawrence 2026-10-15: standard algorithms
         # only, no proprietary crypto, not on the French App Store. App Store
@@ -290,7 +295,9 @@ targets:
           UIColorName: LaunchBackground
           UIImageName: LaunchMark
           UIImageRespectsSafeAreaInsets: false
-        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # Portrait, but a shared Mac screen turns with the phone (CmuxMobileAppDelegate,
+        # ScreenSharingOrientation): the delegate allows landscape only there.
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
   # Notification Content Extension: the long-press view of every cmux
