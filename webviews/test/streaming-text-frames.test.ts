@@ -75,7 +75,7 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
     await vite?.close();
   });
 
-  async function stream(name: string, cadence: Cadence): Promise<StreamReport> {
+  async function stream(name: string, cadence: Cadence, liveLine = false, eased = true): Promise<StreamReport> {
     const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 640 } });
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/test/browser/streaming-text.html`);
@@ -85,11 +85,15 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
     // fixed-wait: nothing marks the page's start-up as done
     await page.waitForTimeout(500);
     const report = await page.evaluate(
-      (cadence) =>
+      ({ cadence, liveLine }) =>
         (
-          window as unknown as { __streamingText: { run(options: { cadence: string }): Promise<unknown> } }
-        ).__streamingText.run({ cadence }),
-      cadence,
+          window as unknown as {
+            __streamingText: {
+              run(options: { cadence: string; liveLine: boolean; eased: boolean }): Promise<unknown>;
+            };
+          }
+        ).__streamingText.run({ cadence, liveLine, eased }),
+      { cadence, liveLine, eased },
     );
     await page.close();
     return report as StreamReport;
@@ -146,4 +150,30 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
       expect(overWork(again)).toEqual([]);
     },
   );
+
+  // Leo, 2026-10-27: "i feel like the text streaming feels just a little jumpy... the animation or
+  // lack thereof". With the running turn's line under the reply (the app's default), the followed
+  // view takes each new line as an eased rise (followGlide.ts) instead of a line-high jump in one
+  // frame; and the end of the turn moves nothing (Leo, 2026-10-24: "it snapped back"). The same
+  // stream runs with the steps eased and not, in the same page, for the before/after.
+  test.each(engines.map(([name]) => name))("%s: a followed reply rises line by line without jumps", async (name) => {
+    const stepped = await stream(name, "claude", true, false);
+    const eased = await stream(name, "claude", true, true);
+    const summary = (report: StreamReport) => ({
+      follow: report.follow,
+      settle: { moves: report.settle.moves, snaps: report.settle.snaps, reversals: report.settle.reversals },
+      runway: { min: report.runway.min, framesUnderDock: report.runway.framesUnderDock },
+      work: report.work.totalMs,
+      layoutShifts: report.layout.shifts,
+    });
+    console.log(
+      `streaming-text-frames ${name} follow motion: ${JSON.stringify({ stepped: summary(stepped), eased: summary(eased) }, null, 2)}`,
+    );
+    // Stepped, the view moves the reply a whole line in one frame many times over.
+    expect(stepped.follow.overSnap).toBeGreaterThan(10);
+    // Eased, no frame moves it more than an eased step would, and it never comes back down.
+    expect(eased.follow.overSnap).toBeLessThanOrEqual(stepped.follow.overSnap / 10);
+    expect(eased.settle).toMatchObject({ snaps: 0, reversals: 0 });
+    expect(overLayout(eased)).toEqual([]);
+  });
 });
