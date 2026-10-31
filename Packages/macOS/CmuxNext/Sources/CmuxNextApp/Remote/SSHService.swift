@@ -38,6 +38,9 @@ final class SSHService {
     @ObservationIgnored var removePeers: (((String) -> Bool) async -> Void)?
     /// Forgotten machines, so a stale registry echo does not bring them back.
     @ObservationIgnored private var forgotten: Set<String> = []
+    /// Forgets still showing their Undo, by machine: their routes keep their acpmux peer, since an
+    /// Undo brings the machine back and must find its peer there.
+    @ObservationIgnored private var undoable: [String: SSHDestination] = [:]
     /// Saved hosts on the home daemon's current connection (`SSHService+SavedHosts`).
     @ObservationIgnored var savedHosts: (connection: ObjectIdentifier, store: SavedHostsStore)?
     /// Machines with an install (and its handoffs) running from this app: one at a time (cx-3r9mt).
@@ -191,6 +194,7 @@ final class SSHService {
             throw ActionFailure(message: RemoteStrings.invalidPath((error as? SSHHost.Invalid)?.field == "remote_state_dir" ? stateDir ?? "" : binary ?? ""))
         }
         forgotten.remove(host.machineID)
+        undoable[host.machineID] = nil
         // The same machine (route, session, state directory) with another
         // cmux-tui path: the old link goes and the record takes the new
         // path, so a connect never runs the old binary again (cx-vuvc).
@@ -300,6 +304,7 @@ final class SSHService {
     /// writes wait for `commitForget` (the undo toast's end, `RemoteForgetUndo`).
     func hide(_ session: SSHMachineSession) -> PendingForget {
         forgotten.insert(session.machineID)
+        undoable[session.machineID] = session.host.destination
         let pending = PendingForget(machineID: session.machineID, label: session.host.label, destination: session.host.destination,
                                     fields: Self.fields(Self.transport(session)) ?? [:],
                                     sessionID: session.daemon.identity?.sessionID ?? recordID(for: session.host))
@@ -312,6 +317,7 @@ final class SSHService {
     /// connects again when it was set to connect.
     func unhide(_ pending: PendingForget) {
         forgotten.remove(pending.machineID)
+        undoable[pending.machineID] = nil
         restore(pending.fields)
     }
 
@@ -319,20 +325,33 @@ final class SSHService {
     /// record with its personal organization go.
     func commitForget(_ pending: PendingForget) async {
         // A connect to the same machine while the toast showed took it back.
-        guard forgotten.contains(pending.machineID), machines.sshSession(pending.machineID) == nil else { return }
+        undoable[pending.machineID] = nil
+        guard stillForgotten(pending) else { return }
         forgetSavedHost(pending.machineID)
-        // The peer goes only when no machine still in the list reaches the same route (another session there).
+        if let sessionID = pending.sessionID, machines.local.supports(DaemonCapability.profiles.rawValue),
+           let home = machines.local.connection {
+            do {
+                try await home.forgetSession(sessionID, force: true)
+            } catch {
+                logger.error("forget-session \(sessionID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+        // Last, after every write, and checked again after the await above: the peer goes only while
+        // the Forget still holds and nothing else uses its route (another session there, or a Forget
+        // whose Undo still shows).
         let route = pending.destination
-        if !machines.ssh.contains(where: { Self.sameRoute($0.host.destination, route) }) {
-            await removePeers?({ Self.reaches(route, peer: $0) })
-        }
-        guard let sessionID = pending.sessionID, machines.local.supports(DaemonCapability.profiles.rawValue),
-              let home = machines.local.connection else { return }
-        do {
-            try await home.forgetSession(sessionID, force: true)
-        } catch {
-            logger.error("forget-session \(sessionID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-        }
+        guard stillForgotten(pending), !routeInUse(route) else { return }
+        await removePeers?({ Self.reaches(route, peer: $0) })
+    }
+
+    /// A connect to the same machine (while the toast showed, or during a write) takes it back.
+    private func stillForgotten(_ pending: PendingForget) -> Bool {
+        forgotten.contains(pending.machineID) && machines.sshSession(pending.machineID) == nil
+    }
+
+    /// Whether a machine in the list, or a Forget still showing its Undo, reaches `route`.
+    private func routeInUse(_ route: SSHDestination) -> Bool {
+        machines.ssh.contains { Self.sameRoute($0.host.destination, route) } || undoable.values.contains { Self.sameRoute($0, route) }
     }
 
     /// Settings > Devices removed the acpmux peer at `peer` (`[user@]host`): the SSH machines that

@@ -68,6 +68,24 @@ import Testing
         #expect(calls == 1)
     }
 
+    /// Two sessions on one host forgotten in a row: the second toast ends the first (writing it)
+    /// while the second's Undo still shows, so the shared peer stays until that one is written.
+    @Test func aForgetWhoseUndoStillShowsKeepsThePeer() async throws {
+        let ssh = Self.service()
+        let main = try Self.session("leo@studio.example.ts.net")
+        let work = try Self.session("leo@studio.example.ts.net", session: "work")
+        ssh.machines.add(main)
+        ssh.machines.add(work)
+        var calls = 0
+        ssh.removePeers = { _ in calls += 1 }
+        let first = ssh.hide(work)
+        let second = ssh.hide(main)
+        await ssh.commitForget(first)
+        #expect(calls == 0, "the second Forget's Undo would bring back a machine with no peer")
+        await ssh.commitForget(second)
+        #expect(calls == 1, "written with nothing else on the route: the peer goes")
+    }
+
     @Test func peersAreReadFromTheHostListBySSHRoute() {
         let json = #"""
         {"peers":[{"name":"studio","url":"ssh://leo@studio.example.ts.net","connected":true},
