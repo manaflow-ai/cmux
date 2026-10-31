@@ -96,6 +96,7 @@ async function render(
     onOpenInWindow?: () => void;
     handle?: React.Ref<ComposerHandle>;
     onSend?: (text: string, attachments?: unknown, steer?: boolean) => boolean;
+    onStop?: () => void;
   } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
@@ -206,6 +207,32 @@ test("mid-turn with a draft, the one send control queues for an agent that canno
 test("mid-turn with only an attachment staged, the slot is Send (it steers), never Stop alone", async () => {
   const file: ComposerAttachment = { id: "a1", kind: "text", name: "notes.txt", mimeType: "text/plain", size: 5, text: "notes" };
   expect(await click(steering({ isWorking: true }), "", [file])).toEqual({ steers: [true], sends: 1, stops: 0 });
+});
+
+test("mid-turn with a draft typed, Esc still stops the turn and keeps the draft", async () => {
+  const stops: number[] = [];
+  const sent: string[] = [];
+  let handle: ComposerHandle | null = null;
+  await render(steering({ isWorking: true }), undefined, {
+    handle: (value) => void (handle = value),
+    onSend: (text) => {
+      sent.push(text);
+      return true;
+    },
+    onStop: () => stops.push(1),
+  });
+  await act(async () => handle!.restore("Use the cache", []));
+  const field = host.querySelector<HTMLElement>("[role=combobox]")!;
+  // The double press (escapeStop.ts) by default: the first arms, the second stops.
+  for (let press = 0; press < 2; press++)
+    await act(async () => {
+      field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+  expect({ stops: stops.length, sent, draft: handle!.draftText().trim() }).toEqual({
+    stops: 1,
+    sent: [],
+    draft: "Use the cache",
+  });
 });
 
 test("mid-turn with an empty prompt, the send slot is Stop alone", async () => {

@@ -1567,11 +1567,12 @@ export function Composer({
         return;
       }
     }
-    // Esc on an empty prompt stops the turn, as Stop does: by default the second of two presses
+    // Esc stops a running turn, as Stop does, with or without a draft (the draft stays; with one
+    // typed, Send takes Stop's slot, so Esc is the composer's way to stop): by default the second of two presses
     // does (escapeStop.ts), and the first arms Stop: it keeps its glyph, takes the accent and is named
     // "Press Esc again to stop". Menus, pickers and the
     // @ list take their Esc above, so one press still closes them.
-    if (event.key === "Escape" && plain && !open && stop && !stopping && !quick) {
+    if (event.key === "Escape" && plain && !open && running && !stopping && !quick) {
       event.preventDefault();
       // Holding Esc down is one press: its auto-repeat is not the second.
       escapeStop.press(event.repeat);
@@ -1683,7 +1684,7 @@ export function Composer({
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
   const escapeStop = useEscapeStop({
-    stoppable: stop && !stopping,
+    stoppable: running && !stopping,
     session: sessionId,
     double: escapeDoublePress,
     pageEscape: !onOpenInWindow,
@@ -1999,17 +2000,19 @@ export function Composer({
         title={
           shell
             ? t("composer.shellRun")
-            : authBlock
-              ? authBlock
-              : blocked?.reason
-                ? t(blocked.reason)
-                : t(
-                    !snapshot.isWorking
-                      ? "composer.sendTooltip"
-                      : steersAlways || returnSteers
-                        ? "composer.steerTooltip"
-                        : "composer.queueTooltip",
-                  )
+            : escapeStop.armed && !stopping
+              ? t(COMPOSER_LABELS.escapeAgainToStop)
+              : authBlock
+                ? authBlock
+                : blocked?.reason
+                  ? t(blocked.reason)
+                  : t(
+                      !snapshot.isWorking
+                        ? "composer.sendTooltip"
+                        : steersAlways || returnSteers
+                          ? "composer.steerTooltip"
+                          : "composer.queueTooltip",
+                    )
         }
       >
         {quietActions && !shell ? <ReturnIcon /> : <ArrowUpIcon />}
