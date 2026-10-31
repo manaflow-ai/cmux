@@ -347,6 +347,37 @@ test("cancel and edit withdraws a queued prompt and restores its text and images
   expect(container.querySelector('[data-prompt-id="p-1"]')).toBeNull();
 });
 
+test("cancel and edit leaves a prompt queued when one of its images cannot be read back", async () => {
+  const restored: string[] = [];
+  const unreadable = [
+    {
+      ...pictured[0]!,
+      images: [pictured[0]!.images![0]!, { ...pictured[0]!.images![1]!, src: undefined }],
+    },
+  ];
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={unreadable}
+        chat="c"
+        t={t}
+        onCancelEdit={async (id) => {
+          restored.push(id);
+          return true;
+        }}
+        readImage={async () => undefined}
+      />,
+    );
+  });
+  const cancel = container.querySelector<HTMLButtonElement>('[data-prompt-id="p-1"] [data-action="cancel-edit"]');
+  await act(async () => cancel!.click());
+  await settle();
+  expect(restored).toEqual([]);
+  expect(container.querySelector('[data-prompt-id="p-1"]')).not.toBeNull();
+});
+
 const thumbnails = (container: HTMLElement) => [
   ...container.querySelectorAll<HTMLButtonElement>('[data-prompt-id="p-1"] .acpmux-queued-image'),
 ];
