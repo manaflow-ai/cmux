@@ -62,6 +62,8 @@ jobs:
           BODY: ${{ github.event.pull_request.body }}
           LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
           LISTED: ${{ steps.paths.outputs.listed }}
+          ADDITIONS: ${{ github.event.pull_request.additions }}
+          DELETIONS: ${{ github.event.pull_request.deletions }}
         run: |
           set -euo pipefail
           if [ ! -f scripts/ci/pr_perf_section_check.py ]; then
@@ -74,4 +76,5 @@ jobs:
             gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/paths.txt"
           fi
           python3 scripts/ci/pr_perf_section_check.py --body-file "$RUNNER_TEMP/body.md" \
-            --paths-file "$RUNNER_TEMP/paths.txt" --title "$TITLE" --labels "$LABELS"
+            --paths-file "$RUNNER_TEMP/paths.txt" --title "$TITLE" --labels "$LABELS" \
+            --additions "$ADDITIONS" --deletions "$DELETIONS"
