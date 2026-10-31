@@ -253,6 +253,10 @@ impl OutputPublisher {
             surface.publish_pending_directory();
             surface.publish_pending_progress();
             pty.stream_progress.notify();
+            // Published by the frame producer, once per frame (FrameRequests).
+            if let Some((offset, at_bottom)) = scroll_changed {
+                pty.frame_requests.defer_scroll(offset, at_bottom);
+            }
             pty.request_frame(generation);
             // Mux events take `Mux::state`; publish them only after
             // the terminal lock is released (see PtyTerminalRuntime).
@@ -261,11 +265,6 @@ impl OutputPublisher {
                 && let Some(mux) = mux.upgrade()
             {
                 mux.emit_terminal_title(surface.id, title.into());
-            }
-            if let Some((offset, at_bottom)) = scroll_changed
-                && let Some(mux) = mux.upgrade()
-            {
-                mux.emit_terminal_scroll(surface.id, offset, at_bottom);
             }
             if !terminal_notifications.is_empty()
                 && let Some(mux) = mux.upgrade()
