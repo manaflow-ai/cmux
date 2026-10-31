@@ -177,7 +177,7 @@ extension WindowManager {
     /// The workspaces `profile` last showed, best first: shown by a window on it (front first), then remembered.
     private func lastShown(in profile: ProfileID, recency: [String], here state: WindowState) -> [String] {
         let others = recency.filter { $0 != state.id }.compactMap { states[$0] }
-        let showing = others.filter { $0.profileID == profile }.compactMap(\.workspaceID)
+        let showing = others.filter { $0.profileID == profile && registry.value.window($0.id)?.isOpen == true }.compactMap(\.workspaceID)
         let remembered = ([state] + others).compactMap { $0.profileWorkspaces[profile] }
         return showing + remembered
     }
