@@ -281,14 +281,17 @@ public nonisolated final class CredentialVault: Sendable {
             }
             var values: [String: String] = [:]
             for name in names {
-                guard let secret = try secrets.record(for: name) else {
+                guard let secret = try secrets.record(for: name), var entry = index[name] else {
                     record("missing")
                     throw Failure.missing([name])
                 }
                 values[name] = secret.value
-                index[name]?.lastUsedMs = at
-                index[name]?.lastUsedBy = caller.label
-                index[name]?.uses += 1
+                entry.lastUsedMs = at
+                entry.lastUsedBy = caller.label
+                // The display cache is writable by same-UID processes: normalize negative
+                // counts and saturate so malformed metadata cannot trap an allowed read.
+                entry.uses = min(max(0, entry.uses), Int.max - 1) + 1
+                index[name] = entry
             }
             try writeIndex(index)
             record("granted")
