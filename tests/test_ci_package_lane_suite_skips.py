@@ -350,6 +350,30 @@ class SuiteSkipTest(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertNotIn("Display step has no screen", done.stdout)
 
+    def test_a_whole_lane_display_step_with_no_screen_fails_before_its_tests(self):
+        """A display step can run the whole lane (`run`, `packages`), not only `suite`: it asserts its screen there too,
+        before any package test. Both phases call the same check; `packages` needs no git or selection."""
+        selected = self.tmp / "selected.txt"
+        selected.write_text("")
+        env = {"SELECTED_PACKAGES": os.fspath(selected), "SELECTED_COUNT": "0", "CMUX_CI_DISPLAY_ROUTED": "1"}
+        done = subprocess.run(["bash", "scripts/ci/package-test-lane.sh", "packages"], cwd=self.repo,
+                              env={**self.env, **env, "FAKE_SCREENS": "0"}, capture_output=True, text=True, timeout=300)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("::error title=Display step has no screen::", done.stdout)
+        self.assertNotIn("Testing 0 selected Swift packages.", done.stdout)
+        # With a screen, or as no display step, the lane goes on to its packages.
+        for extra in ({"FAKE_SCREENS": "1"}, {"FAKE_SCREENS": "0", "CMUX_CI_DISPLAY_ROUTED": ""}):
+            with self.subTest(env=extra):
+                done = subprocess.run(["bash", "scripts/ci/package-test-lane.sh", "packages"], cwd=self.repo,
+                                      env={**self.env, **env, **extra}, capture_output=True, text=True, timeout=300)
+                self.assertIn("Testing 0 selected Swift packages.", done.stdout, done.stdout + done.stderr)
+                self.assertNotIn("Display step has no screen", done.stdout)
+        # The `run` phase asserts it right after it picks Xcode, before any package test.
+        lane = (self.repo / "scripts/ci/package-test-lane.sh").read_text()
+        run = lane[lane.index("\n  run)\n"):]
+        self.assertLess(run.index("select_xcode"), run.index("require_display_screen"))
+        self.assertLess(run.index("require_display_screen"), run.index("run_package_tests"))
+
     def test_a_live_daemon_suite_without_its_cmux_tui_is_no_result(self):
         for name in ("FirstLaunchTests", "PartlyDaemonTests"):
             with self.subTest(suite=name):
