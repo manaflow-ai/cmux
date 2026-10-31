@@ -69,6 +69,23 @@ struct HomeComposeAndTeamTests {
         #expect(searched.people == [Self.ada])
     }
 
+    /// The user, 2026-10-29: "there are 2 austins now?". The cmux team holds two accounts of one
+    /// person (Austin Wang, a work and a personal sign-in): the list had his DM and a teammate row
+    /// for his other account, and choosing that row made a second, empty Austin DM. One name is one
+    /// person in the list: a teammate named like a DM peer, or like a teammate listed already, gets
+    /// no row of its own (New Message's search still finds each account).
+    @Test func aNameAlreadyListedGetsNoSecondTeammateRow() {
+        let work = HomeContact(id: ParticipantID("austin-work"), name: "Austin Wang", source: .team)
+        let personal = HomeContact(id: ParticipantID("austin-personal"), name: "Austin Wang", source: .team)
+        let dm = HomeNewMessageTests.row("dm-austin", participants: [Participant(id: work.id, kind: .human, displayName: "Austin Wang")])
+        let withDM = HomeSidebarModel(rows: [dm], pins: HomePins(), me: Self.me, contacts: [work, personal, Self.ada])
+        #expect(withDM.teammates == [Self.ada])
+        let noDM = HomeSidebarModel(rows: [], pins: HomePins(), me: Self.me, contacts: [work, personal, Self.ada])
+        #expect(noDM.teammates == [work, Self.ada])
+        let searched = HomeSidebarModel(rows: [dm], pins: HomePins(), me: Self.me, query: "austin", contacts: [work, personal])
+        #expect(searched.people == [personal], "the search reaches the other account")
+    }
+
     /// The list draws each teammate as a row after the conversations; choosing it starts the DM
     /// and never reports a conversation selection.
     @Test func aTeammateRowStartsTheDM() throws {

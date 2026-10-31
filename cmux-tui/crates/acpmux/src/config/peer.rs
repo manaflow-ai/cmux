@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct PeerConfig {
     pub url: String,
+    /// Optional encrypted route. Tokens and application authorization are unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wireguard: Option<crate::wireguard::StaticPeer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
     /// The peer daemon's peer token (`server/peer_auth.rs`), for a `ws://`
@@ -21,4 +24,9 @@ pub struct PeerConfig {
     /// lease carries it when the Cloud API said the caller owns that VM.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub vm_boundary: bool,
+    /// `githubBroker`: this Mac lends the peer its `gh` login for the broker's fixed actions
+    /// (`github_broker.rs`). Add Machine (`acpmux host enroll`) sets it for the person's own
+    /// machine; a plain `peer_add` and a Cloud lease never do.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub github_broker: bool,
 }

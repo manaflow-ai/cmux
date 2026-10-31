@@ -20,6 +20,7 @@ use crate::resource::{
     AgentPublicId, BrowserPublicId, FrontendProjectionPublicId, NotificationPublicId, WireDecimal,
 };
 use crate::{CursorShape, DefaultColors, Rgb};
+use cmux_json::JsonSet as _;
 
 const NOTIFICATION_LEDGER_CAPACITY: usize = 256;
 
@@ -64,7 +65,7 @@ pub struct RegistryAgentProjection {
 pub(crate) fn agent_projection_extra(agent: Option<&str>, agent_session_id: Option<&str>) -> Value {
     let mut extra = json!({"agent": agent});
     if let Some(agent_session_id) = agent_session_id {
-        extra["agent_session_id"] = json!(agent_session_id);
+        extra.set("agent_session_id", json!(agent_session_id));
     }
     extra
 }
@@ -674,8 +675,8 @@ impl WorkspaceRegistry {
                     "frontend projection {subject_key} has invalid revision {projection_revision}"
                 );
                 anyhow::ensure!(
-                    payload.len() <= MAX_PROJECTION_BYTES,
-                    "frontend projection {subject_key} exceeds {MAX_PROJECTION_BYTES} bytes"
+                    payload.len() <= MAX_RESOURCE_API_PROJECTION_BYTES,
+                    "frontend projection {subject_key} exceeds {MAX_RESOURCE_API_PROJECTION_BYTES} bytes"
                 );
                 let projection = serde_json::from_str(&payload).with_context(|| {
                     format!("frontend projection {subject_key} contains invalid JSON")

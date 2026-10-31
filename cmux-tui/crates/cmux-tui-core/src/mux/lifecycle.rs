@@ -119,6 +119,8 @@ impl Mux {
         self.shutting_down.store(true, Ordering::Release);
         // An in-flight maintenance tick must not delay the rest of shutdown.
         self.stop_journal_maintenance();
+        #[cfg(unix)]
+        self.stop_agent_chat_notices();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         // Hosts of closed terminals were already asked to exit; give them
@@ -290,6 +292,8 @@ impl Mux {
     /// and remain available for the replacement daemon to adopt.
     pub fn request_daemon_shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
+        #[cfg(unix)]
+        self.stop_agent_chat_notices();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         // The journal hook dispatcher waits on the shared journal.

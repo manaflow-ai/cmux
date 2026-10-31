@@ -73,6 +73,10 @@ void cmux_shim_reload(int browser_id) {
   if (CefRefPtr<CefBrowser> browser = BrowserById(browser_id)) browser->Reload();
 }
 
+void cmux_shim_reload_ignore_cache(int browser_id) {
+  if (CefRefPtr<CefBrowser> browser = BrowserById(browser_id)) browser->ReloadIgnoreCache();
+}
+
 int cmux_shim_unresponsive_reply(int browser_id, int terminate) {
   CefRefPtr<CefUnresponsiveProcessCallback> callback = TakeUnresponsiveCallback(browser_id);
   if (!callback) {

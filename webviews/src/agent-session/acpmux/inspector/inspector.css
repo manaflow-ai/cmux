@@ -7,8 +7,10 @@
    never a capped height that scrolls with room left (Leo, 2026-10-26: "you still haven't done the
    full-length thing. It's still just this constrained height for, like, no reason at all"). Overlay (the
    default, in every pane): it floats outside the chat's layout and never takes a column (Leo, 2026-10-24:
-   "it was never supposed to be a sidebar; y'all kept doing sidebars"); the chat's column moves left only
-   when the two then fit side by side, and otherwise the panel floats over the chat. Push (Settings Push
+   "it was never supposed to be a sidebar; y'all kept doing sidebars"), and opening or closing it moves
+   nothing else: the chat's column stays where it is, and where the right gutter cannot hold the panel it
+   floats over the chat (Leo, 2026-10-29: "it's not supposed to be a fucking sidebar that pushes the
+   fucking layout"). Push (Settings Push
    always only): an item of the shell's flex row, so it reserves its width and the chat reflows narrower
    beside it, but top-aligned at its own height, so the column below it is the chat's own page, not an
    empty slab. Its width comes from the viewer's drag (inline style); it slides in from the right and back
@@ -34,16 +36,21 @@
    its body scroll (Leo, 2026-10-26: "It's still just this constrained height for, like, no reason at
    all"). It is still a card that floats, never a column: with little to show it ends right after its
    last section, with no fixed or minimum height (Leo, 2026-10-22: "the card should just end when there's
-   no more content to show"; chat-inspector-overlay-toggle.test.ts). */
+   no more content to show"; chat-inspector-overlay-toggle.test.ts). A card under it (the computer use
+   live preview, underInspector.ts) keeps its room and the gap at the foot: --acpmux-inspector-under-room,
+   which that card publishes on the shell while it shows. */
 .acpmux-chat-inspector[data-placement] {
-  max-height: calc(100% - var(--acpmux-inspector-top, 0px) - var(--acpmux-inspector-inset));
+  max-height: calc(
+    100% - var(--acpmux-inspector-top, 0px) - var(--acpmux-inspector-inset) - var(--acpmux-inspector-under-room, 0px)
+  );
   border-radius: var(--acpmux-inspector-panel-radius);
 }
-/* Lying over the chat's column (the chat cannot move left for it), it stops above the composer's stack
+/* Lying over the chat's column (the right gutter cannot hold it), it stops above the composer's stack
    (ChatInspector.tsx inspectorOverChat, --acpmux-inspector-foot), so it never covers the composer. */
 .acpmux-chat-inspector[data-placement="overlay"][data-over-chat] {
   max-height: calc(
-    100% - var(--acpmux-inspector-top, 0px) - var(--acpmux-inspector-foot, 0px) - var(--acpmux-inspector-inset)
+    100% - var(--acpmux-inspector-top, 0px) - var(--acpmux-inspector-foot, 0px) - var(--acpmux-inspector-inset) -
+      var(--acpmux-inspector-under-room, 0px)
   );
 }
 /* Pushing: a flex item that keeps its own height at the top, its margins the floating card's place. */
@@ -51,10 +58,21 @@
   align-self: flex-start;
   margin: var(--acpmux-inspector-top, 0px) var(--acpmux-inspector-inset) 0 0;
 }
-/* The native tab strip's reserved tool area stays at the pane's trailing edge. Push always
-   narrows the conversation below it; the header keeps the room measured before that column. */
-.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-header {
-  width: var(--acpmux-header-room, 100%);
+/* Every shell-side panel contributes one term to the native tab row's width. The Inspector's
+   room is measured before the artifact column by ChatInspector.tsx; subtracting the main column's
+   100% leaves the pushed Inspector width and its inset. Keeping each panel as a zero-valued shell
+   variable makes the shared rule additive as new side panels arrive. */
+.acpmux-shell {
+  --acpmux-inspector-push: 0px;
+}
+.acpmux-shell[data-inspector-chat-placement="push"] {
+  --acpmux-inspector-push: calc(var(--acpmux-header-room, 100%) - 100%);
+}
+.acpmux-shell .acpmux-header {
+  width: calc(
+    100% + var(--acpmux-summary-push, 0px) + var(--acpmux-inspector-push, 0px) +
+      var(--acpmux-artifact-push, 0px)
+  );
 }
 /* Floating: the same card over the gutter. With the side panel open beside the chat, its gutter ends at
    that panel's edge (--acpmux-inspector-side, its width), never over the document. The inset is its
@@ -86,65 +104,6 @@
 .acpmux-chat-inspector[data-placement] .acpmux-chat-inspector__body {
   /* The card is as tall as its sections; past its max-height, the body scrolls. */
   flex: 0 1 auto;
-}
-/* When the chat and the floating card both fit with the chat moved left (ChatInspector.tsx
-   inspectorChatShift), the conversation and the composer's stack under it move left together, so the
-   card lies over neither. The header stays outside that shift: its top-right controls stay anchored in
-   the pane. */
-.acpmux-main > .acpmux-stage > .acpmux-scroll > :is(.acpmux-spacer, .acpmux-find, .acpmux-minimap),
-.acpmux-main > .acpmux-stage .acpmux-handoff-review,
-.acpmux-main > .acpmux-dock > * {
-  translate: calc(-1 * var(--acpmux-chat-shift, 0px)) 0;
-}
-/* Move content and the rail without moving the native scrollbar under Session Info. Clamp the
-   rail's final left edge to the pane: its 28px gutter can use up to 8px of text-edge overlap.
-   Its portaled card shares the same shift and transition, staying aligned on every painted frame. */
-.acpmux-main > .acpmux-stage > .acpmux-scroll > .acpmux-minimap,
-.acpmux-main > .acpmux-stage > .acpmux-minimap__card {
-  translate: max(calc(-1 * var(--acpmux-chat-shift, 0px)), calc(-1 * var(--acpmux-rail-left, 0px))) 0;
-}
-/* A part that joins the stack while the chat is moved rises from below its moved place
-   (bottomStack.css ui-enter), not from the unmoved one. Only the dock's own animated parts (the same
-   list as bottomStack.css): the parts nested in them enter inside a part already moved. */
-.acpmux-main > .acpmux-dock > :not(.acpmux-composer, .acpmux-home-area, .acpmux-asks-stack) {
-  --ui-enter-x: calc(-1 * var(--acpmux-chat-shift, 0px));
-}
-@media (prefers-reduced-motion: no-preference) {
-  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll > :is(.acpmux-spacer, .acpmux-find, .acpmux-minimap),
-  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-minimap__card,
-  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > *,
-  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage .acpmux-handoff-review {
-    transition: translate var(--agent-motion-move, var(--cmux-motion-quick, 80ms))
-      var(--acpmux-motion-ease, ease-out);
-  }
-}
-:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll > :is(.acpmux-spacer, .acpmux-find, .acpmux-minimap),
-:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-minimap__card,
-:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > *,
-:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage .acpmux-handoff-review,
-:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll > :is(.acpmux-spacer, .acpmux-find, .acpmux-minimap),
-:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-minimap__card,
-:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > *,
-:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage .acpmux-handoff-review {
-  transition: none;
-}
-.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage > .acpmux-scroll > :is(.acpmux-spacer, .acpmux-find, .acpmux-minimap),
-.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage > .acpmux-minimap__card,
-.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-dock > *,
-.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage .acpmux-handoff-review {
-  transition: none;
-}
-
-/* A native browser/terminal pane changes the shell width outside this document. The ResizeObserver
-   writes the final Session Info shift in that same layout turn; keep the webview from starting a
-   second translate transition while the native split is still resizing. The rail and its portaled
-   card too: each took its own transition from values set in different commits, and the card trailed
-   the rail on the resize's frames (thread-minimap-left-rail-stays). */
-.acpmux-shell[data-inspector-chat-resizing] .acpmux-main > .acpmux-stage > .acpmux-scroll > :is(.acpmux-spacer, .acpmux-find, .acpmux-minimap),
-.acpmux-shell[data-inspector-chat-resizing] .acpmux-main > .acpmux-stage > .acpmux-minimap__card,
-.acpmux-shell[data-inspector-chat-resizing] .acpmux-main > .acpmux-dock > *,
-.acpmux-shell[data-inspector-chat-resizing] .acpmux-main > .acpmux-stage .acpmux-handoff-review {
-  transition: none;
 }
 /* It slides in from the pane's right edge and back out (ui/presence.ts, data-presence). Over the chat
    it travels the panel's few points. Pushing, the room it takes travels with it: entering, its right
@@ -242,6 +201,50 @@
   border-radius: var(--acpmux-inspector-row-radius);
   background: none;
 }
+/* The six-dot handle that moves a section (InspectorGroup.tsx): in the body's left padding, beside the
+   section's first row, and seen only on hover, keyboard focus or while it drags, so before a drag the
+   panel draws as it did. It takes no room in the section, and a drag lights only the handle. */
+.acpmux-chat-inspector-section {
+  position: relative;
+}
+.acpmux-chat-inspector-section__handle {
+  position: absolute;
+  z-index: var(--layer-raised);
+  top: 0;
+  /* The body's 6px side padding (data-layout). */
+  left: -6px;
+  width: 6px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--agent-muted);
+  cursor: grab;
+  opacity: 0;
+  touch-action: none;
+  appearance: none;
+}
+.acpmux-chat-inspector-section:hover > .acpmux-chat-inspector-section__handle,
+.acpmux-chat-inspector-section__handle:focus-visible,
+.acpmux-chat-inspector-section[data-dragging] > .acpmux-chat-inspector-section__handle {
+  opacity: 1;
+}
+.acpmux-chat-inspector-section__handle:hover,
+.acpmux-chat-inspector-section[data-dragging] > .acpmux-chat-inspector-section__handle {
+  color: var(--agent-text);
+}
+.acpmux-chat-inspector-section[data-dragging] > .acpmux-chat-inspector-section__handle {
+  cursor: grabbing;
+}
+.acpmux-chat-inspector-section__handle:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
 /* The three blocks (ChatInspector.tsx RAIL_LAYOUT): where it runs, what it made, what it runs. Shipped
    (glance), a hairline between blocks and none around them; the top block's rows run together. The
    body's sides are the head's, so a row's text lines up under the panel's title. */
@@ -308,7 +311,9 @@
 }
 .acpmux-chat-inspector-section .ui-disclosure-trigger:hover,
 .acpmux-chat-inspector-row--button:hover:not(:disabled),
-.acpmux-chat-inspector-pr:hover,
+.acpmux-chat-inspector-pr:has(> .acpmux-chat-inspector-pr__link:hover),
+.acpmux-chat-inspector-source:hover,
+.acpmux-chat-inspector-source__link:hover,
 .acpmux-chat-inspector-task__open:hover:not(:disabled),
 .acpmux-chat-inspector-icon-button:hover:not(:disabled),
 button.acpmux-chat-inspector-port:hover,
@@ -437,6 +442,8 @@ button.acpmux-chat-inspector-port:hover,
 }
 .acpmux-chat-inspector-row > svg {
   flex: none;
+  width: var(--acpmux-glyph-slot);
+  height: var(--acpmux-glyph-slot);
   color: var(--agent-muted);
 }
 .acpmux-chat-inspector-row--button {
@@ -575,8 +582,8 @@ button.acpmux-chat-inspector-port:hover,
   color: inherit;
   text-decoration: none;
 }
-/* The row lights as a whole, so its gap and padding are the link's too (a click there was dead,
-   #24116's audit). The ⋯ button, positioned and later in the row, paints above it. */
+/* Hovering the main link lights the row, including its clickable gap and padding (#24116).
+   The ⋯ button sits above the link overlay and highlights only itself. */
 .acpmux-chat-inspector-pr__link::before {
   content: "";
   position: absolute;
@@ -708,6 +715,49 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector-pr-fold {
   margin-top: 2px;
 }
+.acpmux-chat-inspector-source {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  height: var(--ui-row-height);
+  padding: 0 8px;
+  border-radius: var(--acpmux-inspector-row-radius);
+}
+.acpmux-chat-inspector-source__link {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--ui-row-height);
+  padding: 0;
+  border-radius: var(--acpmux-inspector-row-radius);
+  color: inherit;
+  text-decoration: none;
+  cursor: default;
+}
+.acpmux-chat-inspector-source__link:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-chat-inspector-source__link > svg,
+.acpmux-chat-inspector-source > svg {
+  flex: none;
+  color: var(--agent-muted);
+}
+.acpmux-chat-inspector-source__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-chat-inspector-sources-fold {
+  margin-top: 2px;
+}
 .acpmux-chat-inspector-breakdown__rows {
   display: grid;
   gap: 2px;
@@ -766,8 +816,8 @@ button.acpmux-chat-inspector-port:hover,
   flex: none;
   width: 7px;
   height: 7px;
-  /* Center the seven-pixel status mark in the fourteen-pixel leading icon slot. */
-  margin: 6px 3.5px 0;
+  /* Keep the status mark's size while sharing the task glyph's leading column. */
+  margin: 6px calc((var(--acpmux-glyph-slot) - 7px) / 2) 0;
   border-radius: 50%;
   background: var(--agent-status-success);
 }
@@ -779,6 +829,7 @@ button.acpmux-chat-inspector-port:hover,
 }
 .acpmux-chat-inspector-server__line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   min-width: 0;
@@ -941,6 +992,7 @@ button.acpmux-chat-inspector-scope__parent:focus-visible {
   border-radius: var(--acpmux-inspector-card-radius);
 }
 .acpmux-chat-inspector-scope__glyph {
+  display: inline-flex;
   flex: none;
   margin-top: 2px;
   color: var(--agent-muted);

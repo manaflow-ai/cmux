@@ -6,7 +6,7 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { TurnFile } from "../diff";
 import { type BackgroundCommand, backgroundCommands } from "../inspector/processes";
-import type { SessionSummary } from "./sessionSummary";
+import { projectPathAllowed, type SessionSummary } from "./sessionSummary";
 import { SourcesAddMenu, type ChatToolsControl } from "./SourcesAddMenu";
 import { SubagentStack } from "./SubagentStack";
 import { SummarySection } from "./SummarySection";
@@ -36,7 +36,7 @@ const ROW_ICON = rowIconSize(12);
 export type SummaryChanges = {
   additions: number;
   deletions: number;
-  files?: readonly Pick<TurnFile, "path" | "displayPath" | "additions" | "deletions" | "created">[];
+  files?: readonly Pick<TurnFile, "path" | "displayPath" | "canonical" | "additions" | "deletions" | "created">[];
 };
 
 export function SummaryBody({
@@ -109,9 +109,15 @@ export function SummaryBody({
   const turnOf = new Map<string, (typeof lastTurn)[number]>();
   const checkpointOnly: (typeof lastTurn)[number][] = [];
   for (const file of lastTurn) {
+    // When the session has a project root, reject checkpoint paths outside it before matching by
+    // display suffix. Otherwise an unrelated `outside/src/index.ts` could replace the allowed
+    // `project/src/index.ts` output merely because both display as `src/index.ts`.
+    const inProject = summary.cwd === undefined || projectPathAllowed(file.canonical ?? file.path, summary.cwd);
+    if (!inProject) continue;
     const output = outputOf(file);
-    if (output === undefined) checkpointOnly.push(file);
-    else if (!turnOf.has(output)) turnOf.set(output, file);
+    if (output === undefined) {
+      checkpointOnly.push(file);
+    } else if (!turnOf.has(output)) turnOf.set(output, file);
   }
   const outputs = [
     ...summary.outputs.map((output) => {

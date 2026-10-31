@@ -16,6 +16,8 @@ public nonisolated enum SidebarSectionsSetting {
     /// headers become thin lines.
     public static let minimalPath = ["sidebar", "minimal"]
     public static let densityPath = ["sidebar", "density"]
+    /// `sidebar.textSize` (``SidebarTextSize``): the list's text, leading glyphs and rows together.
+    public static let textSizePath = ["sidebar", "textSize"]
     /// `sidebar.style`: standard or the thin rail (plans/cmux-next/minimal-sidebar.md).
     public static let stylePath = ["sidebar", "style"]
     public static let showProjectsPath = ["sidebar", "showProjects"]
@@ -125,6 +127,24 @@ public nonisolated enum SidebarSectionsSetting {
                           keywords: ["sidebar", "density", "expanded", "compact", "comfortable", "rows", "preview", "two lines", "taller", "t3", "codex"])
     }
 
+    /// Lawrence msg 17752: "we also need option for sidebar text to be very significantly bigger. this is
+    /// how big chatgpt is by default, let's match them". Larger is that size.
+    static func textSizeDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(textSizePath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.textSize", "Sidebar Text Size"),
+                          help: SettingsText.keyed("settings.sidebar.textSize.help",
+                                                   "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar."),
+                          kind: .choice(SidebarTextSize.allCases.map { size in
+                              switch size {
+                              case .standard: SettingChoice(size.rawValue, SettingsText.keyed("settings.choice.default", "Default"))
+                              case .large: SettingChoice(size.rawValue, SettingsText.keyed("settings.choice.sidebarTextLarge", "Large"))
+                              case .larger: SettingChoice(size.rawValue, SettingsText.keyed("settings.choice.sidebarTextLarger", "Larger"))
+                              }
+                          }),
+                          default: .string(SidebarSectionsPreferences.defaults.textSize.rawValue),
+                          keywords: ["sidebar", "text", "size", "font", "bigger", "larger", "large", "zoom", "readable", "accessibility", "chatgpt", "rows"])
+    }
+
     static func styleDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(stylePath, section: .appearance, group: group,
                           title: SettingsText.keyed("settings.sidebar.style", "Sidebar Style"),
@@ -159,7 +179,8 @@ public nonisolated enum SidebarSectionsSetting {
                           title: SettingsText.keyed("settings.sidebar.showWorkspaceTabs", "Show Workspace Tabs"),
                           help: SettingsText.keyed("settings.sidebar.showWorkspaceTabs.help", "Lists tabs beneath each workspace in the sidebar."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showWorkspaceTabs),
-                          keywords: ["sidebar", "workspace", "tabs"])
+                          keywords: ["sidebar", "workspace", "workspaces", "tabs", "panes", "under", "beneath", "nested",
+                                     "expand", "list", "tree", "disclosure"])
     }
 
     /// Projects, which its header's menu hides (Leo 2026-10-06). All chats has
@@ -205,7 +226,7 @@ public nonisolated enum SidebarSectionsSetting {
             SettingDescriptor(controlsOnHoverPath, section: .appearance, group: group,
                               title: SettingsText.keyed("settings.sidebar.controlsOnHover", "Show Sidebar Controls Only on Hover"),
                               help: SettingsText.keyed("settings.sidebar.controlsOnHover.help",
-                                                       "The sidebar's New Workspace button, spaces, profile button and Search button show only while the pointer is over the sidebar. Off, they always show."),
+                                                       "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show."),
                               kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.controlsOnHover),
                               keywords: ["sidebar", "minimal", "hover", "hide", "show", "controls", "buttons", "search", "profile", "spaces", "footer", "clean"]),
         ]
@@ -315,6 +336,14 @@ public nonisolated enum SidebarSectionsSetting {
             } else {
                 let choices = SidebarDensity.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.density", message: "expected one of " + choices))
+            }
+        }
+        if let value = root.value(at: textSizePath) {
+            if let text = value.stringValue, let size = SidebarTextSize(rawValue: text) {
+                result.textSize = size
+            } else {
+                let choices = SidebarTextSize.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.textSize", message: "expected one of " + choices))
             }
         }
         if let value = root.value(at: stylePath) {

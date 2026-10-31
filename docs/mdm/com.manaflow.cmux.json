@@ -89,6 +89,16 @@
       "title" : "Chat Minimap",
       "type" : "string"
     },
+    "agentPane.display.rail.side" : {
+      "default" : "left",
+      "description" : "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.",
+      "enum" : [
+        "left",
+        "right"
+      ],
+      "title" : "Prompt Rail Side",
+      "type" : "string"
+    },
     "agentPane.display.vscodeMinimap" : {
       "default" : false,
       "description" : "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll.",
@@ -178,6 +188,12 @@
       "title" : "Show Dictation Button",
       "type" : "boolean"
     },
+    "agentPane.showMachineLoadWarnings" : {
+      "default" : true,
+      "description" : "Shows a warning when a remote machine is at its CPU or memory budget in the Computer menu.",
+      "title" : "Show Machine Load Warnings",
+      "type" : "boolean"
+    },
     "agentPane.spellChecking" : {
       "default" : false,
       "description" : "Underlines misspellings and offers system suggestions in the composer.",
@@ -226,6 +242,18 @@
       "title" : "Permission Mode for New Chats",
       "type" : "string"
     },
+    "agents.modelRouter.model" : {
+      "default" : "deepseek/deepseek-v4.1-flash-1017",
+      "description" : "The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only.",
+      "enum" : [
+        "deepseek/deepseek-v4.1-flash-1017",
+        "deepseek/deepseek-v4.1-flash",
+        "deepseek/deepseek-v4-flash",
+        "deepseek/deepseek-v4-pro"
+      ],
+      "title" : "cmux Model Router Model",
+      "type" : "string"
+    },
     "agents.subsessions.answerQuestions" : {
       "default" : false,
       "description" : "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer.",
@@ -240,7 +268,7 @@
     },
     "agents.subsessions.maxChildren" : {
       "default" : 50,
-      "description" : "The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place.",
+      "description" : "The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot.",
       "maximum" : 1000,
       "minimum" : 1,
       "title" : "Open Sub-sessions per Session",
@@ -390,7 +418,7 @@
     },
     "appearance.appTheme" : {
       "default" : "followTerminal",
-      "description" : "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.",
+      "description" : "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast.",
       "title" : "App Theme",
       "type" : "string"
     },
@@ -910,6 +938,11 @@
       "title" : "Glass Transparency",
       "type" : "number"
     },
+    "appearance.highlightColor" : {
+      "description" : "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color.",
+      "title" : "Highlight Color",
+      "type" : "string"
+    },
     "appearance.hue" : {
       "default" : 0.5,
       "description" : "Shift the tint color around the hue wheel.",
@@ -1273,7 +1306,7 @@
       "type" : "number"
     },
     "appearance.theme" : {
-      "description" : "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it.",
+      "description" : "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it.",
       "title" : "Theme",
       "type" : "string"
     },
@@ -1745,6 +1778,18 @@
       "default" : false,
       "description" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
       "title" : "Computer Use",
+      "type" : "boolean"
+    },
+    "computerUse.livePreview" : {
+      "default" : true,
+      "description" : "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity.",
+      "title" : "Live Preview in Chat",
+      "type" : "boolean"
+    },
+    "contextMenus.showCustomizeItem" : {
+      "default" : true,
+      "description" : "Adds Customize Menu… to the end of every right-click menu.",
+      "title" : "Show Customize Menu…",
       "type" : "boolean"
     },
     "deviceHub.url" : {
@@ -2385,6 +2430,26 @@
       "title" : "Keep Location in Photos and Videos",
       "type" : "boolean"
     },
+    "home.bubbleColors.received" : {
+      "description" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.",
+      "title" : "Their Bubble Color",
+      "type" : "string"
+    },
+    "home.bubbleColors.receivedText" : {
+      "description" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.",
+      "title" : "Their Text Color",
+      "type" : "string"
+    },
+    "home.bubbleColors.sent" : {
+      "description" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.",
+      "title" : "My Bubble Color",
+      "type" : "string"
+    },
+    "home.bubbleColors.sentText" : {
+      "description" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.",
+      "title" : "My Text Color",
+      "type" : "string"
+    },
     "home.channelsEnabled" : {
       "default" : false,
       "description" : "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette.",
@@ -2451,6 +2516,12 @@
       "title" : "Classic Home",
       "type" : "boolean"
     },
+    "labs.machineJoin" : {
+      "default" : false,
+      "description" : "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them.",
+      "title" : "Join Any Machine with One Line",
+      "type" : "boolean"
+    },
     "labs.previewFeatures" : {
       "default" : false,
       "description" : "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
@@ -2491,7 +2562,7 @@
       "type" : "string"
     },
     "layout.defaultColumnWidth" : {
-      "default" : 0.5,
+      "default" : 0.6666666666666666,
       "description" : "A share of the window width, for Fixed Width new columns.",
       "maximum" : 1,
       "minimum" : 0.1,
@@ -2575,7 +2646,7 @@
       "type" : "number"
     },
     "layout.newColumnWidth" : {
-      "default" : "matchCurrent",
+      "default" : "fixed",
       "description" : "layout.newColumnWidth",
       "enum" : [
         "matchCurrent",
@@ -2594,6 +2665,12 @@
       ],
       "title" : "New Terminals and Browsers",
       "type" : "string"
+    },
+    "layout.pagesHandleCommandScroll" : {
+      "default" : true,
+      "description" : "A web page that uses Command + Scroll itself, such as Figma or Excalidraw zooming, keeps it. Over any other page, Command + Scroll moves columns. Off, Command + Scroll always moves columns.",
+      "title" : "Web Pages Get Command + Scroll First",
+      "type" : "boolean"
     },
     "layout.paneBorder" : {
       "default" : "subtle",
@@ -3498,7 +3575,7 @@
     },
     "sidebar.controlsOnHover" : {
       "default" : false,
-      "description" : "The sidebar's New Workspace button, spaces, profile button and Search button show only while the pointer is over the sidebar. Off, they always show.",
+      "description" : "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show.",
       "title" : "Show Sidebar Controls Only on Hover",
       "type" : "boolean"
     },
@@ -3548,7 +3625,7 @@
       "type" : "boolean"
     },
     "sidebar.hoverCards.delay" : {
-      "default" : 250,
+      "default" : 1300,
       "description" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
       "maximum" : 5000,
       "minimum" : 0,
@@ -3562,7 +3639,7 @@
       "type" : "boolean"
     },
     "sidebar.hoverCards.groups.delay" : {
-      "default" : 600,
+      "default" : 1500,
       "description" : "How long the pointer rests on a group before its summary card opens.",
       "maximum" : 5000,
       "minimum" : 0,
@@ -3813,7 +3890,7 @@
       "type" : "boolean"
     },
     "sidebar.showWorkspaceTabs" : {
-      "default" : true,
+      "default" : false,
       "description" : "Lists tabs beneath each workspace in the sidebar.",
       "title" : "Show Workspace Tabs",
       "type" : "boolean"
@@ -3872,6 +3949,17 @@
         "rail"
       ],
       "title" : "Sidebar Style",
+      "type" : "string"
+    },
+    "sidebar.textSize" : {
+      "default" : "default",
+      "description" : "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar.",
+      "enum" : [
+        "default",
+        "large",
+        "larger"
+      ],
+      "title" : "Sidebar Text Size",
       "type" : "string"
     },
     "sidebar.topBandMaxShare" : {
@@ -4365,7 +4453,7 @@
     },
     "tabs.barPosition" : {
       "default" : "top",
-      "description" : "Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane.",
+      "description" : "Where each pane's tab bar sits. At the bottom, the panes reach the top of the window; the window buttons never cover a pane.",
       "enum" : [
         "top",
         "bottom"
@@ -4388,6 +4476,12 @@
       ],
       "title" : "Command-1 to 9 Select",
       "type" : "string"
+    },
+    "tabs.nativeNewTabPage" : {
+      "default" : false,
+      "description" : "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now.",
+      "title" : "Native New Tab Page",
+      "type" : "boolean"
     },
     "tabs.newTabNowPlaying" : {
       "default" : false,
@@ -4413,7 +4507,6 @@
         "minimal",
         "cards",
         "default",
-        "composer",
         "threads",
         "console",
         "classic",
@@ -4817,6 +4910,12 @@
       "title" : "When an Update Is Ready",
       "type" : "string"
     },
+    "updates.showFeatureTips" : {
+      "default" : true,
+      "description" : "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back.",
+      "title" : "Show Feature Tips",
+      "type" : "boolean"
+    },
     "updates.showWhatsNew" : {
       "default" : true,
       "description" : "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it.",
@@ -4846,7 +4945,7 @@
     },
     "window.titlebarButtons" : {
       "default" : "hover",
-      "description" : "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows.",
+      "description" : "With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show.",
       "enum" : [
         "hover",
         "always"
@@ -4897,7 +4996,7 @@
     },
     "workspaces.newPlacement" : {
       "default" : "top",
-      "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.",
+      "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it.",
       "enum" : [
         "top",
         "afterCurrent",

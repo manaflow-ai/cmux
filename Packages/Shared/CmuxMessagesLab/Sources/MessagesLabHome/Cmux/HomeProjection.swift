@@ -325,7 +325,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         }
     }
 
-    /// A chosen avatar text (the Home Chief's avatar), over the initials.
+    /// A chosen avatar text (the Home Chief's avatar), over the monogram of the header's name.
     var initialsOverride: String? { didSet { applyHeader() } }
     /// A chosen header name (a Chief's own name, its record's), over the conversation's title.
     var titleOverride: String? { didSet { if titleOverride != oldValue { applyHeader() } } }
@@ -343,13 +343,16 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     private func applyHeader() {
-        controller.host.paneHeader.title = titleOverride ?? HomeMapping.title(shownSummary, me: me)
-        controller.host.paneHeader.initials = initialsOverride ?? HomeMapping.initials(shownSummary, me: me)
+        let title = titleOverride ?? HomeMapping.title(shownSummary, me: me)
+        controller.host.paneHeader.title = title
+        // No chosen text: the monogram of the name the header shows ("Chief" is CH), so the letters always match the pill.
+        controller.host.paneHeader.initials = initialsOverride ?? MonogramAvatar(name: title).initials
     }
 
     // MARK: Projection -> HomeStore (intents)
 
     var canReact: Bool { isSendEnabled }
+    func canInteract(with message: ID) -> Bool { item(message)?.isReadOnly != true }
     /// A reply goes out as `HomeOp.sendMessage(threadRoot:)` (swipe-to-reply,
     /// Reply… in the menu, "N Replies" opens the thread view). Offline it
     /// waits in HomeStore's queue like any send.
@@ -454,7 +457,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
             let parts = TextParts.parts(for: t)
             return HomeLinkSend.hasLinks(parts) ? parts : nil
         }
-        let links = shown.contains { $0 != nil }
+        // A send past one message's parts goes as several messages (HomeStore.send), plain: its link
+        // cards are left out rather than refusing the send.
+        let links = shown.contains { $0 != nil } && plain.count <= HomeAttachmentPolicy.maxParts
             ? HomeLinkSend(previews: linkPreviews, store: homeStore, conversation: conversation) : nil
         // task-owner: one send; ends with the owner's answer
         Task { [weak self] in
@@ -592,10 +597,14 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// Each shown attachment part gets its picture and upload state:
     /// HomeStore's progress and HomeMedia's pictures change no transcript
     /// content, so they reach MessagesLab's message without a transition
-    /// (`.cmuxSetAttachment`, the row redraws in place).
+    /// (`.cmuxSetAttachments`, the rows redraw in place). Every change of one refresh goes in one
+    /// action, so the rows are re-derived once (one commit per attachment re-derived every row below
+    /// each: multi-second hangs when a chat with many pictures opened, NIGHTLY hang log 2026-10-31).
     /// `only`: just the items that show this hash (its picture became ready).
     func refreshAttachments(only hash: String? = nil) {
         guard !stopped, let store = controller.store else { return }
+        var updates: [(id: ID, attachment: Attachment)] = []
+        defer { if !updates.isEmpty { controller.dispatch(.cmuxSetAttachments(updates)) } }
         for item in shown where !item.isRetracted && !item.attachmentHashes.isEmpty && (hash.map(item.attachmentHashes.contains) ?? true) {
             for (hash, files) in item.localAttachments { media.useLocal(files, for: hash) }
             let id = HomeMapping.id(item, aliases: aliases)
@@ -612,7 +621,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
                     if case let .attachment(a) = p, a.id == ref.hash { return a }
                     return nil
                 }.first
-                if let have, have != want { controller.dispatch(.cmuxSetAttachment(id, want)) }
+                if let have, have != want { updates.append((id: id, attachment: want)) }
             }
         }
     }

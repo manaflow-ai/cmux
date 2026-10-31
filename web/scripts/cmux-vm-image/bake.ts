@@ -4,7 +4,7 @@
  *
  * Usage (from web/):
  *   bun ../images/cmux-vm/bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>]
- *       [--update-lock] [--keep-builder] [--promotion] [--agent-tools] [--team-vm] [--dev-tree]
+ *       [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree]
  *
  * - L0: refuses a base whose fingerprint (kernel release, sha256 of the sorted
  *   dpkg list) differs from the lock, unless --update-lock rewrites it (a base
@@ -44,7 +44,9 @@
  * - The full daemon handshake (identify.ts) goes into the result as daemonIdentify.
  *
  * Every VM and snapshot is named cmuxnp-dev-vmimg-<tag> unless --promotion
- * (unused for now) and is recorded in <out-dir>/resources.tsv the moment it
+ * (unused for now) or --prod-copy (cmuxnp-prod-vmimg-<tag>: the production
+ * copy of a recorded dev image, baked on the production account with the dev
+ * image's flags; prod-copy.ts plans it) and is recorded in <out-dir>/resources.tsv the moment it
  * exists. The builder is deleted whatever happens.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -136,6 +138,12 @@ export type BakeOptions = {
   teamVm?: boolean;
   /** Bake the cmux dev tree (dev-tree.ts); off by default. */
   devTree?: boolean;
+  /**
+   * The production copy of a recorded dev image (cloud-vm-image-bake.yml mode prod-copy): the same
+   * inputs and flags, baked on the production Freestyle account and named cmuxnp-prod-vmimg-<tag>,
+   * the prefix the production Worker boots.
+   */
+  prodCopy?: boolean;
 };
 
 /** The team files root (team-vm-plan.md section 2; backend team-vm-export.ts EXPORT_ROOT). */
@@ -307,6 +315,12 @@ async function checkBase(ctx: Ctx): Promise<void> {
  */
 export const APT_BATCH_BYTES = 20_000_000;
 
+/**
+ * `--error-on=any`: without it apt-get update exits 0 when an index fails to download (it warns
+ * and keeps the old or no index), so a mirror outage surfaced later as a locked pin with no size.
+ */
+export const APT_UPDATE_COMMAND = "apt-get update -q --error-on=any >/tmp/apt-update.log 2>&1 || { tail -30 /tmp/apt-update.log; exit 1; }";
+
 /** `pkg=version size` for every locked package, from the updated apt index (Size: field). */
 export function aptSizesCommand(packages: Readonly<Record<string, string>>): string {
   return `apt-cache show --no-all-versions ${aptPinArgs(packages)} | awk '/^Package: /{p=$2} /^Version: /{v=$2} /^Size: /{print p "=" v " " $2}'`;
@@ -327,12 +341,16 @@ export function aptDownloadBatches(
   sizes: ReadonlyMap<string, number>,
   maxBytes = APT_BATCH_BYTES,
 ): Array<{ pins: string[]; bytes: number }> {
+  const entries = Object.entries(packages).sort(([a], [b]) => a.localeCompare(b));
+  // Every missing pin at once: all of them missing means the index is empty (a mirror outage), not the lock.
+  const missing = entries.map(([name, version]) => `${name}=${version}`).filter((pin) => !sizes.has(pin));
+  if (missing.length > 0) throw new Error(`apt index has no size for ${missing.length} of ${entries.length} locked pins (${missing.join(", ")})`);
   const batches: Array<{ pins: string[]; bytes: number }> = [];
   let current: { pins: string[]; bytes: number } = { pins: [], bytes: 0 };
-  for (const [name, version] of Object.entries(packages).sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [name, version] of entries) {
     const pin = `${name}=${version}`;
     const size = sizes.get(pin);
-    if (size === undefined) throw new Error(`apt index has no size for ${pin}`);
+    if (size === undefined) continue;
     if (current.pins.length > 0 && current.bytes + size > maxBytes) {
       batches.push(current);
       current = { pins: [], bytes: 0 };
@@ -364,7 +382,7 @@ async function installApt(ctx: Ctx): Promise<void> {
   const { ubuntu, pgdg } = lock.apt;
   await L.step(vm, "apt-sources-snapshot", "cp /etc/apt/sources.list.d/ubuntu.sources /etc/apt/ubuntu.sources.live");
   await writeGuestFile(vm, "/etc/apt/sources.list.d/ubuntu.sources", ubuntuSourcesFile(ubuntu), 0o644);
-  await L.step(vm, "apt-update", "apt-get update -q >/tmp/apt-update.log 2>&1 || { tail -30 /tmp/apt-update.log; exit 1; }");
+  await L.step(vm, "apt-update", APT_UPDATE_COMMAND);
   // The locked mirror can be too slow for one 5-minute exec (the guest agent's cap), so the
   // closure is downloaded in batches of about APT_BATCH_BYTES, each its own step, then
   // installed offline (--no-download) from the apt cache.
@@ -378,7 +396,7 @@ async function installApt(ctx: Ctx): Promise<void> {
   // postgresql-common would create and start a 17/main cluster on install; the image carries binaries only.
   await L.step(vm, "pgdg-key", `mkdir -p /etc/postgresql-common/createcluster.d && printf 'create_main_cluster = false\\n' > /etc/postgresql-common/createcluster.d/00-cmux.conf && curl -fsSL --retry 3 -o ${PGDG_KEY} ${sq(pgdg.keyUrl)} && printf '%s  %s\\n' ${pgdg.keySha256} ${PGDG_KEY} | sha256sum -c --quiet -`);
   await writeGuestFile(vm, "/etc/apt/sources.list.d/pgdg.sources", pgdgSourcesFile(pgdg, PGDG_KEY), 0o644);
-  await L.step(vm, "apt-install-pgdg", `apt-get update -q >/tmp/apt-update.log 2>&1 || { tail -30 /tmp/apt-update.log; exit 1; }; apt-get install -y --no-install-recommends ${aptPinArgs(pgdg.packages)} >/tmp/apt-pg.log 2>&1 || { tail -40 /tmp/apt-pg.log; exit 1; }; ${DPKG_LIST} > /root/after-dpkg.tsv`);
+  await L.step(vm, "apt-install-pgdg", `${APT_UPDATE_COMMAND}; apt-get install -y --no-install-recommends ${aptPinArgs(pgdg.packages)} >/tmp/apt-pg.log 2>&1 || { tail -40 /tmp/apt-pg.log; exit 1; }; ${DPKG_LIST} > /root/after-dpkg.tsv`);
   const baseDpkg = parseDpkgList(await readGuestText(vm, "/root/base-dpkg.tsv"));
   const added = dpkgChanges(baseDpkg, parseDpkgList(await readGuestText(vm, "/root/after-dpkg.tsv")));
   const problems = aptClosureProblems({ ...ubuntu.packages, ...pgdg.packages }, added, baseDpkg);
@@ -656,7 +674,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
   const lockText = readFileSync(options.lockPath, "utf8");
   const lock = parseInputsLock(lockText);
   const sha = (process.env.GITHUB_SHA ?? "0000000000").toLowerCase();
-  const name = imageResourceName({ promotion: options.promotion, tag: options.tag, date: new Date().toISOString().slice(0, 10).replace(/-/g, ""), sha });
+  const name = imageResourceName({ promotion: options.promotion, prodCopy: options.prodCopy, tag: options.tag, date: new Date().toISOString().slice(0, 10).replace(/-/g, ""), sha });
   const ledger = new Ledger(path.join(options.outDir, "resources.tsv"));
   const L = new StepLog(path.join(options.outDir, `bake-${name}.log`));
   const result: BakeResult = { name, lockSha256: lockDigest(lockText), base: lock.base.snapshot };
@@ -664,7 +682,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
   const t0 = Date.now();
   let builder: Awaited<ReturnType<typeof createVm>> | null = null;
   try {
-    builder = await createVm(fs, ledger, { name, snapshotId: lock.base.snapshot, allowUnprefixed: options.promotion });
+    builder = await createVm(fs, ledger, { name, snapshotId: lock.base.snapshot, allowUnprefixed: options.promotion || options.prodCopy === true });
     result.builderVmId = builder.vmId;
     await firstExec(builder.vm, builder.t0);
     const ctx: Ctx = { vm: builder.vm, L, lock, lockText, options, result, name };
@@ -711,7 +729,10 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
 
 export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   const tag = argValue("--tag", argv);
-  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--agent-tools] [--team-vm] [--dev-tree]");
+  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree]");
+  if (hasFlag("--prod-copy", argv) && hasFlag("--promotion", argv)) throw new Error("--prod-copy cannot be combined with --promotion");
+  if (hasFlag("--prod-copy", argv) && hasFlag("--dev-tree", argv)) throw new Error("--dev-tree is for dev snapshots only; it cannot be combined with --prod-copy");
+  if (hasFlag("--prod-copy", argv) && hasFlag("--update-lock", argv)) throw new Error("--prod-copy bakes the dev image's lock unchanged; it cannot be combined with --update-lock");
   if (hasFlag("--agent-tools", argv) && hasFlag("--promotion", argv)) throw new Error("--agent-tools is for dev snapshots only; it cannot be combined with --promotion");
   if (hasFlag("--dev-tree", argv) && hasFlag("--promotion", argv)) throw new Error("--dev-tree is for dev snapshots only; it cannot be combined with --promotion");
   return {
@@ -724,6 +745,7 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
     agentTools: hasFlag("--agent-tools", argv),
     teamVm: hasFlag("--team-vm", argv),
     devTree: hasFlag("--dev-tree", argv),
+    prodCopy: hasFlag("--prod-copy", argv),
   };
 }
 
