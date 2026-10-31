@@ -148,7 +148,7 @@ export class GuardedCloudDriver {
   }
 
   /** The VM under one of our recorded names, with its metadata, for the late-VM lookup and the report. Never creates or deletes. */
-  async peek(name: string): Promise<{ id: string; tag: Record<string, unknown> } | null> {
+  async peek(name: string): Promise<{ id: string; tag: Record<string, unknown>; state?: string | null } | null> {
     this.guard(name)
     return this.raw.find(name)
   }
