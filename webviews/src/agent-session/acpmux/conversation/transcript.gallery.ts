@@ -284,7 +284,8 @@ const openGroupedShells = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 2);
   await ctx.click({ selector: ".cv-command" });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-shell__command").length === 1);
-  await ctx.click({ selector: ".cv-command:nth-of-type(2)" });
+  // Each command is a step of the opened group (ToolGroupRow.tsx), so the second is the second step.
+  await ctx.click({ selector: ".cv-step:nth-of-type(2) > .cv-command" });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-shell__command").length === 2);
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__exit")));
 };

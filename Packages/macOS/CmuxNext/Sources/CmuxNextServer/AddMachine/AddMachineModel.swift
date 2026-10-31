@@ -133,7 +133,7 @@ public struct AddMachineServices {
 /// (or doctor for Check Machine) with its checklist filling in live from the CLI's lines, then
 /// ready or failed. The card, the palette, the CLI and a reopen read the same model; the click and
 /// the key run ``perform(_:)``.
-@Observable
+@MainActor @Observable
 public final class AddMachineModel {
     public nonisolated enum Mode: Equatable, Sendable {
         /// Add Machine: the field and the Tailscale list, then enroll.
@@ -371,11 +371,18 @@ public final class AddMachineModel {
         task = Task { [weak self] in
             guard let self else { return }
             var report = await stream(.enroll(host: host, name: name))
+            // Cancel can end the stream after it has parsed a report. Do not start the
+            // app-install fallback from that retained report.
+            guard !Task.isCancelled else { return }
             if let first = report, Self.needsAppInstall(first) {
                 // The app's own install path (remote.connect, remote.install) puts the right-arch
                 // build on the host; enroll then runs again from the top.
                 installingAppBuild = true
                 checklist.run(.install)
+                guard !Task.isCancelled else {
+                    installingAppBuild = false
+                    return
+                }
                 let installed = await services.install(host, name)
                 installingAppBuild = false
                 guard !Task.isCancelled else { return }

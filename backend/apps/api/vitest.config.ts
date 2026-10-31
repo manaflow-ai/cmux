@@ -129,6 +129,7 @@ export default defineConfig({
           CLOUD_NAME_PREFIX: "cmuxnp-test-cld-",
           // PlatformMachines answers (test/platform-machines.test.ts); development only among the deployments.
           PLATFORM_MACHINES: "on",
+          PLATFORM_AGENT_GATEWAY: "on",
           // Only these teams get the stub plan and provider calls (P1-1); test/setup/cloud-teams.ts.
           CLOUD_ALLOWED_TEAMS: cloudAllowedTeams().join(","),
           GOOGLE_PUBSUB_TOPIC: "projects/cmux-integrations-dev/topics/gmail-push",

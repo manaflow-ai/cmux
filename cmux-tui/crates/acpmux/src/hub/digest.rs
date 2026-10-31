@@ -308,9 +308,11 @@ impl Hub {
         if inbox_digest::is_digest(head.provenance.as_ref()) {
             return Vec::new();
         }
+        // A review box runs each agent message as its own prompt behind the review (`inbox.rs`).
         if head.agent.is_none()
             || super::forum::slash_command(&head.blocks).is_some()
             || crate::prompt_uploads::any(&head.blocks)
+            || super::inbox::review_box(session)
         {
             return Vec::new();
         }
@@ -400,6 +402,10 @@ impl Hub {
         if taken.is_empty() || session.meta().status == SessionStatus::Closed {
             return;
         }
+        // A person's Stop holds every other agent's message (`cancel.rs`): these come back held
+        // by it, so they never start a turn the moment the stopped one ended.
+        let by_stop = session.stop_hold.load(Ordering::SeqCst) != 0;
+        let hold = hold || by_stop;
         let order: Vec<String> = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             for (i, mut q) in taken.iter().cloned().enumerate() {
@@ -435,7 +441,11 @@ impl Hub {
         let held: Vec<&String> =
             taken.iter().filter(|q| q.held || hold).map(|q| &q.prompt_id).collect();
         if !held.is_empty() {
-            self.append(session, "mux", "queue_paused", json!({"held": held, "requeued": true}));
+            let mut msg = json!({"held": held, "requeued": true});
+            if by_stop {
+                msg.set("reason", json!("stop"));
+            }
+            self.append(session, "mux", "queue_paused", msg);
         }
         self.append(session, "mux", "queue_order", json!({"order": order}));
         session.queue_moved.notify_waiters();
@@ -447,6 +457,15 @@ impl Hub {
 
 /// What one prompt's turn hands the agent messages that join it: its answer, and the queue
 /// entries they left, which go back if it fails.
+/// A turn of agent messages a restart cut and handed to the next daemon: that daemon continues
+/// it with the words of every message that joined it (its `user_message` holds them all,
+/// `restart_resume.rs`), so none goes back to this daemon's queue (`requeue_joined`).
+pub(super) fn forget_joined(joined: Option<&DigestTurn>) {
+    if let Some(joined) = joined {
+        joined.taken.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+}
+
 pub(super) struct DigestTurn {
     pub(super) answer: tokio::sync::watch::Sender<Option<Answer>>,
     taken: StdMutex<Vec<QueuedPrompt>>,
@@ -484,6 +503,8 @@ mod tests {
             class: None,
             supersede: None,
             full_access_device: None,
+            message_id: None,
+            message_sender: None,
         })
     }
 

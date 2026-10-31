@@ -21,12 +21,17 @@ public struct TerminalConnectingView: View {
     /// Whether the glass label shows. A workspace tab says "Reattaching…"
     /// in its title pill instead (SPEC P5), so its page draws no caption.
     let showsLabel: Bool
+    let showsPlaceholder: Bool
+    let retry: (@MainActor () async -> Void)?
 
-    public init(state: TerminalConnectionState, topInset: CGFloat = 0, lastFrame: UIImage? = nil, showsLabel: Bool = true) {
+    public init(state: TerminalConnectionState, topInset: CGFloat = 0, lastFrame: UIImage? = nil, showsLabel: Bool = true,
+                showsPlaceholder: Bool = true, retry: (@MainActor () async -> Void)? = nil) {
         self.state = state
         self.topInset = topInset
         self.lastFrame = lastFrame
         self.showsLabel = showsLabel
+        self.showsPlaceholder = showsPlaceholder
+        self.retry = retry
     }
 
     /// Line widths of the skeleton, as fractions of the width: a prompt, some
@@ -63,27 +68,32 @@ public struct TerminalConnectingView: View {
                         .opacity(0.55)
                 }
                 .accessibilityHidden(true)
-            } else {
-                skeleton
+                .allowsHitTesting(false)
+            } else if showsPlaceholder {
+                skeleton.allowsHitTesting(false)
             }
             if showsLabel, let label = state.label {
                 HStack(spacing: 8) {
                     if state.showsProgress { ProgressView().controlSize(.small) }
                     Text(verbatim: label)
+                    if let retry, !state.isAttached {
+                        RetryButton(action: retry)
+                            .accessibilityIdentifier("terminal.retry")
+                    }
                 }
                 .font(theme.type.meta.weight(.semibold))
                 .foregroundStyle(Color.white)
                 .padding(.horizontal, 14)
-                .frame(height: 36)
+                .frame(minHeight: theme.metrics.glassButton)
                 .glassEffect(.regular, in: .capsule)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityElement(children: .combine)
+                .accessibilityElement(children: .contain)
                 .accessibilityAddTraits(.updatesFrequently)
                 .accessibilityIdentifier("terminal.connecting")
+                .allowsHitTesting(retry != nil && !state.isAttached)
             }
         }
         .environment(\.colorScheme, .dark)
-        .allowsHitTesting(false)
     }
 }
 #endif

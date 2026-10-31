@@ -206,16 +206,6 @@ pub(crate) fn one_sentence(text: &str) -> String {
 /// The longest `detail`, in characters.
 const DETAIL_CHARS: usize = 200;
 
-/// `VAR=<home> <command>` when the chat runs in an account home of its own.
-fn login_command(command: Option<String>, home: Option<(&str, &Path)>) -> Option<String> {
-    let command = command?;
-    let Some((var, home)) = home else { return Some(command) };
-    let home = home.display().to_string();
-    let safe = home.chars().all(|c| c.is_ascii_alphanumeric() || "/._-~".contains(c));
-    let home = if safe { home } else { format!("'{}'", home.replace('\'', r"'\''")) };
-    Some(format!("{var}={home} {command}"))
-}
-
 impl Hub {
     /// `_acpmux/session/auth` for this daemon's chat `session`, or for `target` (a chat with
     /// no session yet, on this daemon). `refresh`: probe the route and run the harness's own
@@ -275,7 +265,7 @@ impl Hub {
         let mut facts = Facts {
             harness: harness.clone(),
             route_id: route_id.clone(),
-            login: login_command(
+            login: route_account::login_command(
                 notes
                     .as_ref()
                     .and_then(|n| n.login.clone())
@@ -665,9 +655,15 @@ mod tests {
     fn a_chat_in_its_own_account_home_signs_in_there() {
         let home = Path::new("/Users/me/claude two");
         assert_eq!(
-            login_command(Some("claude auth login".into()), Some(("CLAUDE_CONFIG_DIR", home))),
+            route_account::login_command(
+                Some("claude auth login".into()),
+                Some(("CLAUDE_CONFIG_DIR", home))
+            ),
             Some("CLAUDE_CONFIG_DIR='/Users/me/claude two' claude auth login".into())
         );
-        assert_eq!(login_command(Some("codex login".into()), None), Some("codex login".into()));
+        assert_eq!(
+            route_account::login_command(Some("codex login".into()), None),
+            Some("codex login".into())
+        );
     }
 }
