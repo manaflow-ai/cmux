@@ -47,11 +47,12 @@ public struct CloudConfiguration: Sendable, Equatable {
         case appServer
     }
 
-    /// Existing Stack token Keychain service (`<bundle id>.auth`); changing it
-    /// signs every user out (inventory.md "Auth").
+    /// Existing Stack token Keychain service (`<bundle id>.auth`). Signed NEXT
+    /// DEV scopes staging tokens separately so it never restores its old production session.
     public var keychainService: String {
         guard let bundleID, !bundleID.isEmpty else { return "com.cmuxterm.app.auth" }
-        return "\(bundleID).auth"
+        let service = "\(bundleID).auth"
+        return authStorageProject.map { "\(service).\($0)" } ?? service
     }
 
     /// The file-fallback token store directory the old app used.
@@ -60,12 +61,23 @@ public struct CloudConfiguration: Sendable, Equatable {
     }
 
     func credentialsDirectory(homeDirectory: URL) -> URL {
-        homeDirectory
+        let directory = homeDirectory
             .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
             .appendingPathComponent(bundleID ?? "cmux", isDirectory: true)
+        return authStorageProject.map { directory.appendingPathComponent($0, isDirectory: true) } ?? directory
     }
 
-    func authDefaultsKey(_ key: String) -> String { key }
+    func authDefaultsKey(_ key: String) -> String {
+        authStorageProject.map { "\(key).\($0)" } ?? key
+    }
+
+    // The first signed DEV staging launch must not read production tokens or
+    // prime its cached user/team. A stable namespace preserves staging sign-in
+    // on subsequent launches and leaves the old production session untouched.
+    private var authStorageProject: String? {
+        !isDebugBuild && bundleID == "com.cmuxterm.app.debug.next" && !isProductionAuth
+            && stackProjectID == Self.developmentProjectID ? stackProjectID : nil
+    }
 
     /// `<scheme>://auth-callback`. `resolve` accepts only a scheme that forms this URL;
     /// /dev/null stands in for a hand-built configuration with one that does not.

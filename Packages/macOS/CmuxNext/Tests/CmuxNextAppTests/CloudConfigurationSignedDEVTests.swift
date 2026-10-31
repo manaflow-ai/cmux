@@ -12,7 +12,7 @@ struct CloudConfigurationSignedDEVTests {
         #expect(!config.isProductionAuth)
         #expect(!config.isDebugBuild)
         #expect(config.callbackURL.absoluteString == "cmux-next-dev://auth-callback")
-        #expect(config.keychainService == "com.cmuxterm.app.debug.next.auth")
+        #expect(config.keychainService == "com.cmuxterm.app.debug.next.auth.454ecd03-1db2-4050-845e-4ce5b0cd9895")
         #expect(config.backend == .development(config.apiBaseURL))
     }
 
