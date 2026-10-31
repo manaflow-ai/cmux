@@ -12,7 +12,7 @@
 //! minute before `expires_at` or until the hub answers 401, then the command runs again.
 
 use crate::mesh::{
-    Ack, Heartbeat, HeartbeatReply, HubError, InMessage, MeshHub, OutMessage, Receipt,
+    Ack, Heartbeat, HeartbeatReply, HubError, InMessage, MeshHub, OutMessage, Receipt, TeamPage,
 };
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
@@ -30,6 +30,9 @@ pub struct MeshRelayConfig {
     /// The program that prints a cmux access token, and its own arguments.
     #[serde(default)]
     pub token_command: Vec<String>,
+    /// Labs gate for team-scoped addresses and inboxes. Off unless explicitly enabled.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub team_messaging: bool,
     /// Read the joined machine credential from the owner-only store.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credential: Option<String>,
@@ -153,6 +156,21 @@ pub struct HttpHub {
 }
 
 impl HttpHub {
+    async fn team_receipt(&self, id: &str, action: &str) -> Result<Receipt, HubError> {
+        if !crate::mesh::is_message_id(id) {
+            return Err(HubError::refused("the message id is not valid"));
+        }
+        decode(
+            self.call(
+                reqwest::Method::POST,
+                &format!("/v1/mesh/messages/{id}/{action}"),
+                Some(&json!({})),
+                CALL_WAIT,
+            )
+            .await?,
+        )
+    }
+
     pub fn new(config: &MeshRelayConfig) -> Result<Self, String> {
         let origin = config.origin()?;
         let _ = rustls::crypto::ring::default_provider().install_default();
@@ -300,10 +318,15 @@ const KNOWN_CODES: &[&str] = &[
     "mesh.unknown_recipient",
     "mesh.ambiguous",
     "mesh.conflict",
+    "mesh.idempotency_conflict",
     "mesh.rate_limited",
     "mesh.too_large",
     "mesh.unavailable",
     "mesh.not_found",
+    "team.messaging_disabled",
+    "team.forbidden",
+    "team.unknown_recipient",
+    "team.invalid_address",
 ];
 
 /// The hub's answer as a value, or the error it names.
@@ -353,8 +376,38 @@ impl MeshHub for HttpHub {
         })
     }
 
+    fn team_messages<'a>(
+        &'a self,
+        unread_only: bool,
+        team_address: Option<&'a str>,
+        before: Option<u64>,
+    ) -> BoxFuture<'a, Result<TeamPage, HubError>> {
+        Box::pin(async move {
+            let mut path = format!("/v1/mesh/messages?unreadOnly={unread_only}&max=50");
+            if let Some(address) = team_address {
+                path.push_str("&teamAddress=");
+                path.push_str(&query_component(address));
+            }
+            if let Some(before) = before {
+                path.push_str(&format!("&before={before}"));
+            }
+            decode(self.call(reqwest::Method::GET, &path, None, CALL_WAIT).await?)
+        })
+    }
+
+    fn read<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(self.team_receipt(id, "read"))
+    }
+
+    fn acknowledge<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(self.team_receipt(id, "acknowledge"))
+    }
+
     fn ack<'a>(&'a self, id: &'a str, ack: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
         Box::pin(async move {
+            if !crate::mesh::is_message_id(id) {
+                return Err(HubError::refused("the message id is not valid"));
+            }
             let body = serde_json::to_value(ack).unwrap_or_default();
             self.call(
                 reqwest::Method::POST,
@@ -393,6 +446,9 @@ impl MeshHub for HttpHub {
 
     fn receipt<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
         Box::pin(async move {
+            if !crate::mesh::is_message_id(id) {
+                return Err(HubError::refused("the message id is not valid"));
+            }
             decode(
                 self.call(
                     reqwest::Method::GET,
@@ -404,6 +460,20 @@ impl MeshHub for HttpHub {
             )
         })
     }
+}
+
+fn query_component(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+            encoded.push(byte as char);
+        } else {
+            encoded.push('%');
+            encoded.push(char::from(b"0123456789ABCDEF"[(byte >> 4) as usize]));
+            encoded.push(char::from(b"0123456789ABCDEF"[(byte & 0x0f) as usize]));
+        }
+    }
+    encoded
 }
 
 #[cfg(test)]
@@ -427,6 +497,7 @@ mod tests {
         let config = |url: &str, cmd: &[&str]| MeshRelayConfig {
             url: url.into(),
             token_command: cmd.iter().map(|s| (*s).to_owned()).collect(),
+            team_messaging: false,
             control_from: Vec::new(),
             credential: None,
         };
@@ -458,6 +529,7 @@ mod tests {
         let config = MeshRelayConfig {
             url: "http://127.0.0.1:9".into(),
             token_command: ["sh", "-c", "yes"].map(str::to_owned).to_vec(),
+            team_messaging: false,
             control_from: Vec::new(),
             credential: None,
         };
@@ -473,6 +545,7 @@ mod tests {
             token_command: vec!["/nonexistent/mesh-token-command".into()],
             control_from: vec![],
             credential: None,
+            team_messaging: false,
         })
         .unwrap();
         for (kind, op) in [
@@ -561,3 +634,7 @@ mod tests {
         assert_eq!(answer(200, br#"{"ok": 1}"#).unwrap(), json!({"ok": 1}));
     }
 }
+
+#[cfg(test)]
+#[path = "mesh_http_team_tests.rs"]
+mod team_tests;

@@ -27,6 +27,7 @@ use tokio::sync::{Semaphore, broadcast, mpsc};
 #[cfg(windows)]
 pub use windows_socket::{UnixListener, bind_unix, router_admin, serve_unix};
 
+mod ws_peek;
 mod ws_shutdown;
 pub(crate) use ws_shutdown::DRAIN_BUDGET as WS_DRAIN_BUDGET;
 pub use ws_shutdown::WsShutdown;
@@ -44,6 +45,105 @@ pub struct SubOpts {
     /// A peer's chat, attached through this daemon (`peer_forward.rs`): this daemon's presence
     /// for the same raw id is never its (`hub/presence.rs`).
     pub remote: bool,
+}
+
+/// Which of one chat's `_acpmux/message` records a connection has heard, so each reaches it once.
+/// A record comes live, in seq order (`live`), or from this connection's own `session/load`
+/// replay (`replay`), which starts a fresh `MessageNotices`: a reopen hears the history again,
+/// but not a record the live stream sent during that replay. A peer's chat replays over the one
+/// link every viewer here shares: those records come to every viewer as live ones, so a viewer
+/// that heard them already hears them no more; the one that asked starts fresh too
+/// (`peer_forward.rs`).
+/// Each record by its own seq: a replay's older records may come after a newer live one.
+/// Bounded: past `MESSAGE_NOTICES_KEPT` seqs, the lowest is dropped and the low-water mark
+/// `floor` rises to it. A live record at or below the mark counts as heard (the live stream
+/// comes in seq order, so it sent it). A replay record is checked against the kept seqs alone:
+/// one the bound forgot may go a second time, never not at all.
+#[derive(Default)]
+pub(super) struct MessageNotices {
+    heard: std::collections::BTreeSet<u64>,
+    floor: u64,
+}
+
+/// How many heard seqs one chat's `MessageNotices` keeps above its low-water mark.
+pub(super) const MESSAGE_NOTICES_KEPT: usize = 4096;
+
+impl MessageNotices {
+    /// The replay's notice of record `seq`: sent unless the live stream sent it and it is still
+    /// kept. The mark is not applied: the replay's older records may come after the live stream
+    /// raised it, never having been sent.
+    pub(super) fn replay(&mut self, seq: u64) -> bool {
+        if seq == 0 {
+            return true;
+        }
+        let fresh = self.heard.insert(seq);
+        self.bound();
+        fresh
+    }
+
+    /// The live notice of record `seq`: sent unless this connection heard it. A record of no
+    /// known seq (0) is always sent.
+    pub(super) fn live(&mut self, seq: u64) -> bool {
+        if seq == 0 {
+            return true;
+        }
+        if seq <= self.floor || !self.heard.insert(seq) {
+            return false;
+        }
+        self.bound();
+        true
+    }
+
+    /// Keeps at most `MESSAGE_NOTICES_KEPT` seqs, raising the mark to the ones it drops.
+    fn bound(&mut self) {
+        while self.heard.len() > MESSAGE_NOTICES_KEPT {
+            if let Some(lowest) = self.heard.pop_first() {
+                self.floor = self.floor.max(lowest);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn kept(&self) -> usize {
+        self.heard.len()
+    }
+}
+
+/// A connection's `MessageNotices`, one per chat it hears: by the chat's owner (None for this
+/// daemon, Some(peer) for a peer's chat) and raw id. A peer's chat may keep the raw id of one here
+/// (an export and import keeps ids), and each counts its own seqs.
+#[derive(Default)]
+pub(super) struct MessageNoticeBook {
+    chats: HashMap<(Option<String>, String), MessageNotices>,
+}
+
+impl MessageNoticeBook {
+    /// A fresh count for this connection's own reopen of the chat; one raw id is one owner's chat
+    /// on a connection (`view::subscribe_remote`), so the other owner's count ends.
+    pub(super) fn reopen(&mut self, owner: Option<&str>, id: &str) {
+        self.chats.retain(|(_, i), _| i != id);
+        self.chats.insert((owner.map(str::to_owned), id.to_owned()), MessageNotices::default());
+    }
+
+    /// `MessageNotices::live` for the chat.
+    pub(super) fn live(&mut self, owner: Option<&str>, id: &str, seq: u64) -> bool {
+        self.chats.entry((owner.map(str::to_owned), id.to_owned())).or_default().live(seq)
+    }
+
+    /// `MessageNotices::replay` for the chat; a chat with no count (none reopened) always sends.
+    pub(super) fn replay(&mut self, owner: Option<&str>, id: &str, seq: u64) -> bool {
+        self.chats.get_mut(&(owner.map(str::to_owned), id.to_owned())).is_none_or(|n| n.replay(seq))
+    }
+
+    /// The connection no longer hears the chat.
+    pub(super) fn forget(&mut self, owner: Option<&str>, id: &str) {
+        self.chats.remove(&(owner.map(str::to_owned), id.to_owned()));
+    }
+
+    /// The connection no longer hears raw id `id` from any owner but `keep`.
+    pub(super) fn forget_others(&mut self, keep: Option<&str>, id: &str) {
+        self.chats.retain(|(o, i), _| i != id || o.as_deref() == keep);
+    }
 }
 
 pub struct Conn {
@@ -70,6 +170,8 @@ pub struct Conn {
     /// Responses waiting for a queue slot; notifications cannot consume these slots.
     outbound_pending_controls: Arc<AtomicUsize>,
     subs: StdMutex<HashMap<String, SubOpts>>,
+    /// The chats a `session/load` replayed here: their message notices go once.
+    message_notices: StdMutex<MessageNoticeBook>,
     /// Server-derived mailbox identities for this connection's local attachments.
     mailbox_bindings: StdMutex<HashMap<String, SessionReceipt>>,
     watch_all: AtomicBool,
@@ -110,6 +212,10 @@ pub struct Conn {
     pub(super) remote_media: media_forward::RemoteMedia,
     /// Requests this daemon sent the client, waiting on its answer (`client_request.rs`).
     client_requests: client_request::ClientRequests,
+    /// Its windows over the chat index (`chat_windows.rs`).
+    chat_windows: chat_windows::ConnWindows,
+    /// Its refused Stops that wait for room (`requests/cancel_refused.rs`).
+    cancel_refusals: Arc<requests::cancel_refused::Waiting>,
 }
 
 // Bound only request handlers that do finite work on behalf of the connection.
@@ -298,8 +404,24 @@ impl Conn {
         if msg.method() == Some(method::MUX_SESSION_CHANGED) {
             self.notices.fetch_add(1, Ordering::SeqCst);
         }
-        let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
-        let msg = masked.as_ref().unwrap_or(msg);
+        let redacted = if self.origin == Origin::Peer {
+            let mut copy = msg.clone();
+            let changed = match &mut copy {
+                Message::Notification { params: Some(params), .. } => {
+                    crate::server::pending::redact_message_hosts(params)
+                }
+                Message::Response { result: Some(result), .. } => {
+                    crate::server::pending::redact_message_hosts(result)
+                }
+                _ => false,
+            };
+            changed.then_some(copy)
+        } else {
+            None
+        };
+        let base = redacted.as_ref().unwrap_or(msg);
+        let masked = (!self.raw_text).then(|| peer_text::masked(base)).flatten();
+        let msg = masked.as_ref().unwrap_or(base);
         // No message larger than one frame (`rpc::MAX_MESSAGE_BYTES`): a reply goes as its error,
         // a notification is left out and the client reads again from its last record.
         match msg.bounded_line() {
@@ -596,6 +718,7 @@ pub async fn listen_unix(hub: Arc<Hub>, path: PathBuf) -> Result<()> {
 /// Bind the daemon socket (mode 0600), refusing to steal a live one.
 #[cfg(unix)]
 pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
+    crate::config::refuse_lost_home(&crate::config::home())?;
     // A configured path longer than sun_path fails here with the path and
     // the limit, never as a bare bind error.
     cmux_unix_socket::check_path(path)?;
@@ -609,8 +732,10 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
         if tokio::net::UnixStream::connect(path).await.is_ok() {
             anyhow::bail!("another acpmux daemon owns {}", path.display());
         }
+        crate::config::refuse_lost_home(&crate::config::home())?;
         std::fs::remove_file(path)?;
     }
+    crate::config::refuse_lost_home(&crate::config::home())?;
     let listener = UnixListener::bind(path).with_context(|| format!("bind {}", path.display()))?;
     #[cfg(unix)]
     {
@@ -621,6 +746,17 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     Ok(listener)
 }
 
+/// How long to wait after a failed `accept`. A connection that died in the queue is gone, so the
+/// next accept can run at once; anything else (EMFILE, ENFILE, ENOBUFS) leaves the connection
+/// queued, and an immediate retry would spin a core and flood the log until descriptors free up.
+fn accept_retry_delay(error: &std::io::Error) -> std::time::Duration {
+    use std::io::ErrorKind::{ConnectionAborted, ConnectionReset, Interrupted};
+    match error.kind() {
+        ConnectionAborted | ConnectionReset | Interrupted => std::time::Duration::ZERO,
+        _ => std::time::Duration::from_millis(100),
+    }
+}
+
 #[cfg(unix)]
 pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
     loop {
@@ -628,6 +764,7 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
             Ok(s) => s,
             Err(e) => {
                 tracing::warn!("accept failed: {e}");
+                tokio::time::sleep(accept_retry_delay(&e)).await;
                 continue;
             }
         };
@@ -826,6 +963,7 @@ pub async fn serve_ws_until(
             Ok(s) => s,
             Err(e) => {
                 tracing::warn!("ws accept failed: {e}");
+                tokio::time::sleep(accept_retry_delay(&e)).await;
                 continue;
             }
         };
@@ -849,13 +987,9 @@ pub async fn serve_ws_until(
         connections.spawn(async move {
             let _handshake_slot = handshake_slot;
             let mut head = [0u8; 4096];
-            let n = match tokio::time::timeout(WS_HANDSHAKE_TIMEOUT, stream.peek(&mut head)).await {
-                Ok(Ok(n)) => n,
-                _ => return,
-            };
-            // The peek only routes the request. Each path checks the full
-            // head it parses: serve_http reads it, tungstenite parses the
-            // upgrade request for the callback.
+            let Some(n) = ws_peek::request(&stream, &mut head, peer).await else { return };
+            // The peek only routes the request. Each path checks the full head it parses:
+            // serve_http reads it, tungstenite parses the upgrade request for the callback.
             let head_text = String::from_utf8_lossy(head.get(..n).unwrap_or(&head)).into_owned();
             if !head_text.to_ascii_lowercase().contains("upgrade: websocket") {
                 serve_http(stream, &policy, &token, peer).await;
@@ -933,12 +1067,12 @@ pub async fn serve_ws_until(
                 pairing::Admitted::Ticket(secret) => {
                     let close = tokio::select! {
                         biased;
-                        () = shutdown.normal() => Some(false),
-                        () = shutdown.closing() => Some(true),
-                        () = pairing::serve_redeem(hub, &mut ws, secret) => None,
+                        () = shutdown.normal() => true,
+                        () = shutdown.closing() => true,
+                        () = pairing::serve_redeem(hub, &mut ws, secret) => false,
                     };
-                    if let Some(restarting) = close {
-                        ws_shutdown::close(&mut ws, restarting).await;
+                    if close {
+                        ws_shutdown::close(&mut ws, shutdown.close_code_restart()).await;
                     }
                     return;
                 }
@@ -955,8 +1089,7 @@ pub async fn serve_ws_until(
             // The handshake above checked the listener token: every
             // connection past it is authenticated (`conn_auth.rs`).
             let mut proof = ConnAuth::ListenerToken;
-            // The first frame decides LocalApp; it reaches the protocol
-            // handler without the token.
+            // The first frame decides LocalApp; it reaches the protocol handler without the token.
             let mut origin = Origin::Web;
             let mut first = None;
             let presented =
@@ -1295,6 +1428,8 @@ async fn serve_connection_from(
         refuse_unauthenticated(&mut inbound, &out, origin).await;
         return;
     }
+    // Counted while it is served: a daemon with none stops once unused (`daemon/unused_exit.rs`).
+    let _client = crate::daemon::unused_exit::client();
     let raw_text = !peer_text::masks(origin);
     let conn = Arc::new(Conn {
         id: uuid::Uuid::now_v7().to_string(),
@@ -1309,6 +1444,7 @@ async fn serve_connection_from(
         outbound_gap_pending: Arc::new(AtomicBool::new(false)),
         outbound_pending_controls: Arc::new(AtomicUsize::new(0)),
         subs: StdMutex::new(HashMap::new()),
+        message_notices: StdMutex::new(MessageNoticeBook::default()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
@@ -1335,6 +1471,8 @@ async fn serve_connection_from(
         },
         remote_media: media_forward::RemoteMedia::default(),
         client_requests: Default::default(),
+        chat_windows: Default::default(),
+        cancel_refusals: Default::default(),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -1575,7 +1713,18 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     if let Some(sub) = &sub
         && rec.dir != "peer"
     {
-        if sub.event_stream {
+        // A session message a `session/load` replay already sent here, as its envelope or its
+        // notice, is not sent again (`MessageNotices`); an event stream hears only the kinds it
+        // asked for, this notice too.
+        let message = rec.dir == "mux" && rec.kind == "_acpmux/message";
+        let heard = !sub.event_stream || sub.filter.matches(rec);
+        let repeat = message && heard && {
+            let owner = ev.remote.as_ref().map(|r| r.peer.as_str());
+            !conn.message_notices.lock_or_recover().live(owner, &ev.session_id, rec.seq)
+        };
+        if repeat {
+            // Sent by the replay.
+        } else if sub.event_stream {
             if sub.filter.matches(rec) {
                 conn.send(&Message::notification(
                     method::MUX_EVENT,
@@ -1604,6 +1753,10 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 ));
             }
         }
+        if message && heard && !repeat {
+            // Routed as the event beside it: a peer's chat id alone may match one here.
+            conn.send(&Message::notification(method::MUX_MESSAGE, routed(rec.msg.clone())));
+        }
         if rec.dir == "mux" && is_permission_ask(&rec.kind) {
             conn.send(&Message::notification(
                 method::MUX_PERMISSION_PENDING,
@@ -1625,8 +1778,12 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 }
                 return;
             }
-            // Peers already filter to the interesting kinds and send a summary.
-            if rec.dir == "peer" {
+            // Peers already filter to the interesting kinds and send a summary. Another
+            // daemon's link hears no change of a row this daemon mirrors: the link drops every
+            // such row (`peer.rs` `watch_sessions`), so each change of one peer's row went out on
+            // every other peer's link for nothing (24 copies of every change with one daemon's
+            // 25 peers, 2026-10-30), and the row's origin hears it from its own.
+            if rec.dir == "peer" && !view::a_link(conn) {
                 let sid = remote
                     .summary
                     .get("sessionId")
@@ -1691,6 +1848,8 @@ mod client_request;
 mod clock_text;
 pub(crate) use clock_text::iso;
 mod change_kind;
+mod chat_windows;
+pub use chat_windows::live_tasks as live_chat_window_tasks;
 mod chats;
 pub mod conn_auth;
 mod ephemeral;
@@ -1699,7 +1858,8 @@ mod forum;
 mod media_forward;
 mod mesh_control_send;
 pub mod mesh_relay;
-mod mesh_send;
+pub(super) mod mesh_send;
+mod team;
 pub use conn_auth::ConnAuth;
 mod fork_through;
 mod harness_admin;
@@ -1730,6 +1890,7 @@ mod redact;
 pub(crate) use redact::url_without_secrets;
 pub(crate) mod remote_guard;
 mod requests;
+pub use requests::SESSION_RESUME_FEATURE;
 mod routes;
 mod secrets;
 mod session_auth;
@@ -1744,6 +1905,10 @@ pub(crate) mod wait;
 #[cfg(windows)]
 mod windows_socket;
 use requests::handle_notification;
+
+#[cfg(test)]
+#[path = "mirror_relay_tests.rs"]
+mod mirror_relay_tests;
 
 #[cfg(test)]
 mod request_admission_tests {
@@ -1896,6 +2061,41 @@ mod request_admission_tests {
         );
         release.notify_one();
         worker.await.unwrap();
+    }
+}
+
+#[cfg(test)]
+#[path = "acp_list_tests.rs"]
+mod acp_list_tests;
+
+#[cfg(test)]
+#[path = "session_list_pages_tests.rs"]
+mod session_list_pages_tests;
+
+#[cfg(test)]
+mod key_route_tests;
+
+#[cfg(test)]
+mod accept_retry_tests {
+    use super::accept_retry_delay;
+    use std::io::{Error, ErrorKind};
+    use std::time::Duration;
+
+    #[test]
+    fn running_out_of_descriptors_pauses_before_the_next_accept() {
+        // The queued connection stays queued on EMFILE, so an immediate retry spins a core.
+        #[cfg(unix)]
+        assert!(accept_retry_delay(&Error::from_raw_os_error(libc::EMFILE)) > Duration::ZERO);
+        #[cfg(unix)]
+        assert!(accept_retry_delay(&Error::from_raw_os_error(libc::ENFILE)) > Duration::ZERO);
+        assert!(accept_retry_delay(&Error::other("no buffers")) > Duration::ZERO);
+    }
+
+    #[test]
+    fn a_connection_that_died_in_the_queue_retries_at_once() {
+        assert_eq!(accept_retry_delay(&Error::from(ErrorKind::ConnectionAborted)), Duration::ZERO);
+        assert_eq!(accept_retry_delay(&Error::from(ErrorKind::ConnectionReset)), Duration::ZERO);
+        assert_eq!(accept_retry_delay(&Error::from(ErrorKind::Interrupted)), Duration::ZERO);
     }
 }
 
@@ -2056,3 +2256,104 @@ mod outbound_queue_tests {
 /// Owner-only TLS ingress from the embedded tailnet node.
 #[cfg(all(unix, feature = "tailnet"))]
 pub mod tailnet_ingress;
+
+#[cfg(test)]
+mod message_notice_tests {
+    use super::{MESSAGE_NOTICES_KEPT, MessageNoticeBook, MessageNotices};
+
+    /// A long-lived connection keeps a bounded count of one chat's messages: past the bound the
+    /// oldest go under the low-water mark, still heard, and newer ones are still told apart.
+    #[test]
+    fn a_long_lived_chat_keeps_a_bounded_count() {
+        let mut n = MessageNotices::default();
+        let total = (MESSAGE_NOTICES_KEPT * 3) as u64;
+        // Message records are sparse among a chat's records: every third seq.
+        for i in 1..=total {
+            assert!(n.live(i * 3), "seq {} goes once", i * 3);
+            assert!(n.kept() <= MESSAGE_NOTICES_KEPT);
+        }
+        assert_eq!(n.kept(), MESSAGE_NOTICES_KEPT);
+        // Heard ones, under the mark or above it, are not sent again.
+        assert!(!n.live(3));
+        assert!(!n.live(total * 3));
+        // A newer record still goes, and a gap above the mark is still told apart.
+        assert!(n.live(total * 3 + 1));
+        assert!(n.live(total * 3 - 1));
+        assert!(!n.live(total * 3 - 1));
+        assert!(n.kept() <= MESSAGE_NOTICES_KEPT);
+    }
+
+    /// A replay's older record still goes once more live records than the bound have raised the
+    /// low-water mark past it: the replay never sent it, and a repeat beats a loss.
+    #[test]
+    fn a_replay_record_below_a_risen_floor_still_goes() {
+        let mut n = MessageNotices::default();
+        // The reopen's replay is at seq 10 when the live stream sends more than the bound.
+        let live_from = 1_000u64;
+        for seq in live_from..live_from + MESSAGE_NOTICES_KEPT as u64 + 10 {
+            assert!(n.live(seq));
+        }
+        assert!(n.kept() <= MESSAGE_NOTICES_KEPT);
+        // The replay reaches records the live stream never sent, below the risen mark.
+        assert!(n.replay(10));
+        assert!(n.replay(live_from + 5), "the replay sends what the bound forgot again");
+        // Ones the live stream sent and still keeps are not sent again.
+        assert!(!n.replay(live_from + MESSAGE_NOTICES_KEPT as u64));
+        assert!(n.kept() <= MESSAGE_NOTICES_KEPT);
+    }
+
+    /// A peer's chat that keeps the raw id of one here (an export and import keeps ids) counts its
+    /// own seqs: neither chat's record silences the other's of the same seq.
+    #[test]
+    fn a_peer_chat_with_a_local_raw_id_hears_its_own_messages() {
+        let mut book = MessageNoticeBook::default();
+        assert!(book.live(None, "c", 3));
+        assert!(book.live(Some("p"), "c", 3));
+        assert!(!book.live(None, "c", 3));
+        assert!(!book.live(Some("p"), "c", 3));
+        assert!(book.live(Some("q"), "c", 3));
+        // A reopen of the peer's chat replays it afresh and ends the local chat's count.
+        book.reopen(Some("p"), "c");
+        assert!(book.replay(Some("p"), "c", 3));
+        assert!(book.live(None, "c", 3));
+        // Detaching the local chat leaves the peer's count.
+        book.forget(None, "c");
+        assert!(!book.live(Some("p"), "c", 3));
+        // Switching to the local chat drops every peer's count of that raw id.
+        book.forget_others(None, "c");
+        assert!(book.live(Some("p"), "c", 3));
+        // A chat with no count from a reopen sends its replay.
+        assert!(book.replay(None, "d", 1));
+    }
+
+    /// A replay racing the live stream sends each message notice once, whichever sends first.
+    #[test]
+    fn a_message_notice_goes_once_across_replay_and_live() {
+        // A record heard once is not heard again live (another viewer's reopen of a peer's chat
+        // replays it over the shared link); a record of no known seq always goes.
+        let mut n = MessageNotices::default();
+        assert!(n.live(2));
+        assert!(!n.live(2));
+        assert!(n.live(0));
+        assert!(n.live(0));
+        // The live stream sent seq 5 while the replay was at 3: the replay skips only 5.
+        let mut n = MessageNotices::default();
+        assert!(n.live(5));
+        assert!(n.replay(3));
+        assert!(!n.replay(5));
+        assert!(n.replay(6));
+        assert!(!n.live(6));
+        // A peer's replay reaches a viewer as live records: an older one after a newer one
+        // still goes.
+        let mut n = MessageNotices::default();
+        assert!(n.live(9));
+        assert!(n.live(4));
+        assert!(!n.live(4));
+        // The replay sent 3 and 4 before the live stream reached them.
+        let mut n = MessageNotices::default();
+        assert!(n.replay(3));
+        assert!(n.replay(4));
+        assert!(!n.live(4));
+        assert!(n.live(5));
+    }
+}

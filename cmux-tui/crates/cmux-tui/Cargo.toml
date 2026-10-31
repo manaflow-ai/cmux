@@ -50,10 +50,13 @@ name = "cmux-tui-host"
 path = "src/bin/cmux-tui-host.rs"
 
 [dependencies]
+cmux-json.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
 # `cmux vm`: the cmux-vm child starts through the daemon-safe spawn.
 cmux-process.workspace = true
+# `cmux automation`: schedules, the local store and the runner.
+cmux-automations.workspace = true
 cmux-api-compat.workspace = true
 # `cmux settings list|schema|validate`: the settings schema and owner state.
 cmux-config.workspace = true

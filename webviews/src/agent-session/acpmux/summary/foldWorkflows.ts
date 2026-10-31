@@ -42,6 +42,7 @@ function agentOf(node: Subagent, agent: FoldAgent): WorkflowAgent {
     lastMessage: agent.lastMessage ?? agent.result,
     tokens: agent.tokens,
     lastProgressAt: agent.lastProgressAt,
+    progressVersion: node.progressVersion,
     retryReason: agent.retryReason,
     cached: agent.cached,
     model: agent.model,
@@ -190,6 +191,7 @@ export function createWorkflowAdapter() {
         node.action,
         node.startedAt,
         node.endedAt,
+        node.progressVersion,
       ];
       let entry = cache.get(node.id);
       if (!entry || key.some((part, i) => part !== entry!.key[i])) entry = { key, summary: summarize(node, sessionId) };

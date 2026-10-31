@@ -72,6 +72,24 @@ struct CloudWorkspaceSetupWizardTests {
         #expect(plan == nil)
     }
 
+    /// New Cloud Machine from a chat offers the chat's own repository (its pushed branch), and
+    /// nothing on a route that cannot clone.
+    @MainActor
+    @Test(arguments: [true, false])
+    func aChatsRepositoryIsTheSuggestedStartingPoint(supportsRepository: Bool) async throws {
+        var shown: CmuxDialogSpec?
+        _ = try await CloudWorkspaceSetupWizard().choosePlan(availability: .available, scopeIsCurrent: { true },
+            supportsRepository: supportsRepository, suggested: CloudMachineRepo(owner: "octo", name: "paint", ref: "fix/brush"),
+            present: { spec in shown = spec; return CmuxDialogAnswer(button: "cancel", role: .cancel) })
+        let spec = try #require(shown)
+        guard case .choice(_, _, _, let selected) = spec.fields[0], case .text(_, _, let initial, _, _) = spec.fields[1] else {
+            Issue.record("Missing source choice or repository field")
+            return
+        }
+        #expect(selected == (supportsRepository ? "repository" : "empty"))
+        #expect(initial == (supportsRepository ? "octo/paint@fix/brush" : ""))
+    }
+
     @Test(arguments: [("original", true, true), ("other", true, false), ("original", false, false)])
     func completedCloneOnlyRevealsInTheUnchangedActiveWorkspace(current: String, active: Bool, expected: Bool) {
         #expect(CloudWorkspaceSetupWizard.shouldRevealProject(originalWorkspace: "original",

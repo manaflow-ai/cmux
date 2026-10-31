@@ -2,6 +2,7 @@
 //! Only the final store feeds the relay. Pending never contains a join token.
 use super::*;
 use base64::Engine as _;
+use cmux_json::JsonSet as _;
 use std::io::Write;
 use std::path::Path;
 use zeroize::Zeroizing;
@@ -359,7 +360,7 @@ pub(super) async fn join(
     let mut body = json!({"token":token,"proposedCredential":pending.credential,
         "name":pending.name,"hostname":pending.hostname,"platform":pending.platform,"wgPublicKey":pending.wg_public_key});
     if let Some(old) = &pending.prior {
-        body["replaceCredential"] = json!(old.credential);
+        body.set("replaceCredential", json!(old.credential));
     }
     let response = http_client()
         .map_err(|_| hub_error())?

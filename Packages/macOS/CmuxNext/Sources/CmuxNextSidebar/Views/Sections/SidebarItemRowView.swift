@@ -86,14 +86,17 @@ class SidebarItemRowView: NSView {
     }
     private var pointerHover: PointerHover?
     private var isPressed = false { didSet { if isPressed != oldValue { pointerChanged() } } }
-    /// The profile control's menu is open over it: the pill holds the
-    /// selected step (between hover and pressed) until the menu closes.
+    /// A menu opened from this row is open. The profile control's (the whole pill is that control): the pill holds
+    /// the selected step (between hover and pressed) until the menu closes. A workspace tile's hover more button's: the
+    /// hover controls stay shown and only that button lights, never the pill (Leo 2026-10-27: "why are you giving it
+    /// the entire row when it's only this small little section?").
     var showsMenu = false {
         didSet {
             guard showsMenu != oldValue else { return }
             // The menu's tracking takes the release: no mouseUp ends the press.
             isPressed = false
             pointerChanged()
+            needsLayout = true
         }
     }
     /// The next fill change came from the pointer, so it fades.
@@ -126,7 +129,7 @@ class SidebarItemRowView: NSView {
     nonisolated override var wantsUpdateLayer: Bool { true }
     /// A drag from a press (window points): true once the region drags.
     var onDragged: ((NSPoint, NSEvent) -> Bool)?
-    var onDragEnded: (() -> Void)?
+    var onDragEnded: ((_ windowPoint: NSPoint) -> Void)? // the release, which decides the drop
     /// Every press, before it acts: a drag an earlier press left held ends (its release went elsewhere).
     var onPressBegan: (() -> Void)?
     private var pressLocation: NSPoint?
@@ -141,12 +144,12 @@ class SidebarItemRowView: NSView {
     func configure(_ info: SidebarItemInfo, style: Style) {
         guard info != self.info || style != self.style else { return }
         // A selection change paints at once (SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION).
-        if info.isActive != self.info.isActive { fadesNextFill = false }
+        if info.isActive != self.info.isActive || info.isSecondarySelected != self.info.isSecondarySelected { fadesNextFill = false }
         self.info = info
         self.style = style
         title.stringValue = style == .favorite ? info.caption ?? info.title : info.title
         title.isHidden = style.isIconOnly
-        pin.image = info.leadingPin ? NSImage.icon(.statePinned, size: Metrics.smallIconSize) : nil
+        pin.image = info.leadingPin ? NSImage.icon(.statePinned, size: SidebarStyle.leadingGlyphSide) : nil
         title.alignment = style == .favorite ? .center : .natural
         let trailingDot = info.unreadDot && !style.isIconOnly && style != .favorite
         rowBadge.configure(trailingDot ? [.success] : [], look: .plain)
@@ -161,7 +164,7 @@ class SidebarItemRowView: NSView {
         themedToolTip = info.avatar?.toolTip ?? (style.isIconOnly ? info.toolTip : style == .favorite ? info.title : nil)
         setAccessibilityLabel(info.accessibilityTitle ?? info.title)
         applyAvatar()
-        setAccessibilitySelected(info.isActive)
+        setAccessibilitySelected(info.isActive || info.isSecondarySelected)
         alphaValue = info.isMissing ? 0.5 : 1
         needsLayout = true
         needsDisplay = true
@@ -201,11 +204,14 @@ class SidebarItemRowView: NSView {
     /// step past hover: `selectionFill`, or `pressedFill` over a fill that is
     /// already that (cx-wqn5).
     var fill: NSColor? {
-        let state = ChromeHover.State(hovering: isHovered, pressed: isPressed, selected: info.isActive || showsMenu)
+        // A menu from the hover more button lights that button alone (`layoutHoverActions`), not the pill.
+        let state = ChromeHover.State(hovering: isHovered, pressed: isPressed, selected: info.isActive || (showsMenu && !showsHoverActions))
         return performWithTheme {
             if showsKeyFocus, !isPressed {
                 return info.isActive || style == .tile ? Palette.pressedFill : Palette.selectionFill
             }
+            // In the multi-selection (Shift- or Cmd-click), as a selected list row draws.
+            if info.isSecondarySelected, !isPressed { return Palette.secondarySelectionFill }
             guard style == .tile else { return ChromeHover.fillColor(state) }
             return ChromeHover.fillColor(state, rest: Palette.hoverFill)
         }
@@ -239,7 +245,7 @@ class SidebarItemRowView: NSView {
         // pill inset), and a title after that glyph starts at the one text column (`SidebarStyle.leadingTextX`).
         // A pinned row's own icon or color dot, when it has one, takes the text column after the pin.
         let rowLead = inset * 2 + CGFloat(info.indent) * Metrics.space3
-        let pinFrame = info.leadingPin ? pinGlyphFrame(side: Metrics.smallIconSize, leading: rowLead, height: b.height) : .zero
+        let pinFrame = info.leadingPin ? pinGlyphFrame(side: SidebarStyle.leadingGlyphSide, leading: rowLead, height: b.height) : .zero
         let lead = style == .chip ? Metrics.space2 : info.leadingPin ? SidebarStyle.leadingTextX(leading: rowLead) : rowLead
         let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
@@ -318,8 +324,9 @@ class SidebarItemRowView: NSView {
         let column = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
         if !rowBadge.isHidden {
             let side = rowBadge.cellSide, width = rowBadge.preferredWidth
-            let x = style == .chip ? b.width - Metrics.space2 - width : column - width + side / 2
-            rowBadge.frame = NSRect(x: x.rounded(.down), y: ((b.height - side) / 2).rounded(), width: width, height: side)
+            let x = style == .chip ? b.width - Metrics.space2 - width : column - width + side / 2, scale = window?.backingScaleFactor ?? 2
+            rowBadge.frame = NSRect(x: SidebarStyle.pixelSnapped(x, scale: scale), y: SidebarStyle.pixelSnapped((b.height - side) / 2, scale: scale),
+                                    width: width, height: side)
             guard style != .chip else { return rowBadge.frame.minX }
             return min(rowBadge.frame.minX, SidebarStyle.trailingColumnStart(rowWidth: rowWidth))
         }
@@ -510,7 +517,7 @@ class SidebarItemRowView: NSView {
     override func mouseUp(with event: NSEvent) {
         let dragged = didDrag
         let activated = activatedOnPress
-        if dragged { onDragEnded?() }
+        if dragged { onDragEnded?(event.locationInWindow) }
         pressLocation = nil
         didDrag = false
         activatedOnPress = false

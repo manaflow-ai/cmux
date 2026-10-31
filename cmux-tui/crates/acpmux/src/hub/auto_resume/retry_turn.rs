@@ -30,6 +30,7 @@ use crate::hub::{Control, Hub, PromptOptions, Session};
 use crate::protocol::session::{RetryKind, RetryResult};
 use crate::rpc::RpcError;
 use crate::store::EventRecord;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -80,7 +81,7 @@ fn prompt_blocks(msg: &Value, image: impl Fn(&str) -> Option<Value>) -> Option<V
                     (kind, Some(text)) => {
                         let mut block = json!({"type": "text", "text": text});
                         if kind == "pasted" || part.get("pasted") == Some(&Value::Bool(true)) {
-                            block["_meta"] = json!({"cmux": {"pasted": true}});
+                            block.set("_meta", json!({"cmux": {"pasted": true}}));
                         }
                         Some(block)
                     }
@@ -135,7 +136,7 @@ impl Hub {
         // A sub-session's retry names its sender: checked again at dispatch as its messages are
         // (`subsession_guard.rs` `family_dispatch_check`).
         if let Some(from) = by.from {
-            provenance["from"] = json!(from);
+            provenance.set("from", json!(from));
         }
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
         let opts = PromptOptions {
@@ -226,7 +227,7 @@ impl Hub {
     /// that waits is taken over (its timer wakes and records the skip `superseded`). `retry.busy`
     /// while a turn runs, a prompt waits to run, or a continuation is about to start.
     fn claim_failed_turn(&self, session: &Session) -> Result<(String, String, String), RpcError> {
-        let mut pending = self.auto_resumes.lock();
+        let mut pending = session.auto_resume.lock();
         if session.turn().is_some() || session.queue().iter().any(|q| !q.held) {
             return Err(busy());
         }
@@ -238,7 +239,7 @@ impl Hub {
         else {
             return Err(nothing_failed());
         };
-        match pending.get(&session.id) {
+        match pending.as_ref() {
             // A retry of this turn that waits gives way to this one.
             Some(Mark::Waiting { turn, .. }) if *turn == cut_turn => {}
             // One under way, or one Stop overtook whose task has not ended: never two at once.
@@ -251,7 +252,7 @@ impl Hub {
         if !still_cut(session, &cut_turn) {
             return Err(busy());
         }
-        pending.insert(session.id.clone(), Mark::Firing(cut_turn.clone()));
+        pending.replace(Mark::Firing(cut_turn.clone()));
         Ok((cut_turn, failed, field("errorText").unwrap_or_default()))
     }
 

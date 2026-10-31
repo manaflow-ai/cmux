@@ -787,6 +787,137 @@
         }
       }
     },
+    "cloud.failed.createRetryOtherTeam": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This machine was requested in another team. Switch back to that team to retry it, or dismiss it and create a new one."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンは別のチームでリクエストされました。再試行するにはそのチームに戻るか、閉じて新しく作成してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طُلبت هذه الآلة في فريق آخر. ارجع إلى ذلك الفريق لإعادة المحاولة، أو تجاهلها وأنشئ آلة جديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova mašina je zatražena u drugom timu. Vratite se na taj tim da pokušate ponovo ili je odbacite i kreirajte novu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne maskine blev bestilt i et andet team. Skift tilbage til det team for at prøve igen, eller afvis den og opret en ny."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese Maschine wurde in einem anderen Team angefordert. Wechsle zurück zu diesem Team, um es erneut zu versuchen, oder verwirf sie und erstelle eine neue."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta máquina se solicitó en otro equipo. Vuelve a ese equipo para reintentarlo, o descártala y crea una nueva."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette machine a été demandée dans une autre équipe. Revenez à cette équipe pour réessayer, ou ignorez-la et créez-en une nouvelle."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa macchina è stata richiesta in un altro team. Torna a quel team per riprovare, oppure ignorala e creane una nuova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីននេះត្រូវបានស្នើសុំនៅក្នុងក្រុមផ្សេង។ ប្ដូរទៅក្រុមនោះវិញដើម្បីព្យាយាមម្ដងទៀត ឬបោះបង់វា ហើយបង្កើតថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 머신은 다른 팀에서 요청되었습니다. 다시 시도하려면 그 팀으로 돌아가거나, 닫고 새로 만드세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne maskinen ble bestilt i et annet team. Bytt tilbake til det teamet for å prøve igjen, eller avvis den og opprett en ny."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta maszyna została zamówiona w innym zespole. Wróć do tego zespołu, aby spróbować ponownie, albo odrzuć ją i utwórz nową."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta máquina foi solicitada em outra equipe. Volte para essa equipe para tentar novamente, ou dispense-a e crie uma nova."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта машина была запрошена в другой команде. Вернитесь в эту команду, чтобы повторить попытку, или закройте её и создайте новую."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องนี้ถูกขอในทีมอื่น สลับกลับไปที่ทีมนั้นเพื่อลองอีกครั้ง หรือปิดแล้วสร้างเครื่องใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu makine başka bir ekipte istendi. Yeniden denemek için o ekibe geri dönün veya kapatıp yeni bir tane oluşturun."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цю машину було запитано в іншій команді. Поверніться до цієї команди, щоб повторити спробу, або закрийте її та створіть нову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy này được yêu cầu trong một nhóm khác. Chuyển lại nhóm đó để thử lại, hoặc bỏ qua và tạo máy mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这台机器是在另一个团队中请求的。切换回该团队以重试，或关闭它并新建一台。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這台機器是在另一個團隊中請求的。切換回該團隊以重試，或關閉它並新建一台。"
+          }
+        }
+      }
+    },
     "cloud.failed.alreadySignedIn": {
       "comment": "Sign In while already signed in. `cmux cloud sign-out` is a command; keep it as is.",
       "extractionState": "manual",
@@ -9570,6 +9701,270 @@
           "stringUnit": {
             "state": "translated",
             "value": "មិនបានបង្កើតម៉ាស៊ីន Cloud ទេ៖ គម្រោងរបស់អ្នកត្រូវដំឡើងកំរិត។ មើល cmux.com/pricing។"
+          }
+        }
+      }
+    },
+    "cloud.machine.defaultName": {
+      "comment": "The name a new Cloud machine gets when the person typed none (sidebar, menus, Cloud page).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシン"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جهاز سحابي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mašina u oblaku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloudmaskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud-Maschine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina en la nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Machine cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Macchina cloud"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនពពក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "클라우드 머신"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skymaskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maszyna w chmurze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina na nuvem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Облачная машина"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องบนคลาวด์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bulut makinesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хмарна машина"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy đám mây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "云端机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "雲端機器"
+          }
+        }
+      }
+    },
+    "cloud.machine.defaultNameNumbered": {
+      "comment": "The default Cloud machine name when the plain one is taken; %lld is 2, 3, …",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machine %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシン %lld"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جهاز سحابي %lld"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mašina u oblaku %lld"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloudmaskine %lld"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud-Maschine %lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina en la nube %lld"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Machine cloud %lld"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Macchina cloud %lld"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនពពក %lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "클라우드 머신 %lld"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skymaskin %lld"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maszyna w chmurze %lld"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina na nuvem %lld"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Облачная машина %lld"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องบนคลาวด์ %lld"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bulut makinesi %lld"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хмарна машина %lld"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy đám mây %lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "云端机器 %lld"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "雲端機器 %lld"
           }
         }
       }

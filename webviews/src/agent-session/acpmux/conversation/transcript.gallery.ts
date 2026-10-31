@@ -8,6 +8,7 @@ import { childRows } from "../subagents/childRows";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { workedTurnRows } from "../workedTurn";
+import { checkRunningLineLoops, hasCompleteRunningLineShimmer } from "./runningLineMotion";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
   BUILD_REPORT_PDF_PAGE_PNG,
@@ -283,7 +284,8 @@ const openGroupedShells = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 2);
   await ctx.click({ selector: ".cv-command" });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-shell__command").length === 1);
-  await ctx.click({ selector: ".cv-command:nth-of-type(2)" });
+  // Each command is a step of the opened group (ToolGroupRow.tsx), so the second is the second step.
+  await ctx.click({ selector: ".cv-step:nth-of-type(2) > .cv-command" });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-shell__command").length === 2);
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__exit")));
 };
@@ -751,11 +753,25 @@ const liveLineClear = async (ctx: PlayContext) => {
   if (hint && getComputedStyle(hint).opacity !== "0")
     throw new Error("the ⌃B hint shows before the pointer is on the line");
   if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    const shimmer = doc
-      .querySelector(".cv-worked.is-below .cv-thinking")!
-      .getAnimations()
-      .some((animation) => (animation as CSSAnimation).animationName === "cmux-shimmer");
-    if (!shimmer) throw new Error("the live line's words do not shimmer");
+    const line = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-thinking")!;
+    const loops = line
+      .getAnimations({ subtree: true })
+      .filter((animation) => animation.effect?.getTiming().iterations === Infinity)
+      .map((animation) => {
+        const effect = animation.effect as KeyframeEffect | null;
+        return {
+          name: (animation as CSSAnimation).animationName,
+          target: effect?.target instanceof Element ? effect.target : null,
+          playState: animation.playState,
+          playbackRate: animation.playbackRate,
+          currentTime: animation.currentTime,
+          duration: Number(effect?.getTiming().duration),
+          progress: effect?.getComputedTiming().progress ?? null,
+        };
+      });
+    const check = checkRunningLineLoops(loops);
+    if (check.unapproved.length || check.duplicateTargets.length || !hasCompleteRunningLineShimmer(check))
+      throw new Error("the live line's words do not shimmer as one loop per text layer");
   }
   await ctx.hover({ selector: ".cv-worked.is-below" });
   if (hint) await ctx.waitFor(() => getComputedStyle(hint).opacity === "1");
@@ -813,12 +829,28 @@ const runningLineStill =
     const loops = line
       .getAnimations({ subtree: true })
       .filter((animation) => animation.effect?.getTiming().iterations === Infinity);
-    const shimmer = loops.filter((animation) => (animation as CSSAnimation).animationName === "cmux-shimmer");
-    if (loops.length > shimmer.length)
-      throw new Error(`${loops.length - shimmer.length} animations loop on the running line`);
+    const check = checkRunningLineLoops(
+      loops.map((animation) => {
+        const effect = animation.effect as KeyframeEffect | null;
+        return {
+          name: (animation as CSSAnimation).animationName,
+          target: effect?.target instanceof Element ? effect.target : null,
+          playState: animation.playState,
+          playbackRate: animation.playbackRate,
+          currentTime: animation.currentTime,
+          duration: Number(effect?.getTiming().duration),
+          progress: effect?.getComputedTiming().progress ?? null,
+        };
+      }),
+    );
+    if (check.unapproved.length || check.duplicateTargets.length)
+      throw new Error(
+        `${check.unapproved.length + check.duplicateTargets.length} unapproved or duplicate animations loop on the running line`,
+      );
     // Motion allowed (the gallery stage), the word Thinking sweeps; Reduce Motion stills it (CSS).
-    if (shimmers && shimmer.length !== 1) throw new Error(`Thinking shimmers ${shimmer.length} times, not once`);
-    if (!shimmers && shimmer.length) throw new Error("a line other than Thinking shimmers");
+    if (shimmers && !hasCompleteRunningLineShimmer(check))
+      throw new Error(`Thinking shimmers ${check.shimmer.length} times, not one loop per text layer`);
+    if (!shimmers && check.shimmer.length) throw new Error("a line other than Thinking shimmers");
   };
 
 /// A run of commands longer than a group shows at once (ToolGroupRow.tsx GROUP_TAIL).
@@ -1232,6 +1264,20 @@ export default agentPaneEntry({
     "agent-session/acpmux/chips/BareReferenceChip.tsx#BareReferenceChip",
   ],
   variants: {
+    "activity-tone-secondary": {
+      note: "Selected activity hierarchy: tool calls, Worked for and received peer messages (their Markdown too) use one AA-readable secondary tone; prompts and assistant text stay primary. Capture in light and dark.",
+      snapshot: messageSurfaceChat,
+    },
+    "activity-tone-tertiary": {
+      note: "Gallery arm: a stronger tertiary dimming for background activity, checked against the same light/dark fixture.",
+      snapshot: messageSurfaceChat,
+      documentAttributes: { "transcript-activity-tone": "tertiary" },
+    },
+    "activity-tone-readable": {
+      note: "Gallery arm: the most readable secondary tone, compared with the selected middle value before landing.",
+      snapshot: messageSurfaceChat,
+      documentAttributes: { "transcript-activity-tone": "readable" },
+    },
     "message-surfaces-bordered": {
       note: "Before arm: the bordered user bubble and agent-message cards, captured on busy wallpaper and plain dark surfaces in light and dark themes.",
       documentAttributes: { "message-surfaces": "bordered" },
@@ -3073,7 +3119,7 @@ export default agentPaneEntry({
       },
     },
     "shell-long-colored-output": {
-      note: "A long, coloured test run: no colour codes, the first lines of its end under a fade with Show all 1201 lines (every line and the command, though only the last 400 draw until opened), and Wrap lines and Copy in the label.",
+      note: "A long, coloured test run: no colour codes, its end scrolling in an eight-line box with Show all 1200 lines (every line, though only the last 400 draw until opened), and Wrap lines and Copy in the label.",
       checks: shellDisclosureChecks,
       snapshot: chat(
         shellRows("gallery-shell-long", "Run the whole suite", "bun test", {
@@ -3086,7 +3132,7 @@ export default agentPaneEntry({
       ),
       play: async (ctx) => {
         await openSingleShell(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-output-more")?.textContent === "Show all 1201 lines");
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-output-more")?.textContent === "Show all 1200 lines");
       },
     },
     "edit-long-line-code": {

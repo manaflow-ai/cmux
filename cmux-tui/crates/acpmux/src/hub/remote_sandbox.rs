@@ -49,6 +49,7 @@
 //! `--allow-dangerously-skip-permissions`.
 
 use super::*;
+use cmux_json::JsonSet as _;
 #[cfg(target_os = "linux")]
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 #[cfg(target_os = "linux")]
@@ -162,7 +163,7 @@ pub(super) fn claude_settings(endpoint: Option<&str>) -> String {
         "permissions": {"disableBypassPermissionsMode": "disable", "ask": ASK_TOOLS},
     });
     if let Some(url) = endpoint {
-        v["env"] = json!({"ANTHROPIC_BASE_URL": url});
+        v.set("env", json!({"ANTHROPIC_BASE_URL": url}));
     }
     v.to_string()
 }

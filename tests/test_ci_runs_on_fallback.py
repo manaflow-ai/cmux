@@ -20,13 +20,22 @@ This guard covers every workflow:
   forty dispatches in 13 minutes, nx-chat's two fallback compiles among them,
   each with 0 jobs. The group must be keyed per pull request, commit, run or
   branch ref. cancel-in-progress is allowed only where the key is the pull
-  request or the ref, where the cancelled run is a superseded head.
+  request or the ref, where the cancelled run is a superseded head;
+- no runs-on lands on blacksmith-12vcpu-macos-26 when every picker before it
+  answers nothing. That label started no job from about 02:11Z on 2026-10-28
+  (and for hours on 10-20 and 10-26) while 61 cmux jobs queued on it; GitHub
+  never moves a queued job. A job may still take 12 vCPU from a picker that
+  skips a stalled label (next_macos_cascade.py, simple_pool_picker.py,
+  nightly_sign_runner.py), never as its literal last resort. A variable naming
+  12 vCPU is checked where its value is known, by ci-repo-variables.yml.
 """
 
 from __future__ import annotations
 
+import json
 import importlib.util
 import re
+import sys
 import unittest
 from pathlib import Path
 
@@ -34,6 +43,17 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import runs_on_labels  # noqa: E402
+
+# Blacksmith's 12 vCPU macOS 26 label: 5 slots, and stalled for hours on 2026-10-20, -26 and -28.
+LARGE_MAC = "blacksmith-12vcpu-macos-26"
+# What a picker job, an input or a matrix leg gives a runs-on; '' when the picker answered nothing.
+PICKER_CONTEXTS = ("needs", "inputs", "steps", "matrix", "env", "jobs", "strategy")
+# Jobs that keep the label as their literal last resort, and why. None today: the keyed signing jobs read a
+# stall-aware picker since cmux#27066. A new entry needs a reason; one no job needs any more fails the test.
+LARGE_MAC_LAST_RESORT: dict[str, str] = {}
 
 # One machine: a per-runner glaeda label, or a mini or perf host's name.
 SINGLE_HOST = re.compile(
@@ -52,6 +72,21 @@ POOL_FALLBACK = re.compile(r"\|\|\s*(?:'[^'\s]+'|vars\.(?![A-Z0-9_]*TRUSTED_RUNN
 # the runs-on alternative that reads it must check it is set, then fall through to a later pool literal, so a busy,
 # unregistered or unread slot never holds a feed's compile.
 RESERVED_OUTPUT = re.compile(r"needs\.[\w-]+\.outputs\.(fresh_runner)\b")
+# Runner variables that name an owned, reserved or otherwise single-host route.
+# A terminal value from any of these is a dead-end queue when its listener is
+# offline; every one needs a later pool fallback in the same runs-on chain.
+RESERVED_RUNNER_VARIABLES = (
+    "vars.CI_SIDE_LANE_RUNNER", "vars.CI_LIGHT_LANE_RUNNER", "vars.CI_FAST_LANE_RUNNER",
+    "vars.CI_SESSION_LANE_RUNNER", "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER",
+    "vars.CI_DEV_COMPILE_RUNNER", "vars.CI_NIGHTLY_TRUSTED_RUNNER",
+    "vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER", "vars.CI_IOS_INTERNAL_RUNNER",
+)
+# An owned GUI or session label: one console-token or logged-in-session queue per pool, a single pool with no
+# second member (glaeda_fleet_labels.gui_label(), session_label()). GitHub never moves a job queued on it.
+OWNED_ROLE_LABEL = re.compile(r"'(glaeda-(?:[a-z]+-)*?(?:gui|session)-[a-z0-9.-]+)'")
+# A placement's role route and the health-checked overflow that must sit beside it (side_lane_placement.py).
+ROLE_OUTPUT = re.compile(r"needs\.([\w-]+)\.outputs\.(?:gui_runner|session_runner)\b")
+RESCUE = WORKFLOWS / "ci-owned-pool-rescue.yml"
 # A job that compiles, or is a fallback route for one.
 COMPILE_OR_FALLBACK = re.compile(r"compile|fallback", re.IGNORECASE)
 # Keys that scope a group to one pull request, commit, run or branch, as whole identifiers
@@ -84,6 +119,25 @@ def unconditional(alternative: str) -> bool:
     if len(alternatives) > 1:
         return any(unconditional(part) for part in alternatives)
     return re.fullmatch(r"'[^'\s]+'", alternative) is not None
+
+
+def terminal_reserved(expression: str, variable: str) -> bool:
+    """Whether the final value of a runs-on chain is a reserved label variable.
+
+    A variable in a guarded preference is safe only when a later alternative
+    names a pool. If the final ``||``/``&&`` value is the reserved variable,
+    an offline or non-listening reservation leaves GitHub with one dead queue.
+    Keep this structural check independent of the particular runner class so
+    newly added reserved labels cannot bypass the no-single-host rule.
+    """
+    text = unwrap(expression)
+    alternatives = split_top(text, "||")
+    if len(alternatives) > 1:
+        return terminal_reserved(alternatives[-1], variable)
+    operands = split_top(text, "&&")
+    if len(operands) > 1:
+        return terminal_reserved(operands[-1], variable)
+    return text.strip() == variable
 
 
 def conjuncts(text: str) -> list[str]:
@@ -248,6 +302,150 @@ def evicting(name: str, concurrency: object) -> str | None:
     return None
 
 
+MATRIX_KEY = re.compile(r"\bmatrix\.([A-Za-z_][\w-]*)")
+
+
+def lands_on_large_mac(job: dict) -> bool:
+    """Whether a job can run on LARGE_MAC with every picker before it silent (vars unknown or unset).
+
+    Fails closed: a runs-on that spells LARGE_MAC but whose value the resolver cannot read (a fromJSON() or
+    format() of it, an expression it cannot parse) counts as landing there.
+    """
+    text = runs_on_text(job)
+    matrix = (job.get("strategy") or {}).get("matrix") if isinstance(job.get("strategy"), dict) else None
+    for key in MATRIX_KEY.findall(text):
+        if isinstance(matrix, str):
+            # A matrix built at run time (fromJSON of a picker's output): fails closed only if it spells the label.
+            if LARGE_MAC in matrix:
+                return True
+            continue
+        if not isinstance(matrix, dict):
+            continue
+        # The axis itself, and every include entry that sets that key (`include:` adds or extends combinations).
+        includes = matrix.get("include") if isinstance(matrix.get("include"), list) else []
+        values = [matrix.get(key, ""), *(entry.get(key, "") for entry in includes if isinstance(entry, dict))]
+        if LARGE_MAC in yaml.safe_dump(values) or (isinstance(matrix.get("include"), str) and LARGE_MAC in matrix["include"]):
+            return True
+    if LARGE_MAC not in text:
+        return False
+    runs_on = job.get("runs-on")
+    if isinstance(runs_on, dict):
+        runs_on = [runs_on.get("group", ""), *([runs_on.get("labels")] if isinstance(runs_on.get("labels"), str)
+                                                 else runs_on.get("labels") or [])]
+    try:
+        labels = runs_on_labels.resolve_labels(runs_on, silent=PICKER_CONTEXTS)
+    except ValueError:
+        return True
+    unread = any(isinstance(label, runs_on_labels.Unknown) and str(label).endswith("(...)") for label in labels)
+    return unread or LARGE_MAC in {str(label) for label in labels}
+
+
+# The rescue's re-run actors (owned_pool_rescue.RESCUE_ACTOR, pr_runner_pool.RESCUE_ACTORS) and the attempts
+# it can reach. An alternative that names an owned role label must be false for each of them on each attempt
+# after the first, so the rescue never re-queues a job on the pool it moved it from.
+RESCUE_BOTS = ("github-actions[bot]", "cmux-bot[bot]")
+RESCUE_ATTEMPTS = (2, 3, 4, 9, 99)
+ATTEMPT_TEST = re.compile(r"github\.run_attempt\s*(==|!=|<=|>=|<|>)\s*'?(\d+)'?")
+ACTOR_TEST = re.compile(r"(!?)\s*contains\(\s*fromJSON\(\s*'(\[[^']*\])'\s*\)\s*,\s*github\.triggering_actor\s*\)")
+COMPARE = {"==": int.__eq__, "!=": int.__ne__, "<=": int.__le__, ">=": int.__ge__, "<": int.__lt__, ">": int.__gt__}
+
+
+def gate_value(term: str, attempt: int, actor: str) -> bool | None:
+    """`term` on that attempt and actor: True, False, or None when it reads anything else (a variable, an
+    output), which may be either. Covers `||`, `&&`, `!`, parentheses, attempt comparisons and the actor's
+    membership in a fromJSON list; a bare github.run_attempt or github.triggering_actor is a non-empty value."""
+    text = unwrap(term)
+    alternatives = split_top(text, "||")
+    if len(alternatives) > 1:
+        values = [gate_value(alternative, attempt, actor) for alternative in alternatives]
+        return True if True in values else (False if all(value is False for value in values) else None)
+    terms = split_top(text, "&&")
+    if len(terms) > 1:
+        values = [gate_value(inner, attempt, actor) for inner in terms]
+        return False if False in values else (True if all(value is True for value in values) else None)
+    match = ATTEMPT_TEST.fullmatch(text)
+    if match:
+        return COMPARE[match.group(1)](attempt, int(match.group(2)))
+    match = ACTOR_TEST.fullmatch(text)
+    if match:
+        try:
+            listed = actor in json.loads(match.group(2))
+        except ValueError:
+            return None
+        return (not listed) if match.group(1) else listed
+    if text.startswith("!") and not text.startswith("!="):
+        inner = gate_value(text[1:], attempt, actor)
+        return None if inner is None else not inner
+    if text in ("github.run_attempt", "github.triggering_actor"):
+        return True
+    return None
+
+
+def attempt_gate(term: str) -> bool:
+    """Whether `term` is false for every rescue bot on every attempt after the first (gate_value()), so the
+    alternative it guards is never the rescue's re-run route. `github.run_attempt == 1` and
+    `!contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)` are; an attempt
+    bound such as `<= 3`, a list missing a bot, or an `||` with a variable is not."""
+    return all(gate_value(term, attempt, actor) is False for attempt in RESCUE_ATTEMPTS for actor in RESCUE_BOTS)
+
+
+def ungated_role_labels(expression: str, gated: bool = False) -> list[str]:
+    """The owned role labels in `expression` that an alternative yields with no github.run_attempt term."""
+    found = []
+    for alternative in split_top(unwrap(expression), "||"):
+        inner = unwrap(alternative)
+        if len(split_top(inner, "||")) > 1:
+            found += ungated_role_labels(inner, gated)
+            continue
+        terms = conjuncts(inner)
+        here = gated or any(attempt_gate(term) for term in terms[:-1])
+        last = unwrap(terms[-1])
+        if len(split_top(last, "||")) > 1:
+            found += ungated_role_labels(last, here)
+        elif OWNED_ROLE_LABEL.fullmatch(last) and not here:
+            found.append(last.strip("'"))
+    return found
+
+
+def rescued_paths() -> set[str]:
+    """The workflows ci-owned-pool-rescue.yml watches: a queue on an owned label there is re-dispatched."""
+    return set(str(load(RESCUE)["env"]["SOURCE_WORKFLOW_PATHS"]).split())
+
+
+def role_label_problems(path: str, text: str, rescued: set[str]) -> list[str]:
+    """Why a runs-on that can take an owned GUI or session label could wait on that one pool with no way off.
+
+    Leo, 2026-10-24: "a CI test fails on a runs-on that can resolve to a single-host label with no fallback";
+    2026-10-28: "I hate pins". A gui or session label is one queue per class. #26809 (2026-10-29): eleven swift
+    tests waited 45+ minutes on the std gui label while it existed but had no room. Such a runs-on needs
+    - a last alternative that always names a runner off the owned pools (a Blacksmith macOS label), so the
+      route has a member to fall to;
+    - its workflow watched by ci-owned-pool-rescue.yml, so a job already queued there is moved after the
+      queue alarm, and the alternative that names the label gated on github.run_attempt, so the rescue's
+      re-run leaves that queue instead of joining it again;
+    - where it reads a placement's gui_runner or session_runner, the same placement's gui_overflow too:
+      the route side_lane_placement.role_room() takes when that queue is deeper than the pool.
+    """
+    labels = OWNED_ROLE_LABEL.findall(text)
+    if not labels:
+        return []
+    found = []
+    for expression in EXPRESSION.findall(text) or [text]:
+        if not OWNED_ROLE_LABEL.search(expression):
+            continue
+        last = unwrap(split_top(unwrap(expression), "||")[-1])
+        while len(split_top(last, "||")) > 1:
+            last = unwrap(split_top(last, "||")[-1])
+        if not (unconditional(last) and not last.strip("'").startswith("glaeda-")):
+            found.append(f"{labels[0]} has no last alternative off the owned pools")
+        found += [f"{label} is taken on every attempt, so a re-run queues on it again"
+                  for label in ungated_role_labels(expression)]
+    if path not in rescued:
+        found.append(f"{labels[0]} is not watched by ci-owned-pool-rescue.yml")
+    for placement in dict.fromkeys(ROLE_OUTPUT.findall(text)):
+        if f"needs.{placement}.outputs.gui_overflow" not in text:
+            found.append(f"reads needs.{placement}'s gui route without its gui_overflow")
+    return found
 # Side-workflow Mac jobs placed through cmux-next's cascade (scripts/ci/side_lane_placement.py and
 # next_macos_cascade.py): (workflow, job) -> (the placing job, the key the placement lists the job under).
 # Such a job takes an idle owned Mac, else a free Blacksmith macOS slot, and never waits on one busy side
@@ -354,6 +552,20 @@ class RunsOnFallbackTests(unittest.TestCase):
     def test_workflows_are_found(self) -> None:
         self.assertIn("cmux-next.yml", {path.name for path in workflows()})
 
+    def test_no_job_falls_back_to_the_large_blacksmith_mac(self) -> None:
+        failures, seen = [], set()
+        for path in workflows():
+            for job_id, job in (load(path).get("jobs") or {}).items():
+                key = f"{path.name}#{job_id}"
+                hit = lands_on_large_mac(job)
+                if hit and key in LARGE_MAC_LAST_RESORT:
+                    seen.add(key)
+                elif hit:
+                    failures.append(key)
+        self.assertEqual(failures, [], f"{LARGE_MAC} stalls for hours at a time: take it only from a picker that "
+                                       "skips a stalled label, with an owned Mac or blacksmith-6vcpu-macos-26 last")
+        self.assertEqual(set(LARGE_MAC_LAST_RESORT) - seen, set(), "an exception no job needs any more: drop it")
+
     def test_no_runs_on_names_one_machine(self) -> None:
         failures = []
         for path in workflows():
@@ -432,6 +644,78 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertIsNone(SINGLE_HOST.search(label))
         self.assertIsNone(SINGLE_HOST_VAR.search(label))
 
+    def test_an_owned_gui_or_session_label_always_has_a_way_off(self) -> None:
+        rescued, failures, seen = rescued_paths(), [], 0
+        for path in workflows():
+            for job_id, job in (load(path).get("jobs") or {}).items():
+                text = runs_on_text(job)
+                seen += bool(OWNED_ROLE_LABEL.search(text))
+                for why in role_label_problems(f".github/workflows/{path.name}", text, rescued):
+                    failures.append(f"{path.name} {job_id}: {why}")
+        self.assertEqual(failures, [], "a gui or session pool is one queue: it needs a member off it")
+        self.assertGreaterEqual(seen, 3, "cmux-next's swift-test, daemon-test and generated-files read the gui pool")
+
+    def test_no_runs_on_chain_ends_on_the_reserved_side_label(self) -> None:
+        failures = []
+        for path in workflows():
+            for job_id, job in (load(path).get("jobs") or {}).items():
+                for expression in EXPRESSION.findall(runs_on_text(job)):
+                    for variable in RESERVED_RUNNER_VARIABLES:
+                        if terminal_reserved(expression, variable):
+                            failures.append(f"{path.name} {job_id}: terminal {variable} has no pool fallback")
+        self.assertEqual(failures, [], "a reserved runner label must never be the final runs-on value")
+
+    def test_cmux_next_fast_tier_uses_the_cascade_before_deferring_to_base_queue(self) -> None:
+        fast = load(WORKFLOWS / "cmux-next.yml")["jobs"]["fast-tier"]
+        expression = runs_on_text(fast)
+        retry = expression.index("needs.macos-placement.outputs.retry_runner")
+        deferred = expression.index("needs.macos-placement.outputs.deferred_runner")
+        legacy = expression.index("vars.CI_SIDE_LANE_RUNNER")
+        self.assertLess(retry, deferred)
+        self.assertLess(deferred, legacy)
+        self.assertIn(".github/workflows/cmux-next.yml", rescued_paths())
+        self.assertNotIn("needs.macos-placement.outputs", fast["if"])
+
+    def test_the_role_label_rule_catches_what_it_is_for(self) -> None:
+        here = ".github/workflows/x.yml"
+        gui = "'glaeda-gui-std-xcode-26.6'"
+        # A bare gui label, or one whose last alternative is another owned label or a variable.
+        self.assertTrue(role_label_problems(here, f"${{{{ {gui} }}}}", {here}))
+        self.assertTrue(role_label_problems(here, f"${{{{ a && {gui} || 'glaeda-side-std-xcode-26.6' }}}}", {here}))
+        self.assertTrue(role_label_problems(here, f"${{{{ a && {gui} || vars.MACOS_RUNNER_26 }}}}", {here}))
+        # A gui label on every attempt: the rescue's re-run would queue on it again.
+        self.assertTrue(role_label_problems(here, f"${{{{ a && {gui} || 'blacksmith-6vcpu-macos-26' }}}}", {here}))
+        self.assertEqual(role_label_problems(
+            here, f"${{{{ a && github.run_attempt == 1 && (b && {gui} || {gui}) || 'blacksmith-6vcpu-macos-26' }}}}",
+            {here}), [])
+        # Review of #27201: an attempt test that another `||` branch can bypass is no gate.
+        self.assertTrue(role_label_problems(
+            here, f"${{{{ (github.run_attempt == 1 || vars.X) && {gui} || 'blacksmith-6vcpu-macos-26' }}}}", {here}))
+        for bypass in ("github.triggering_actor", "github.run_attempt", "github.run_attempt > 1",
+                       "github.run_attempt != 1", "contains(fromJSON('[\"cmux-bot[bot]\"]'), github.triggering_actor)",
+                       # Review of #27201 at 175560bc: a bot list that misses a rescue actor, and bounds the re-run meets.
+                       "!contains(fromJSON('[\"github-actions[bot]\"]'), github.triggering_actor)",
+                       "github.run_attempt == 2", "github.run_attempt <= 3", "github.run_attempt <= 99"):
+            self.assertTrue(role_label_problems(
+                here, f"${{{{ (github.run_attempt == 1 || {bypass}) && {gui} || 'blacksmith-6vcpu-macos-26' }}}}",
+                {here}), bypass)
+        self.assertEqual(role_label_problems(
+            here, f"${{{{ (github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), "
+                  f"github.triggering_actor)) && {gui} || 'blacksmith-6vcpu-macos-26' }}}}", {here}), [])
+        self.assertTrue(role_label_problems(
+            here, f"${{{{ github.run_attempt <= 3 && {gui} || 'blacksmith-6vcpu-macos-26' }}}}", {here}))
+        self.assertEqual(role_label_problems(
+            here, f"${{{{ vars.X == '1' && github.run_attempt == 1 && {gui} || 'blacksmith-6vcpu-macos-26' }}}}", {here}), [])
+        # A Blacksmith last member, but nothing watches the workflow's queue.
+        self.assertTrue(role_label_problems(here, f"${{{{ a && {gui} || 'blacksmith-6vcpu-macos-26' }}}}", set()))
+        self.assertEqual(role_label_problems(
+            here, f"${{{{ github.run_attempt == 1 && ({gui}) || vars.X || 'blacksmith-6vcpu-macos-26' }}}}", {here}), [])
+        # A placement's gui route without its health-checked overflow.
+        placed = f"${{{{ needs.p.outputs.gui_runner || github.run_attempt == 1 && {gui} || 'blacksmith-6vcpu-macos-26' }}}}"
+        self.assertTrue(role_label_problems(here, placed, {here}))
+        self.assertEqual(role_label_problems(here, placed.replace(
+            "|| github.run_attempt == 1", "|| needs.p.outputs.gui_overflow || github.run_attempt == 1"), {here}), [])
+
     def test_compile_and_fallback_routes_never_evict_another_head(self) -> None:
         failures = []
         for path in workflows():
@@ -488,6 +772,28 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertTrue(SINGLE_HOST.search("runs-on: cmux22"))
         self.assertFalse(SINGLE_HOST.search("glaeda-side-std-xcode-26.6"))
         self.assertFalse(SINGLE_HOST.search("blacksmith-6vcpu-macos-26"))
+        # The large-Mac rule: a literal last resort fails; a picker's answer, or a 6 vCPU last resort, passes.
+        owner = "github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+        self.assertTrue(lands_on_large_mac({"runs-on": "blacksmith-12vcpu-macos-26"}))
+        self.assertTrue(lands_on_large_mac({"runs-on": "${{ " + owner + "needs.p.outputs.runner || "
+                                                       "'blacksmith-12vcpu-macos-26' }}"}))
+        self.assertTrue(lands_on_large_mac({"runs-on": "${{ " + owner + "vars.X || 'blacksmith-12vcpu-macos-26' }}"}))
+        self.assertTrue(lands_on_large_mac({"runs-on": "${{ matrix.pool }}",
+                                            "strategy": {"matrix": {"pool": ["blacksmith-12vcpu-macos-26"]}}}))
+        self.assertFalse(lands_on_large_mac({"runs-on": "${{ " + owner + "needs.p.outputs.runner || "
+                                                        "'blacksmith-6vcpu-macos-26' }}"}))
+        # A literal hidden in a function the resolver cannot read fails closed; a matrix key runs-on never reads
+        # does not count.
+        self.assertTrue(lands_on_large_mac({"runs-on": "${{ " + owner + "fromJSON(needs.p.outputs.runs_on || "
+                                                       "'[\"blacksmith-12vcpu-macos-26\"]') }}"}))
+        self.assertFalse(lands_on_large_mac({"runs-on": "${{ matrix.pool }}", "strategy": {"matrix": {
+            "pool": ["blacksmith-6vcpu-macos-26"], "note": ["blacksmith-12vcpu-macos-26"]}}}))
+        self.assertTrue(lands_on_large_mac({"runs-on": "${{ matrix.pool }}", "strategy": {"matrix": {
+            "include": [{"pool": "blacksmith-6vcpu-macos-26"}, {"pool": "blacksmith-12vcpu-macos-26"}]}}}))
+        self.assertFalse(lands_on_large_mac({"runs-on": "${{ matrix.pool }}", "strategy": {"matrix": {
+            "include": [{"pool": "blacksmith-6vcpu-macos-26", "note": "blacksmith-12vcpu-macos-26"}]}}}))
+        self.assertFalse(lands_on_large_mac({"runs-on": "${{ " + owner + "needs.p.outputs.large == 'true' && "
+                                                        "'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}"}))
 
 
 if __name__ == "__main__":

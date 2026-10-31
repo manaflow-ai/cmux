@@ -9,6 +9,7 @@ public nonisolated enum AddDeviceAction: Equatable, Sendable {
     /// Open the code field (way ``AddDeviceWay/code``).
     case enterCode
     /// Copy the setup line of the chosen platform.
+    case installTailscale
     case copyLine
     /// Copy the one-line join (way ``AddDeviceWay/joinLine``), concealed from clipboard managers.
     case copyJoinLine
@@ -16,6 +17,8 @@ public nonisolated enum AddDeviceAction: Equatable, Sendable {
     case makeJoinLine
     /// Mint a new join line (an expired or failed one is never shown again).
     case newJoinLine
+    /// The joined machine's row in the Machines sidebar.
+    case showMachines
     case done
     case cancel
 }

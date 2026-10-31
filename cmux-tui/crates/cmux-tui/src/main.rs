@@ -6,6 +6,8 @@
 //! `cmux-tui attach` connects the same TUI to an existing (usually
 //! headless) session over that socket, which is how detach/reattach works.
 
+use cmux_json::JsonSet as _;
+
 #[cfg(unix)]
 mod acp;
 #[cfg(unix)]
@@ -40,6 +42,8 @@ mod local_actor;
 mod page_listener;
 mod private_mode;
 #[cfg(unix)]
+mod share_room;
+#[cfg(unix)]
 mod signal_sender;
 mod websocket_credential;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
@@ -49,6 +53,10 @@ mod hook_helper;
 mod host_colors;
 mod keys;
 mod layout_undo;
+// Decided on every Unix so its tests run off the Mac; used on macOS only.
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod launchd_refresh;
 #[cfg(unix)]
 mod link;
 mod local_owner;
@@ -1043,8 +1051,8 @@ fn version_report_json() -> serde_json::Value {
     );
     // The invite wave this tester is in and what its signed flags turn off (#10).
     let (cohort, disabled_features) = feature_flags::report();
-    report["cohort"] = serde_json::json!(cohort);
-    report["disabled_features"] = serde_json::json!(disabled_features);
+    report.set("cohort", serde_json::json!(cohort));
+    report.set("disabled_features", serde_json::json!(disabled_features));
     report
 }
 
@@ -2500,7 +2508,7 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
-    let pending_server = restoring_server.attach(mux.clone());
+    let pending_server = hook_helper::resume(restoring_server.attach(mux.clone()), &socket_path);
     // From here the restoring server's waiting clients get answers.
     startup_timings.lap("server.attach");
     mux.record_startup_timings(&startup_timings);
@@ -2625,6 +2633,8 @@ fn run_server(
     let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
     #[cfg(unix)]
     cloud_conversations_backend::install(&mux);
+    #[cfg(unix)]
+    cmux_tui_core::server::start_link_share_bridge(&mux, share_room::url().as_deref());
     // Ends terminals that have had no tab placement for the reap grace
     // period and are not marked keep (`terminal-reap-v1`). Opt-in: a close
     // has always left the terminal running unplaced, and clients built

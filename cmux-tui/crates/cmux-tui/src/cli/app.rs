@@ -60,6 +60,8 @@ pub(super) const APP_SCOPES: &[&str] = &[
     "keybinding",
     "ghostty",
     "errors",
+    "home",
+    "team",
 ];
 
 /// Control-plane requests answer within the app's own 2 s deadline. A run
@@ -71,11 +73,17 @@ pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 /// `errors.list` reads the app's logs first (the app bounds it at 12 s).
 const ERRORS_TIMEOUT: Duration = Duration::from_secs(15);
 /// A run that waits for a person's answer in the app (an agent's cookie
-/// import shows a consent panel, then macOS asks for a password): the app
+/// import shows a consent panel, then macOS asks for a password; Invite to
+/// Team waits for Send in its dialog): the app
 /// bounds it at 200 s (`ActionDescriptor.personDeadline`).
 pub(super) const PERSON_RUN_TIMEOUT: Duration = Duration::from_secs(210);
 /// The CLI names of the actions that wait for a person (`waits_for_person`).
-const PERSON_ACTIONS: &[&str] = &["browser import-cookies", "browser.importCookies"];
+const PERSON_ACTIONS: &[&str] = &[
+    "browser import-cookies",
+    "browser.importCookies",
+    "home invite-to-team",
+    "home.inviteToTeam",
+];
 
 /// How long the CLI or `cmux mcp` waits for a waiting `action.run` of `action`.
 pub(in crate::cli) fn waiting_run_timeout(action: &str) -> Duration {
@@ -205,9 +213,8 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                         }))
             });
             if rest.iter().any(|argument| argument == "--") || !has_command {
-                return Err(UsageError::new(
-                    "usage: cmux cloud exec --target machine:MACHINE_ID --command COMMAND",
-                ));
+                let usage = super::cloud_help::usage("exec").unwrap_or_default();
+                return Err(UsageError::new(format!("usage: {usage}")));
             }
             run_action("cloud exec", rest.get(1..).unwrap_or_default(), ActionName::Cli)?
         }
@@ -351,6 +358,10 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                 params.insert("include_heartbeats".into(), json!(false));
             }
             AppCommand::Events { params: Value::Object(params) }
+        }
+        // `team invite` is Invite to Team's other name (`home invite-to-team`): one action, one dialog.
+        ("team", Some("invite")) => {
+            run_action("home invite-to-team", rest.get(1..).unwrap_or_default(), ActionName::Cli)?
         }
         // Any other words name an action by its CLI name (`app new-window`).
         _ => {
@@ -593,8 +604,18 @@ pub(super) fn run_cli_action(global: &GlobalArgs, name: &str, args: &[String]) -
         return Some(super::wire::print_operation_error(&refusal, global.output));
     }
     // A named socket that is missing or not an app (a daemon's `--socket`)
-    // has no CLI action; the caller reports its own usage error.
-    let mut stream = connect_command(global).ok()?;
+    // has no CLI action; the caller reports its own usage error. An action the
+    // app's catalog offers says it needs the app, where "unknown action" sent
+    // agents hunting for another way (tests/tool-evals r13d: `cmux pane screenshot`
+    // headless took GPT 6.1 Sol 25 steps and 550k tokens).
+    let mut stream = match connect_command(global) {
+        Ok(stream) => stream,
+        Err(error) if super::action_hint::offered_app_action(name) => {
+            let message = error.get("message").and_then(Value::as_str).unwrap_or_default();
+            return Some(failure("app.unreachable", message, global.output, 3));
+        }
+        Err(_) => return None,
+    };
     match call(global, &mut stream, command) {
         Ran::Done(code) => Some(code),
         Ran::NoSuchCliAction { .. } => None,

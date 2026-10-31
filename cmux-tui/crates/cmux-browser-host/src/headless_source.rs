@@ -17,6 +17,7 @@ use crate::lease::{LeaseCaller, LeaseError, LeaseOp, LeaseTable};
 use crate::protocol::{DriverError, DriverEvent};
 use crate::provider::LeaseState;
 use crate::tab_source::{PolicyLogSink, TabCall, TabRow, TabSource};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -488,7 +489,7 @@ impl TabSource for SharedHeadless {
         // session (fetch shells, the profile's cookies, downloads).
         let mut params = params.clone();
         if let Some(id) = params.get("fetchId").and_then(Value::as_str) {
-            params["fetchId"] = json!(fetch_id(session, id));
+            params.set("fetchId", json!(fetch_id(session, id)));
         }
         if method == "session.configure" {
             return Some(self.0.configure(session, &params));
@@ -500,7 +501,9 @@ impl TabSource for SharedHeadless {
         }
         if method.starts_with("cookies.") {
             match self.0.cookie_store_of(session) {
-                Ok(Some(context)) => params["browserContextId"] = json!(context),
+                Ok(Some(context)) => {
+                    params.set("browserContextId", json!(context));
+                }
                 Ok(None) => {}
                 Err(error) => return Some(Err(error)),
             }
@@ -690,7 +693,7 @@ impl SharedHeadless {
             fields.remove("browserContextId");
         }
         if let Some(id) = params.get("fetchId").and_then(Value::as_str) {
-            params["fetchId"] = json!(fetch_id(call.session, id));
+            params.set("fetchId", json!(fetch_id(call.session, id)));
         }
         if call.raw {
             // Script values keep the page's key order (a9 raw_value).

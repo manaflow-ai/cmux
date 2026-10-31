@@ -30,6 +30,7 @@
 use super::*;
 use crate::mesh::{
     Ack, AckState, Backoff, ControlHook, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode,
+    StartWork,
 };
 use crate::mesh_http::MeshControlFrom;
 use std::collections::HashSet;
@@ -236,7 +237,10 @@ async fn heartbeats(
         if hub_ended(&hub) {
             break;
         }
-        let Some(sessions) = hub.upgrade().map(|h| h.mesh_rows()) else { break };
+        let sessions = match hub.upgrade() {
+            Some(hub) => hub.mesh_rows().await,
+            None => break,
+        };
         let beat = Heartbeat { host: host.clone(), sessions };
         let wait = tokio::select! {
             r = client.heartbeat(&beat) => match r {
@@ -276,8 +280,16 @@ async fn heartbeats(
             },
             () = ended(&mut stop, &hub) => break,
         };
+        let wait = wait.max(HEARTBEAT_FLOOR.max(options.min_poll_gap));
+        let read_receipts = async {
+            if let Some(hub) = hub.upgrade() {
+                let budget = wait.min(Duration::from_secs(5));
+                let _ = tokio::time::timeout(budget, hub.flush_team_read_receipts(client.as_ref()))
+                    .await;
+            }
+        };
         tokio::select! {
-            () = tokio::time::sleep(wait.max(HEARTBEAT_FLOOR.max(options.min_poll_gap))) => {}
+            () = async { tokio::join!(tokio::time::sleep(wait), read_receipts); } => {}
             () = ended(&mut stop, &hub) => break,
         }
     }
@@ -575,7 +587,7 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
     let result = match op {
         "start" => rpc_call(&tx, &mut rx, 2, crate::rpc::method::SESSION_NEW, params).await,
         "stop" => rpc_call(&tx, &mut rx, 2, crate::rpc::method::SESSION_CLOSE, params).await,
-        // `session/resume` replays history for a newly attached ACP client. The CLI's
+        // ACP's `session/resume` reattaches a client to the session. The CLI's
         // `session resume` operation instead releases a held queue item, so use the same
         // queue-edit path here.
         "resume" => {
@@ -678,6 +690,13 @@ fn clip(mut ack: Ack) -> Ack {
 fn sender_name(message: &InMessage) -> String {
     let clean = |s: &str| s.chars().filter(|c| !c.is_control()).collect::<String>();
     let field = |f: &Option<String>| clean(f.as_deref().unwrap_or_default().trim());
+    if let Some(address) =
+        message.from.team_address.as_deref().map(str::trim).filter(|v| !v.is_empty())
+    {
+        let address = clean(address);
+        let address = if address.starts_with('@') { address } else { format!("@{address}") };
+        return address.chars().take(crate::hub::MAX_FROM_AGENT_CHARS).collect();
+    }
     let (host, name) = (field(&message.from.host), field(&message.from.name));
     let named = match (host.is_empty(), name.is_empty()) {
         (false, false) => format!("{host}/{name}"),
@@ -698,6 +717,13 @@ pub async fn deliver(
     control: &dyn ControlHook,
     own_daemon: Option<&str>,
 ) -> Option<Ack> {
+    // Sender display metadata alone must never change legacy session delivery semantics.
+    let team = message.to.team_address.is_some() || message.start_work.is_some();
+    if team
+        && !hub.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging)
+    {
+        return Some(Ack::refused("team messaging is disabled in Labs"));
+    }
     if let Err(why) = hub.mesh_for_here(&message.to, own_daemon) {
         return Some(Ack::refused(why));
     }
@@ -714,16 +740,52 @@ pub async fn deliver(
         Err(why) => return Some(Ack::refused(why)),
     };
     let prompt_id = message.message_id.as_str();
-    let request = json!({
+    // Team messages are information by default. Record them in the target
+    // session's event stream and acknowledge delivery without starting a
+    // model turn; a later inbox read/ack records the durable user action.
+    if team && !start_work_allowed(message) {
+        let stored =
+            hub.receive_team_information(&session, prompt_id, &sender_name(message), &message.body);
+        if !stored {
+            return None;
+        }
+        return Some(Ack::delivered(
+            prompt_id,
+            Some("information queued for the next turn boundary".into()),
+        ));
+    }
+    if team && !hub.register_team_work(&session, prompt_id) {
+        return None;
+    }
+    let body = if team {
+        format!(
+            "Team message from {}: {}\nThe team hub allows this message to start work; normal session permissions still apply.",
+            sender_name(message),
+            message.body
+        )
+    } else {
+        message.body.clone()
+    };
+    let mut request = json!({
         "sessionId": session.id,
-        "prompt": [{"type": "text", "text": message.body}],
+        "prompt": [{"type": "text", "text": body}],
         "_meta": {"acpmux": {
-            "steer": message.mode == Mode::Now,
+            "steer": !team && message.mode == Mode::Now,
             "promptId": prompt_id,
             "resend": true,
             "fromAgent": sender_name(message),
+            "teamMessage": team,
+            "startWork": message.start_work,
         }},
     });
+    // The sending session's id, which its daemon set from the caller it proved
+    // (`mesh_send.rs`), for display (`prompt_provenance::FROM_SESSION_ID`). The hub's sender
+    // record carries no harness yet, so a relayed message names none.
+    let sender = crate::prompt_provenance::BoundSender {
+        session_id: message.from.session_id.clone(),
+        harness: None,
+    };
+    crate::hub::merge_mux_meta(&mut request, sender.mux_fields());
     use super::outbox::Next;
     match super::outbox::attempt_once(hub, None, request, Origin::Peer).await {
         Ok(_) => Some(Ack::delivered(prompt_id, None)),
@@ -734,13 +796,17 @@ pub async fn deliver(
             prompt_id: Some(prompt_id.to_owned()),
             detail: Some(why),
         }),
-        Err((why, Next::Retry)) => {
+        Err((why, Next::Retry | Next::Unsent)) => {
             tracing::info!(
                 "mesh relay: {prompt_id} not delivered yet ({why}); its lease brings it back"
             );
             None
         }
     }
+}
+
+fn start_work_allowed(message: &InMessage) -> bool {
+    matches!(message.start_work, Some(StartWork::Allowed))
 }
 
 #[cfg(test)]
@@ -758,6 +824,9 @@ mod tests {
             attempt: 1,
             kind: Kind::Prompt,
             op: None,
+            start_work: Some(StartWork::Information),
+            state: Some("queued".into()),
+            subject: None,
         }
     }
 
@@ -770,6 +839,25 @@ mod tests {
         assert_eq!(sender_name(&from("vm\n", "a\u{7}b")), "vm/ab");
         let long = sender_name(&from(&"h".repeat(80), "lane"));
         assert_eq!(long.chars().count(), crate::hub::MAX_FROM_AGENT_CHARS);
+    }
+
+    #[test]
+    fn team_sender_names_are_explicitly_addressed() {
+        let mut message = from("", "lane");
+        message.from.team_address = Some("lawrence/coordinator".into());
+        assert_eq!(sender_name(&message), "@lawrence/coordinator");
+    }
+
+    #[test]
+    fn only_an_explicit_allowed_decision_can_start_work() {
+        let mut message = from("", "lane");
+        message.to.team_address = Some("@team/coordinator".into());
+        message.start_work = None;
+        assert!(!start_work_allowed(&message));
+        message.start_work = Some(StartWork::Information);
+        assert!(!start_work_allowed(&message));
+        message.start_work = Some(StartWork::Allowed);
+        assert!(start_work_allowed(&message));
     }
 
     #[test]

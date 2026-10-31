@@ -14,6 +14,7 @@ use cmux_tui_core::platform::transport::Stream;
 use serde_json::{Value, json};
 
 use super::adapter::AGENT_MUX;
+use cmux_json::JsonSet as _;
 
 /// The largest response line read.
 const LINE_LIMIT: usize = 16 << 20;
@@ -67,10 +68,10 @@ pub(super) fn envelope(id: &str, operation: &str, params: Value, key: Option<&st
         // A request-origin claim may only narrow the daemon-derived origin;
         // it gives history a durable agent/person distinction without
         // granting an agent any additional rights.
-        line["origin"] = json!({"claim": "agent"});
+        line.set("origin", json!({"claim": "agent"}));
     }
     if let Some(key) = key {
-        line["idempotency_key"] = json!(key);
+        line.set("idempotency_key", json!(key));
     }
     line
 }

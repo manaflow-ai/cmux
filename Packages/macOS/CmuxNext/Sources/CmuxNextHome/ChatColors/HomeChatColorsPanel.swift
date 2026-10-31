@@ -1,7 +1,6 @@
 public import AppKit
 import CmuxHomeRender
 public import CmuxNextDesign
-import SwiftUI
 
 /// The Chat Colors… panel (a chat row's menu, the palette, `home.chatColors`): one small floating
 /// panel for the app, showing one chat at a time; opening it for another chat switches it there.
@@ -10,6 +9,8 @@ public final class HomeChatColorsPanel {
     private let store: HomeChatColorStore
     private let design: DesignSettings
     private var panel: NSPanel?
+    /// The panel, once shown (tests).
+    var window: NSPanel? { panel }
 
     /// - Parameters:
     ///   - store: the chats' colours (the Home service's).
@@ -27,15 +28,15 @@ public final class HomeChatColorsPanel {
     public func show(conversation: String, name: String, over window: NSWindow?) {
         let panel = self.panel ?? makePanel()
         self.panel = panel
-        let host = NSHostingView(rootView: HomeChatColorsView(
+        let host = HomeChatColorsView(
             store: store, conversation: conversation,
-            resolve: { [design, weak panel] chosen in
+            resolve: { [design] chosen in
+                // The view calls this in its theme scope (performWithTheme).
                 let style: HomePalette.BubbleStyle = design.homeChiefBubblesThemed ? .theme : .iMessage
                 let all = HomeChatColorStore.colors(fromHexes: design.homeBubbleColors)
-                let resolve = { HomeThemePalette.resolveInScope(active: true, style: style).applying(chosen.over(all)) }
-                return HomeChatColorsPreview(panel?.contentView?.performWithTheme(resolve) ?? resolve())
+                return HomeChatColorsPreview(HomeThemePalette.resolveInScope(active: true, style: style).applying(chosen.over(all)))
             },
-            onDone: { [weak panel] in panel?.orderOut(nil) }))
+            onDone: { [weak panel] in panel?.orderOut(nil) })
         panel.contentView = host
         panel.title = name.isEmpty ? HomeChatColorsStrings.title : "\(HomeChatColorsStrings.title) — \(name)"
         panel.setContentSize(host.fittingSize)

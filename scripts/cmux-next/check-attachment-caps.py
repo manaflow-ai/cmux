@@ -40,9 +40,6 @@ RETAINED_BOUNDS = {
         "maximumFileBytes": "Legacy mobile task admission; removal belongs to the streaming follow-up.",
         "maximumTotalBytes": "Legacy mobile task batch quota; deferred with its upload transport.",
     },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneDraftAttachments.swift": {
-        "maximumBytes": "Inline draft persistence memory budget; file-reference persistence is separate.",
-    },
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift": {
         "maximumWarmBytes": "New Tab warm-cache budget, unrelated to chat.upload decoding.",
     },

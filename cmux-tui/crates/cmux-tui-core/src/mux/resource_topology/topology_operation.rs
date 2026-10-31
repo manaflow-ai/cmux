@@ -1,6 +1,7 @@
 //! Resource topology operation entry: creation resolution, interrupted creation reconcile, empty workspace creation, pane neighbors, the operation dispatcher, receipted creation, the commit path, and legacy event emission.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 impl Mux {
     pub(crate) fn resource_creation_resolution(
@@ -375,7 +376,7 @@ impl Mux {
             "fields": fingerprint_fields,
         });
         if selector_candidates.len() > 1 {
-            fingerprint["selector_fallbacks"] = json!(&selector_candidates[1..]);
+            fingerprint.set("selector_fallbacks", json!(&selector_candidates[1..]));
         }
         let commit = self.resource_correlated_creation_operation(
             operation,

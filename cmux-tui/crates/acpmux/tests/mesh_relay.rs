@@ -78,6 +78,9 @@ fn message(id: &str, to: &str, kind: Kind) -> InMessage {
         },
         body: "hello from another machine".into(),
         attempt: 1,
+        start_work: None,
+        state: None,
+        subject: None,
     }
 }
 
@@ -233,6 +236,12 @@ impl MeshHub for FakeHub {
                     created_at: 1000,
                     leased_until: None,
                     acked_at: None,
+                    delivered_at: None,
+                    read_at: None,
+                    read_by: None,
+                    acked_by: None,
+                    resolution: None,
+                    start_work: None,
                 };
                 s.receipts.insert(id.clone(), receipt.clone());
                 s.waiting.push_back(InMessage {
@@ -249,6 +258,13 @@ impl MeshHub for FakeHub {
                     from: Sender { daemon_id: Some("inst_a".into()), ..m.from.clone() },
                     body: m.body.clone(),
                     attempt: 1,
+                    start_work: m
+                        .to
+                        .team_address
+                        .as_ref()
+                        .map(|_| acpmux::mesh::StartWork::Information),
+                    state: Some("queued".into()),
+                    subject: None,
                 });
                 Ok(receipt)
             })
@@ -312,7 +328,10 @@ async fn a_message_for_a_session_here_runs_once_and_is_acked_with_its_prompt_id(
     // An id that is no plain id (here a credential) is never run, acked (its path) or logged.
     let token_id = "Bearer eyJhbGciOiJIUzI1NiJ9/../ack";
     fake.lease(message(token_id, "dep-land", Kind::Prompt));
-    fake.lease(message("msg-1", "dep-land", Kind::Prompt));
+    // Canonical sender display metadata does not turn a legacy session target into team traffic.
+    let mut legacy = message("msg-1", "dep-land", Kind::Prompt);
+    legacy.from.team_address = Some("@member/coordinator".into());
+    fake.lease(legacy);
     fake.until("the ack", |s| !s.acked("msg-1").is_empty()).await;
     // Its ack was lost: the hub leases it again, and it is acked again without a second run.
     fake.lease(InMessage { attempt: 2, ..message("msg-1", "dep-land", Kind::Prompt) });
@@ -330,6 +349,39 @@ async fn a_message_for_a_session_here_runs_once_and_is_acked_with_its_prompt_id(
     }
     assert_eq!(info.pointer("/result/turnCount"), Some(&json!(1)), "ran twice: {info}");
     assert!(fake.with(|s| s.acked(token_id).is_empty()), "a malformed id was acked");
+    relay.stop().await;
+}
+
+/// A relayed message names the session that sent it (`fromSessionId` on its provenance), as its
+/// daemon proved it (`mesh_send.rs`), so the queue row opens that chat; the hub's sender record
+/// carries no harness, so it names none.
+#[tokio::test]
+async fn a_relayed_message_names_its_sending_session_for_display() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("dep-land").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    let mut sent = message("msg-from", "dep-land", Kind::Prompt);
+    sent.from.session_id = Some("s-remote-1".into());
+    fake.lease(sent);
+    fake.until("the ack", |s| !s.acked("msg-from").is_empty()).await;
+    let mut found = Value::Null;
+    for _ in 0..600 {
+        let page = local
+            .call("_acpmux/events", json!({"sessionId": session, "kinds": ["user_message"]}))
+            .await;
+        let events = page.pointer("/result/events").and_then(Value::as_array).cloned();
+        if let Some(e) = events.into_iter().flatten().find(|e| e["msg"]["promptId"] == "msg-from") {
+            found = e["msg"].clone();
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let p = &found["_meta"]["provenance"];
+    assert_eq!(p["fromName"], "gcp-lane/lane-a", "{found}");
+    assert_eq!(p["fromSessionId"], "s-remote-1", "{found}");
+    assert!(p.get("fromHarness").is_none(), "{found}");
     relay.stop().await;
 }
 
@@ -560,6 +612,9 @@ async fn mesh_control_requires_owner_allowlist_and_stamped_daemon_id() {
         },
         body: r#"{"version":1}"#.into(),
         attempt: 1,
+        start_work: None,
+        state: None,
+        subject: None,
     };
 
     let ack = allowed.control(&hub, &base("resume", Some("inst_a"))).await.unwrap();
@@ -722,11 +777,14 @@ async fn mesh_controls_start_and_stop_through_shared_sender_and_replay_success()
             body: posted.body,
             mode: posted.mode,
             attempt: 2,
+            start_work: None,
+            state: None,
+            subject: None,
         };
         let restarted = MeshControlHook::new(control_allowlist(), Some(path.clone()));
         assert_eq!(restarted.control(&hub, &duplicate).await.unwrap(), first);
         // Give the fake hub the address-book row explicitly, avoiding a timer race.
-        fake.heartbeat(&Heartbeat { host: "worker".into(), sessions: hub.mesh_rows() })
+        fake.heartbeat(&Heartbeat { host: "worker".into(), sessions: hub.mesh_rows().await })
             .await
             .unwrap();
         let to = if by_name {
@@ -934,6 +992,14 @@ async fn a_send_to_a_name_no_peer_has_goes_through_the_hub_and_is_delivered_with
     let said = keyed.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
     assert!(said.contains("--supersede") && !said.contains("no session"), "{keyed}");
     assert_eq!(fake.with(|s| s.sent.len()), posted, "a keyed send reached the hub");
+    // Nor a class but result, the default the target reads: refused, not sent as a result.
+    let mut block = send_queue("dep-land", "prompt-0005");
+    block["request"]["_meta"]["acpmux"]["class"] = json!("block");
+    let block = sender.call("_acpmux/send_queue", block).await;
+    assert_eq!(block.pointer("/error/data/reason"), Some(&json!("mesh.no_class")), "{block}");
+    let said = block.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
+    assert!(said.contains("--class") && !said.contains("no session"), "{block}");
+    assert_eq!(fake.with(|s| s.sent.len()), posted, "a classified send reached the hub");
     relay.stop().await;
 }
 
@@ -966,6 +1032,7 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
         harness: "fake".into(),
         state: "ready".into(),
         stuck_reason: None,
+        team_address: None,
     };
     fake.with(|s| s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row] }));
     let _ = a.mesh.set(fake.clone());
@@ -980,4 +1047,63 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
     let from = fake.with(|s| s.sent.last().unwrap().from.clone());
     assert_eq!(from.name.as_deref(), Some("lane-a"), "{from:?}");
     assert_eq!(from.session_id.as_deref(), Some(lane.as_str()), "{from:?}");
+}
+
+#[tokio::test]
+async fn team_delivery_refuses_when_disabled_and_only_allowed_starts_an_idle_turn() {
+    use acpmux::mesh::StartWork;
+    use acpmux::server::mesh_relay::deliver;
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("team-reader").await;
+    let mut incoming = message("team-info-1", "team-reader", Kind::Prompt);
+    incoming.to.session_id = Some(session.clone());
+    incoming.to.team_address = Some("@user_reader/coordinator".into());
+    incoming.from.team_address = Some("@user_sender/coordinator".into());
+    incoming.mode = Mode::Now;
+    assert_eq!(
+        deliver(&hub, &incoming, &RefuseControl, None).await.unwrap().state,
+        AckState::Refused
+    );
+    hub.config.write().await.mesh_relay = Some(acpmux::mesh_http::MeshRelayConfig {
+        url: "https://hub.invalid".into(),
+        token_command: vec!["unused".into()],
+        team_messaging: true,
+        credential: None,
+        control_from: Vec::new(),
+    });
+    // Missing startWork is information even if mode asks to steer.
+    assert_eq!(
+        deliver(&hub, &incoming, &RefuseControl, None).await.unwrap().state,
+        AckState::Delivered
+    );
+    let info = local.call("_acpmux/info", json!({"sessionId": session})).await;
+    assert_eq!(info.pointer("/result/turnCount"), Some(&json!(0)));
+    incoming.message_id = "team-info-2".into();
+    incoming.start_work = Some(StartWork::Information);
+    assert_eq!(
+        deliver(&hub, &incoming, &RefuseControl, None).await.unwrap().state,
+        AckState::Delivered
+    );
+    let info = local.call("_acpmux/info", json!({"sessionId": session})).await;
+    assert_eq!(info.pointer("/result/turnCount"), Some(&json!(0)));
+    incoming.message_id = "team-allowed-1".into();
+    incoming.start_work = Some(StartWork::Allowed);
+    assert_eq!(
+        deliver(&hub, &incoming, &RefuseControl, None).await.unwrap().state,
+        AckState::Delivered
+    );
+    let done = local
+        .call(
+            "_acpmux/wait",
+            json!({"sessions": [session], "until": ["ready"], "timeoutMs": 20000}),
+        )
+        .await;
+    assert!(done.get("error").is_none(), "{done}");
+    let info = local.call("_acpmux/info", json!({"sessionId": session})).await;
+    assert_eq!(info.pointer("/result/turnCount"), Some(&json!(1)));
+    let events = hub.events(&session, 0, 1000).unwrap();
+    assert!(events.iter().any(|event| event.kind == "session/prompt"
+        && event.msg.to_string().contains("Team message from @user_sender/coordinator")));
+    hub.shutdown_all().await;
 }

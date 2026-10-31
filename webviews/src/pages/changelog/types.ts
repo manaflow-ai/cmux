@@ -55,6 +55,8 @@ export interface WhatsNewEntry {
   summary: LocalizedText;
   media?: { kind: string; light: string; dark: string; alt: LocalizedText };
   tryIt?: { action?: string; deeplink?: string };
+  /** Optional GitHub pull request URL shown as the shared colored PR chip. */
+  pr?: string;
   docs?: string;
 }
 
