@@ -22,7 +22,7 @@ import { realWorkflowFixture } from "../realWorkflowFixture";
 
 type Props = Pick<
   ComponentProps<typeof SummaryCard>,
-  "rows" | "background" | "sessions" | "onAttach" | "workflow" | "workflowActions"
+  "rows" | "background" | "sessions" | "onAttach" | "workflow" | "workflowActions" | "onOpenInspector"
 > & { tabRowHeight?: number; preview?: boolean; popover?: boolean; inspectorPush?: boolean };
 
 const none = () => undefined;
@@ -140,12 +140,31 @@ const processes: InspectorProcess[] = [
   record("e2e", "bun test e2e --watch", 18, "killed", 9),
 ];
 
+/// A busy chat: eight commands running and three finished, more than the card used to show before
+/// "View all".
+const manyProcesses: InspectorProcess[] = [
+  ...processes.slice(0, 3),
+  record("api", "bun run api --watch", 23),
+  record("queue", "bun run worker:queue", 22),
+  record("tunnel", "cloudflared tunnel run dev", 21),
+  record("storybook", "bun run storybook", 19),
+  record("db", "docker compose up postgres", 17),
+  ...processes.slice(3),
+];
+
 const sessions: StartedSession[] = [
   { sessionId: "child-1", title: "Migrate the settings store to SQLite", state: "running", createdAt: minutesAgo(20) },
   { sessionId: "child-2", title: "Port the history page to React Aria", state: "running", createdAt: minutesAgo(19) },
   { sessionId: "child-3", title: "Rename the settings keys", state: "waiting", createdAt: minutesAgo(18) },
   { sessionId: "child-4", title: "Fix the flaky sidebar drag test", state: "failed", createdAt: minutesAgo(17) },
   { sessionId: "child-5", title: "Draft the release notes for 0.42", state: "idle", createdAt: minutesAgo(16) },
+];
+
+/// Seven started chats: more than the card used to show before "View all".
+const manySessions: StartedSession[] = [
+  ...sessions,
+  { sessionId: "child-6", title: "Profile the transcript scroll", state: "running", createdAt: minutesAgo(15) },
+  { sessionId: "child-7", title: "Audit the composer menus", state: "running", createdAt: minutesAgo(14) },
 ];
 
 const workflow: WorkflowSummary = {
@@ -319,6 +338,15 @@ export default componentEntry<Props>({
         sessions: { list: sessions, onOpen: none },
         workflow: realWorkflow,
         workflowActions,
+      },
+    },
+    "long-lists": {
+      note: "Every row of a long list is drawn and scrolls in the card, with no View all; Background tasks and Subagents end with Open in right pane, which opens that Session Info section beside the chat.",
+      props: {
+        rows,
+        background: background(manyProcesses),
+        sessions: { list: manySessions, onOpen: none },
+        onOpenInspector: none,
       },
     },
     "finished-open": {

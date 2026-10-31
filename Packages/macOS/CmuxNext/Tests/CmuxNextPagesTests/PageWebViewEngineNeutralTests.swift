@@ -77,14 +77,22 @@ struct PageWebViewEngineNeutralTests {
         }
         var waitedBeforeBuilding = false
         view.chromiumMenuWait = { waitedBeforeBuilding = built == 0 }
-        let shown: [String]? = await PageTestWait.value("menu") { done in
-            view.chromiumMenuPresenter = { menu, _, _ in done(menu.items.map(\.title)) }
-            page.onEvent?(.contextMenu(PageChromiumContextMenu(location: .zero, selection: "", isEditable: false) {}))
-            // The menu waits first: nothing is built in the click's own turn.
-            #expect(built == 0)
+        var shown: [String]?
+        var finished = false
+        view.chromiumMenuPresenter = { menu, _, _ in
+            // After the wait (a main-actor Task) the menu still tracks from a run-loop callout: a
+            // menu tracking inside that Task's job held the main queue until it closed, and the
+            // click that closed it waited on everything queued meanwhile (Leo, 2026-10-29).
+            #expect(PageMenuCallout.isRunLoopBlock, "the menu tracked inside a main-queue job")
+            shown = menu.items.map(\.title)
         }
+        page.onEvent?(.contextMenu(PageChromiumContextMenu(location: .zero, selection: "", isEditable: false) { finished = true }))
+        // The menu waits first: nothing is built in the click's own turn.
+        #expect(built == 0)
+        await PageMenuCallout.drain { finished }
         #expect(waitedBeforeBuilding)
         #expect(shown == ["Row 1"])
+        #expect(finished, "Chromium never heard the menu closed")
         view.close()
     }
 }

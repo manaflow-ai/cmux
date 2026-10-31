@@ -66,6 +66,7 @@ export function SummaryCard({
   workflows,
   workflowActionsFor,
   workflowCapacity,
+  onOpenInspector,
 }: {
   card: SummaryCardControl;
   environment?: ComponentProps<typeof EnvironmentSection>;
@@ -110,6 +111,8 @@ export function SummaryCard({
   workflows?: readonly WorkflowSummary[];
   workflowActionsFor?: (workflow: WorkflowSummary) => WorkflowActions;
   workflowCapacity?: WorkflowCapacitySignal;
+  /// Opens a complete Session Info section beside the chat.
+  onOpenInspector?: (section: "subagents" | "tasks") => void;
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -343,6 +346,7 @@ export function SummaryCard({
                 // The tab lists subagents only; a chat with only sub-sessions or started chats has none to show there.
                 // The popover has no title row, so this title is its one way into the tab too.
                 onShowAll={agents.length > 0 ? () => setTab("subagents") : undefined}
+                onOpenInPane={onOpenInspector ? () => onOpenInspector("subagents") : undefined}
                 subsessions={subsessionRows}
                 sessions={children}
                 onOpenSession={sessions?.onOpen ?? subsessions?.onOpen}
@@ -365,6 +369,7 @@ export function SummaryCard({
                 tools={tools}
                 commands={commands}
                 onStopCommand={background?.onStop}
+                onOpenTasksInPane={onOpenInspector ? () => onOpenInspector("tasks") : undefined}
                 workflow={workflow}
                 workflowActions={workflowActions}
                 workflows={workflows}

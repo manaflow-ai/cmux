@@ -142,6 +142,7 @@ export function SubagentStatusList({
   autoOpen,
   onShowAll,
   counts,
+  onOpenInPane,
   subsessions = [],
   onOpenSession,
   sessions = NO_SESSIONS,
@@ -162,6 +163,8 @@ export function SubagentStatusList({
   onShowAll?: () => void;
   /// Overall activity counts move here when the popover has no title row.
   counts?: string;
+  /// Opens Session Info's complete Subagents section beside the chat.
+  onOpenInPane?: () => void;
   /// The other chats the agent started, after the sub-sessions.
   sessions?: readonly StartedSession[];
   /// Subagents an older record names only by their Task calls (sessionSummary.ts), as one line,
@@ -223,6 +226,12 @@ export function SubagentStatusList({
         ))}
         <ChildSessionRows sessions={sessions} onOpen={onOpenSession} />
       </ul>
+      {onOpenInPane && (agents.length > 0 || subsessions.length > 0 || sessions.length > 0) && (
+        <button type="button" className="acpmux-summary-more" onClick={onOpenInPane}>
+          <Icon name="pane.split.right" size={ROW_ICON} row />
+          {t("summary.openInPane")}
+        </button>
+      )}
       {autoOpen && (
         <label className="acpmux-summary-row acpmux-summary-autoopen">
           <input

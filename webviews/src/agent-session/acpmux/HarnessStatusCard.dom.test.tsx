@@ -247,7 +247,8 @@ test("the focused real minimap preview takes Escape before status", async () => 
           <PreviewCard
             id="preview"
             x={0}
-            y={0}
+            center={0}
+            viewportHeight={600}
             prompt="Test prompt"
             reply={[]}
             bookmark={{ marked: false, toggle: () => {} }}
