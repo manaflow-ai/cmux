@@ -147,19 +147,16 @@ public final class CloudAuth {
         let sessionFactory: any HostBrowserAuthSessionFactory = useCaptureFixture
             ? CaptureFixtureBrowserAuthSessionFactory()
             : ASWebBrowserAuthSessionFactory(anchor: anchor)
+        // Every open here follows the person's Sign In, so the browser comes to the front:
+        // opened behind cmux, the click looked dead (2026-10-31). The open never blocks (cx-050n).
         let openExternalURL: @MainActor @Sendable (URL) -> Bool = { url in
             guard !useCaptureFixture else { return false }
-            // Whether a browser opens it (a database lookup); the open runs off the main thread (cx-050n).
-            guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else { return false }
-            NSWorkspace.shared.openInBackground(url)
-            return true
+            return NSWorkspace.shared.openInForeground(url)
         }
         #else
         let sessionFactory: any HostBrowserAuthSessionFactory = ASWebBrowserAuthSessionFactory(anchor: anchor)
         let openExternalURL: @MainActor @Sendable (URL) -> Bool = { url in
-            guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else { return false }
-            NSWorkspace.shared.openInBackground(url)
-            return true
+            NSWorkspace.shared.openInForeground(url)
         }
         #endif
         browserSignIn = HostBrowserSignInFlow(
@@ -219,8 +216,7 @@ public final class CloudAuth {
     @discardableResult
     public func continueSignInInBrowser() -> Bool {
         guard !usesCaptureFixture, let url = browserSignIn.activeAttemptSignInURL else { return false }
-        NSWorkspace.shared.openInBackground(url)
-        return true
+        return NSWorkspace.shared.openInForeground(url)
     }
 
     /// Ends the sign-in in progress.

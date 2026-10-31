@@ -85,7 +85,9 @@ fn holder_pid(file: &std::fs::File) -> Option<u32> {
     use std::os::unix::fs::FileExt;
     let mut buf = [0u8; 16];
     let n = file.read_at(&mut buf, 0).ok()?;
-    let pid: libc::pid_t = std::str::from_utf8(buf.get(..n)?).ok()?.trim().parse().ok()?;
+    // The first line; the socket follows it ([`record_pid`]).
+    let text = std::str::from_utf8(buf.get(..n)?).ok()?;
+    let pid: libc::pid_t = text.lines().next()?.trim().parse().ok()?;
     if pid <= 0 {
         return None;
     }
@@ -116,15 +118,24 @@ pub(super) fn lock_has_live_holder(path: &Path) -> bool {
     matches!(file.try_lock_shared(), Err(std::fs::TryLockError::WouldBlock))
 }
 
-/// Write this daemon's pid into the lock it now holds, for the refusal a second daemon prints.
-/// Best effort: the lock itself is the flock, never the file's contents.
+/// Write this daemon's pid and the socket it serves into the lock it now holds: the pid for the
+/// refusal a second daemon prints, the socket for a command whose own socket is another one
+/// ([`holder_socket`]). Best effort: the lock itself is the flock, never the file's contents.
 #[cfg(unix)]
 fn record_pid(file: &std::fs::File) {
     use std::os::unix::fs::FileExt;
-    let pid = format!("{}\n", std::process::id());
+    let pid = format!("{}\n{}\n", std::process::id(), crate::config::socket_path().display());
     if file.set_len(0).is_ok() {
         let _ = file.write_at(pid.as_bytes(), 0);
     }
+}
+
+/// The socket the holder of the lock at `path` recorded ([`record_pid`]); a claim to check
+/// (a stale file still says it), never proof.
+#[cfg(unix)]
+pub(super) fn holder_socket(path: &Path) -> Option<PathBuf> {
+    let text = std::fs::read_to_string(path).ok()?;
+    text.lines().nth(1).map(str::trim).filter(|s| !s.is_empty()).map(PathBuf::from)
 }
 
 #[cfg(unix)]

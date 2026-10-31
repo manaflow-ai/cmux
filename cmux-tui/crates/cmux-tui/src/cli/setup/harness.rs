@@ -25,8 +25,9 @@ use std::time::Duration;
 
 use acpmux::cli::harness_login::{self, AuthState};
 use acpmux::config::profiles::{self, ProfileSource};
-use acpmux::config::{Config, HarnessProfile, ProfileMeta, UNIICHAT_PROFILE};
+use acpmux::config::{CHIEF_PROFILE, Config, HarnessProfile, ProfileMeta, UNIICHAT_PROFILE};
 use acpmux::harness_health::{Auth, HarnessHealth, HealthService, Settings, Subject, probe};
+use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::{Outcome, Refusal};
@@ -36,6 +37,45 @@ const TASK: &str = "harness";
 /// The longest a harness may take to answer `initialize`, then
 /// `session/new`, when its sign-in is asked of it.
 const ASK_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Evidence from this check, not proof of token validity or the selected account.
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum AuthStatus {
+    Detected,
+    SignedOut,
+    NeedsAction,
+    Unknown,
+    NotInstalled,
+}
+
+struct CheckedHarness {
+    health: HarnessHealth,
+    auth_status: AuthStatus,
+}
+
+impl CheckedHarness {
+    fn new(health: HarnessHealth) -> Self {
+        let auth_status = if health.path.is_none() {
+            AuthStatus::NotInstalled
+        } else {
+            match health.auth {
+                Auth::SignedIn => AuthStatus::Detected,
+                // An expired credential is recovered like a sign-out: the login command.
+                Auth::SignedOut | Auth::Expired => AuthStatus::SignedOut,
+                Auth::Unknown
+                    if health.auth_detail.as_deref()
+                        == Some(acpmux::launch_policy::DISABLED_MESSAGE) =>
+                {
+                    AuthStatus::Unknown
+                }
+                Auth::Unknown if health.auth_detail.is_some() => AuthStatus::NeedsAction,
+                Auth::Unknown => AuthStatus::Unknown,
+            }
+        };
+        Self { health, auth_status }
+    }
+}
 
 struct Request {
     ids: BTreeSet<String>,
@@ -127,13 +167,17 @@ fn check(ids: &BTreeSet<String>) -> Result<(Vec<Value>, Value), Refusal> {
     Ok((harnesses, user_action))
 }
 
-/// Every configured or discovered harness. UniiChat is offered on every
-/// machine (the bundled adapter, nothing to install), so it counts only
-/// when it is named or has a profile.
+/// Every configured or discovered harness. UniiChat and the Chief are
+/// offered on every machine (the bundled adapter and this binary's
+/// `chief acp`: nothing to install or sign in), so each counts only when it
+/// is named or has a profile. A check never starts the person's Chief.
 fn found(cfg: &Config) -> BTreeSet<String> {
     cfg.harnesses
         .keys()
-        .filter(|id| !(id.as_str() == UNIICHAT_PROFILE && cfg.discovered.contains(*id)))
+        .filter(|id| {
+            !([UNIICHAT_PROFILE, CHIEF_PROFILE].contains(&id.as_str())
+                && cfg.discovered.contains(*id))
+        })
         .cloned()
         .collect()
 }
@@ -152,7 +196,7 @@ fn shipped(id: &str) -> Option<(HarnessProfile, ProfileMeta)> {
 
 /// acpmux's health check of `ids`, with an unknown sign-in asked of each
 /// installed harness.
-async fn health(cfg: &Config, ids: &BTreeSet<String>) -> Vec<HarnessHealth> {
+async fn health(cfg: &Config, ids: &BTreeSet<String>) -> Vec<CheckedHarness> {
     let subjects = ids
         .iter()
         .filter_map(|id| {
@@ -173,34 +217,41 @@ async fn health(cfg: &Config, ids: &BTreeSet<String>) -> Vec<HarnessHealth> {
 /// check explained (a provider credential that is not set) stays as it
 /// said, and a harness whose sign-in may be in the login keychain is not
 /// asked: setup reads no keychain itself, as the check does not (cx-hh0vu).
-async fn ask(cfg: &Config, mut row: HarnessHealth) -> HarnessHealth {
+async fn ask(cfg: &Config, row: HarnessHealth) -> CheckedHarness {
+    let mut checked = CheckedHarness::new(row);
+    let row = &mut checked.health;
     if row.auth != Auth::Unknown || row.auth_detail.is_some() || row.path.is_none() {
-        return row;
+        return checked;
     }
     if acpmux::launch_policy::agent_launch_disabled() {
         row.auth_detail = Some("agent launches are off, so setup did not ask the harness".into());
-        return row;
+        return checked;
     }
-    let Some(profile) = cfg.harnesses.get(&row.id) else { return row };
+    let Some(profile) = cfg.harnesses.get(&row.id) else { return checked };
     if let Some(why) = acpmux::harness_health::keychain_sign_in(&row.id, profile) {
         row.auth_detail = Some(format!(
             "the sign-in may be in the login keychain ({why}), which setup does not read"
         ));
-        return row;
+        return checked;
     }
     match harness_login::auth_state(cfg, &row.id, ASK_TIMEOUT).await {
         Ok(AuthState::SignedIn { .. }) => {
             row.auth = Auth::SignedIn;
+            checked.auth_status = AuthStatus::Detected;
             row.auth_detail = Some("the harness answered `session/new`".into());
         }
         Ok(AuthState::Required { message, .. }) => {
             row.auth = Auth::SignedOut;
+            checked.auth_status = AuthStatus::SignedOut;
             row.auth_detail = Some(message);
         }
         Ok(AuthState::NotAcp { hint }) => row.auth_detail = Some(hint),
-        Err(error) => row.auth_detail = Some(format!("{error:#}")),
+        Err(error) => {
+            row.auth_detail = Some(format!("{error:#}"));
+            checked.auth_status = AuthStatus::NeedsAction;
+        }
     }
-    row
+    checked
 }
 
 /// The daemon's last check (`<acpmux home>/harness-health.json`), for the
@@ -216,8 +267,9 @@ fn report(
     cfg: &Config,
     configured: &BTreeSet<String>,
     saved: &[HarnessHealth],
-    row: HarnessHealth,
+    checked: CheckedHarness,
 ) -> Value {
+    let CheckedHarness { health: row, auth_status } = checked;
     let meta = cfg.profile_meta.get(&row.id);
     let name = meta.and_then(|meta| meta.display_name.clone()).unwrap_or_else(|| row.id.clone());
     let configured = configured.contains(&row.id);
@@ -239,13 +291,29 @@ fn report(
         // profile's own login command signs in one that is not yet.
         let command = match (configured, &row.login) {
             (false, Some(login)) => login.clone(),
-            _ => format!("cmux harness login {}", super::super::fix_command::quote_arg(&row.id)),
+            _ => harness_command("login", &row.id, ""),
         };
         json!({
             "kind": "oauth",
             "text": format!(
                 "Sign in to {name}: run `{command}` in a terminal and finish the sign-in it opens"
             ),
+            "command": command,
+            "url": Value::Null,
+        })
+    } else if matches!(auth_status, AuthStatus::NeedsAction) {
+        // Do not route provider configuration, network, or protocol failures
+        // through OAuth. Keep the profile's command/env and send no model turn.
+        let id = super::super::fix_command::quote_arg(&row.id);
+        let command = if configured {
+            harness_command("doctor", &row.id, "--no-prompt --json")
+        } else {
+            // An unsaved shipped example is understood only by setup.
+            format!("cmux setup harness {id}")
+        };
+        json!({
+            "kind": "check",
+            "text": format!("Could not verify {name}'s sign-in. Inspect auth_detail and the profile's provider settings, then run `{command}`. This does not establish token validity or the expected account."),
             "command": command,
             "url": Value::Null,
         })
@@ -267,12 +335,27 @@ fn report(
             Auth::Unknown => None,
         },
         "auth_detail": row.auth_detail,
+        "auth_status": auth_status,
+        "recovery": user_action,
         "outdated": outdated,
         "latest": latest,
         "update": row.update.filter(|_| outdated == Some(true)).map(|plan| plan.command),
         "problem": row.problem,
         "user_action": user_action,
     })
+}
+
+/// Profile ids can also come from config.json; quote shell syntax and keep
+/// a leading dash from becoming a CLI option.
+fn harness_command(verb: &str, id: &str, flags: &str) -> String {
+    let quoted = super::super::fix_command::quote_arg(id);
+    if id.starts_with('-') {
+        format!("cmux harness {verb} {flags} -- {quoted}")
+    } else {
+        format!("cmux harness {verb} {quoted} {flags}")
+    }
+    .trim_end()
+    .to_owned()
 }
 
 /// The install docs a profile names.

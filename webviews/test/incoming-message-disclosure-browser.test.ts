@@ -254,7 +254,8 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       const text = row.locator(".cv-received__text");
       await text.getByText(LAST).waitFor({ timeout: 5_000 });
       expect(await text.locator("p").count()).toBe(40);
-      expect(await row.locator(".cv-received__from-line").innerText()).toBe("From: Grid fix");
+      // No From: line in the panel: the line names the sender once.
+      expect(await row.locator(".cv-received__from-line").count()).toBe(0);
       // Nothing in the panel is cut with an ellipsis, and the text box hides none of its text.
       const clipped = await row.locator(".cv-disclosure__panel").evaluate((panel) =>
         [panel, ...panel.querySelectorAll<HTMLElement>("*")]
@@ -415,7 +416,92 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
     }
   });
 
-  test("messages queued behind the running turn draw after it, one Read after this turn over the first", async () => {
+  // Leo, 2026-10-29: "this ui is all quite inconsistent". A delivered message and one that waits
+  // are one row: their chevrons end on one x, one plate under the line, actions only on hover.
+  test("a delivered message and a waiting one draw the same line: one chevron column, actions on hover", async () => {
+    const page = await openChat(
+      [
+        ...turn(1),
+        fromAgent("Landed #24001; nightly is building.", "lint-lane", "child-1", "m-1"),
+        prompt("Add retries to the fetch helper"),
+        reply("Reading the helper now."),
+        record("queued", {
+          text: "Docs are rebuilt for the 2.3 release notes.",
+          promptId: "q-2",
+          fromAgent: "docs-lane",
+          position: 0,
+        }),
+      ],
+      "Reading the helper now.",
+      true,
+      [{ promptId: "q-2", prompt: "Docs are rebuilt for the 2.3 release notes." }],
+    );
+    try {
+      await page.locator(".cv-pending__toggle").click();
+      const rows = page.locator(".cv-received");
+      await rows.nth(1).waitFor({ timeout: 10_000 });
+      const lines = await rows.evaluateAll((all) =>
+        all.map((row) => {
+          const line = row.querySelector<HTMLElement>(":scope > .cv-disclosure__line")!;
+          const chevron = line.querySelector<HTMLElement>(".cv-rotor")!.getBoundingClientRect();
+          const hover = line.querySelector<HTMLElement>(".cv-received__hover");
+          return {
+            right: Math.round(chevron.right),
+            open: Boolean(line.querySelector(".cv-disclosure__open")),
+            groups: line.querySelectorAll(".cv-received-actions").length,
+            hidden: hover ? getComputedStyle(hover).opacity : "missing",
+          };
+        }),
+      );
+      expect(lines).toHaveLength(2);
+      expect(lines[0]!.right).toBe(lines[1]!.right);
+      for (const line of lines) {
+        expect(line.open).toBe(false);
+        expect(line.groups).toBe(1);
+        expect(line.hidden).toBe("0");
+      }
+      expect(await page.getByText(/Read after this|Open chat|^From:/).count()).toBe(0);
+      // Hovered, the actions show in the line's own plate, and the chevron stays put.
+      await rows.nth(1).locator(":scope > .cv-disclosure__line").hover();
+      // Measure the revealed controls after their transition, not in its first frame.
+      const actions = await rows.nth(1).locator(".cv-received__hover").elementHandle();
+      try {
+        await page.waitForFunction((node) => node !== null && getComputedStyle(node).opacity === "1", actions, {
+          timeout: 5_000,
+        });
+      } finally {
+        await actions?.dispose();
+      }
+      const hovered = await rows.nth(1).evaluate((row) => {
+        const line = row.querySelector<HTMLElement>(":scope > .cv-disclosure__line")!;
+        return {
+          plate: getComputedStyle(line).backgroundColor,
+          shown: getComputedStyle(line.querySelector<HTMLElement>(".cv-received__hover")!).opacity,
+          right: Math.round(line.querySelector<HTMLElement>(".cv-rotor")!.getBoundingClientRect().right),
+        };
+      });
+      // The trailing controls share the row's one gap (Leo, 2026-10-29: "the odd gap betwene the pin
+      // and the ellipsis"): every visible control is the same distance from the next.
+      const gaps = await rows.nth(1).evaluate((row) => {
+        const controls = [...row.querySelectorAll<HTMLElement>(".cv-received__hover .cv-message-footer-row > *")]
+          .filter((node) => getComputedStyle(node).display !== "none" && node.getBoundingClientRect().width > 0)
+          .map((node) => node.getBoundingClientRect());
+        return controls.slice(1).map((box, index) => Math.round(box.left - controls[index]!.right));
+      });
+      // Another session's waiting message has its ⋯ alone: no Pin and no hover Copy beside it (Leo,
+      // 2026-10-30: "weird to be able to pin them etc"), so no gap is left to differ.
+      expect(new Set(gaps).size).toBeLessThanOrEqual(1);
+      expect(await rows.locator(".cv-received__hover .cv-message-pin").count()).toBe(0);
+      expect(await rows.locator('.cv-received__hover .cv-message-footer-row [aria-label="Copy"]').count()).toBe(0);
+      expect(hovered.plate).not.toBe("rgba(0, 0, 0, 0)");
+      expect(hovered.shown).toBe("1");
+      expect(hovered.right).toBe(lines[1]!.right);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("messages queued behind the running turn draw after it, in one group, no Read after this turn", async () => {
     const page = await openChat(
       [
         ...turn(1),
@@ -432,26 +518,23 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       ],
     );
     try {
-      const rows = page.locator(".cv-received");
-      await rows.nth(1).waitFor({ timeout: 10_000 });
-      expect(await rows.count()).toBe(2);
-      expect(await rows.locator(".cv-received__from").allInnerTexts()).toEqual(["lint-lane", "docs-lane"]);
-      // The note is said once, over the first queued message's line, not on each line.
-      const heads = page.locator(".cv-received__queued-head");
-      expect(await heads.allInnerTexts()).toEqual(["Read after this turn"]);
-      expect(await page.getByText("Read after this turn").count()).toBe(1);
-      expect(await page.locator(".cv-disclosure__line .cv-received__queued").count()).toBe(0);
-      expect(
-        await heads.evaluate((head) => head.closest("[data-queued-message]")?.getAttribute("data-queued-message")),
-      ).toBe("q-1");
-      const headBottom = await heads.evaluate((el) => el.getBoundingClientRect().bottom);
-      expect(await topOf(rows.first())).toBeGreaterThanOrEqual(headBottom - 0.5);
-      // After the running turn: below the turn's reply, in the queue's order.
+      // One collapsed group after the running turn, with no "Read after this turn" (Leo,
+      // 2026-10-29: "why the fuck do you guys keep doing this fucking bullshit with the red after
+      // this turn?"); opened, a line per message in the queue's order.
+      const toggle = page.locator(".cv-pending__toggle");
+      await toggle.waitFor({ timeout: 10_000 });
+      expect(await toggle.count()).toBe(1);
+      expect(await page.getByText(/Read after this (turn|step)/).count()).toBe(0);
       const replyBottom = await page
         .getByText("Reading the helper now.")
         .first()
         .evaluate((el) => el.getBoundingClientRect().bottom);
-      expect(await heads.evaluate((el) => el.getBoundingClientRect().top)).toBeGreaterThanOrEqual(replyBottom);
+      expect(await topOf(toggle)).toBeGreaterThanOrEqual(replyBottom);
+      await toggle.click();
+      const rows = page.locator(".cv-received");
+      await rows.nth(1).waitFor({ timeout: 10_000 });
+      expect(await rows.count()).toBe(2);
+      expect(await rows.locator(".cv-received__from").allInnerTexts()).toEqual(["lint-lane", "docs-lane"]);
       expect(await topOf(rows.nth(1))).toBeGreaterThan(await topOf(rows.first()));
       // No composer-queue row for them.
       expect(await page.locator(".acpmux-queued").count()).toBe(0);
