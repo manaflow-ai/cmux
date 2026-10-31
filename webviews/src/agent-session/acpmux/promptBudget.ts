@@ -107,3 +107,13 @@ function originalLink(image: ComposerAttachment): ComposerAttachment {
     saved: true,
   };
 }
+
+/// Stub: filled by the fix.
+export function uploadsToFit(
+  _input: string,
+  _attachments: ComposerAttachment[],
+  _options: InlineReadOptions = {},
+  _budget = PROMPT_INLINE_BUDGET,
+): ComposerAttachment[] {
+  return [];
+}
