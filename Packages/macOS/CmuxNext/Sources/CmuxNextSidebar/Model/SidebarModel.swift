@@ -11,6 +11,9 @@ public import Observation
 /// the mock runs standalone.
 @Observable @MainActor
 public final class SidebarModel {
+    /// Effective New Workspace keycaps supplied by the app action registry; nil when unbound.
+    public var newWorkspaceShortcut: String?
+
     /// Pinned area first (optional), then one section per machine. A set is
     /// a structural change (`sectionsRevision` moves, the list reloads); a row
     /// content change goes through `patchWorkspaces` and reloads nothing.
@@ -209,10 +212,6 @@ public final class SidebarModel {
     public var updatedCard: SidebarUpdatedCard?
     /// The Now Playing card (cx-ouoxo), shown only while ``updateCard`` is nil.
     public var nowPlaying: SidebarNowPlaying?
-    /// Whether each workspace expands to show its intra-workspace tabs.
-    public var showWorkspaceTabs = false
-    /// The workspaces whose disclosure hid their tabs: window view state.
-    public var collapsedWorkspaces: Set<WorkspaceID> = []
     /// What workspace rows show (`sidebar.workspaceRow.*`).
     public var workspaceRow = WorkspaceRowPreferences.defaults
     /// How rows show their state (`SidebarRowBadgeStyle`); nil follows the Debug setting.
@@ -257,12 +256,28 @@ public final class SidebarModel {
     /// sidebar comes back at the user's width.
     public var width: CGFloat = Metrics.sidebarWidth {
         didSet {
-            let clamped = min(max(width, Self.widthRange.lowerBound), Self.widthRange.upperBound)
+            let clamped = min(max(width, widthRange.lowerBound), widthRange.upperBound)
             if clamped != width { width = clamped }
         }
     }
 
-    public static var widthRange: ClosedRange<CGFloat> { Metrics.sidebarMinWidth...Metrics.sidebarMaxWidth }
+    /// The width the sidebar's titlebar row needs so its controls never overlap: the window's
+    /// traffic lights and toolbar band, then the + (`SidebarView.titlebarControlsWidth`, set from
+    /// the window's layout). Raising it clamps a narrower `width` at once, so a width saved below
+    /// it comes back wide enough (Lawrence 2026-10-30: Forward drew over the + at 160 pt).
+    public var titlebarControlsWidth: CGFloat = 0 {
+        didSet {
+            guard titlebarControlsWidth != oldValue, width < minimumWidth else { return }
+            width = minimumWidth
+        }
+    }
+
+    /// The narrowest the sidebar gets: the `sidebarMinWidth` tunable or what the titlebar row's
+    /// controls need, whichever is wider.
+    public var minimumWidth: CGFloat { max(Metrics.sidebarMinWidth, titlebarControlsWidth) }
+
+    /// The widths the sidebar may take: from ``minimumWidth`` to the `sidebarMaxWidth` tunable.
+    public var widthRange: ClosedRange<CGFloat> { minimumWidth...max(minimumWidth, Metrics.sidebarMaxWidth) }
 
     /// Receives every intent. When nil, `send` applies intents locally.
     @ObservationIgnored public var onIntent: ((SidebarIntent) -> Void)?
@@ -372,7 +387,7 @@ public final class SidebarModel {
         case let .select(id):
             activeWorkspaceID = id
             selection = [id]
-        case .selectTab, .moveTab, .closeTab:
+        case .selectTab:
             break
         case let .closeGroup(id):
             let ids = group(id)?.workspaces.map(\.id) ?? []
@@ -423,7 +438,7 @@ public final class SidebarModel {
 
     /// Row content of listed workspaces (status, title, unread, progress, icon), written in place with no structural
     /// change, then told to `onRowsPatched`; a row this window does not list is skipped. False, writing nothing, when the
-    /// change moves rows (filter, folder buckets, listed tabs); the caller then sets the sections.
+    /// change moves rows (filter, folder buckets, the Done fold, the row limit); the caller then sets the sections.
     public func patchWorkspaces(_ rows: [SidebarWorkspace]) -> Bool {
         guard !rows.isEmpty else { return true }
         if rowIndex == nil { rowIndex = SidebarRowIndex(storedSections) }
@@ -441,6 +456,10 @@ public final class SidebarModel {
             row.isArchived = old.isArchived // the document's, set by `arrange`; the feed does not know it
             guard row != old else { continue }
             guard !movesRows(from: old, to: row) else { return false }
+            // A rename into or out of the name of a group it is the one member of changes the group's rows: one row in
+            // the header's place, or a header over a member row (`SidebarLayout+SoleMember`).
+            // Each listed copy against its own title (a workspace may be listed twice).
+            guard !paths.contains(where: { renamesSoleMember(at: $0, to: row.title) }) else { return false }
             for path in paths {
                 // Each listed copy keeps its own row state (a saved stale row beside the live one).
                 var copy = row
@@ -452,6 +471,13 @@ public final class SidebarModel {
         for (path, row) in writes { SidebarRowIndex.set(row, at: path, in: &storedSections) }
         if !patched.isEmpty { onRowsPatched?(patched) }
         return true
+    }
+
+    private func renamesSoleMember(at path: SidebarRowIndex.Path, to new: String) -> Bool {
+        guard path.member != nil, case let .group(group) = storedSections[path.section].nodes[path.node],
+              group.members.count == 1 else { return false }
+        let old = SidebarRowIndex.workspace(at: path, in: storedSections).title
+        return old != new && SidebarLayout.names(group, old) != SidebarLayout.names(group, new)
     }
 
     /// Whether these sections list workspace `id`: O(1) through `rowIndex`
@@ -533,8 +559,6 @@ public final class SidebarModel {
 
     /// The `sidebar.*` settings that shape the workspace list.
     func applyListPreferences(_ preferences: SidebarSectionsPreferences) {
-        // Minimal mode lists no tab rows under a workspace.
-        showWorkspaceTabs = preferences.showWorkspaceTabs && !preferences.minimal
         workspaceRow = preferences.workspaceRow
         (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
         detailedStatus = preferences.detailedStatusIcons
@@ -549,19 +573,11 @@ public final class SidebarModel {
         if style != preferences.style { (style, isRailOpen) = (preferences.style, false) }
     }
 
-    /// The disclosure on a workspace row: hide its listed tabs, or list them again.
-    public func toggleWorkspaceTabs(_ id: WorkspaceID) {
-        if collapsedWorkspaces.remove(id) == nil { collapsedWorkspaces.insert(id) }
-    }
-
     /// The list layout's options that come from the model.
     func listOptions() -> SidebarLayoutOptions {
         var o = SidebarLayoutOptions()
         o.filterMatches = filterMatches
-        // Workspaces as tabs lists no tab rows under a workspace, as minimal mode.
         (o.workspacesAsTabs, o.foldsDone, o.rowLimit) = (SidebarTunables.workspacesAsTabs.value, SidebarTunables.doneFold.value, SidebarTunables.rowLimit)
-        o.showWorkspaceTabs = showWorkspaceTabs && !o.workspacesAsTabs
-        o.collapsedWorkspaces = collapsedWorkspaces
         o.activeWorkspaceID = activeWorkspaceID
         // A group opened by a structural set (another client) forgets its revealed members.
         revealedMembers = revealedMembers.filter { group($0.key)?.isCollapsed == true }

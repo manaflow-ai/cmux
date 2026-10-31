@@ -21,6 +21,7 @@ export function WrapButton({ kind, className = "cv-codeblock__action" }: { kind:
       type="button"
       className={className}
       aria-pressed={wrap}
+      data-fold-toggle=""
       aria-label={t("changes.wrapLines")}
       onClick={toggle}
     >
@@ -32,14 +33,14 @@ export function WrapButton({ kind, className = "cv-codeblock__action" }: { kind:
 /// A block's preview: whether it is long enough to cut (more than `PREVIEW_LINES` lines), and
 /// whether the reader opened it. `data-preview` on its body is "cut" or "all", absent when it fits.
 /// Each new `reveal` (Find in Chat revealed the block, and a match may be past the cut) opens it.
-export function usePreview(lines: number, reveal = 0) {
+export function usePreview(lines: number, reveal = 0, overflows = false) {
   const [all, setAll] = useState(reveal > 0);
   const [revealed, setRevealed] = useState(reveal);
   if (reveal !== revealed) {
     setRevealed(reveal);
     if (reveal > 0) setAll(true);
   }
-  const long = lines > PREVIEW_LINES;
+  const long = lines > PREVIEW_LINES || overflows;
   return {
     long,
     cut: long && !all,

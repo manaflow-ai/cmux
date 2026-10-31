@@ -2,9 +2,9 @@
    narrow pane gets a popover; a wide pane reserves a quiet column beside the chat and composer.
    Rows are 28px, text truncates, and every control follows the Motion hover fade. */
 /* The button is the header's panel toggle (header/PanelToggle.tsx, header.css .acpmux-header-tool). */
-.acpmux-summary-card{display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--ui-popup-radius);color:var(--agent-text);font-size:var(--text-control);line-height:18px;background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);letter-spacing:var(--text-control--letter-spacing)}
-.acpmux-summary-card[data-placement=popover]{position:absolute;z-index:var(--layer-sticky);top:48px;right:10px;width:min(288px,calc(100% - 20px));max-height:calc(100% - 60px);border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation)}
-.acpmux-summary-card[data-placement=inline]{position:relative;flex:0 0 var(--acpmux-summary-column-width);min-width:0;max-height:100%;overflow:hidden;padding:8px 8px 10px;border-left:var(--cmux-hairline, .5px) solid var(--agent-border);background:var(--agent-page-bg)}
+.acpmux-summary-card{display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--ui-popup-radius);color:var(--agent-text);font-size:var(--text-control);line-height:18px;letter-spacing:var(--text-control--letter-spacing);--glass-elevation:var(--ui-popup-drop);--glass-edge:var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent));/* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */--glass-opaque:var(--surface-popup)}
+.acpmux-summary-card[data-placement=popover]{position:absolute;z-index:var(--layer-sticky);top:48px;right:10px;width:min(288px,calc(100% - 20px));max-height:calc(100% - 60px);border-radius:var(--ui-popup-radius)}
+.acpmux-summary-card[data-placement=inline]{position:relative;flex:0 0 var(--acpmux-summary-column-width);min-width:0;max-height:100%;overflow:hidden;padding:8px 8px 10px;border-left:var(--cmux-hairline, .5px) solid var(--agent-border);background:var(--agent-page-bg);box-shadow:var(--acpmux-popup-elevation)}
 .acpmux-summary-card--reserve{visibility:hidden;pointer-events:none}
 .acpmux-main[data-summary=inline]{min-width:0}
 /* The inline Summary is beside the chat, not inside its stage: it must leave the native shared
@@ -182,7 +182,7 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
   background: none;
   color: var(--agent-muted);
   font: inherit;
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-pr-dock__bar:focus-visible,
 .acpmux-pr-dock__more:focus-visible {
@@ -219,7 +219,9 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
 .cv-inline-tail{display:inline-flex;align-items:baseline;gap:8px;max-width:100%;vertical-align:baseline}
 .cv-inline-tail>span:first-child{min-width:0;overflow-wrap:anywhere}
 .cv-inline-tail>.acpmux-pr-dock{flex:0 1 220px;width:220px;max-width:45vw;height:1lh;vertical-align:baseline}
-.cv-codeblock__header:has(.acpmux-pr-dock)>span:not(.cv-codeblock__actions){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The code block's label already truncates beside any actions (conversation.css `.cv-codeblock__header >
+   span`); a `:has(.acpmux-pr-dock)` copy of that rule here made every node inserted in the pane restyle
+   the spans under it (pane-has-restyle.browser.test.ts). */
 .cv-codeblock__actions:has(>.acpmux-pr-dock){min-width:0;flex:1;justify-content:flex-end}
 .cv-block-tail{display:flex;align-items:flex-end;gap:8px;min-width:0}
 .cv-block-tail>div:first-child{flex:1;min-width:0}
@@ -229,18 +231,18 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
 .cv-md>.cv-block-tail:last-child>div:first-child>:last-child{margin-bottom:0}
 .cv-block-tail>.acpmux-pr-dock{flex:0 1 220px;max-width:45%;height:1lh}
 .cv-received__line:has(>.acpmux-pr-dock)>.cv-received__name{flex:0 1 auto;min-width:0}
-/* Keep the links visible while the existing action buttons retain their hover behavior. */
-.acpmux-turnSummary .cv-turn-actions:has(> .acpmux-pr-dock),
-.cv-reply-actions:has(> .acpmux-pr-dock) {
+/* Keep the links visible while the existing action buttons retain their hover behavior. The row
+   that holds the links says so itself (`data-pr-dock`, useHasPullRequestDock in PullRequestDock.tsx):
+   a `:has(> .acpmux-pr-dock)` here, followed by `> :not(...)`, made every node inserted in the pane
+   restyle the whole pane (pane-has-restyle.browser.test.ts). */
+.acpmux-turnSummary .cv-turn-actions[data-pr-dock],
+.cv-reply-actions[data-pr-dock] {
   opacity: 1;
 }
 .acpmux-turnSummary:not([data-turn-revealed]):not(:hover):not(:focus-within)
-  .cv-turn-actions:not(.cv-turn-actions--failed):not(.cv-turn-actions--resumable):has(
-    > .acpmux-pr-dock
-  )
+  .cv-turn-actions:not(.cv-turn-actions--failed):not(.cv-turn-actions--resumable)[data-pr-dock]
   > :not(.acpmux-pr-dock),
-.acpmux-assistant:not(:hover):not(:focus-within)
-  .cv-reply-actions:has(> .acpmux-pr-dock) > :not(.acpmux-pr-dock) {
+.acpmux-assistant:not(:hover):not(:focus-within) .cv-reply-actions[data-pr-dock] > :not(.acpmux-pr-dock) {
   opacity: 0;
 }
 /* Retained gallery comparisons, isolated from the selected inline treatment. */
@@ -321,7 +323,7 @@ html[data-pr-dock-layout="beside"] .acpmux-pr-comparison[data-mode="compact"] .a
 .acpmux-workflow__columns{display:grid;grid-template-columns:minmax(100px,.8fr) minmax(0,1.2fr);gap:8px}
 .acpmux-workflow__columns h4{margin:0 0 4px;color:var(--agent-muted);font-size:var(--text-detail);font-weight:500;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-workflow__phase,.acpmux-workflow__agent{display:flex;align-items:center;gap:4px;min-width:0;min-height:24px;padding:4px;box-sizing:border-box;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-workflow__phase{width:100%;justify-content:space-between;border:0;border-radius:5px;background:none;text-align:start;cursor:pointer}
+.acpmux-workflow__phase{width:100%;justify-content:space-between;border:0;border-radius:5px;background:none;text-align:start;cursor:default}
 .acpmux-workflow__phase:hover,.acpmux-workflow__phase[aria-pressed=true]{background:var(--acpmux-pill-hover);color:var(--agent-text)}
 .acpmux-workflow__phase>span:first-child,.acpmux-workflow__agent>.acpmux-summary-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-workflow__phase>span:last-child{flex:none;text-transform:capitalize}
@@ -330,11 +332,11 @@ html[data-pr-dock-layout="beside"] .acpmux-pr-comparison[data-mode="compact"] .a
 .acpmux-workflow__agent[data-selected=true]{border-radius:var(--ui-row-radius);background:var(--acpmux-pill-fill);color:var(--agent-text)}
 .acpmux-workflow__agent>.acpmux-summary-text{display:flex;flex:1;flex-direction:column}
 .acpmux-workflow__doing{overflow:hidden;color:var(--agent-soft);text-overflow:ellipsis;white-space:nowrap}
-.acpmux-workflow__transcript{display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;padding:0;border:0;border-radius:4px;background:none;color:var(--agent-muted);cursor:pointer}
+.acpmux-workflow__transcript{display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;padding:0;border:0;border-radius:4px;background:none;color:var(--agent-muted);cursor:default}
 .acpmux-workflow__transcript:hover{background:var(--acpmux-pill-hover);color:var(--agent-text)}
 .acpmux-workflow__selected{display:block;margin-top:5px;color:var(--agent-soft);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-workflow__actions{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;padding-top:8px;border-top:var(--cmux-hairline,.5px) solid var(--agent-border)}
-.acpmux-workflow__actions button{min-height:24px;padding:0 8px;border:0;border-radius:5px;background:var(--acpmux-pill-fill);color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:pointer;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-workflow__actions button{min-height:24px;padding:0 8px;border:0;border-radius:5px;background:var(--acpmux-pill-fill);color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:default;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-workflow__actions button:hover{background:var(--acpmux-pill-hover)}
 .acpmux-workflow__actions button:focus-visible,.acpmux-workflow__phase:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 /* A card with nothing to list: one quiet line, and Attach files or folders when Sources has none (SummaryBody.tsx). */

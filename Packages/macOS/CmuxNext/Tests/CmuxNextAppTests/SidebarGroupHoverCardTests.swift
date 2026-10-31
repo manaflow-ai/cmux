@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 import CmuxNextWakeupsTestSupport
 
@@ -8,7 +9,7 @@ import CmuxNextWakeupsTestSupport
 /// card, like summary stuff, and should be fully customizable too." Resting on a sidebar group's
 /// header for the group delay opens the shared group summary card; a shorter rest (a sweep) opens
 /// none, and `sidebar.hoverCards.groups.workspaceGroups` off opens none at all.
-@MainActor @Suite(.serialized) struct SidebarGroupHoverCardTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarGroupHoverCardTests {
     private static let groupID = GroupID("grp-agents")
 
     private static func sidebar(clock: ManualClock) -> (SidebarListView, NSWindow, HoverCardCoordinator, SidebarRow) {

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -9,7 +10,7 @@ import Testing
 /// drawn offscreen in each layout, light and dark (Soft Blue), with an open group (a member selected), a subgroup and a
 /// collapsed group. Written as PNGs under `group-line-gallery/` in the package and bundled to `group-line-gallery.tar`
 /// for `cmux-ci run --artifact`. Runs only with `CMUX_TEST_REQUIRE_GUI=1`.
-@MainActor @Suite(.serialized) struct AAGroupLineGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AAGroupLineGalleryTests {
     static func sections() -> [SidebarSection] {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         func ws(_ id: String) -> SidebarWorkspace { SidebarWorkspace(id: WorkspaceID(id), title: id) }
@@ -73,6 +74,15 @@ import Testing
                     CGImageDestinationAddImage(dest, image, nil)
                     #expect(CGImageDestinationFinalize(dest))
                 }
+            }
+        }
+        try SidebarGroupChromeShapeTests.withShape(true) {
+            for (mode, theme, dark) in [("light", "Soft Blue Light", false), ("dark", "Soft Blue", true)] {
+                let image = try Self.render(theme: theme, dark: dark)
+                let url = out.appending(path: "connected-\(mode).png")
+                let dest = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))
+                CGImageDestinationAddImage(dest, image, nil)
+                #expect(CGImageDestinationFinalize(dest))
             }
         }
         let tar = Process()

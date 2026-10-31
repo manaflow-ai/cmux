@@ -73,6 +73,21 @@ export default changelogPageEntry({
       note: "Ledger (default, u5099): conductor.build/changelog's layout. Each day's newest version as a small mono tag and its date sticky in the left margin; New / Improved / Fixed as headings over bullet lists.",
       notes: journalNotes,
     },
+    "ledger-wide": {
+      note: "Layout variant: full-pane Ledger with 24–32px margins, compact version/date rail, and descriptions that use the available width.",
+      notes: journalNotes,
+      route: "#/?design=ledger",
+    },
+    "ledger-two-up": {
+      note: "Layout variant: wide Ledger rows place the full description beside its media in a responsive two-column grid, stacking on narrow panes.",
+      notes: journalNotes,
+      route: "#/?design=ledger",
+    },
+    "ledger-glass": {
+      note: "Layout variant: the same full-width Ledger with shared glass tokens and material on media frames and item surfaces.",
+      notes: journalNotes,
+      route: "#/?design=ledger",
+    },
     "clips-alternate": {
       note: "What's New after an update, each change with its clip (Leo 2026-10-24: \"it's like you're not even showing anything properly off\"). Alternate: the clip beside its words, sides taking turns. Clips recorded on the fleet by whats-new-clips.py, at their own size.",
       notes: clipNotes,

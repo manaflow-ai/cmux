@@ -196,6 +196,41 @@ fn cloud_is_an_app_scope() {
     assert!(APP_SCOPES.contains(&"cloud"));
 }
 
+/// `cmux home invite-to-team --email …` (and its alias `cmux team invite`) runs
+/// the app's `home.inviteToTeam`, whose dialog waits for the person's Send, so
+/// the CLI (and `cmux mcp`) wait as long as the app's person deadline.
+#[test]
+fn invite_to_team_runs_the_home_action_and_waits_for_the_person() {
+    for words in [
+        &["home", "invite-to-team", "--email", "leo@cmux.com"][..],
+        &["team", "invite", "--email", "leo@cmux.com"][..],
+    ] {
+        let sent = match parse(&args(words)) {
+            Ok(Some(AppCommand::Call { method, params, timeout, .. })) => {
+                Some((method, params, timeout))
+            }
+            _ => None,
+        };
+        assert!(sent.is_some(), "{words:?}: expected one action.run call");
+        if let Some((method, params, timeout)) = sent {
+            assert_eq!(timeout, Some(PERSON_RUN_TIMEOUT), "{words:?}");
+            assert_eq!(method, "action.run");
+            assert_eq!(params["action"], "home invite-to-team", "{words:?}");
+            assert_eq!(params["args"], json!({ "email": "leo@cmux.com" }), "{words:?}");
+        }
+    }
+    assert_eq!(waiting_run_timeout("home.inviteToTeam"), PERSON_RUN_TIMEOUT);
+}
+
+/// A bare `cmux team invite` (nothing after the verb) still runs Invite to Team, with no arguments.
+#[test]
+fn a_bare_team_invite_runs_the_home_action_with_no_arguments() {
+    let (method, params) = call(parse(&args(&["team", "invite"])).unwrap().unwrap());
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "home invite-to-team");
+    assert!(params.get("args").is_none_or(|a| a == &json!({})), "{params}");
+}
+
 #[test]
 fn action_runs_wait_by_default_and_no_wait_opts_out() {
     let (_, params) = call(parse(&args(&["action", "run", "window.new"])).unwrap().unwrap());
@@ -1481,4 +1516,128 @@ fn open_link_refuses_files_workspaces_and_stray_flags_without_echoing_urls() {
             "{stray:?} needs --link"
         );
     }
+}
+
+/// The app's `not_found` for an unknown CLI action has no reason; an action whose target names
+/// nothing gives one, and that reaches the caller instead of reading as a missing command.
+#[test]
+fn a_missing_target_is_not_a_missing_action() {
+    let unknown =
+        serde_json::json!({"code": "not_found", "message": "Unknown action 'share chat'"});
+    assert!(!names_a_target(&unknown));
+    let missing = serde_json::json!({"code": "not_found", "message": "No agent chat is on surface 99.",
+        "data": {"action": "share chat", "reason": "No agent chat is on surface 99."}});
+    assert!(names_a_target(&missing));
+}
+
+/// `cmux workspace group create --remote HOST` is the app's New Remote Group
+/// (plans/cmux-next/remote-groups-DESIGN.md): the sidebar document holds remote
+/// groups, so the app makes it, with the group's name when one is given.
+#[test]
+fn workspace_group_create_remote_runs_new_remote_group() {
+    let (method, params) = call(
+        parse(&args(&["workspace", "group", "create", "--remote", "mini", "--name", "Mini"]))
+            .unwrap()
+            .expect("an app command"),
+    );
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "remote.newGroup");
+    assert_eq!(params["args"], json!({ "destination": "mini", "name": "Mini" }));
+    assert_eq!(params["wait"], true);
+    let (_, params) =
+        call(parse(&args(&["workspace", "group", "create", "--remote=box"])).unwrap().unwrap());
+    assert_eq!(params["args"], json!({ "destination": "box" }));
+}
+
+/// `--parent GROUP` makes a nested group (New Subgroup) inside GROUP, named.
+#[test]
+fn workspace_group_create_parent_runs_new_subgroup() {
+    let (method, params) = call(
+        parse(&args(&["workspace", "group", "create", "--parent", "grp_1", "--name", "API"]))
+            .unwrap()
+            .expect("an app command"),
+    );
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "workspaceGroup.newSubgroup");
+    assert_eq!(params["args"], json!({ "group": "grp_1", "name": "API" }));
+}
+
+/// A plain group stays the daemon's (`workspace_group.create`); a flag with no
+/// value, or a remote group inside a parent, is a usage error.
+#[test]
+fn workspace_group_create_without_remote_or_parent_stays_with_the_daemon() {
+    assert_eq!(parse(&args(&["workspace", "group", "create", "--name", "Work"])).unwrap(), None);
+    assert_eq!(parse(&args(&["workspace", "group", "list"])).unwrap(), None);
+    assert!(parse(&args(&["workspace", "group", "create", "--remote"])).is_err());
+    assert!(parse(&args(&["workspace", "group", "create", "--parent", "grp_1"])).is_err());
+    assert!(
+        parse(&args(&["workspace", "group", "create", "--remote", "a", "--parent", "grp_1"]))
+            .is_err()
+    );
+    assert!(
+        parse(&args(&["workspace", "group", "create", "--remote", "a", "--color", "red"])).is_err()
+    );
+}
+
+/// u18462: `cmux open --as-text FILE` (alias `--source`) asks the app to open
+/// HTML, SVG and Markdown as their source in the code editor; a plain open
+/// sends no `as_text`, and the flag never applies to URLs from stdin or --link.
+#[test]
+fn open_as_text_sends_as_text_with_the_files() {
+    let environment = std::collections::HashMap::new();
+    for flag in ["--as-text", "--source"] {
+        let AppCommand::Open { requests, .. } = parse_open_with(
+            &args(&[flag, "/tmp/site/index.html", "/tmp/site/README.md"]),
+            false,
+            &environment,
+            &mut std::io::empty(),
+        )
+        .unwrap() else {
+            panic!("expected open command")
+        };
+        assert_eq!(requests.len(), 1, "{flag}");
+        assert_eq!(requests[0].method, "file.open");
+        assert_eq!(requests[0].params["as_text"], json!(true), "{flag}");
+        assert_eq!(
+            requests[0].params["paths"],
+            json!(["/tmp/site/index.html", "/tmp/site/README.md"])
+        );
+    }
+    let AppCommand::Open { requests, .. } = parse_open_with(
+        &args(&["/tmp/site/index.html"]),
+        false,
+        &environment,
+        &mut std::io::empty(),
+    )
+    .unwrap() else {
+        panic!("expected open command")
+    };
+    assert!(requests[0].params.get("as_text").is_none());
+    assert!(
+        parse_open_with(
+            &args(&["--as-text", "-"]),
+            false,
+            &environment,
+            &mut "https://a.example/\n".as_bytes()
+        )
+        .is_err()
+    );
+    assert!(
+        parse_open_with(
+            &args(&["--as-text", "--link", "https://a.example/"]),
+            false,
+            &environment,
+            &mut std::io::empty()
+        )
+        .is_err()
+    );
+    assert!(
+        parse_open_with(
+            &args(&["--as-text=yes", "/tmp/a.html"]),
+            false,
+            &environment,
+            &mut std::io::empty()
+        )
+        .is_err()
+    );
 }

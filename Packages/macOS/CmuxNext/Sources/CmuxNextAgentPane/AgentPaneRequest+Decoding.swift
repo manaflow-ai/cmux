@@ -99,6 +99,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.commandAvailability":
+            if let commands = params?["commands"] as? [String] {
+                self = .commandAvailability(commands)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.framePacing":
             if let intervals = params?["intervals"] as? [Double], !intervals.isEmpty {
                 self = .framePacing(Array(intervals.prefix(Self.maximumPacingFrames)))
@@ -135,6 +141,20 @@ extension AgentPaneRequest {
             // The composer's Inline or Strip choice; the page writes only this key with it.
             if let view = (params?["view"] as? String).flatMap(AgentPaneAttachmentView.init(rawValue:)) {
                 self = .displaySetting(path: AgentPaneComposerSetting.attachmentViewPath, value: .string(view.rawValue))
+            } else {
+                self = .unsupported(method)
+            }
+        case "pane.setRemoteControl":
+            // Session Info's Remote Control switch: one Bool, nothing else.
+            if let on = params?["on"] as? Bool, Set((params ?? [:]).keys) == ["on"] {
+                self = .remoteControl(on: on)
+            } else {
+                self = .unsupported(method)
+            }
+        case "tips.state":
+            // `{}` reads the records, `{id, state}` keeps one, `{claim, feature?}` asks to show a tip.
+            if let tips = AgentPaneFeatureTipRequest(params) {
+                self = .featureTips(tips)
             } else {
                 self = .unsupported(method)
             }
@@ -188,6 +208,8 @@ extension AgentPaneRequest {
             }
         case "acpmux.restart":
             self = .restartAcpmux
+        case "acpmux.restartStuck":
+            self = .restartStuckAcpmux
         case "harness.restart":
             self = .harnessRestart
         case "shell.run":
@@ -237,6 +259,8 @@ extension AgentPaneRequest {
             }
         case "newTab.editWidgets":
             self = AgentPaneNewTabEdit(widgetParams: params).map(AgentPaneRequest.editNewTab) ?? .unsupported(method)
+        case "readAloud.speak", "readAloud.stop":
+            self = AgentPaneReadAloud.Command(method: method, params: params).map(AgentPaneRequest.readAloud) ?? .unsupported(method)
         case "nowPlaying.command":
             if let command = AgentPaneNowPlaying.Command(params) { self = .nowPlaying(command) } else { self = .unsupported(method) }
         case "newTab.remember":
@@ -267,6 +291,7 @@ extension AgentPaneRequest {
             }
         case "project.browse": self = .browseProject
         case "sandbox.state": self = .sandboxState(wait: params?["wait"] as? Bool == true)
+        case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
         case "sandbox.run":
             // The task is the person's prompt (never logged); the server checks the agent by name.
             let agent = params?["agent"] as? String
@@ -304,6 +329,12 @@ extension AgentPaneRequest {
             if let session = params?["sessionId"] as? String, !session.isEmpty, session.utf8.count <= 256 {
                 self = method == "agent.avatar" ? .agentAvatar(session) : method == "agent.avatar.set" ? .setAgentAvatar(session) : .removeAgentAvatar(session)
             } else { self = .unsupported(method) }
+        case "chief.face":
+            // A Chief's participant id (acpmux `fromChief`): `agent_` and a short token.
+            if let chief = params?["chief"] as? String, chief.hasPrefix("agent_"), (7...64).contains(chief.utf8.count),
+               chief.utf8.allSatisfy({ $0 == UInt8(ascii: "_") || $0 == UInt8(ascii: "-") || (0x30...0x39).contains($0) || (0x41...0x5A).contains($0) || (0x61...0x7A).contains($0) }) {
+                self = .chiefFace(chief)
+            } else { self = .unsupported(method) }
         case "harness.symbol":
             if let name = params?["name"] as? String, HarnessSymbolImages.isSymbolName(name) { self = .harnessSymbol(name) }
             else { self = .unsupported(method) }
@@ -337,6 +368,13 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.moveToMachine":
+            if let machine = params?["machine"] as? String, !machine.isEmpty, machine.count <= 256,
+               let session = params?["session"] as? String, !session.isEmpty, session.count <= 256 {
+                self = .moveToMachine(machine, session: session)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.tabState": self = .tabState(refresh: params?["refresh"] as? Bool == true)
         case "pane.tabRowTools":
             if let width = (params?["width"] as? NSNumber)?.doubleValue, width.isFinite, (0...2000).contains(width) {
@@ -344,6 +382,9 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.tabRowTools.set":
+            if let tools = AgentPaneTabRowTools.list(params?["tools"]) { self = .tabRowToolsSet(tools) }
+            else { self = .unsupported(method) }
         case "pane.setQuickActions":
             if let list = AgentPaneQuickAction.list(params?["quickActions"]) { self = .setQuickActions(list) }
             else { self = .unsupported(method) }
@@ -356,8 +397,14 @@ extension AgentPaneRequest {
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
         case "chat.subagentPane":
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
-                self = .subagentPane(id, focus: params?["focus"] as? Bool == true)
+                // `title`: the subagent's own name, which its pane's tab shows (SubagentTabTitles).
+                self = .subagentPane(id, focus: params?["focus"] as? Bool == true, title: params?["title"] as? String)
             } else { self = .unsupported(method) }
+        case "chat.subagentShown":
+            let id = params?["subagent"] as? String
+            if let id, id.isEmpty || id.count > 256 { self = .unsupported(method) } else {
+                self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String)
+            }
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
         case "chat.newHere":
@@ -385,8 +432,12 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "action.run":
-            if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
-                self = .runAction(id)
+            // A `session` that is there must be a usable id: a malformed one is refused, never
+            // dropped (which would run the action on whatever the tab shows).
+            let session = params?["session"].map { $0 as? String }
+            if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128,
+               session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true {
+                self = .runAction(id, session: session ?? nil)
             } else {
                 self = .unsupported(method)
             }
@@ -458,6 +509,12 @@ extension AgentPaneRequest {
         case "dictation.audio":
             if let enabled = params?["enabled"] as? Bool {
                 self = .dictation(.recordAudio(enabled))
+            } else {
+                self = .unsupported(method)
+            }
+        case "dictation.recording.upload", "dictation.recording.cancel":
+            if let path = params?["path"] as? String, path.hasPrefix("/"), path.utf8.count <= 4096 {
+                self = method == "dictation.recording.upload" ? .dictationRecordingUpload(path: path) : .dictationRecordingCancel(path: path)
             } else {
                 self = .unsupported(method)
             }
