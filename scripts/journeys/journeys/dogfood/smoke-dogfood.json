@@ -128,7 +128,8 @@
     {"do": "expect", "title": "the typed address shows in the address bar", "since": "url", "timeout": 15,
      "all": [
        {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "addressBar"}},
-       {"frame_text": "example.com"}
+       {"app_rpc": {"method": "debug.omnibar", "path": "field_text", "equals": "example.com"}},
+       {"frame_text": "ample.com"}
      ]},
     {"do": "smoke_key", "key": "return", "modifiers": [], "mark": "loaded"},
     {"do": "expect", "title": "the browser tab loads the page", "since": "loaded", "timeout": 45,
