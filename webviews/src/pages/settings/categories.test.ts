@@ -3,7 +3,17 @@
 import { expect, test } from "bun:test";
 import exported from "../../../../schemas/settings/settings-schema.json";
 import "./testCatalog";
-import { CATEGORY_CARDS, categories, categoryOf, homes } from "./categories";
+import { readFileSync } from "node:fs";
+import {
+  CATEGORY_CARDS,
+  categories,
+  categoryOf,
+  defaultCategory,
+  homes,
+  shownCategories,
+  shownSection,
+} from "./categories";
+import { hasIcon } from "./icons";
 import strings from "./generated/strings.json";
 import { parseLocation } from "./router";
 import { schema, sections } from "./schema";
@@ -18,20 +28,54 @@ test("every page row has exactly one home", () => {
 test("the categories are the approved ones, in order", () => {
   expect(categories.map((category) => category.id)).toEqual([
     "general",
+    "updates",
     "theme",
     "appearance",
     "terminal",
     "editor",
     "agents",
+    "chief",
     "notifications",
     "browser",
+    "import",
     "keyboard",
+    // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it).
+    "menus",
     "privacy",
     "accounts",
     "mobile",
+    "server",
+    "devices",
     "advanced",
     "experimental",
+    "development",
   ]);
+});
+
+test("a route to the Development category opens the default category outside DEV builds", () => {
+  expect(shownSection("development", false)).toBe(defaultCategory);
+  expect(shownSection("development", true)).toBe("development");
+  expect(shownSection("advanced", false)).toBe("advanced");
+  // The relay key's own focus link lands in Development, which a non-DEV build does not show.
+  expect(shownSection(parseLocation("/settings/development?focus=macScreen.debug.relayOnly").section, false)).toBe(
+    defaultCategory,
+  );
+});
+
+test("the Development category shows only in DEV builds", () => {
+  const ids = (devBuild: boolean) => shownCategories(devBuild).map((category) => category.id);
+  expect(ids(false)).not.toContain("development");
+  expect(ids(true)).toContain("development");
+  expect(categories.filter((category) => category.devOnly).map((category) => category.id)).toEqual(["development"]);
+});
+
+test("Devices shows in every build: NIGHTLY and Release use the built-in device hub", () => {
+  // Mac Screen's sharing switch, device permissions and relays live only in Settings > Devices.
+  const ids = (devBuild: boolean) => shownCategories(devBuild).map((category) => category.id);
+  expect(ids(false)).toContain("devices");
+  expect(ids(true)).toContain("devices");
+  expect(shownSection("devices", false)).toBe("devices");
+  expect(shownSection(parseLocation("/settings/devices").section, false)).toBe("devices");
 });
 
 test("old section routes and focused keys open the category that holds the row", () => {
@@ -81,6 +125,30 @@ test("the page renders the exported layout", () => {
       })),
     })),
   ).toEqual(
-    (page!.categories as Array<Record<string, unknown>>).map(({ aliases: _aliases, ...category }) => category) as never,
+    // dev_only is the Category's devOnly (checked by the DEV-only test above).
+    (page!.categories as Array<Record<string, unknown>>).map(
+      ({ aliases: _aliases, dev_only: _devOnly, ...category }) => category,
+    ) as never,
   );
+});
+
+// Live QA 7c: Mobile's `iphone` (and Import's `square.and.arrow.down`) had no icon, so the sidebar
+// drew the General gear for them. Every symbol the layout names, in the exported schema and in the
+// Swift source it is exported from, has its own icon.
+test("every category and section symbol has its own icon", () => {
+  const exportedSymbols = [
+    ...categories.map((category) => category.symbol),
+    ...sections.map((section) => section.symbol),
+  ];
+  const layout = readFileSync(
+    new URL(
+      "../../../../Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsPageLayout.swift",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const swiftSymbols = [...layout.matchAll(/\bsymbol: "([^"]+)"/g)].map((match) => match[1]);
+  expect(swiftSymbols).toContain("iphone");
+  const missing = [...new Set([...exportedSymbols, ...swiftSymbols])].filter((symbol) => !hasIcon(symbol));
+  expect(missing).toEqual([]);
 });

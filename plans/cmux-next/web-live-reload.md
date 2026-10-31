@@ -5,9 +5,9 @@ with no Swift build, no relaunch and no wait on CI. The same edits still go thro
 
 ## First version (implemented)
 
-`web-dev.json` next to `cmux-next.json` (`~/.config/cmux/web-dev.json`) is read by Debug and
-NIGHTLY builds only (`WebDevOverride.isAvailable`, the DevTools rule). Release and RC builds never
-read it. Debug Settings > Pages > "Live web reload (web-dev.json)" (`PageTunables.webDevOverride`, on
+`web-dev.json` next to `cmux-next.json` (`~/.config/cmux/web-dev.json`) is read by Debug builds,
+NIGHTLY builds and cmux NEXT DEV (`com.cmuxterm.app.debug.next`, #24046) only
+(`WebDevOverride.isAvailable`). Release and RC builds never read it. Debug Settings > Pages > "Live web reload (web-dev.json)" (`PageTunables.webDevOverride`, on
 by default) ignores the file while off, without editing it.
 
 ```json
@@ -33,7 +33,11 @@ by default) ignores the file while off, without editing it.
   no polling. On a change it reloads every web view the page and agent pane scheme handlers have
   served. The first page served starts the watch.
 
-Not covered: pages the policy hosts in Chromium (CEF) keep their bundled files. The agent pane
+- **Engine**: Chromium serves the bundled folder it was handed at start and never reads the file,
+  so while a server or overlay is in force every cmux page opens in WebKit
+  (`PageWebKitReason.liveWebOverride`). A page already open in Chromium moves on its next open.
+
+Not covered: Chromium does not read the file itself (the engine rule above keeps pages off it). The agent pane
 started with `CMUX_NEXT_AGENT_PANE_DEV_URL`, the Debug launch variable, keeps that server.
 `CMUX_NEXT_PAGES_DEV_URL` still works and wins over the file.
 

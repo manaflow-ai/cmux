@@ -62,6 +62,9 @@
          location = "group:CMUXMobileCore">
       </FileRef>
       <FileRef
+         location = "group:CmuxScreenKit">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSentryTelemetry">
       </FileRef>
       <FileRef
@@ -82,12 +85,21 @@
       <FileRef
          location = "group:CmuxTheme">
       </FileRef>
+      <FileRef
+         location = "group:CmuxVNC">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxVNCWebRTC">
+      </FileRef>
    </Group>
    <Group
       location = "container:Packages/iOS"
       name = "Packages (iOS)">
       <FileRef
          location = "container:ios/CmuxiOS">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxConversation">
       </FileRef>
       <FileRef
          location = "group:CmuxMobilePairedMac">
@@ -106,6 +118,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxMobileTunnel">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTabsKit">
       </FileRef>
    </Group>
    <Group

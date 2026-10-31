@@ -696,15 +696,8 @@ fn output_read_serves_live_records_and_exit_snapshot_after_close_detach() {
         mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
     let colored: &[u8] = b"output read \x1b[31mred marker\x1b[0m\r\nsecond line\r\n";
     surface.apply_stream_output_for_test(colored).unwrap();
-    {
-        let event = crate::journal_ingress::JournalIngressEvent::TerminalOutput {
-            terminal_id: Arc::new(terminal.clone()),
-            generation: INCARNATION.into(),
-            occurred_at_ms: 1,
-            bytes: colored.to_vec(),
-        };
-        mux.workspace_registry.lock().unwrap().append_journal_ingress_events(&[&event]).unwrap();
-    }
+    // Output goes to the output store, never the journal.
+    mux.output_store.append(&terminal, &Arc::from(INCARNATION), colored, None);
     let total = u64::try_from(colored.len()).unwrap();
 
     // Live: the record window renders plain text with a resumable cursor.

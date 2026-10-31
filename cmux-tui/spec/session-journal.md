@@ -8,7 +8,7 @@ Storage v1 records durable resource mutations, schema-validated producer
 events, hook manifests and delivery outcomes, checkpoints, and sealed history
 segments. Resource mutations include workspace, screen, pane, and tab focus;
 tab selection; split ratios; viewport column widths; topology; terminal and
-browser lifecycle; continuous terminal output and geometry; frontend focus,
+browser lifecycle; terminal geometry (never terminal output); frontend focus,
 viewport, and geometry observations; frontend projections; explicit agent
 reports; and normalized native agent-hook observations. A pure restoration
 reducer can preview the state reconstructed from a checkpoint and its tail.
@@ -315,14 +315,49 @@ pointer samples before submitting them. It must append the final accepted
 value, including a no-op outcome when an operation receipt needs to explain why
 no state changed.
 
-Terminal output is a high-volume content stream, not inline journal payload.
-The PTY reader copies accepted output only when journaling is enabled, releases
-the terminal lock, and sends it through a dedicated bounded terminal lane to
-the single journal writer. That writer coalesces adjacent chunks up to 256 KiB,
-assigns generation-local byte offsets, and stores the exact bytes accepted by
-the authoritative terminal parser in SQLite BLOBs. JSON wire and sealed-segment
-forms use base64; storage and regex matching use those parser input bytes.
-Accepted geometry changes use the same FIFO terminal lane.
+Terminal output is a high-volume content stream, and it never enters the
+journal, in any mode. Each PTY read used to become a `terminal.output` record
+(about 1.2 KB of metadata, six index rows and a synced commit): an idle agent
+TUI that redraws its cursor at 40 Hz made the daemon write about 25 MB/s, and
+one registry grew to 41.6 GB. The daemon's output store
+(`cmux-tui-core/src/output_store.rs`) owns output now:
+
+- The daemon's Ghostty terminal of each terminal is the hot copy (screen and
+  scrollback, bounded by Ghostty's `scrollback-limit`); attach, screen,
+  history and copy reads come from it.
+- The store keeps each terminal's stream position (generation-local byte
+  offsets) and a 64 KiB raw tail in memory for `terminal.output_read`. The
+  PTY reader only copies bytes into memory; one background writer does all
+  disk work.
+- `terminal.persistence.mode` in `cmux-next.json` (`CMUX_TUI_TERMINAL_PERSISTENCE`
+  overrides it) sets what reaches the disk, in `terminal-output/` beside the
+  registry: `memory` writes nothing (exit replays and close archives keep no
+  screen either); `snapshot` (default) writes one gzip VT replay per terminal
+  (screen plus recent scrollback), replaced atomically, only when the
+  terminal's text, size, screen or history changed, at most every 30 s, at a
+  journal checkpoint and at quit; `full` also appends every byte to
+  per-terminal gzip segment files every 3 s (no fsync per write), and frames of
+  unchanged content (identical redraws) are not stored.
+  `terminal.persistence.maxBytesPerTerminal` and
+  `terminal.persistence.maxTotalBytes` cap the files (snapshot: 50 MB total;
+  full: 100 MB per terminal, 2 GB total); the oldest go first.
+- `terminal.scrollback.maxTotalMemoryBytes` (default 256 MiB) bounds the
+  scrollback RAM of all terminals together; past it the terminals that printed
+  least recently get a lower Ghostty scrollback limit first (their oldest
+  pages go), and get their configured limit back when there is room again.
+  The per-terminal cap stays Ghostty's `scrollback-limit`.
+- A respawn after a lost host (a reboot) seeds the new shell with the exit
+  replay, else the store's screen (full mode: rebuilt from the segments),
+  else an older registry's checkpoint blob. Clearing a terminal's history
+  drops its stored output and rewrites its snapshot at once.
+
+Accepted geometry changes and the small `terminal.output.gap` markers
+(`host_reconnect`, `host_respawn`; no bytes) still use the FIFO terminal lane.
+Registries written before this change keep their output records; the readers
+below still understand them. A subscription with `kinds: ["terminal.output"]` or the
+`terminal_output` regex field matches only those older records; a new hook
+with the `terminal_output` regex field is refused (it could never fire). Wait
+for terminal text with `terminal.wait` and read it with `terminal.output_read`.
 
 External producers and durable frontend observations use a second bounded
 lane. One coalesced wake signal drives both lanes; each batch reserves capacity
@@ -332,17 +367,9 @@ occupy the terminal lane or block the PTY reader. Byte order is strict within
 the terminal lane, durable producer order is strict within the producer lane,
 and the writer assigns commit order when independent lanes race.
 
-Lossless terminal capture can still backpressure the PTY after its own bounded
-lane fills during a prolonged storage stall. Removing that final bound requires
-an acknowledged durable output spool or an explicit loss policy at the
-terminal-host boundary. Moving the same queue into another process does not
-remove the storage bound.
-
-The checkpoint writer captures each terminal under its terminal lock as a
-bounded VT replay blob, compresses it with deterministic gzip, and stores it by
-SHA-256 content ID. The checkpoint records terminal ID, grid, format, digest,
-and byte count. Restoration applies later output chunks and geometry changes in
-sequence after that checkpoint.
+A checkpoint names its terminals but keeps no VT replay blob (terminal
+screens stay out of the journal); it asks the output store to write its
+snapshots at once instead. Checkpoints of older registries keep their blobs.
 
 Raw keyboard input and paste contents are secret by default and are not
 journaled. An audited opt-in recorder may store encrypted content references.

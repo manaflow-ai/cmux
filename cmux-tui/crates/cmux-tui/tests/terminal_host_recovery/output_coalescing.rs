@@ -1,21 +1,17 @@
-//! A redrawing TUI costs one journal record per coalescing window, not one
-//! per PTY read. An agent TUI waiting for input redraws its cursor about 40
-//! times a second; each 43-byte redraw was one `terminal.output` record and
-//! one fullfsync commit, about 21-28 MB/s of disk writes on a NIGHTLY daemon
-//! with three agent terminals (macOS disk-write reports, 2026-10-20). The
-//! journal must still keep every byte.
+//! A redrawing TUI costs no journal record at all. An agent TUI waiting for
+//! input redraws its cursor about 40 times a second; each 43-byte redraw was
+//! one `terminal.output` record and one fullfsync commit, about 21-28 MB/s of
+//! disk writes on a NIGHTLY daemon with three agent terminals (macOS
+//! disk-write reports, 2026-10-20). Coalescing (#22811) bounded that to a
+//! few records per second; output now never enters the journal
+//! (cmux-tui-core output_store.rs, tests in host_death/output_store.rs).
 
 use super::*;
 
-/// The cursor redraw an idle agent TUI repeats (from the NIGHTLY journal).
-const REDRAW: &[u8] = b"\x1b[?2026h\x1b[39m\x1b[49m\x1b[0m\x1b[94;3H\x1b[?25h\x1b[?2026l";
 const REDRAWS: usize = 100;
-/// One record per 250 ms window: about 6 for the 1-2 s the program runs.
-/// Before coalescing, each of the 100 reads was its own record.
-const MAX_RECORDS: usize = 30;
 
 #[test]
-fn redrawing_terminal_journals_every_byte_in_coalesced_records() {
+fn redrawing_terminal_journals_no_output_records() {
     let _exclusive = exclusive_process_test();
     let harness = RecoveryHarness::start("journal-output-coalescing");
     let workspace =
@@ -71,33 +67,16 @@ fn redrawing_terminal_journals_every_byte_in_coalesced_records() {
     assert_eq!(opened["ok"], true, "journal subscription failed: {opened}");
 
     let mut records = 0_usize;
-    let mut output = Vec::new();
     loop {
         line.clear();
         reader.read_line(&mut line).expect("journal stream ended before the terminal exited");
         let envelope: serde_json::Value = serde_json::from_str(&line).unwrap();
         let record = &envelope["item"];
         match record["kind"].as_str().unwrap() {
-            "terminal.output" => {
-                records += 1;
-                output.extend(
-                    base64::engine::general_purpose::STANDARD
-                        .decode(record["payload"]["data"].as_str().unwrap())
-                        .unwrap(),
-                );
-            }
+            "terminal.output" => records += 1,
             "terminal.exited" => break,
             other => panic!("unexpected journal record {other}: {record}"),
         }
     }
-    let redraws = output.windows(REDRAW.len()).filter(|window| *window == REDRAW).count();
-    assert_eq!(
-        (redraws, output.len()),
-        (REDRAWS, REDRAWS * REDRAW.len()),
-        "the journal lost or changed terminal output bytes"
-    );
-    assert!(
-        records <= MAX_RECORDS,
-        "{REDRAWS} redraws took {records} terminal.output records (at most {MAX_RECORDS})"
-    );
+    assert_eq!(records, 0, "{REDRAWS} redraws took {records} terminal.output records");
 }

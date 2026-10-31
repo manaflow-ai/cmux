@@ -46,8 +46,10 @@ import Testing
         #expect(FileManager.default.contentsEqual(atPath: secondPath, andPath: other.path))
         #expect(URL(fileURLWithPath: secondPath).lastPathComponent == "Harbor at dusk 2.png")
         #expect(chosen.title == "Harbor at dusk")
-        // Downloaded art in the same folder is art, not one of the person's images.
+        // Downloaded art in the same folder is art, not one of the person's images, and so is a
+        // download of a work since taken out of the set.
         try Data("art".utf8).write(to: backgrounds.appendingPathComponent("\(BackdropArt.allCases[0].rawValue).avif"))
+        try Data("art".utf8).write(to: backgrounds.appendingPathComponent("goya-witches-sabbath.avif"))
 
         let catalog = BackdropCatalog(systemDirectory: elsewhere.appendingPathComponent("none"), fileManager: .default,
                                       userImages: images)
@@ -55,6 +57,7 @@ import Testing
         #expect(Set(own) == [chosen, again])
         #expect(catalog.choices.firstIndex(of: chosen)! > catalog.choices.lastIndex { if case .art = $0 { true } else { false } }!)
         #expect(images.contains(chosen))
+        #expect(!images.contains(.file(path: backgrounds.resolvingSymlinksInPath().appendingPathComponent("goya-witches-sabbath.avif").path)))
         #expect(!images.contains(.file(path: original.path)))
         // An id cannot reach outside the folder through `..` or a link inside it.
         let folderPath = URL(fileURLWithPath: path).deletingLastPathComponent().path

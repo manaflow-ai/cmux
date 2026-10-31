@@ -15,6 +15,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: risk-tier-tests-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   tests:
     name: risk tier tests

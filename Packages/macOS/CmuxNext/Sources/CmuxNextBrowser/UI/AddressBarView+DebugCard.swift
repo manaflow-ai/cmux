@@ -16,6 +16,12 @@ public struct OmnibarDebugCard: Sendable, Equatable {
         cardInWindow.maxY == barInWindow.minY && cardInWindow.minX == barInWindow.minX - OmnibarStyle.cardSideOutset
             && cardInWindow.width == barInWindow.width + 2 * OmnibarStyle.cardSideOutset
     }
+
+    /// Flush above the bar (`browser.toolbarPosition` bottom) and as wide as the card top.
+    public var isFlushAboveBar: Bool {
+        cardInWindow.minY == barInWindow.maxY && cardInWindow.minX == barInWindow.minX - OmnibarStyle.cardSideOutset
+            && cardInWindow.width == barInWindow.width + 2 * OmnibarStyle.cardSideOutset
+    }
 }
 
 extension AddressBarView {

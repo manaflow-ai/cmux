@@ -85,17 +85,14 @@ def git(*args: str, input: str | None = None, check: bool = True, env: dict | No
     return proc.stdout
 
 
-def gh_api(path: str, paginate: bool = False) -> object:
-    args = ["gh", "api", "-H", "Accept: application/vnd.github+json", path]
-    if paginate:
-        args[2:2] = ["--paginate", "--slurp"]
-    proc = subprocess.run(args, capture_output=True, text=True)
+def gh_api(path: str) -> object:
+    """One `gh api` GET. Callers ask for the pages they need (`page=N`): the gh quota wrapper refuses
+    an unbounded paginating call."""
+    proc = subprocess.run(["gh", "api", "-H", "Accept: application/vnd.github+json", path],
+                          capture_output=True, text=True)
     if proc.returncode != 0:
         raise TrainError(f"gh api {path} failed: {proc.stderr.strip()[:500]}")
-    data = json.loads(proc.stdout or "null")
-    if paginate and isinstance(data, list) and data and isinstance(data[0], list):
-        return [item for page in data for item in page]
-    return data
+    return json.loads(proc.stdout or "null")
 
 
 def http_get(url: str) -> bytes | None:
@@ -519,6 +516,26 @@ def source_base(base_commit: str) -> tuple[str, list[Car]]:
     if len(train.parents) != 2:
         raise TrainError(f"train commit {base_commit} has {len(train.parents)} parents")
     return train.parents[1], carried_cars(train)
+
+
+def require_on_tip(source: str, cars: list[Car], tip: str) -> None:
+    """Refuse a train whose source or cars are not in the tip's history.
+
+    The base comes from a build or a dispatch input, and its trailers name the
+    carried cars, so a crafted base could name commits that never landed. The
+    car guards check out every car, and the drive job holds the release App
+    token while they run, so only feat-cmux-next history may get that far."""
+    def on_tip(sha: str) -> bool:
+        return bool(SHA_RE.match(sha)) and subprocess.run(
+            ["git", "merge-base", "--is-ancestor", sha, tip], capture_output=True,
+        ).returncode == 0
+
+    if not on_tip(source):
+        raise TrainError(f"the train's source {source[:12]} is not in the history of {tip[:12]}")
+    for car in cars:
+        off = [sha for sha in car.commits if not on_tip(sha)]
+        if off:
+            raise TrainError(f"car {car.id} names {off[0][:12]}, which is not in the history of {tip[:12]}")
 
 
 # ---------------------------------------------------------------- candidates

@@ -32,22 +32,74 @@ const appJwt = async (env: Env) => {
   return new SignJWT({}).setProtectedHeader({ alg: "RS256" }).setIssuer(env.GITHUB_APP_CLIENT_ID!).setIssuedAt(now - 60).setExpirationTime(now + 540).sign(key)
 }
 
-/** Installation tokens live one hour; reuse until five minutes before expiry. Per isolate, never stored. */
+/** GitHub narrows an installation token to repository names inside the installation's account and exact permissions (it mints that or refuses). */
+export type TokenNarrowing = { readonly repositories: ReadonlyArray<string>; readonly permissions: Readonly<Record<string, "read" | "write">> }
+
+/** POST /app/installations/{id}/access_tokens with a narrowing body: the raw response, whose refusals github-tokens.ts maps. */
+export const requestInstallationToken = async (env: Env, http: Http, installation: number, narrow: TokenNarrowing): Promise<Response> =>
+  http(new Request(`${GH_API}/app/installations/${installation}/access_tokens`, { method: "POST", headers: { ...ghHeaders(await appJwt(env)), "content-type": "application/json" }, body: JSON.stringify(narrow) }))
+
+/** A 201's token (never logged), its expiry and the permissions GitHub granted. */
+export const mintedToken = async (res: Response) => {
+  const body = await json(res)
+  const perms = (body.permissions && typeof body.permissions === "object" ? body.permissions : {}) as Record<string, unknown>
+  return { token: String(body.token ?? ""), expires_at: Date.parse(String(body.expires_at ?? "")) || Date.now() + 50 * 60_000, permissions: Object.fromEntries(Object.entries(perms).filter((e): e is [string, string] => typeof e[1] === "string")) }
+}
+
+/** DELETE /installation/token with the token itself: true when GitHub revoked it or it is already dead. */
+export const revokeInstallationToken = async (http: Http, token: string): Promise<boolean> => {
+  const res = await http(new Request(`${GH_API}/installation/token`, { method: "DELETE", headers: ghHeaders(token) })).catch(() => null)
+  return res !== null && (res.status === 204 || res.status === 401 || res.status === 404)
+}
+
+/**
+ * Installation tokens for repository discovery live one hour; reuse until five minutes before expiry.
+ * Per isolate, never stored. Tokens handed to callers are narrowed and kept per principal in the ledger (github-tokens.ts).
+ */
 const installationTokens = new Map<number, { token: string; expires_at: number }>()
-const installationToken = async (env: Env, http: Http, installation: number) => {
+export const installationToken = async (env: Env, http: Http, installation: number) => {
   const cached = installationTokens.get(installation)
   if (cached && cached.expires_at - 5 * 60_000 > Date.now()) return cached.token
   const res = await http(new Request(`${GH_API}/app/installations/${installation}/access_tokens`, { method: "POST", headers: ghHeaders(await appJwt(env)) }))
-  if (!res.ok) throw failed("github", res, "installation token")
+  if (!res.ok) throw new InstallationTokenRefused(res)
   const body = await json(res)
   const token = String(body.token ?? "")
   installationTokens.set(installation, { token, expires_at: Date.parse(String(body.expires_at ?? "")) || Date.now() + 50 * 60_000 })
   return token
 }
 
+/** GitHub refused an installation token: its response rides along, so a caller can read the refusal (github-tokens.ts). */
+export class InstallationTokenRefused extends ProviderError {
+  constructor(readonly response: Response) {
+    const error = failed("github", response, "installation token")
+    super(error.code, error.message, error.retryable, response.status)
+  }
+}
+
+/** Drops a cached installation token GitHub refused (a 401), so the next ask mints a fresh one. */
+export const forgetInstallationToken = (installation: number, token: string) => {
+  if (installationTokens.get(installation)?.token === token) installationTokens.delete(installation)
+}
+
+/** Comment mutations use a separate cache: a repository-list token must never supply a write. */
+const commentTokens = new Map<string, { token: string; expires_at: number }>()
+const commentTokenKey = (installation: number, repo: string) => `${installation}:${repo.toLowerCase()}:issues:write`
+const commentToken = async (env: Env, http: Http, installation: number, repo: string) => {
+  const key = commentTokenKey(installation, repo)
+  const cached = commentTokens.get(key)
+  if (cached && cached.expires_at - 5 * 60_000 > Date.now()) return cached.token
+  const res = await requestInstallationToken(env, http, installation, { repositories: [repo.split("/")[1]!], permissions: { issues: "write" } })
+  if (!res.ok) throw failed("github", res, "installation token")
+  const body = await json(res)
+  const token = String(body.token ?? "")
+  commentTokens.set(key, { token, expires_at: Date.parse(String(body.expires_at ?? "")) || Date.now() + 50 * 60_000 })
+  return token
+}
+
 export const github: ProviderImpl = {
   configured: (env) => Boolean(env.GITHUB_APP_SLUG && env.GITHUB_APP_CLIENT_ID && env.GITHUB_APP_CLIENT_SECRET && env.GITHUB_APP_PRIVATE_KEY),
   defaultScopes: [],
+  scopesFor: (op) => op === "github.issue.comment" ? ["issues:write"] : undefined,
   // App permissions are set on the App, not per request; the install page carries our state back.
   authorizeUrl: (env, state) => `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new?state=${encodeURIComponent(state)}`,
   complete: async (env, http, p) => {
@@ -107,10 +159,12 @@ export const github: ProviderImpl = {
       resources: { repos }
     }
   },
-  call: async (env, http, credential, op, params) => {
+  call: async (env, http, credential, op, params, beforeEffect) => {
     if (credential.kind !== "github_installation") throw new ProviderError("provider.error", "wrong credential kind")
     if (op !== "github.issue.comment") throw new ProviderError("provider.error", `github cannot run ${op}`)
-    const token = await installationToken(env, http, credential.installation_id)
+    const token = await commentToken(env, http, credential.installation_id, String(params.repo))
+    // Token acquisition can yield while membership, sharing, scopes or repository policy changes.
+    await beforeEffect?.()
     const res = await effectCall(
       http,
       "github",
@@ -120,8 +174,21 @@ export const github: ProviderImpl = {
         body: JSON.stringify({ body: params.body })
       })
     )
-    if (!res.ok) throw failed("github", res, "comment", true)
+    if (!res.ok) {
+      const error = failed("github", res, "comment", true)
+      // Reconnect must not reuse a revoked token. A late 401 must not evict a newer token,
+      // and the failed effect is still returned to the ledger, never retried here.
+      const key = commentTokenKey(credential.installation_id, String(params.repo))
+      if (error.code === "needs_reauth" && commentTokens.get(key)?.token === token) commentTokens.delete(key)
+      throw error
+    }
     const b = await json(res)
+    const returnedUrl = typeof b.html_url === "string" ? b.html_url.toLowerCase() : ""
+    const issueUrl = `https://github.com/${params.repo}/issues/${params.issue}#issuecomment-${b.id}`.toLowerCase()
+    const pullUrl = `https://github.com/${params.repo}/pull/${params.issue}#issuecomment-${b.id}`.toLowerCase()
+    if (!Number.isSafeInteger(b.id) || Number(b.id) < 1 || !returnedUrl || returnedUrl !== issueUrl && returnedUrl !== pullUrl) {
+      throw new ProviderError("mutation.indeterminate", "github returned no valid comment receipt; check the provider")
+    }
     return { value: { id: b.id, url: b.html_url } }
   }
 }

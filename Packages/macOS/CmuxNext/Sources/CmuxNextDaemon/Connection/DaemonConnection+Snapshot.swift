@@ -31,8 +31,8 @@ extension DaemonConnection {
         // the tree in one round trip. Their changes emit `tree-changed` and
         // `personal-changed`, which trigger this snapshot again; an event
         // between the replies is past the tree's barrier, so it still applies.
-        let savedGroups = identity?.supports(DaemonCapabilities.shared.savedTabGroups) == true
-        let personal = identity?.supports(DaemonCapabilities.shared.profiles) == true
+        let savedGroups = identity?.supports(DaemonCapability.savedTabGroups.rawValue) == true
+        let personal = identity?.supports(DaemonCapability.profiles.rawValue) == true
         var lines = [PipelinedLine(ListWorkspacesRequest())]
         if savedGroups { lines.append(PipelinedLine(ListSavedTabGroupsRequest())) }
         if personal { lines.append(PipelinedLine(ListPersonalRequest())) }

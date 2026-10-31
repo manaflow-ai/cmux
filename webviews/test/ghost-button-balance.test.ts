@@ -9,8 +9,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("ghost-button-balance.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -27,7 +27,7 @@ await requireBrowserLane("ghost-button-balance.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const url = (entry: string, variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant })}`;
 
   async function ready(page: Page) {
     for (;;) {
@@ -47,13 +47,8 @@ await requireBrowserLane("ghost-button-balance.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
-    // The first load can run Vite's dependency optimizer and reload mid-compile (composer-location-side).
-    const warm = await browser.newPage({ viewport: { width: 900, height: 600 } });
-    await warm.goto(url("agent-pane.new-tab", "empty"));
-    await ready(warm);
-    await warm.close();
+    await warmGalleryFrame(vite, "agent-pane.composer-context", { browser, params: { variant: "closed" } });
   });
   afterAll(async () => {
     await browser?.close();

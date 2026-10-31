@@ -51,11 +51,15 @@ export function columnsOf(layout) {
 
 export function normalize(raw) {
   const placements = new Map((raw.placements ?? []).map((p) => [p.workspace?.workspace_id, p.group_id ?? null]));
+  // The sidebar's order is the personal placement order (PersonalSidebar.swift), not the
+  // session's workspace index: `workspace_place {index}` changes only the former.
+  const sidebarIndex = new Map((raw.placements ?? []).map((p) => [p.workspace?.workspace_id, p.index]));
   const workspaces = (raw.workspaces ?? []).map((w) => ({
     id: w.id,
     name: w.name ?? "",
     focused: !!w.focused,
     index: w.index,
+    sidebar_index: sidebarIndex.get(w.id) ?? w.index,
     group_id: placements.get(w.id) ?? null,
   }));
   const paneInfo = new Map();

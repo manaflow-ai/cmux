@@ -347,3 +347,40 @@ async fn a_dial_during_prewarm_joins_its_socket() {
     assert_eq!(opened, 1, "prewarm {warmed:?} dial {:?}", handle.timings());
     handle.close();
 }
+
+/// One phone, two Macs, one signaling socket (PROTOCOL.md "One link per Mac").
+/// When the shared socket dies and the next dial (to the second Mac) opens a
+/// new one, the first Mac's live WireGuard session moves onto it at once, so
+/// that Mac's `wg-endpoints` and `bye` keep reaching the phone. Before, it
+/// stayed subscribed on the dead socket until the next network change.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_new_socket_carries_every_live_link() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let first_mac = uuid::Uuid::new_v4().to_string();
+    let second_mac = uuid::Uuid::new_v4().to_string();
+    spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &first_mac).await.unwrap());
+    spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &second_mac).await.unwrap());
+    let device = uuid::Uuid::new_v4().to_string();
+    let wireguard = |mac: &str| ConnectRequest { transport: Transport::WireGuard, ..request(&server, &device, mac) };
+
+    let first = connect_inner(wireguard(&first_mac), None).await.expect("first Mac");
+    server.kick(&device);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let second = connect_inner(wireguard(&second_mac), None).await.expect("second Mac");
+    assert!(names(&second.timings()).contains(&"signaling_open"), "{:?}", second.timings());
+
+    // Both links are up at once.
+    for handle in [&first, &second] {
+        let channel = handle.open_channel("echo".into(), String::new()).await.unwrap();
+        channel.send(b"both".to_vec()).await.unwrap();
+        assert_eq!(channel.recv().await, ChannelMessage::Data { bytes: b"both".to_vec() });
+    }
+    // Nothing is left on the dead socket: a network change has no session to move.
+    let marks =
+        cmux_mobile_link_ffi::network_changed(server.base_url.clone(), "user:alice".into(), "team".into(), device)
+            .await;
+    assert!(!names(&marks).contains(&"signaling:rehomed"), "{marks:?}");
+    first.close();
+    second.close();
+    cmux_mobile_link_ffi::reset_warm_state().await;
+}

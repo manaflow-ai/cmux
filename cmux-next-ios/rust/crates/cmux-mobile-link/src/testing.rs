@@ -88,17 +88,31 @@ impl FakeSignaling {
         self.state.lock().unwrap_or_else(PoisonError::into_inner).refused_binary_frames
     }
 
-    /// Drop every socket of `device` (simulates a signaling outage). A
-    /// socket whose handshake just finished may not be registered yet: wait
-    /// up to a second for it.
+    /// Test support: hold the server's bookkeeping for `duration`, as a
+    /// loaded machine stalls it; returns once it is held.
+    pub fn stall_for(&self, duration: std::time::Duration) {
+        let state = Arc::clone(&self.state);
+        let (held_tx, held_rx) = std::sync::mpsc::sync_channel(0);
+        std::thread::spawn(move || {
+            let _held = state.lock().unwrap_or_else(PoisonError::into_inner);
+            let _ = held_tx.send(());
+            std::thread::sleep(duration);
+        });
+        let _ = held_rx.recv();
+    }
+
+    /// Send `frame` (a JSON text frame) to `device`'s socket, as the backend
+    /// does (a `mailbox` frame right after `hello`); false when it is not connected.
+    pub fn send_to_device(&self, device: &str, frame: &serde_json::Value) -> bool {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.devices.get(device).is_some_and(|d| d.out.send(Message::Text(frame.to_string().into())).is_ok())
+    }
+
+    /// Drop the socket of `device` (simulates a signaling outage).
     pub fn kick(&self, device: &str) {
-        for _ in 0..50 {
-            let removed = self.state.lock().unwrap_or_else(PoisonError::into_inner).devices.remove(device);
-            if let Some(device) = removed {
-                let _ = device.out.send(Message::Close(None));
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
+        let removed = self.state.lock().unwrap_or_else(PoisonError::into_inner).devices.remove(device);
+        if let Some(device) = removed {
+            let _ = device.out.send(Message::Close(None));
         }
     }
 }
@@ -115,6 +129,7 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
         Some(_) => {}
         None => return,
     }
+    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Message>();
     let mut identity = None;
     let callback = |request: &Request, response: Response| -> Result<Response, ErrorResponse> {
         let user = request
@@ -132,6 +147,23 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
             request.uri().path().starts_with("/v1/teams/") && request.uri().path().ends_with("/signal");
         match (user, device, path_ok) {
             (Some(user), Some(device), true) => {
+                // Record the device before this answer goes out: once the
+                // client's `connect` returns, a dial to it must be routed.
+                let _ = out_tx
+                    .send(Message::Text(json!({"type":"hello","you":device,"macs":[]}).to_string().into()));
+                let replaced = state
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .devices
+                    .insert(device.clone(), Device { user: user.clone(), out: out_tx.clone() });
+                // One live socket per device, as in the backend (team-hub.ts):
+                // a reconnect closes the old socket with 4000 "replaced".
+                if let Some(old) = replaced {
+                    let _ = old.out.send(Message::Close(Some(CloseFrame {
+                        code: CloseCode::Library(4000),
+                        reason: "replaced".into(),
+                    })));
+                }
                 identity = Some((user, device));
                 Ok(response)
             }
@@ -142,10 +174,13 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
             }
         }
     };
-    let Ok(socket) = tokio_tungstenite::accept_hdr_async(stream, callback).await else { return };
+    let accepted = tokio_tungstenite::accept_hdr_async(stream, callback).await;
     let Some((user, device)) = identity else { return };
+    let Ok(socket) = accepted else {
+        forget(&state, &device, &out_tx);
+        return;
+    };
     let (mut sink, mut source) = socket.split();
-    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Message>();
     tokio::spawn(async move {
         while let Some(message) = out_rx.recv().await {
             let close = matches!(message, Message::Close(_));
@@ -155,20 +190,6 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
         }
         let _ = sink.close().await;
     });
-    let _ = out_tx.send(Message::Text(json!({"type":"hello","you":device,"macs":[]}).to_string().into()));
-    let replaced = state
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .devices
-        .insert(device.clone(), Device { user: user.clone(), out: out_tx.clone() });
-    // One live socket per device, as in the backend (team-hub.ts): a
-    // reconnect closes the old socket with 4000 "replaced".
-    if let Some(old) = replaced {
-        let _ = old.out.send(Message::Close(Some(CloseFrame {
-            code: CloseCode::Library(4000),
-            reason: "replaced".into(),
-        })));
-    }
     let mut relay_errors: HashMap<String, std::time::Instant> = HashMap::new();
     while let Some(Ok(message)) = source.next().await {
         // A replaced socket is closing: the backend ignores what it still
@@ -267,9 +288,14 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
             _ => {}
         }
     }
+    forget(&state, &device, &out_tx);
+}
+
+/// Drop `device`'s registration if it is still this socket's.
+fn forget(state: &Mutex<State>, device: &str, out_tx: &mpsc::UnboundedSender<Message>) {
     let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
-    if state.devices.get(&device).is_some_and(|d| d.out.same_channel(&out_tx)) {
-        state.devices.remove(&device);
+    if state.devices.get(device).is_some_and(|d| d.out.same_channel(out_tx)) {
+        state.devices.remove(device);
     }
 }
 

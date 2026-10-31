@@ -520,19 +520,28 @@ class JanitorSnapshot(unittest.TestCase):
 
 
 # The pull-request lane, wherever its event condition puts it: compile admission
-# also takes it for main's full-suite dispatch (#14158), where the inputs are empty.
-PR_ROUTE = re.compile(r"&& \((?P<lane>(?:[^()]|\((?:[^()]|\([^()]*\))*\))*vars\.MACOS_RUNNER_PR[^()]*)\)")
+# also takes it for main's full-suite dispatch (#14158), where the inputs are empty. Groups inside
+# the lane nest up to five deep: the rescue-actor test, contains(fromJSON(...), ...), sits inside the
+# attempt group, which may itself hold an `||` group.
+def _nested(depth: int) -> str:
+    group = r"\([^()]*\)"
+    for _ in range(depth - 1):
+        group = r"\((?:[^()]|" + group + r")*\)"
+    return group
+
+
+PR_ROUTE = re.compile(r"&& \((?P<lane>(?:[^()]|" + _nested(5) + r")*vars\.MACOS_RUNNER_PR[^()]*)\)")
 
 
 def retry_lane(key: str) -> str:
     """The pull-request lane of the job whose owned_jobs key is `key`."""
-    return (f"(github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
+    return (f"(github.run_attempt > 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
 def root_lane(key: str) -> str:
     """retry_lane() for a root job: the root label, when the picker named one, before the pool label."""
-    return (f"(github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
+    return (f"(github.run_attempt > 2 && (contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
@@ -543,7 +552,7 @@ def gui_lane(key: str) -> str:
 
 def side_lane(key: str) -> str:
     """retry_lane() for a side lane: the side label, when the picker named one, before the pool label."""
-    return (f"(github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
+    return (f"(github.run_attempt > 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_side_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
@@ -814,7 +823,7 @@ class OwnedPools(unittest.TestCase):
                       head="someone/cmux", default="", pins={})
         self.assertFalse(fork.runner.startswith("glaeda-"))
         # The workflows ask who started a later re-run: only github-actions[bot]'s goes to Blacksmith.
-        self.assertIn("github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]'",
+        self.assertIn("github.run_attempt > 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)",
                       (WORKFLOWS / "remote-daemon.yml").read_text())
         # main() reads the attempt and the actor Actions sets on every step.
         fresh = snap
@@ -867,6 +876,8 @@ class OwnedPools(unittest.TestCase):
         self.assertTrue(pool.persistent("glaeda-light-xcode-26.6"))
         # The fast tier's reserved runner (CI_FAST_LANE_RUNNER) is owned too.
         self.assertTrue(pool.persistent("glaeda-fast-std-xcode-26.6"))
+        # So is generated files' session runner (CI_SESSION_LANE_RUNNER).
+        self.assertTrue(pool.persistent("glaeda-session-light-xcode-26.6"))
         for label in (SMALL, "ubuntu-24.04", "glaeda-mini", "glaeda-class-std", ""):
             self.assertFalse(pool.persistent(label), label)
 
@@ -2440,10 +2451,11 @@ class Wiring(unittest.TestCase):
     def test_the_picker_reads_the_runs_routing(self):
         changes = self.workflow("ci.yml")["jobs"]["changes"]
         ids = [step.get("id") for step in changes["steps"]]
-        for step_id in ("detect", "standalone", "suite"):
+        for step_id in ("detect", "standalone", "suite", "next-route"):
             self.assertLess(ids.index(step_id), ids.index("macos-pool"), step_id)
         env = changes["steps"][ids.index("macos-pool")]["env"]
-        self.assertEqual(env["RUN_FULL_SUITE"], "${{ steps.suite.outputs.full_suite }}")
+        # A feat-cmux-next pull request's routing (next-route) wins, as in the job's outputs.
+        self.assertEqual(env["RUN_FULL_SUITE"], "${{ steps.next-route.outputs.full_suite || steps.suite.outputs.full_suite }}")
         self.assertNotIn("RUN_CLI", env)
         self.assertNotIn("RUN_CLAUDE_WRAPPER", env)
         self.assertNotIn("OWNED_JOBS_PER_RUN", env)
@@ -2469,7 +2481,7 @@ class Wiring(unittest.TestCase):
         cli = self.workflow("ci-macos.yml")["jobs"]["cli-product-tests"]
         self.assertEqual(cli["runs-on"], "${{ needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')"
                                          "['cli-product'] "
-                                         "|| (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, "
+                                         "|| (github.run_attempt > 2 && (contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, "
                                          "' cli-product ')) && inputs.pr_retry_runner "
                                          "|| inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}")
         # The Claude wrapper lane went with the wrapper; ci.yml runs no Mac job of its own.
@@ -2617,7 +2629,7 @@ class Wiring(unittest.TestCase):
         # attempts that read it, when owned_jobs names ' swift-package '.
         job = self.workflow("ci-macos.yml")["jobs"]["swift-package-tests"]
         owned = ("(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
-                 "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || "
+                 "(github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || "
                  "github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && "
                  "contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner)")
         self.assertIn("fromJSON(inputs.owned_head_repos)", job["runs-on"])
@@ -2650,7 +2662,7 @@ class Wiring(unittest.TestCase):
         # macOS 26 variable, and its product-contract mirror says the same.
         job = self.workflow("ci-macos.yml")["jobs"]["release-build"]
         owned = ("(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
-                 "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || "
+                 "(github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || "
                  "github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && "
                  "contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner)")
         self.assertIn("fromJSON(inputs.owned_head_repos)", job["runs-on"])
@@ -2685,8 +2697,10 @@ class Wiring(unittest.TestCase):
     def test_the_picker_reads_the_package_lane_routing(self):
         env = next(step for step in self.workflow("ci.yml")["jobs"]["changes"]["steps"]
                    if step.get("id") == "macos-pool")["env"]
-        self.assertEqual(env["RUN_SWIFT_PACKAGES"], "${{ steps.detect.outputs.swift_packages }}")
-        self.assertEqual(env["RUN_RELEASE_BUILD"], "${{ steps.detect.outputs.release_build }}")
+        self.assertEqual(env["RUN_SWIFT_PACKAGES"],
+                         "${{ steps.next-route.outputs.swift_packages || steps.detect.outputs.swift_packages }}")
+        self.assertEqual(env["RUN_RELEASE_BUILD"],
+                         "${{ steps.next-route.outputs.release_build || steps.detect.outputs.release_build }}")
 
 
 IOS_SIM = "glaeda-ios-sim"
@@ -2695,7 +2709,9 @@ IOS_SLOTS = {MINI: 40, ROOT_MINI: 10, IOS_SIM: 2}
 
 
 # test-ios.yml's per-job Xcode pin: only on an owned Mac, and never for a fork's pull request.
+# feat-cmux-next pushes run test-ios on the owned minis too (adaccb5c3755), so they read the pin.
 IOS_XCODE_PIN = ("${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || "
+                 "github.event_name == 'push' || "
                  "github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}")
 
 
@@ -3694,7 +3710,12 @@ class IOSWiring(unittest.TestCase):
         self.assertEqual(runner["permissions"], {"contents": "read", "actions": "read"})
         step = self.picker_step(runner)
         self.assertIn("--lane test-ios", step["run"])
-        self.assertEqual(step["env"]["REQUESTED_RUNNER"], "${{ inputs.runner }}")
+        # The cmux-next lane (feat-cmux-next pushes, same-repository pull requests into it)
+        # asks for the owned minis (user, 2026-10-20, adaccb5c3755); a fork pull request
+        # fails the same-repository clause and asks for nothing.
+        self.assertEqual(step["env"]["REQUESTED_RUNNER"], "${{ inputs.runner || ((github.event_name == 'push' || "
+                         "(github.base_ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == "
+                         "github.repository)) && 'owned' || '') }}")
         self.assertEqual(step["env"]["RUNNER_VARIABLE"], "${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}")
         self.assertEqual(step["env"]["IOS_OWNED"], "${{ vars.CI_IOS_OWNED }}")
         self.assertEqual(step["env"]["IOS_VERSION"], "${{ inputs.ios_version }}")

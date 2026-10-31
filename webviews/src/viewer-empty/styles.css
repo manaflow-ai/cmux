@@ -14,7 +14,7 @@
   --ve-surface: var(--cmux-diff-solid-bg, var(--cmux-elevated-background, Canvas));
   --ve-error: var(--cmux-app-danger, light-dark(#b42318, #ff8a80));
   --ve-git: var(--cmux-app-warning, light-dark(#c4501b, #f0884f));
-  --ve-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --ve-font: var(--font-ui);
   color-scheme: light dark;
 }
 
@@ -390,7 +390,10 @@
   color: var(--ve-fg);
 }
 
+/* flex: none: a folder that virtualizes gives the list its full height as a flex basis, and the
+   shrink would come out of the field too (it drew 20px tall). */
 .ve-picker-field {
+  flex: none;
   height: 30px;
   margin: 8px 12px;
   padding: 0 10px;
@@ -446,10 +449,6 @@
   color: var(--ve-fg-3);
   font-size: 11px;
   font-weight: 600;
-}
-
-.ve-picker-row[data-location="true"] + .ve-picker-row:not([data-location]) {
-  margin-top: 4px;
 }
 
 .ve-picker-name,

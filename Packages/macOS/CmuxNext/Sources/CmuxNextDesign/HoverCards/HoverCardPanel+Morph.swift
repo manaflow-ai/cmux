@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 
 /// A resize in flight: the card laid out at the larger of its two sizes, shown through a mask
 /// that grows or shrinks from the last card's size to the next one's.
@@ -42,7 +43,8 @@ extension HoverCardPanel {
         switch restingPlacement {
         case .above: CGPoint(x: isLeading ? 1 : 0, y: 0)
         case .below, .beside: CGPoint(x: isLeading ? 1 : 0, y: 1)
-        // Its edge on the row's middle: the top below the escape slot, the bottom when flipped above it.
+        // The top stays fixed (on the row's top, or below the escape slot in the Debug middle layout);
+        // the bottom when the middle layout flipped the card above the row's middle.
         case .besideRow: CGPoint(x: isLeading ? 1 : 0, y: escapeGeometry.map { $0.card.minY >= $0.anchor.minY } == true ? 0 : 1)
         }
     }
@@ -86,7 +88,7 @@ extension HoverCardPanel {
         let generation = Self.morphGeneration
         let mask = CALayer()
         mask.backgroundColor = NSColor.black.cgColor
-        mask.cornerRadius = Self.cornerRadius
+        mask.cornerRadius = host.cornerRadius
         mask.cornerCurve = .continuous
         mask.anchorPoint = corner
         CATransaction.begin()
@@ -99,9 +101,7 @@ extension HoverCardPanel {
 
         let shownFrom = CGRect(origin: .zero, size: previous.size)
         CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in
-            MainActor.assumeIsolated { self?.finishMorph(generation) } // main-proof: CATransaction.h: the completion block is called on the main thread
-        }
+        CATransaction.setMainCompletion { [weak self] in self?.finishMorph(generation) }
         Motion.hoverCards.set(mask, "bounds", to: NSValue(rect: CGRect(origin: .zero, size: rest.size)), spring: .panel, from: NSValue(rect: shownFrom))
         // The shadow and its cutout follow the visible card (host coordinates, before the slide).
         let cardInHost = glass.frame

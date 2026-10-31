@@ -2,7 +2,11 @@
 // Swift ChangelogPageProvider serves verified, signed release notes (`ReleaseNotes`, encoded as
 // is); actions are already filtered to the app's compiled-in allow-list.
 
-export const ChangelogOps = { list: "cmux.changelog.list", get: "cmux.changelog.get" } as const;
+export const ChangelogOps = {
+  list: "cmux.changelog.list",
+  get: "cmux.changelog.get",
+  reel: "cmux.changelog.reel",
+} as const;
 /** Runs a highlight's "Try it" (the host admits only allow-listed actions). */
 export const ACTION_RUN = "cmux.app.action.run";
 
@@ -11,6 +15,8 @@ export interface IndexEntry {
   shortVersion: string;
   date: string;
   highlights: number;
+  /** The commit the build was cut from; older indexes lack it. */
+  head?: string;
 }
 
 export interface ListResult {
@@ -49,6 +55,8 @@ export interface WhatsNewEntry {
   summary: LocalizedText;
   media?: { kind: string; light: string; dark: string; alt: LocalizedText };
   tryIt?: { action?: string; deeplink?: string };
+  /** Optional GitHub pull request URL shown as the shared colored PR chip. */
+  pr?: string;
   docs?: string;
 }
 
@@ -72,6 +80,9 @@ export interface ChangeItem {
   title: string;
   author?: string;
   pr?: number;
+  /** Every file the commit touches is CI or tooling (release-notes.py tooling_only): internal
+      whatever its subject says. Absent in notes published before the flag. */
+  internal?: boolean;
 }
 
 export interface ReleaseNotes {
@@ -85,6 +96,16 @@ export interface ReleaseNotes {
   summary?: SummaryLine[];
 }
 
+/** `cmux.changelog.reel {build}`: the build's nightly reel, a video the page links (never in the
+    signed notes; the host reads the build's reel.json, ReleaseMediaStore.swift), else null. */
+export interface ReelResult {
+  url: string | null;
+}
+
 /** The page design (Debug Settings `whatsNew.design`, route `design=`): the Ledger is the default
     (u5099, design/changelog-variations-gallery #01). */
 export type ChangelogDesign = "ledger" | "journal" | "rail" | "digest";
+/** How the update's news shows its clips (SpanNews.tsx; the route's `news=`, for the gallery): each
+    clip beside its words, alternating sides (default); one under another; two-up cards; or the
+    lead row the clips replaced. */
+export type NewsLayout = "alternate" | "stack" | "grid" | "lead";

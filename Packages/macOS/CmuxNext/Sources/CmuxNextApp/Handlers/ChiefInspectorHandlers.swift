@@ -24,6 +24,10 @@ import Observation
 @MainActor
 enum ChiefInspectorHandlers {
     static let actionID: ActionID = "chief.openMemoryInspector"
+    /// The Home header's Memory toggle (``HomeHeaderPanels``) and the palette's Toggle Memory
+    /// Inspector: closes the active window's Memory Inspector tabs when its workspace shows one,
+    /// else opens one exactly as ``actionID`` (same arguments, same fallback).
+    static let toggleActionID: ActionID = "chief.toggleMemoryInspector"
     /// The old web page instead of the native view (the fallback).
     static var opensWebPage: Bool { ProcessInfo.processInfo.environment["CMUX_MEMORY_INSPECTOR_WEB"] == "1" }
 
@@ -41,6 +45,11 @@ enum ChiefInspectorHandlers {
                   memory.open(route(invocation), in: window, focus: invocation.allowsViewChange) != nil else {
                 throw ActionWorkFailure(RefusalStrings.noWindowOpen)
             }
+        })
+        registry.bind(toggleActionID, run: { invocation in
+            guard let window = context.services.windows.active else { throw ActionWorkFailure(RefusalStrings.noWindowOpen) }
+            if memory.closeShown(in: window) { return }
+            _ = context.registry.perform(actionID, invocation: invocation)
         })
     }
 
@@ -91,7 +100,7 @@ enum ChiefInspectorHandlers {
 
     /// A connected paired server whose brain daemon serves `chief-inspect`.
     private static func remoteChief(_ context: AppActionContext) -> ServerMachineSession? {
-        context.services.machines.servers.first { $0.daemon.supports(DaemonCapabilities.shared.chiefInspect) }
+        context.services.machines.servers.first { $0.daemon.supports(DaemonCapability.chiefInspect.rawValue) }
     }
 
     /// The remote inspector page in this window, then moved into a new
@@ -131,7 +140,7 @@ enum ChiefInspectorHandlers {
 
     /// The screen of `pane` when it is in the home workspace, else nil.
     private static func homeScreen(of pane: PaneModel, context: AppActionContext) -> ScreenModel? {
-        for workspace in context.daemon.store.workspaces where workspace.kind == "home" {
+        for workspace in context.daemon.store.workspaces where workspace.isAnyHome {
             if let screen = workspace.screens.first(where: { $0.panes.contains { $0 === pane } }) { return screen }
         }
         return nil
@@ -153,7 +162,7 @@ enum ChiefInspectorHandlers {
         guard invocation.target == nil || scope.pane != nil else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
         // The home workspace (kind "home") holds only the Chief conversation
         // that the Home page shows: the column goes into a user workspace.
-        let user = { (w: WorkspaceModel) in w.kind != "home" && w.screens.first?.panes.last != nil }
+        let user = { (w: WorkspaceModel) in !w.isAnyHome && w.screens.first?.panes.last != nil }
         let workspace = scope.workspace.flatMap { user($0) ? $0 : nil }
             ?? context.daemon.store.workspaces.first(where: user)
         guard let pane = workspace?.screens.first?.panes.last else { throw ActionFailure(message: MiscHandlerStrings.noPane) }

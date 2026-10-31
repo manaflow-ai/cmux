@@ -1,9 +1,10 @@
 // The New Tab screen as the agent pane lays it out (App.tsx): the screen is the page's one scroller,
 // with the template pager under it, and its composer carries the pane's own model chip
 // (NewTabComposerChips). The host's actions answer nothing. `?reported` gives the chips a session
-// that reported its reasoning levels and access modes, so the effort and access menus show.
-// `?template=cards` draws the Cards page, the app's default, with Claude Code's split (the mode,
-// model and effort in the quiet row under the box); with no template it draws Default, the stage layout
+// that reported its reasoning levels and access modes, so the model menu's Effort submenu and the
+// access menu show. `?template=cards` draws the Cards page, the app's default, with Claude Code's
+// split (the mode and the one model button in the quiet row under the box); with no template it
+// draws Default, the stage layout
 // (the composer at the foot of the page).
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
@@ -19,6 +20,7 @@ import "../../src/agent-session/acpmux/styles.css";
 import "../../src/agent-session/acpmux/composerControls.css";
 import "../../src/agent-session/acpmux/composerStates.css";
 import "../../src/agent-session/acpmux/composerLocation.css";
+import "../../src/agent-session/acpmux/composerFooterShared.css";
 import "../../src/agent-session/acpmux/modelPicker.css";
 import "../../src/agent-session/acpmux/newtab/screen.css";
 
@@ -55,7 +57,7 @@ const snapshot = noChat(
               { id: "default", name: "Ask before edits" },
               { id: "acceptEdits", name: "Edit automatically" },
               { id: "plan", name: "Plan" },
-              { id: "bypassPermissions", name: "Full access" },
+              { id: "bypassPermissions", name: "Bypass permissions" },
             ],
           },
         },
@@ -84,6 +86,22 @@ createRoot(root).render(
       onJump={noop}
       onOpenSession={noop}
       onShowAll={noop}
+      {...(query.has("crowdedSuggestions")
+        ? {
+            onCreate: noop,
+            omnibar: {
+              tabs: [],
+              workspaces: [],
+              sessions: [],
+              folders: [],
+              commands: [],
+              history: Array.from({ length: 4 }, (_, index) => ({
+                url: `https://example.com/project-${index}`,
+                title: `Project notes ${index + 1}`,
+              })),
+            },
+          }
+        : {})}
     />
     <div className="pager" style={{ flex: "none", height: 40 }} />
   </QueryClientProvider>,

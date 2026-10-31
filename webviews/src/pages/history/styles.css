@@ -53,8 +53,12 @@
   cursor: default;
 }
 
-.history-menu-button:hover {
+.history-menu-button:hover:not(:disabled) {
   background: var(--page-hover);
+}
+
+.history-menu-button:disabled {
+  color: var(--page-text-3);
 }
 
 .history-search {

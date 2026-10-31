@@ -16,7 +16,11 @@
 //!    none) is updated, so every machine runs the build the app bundles.
 //!    Two apps of different builds that share a machine therefore each move
 //!    it to their own build, also back to an older one; accepted, as Update
-//!    Everything only runs when a person asks for it in that app. It
+//!    Everything only runs when a person asks for it in that app. With
+//!    `--if-older` too (the app's automatic update) only a machine whose
+//!    build is older than this client's is updated, by the source commit
+//!    time both report (`build_time`, [`machine_is_older`]), so two apps of
+//!    different builds never move a machine back. It
 //!    must serve `fs-v1` and `detached-terminals-v1`, and run the daemon from
 //!    `<home>/.cmux/bin/cmux-tui`, the binary its supervisor restarts.
 //! 2. The new build is this client's own Linux build, pinned by the signed
@@ -39,6 +43,8 @@
 //!    that needs nothing, or `{"ok":false,"error":..,"error_code":..}` (exit 1;
 //!    bad usage exits 64).
 
+use cmux_json::JsonSet as _;
+
 pub(crate) mod apply;
 
 use std::path::{Path, PathBuf};
@@ -48,7 +54,8 @@ use serde_json::{Value, json};
 
 use super::machine_gate;
 
-const USAGE: &str = "usage: cmux link machine update --socket MACHINE_DAEMON_SOCKET [--to-bundled]";
+const USAGE: &str =
+    "usage: cmux link machine update --socket MACHINE_DAEMON_SOCKET [--to-bundled [--if-older]]";
 /// Every Cloud image bakes an x86_64 machine (images/cmux-vm inputs.lock.json).
 const CLOUD_ARCH: &str = "x86_64";
 /// The verbs whose absence makes a machine worth updating.
@@ -68,11 +75,20 @@ const OUTCOME_GRACE: Duration = Duration::from_secs(60);
 struct Failed {
     code: &'static str,
     error: String,
+    /// `build`: the machine's `build_commit` this answer is about (a machine too old to update
+    /// in place: what the caller may install over by other means, and only while it still runs it).
+    build: Option<String>,
 }
 
 impl Failed {
     fn new(code: &'static str, error: impl Into<String>) -> Self {
-        Self { code, error: error.into() }
+        Self { code, error: error.into(), build: None }
+    }
+
+    /// Names the build the machine ran when this answer was decided.
+    fn about(mut self, identity: &Value) -> Self {
+        self.build = identity["build_commit"].as_str().filter(|b| !b.is_empty()).map(str::to_owned);
+        self
     }
 }
 
@@ -81,47 +97,101 @@ pub(super) fn run(args: &[String]) -> i32 {
         println!("{USAGE}");
         return 0;
     }
-    let (socket, to_bundled) = match args {
-        [action, flag, socket] if action == "update" && flag == "--socket" => {
-            (PathBuf::from(socket), false)
-        }
-        [action, flag, socket, bundled] | [action, bundled, flag, socket]
-            if action == "update" && flag == "--socket" && bundled == "--to-bundled" =>
-        {
-            (PathBuf::from(socket), true)
-        }
-        _ => {
-            eprintln!("{USAGE}");
-            return 64;
-        }
+    let Some(request) = parse(args) else {
+        eprintln!("{USAGE}");
+        return 64;
     };
-    match update(&socket, to_bundled) {
+    match update(&request) {
         Ok(mut line) => {
-            line["ok"] = json!(true);
+            line.set("ok", json!(true));
             println!("{line}");
             0
         }
         Err(failed) => {
-            println!("{}", json!({"ok": false, "error": failed.error, "error_code": failed.code}));
+            let mut line = json!({"ok": false, "error": failed.error, "error_code": failed.code});
+            if let Some(build) = failed.build {
+                line.set("build", json!(build));
+            }
+            println!("{line}");
             1
         }
     }
 }
 
-/// `to_bundled`: update whenever the machine runs another build than this
-/// client's own, not only when it lacks one of [`NEEDED`] (also to an older
-/// build: two apps that share a machine each move it to their own).
-fn update(socket: &Path, to_bundled: bool) -> Result<Value, Failed> {
+/// One `link machine update`'s arguments.
+#[derive(Debug, PartialEq, Eq)]
+struct Request {
+    socket: PathBuf,
+    /// `--to-bundled`: update whenever the machine runs another build than
+    /// this client's own, not only when it lacks one of [`NEEDED`] (also to
+    /// an older build: two apps that share a machine each move it to their
+    /// own).
+    to_bundled: bool,
+    /// `--if-older`, only with `--to-bundled`: and only when the machine's
+    /// build is older than this client's ([`machine_is_older`]).
+    if_older: bool,
+}
+
+/// `update --socket PATH [--to-bundled [--if-older]]`, flags in any order;
+/// None for anything else.
+fn parse(args: &[String]) -> Option<Request> {
+    let mut rest = args.iter();
+    if rest.next().map(String::as_str) != Some("update") {
+        return None;
+    }
+    let (mut socket, mut to_bundled, mut if_older) = (None, false, false);
+    while let Some(arg) = rest.next() {
+        match arg.as_str() {
+            "--socket" if socket.is_none() => socket = Some(PathBuf::from(rest.next()?)),
+            "--to-bundled" if !to_bundled => to_bundled = true,
+            "--if-older" if !if_older => if_older = true,
+            _ => return None,
+        }
+    }
+    if if_older && !to_bundled {
+        return None;
+    }
+    Some(Request { socket: socket?, to_bundled, if_older })
+}
+
+/// Whether a machine whose daemon reports `remote` as its `build_time` runs
+/// an older build than this client, built at `local` (unix seconds of each
+/// source commit). A daemon that reports none (a build from before
+/// `build_time` in `identify`, or one that does not know its time) is
+/// older, as `cmux_remote::update_need` counts a remote without facts. A
+/// client that does not know its own time orders nothing. The same time is
+/// the same source tree: not older.
+fn machine_is_older(remote: Option<u64>, local: u64) -> bool {
+    local != 0 && remote.is_none_or(|remote| remote == 0 || remote < local)
+}
+
+fn update(request: &Request) -> Result<Value, Failed> {
+    let socket = request.socket.as_path();
     let before = machine_gate::identify(socket)
         .ok_or_else(|| Failed::new("machine_unreachable", "the machine daemon did not answer"))?;
     let previous = machine_gate::build_id(&before).map(str::to_owned);
-    let current = if to_bundled {
+    let current = if request.to_bundled {
         previous.as_deref() == Some(cmux_build_identity::BUILD_IDENTITY)
     } else {
         machine_gate::outdated_identity(&before, &NEEDED).is_none()
     };
     if current {
         return Ok(json!({"updated": false, "build": previous}));
+    }
+    if request.if_older {
+        // The build time only comes with `revisions`; a daemon from before it
+        // answers without one. One that does not answer now is not ordered:
+        // a newer machine must never be moved back on a lost reply.
+        let revisions = machine_gate::call(socket, json!({"cmd": "identify", "revisions": true}))
+            .map_err(|error| {
+            Failed::new(
+                "machine_unreachable",
+                format!("the machine daemon did not say its build time: {error}"),
+            )
+        })?;
+        if !machine_is_older(revisions["build_time"].as_u64(), cmux_build_identity::BUILD_TIME) {
+            return Ok(json!({"updated": false, "build": previous, "not_older": true}));
+        }
     }
     let served = machine_gate::served(&before).unwrap_or_default();
     if let Some(missing) = REACHES.iter().find(|capability| !served.contains(capability)) {
@@ -130,16 +200,18 @@ fn update(socket: &Path, to_bundled: bool) -> Result<Value, Failed> {
             format!(
                 "the machine's cmux-tui is too old to update in place (no {missing}); recreate the machine"
             ),
-        ));
+        )
+        .about(&before));
     }
     let install = install_path(&before).ok_or_else(|| {
         Failed::new(
             "machine_update_unsupported",
             "the machine's daemon does not run from ~/.cmux/bin/cmux-tui; recreate the machine",
         )
+        .about(&before)
     })?;
     let daemon_pid = before["pid"].as_u64().ok_or_else(|| {
-        Failed::new("machine_update_unsupported", "the machine daemon named no pid")
+        Failed::new("machine_update_unsupported", "the machine daemon named no pid").about(&before)
     })?;
     let (payload, sha256) = pinned_payload()?;
     let folder = install.rsplit_once('/').map_or("", |(folder, _)| folder).to_owned();
@@ -327,3 +399,7 @@ fn nonce() -> String {
     });
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
+
+#[cfg(test)]
+#[path = "machine_update/tests.rs"]
+mod tests;

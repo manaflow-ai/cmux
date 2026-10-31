@@ -47,7 +47,7 @@ import Testing
             pane.frame = window.contentLayoutRect
             window.contentView = pane
             window.orderFrontRegardless()
-            page = WebKitEngine().makeWebKitTab()
+            page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
             chrome = BrowserChromeView(tab: page)
             pane.show(chrome)
             pane.layoutSubtreeIfNeeded()

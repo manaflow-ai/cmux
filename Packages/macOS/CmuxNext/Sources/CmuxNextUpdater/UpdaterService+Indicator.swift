@@ -7,14 +7,16 @@ public import Foundation
 extension UpdaterService {
     /// The circle's phase: Sparkle's flow, else (no Sparkle) the probe the
     /// user asked for. A staged update that is not newer than the running
-    /// build is no update (``offersStagedUpdate(version:)``).
+    /// build is no update (``offersStagedUpdate(version:)``), nor is a found
+    /// build known pulled (``dropPulledAvailable()``).
     public var indicatorPhase: UpdateIndicatorPhase {
         let phase = sourcePhase
         if case .ready(let version) = phase, !offersStagedUpdate(version: version) { return .hidden }
+        if case .available = phase, let found = availableBuild(), isKnownPulled(found) { return .hidden }
         return phase
     }
 
-    private var sourcePhase: UpdateIndicatorPhase {
+    var sourcePhase: UpdateIndicatorPhase {
         if let debugIndicatorPhase { return debugIndicatorPhase }
         if let controller, disabledReason == nil {
             let version = controller.stagedUpdate?.displayVersionString ?? controller.model.detectedUpdateVersion
@@ -37,6 +39,12 @@ extension UpdaterService {
         }
         guard let version, !version.isEmpty else { return false }
         return version != identity.shortVersion
+    }
+
+    /// The update sheet closed (set by the App): the tip app's feed read resumes (``TipUpdateCheck``).
+    public func updateSheetClosed() {
+        tipCheck.refresh(self)
+        followReleasePush()
     }
 
     /// The note beside the circle timed out (up to date clears itself).

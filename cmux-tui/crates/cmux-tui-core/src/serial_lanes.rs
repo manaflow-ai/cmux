@@ -3,7 +3,9 @@
 //! The daemon used to give every terminal and browser surface its own thread
 //! that slept until that entity had work ("thread per entity"): 1743 threads
 //! in one Chief daemon with 335 terminals and 353 browser surfaces on
-//! 2026-10-20. A [`Lane`] replaces such a thread. It owns a run function,
+//! 2026-10-20. A [`Lane`] replaces such a thread (browser surface workers;
+//! terminals' frames have their own shared producer,
+//! `surface/frame_producer.rs`). It owns a run function,
 //! and the executor calls it on one of a few shared worker threads when the
 //! lane is kicked or its deadline arrives:
 //!
@@ -116,11 +118,6 @@ impl Lane {
                 Err(actual) => current = actual,
             }
         }
-    }
-
-    /// Never run the lane again; a run in progress finishes.
-    pub(crate) fn close(&self) {
-        self.0.status.store(CLOSED, Ordering::Release);
     }
 }
 

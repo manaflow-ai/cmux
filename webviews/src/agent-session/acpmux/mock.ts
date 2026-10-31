@@ -18,6 +18,26 @@ import { mockGitCommit, mockGitDiff, mockGitPush, mockGitStatus } from "./mockGi
 import { mockFileSearch } from "./mockFiles";
 import { loadTurn, streamedReply, streamedTool } from "./loadFixture";
 
+/** Gallery-only auth data. The mock daemon consumes this; production direct clients do not. */
+export type MockSessionAuth = {
+  state: "ready" | "signedOut" | "expired" | "routeAuthNeeded" | "routeUnreachable" | "peerUnreachable" | "unknown";
+  source: "peerLink" | "routeProbe" | "turn" | "authCheck" | "none";
+  evidenceAt: number | null;
+  detail?: string;
+  harness: string;
+  host: string | null;
+  routeId: string | null;
+  fromSessionId: string | null;
+  login?: { kind: "terminal" | "route"; command?: string; host?: string | null; routeId?: string | null };
+};
+type MockAuthGlobals = {
+  cmuxAcpmuxMockHarnessHealth?: Record<string, { auth: "signedIn" | "signedOut" | "unknown"; login?: string }>;
+  cmuxAcpmuxMockNative?: Record<string, unknown>;
+  cmuxAcpmuxMockSessionAuth?: MockSessionAuth;
+  /** Capability ids `initialize` names (`_meta.acpmux.capabilities`); absent names none, as an older daemon. */
+  cmuxAcpmuxMockCapabilities?: string[];
+};
+
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
 // acpmux daemon is wanted (demos, screenshots, tests). The page then runs the
 // real acpmux client against this in-page daemon, which speaks the daemon's
@@ -383,6 +403,10 @@ export class MockAcpmuxSocket {
               origin: "local",
               operations: [FORK_OP, ...Object.values(HANDOFF_OPS)],
               handoff: { maxCapsuleBytes: 65536 },
+              ...((globalThis as MockAuthGlobals).cmuxAcpmuxMockSessionAuth ? { features: ["sessionAuth"] } : {}),
+              ...((globalThis as MockAuthGlobals).cmuxAcpmuxMockCapabilities
+                ? { capabilities: (globalThis as MockAuthGlobals).cmuxAcpmuxMockCapabilities }
+                : {}),
             },
           },
         };
@@ -410,6 +434,7 @@ export class MockAcpmuxSocket {
       }
       case "_acpmux/attach": {
         this.attached = target;
+        const page = this.page(target, params, true);
         // Opening a session reads it; it keeps its place in the list.
         if (this.sessions.find((entry) => entry.sessionId === target)?.unread)
           this.touch(target, { unread: false }, false);
@@ -417,8 +442,17 @@ export class MockAcpmuxSocket {
           session: {
             ...this.sessions.find((entry) => entry.sessionId === target),
             enforcement: { policy: "default", label: "native_policy", isolation: "unverified", detail: null },
+            // The newest command list, as acpmux keeps it in the session.
+            ...this.availableCommands(target),
           },
-          events: this.events.filter((event) => event.sessionId === target),
+          // The newest page, as acpmux pages an attach (hub/paging.rs): at most `limit` records
+          // and `maxBytes` of them, `hasMore` when older ones remain. Answering the whole log made
+          // a long mock chat open as slowly as its history is long (perf100).
+          ...page,
+          lastSeq: this.lastSeqOf(target),
+          // The prompt of the turn the page starts inside, read with it as acpmux does
+          // (server/requests/turn_opener.rs).
+          turnOpener: this.turnOpener(target, page),
         };
       }
       case "_acpmux/archive": {
@@ -445,9 +479,50 @@ export class MockAcpmuxSocket {
         );
         return this.sessions.find((session) => session.sessionId === target);
       }
-      // This Mac's agent CLIs as last checked: every listed harness signed in.
-      case "_acpmux/harness/health":
-        return { harnesses: harnesses.map((harness) => ({ id: harness.id, auth: "signedIn" })) };
+      // Gallery data may override this mock daemon's health, never the real direct client.
+      case "_acpmux/harness/health": {
+        const fixture = globalThis as MockAuthGlobals;
+        const native = fixture.cmuxAcpmuxMockNative?.["harness.health"] as
+          | { health?: { id?: string; auth?: "signedIn" | "signedOut" | "unknown"; login?: string } }
+          | undefined;
+        const fromNative = native?.health;
+        const overrides = fixture.cmuxAcpmuxMockHarnessHealth;
+        const resolved = {
+          harnesses: harnesses.map((harness) => ({
+            id: harness.id,
+            auth:
+              overrides?.[harness.id]?.auth ??
+              (fromNative?.id === harness.id ? fromNative.auth : undefined) ??
+              "signedIn",
+            ...(overrides?.[harness.id]?.login
+              ? { login: overrides[harness.id]!.login }
+              : fromNative?.id === harness.id && fromNative.login
+                ? { login: fromNative.login }
+                : {}),
+          })),
+        };
+        (globalThis as { cmuxGalleryLog?: { method: string; params?: unknown }[] }).cmuxGalleryLog?.push({
+          method: "acpmux health resolved",
+          params: resolved,
+        });
+        return resolved;
+      }
+      // A session-scoped auth reply remains distinct from host-wide CLI health. The fixture's
+      // "expired" state never turns a harness-wide signedOut bit on.
+      case "_acpmux/session/auth":
+        return (
+          (globalThis as MockAuthGlobals).cmuxAcpmuxMockSessionAuth ?? {
+            state: "unknown",
+            source: "none",
+            evidenceAt: null,
+            harness: String(
+              params.target?.harness ?? this.sessions.find((session) => session.sessionId === target)?.harness ?? "",
+            ),
+            host: null,
+            routeId: null,
+            fromSessionId: params.target ? null : target,
+          }
+        );
       case "_acpmux/markUnread":
         if (!this.sessions.some((session) => session.sessionId === target))
           throw Object.assign(new Error("no such session"), { code: -32001 });
@@ -471,7 +546,7 @@ export class MockAcpmuxSocket {
         const named = this.events.some(
           (event) =>
             event.sessionId === target &&
-            event.kind === "user_message" &&
+            ["user_message", "queued", "queue_updated"].includes(event.kind) &&
             Array.isArray(event.msg?.images) &&
             event.msg.images.some((image: { id?: string }) => image.id === id),
         );
@@ -525,7 +600,8 @@ export class MockAcpmuxSocket {
             return { id, mimeType: block.mimeType ?? "image/png", ...(block.name ? { name: block.name } : {}) };
           });
         const queued = this.pending > 0 && promptId !== undefined;
-        if (queued) this.emit(target, { mux: "queued", msg: { promptId, text } });
+        // A queued prompt's record names its images too, so its row shows them (ComposerQueue.tsx).
+        if (queued) this.emit(target, { mux: "queued", msg: { promptId, text, ...(images.length && { images }) } });
         this.pending += 1;
         const turn = this.queue
           .then(() => {
@@ -542,6 +618,15 @@ export class MockAcpmuxSocket {
       case "session/set_model":
         this.touch(target, { model: String(params.modelId) }, false);
         return {};
+      // The Access chip's mode, as an agent that offers it reports the switch.
+      case "session/set_mode": {
+        const session = this.sessions.find((entry) => entry.sessionId === target);
+        const modes = session?.modes as { availableModes: { id: string }[]; currentModeId?: string } | undefined;
+        const modeId = String(params.modeId);
+        if (!modes?.availableModes.some((mode) => mode.id === modeId)) throw new Error(`no mode ${modeId}`);
+        this.touch(target, { modes: { ...modes, currentModeId: modeId } }, false);
+        return {};
+      }
       case "session/set_config_option": {
         const session = this.sessions.find((entry) => entry.sessionId === target);
         const options = (session?.configOptions ?? []) as { id: string; currentValue?: string }[];
@@ -691,19 +776,69 @@ export class MockAcpmuxSocket {
     this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "updated", session: changed } });
   }
 
-  /// A page of a session's events, as `_acpmux/events` returns it: after `afterSeq`, or the
-  /// newest `limit` before `beforeSeq`; `kinds` keeps the commands or the transcript.
-  private page(target: string, params: Record<string, any>): { events: EventRecord[]; hasMore: boolean } {
+  /// `{availableCommands}`: the newest command list `target`'s agent sent, as acpmux keeps it.
+  private availableCommands(target: string): { availableCommands?: unknown } {
+    for (let index = this.events.length - 1; index >= 0; index -= 1) {
+      const event = this.events[index]!;
+      if (event.sessionId === target && event.kind === "available_commands_update")
+        return { availableCommands: (event.msg as any)?.params?.update };
+    }
+    return {};
+  }
+
+  /// The newest record's seq in `target`'s log, 0 when it has none.
+  private lastSeqOf(target: string): number {
+    for (let index = this.events.length - 1; index >= 0; index -= 1)
+      if (this.events[index]!.sessionId === target) return this.events[index]!.seq;
+    return 0;
+  }
+
+  /// A page of a session's events, as acpmux's `_acpmux/events` and `_acpmux/attach` return it
+  /// (hub/paging.rs): after `afterSeq` oldest first, or (`beforeSeq`, or an attach without
+  /// `afterSeq`) the newest `limit` before `beforeSeq`; a page also ends before its records pass
+  /// `maxBytes` and always holds one. `kinds` keeps the commands, other exact kinds, or the transcript.
+  private page(
+    target: string,
+    params: Record<string, any>,
+    attach = false,
+  ): { events: EventRecord[]; hasMore: boolean } {
     const kinds: string[] = Array.isArray(params.kinds) ? params.kinds : [];
     const wanted = (event: EventRecord) =>
       kinds.length === 0 ||
-      (event.kind === "available_commands_update" ? kinds.includes(event.kind) : kinds.includes("transcript"));
-    const own = this.events.filter((event) => event.sessionId === target && wanted(event));
-    if (params.beforeSeq === undefined)
-      return { events: own.filter((event) => event.seq > Number(params.afterSeq ?? 0)), hasMore: false };
-    const older = own.filter((event) => event.seq < Number(params.beforeSeq));
-    const limit = Math.max(1, Number(params.limit ?? older.length));
-    return { events: older.slice(-limit), hasMore: older.length > limit };
+      kinds.includes(event.kind) ||
+      (event.kind !== "available_commands_update" && kinds.includes("transcript"));
+    const after = Number(params.afterSeq ?? 0);
+    const before = params.beforeSeq === undefined ? Infinity : Number(params.beforeSeq);
+    const newest = params.beforeSeq !== undefined || (attach && params.afterSeq === undefined);
+    const limit = params.limit === undefined ? (attach ? 2000 : Infinity) : Math.max(1, Number(params.limit));
+    const maxBytes = params.maxBytes === undefined ? Infinity : Number(params.maxBytes);
+    const events: EventRecord[] = [];
+    let bytes = 0;
+    let hasMore = false;
+    const take = (event: EventRecord) => {
+      if (event.sessionId !== target || event.seq <= after || event.seq >= before || !wanted(event)) return true;
+      if (events.length >= limit) return !(hasMore = true);
+      bytes += JSON.stringify(event.msg).length + event.kind.length + 120;
+      if (events.length > 0 && bytes > maxBytes) return !(hasMore = true);
+      events.push(event);
+      return true;
+    };
+    if (newest) {
+      for (let index = this.events.length - 1; index >= 0 && take(this.events[index]!); index -= 1);
+      events.reverse();
+    } else for (let index = 0; index < this.events.length && take(this.events[index]!); index += 1);
+    return { events, hasMore };
+  }
+
+  /// The newest turn-starting prompt among the 16 user messages before a page that starts inside a
+  /// turn with older records before it, as acpmux reads it (server/requests/turn_opener.rs).
+  private turnOpener(target: string, page: { events: EventRecord[]; hasMore: boolean }): EventRecord | null {
+    const first = page.events[0];
+    const opens = (event: EventRecord) =>
+      event.dir === "mux" && event.kind === "user_message" && event.msg?.steer !== true;
+    if (!page.hasMore || !first || first.seq <= 1 || opens(first)) return null;
+    const prompts = this.page(target, { beforeSeq: first.seq, limit: 16, kinds: ["user_message"] }).events;
+    return [...prompts].reverse().find(opens) ?? null;
   }
 
   private record(target: string, step: Step, at = Date.now()): EventRecord {

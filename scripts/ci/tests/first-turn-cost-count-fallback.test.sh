@@ -5,6 +5,9 @@
 # estimates the tokens from the request bytes, says so in a WARNING line, and
 # still fails a request over the limit. Runs on a build host (python3), never
 # on a laptop.
+# The guard's own lines are shown only when an assertion fails: the over-limit
+# case prints "FIRST-TURN-COST FAIL" on purpose, and in a passing CI log that
+# line reads as a red (10-21: two lanes reported FIRST-TURN-COST as a base red).
 #   scripts/ci/tests/first-turn-cost-count-fallback.test.sh
 set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
@@ -46,17 +49,18 @@ open(sys.argv[1], "wb").write(json.dumps(head).encode() + b"\n" + json.dumps(bod
 PY
 }
 
+# Fails the test, showing the guard's output (indented, so no line starts like the guard's verdict).
+fail() { echo "FAIL: $1; the guard printed:" >&2; sed 's/^/    | /' <<<"$out" >&2; exit 1; }
+
 status=0
 request "$work/small" 1000
 out="$(python3 -I "$tool" count "$work/small" --url "$url" --limit 50000 2>&1)" || status=$?
-echo "$out"
-[[ "$status" == 0 ]] || { echo "FAIL: a small request with a 502 router exits $status, not 0" >&2; exit 1; }
-grep -q 'FIRST-TURN-COST WARNING .*count_tokens.*502.*estimate' <<<"$out" || { echo "FAIL: no WARNING line names the fallback" >&2; exit 1; }
+[[ "$status" == 0 ]] || fail "a small request with a 502 router exits $status, not 0"
+grep -q 'FIRST-TURN-COST WARNING .*count_tokens.*502.*estimate' <<<"$out" || fail "no WARNING line names the fallback"
 
 status=0
 request "$work/large" 400000
 out="$(python3 -I "$tool" count "$work/large" --url "$url" --limit 50000 2>&1)" || status=$?
-echo "$out"
-[[ "$status" == 1 ]] || { echo "FAIL: a request over the limit with a 502 router exits $status, not 1" >&2; exit 1; }
-grep -q 'FIRST-TURN-COST FAIL' <<<"$out" || { echo "FAIL: no FAIL line over the limit" >&2; exit 1; }
-echo "PASS first-turn-cost count fallback"
+[[ "$status" == 1 ]] || fail "a request over the limit with a 502 router exits $status, not 1"
+grep -q 'FIRST-TURN-COST FAIL' <<<"$out" || fail "no FAIL line over the limit"
+echo "PASS first-turn-cost count fallback (a small request passes on the estimate; one over the limit fails, as expected)"

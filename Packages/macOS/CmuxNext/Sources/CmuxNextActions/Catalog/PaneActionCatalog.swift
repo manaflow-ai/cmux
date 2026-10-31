@@ -11,28 +11,32 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], targets: [.pane], cliName: "pane split-right", mainMenu: .view, startsTerminal: true
             ),
             // A PNG of the pane as on screen, never changing focus or selection
-            // (ScreenshotHandlers): Copy menu and palette; automation is refused.
-            {
-                var screenshot = ActionDescriptor(
-                    id: "pane.screenshot",
-                    title: String(localized: "action.pane.screenshot", defaultValue: "Screenshot Pane", bundle: .module),
-                    keywords: ["screenshot", "capture", "image", "png", "picture"], category: .pane, symbol: "camera",
-                    surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.screenshotOut], targets: [.pane],
-                    cliName: "pane screenshot",
-                    surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.pane, .inspect, 510, folder: .copy)])
-                )
-                // A pane can contain browser pixels. Automation must use the browser host's
-                // guarded capture, which masks cross-session secrets before it returns pixels.
-                screenshot.isPersonOnly = true
-                return screenshot
-            }(),
+            // (ScreenshotHandlers): Copy menu, palette and automation. An agent's or a
+            // script's capture comes back with every browser page and agent chat masked.
+            ActionDescriptor(
+                id: "pane.screenshot",
+                title: String(localized: "action.pane.screenshot", defaultValue: "Screenshot Pane", bundle: .module),
+                keywords: ["screenshot", "capture", "image", "png", "picture"], category: .pane, symbol: "camera",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.screenshotOut], targets: [.pane],
+                cliName: "pane screenshot",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.pane, .inspect, 510, folder: .copy)])
+            ),
+            // New Column Right keeps the `newColumn` id (cmux.json bindings, scripts); New Column
+            // Left opens before the pane's column (`column-left-v1`). Both search as "new column".
             ActionDescriptor(
                 id: "newColumn",
-                title: String(localized: "action.newColumn", defaultValue: "New Column", bundle: .module),
-                keywords: ["scroll", "column", "pane"],
+                title: String(localized: "action.newColumn", defaultValue: "New Column Right", bundle: .module),
+                keywords: ["new column", "scroll", "column", "pane", "right", "add"],
                 defaultShortcut: Shortcut("d", modifiers: [.control, .command]), category: .pane,
                 symbol: "rectangle.split.3x1", surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane],
                 cliName: "pane new-column", mainMenu: .view, startsTerminal: true
+            ),
+            ActionDescriptor(
+                id: "newColumnLeft",
+                title: String(localized: "action.newColumnLeft", defaultValue: "New Column Left", bundle: .module),
+                keywords: ["new column", "scroll", "column", "pane", "left", "add", "before"],
+                category: .pane, symbol: "rectangle.split.3x1", surfaces: [.palette, .keyboard, .menu, .contextMenu],
+                targets: [.pane], cliName: "pane new-column-left", mainMenu: .view, startsTerminal: true
             ),
             ActionDescriptor(
                 id: "newRow",
@@ -173,7 +177,7 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.swapWithSession",
-                title: String(localized: "action.palette.swapWithSession", defaultValue: "Swap With Session…", bundle: .module),
+                title: String(localized: "action.palette.swapWithSession", defaultValue: "Swap with Session…", bundle: .module),
                 keywords: ["swap", "exchange"], category: .pane, symbol: "arrow.left.arrow.right",
                 surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.panePane], targets: [.pane],
                 cliName: "pane swap-with-session"
@@ -350,13 +354,13 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "palette.openFilesPane",
                 title: String(localized: "action.palette.openFilesPane", defaultValue: "Open Files as Pane", bundle: .module),
                 keywords: ["explorer", "pane"], category: .pane, symbol: "doc.text", surfaces: [.palette],
-                targets: [.pane], cliName: "pane open-files-as"
+                arguments: [CatalogArgument.optionalPathString], targets: [.pane], cliName: "pane open-files-as"
             ),
             ActionDescriptor(
                 id: "palette.openFindPane",
                 title: String(localized: "action.palette.openFindPane", defaultValue: "Open Find as Pane", bundle: .module),
                 keywords: ["search", "pane"], category: .pane, symbol: "text.magnifyingglass", surfaces: [.palette],
-                targets: [.pane], cliName: "pane open-find-as"
+                arguments: [CatalogArgument.optionalPathString], targets: [.pane], cliName: "pane open-find-as"
             ),
             ActionDescriptor(
                 id: "palette.openVaultPane",

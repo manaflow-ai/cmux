@@ -25,7 +25,7 @@ extension UpdaterService {
 
     /// The staged update's pill when the user asked to check while it waits.
     private var askedWhileStaged: UpdateFooterPill? {
-        guard flow.userAsked, case .ready = flow.phase else { return nil }
+        guard flow.userAsked, case .ready = flow.phase, !stagedPulledHeld else { return nil }
         return .ready
     }
 
@@ -37,7 +37,7 @@ extension UpdaterService {
     }
 
     /// The checkbox: writes the setting; the setting's change comes back
-    /// through ``configure(checkAutomatically:checkInterval:downloadAutomatically:metered:)``.
+    /// through ``configure(checkAutomatically:checkInterval:downloadAutomatically:metered:ring:)``.
     public func setAutomaticUpdates(_ on: Bool) {
         writeSetting?(.automaticUpdates, on)
     }
@@ -73,10 +73,22 @@ extension UpdaterService {
         stagedNotesTask = (build, task)
     }
 
+    /// DEV/NIGHTLY screenshots (`debug.updater {action: "available"}`): shows found `version`, not
+    /// downloaded; `asked` shows it as a Check for Updates' result (the notice card), else as a
+    /// scheduled check's (the sidebar footer's Update Available). Nothing downloads.
+    public func debugShowFound(version: String, asked: Bool) {
+        if asked {
+            send(.checkRequested)
+            debugIndicatorPhase = .checking
+        }
+        debugIndicatorPhase = .available(version: version)
+    }
+
     /// DEV/NIGHTLY screenshots (`debug.updater {action: "stage"}`): shows a
     /// staged `version` with `notes`, no download; nil clears it.
     public func debugStage(version: String?, notes: ReleaseNotes?) {
         guard let version else {
+            newestFetch = nil
             debugIndicatorPhase = nil
             return
         }

@@ -4,10 +4,10 @@ public import Foundation
 /// `missingCapabilities` on a daemon without it. Every write takes a
 /// `MutationIdentity`: one per logical write, reused on its retries.
 extension DaemonConnection {
-    public var supportsBookmarks: Bool { identity?.supports(DaemonCapabilities.shared.bookmarks) == true }
+    public var supportsBookmarks: Bool { identity?.supports(DaemonCapability.bookmarks.rawValue) == true }
 
     private func requireBookmarks() throws {
-        guard supportsBookmarks else { throw DaemonError.missingCapabilities([DaemonCapabilities.shared.bookmarks]) }
+        guard supportsBookmarks else { throw DaemonError.missingCapabilities([DaemonCapability.bookmarks.rawValue]) }
     }
 
     public func listBookmarks(browserProfileID: String) async throws -> BookmarkList {

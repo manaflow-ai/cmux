@@ -53,16 +53,22 @@ const { createRoot } = await import("react-dom/client");
 const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
 
 const katexLoaded = () => Object.keys(require.cache).some((file) => file.includes("node_modules/katex/"));
-const settle = async (ms = 60) => {
+const settle = async () => {
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, ms));
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 };
 
+/// Draws `source`, then yields until no equation waits for KaTeX (its source shows until the chunk
+/// has run). Fails after 5 s.
 async function show(source: string) {
   root ??= createRoot(host);
-  act(() => root!.render(<Markdown>{source}</Markdown>));
-  await settle();
+  await act(async () => root!.render(<Markdown>{source}</Markdown>));
+  const deadline = performance.now() + 5_000;
+  while (host.querySelector(".cv-math-source")) {
+    if (performance.now() > deadline) throw new Error("timed out waiting for KaTeX");
+    await settle();
+  }
 }
 
 const PRICES_AND_SHELL: [source: string, shown: string][] = [
@@ -89,7 +95,9 @@ const PRICES_AND_SHELL: [source: string, shown: string][] = [
 
 test("a reply without math never loads KaTeX", async () => {
   await show(PRICES_AND_SHELL.map(([source]) => source).join("\n\n"));
-  await settle(200);
+  // Only an equation drawn loads KaTeX, and an equation shows its source at once while it does: with
+  // none in the document after the reply rendered, nothing started the load.
+  await settle();
   expect(host.querySelector(".cv-math, .cv-math-source")).toBeNull();
   expect(katexLoaded()).toBe(false);
 });

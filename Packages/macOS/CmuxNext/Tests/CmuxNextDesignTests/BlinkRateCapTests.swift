@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Leo 2026-10-13 (cx-sya4n): nothing in cmux flashes faster than twice a second, in any mode:
 /// every on-off-on cycle of an opacity flash lasts at least 0.5 s, also at the fastest Debug
@@ -66,6 +67,7 @@ import Testing
             for count in [2, AttentionSettings.blinkRange.upperBound] {
                 attention.blinkCount = count
                 flashes.append(("attention \(count) blinks \(look)", Motion.indicators.attentionAnimation(attention, look: look)))
+                flashes.append(("dismiss \(count) blinks \(look)", Motion.indicators.attentionDismissAnimation(attention, look: look)))
             }
         }
         for (name, animation) in flashes {

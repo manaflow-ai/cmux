@@ -97,14 +97,22 @@ export function MarkdownPage({
     >
       <header className="md-toolbar-host">
         <Toolbar className="md-toolbar" label={t(L.toolbarLabel)}>
-          {state.canBack || state.canForward ? (
+          {/* The native omnibar's Back and Forward stand in for these when it is above the page. */}
+          {!state.config?.omnibar && (state.canBack || state.canForward) ? (
             <ToolbarGroup>
-              <ToolbarButton className="md-history-button" label={t(L.back)} disabled={!state.canBack} onPress={onBack}>
+              <ToolbarButton
+                className="md-history-button"
+                label={t(L.back)}
+                tooltip={false}
+                disabled={!state.canBack}
+                onPress={onBack}
+              >
                 ‹
               </ToolbarButton>
               <ToolbarButton
                 className="md-history-button"
                 label={t(L.forward)}
+                tooltip={false}
                 disabled={!state.canForward}
                 onPress={onForward}
               >
@@ -122,6 +130,11 @@ export function MarkdownPage({
           >
             {state.phase === "ready" ? status : ""}
           </span>
+          {!state.readOnly && state.mode !== "source" ? (
+            <ToolbarButton className="md-edit-button" label={t(L.edit)} onPress={() => store.setMode("source")}>
+              {t(L.edit)}
+            </ToolbarButton>
+          ) : null}
           <ToolbarToggleGroup
             className="md-mode"
             label={t(L.modeLabel)}

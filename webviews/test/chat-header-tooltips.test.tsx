@@ -1,4 +1,4 @@
-// The chat header's top right (cx-qom0): every button names itself in a tooltip, with its keycap
+// The chat header's top right (cx-qom0): every button but the ⋯ menu names itself in a tooltip, with its keycap
 // as the tooltip's shortcut hint when the action has one, as in ChatGPT; [+] New tab reads Hide tabs in the same spot once the
 // tabs beside the chat show. The header renders in jsdom with the host's keycaps; the
 // pane's tooltip layer (ui/titleTooltips.ts) shows each `title`.
@@ -33,7 +33,7 @@ afterAll(() => {
   }
 });
 
-test("every header button has a tooltip, with its shortcut when it has one; New tab turns into Hide tabs in place", async () => {
+test("every header button but ⋯ has a tooltip, with its shortcut when it has one; New tab turns into Hide tabs in place", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ChatHeaderTools, HEADER_ACTIONS } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
   const { ShortcutsContext } = await import("../src/agent-session/acpmux/shortcuts");
@@ -69,7 +69,8 @@ test("every header button has a tooltip, with its shortcut when it has one; New 
     ["Terminal", "Terminal", "⌘D"],
     ["Browser", "Browser", "⇧⌘L"],
     ["New tab", "New tab", null],
-    ["Chat actions", "Chat actions", null],
+    // ⋯ is an obvious glyph: named for screen readers, with no tooltip (Leo, 2026-10-20).
+    ["Chat actions", null, null],
   ]);
   // [+] New tab becomes Hide tabs on the same button, so the next click lands on it again.
   const newTab = host.querySelectorAll(".acpmux-header-tools button")[2];

@@ -17,7 +17,8 @@ export interface StatsSnapshot {
 }
 
 export class StatsStore {
-  private snapshot: StatsSnapshot = { range: RANGES[RANGES.length - 1], loading: true };
+  // Nothing is on its way until the first read, so picking the default range first still reads it.
+  private snapshot: StatsSnapshot = { range: RANGES[RANGES.length - 1], loading: false };
   private listeners = new Set<() => void>();
   private request = 0;
 

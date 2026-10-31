@@ -76,6 +76,7 @@ export default componentEntry<Props>({
   id: "agent-pane.effort-picker",
   title: "Effort picker",
   area: "Agent pane",
+  pane: true,
   height: 320,
   widths: { narrow: 320, normal: 420, wide: 560 },
   anchors: [{ selector: ".acpmux-effort" }],

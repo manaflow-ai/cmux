@@ -19,16 +19,30 @@ import CmuxNextSettings
 nonisolated struct AgentPaneProjectIcon: Sendable {
     /// Larger files are skipped: a tile is 20pt, and the answer crosses the bridge as base64.
     static let maximumBytes = 64 * 1024
+    /// A package.json is read whole up to this size: cut short it is no JSON, and some (an editor
+    /// extension's) run well past an icon's limit.
+    static let maximumManifestBytes = 1024 * 1024
     /// Best first: a vector or a 180px touch icon draws sharper in the tile than a 16px `.ico`.
     static let names = ["favicon.svg", "icon.svg", "apple-touch-icon.png", "favicon.png", "icon.png", "favicon.ico"]
     /// The folder itself and where web frameworks keep their icons (Next.js `app/`, Vite and
     /// Next.js `public/`, SvelteKit `static/`).
     static let folders = ["", "public", "static", "app", "src/app", "assets"]
+    /// An icon the repository picked for cmux wins over any web favicon.
+    static let chosen = [".cmux/icon.svg", ".cmux/icon.png"]
+    /// Logos, after the favicons: a logo is often a wordmark that reads poorly in a square tile.
+    static let logos = ["logo.svg", "logo.png", "assets/logo.svg", "assets/logo.png"]
+    /// Where Xcode projects keep their asset catalog; `<folder name>/Assets.xcassets` is the
+    /// app target's folder in a new Xcode project.
+    static let assetCatalogs = ["Assets.xcassets", "Resources/Assets.xcassets"]
 
     /// A regular file's size and modification date, or nil (the cache key with its path).
     var stat: @Sendable (String) -> File?
     var read: @Sendable (String) -> Data?
-    private let validator: ChatRootValidator
+    /// A manifest's bytes, up to `maximumManifestBytes`, or nil.
+    var readManifest: @Sendable (String) -> Data?
+    /// A folder's entry names, or nil (the AppIcon set's images).
+    var list: @Sendable (String) -> [String]?
+    private var validator: ChatRootValidator
 
     struct File: Equatable, Sendable {
         var size: Int
@@ -47,12 +61,43 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
             defer { try? handle.close() }
             return try? handle.read(upToCount: AgentPaneProjectIcon.maximumBytes + 1)
         }
+        readManifest = { path in
+            guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+            defer { try? handle.close() }
+            return try? handle.read(upToCount: AgentPaneProjectIcon.maximumManifestBytes)
+        }
+        list = { path in try? FileManager.default.contentsOfDirectory(atPath: path) }
     }
 
     /// Every path looked for in `folder`, best first.
     static func candidates(in folder: String) -> [String] {
         let base = folder.hasSuffix("/") ? String(folder.dropLast()) : folder
-        return names.flatMap { name in folders.map { sub in sub.isEmpty ? "\(base)/\(name)" : "\(base)/\(sub)/\(name)" } }
+        let favicons = names.flatMap { name in folders.map { sub in sub.isEmpty ? "\(base)/\(name)" : "\(base)/\(sub)/\(name)" } }
+        return chosen.map { "\(base)/\($0)" } + favicons + logos.map { "\(base)/\($0)" }
+    }
+
+    /// The AppIcon sets an Xcode project in `folder` may have.
+    static func appIconSets(in folder: String) -> [String] {
+        let base = folder.hasSuffix("/") ? String(folder.dropLast()) : folder
+        let name = (base as NSString).lastPathComponent
+        return (assetCatalogs + ["\(name)/Assets.xcassets"]).map { "\(base)/\($0)/AppIcon.appiconset" }
+    }
+
+    /// A copy for one answer: each folder on the way to its paths is checked once
+    /// (``ChatRootValidator/batch()``), not once per candidate file.
+    func batched() -> AgentPaneProjectIcon {
+        var copy = self
+        copy.validator = validator.batch()
+        return copy
+    }
+
+    /// A copy that checks through `other`'s batch when both guard the same home, so one answer's
+    /// walks share their lookups; otherwise a batch of its own.
+    func batched(sharing other: AgentPaneProjectIcon) -> AgentPaneProjectIcon {
+        guard validator.home == other.validator.home else { return batched() }
+        var copy = self
+        copy.validator = other.validator
+        return copy
     }
 
     /// True when `path` may be looked at: refused neither by its spelling nor by what it reaches.
@@ -71,7 +116,108 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
                   let file = stat(resolved), file.size > 0, file.size <= Self.maximumBytes else { continue }
             found.append((resolved, file))
         }
+        if let appIcon = appIcon(in: folder) { found.append(appIcon) }
         return found
+    }
+
+    /// `path` resolved, when it and its target may be looked at and it is a regular file.
+    private func regularFile(_ path: String) -> String? {
+        guard allows(path), let resolved = Self.realPath(path), resolved == path || allows(resolved),
+              stat(resolved) != nil else { return nil }
+        return resolved
+    }
+
+    /// The largest PNG of the first AppIcon set that has one small enough: the sharpest that still
+    /// crosses the bridge.
+    func appIcon(in folder: String) -> (path: String, file: File)? {
+        for set in Self.appIconSets(in: folder) where allows(set) {
+            guard let entries = list(set) else { continue }
+            var best: (path: String, file: File)?
+            for entry in entries.sorted() where entry.lowercased().hasSuffix(".png") {
+                let candidate = set + "/" + entry
+                guard allows(candidate), let resolved = Self.realPath(candidate), resolved == candidate || allows(resolved),
+                      let file = stat(resolved), file.size > 0, file.size <= Self.maximumBytes,
+                      file.size > (best?.file.size ?? 0) else { continue }
+                best = (resolved, file)
+            }
+            if let best { return best }
+        }
+        return nil
+    }
+
+    /// The web, desktop and mobile frameworks a package.json can name, most specific first: a
+    /// meta-framework over its UI library (Next.js is React, Nuxt is Vue), a desktop or mobile shell
+    /// over the UI library inside it (an Electron app built with React shows Electron), a UI library
+    /// over its bundler (a React app built with Vite shows React), so the mark says what kind of app
+    /// it is. A bare React Native app (no `expo`) shows React: the Expo mark is Expo's own.
+    static let packageFrameworks: [(glyph: String, packages: [String])] = [
+        ("next", ["next"]),
+        ("nuxt", ["nuxt", "nuxt3"]),
+        ("remix", ["@remix-run/react", "@remix-run/node", "@react-router/dev"]),
+        ("astro", ["astro"]),
+        ("expo", ["expo"]),
+        ("electron", ["electron"]),
+        ("tauri", ["@tauri-apps/api", "@tauri-apps/cli"]),
+        ("svelte", ["@sveltejs/kit", "svelte"]),
+        ("angular", ["@angular/core"]),
+        ("vue", ["vue"]),
+        ("react", ["react"]),
+        ("vite", ["vite"]),
+    ]
+
+    /// The package names a package.json depends on, in any of its dependency lists; empty for a
+    /// manifest that is not JSON.
+    static func dependencies(of manifest: Data) -> Set<String> {
+        guard let object = try? JSONSerialization.jsonObject(with: manifest) as? [String: Any] else { return [] }
+        var names = Set<String>()
+        for key in ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"] {
+            if let list = object[key] as? [String: Any] { names.formUnion(list.keys) }
+        }
+        return names
+    }
+
+    /// A framework or language mark from the project's manifest, for a project with no icon file:
+    /// one of `PROJECT_GLYPHS` (webviews projectIcon.ts); nil for none.
+    func glyph(in folder: String) -> String? {
+        guard folder.hasPrefix("/"), allows(folder) else { return nil }
+        let base = folder.hasSuffix("/") ? String(folder.dropLast()) : folder
+        let has = { (name: String) -> Bool in regularFile(base + "/" + name) != nil }
+        let text = { (name: String) -> String in
+            regularFile(base + "/" + name).flatMap(read).map { String(decoding: $0, as: UTF8.self) } ?? ""
+        }
+        if has("Package.swift") || hasXcodeProject(base) { return "swift" }
+        if let package = regularFile(base + "/package.json") {
+            let names = readManifest(package).map(Self.dependencies(of:)) ?? []
+            if let framework = Self.packageFrameworks.first(where: { !names.isDisjoint(with: $0.packages) }) {
+                return framework.glyph
+            }
+            if has("src-tauri/Cargo.toml") { return "tauri" }
+            if has("Cargo.toml") { return "rust" }
+            if has("bun.lock") || has("bun.lockb") { return "bun" }
+            if has("tsconfig.json") || names.contains("typescript") { return "typescript" }
+            return "node"
+        }
+        if has("Cargo.toml") { return "rust" }
+        if has("deno.json") || has("deno.jsonc") { return "deno" }
+        if has("pubspec.yaml") { return text("pubspec.yaml").contains("flutter:") ? "flutter" : "dart" }
+        if has("pyproject.toml") || has("setup.py") || has("requirements.txt") { return "python" }
+        if has("go.mod") { return "go" }
+        if has("Gemfile") { return "ruby" }
+        if has("build.zig") { return "zig" }
+        if has("mix.exs") { return "elixir" }
+        if has("composer.json") { return "php" }
+        if has("build.gradle.kts") || has("settings.gradle.kts") { return "kotlin" }
+        if has("pom.xml") || has("build.gradle") { return "java" }
+        if has("CMakeLists.txt") { return "cpp" }
+        return nil
+    }
+
+    /// True when the folder holds an Xcode project or workspace (an app with no Package.swift).
+    private func hasXcodeProject(_ base: String) -> Bool {
+        guard let entries = list(base) else { return false }
+        return entries.contains { name in
+            (name.hasSuffix(".xcodeproj") || name.hasSuffix(".xcworkspace")) && allows(base + "/" + name)
+        }
     }
 
     private static func realPath(_ path: String) -> String? {
@@ -109,15 +255,79 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
 actor AgentPaneProjectIcons {
     static let shared = AgentPaneProjectIcons(reader: AgentPaneProjectIcon())
 
-    private let reader: AgentPaneProjectIcon
-    private var cache: [String: (file: AgentPaneProjectIcon.File, url: String?)] = [:]
+    /// How long a folder that is not on this Mac answers empty without a look. The page asks again for
+    /// every empty answer each time a badge shows, so a chat whose folder is on another machine (a lane
+    /// VM's `/home/cmux/...`) was looked up over and over: about 70 candidate paths each time through
+    /// `lstat`, `readlink` and `realpath`, and on macOS every `/home/...` lookup goes through the
+    /// automounter (2026-10-30: one app thread busy in those calls, opendirectoryd at 230-330 directory
+    /// queries a second). A folder that is here is read on every ask as before, so an icon added to it
+    /// still shows on the next ask.
+    static let missingLifetime: Duration = .seconds(30)
+    /// At most this many missing folders are kept; past it the oldest half is dropped.
+    static let maximumMissing = 512
 
-    init(reader: AgentPaneProjectIcon) {
+    private let reader: AgentPaneProjectIcon
+    private let repos: AgentPaneProjectRepoReader
+    private let avatars: AgentPaneOwnerAvatars
+    private let isFolder: @Sendable (String) -> Bool
+    private let now: @Sendable () -> ContinuousClock.Instant
+    private var cache: [String: (file: AgentPaneProjectIcon.File, url: String?)] = [:]
+    /// Folders found missing here, with when.
+    private var missing: [String: ContinuousClock.Instant] = [:]
+
+    init(reader: AgentPaneProjectIcon, repos: AgentPaneProjectRepoReader = .shared, avatars: AgentPaneOwnerAvatars = .shared,
+         isFolder: @escaping @Sendable (String) -> Bool = AgentPaneProjectIcons.folderExists,
+         now: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now }) {
         self.reader = reader
+        self.repos = repos
+        self.avatars = avatars
+        self.isFolder = isFolder
+        self.now = now
+    }
+
+    /// Whether `path` is a folder on this Mac (one `stat` of the folder itself, never of its contents).
+    static let folderExists: @Sendable (String) -> Bool = { path in
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    /// The `project.icon` answer: the GitHub owner's avatar (a user's or an organization's), else an
+    /// icon file in the folder, else in its repository's main checkout (a worktree whose icon is not
+    /// checked in yet, or a folder inside the repository); and the manifest's framework or language
+    /// mark, which the page draws only without an image. All nil leave the page's folder. The avatar
+    /// comes first so every clone and worktree of one GitHub repository wears the same picture (Leo
+    /// 2026-10-21: "why are the project icons not showing up for SOME of the cmux...? only one has
+    /// my github icon?").
+    /// A folder that is not on this Mac answers empty, and is not looked at again for ``missingLifetime``.
+    func answer(for folder: String) async -> (src: String?, glyph: String?) {
+        if let since = missing[folder], now() - since < Self.missingLifetime { return (nil, nil) }
+        missing[folder] = nil
+        // The spelling and identity checks first, as for every path here; a folder they refuse is never stat'ed.
+        if reader.allows(folder), !isFolder(folder) {
+            if missing.count >= Self.maximumMissing {
+                for key in missing.sorted(by: { $0.value < $1.value }).prefix(Self.maximumMissing / 2).map(\.key) {
+                    missing[key] = nil
+                }
+            }
+            missing[folder] = now()
+            return (nil, nil)
+        }
+        let reader = self.reader.batched()
+        let repos = self.repos.batched(sharing: reader)
+        let repo = reader.allows(folder) ? repos.repo(for: folder) : nil
+        let root = repo.map(\.root).flatMap { $0 == folder ? nil : $0 }
+        let glyph = reader.glyph(in: folder) ?? root.flatMap(reader.glyph(in:))
+        if let owner = repo?.github?.split(separator: "/").first.map(String.init),
+           let avatar = await avatars.avatar(for: owner) { return (avatar, glyph) }
+        return (icon(for: folder, reader: reader) ?? root.flatMap({ icon(for: $0, reader: reader) }), glyph)
     }
 
     /// The first candidate that is an image; a cached answer stands until its file changes.
     func icon(for folder: String) -> String? {
+        icon(for: folder, reader: reader.batched())
+    }
+
+    private func icon(for folder: String, reader: AgentPaneProjectIcon) -> String? {
         for picked in reader.files(in: folder) {
             if let known = cache[picked.path], known.file == picked.file {
                 if let url = known.url { return url }

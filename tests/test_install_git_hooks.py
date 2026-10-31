@@ -5,15 +5,28 @@ setup.sh runs the installer last under `set -e`, so a non-zero exit reports the
 whole setup as failed. Existing hooks (a global core.hooksPath, or Git LFS's
 hooks in .git/hooks) are left alone with a warning; real errors still fail.
 """
+import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
 import shlex
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
-import git_fixture_env  # disables git auto maintenance
+
+
+def _load_git_fixture_env():
+    """tests/git_fixture_env.py by path, so `python3 -I` (no script folder on sys.path) runs this file too."""
+    spec = importlib.util.spec_from_file_location("git_fixture_env", Path(__file__).resolve().parent / "git_fixture_env.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # importing it disables git auto maintenance
+    return module
+
+
+git_fixture_env = _load_git_fixture_env()
 
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -60,6 +73,8 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/swift_source_mask.py",
             "scripts/web_lint_prepush.py",
             "scripts/cmux-next/prepush-gate.py",
+            "scripts/cmux-next/git_batch.py",
+            "scripts/ci/base_merge_warning.py",
         ):
             source, target = SOURCE / relative, root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -136,6 +151,22 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_trusted_hooks_installed()
         self.assert_merge_driver_installed()
+
+    def test_cmux_next_checks_include_the_arch_rule_modules(self):
+        # arch-ratchet.py loads arch_rules/*.py from its own directory: without them the installed ratchet ran no
+        # layer gate. Other folders (tests) stay out of the copy.
+        for relative in ("scripts/cmux-next/arch-ratchet.py", "scripts/cmux-next/arch_rules/layer_gate.py",
+                         "scripts/cmux-next/tests/test_layer_gate.py"):
+            path = self.repo / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("# fixture\n", encoding="utf-8")
+        self.git("add", "scripts/cmux-next")
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        checks = Path(self.local_hooks_path()) / "cmux-next-checks"
+        self.assertTrue((checks / "arch-ratchet.py").is_file())
+        self.assertTrue((checks / "arch_rules" / "layer_gate.py").is_file())
+        self.assertFalse((checks / "tests").exists())
 
     def test_namespace_fix_option_installs_trusted_pre_push_hook(self):
         result = self.install(None, "--namespace-fix")
@@ -222,13 +253,13 @@ class InstallGitHooksTests(unittest.TestCase):
     # Formatters at the commit boundary: the hook formats staged Rust in every
     # Cargo package (not only cmux-tui), and a missing formatter stops an agent's
     # commit instead of skipping silently.
-    AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID", "CODEX_SANDBOX")
+    AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID", "CODEX_SANDBOX", "CMUX_SKIP_FORMAT_HOOKS")
 
     def formatter_env(self, with_rustfmt, **extra):
         """Only the tools the hook needs on PATH, plus a recording rustfmt."""
         bin_dir = self.root / ("bin-rustfmt" if with_rustfmt else "bin-plain")
         bin_dir.mkdir(exist_ok=True)
-        for tool in ("git", "bash", "sh", "sed", "awk", "grep", "cut", "sort", "head", "cat", "env", "dirname", "basename", "mktemp", "rm"):
+        for tool in ("git", "bash", "sh", "sed", "awk", "grep", "cut", "sort", "head", "cat", "env", "dirname", "basename", "mktemp", "rm", "mv", "mkdir", "rmdir", "find"):
             found = shutil.which(tool)
             if found and not (bin_dir / tool).exists():
                 (bin_dir / tool).symlink_to(found)
@@ -348,6 +379,125 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertEqual(person.returncode, 0, person.stderr)
         self.assertIn("rustfmt is unavailable", person.stderr)
 
+    # A recording vp: logs "cwd<TAB>args" and replaces each file argument's text.
+    FAKE_VP = """#!/bin/sh
+printf '%s\\t%s\\n' "$(pwd)" "$*" >> "$FAKE_VP_LOG"
+for arg in "$@"; do
+    case "$arg" in fmt|-*) ;; *) printf 'formatted\\n' > "$arg" ;; esac
+done
+"""
+
+    def stage_web_file(self, package, relative="src/app.ts", text="const   x=1\n"):
+        directory = self.repo / package
+        vp = directory / "node_modules/.bin/vp"
+        vp.parent.mkdir(parents=True, exist_ok=True)
+        vp.write_text(self.FAKE_VP)
+        vp.chmod(0o755)
+        path = directory / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        self.git("add", f"{package}/{relative}")
+        return path
+
+    def test_pre_commit_formats_staged_files_of_each_vite_plus_package_with_its_vp(self):
+        self.assertEqual(self.install().returncode, 0)
+        vp_log = self.root / "vp.log"
+        for package in ("webviews", "cmux-tui/frontends/web"):
+            with self.subTest(package=package):
+                vp_log.unlink(missing_ok=True)
+                self.git("rm", "-r", "-q", "--cached", "--ignore-unmatch", "webviews", "cmux-tui")
+                self.stage_web_file(package)
+                result = self.run_pre_commit(self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(vp_log)))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                runs = vp_log.read_text().splitlines() if vp_log.exists() else []
+                self.assertEqual(len(runs), 1, result.stderr)
+                cwd, args = runs[0].split("\t")
+                self.assertEqual(Path(cwd).resolve(), (self.repo / package).resolve())
+                self.assertEqual(args.split()[-1], "src/app.ts")
+                staged = self.git("show", f":{package}/src/app.ts").stdout
+                self.assertEqual(staged, "formatted\n", "the formatted file is restaged")
+
+    def test_pre_commit_takes_over_an_install_lock_whose_holder_died(self):
+        # A hook killed mid-install leaves its lock; this worktree has no vp yet.
+        self.assertEqual(self.install().returncode, 0)
+        vp_log = self.root / "vp.log"
+        web = self.repo / "webviews"
+        self.stage_web_file("webviews")
+        (web / "node_modules/.bin/vp").unlink()
+        (web / "bun.lock").write_text("{}\n")
+        env = self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(vp_log))
+        bun = Path(env["PATH"]) / "bun"
+        bun.write_text(f"""#!/bin/sh
+cat > node_modules/.bin/vp <<'VP'
+{self.FAKE_VP}VP
+{shutil.which("chmod")} +x node_modules/.bin/vp
+""")
+        bun.chmod(0o755)
+        dead = subprocess.Popen(["true"])
+        dead.wait()
+        lock = Path(self.git("rev-parse", "--absolute-git-dir").stdout.strip()) / "cmux-format-install-webviews.lock"
+        lock.mkdir()
+        (lock / "pid").write_text(f"{dead.pid}\n")
+        try:
+            result = self.run_pre_commit(env)
+        finally:
+            bun.unlink()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("another agent is installing", result.stderr)
+        self.assertEqual(self.git("show", ":webviews/src/app.ts").stdout, "formatted\n", result.stderr)
+        self.assertFalse(lock.exists(), "the hook releases the lock it took over")
+
+    def test_skip_variable_commits_without_formatting(self):
+        self.assertEqual(self.install().returncode, 0)
+        vp_log = self.root / "vp.log"
+        web = self.stage_web_file("webviews")
+        self.stage_rust_package("Native/OptChat/probe", "2021")
+        # A partly staged file (git add -p) commits under the switch too.
+        web.write_text(web.read_text() + "const   y=2\n")
+        result = self.run_pre_commit(self.formatter_env(
+            with_rustfmt=True, FAKE_VP_LOG=str(vp_log), CMUX_AGENT="1", CMUX_SKIP_FORMAT_HOOKS="1"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("CMUX_SKIP_FORMAT_HOOKS", result.stderr)
+        self.assertFalse(vp_log.exists())
+        self.assertFalse(self.rustfmt_log.exists())
+
+    def fake_rustup(self, bin_dir, installed, pinned):
+        rustup = bin_dir / "rustup"
+        rustup.write_text(
+            "#!/bin/sh\n"
+            f'if [ "$1 $2 $3 $4" = "which --toolchain {installed} rustfmt" ]; then echo {shlex.quote(str(pinned))}; exit 0; fi\n'
+            "exit 1\n")
+        rustup.chmod(0o755)
+
+    def test_pre_commit_uses_the_rustfmt_of_the_pinned_toolchain(self):
+        self.assertEqual(self.install().returncode, 0)
+        source = self.stage_rust_package("cmux-tui", "2021")
+        (self.repo / "cmux-tui/rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.95.0"\n')
+        env = self.formatter_env(with_rustfmt=True)
+        pinned = self.root / "pinned-rustfmt"
+        pinned.write_text(f'#!/bin/sh\nprintf "pinned %s\\n" "$*" >> {shlex.quote(str(self.rustfmt_log))}\n')
+        pinned.chmod(0o755)
+        self.fake_rustup(self.root / "bin-rustfmt", "1.95.0", pinned)
+        result = self.run_pre_commit(env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.rustfmt_log.read_text().splitlines()
+        self.assertEqual(len(calls), 1, calls)
+        self.assertTrue(calls[0].startswith("pinned --edition 2021 "), calls)
+        self.assertTrue(calls[0].endswith(str(source.resolve())), calls)
+
+    def test_a_missing_pinned_toolchain_falls_back_to_path_rustfmt_with_a_warning(self):
+        # rustfmt keeps a stable style across versions, so formatting with the
+        # PATH rustfmt beats committing unformatted code.
+        self.assertEqual(self.install().returncode, 0)
+        self.stage_rust_package("cmux-tui", "2021")
+        (self.repo / "cmux-tui/rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.95.0"\n')
+        env = self.formatter_env(with_rustfmt=True, CMUX_AGENT="1")
+        self.fake_rustup(self.root / "bin-rustfmt", "1.99.0", "/nonexistent")
+        result = self.run_pre_commit(env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("rustup toolchain install 1.95.0", result.stderr)
+        self.assertEqual(len(self.rustfmt_log.read_text().splitlines()), 1)
+
     def test_merge_driver_does_not_follow_checked_out_script_changes(self):
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -466,8 +616,12 @@ class InstallGitHooksTests(unittest.TestCase):
         import next_batch
         files = [path for path in subprocess.run(["git", "ls-files", "-z"], cwd=SOURCE, check=True,
                                                  capture_output=True, text=True).stdout.split("\0") if path]
-        attributes = subprocess.run(["git", "check-attr", "merge", "--stdin", "-z"], cwd=SOURCE, check=True,
-                                    input="\0".join(files), capture_output=True, text=True).stdout.split("\0")
+        # The paths go through a file, never `input=`: a pipe write can block for good (scripts/cmux-next/git_batch.py).
+        with tempfile.TemporaryFile() as paths:
+            paths.write("\0".join(files).encode())
+            paths.seek(0)
+            attributes = subprocess.run(["git", "check-attr", "merge", "--stdin", "-z"], cwd=SOURCE, check=True,
+                                        stdin=paths, capture_output=True, text=True).stdout.split("\0")
         kept = [path for path, _, value in zip(attributes[0::3], attributes[1::3], attributes[2::3])
                 if value == "cmux-generated-v1"]
         self.assertTrue(kept)
@@ -581,6 +735,14 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertFalse(marker.exists())
 
     def test_trusted_main_post_merge_migrates_legacy_driver_commands(self):
+        self.assert_trusted_post_merge_reinstalls("main")
+
+    def test_trusted_feat_cmux_next_post_merge_reinstalls_its_hooks(self):
+        # Direct pushes land on feat-cmux-next, whose pre-commit formats more
+        # than main's; pulling it must install that copy, not keep an old one.
+        self.assert_trusted_post_merge_reinstalls("feat-cmux-next")
+
+    def assert_trusted_post_merge_reinstalls(self, branch):
         hook = self.repo / "scripts/git-hooks/post-merge"
         hook.unlink()
         self.git("add", ".")
@@ -599,19 +761,128 @@ class InstallGitHooksTests(unittest.TestCase):
             "commit", "-qm", "add trusted migration hook",
         )
         trusted_main = self.git("rev-parse", "HEAD").stdout.strip()
-        self.git("update-ref", "refs/remotes/upstream/main", trusted_main)
+        self.git("update-ref", f"refs/remotes/upstream/{branch}", trusted_main)
         self.git("switch", "-q", "main")
         self.git("config", "core.hooksPath", "scripts/git-hooks")
         self.git("config", "merge.xcstrings.driver", "python3 scripts/merge-xcstrings.py %O %A %B %P")
         self.git("config", "merge.pbxproj.driver", "python3 scripts/merge-pbxproj.py %O %A %B %P")
 
-        result = self.git("merge", "--ff-only", "upstream/main", check=False)
+        result = self.git("merge", "--ff-only", f"upstream/{branch}", check=False)
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.git("rev-parse", "HEAD").stdout.strip(), trusted_main)
         self.assertTrue(os.access(hook, os.X_OK), "Git ignores non-executable hooks")
         self.assert_trusted_hooks_installed()
         self.assert_merge_driver_installed()
+
+    # An agent's push gate runs the clone's installed checks copy. post-merge refreshes it only when a checkout is
+    # fast-forwarded to exactly feat-cmux-next; agents fetch and rebase in worktrees, so their copy stayed at the
+    # last pull (2026-10-28: the per-symbol compile trailer rule landed and no agent ran it). pre-push refreshes the
+    # copy from the fetched feat-cmux-next before a push to it.
+    CANONICAL = "https://github.com/manaflow-ai/cmux.git"
+
+    def commit_all(self, message):
+        self.git("add", "-A")
+        self.git("-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", message)
+        return self.git("rev-parse", "HEAD").stdout.strip()
+
+    def installed_checks(self):
+        return self.common_dir() / "cmux-git-hooks" / "cmux-next-checks"
+
+    def refresh(self, remote_ref="refs/heads/feat-cmux-next", url=None):
+        hook_dir = self.common_dir() / "cmux-git-hooks"
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        python3 = (hook_dir / "python3-path").read_text(encoding="utf-8").strip()
+        return subprocess.run([python3, "-I", str(hook_dir / "refresh_checks.py"), "--hook-dir", str(hook_dir),
+                               "--repo", str(self.repo), "--remote-url", url or self.CANONICAL],
+                              input=f"refs/heads/topic {head} {remote_ref} {'0' * 40}\n", cwd=self.repo, env=self.env,
+                              text=True, capture_output=True)
+
+    def stale_install(self):
+        """Install at an old feat-cmux-next, then move the fetched feat-cmux-next to a newer gate rule."""
+        rule = self.repo / "scripts/cmux-next/compile_trailer.py"
+        rule.write_text("RULE = 'old'\n")
+        self.git("remote", "add", "origin", self.CANONICAL)
+        old = self.commit_all("old rule")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", old)
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(), "RULE = 'old'\n")
+        rule.write_text("RULE = 'new'\n")
+        new = self.commit_all("new rule")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", new)
+        rule.write_text("RULE = 'from the working tree'\n")
+        return old, new
+
+    def test_pre_push_refreshes_a_stale_checks_copy_from_the_fetched_feat_cmux_next(self):
+        _old, new = self.stale_install()
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(), "RULE = 'new'\n")
+        self.assertIn(new[:12], result.stdout + result.stderr)
+        gate = self.common_dir() / "cmux-git-hooks" / "cmux_next_prepush_gate.py"
+        self.assertEqual(gate.read_bytes(), (SOURCE / "scripts/cmux-next/prepush-gate.py").read_bytes())
+        again = self.refresh()  # current: nothing to do
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(again.stdout + again.stderr, "")
+        hook = (SOURCE / "scripts/git-hooks/pre-push").read_text()
+        self.assertLess(hook.index("refresh_checks.py"), hook.index("cmux_next_prepush_gate.py"),
+                        "pre-push refreshes the checks before it runs them")
+
+    def test_installed_and_refreshed_checks_carry_the_swift_source_masker(self):
+        # Review of #28365: check-package-dependency-lists.py imports scripts/swift_source_mask.py, and the hook runs
+        # its copy from the checks folder, so both the install and a refresh put the masker beside it.
+        masker = self.repo / "scripts/swift_source_mask.py"
+        if not masker.is_file():
+            masker.parent.mkdir(parents=True, exist_ok=True)
+            masker.write_bytes((SOURCE / "scripts/swift_source_mask.py").read_bytes())
+        self.stale_install()
+        self.assertTrue((self.installed_checks() / "swift_source_mask.py").is_file(), "the install has no masker")
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "swift_source_mask.py").read_bytes(),
+                         (SOURCE / "scripts/swift_source_mask.py").read_bytes(), "the refreshed copy has no masker")
+
+    def test_refresh_leaves_other_pushes_and_lookalike_remotes_alone(self):
+        self.stale_install()
+        for result in (self.refresh(remote_ref="refs/heads/topic"),
+                       self.refresh(url="https://attacker.invalid/github.com/manaflow-ai/cmux")):
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(), "RULE = 'old'\n")
+        self.git("remote", "set-url", "origin", "https://attacker.invalid/github.com/manaflow-ai/cmux")
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(), "RULE = 'old'\n")
+
+    def test_refresh_never_goes_back_to_an_older_feat_cmux_next(self):
+        old, new = self.stale_install()
+        self.git("checkout", "-q", "--", ".")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", new)
+        self.assertEqual(self.refresh().returncode, 0)
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", old)
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(), "RULE = 'new'\n")
+
+    def test_refresh_replaces_a_copy_installed_from_a_commit_feat_cmux_next_never_got(self):
+        # setup.sh in an agent's worktree stamps its unpushed (later rebased away) commit: that commit never becomes
+        # an ancestor of feat-cmux-next, so an ancestor-only rule kept its unreviewed checks on every later push.
+        old, new = self.stale_install()
+        rule = self.repo / "scripts/cmux-next/compile_trailer.py"
+        self.git("checkout", "-q", "--", ".")
+        self.git("checkout", "-q", "-b", "side", old)
+        rule.write_text("RULE = 'local, never landed'\n")
+        self.commit_all("local rule")
+        self.assertEqual(self.install().returncode, 0)
+        self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(),
+                         "RULE = 'local, never landed'\n")
+        self.git("checkout", "-q", new)
+        rule.write_text("RULE = 'newest'\n")
+        newest = self.commit_all("newest rule")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", newest)
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(), "RULE = 'newest'\n")
 
     def test_post_merge_rejects_lookalike_github_url(self):
         marker = self.root / "untrusted-installer-ran"
@@ -678,6 +949,10 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
+            "scripts/git-hooks/pre-push",
+            "scripts/web_lint_prepush.py",
+            "scripts/lint_swift_namespaces.py",
+            "scripts/swift_source_mask.py",
         ):
             path = self.repo / relative
             reviewed = path.read_bytes()
@@ -748,6 +1023,32 @@ class InstallGitHooksTests(unittest.TestCase):
         result = self.install(plain)
 
         self.assertNotEqual(result.returncode, 0)
+
+    def test_an_install_behind_a_held_lock_gives_up_and_names_the_holder(self):
+        """2026-10-28 (a803, a817, about 25 agents): a refresh stuck holding install.lock made every install and
+        push behind it wait for good, naming pid 85305, the last installer's pid left in the file and long gone.
+        An install now waits a bounded time, then fails naming the process that holds the lock."""
+        self.assertEqual(self.install().returncode, 0)
+        lock_path = self.common_dir() / "cmux-git-hooks" / "install.lock"
+        lock_path.write_text("85305\n")  # the stale pid text of a finished install
+        holder = subprocess.Popen(
+            [sys.executable, "-I", "-c",
+             "import fcntl, os, sys, time\n"
+             "fd = os.open(sys.argv[1], os.O_RDWR)\nfcntl.flock(fd, fcntl.LOCK_EX)\n"
+             "print('held', flush=True)\ntime.sleep(120)\n", str(lock_path)],
+            stdout=subprocess.PIPE, text=True, start_new_session=True)
+        self.addCleanup(holder.wait)
+        self.addCleanup(holder.kill)
+        self.assertEqual(holder.stdout.readline().strip(), "held")
+        self.env["CMUX_HOOKS_INSTALL_LOCK_WAIT_SECONDS"] = "2"
+        try:
+            result = subprocess.run(["bash", INSTALLER], cwd=self.repo, env=self.env, text=True, capture_output=True,
+                                    timeout=30)
+        except subprocess.TimeoutExpired:
+            self.fail("the install waited past 30 s for a lock another process holds")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(f"pid {holder.pid}", result.stderr)
+        self.assertNotIn("85305", result.stderr)
 
 
 if __name__ == "__main__":

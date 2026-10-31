@@ -130,4 +130,4 @@ jobs:
           name: r2-artifact-canary-receipt
           path: artifacts/r2-canary/
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3

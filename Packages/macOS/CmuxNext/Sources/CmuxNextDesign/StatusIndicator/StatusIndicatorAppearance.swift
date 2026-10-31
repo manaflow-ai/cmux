@@ -2,6 +2,7 @@ public import AppKit
 import CmuxNextCompat
 import Observation
 import CmuxNextWakeups
+public import CmuxNextDesignTokens
 
 /// Every input that shapes how indicators look, resolved once: the
 /// `appearance.statusIndicator.*` settings plus the Debug Settings
@@ -32,12 +33,16 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
     /// The static look draws shapes instead of the Static set's glyphs
     /// (Debug Settings `status.static.shapes`).
     public var staticShapes: Bool
+    /// How agent work shows (Debug Settings `status.working`).
+    public var workingLook: StatusWorkingLook
+    /// Lowest opacity of the working dot's breath.
+    public var breathLow: Double { 0.3 }
 
     public init(settings: StatusIndicatorSettings = StatusIndicatorSettings(), styleOverride: StatusIndicatorStyle? = nil,
                 arcLength: Double = 0.72, trackOpacity: Double = 0.22, dotScale: Double = 0.5, pulseLow: Double = 0.35,
                 nativeSteps: Int = 8, animatesLoops: Bool = true, spinnerPeriod: Double? = nil, pulsePeriod: Double? = nil,
                 terminalFontFamily: String? = nil, iconSet: StatusIconSet = .current, reduceMotion: Bool = false,
-                staticShapes: Bool = false) {
+                staticShapes: Bool = false, workingLook: StatusWorkingLook = .spinner) {
         self.settings = settings
         self.styleOverride = styleOverride
         self.arcLength = arcLength
@@ -52,6 +57,7 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
         self.iconSet = iconSet
         self.reduceMotion = reduceMotion
         self.staticShapes = staticShapes
+        self.workingLook = workingLook
     }
 
     /// The static look (cx-sya4n): the setting says static, or Reduce Motion
@@ -81,7 +87,8 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
             terminalFontFamily: DesignSettings.shared.terminalFontFamily,
             iconSet: StatusIconSet.tunable.value,
             reduceMotion: Motion.reduceMotion,
-            staticShapes: StatusIndicatorPlan.staticShapes.value)
+            staticShapes: StatusIndicatorPlan.staticShapes.value,
+            workingLook: StatusWorkingLook.tunable.value)
     }
 }
 
@@ -89,6 +96,15 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
 @MainActor
 public protocol StatusIndicatorConfigClient: AnyObject {
     func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig)
+    /// Checks the indicator against what it should show now (its window's visibility, a loop it
+    /// lacks) when the app comes back: to the front, unhidden, a window made main, or after sleep.
+    func statusIndicatorResync()
+}
+
+public extension StatusIndicatorConfigClient {
+    func statusIndicatorResync() {
+        statusIndicatorConfigDidChange(StatusIndicatorAppearance.shared.config)
+    }
 }
 
 /// The shared config and its change broadcast.
@@ -97,19 +113,25 @@ public final class StatusIndicatorAppearance {
     public static let shared = StatusIndicatorAppearance()
 
     public private(set) var config: StatusIndicatorConfig
+    /// Indicators a resync reached and checked again (`debug.layout_counters` `indicator_resyncs`):
+    /// an app activation should touch the indicators on screen only, never every row and tab.
+    public static var resyncs: UInt64 = 0
     private let clients = NSHashTable<AnyObject>.weakObjects()
     private var observation: Task<Void, Never>?
-    private var reduceMotionObserver: (any NSObjectProtocol)?
+    private var reduceMotionObserver: MainActorObservation?
     private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
+    private var resyncObservers: [MainActorObservation] = []
 
-    init() {
+    /// - Parameters:
+    ///   - appCenter: Where the app and window notices arrive (tests post to their own).
+    ///   - workspaceCenter: Where the wake notices arrive.
+    init(appCenter: NotificationCenter = .default, workspaceCenter: NotificationCenter = NSWorkspace.shared.notificationCenter) {
         config = StatusIndicatorConfig.current
         startObserving()
         // Reduce Motion is not observable through Observation.
         let center = NSWorkspace.shared.notificationCenter
-        reduceMotionObserver = center.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
-                                                  object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.apply(StatusIndicatorConfig.current) } // main-proof: observer on queue: .main
+        reduceMotionObserver = MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: center) { [weak self] in
+            self?.apply(StatusIndicatorConfig.current)
         }
         // The override (tests) is a plain static: re-read synchronously when it
         // changes, or an appearance created before the override keeps the
@@ -117,6 +139,29 @@ public final class StatusIndicatorAppearance {
         reduceMotionOverrideObserver = NotificationCenter.default.addObserver(
             forName: Motion.reduceMotionDidChange, object: nil, queue: nil) { [weak self] _ in
             MainDelivery().run { self?.apply(StatusIndicatorConfig.current) }
+        }
+        observeResyncMoments(app: appCenter, workspace: workspaceCenter)
+    }
+
+    /// Indicators pause while their window is hidden and resume on its occlusion notice; a notice
+    /// that never comes (a row out of the list when it was posted, a wake that posts none) used to
+    /// leave every row's spinner still until its state changed (Leo 2026-10-20). Whenever the app
+    /// comes back, every indicator checks itself again.
+    private func observeResyncMoments(app: NotificationCenter, workspace: NotificationCenter) {
+        let moments: [(NotificationCenter, Notification.Name)] = [
+            (app, NSApplication.didBecomeActiveNotification), (app, NSApplication.didUnhideNotification),
+            (app, NSWindow.didBecomeMainNotification), (workspace, NSWorkspace.didWakeNotification),
+            (workspace, NSWorkspace.screensDidWakeNotification), (workspace, NSWorkspace.sessionDidBecomeActiveNotification),
+        ]
+        resyncObservers = moments.map { center, name in
+            MainActorObservation(name, center: center) { [weak self] in self?.resync() }
+        }
+    }
+
+    /// Tells every client to check its indicator again (`statusIndicatorResync`).
+    public func resync() {
+        for case let client as any StatusIndicatorConfigClient in clients.allObjects {
+            client.statusIndicatorResync()
         }
     }
 

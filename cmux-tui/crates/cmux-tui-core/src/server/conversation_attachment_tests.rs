@@ -234,7 +234,9 @@ fn bad_types_sizes_and_hashes_are_refused_before_any_bytes() {
     let (mux, user, _, conversation) = setup();
     let cases = [
         (json!({"mime_type":"image/svg+xml"}), "type_refused"),
-        (json!({"name":"run.sh","mime_type":"text/plain"}), "type_refused"),
+        // Any name attaches since 9f31a629471 (a client sends HTML as text/plain);
+        // a type outside the owner's list is still refused.
+        (json!({"name":"index.html","mime_type":"text/html"}), "type_refused"),
         (json!({"byte_count":100_000_001}), "too_large"),
         (json!({"sha256":"ABC"}), "validation_invalid"),
         (json!({"name":"a/b.png"}), "validation_invalid"),

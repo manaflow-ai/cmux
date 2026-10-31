@@ -17,7 +17,7 @@ final class FileSidebarCell: NSTableCellView {
         label.lineBreakMode = .byTruncatingMiddle
         ejectButton.image = NSImage(systemSymbolName: "eject", accessibilityDescription: FilesStrings.eject)
         ejectButton.isBordered = false
-        ejectButton.toolTip = FilesStrings.eject
+        ejectButton.setAccessibilityLabel(FilesStrings.eject)
         ejectButton.target = self
         ejectButton.action = #selector(eject)
         let stack = NSStackView(views: [symbol, label, ejectButton])

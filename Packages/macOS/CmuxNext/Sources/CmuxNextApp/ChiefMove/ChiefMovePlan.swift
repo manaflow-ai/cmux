@@ -1,7 +1,7 @@
 /// The steps of one Chief move (chief-migration-DESIGN.md 8a): a dry run whose report the person reads,
 /// the move, then `move reach` on the target. Each step is the bundled `cmux` CLI's arguments (`cmux
-/// chief move …`, one implementation with the CLI and MCP), except reach on an SSH host, which runs
-/// there. A Cloud session token goes through a 0600 file, never the command line.
+/// chief move …`, one implementation with the CLI and MCP), except reach on an SSH host or paired
+/// server, which runs there. A Cloud session token goes through a 0600 file, never the command line.
 struct ChiefMovePlan: Equatable {
     /// Where `move reach` runs.
     enum Reach: Equatable {
@@ -28,9 +28,9 @@ struct ChiefMovePlan: Equatable {
         move = ["chief", "move", "--to", to] + token
         switch kind {
         case .local(let home): reach = .cli(["chief", "move", "reach", "--chief-home", home])
-        case .ssh(let destination):
+        case .ssh(let destination), .server(let destination?):
             reach = .remote(["ssh", "-o", "BatchMode=yes", destination, "optchat-chief", "move", "reach", "--home", targetHome])
-        case .server, .cloud: reach = .none
+        case .server(nil), .cloud: reach = .none
         }
     }
 

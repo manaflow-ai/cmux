@@ -1,12 +1,12 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
-import type { AccountsCmux, AccountsRow, AccountsState, HostLists } from "./ops";
+import type { AccountsCmux, AccountsRow, AccountsState, CloudEnvironmentsState, HostLists } from "./ops";
 import { categories, homes } from "./categories";
+import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
-import GOYA_SATURN from "../../gallery/fixtures/art/goya-saturn.jpg?inline";
-import BOCKLIN_ISLE_OF_THE_DEAD from "../../gallery/fixtures/art/bocklin-isle-of-the-dead.jpg?inline";
-import FUSELI_NIGHTMARE from "../../gallery/fixtures/art/fuseli-nightmare.jpg?inline";
+import MARTIN_PANDEMONIUM from "../../gallery/fixtures/art/martin-pandemonium.jpg?inline";
+import FRIEDRICH_FOREST_MOONLIGHT from "../../gallery/fixtures/art/friedrich-forest-moonlight.jpg?inline";
 import VAN_GOGH_STARRY_NIGHT from "../../gallery/fixtures/art/van-gogh-starry-night.jpg?inline";
 import HOKUSAI_GREAT_WAVE from "../../gallery/fixtures/art/hokusai-great-wave.jpg?inline";
 import FRIEDRICH_WANDERER from "../../gallery/fixtures/art/friedrich-wanderer.jpg?inline";
@@ -69,6 +69,7 @@ const cmuxSigningIn: AccountsCmux = {
   note: "Finish signing in in your browser. If no page opened, choose Open in Browser.",
 };
 const accounts = (patch: Partial<AccountsRow> = {}, state: Partial<AccountsState> = {}): AccountsState => ({
+  teams: null,
   refresh: "Refresh",
   refreshing: false,
   cmux: cmuxSignedIn,
@@ -76,11 +77,129 @@ const accounts = (patch: Partial<AccountsRow> = {}, state: Partial<AccountsState
   groups: [{ id: "sample", title: "Sample providers", rows: [{ ...account, ...patch }] }],
   ...state,
 });
+/** The Active Team menu and the Teams group over sample teams, after `edit` (a gesture or a flag). */
+const activeTeamRow = (teams: MockTeams): NonNullable<AccountsState["teams"]> => ({
+  title: "Active Team",
+  help: "Cloud machines, CodeRouter and phone access use this team.",
+  options: teams.teams.map((team) => ({ id: team.id, name: team.name, active: team.id === teams.active })),
+  disabled: false,
+  note: null,
+  error: null,
+});
+const withTeams = (edit: (teams: MockTeams) => void = () => {}): AccountsState => {
+  const teams = new MockTeams();
+  teams.teams = teams.teams.map((team) => ({
+    ...team,
+    name: team.role === "admin" ? "Sample team" : "Another sample team",
+  }));
+  edit(teams);
+  return accounts({}, { teams: activeTeamRow(teams), teamList: teams.state() });
+};
 const host: Partial<HostLists> = {
-  machines: [{ id: "sample-build", title: "Research build machine", subtitle: "Online · local network", active: true }],
+  machines: [
+    {
+      id: "sample-build",
+      title: "Research build machine",
+      subtitle: "Online · local network",
+      active: true,
+      color: "#7F5FA8",
+      color_key: "research build machine",
+    },
+    // A Cloud machine cmux made: its Dedicated agent machine switch (acpmux vmHost), on by default.
+    {
+      id: "sample-cloud",
+      title: "Sample cloud machine",
+      subtitle: null,
+      active: true,
+      color: "#3F7FBF",
+      color_key: "sample cloud machine",
+      vm_host: { on: true, busy: false, error: null },
+    },
+  ],
   settings_file: "/Users/sample/.config/cmux/cmux.json",
+  // Settings › Server (ServerCard), its only card: the servers the host heard from, sent with every
+  // host list since fe482b41. Without it the category draws nothing (serverCard.gallery.ts has its states).
+  server: {
+    title: "Server",
+    empty: "No server has answered yet.",
+    socket_title: "Local Socket",
+    tailnet_title: "Tailscale Address",
+    copy_title: "Copy",
+    pair_title: "Pair",
+    servers: [
+      {
+        id: "cmux-tui|local",
+        kind: "cmux-tui",
+        host: null,
+        name: "cmux-tui",
+        running: true,
+        status: "Running",
+        version_line: "Version 0.67.0 · Build 7a3c9e1 · Protocol 12",
+        restart: null,
+        socket: "/Users/sample/.cmux/sockets/main.sock",
+        tailnet: "100.64.0.7:7777",
+      },
+    ],
+  },
   // Most variants omit artwork; the backdrop variant supplies sample thumbnails.
   backdrops: [],
+  // Settings › Import: what the host's scan found (ImportSuggestionsCenter.settingsJSON), sent by
+  // default since #22710, one card hidden with Not Now.
+  import_suggestions: {
+    title: "Found on This Mac",
+    empty: "Nothing to bring over right now. cmux looks again when you come back to it.",
+    cards: [
+      {
+        id: "browser.chrome",
+        kind: "browser",
+        title: "Chrome",
+        facts: "3 profiles · history, bookmarks and cookies",
+        benefit: "Sites you're signed into in Chrome stay signed in here, and your history fills the address bar.",
+        state: "ready",
+        primary: { action: "start", title: "Import" },
+        secondary: [{ action: "dismiss", title: "Not Now" }],
+        dismissed: false,
+      },
+      {
+        id: "agents.claudeCode",
+        kind: "claudeCode",
+        title: "Claude Code",
+        facts: "412 sessions",
+        benefit: "Your Claude Code history becomes searchable chats. Open one to pick up where you left off.",
+        state: "ready",
+        primary: { action: "start", title: "Show Chats" },
+        secondary: [{ action: "restore", title: "Show Again" }],
+        dismissed: true,
+      },
+    ],
+  },
+};
+const rowShapeMachines: HostLists["machines"] = [
+  {
+    id: "sample-row-shape",
+    title: "Research build machine",
+    subtitle: "Online · local network",
+    active: true,
+    color: "#7F5FA8",
+    color_key: "research build machine",
+    vm_host: { on: true, busy: false, error: null },
+  },
+];
+const rowShapeEnvironments: CloudEnvironmentsState = {
+  available: true,
+  loading: false,
+  error: null,
+  environments: [
+    {
+      id: "env-row-shape",
+      name: "Research environment",
+      repo: "manaflow-ai/cmux@feat-cmux-next",
+      setup_script: "bun install",
+      status: "failed",
+      error: "setup exited 3",
+      log_tail: "lockfile mismatch",
+    },
+  ],
 };
 const click = (selector: string): PageFixtureStep => ({ selector, action: "click" });
 const input = (selector: string, value: string): PageFixtureStep => ({ selector, action: "input", value });
@@ -102,6 +221,8 @@ const customValues: Record<string, unknown> = Object.fromEntries(
     else if (setting.kind === "font_family") value = "Menlo";
     else if (setting.kind === "sound") value = "Glass";
     else if (setting.kind === "choice_or_number") value = 45;
+    else if (setting.kind === "choice_or_url")
+      value = { [setting.url_key ?? "url"]: "http://mini.tail1234.ts.net:7320" };
     else if (setting.kind === "host_list") value = ["docs.example.test", "*.research.example.test"];
     else if (setting.kind === "folder_list")
       // Chat roots take absolute paths only (validate.ts); the other folder lists also take ~/.
@@ -169,6 +290,17 @@ Object.assign(variants, {
       ],
     },
   }),
+  // Settings > Agents > Agent integrations, opened: installed, needs repair, a file cmux did
+  // not create in the way (no Install, the command to copy), and not installed.
+  "agents-integrations": variant("agents", {
+    note: "Agent integrations opened: one row per hook state, a conflict with no Install, and the manual command.",
+    focus: "agents.integrations",
+  }),
+  "agents-integrations-no-cli": variant("agents", {
+    note: "Agent integrations in a build without the cmux CLI: it says so and gives the command.",
+    focus: "agents.integrations",
+    integrations: { loading: false, problem: "unavailable", command: "cmux agent hook install", providers: [] },
+  }),
   "agents-harnesses-unreachable": variant("agents", {
     note: "Harnesses when the acpmux daemon did not answer.",
     harnesses: { loading: false, problem: "unreachable", harnesses: [] },
@@ -212,6 +344,13 @@ Object.assign(variants, {
     ],
     note: "Appearance's floating bar at the bottom right after picking Shuffle Paintings: Undo names the step, Redo waits, Reset offers Restore How It Was or Reset to Defaults.",
   }),
+  // The terminal font list open: recent fonts first under a Recent tag, every family in its own face.
+  "font-picker-open": variant("appearance", {
+    focus: "terminal.fontFamily",
+    options: { values: { "terminal.fontFamily": "JetBrains Mono" } },
+    steps: [click(`${row("terminal.fontFamily")} [data-font-picker]`), wait("[data-font-option]")],
+    note: "Terminal Font Family's list: the default first, then the fonts picked lately with a Recent tag, then every installed family, each drawn in its own face. Arrow keys preview live; Return picks, Escape reverts.",
+  }),
   // Unset surface rows rest on the window's values, dimmed under an "Inherits window" badge.
   "surfaces-inherit-window": variant("appearance", {
     focus: "appearance.surfaces.sidebar.opacity",
@@ -241,6 +380,15 @@ Object.assign(variants, {
           collection_title: "Apple Wallpapers",
           downloaded: false,
         },
+        {
+          id: "system:/aerials/4KSDR240FPS/B2.mov",
+          title: "Iceland Dusk",
+          attribution: "macOS system wallpaper · Iceland Dusk",
+          collection: "video",
+          collection_title: "Moving wallpapers",
+          video: true,
+          downloaded: false,
+        },
       ],
     },
     backdropImages: {
@@ -261,8 +409,9 @@ Object.assign(variants, {
   "backdrops-empty": variant("appearance", {
     options: { values: { "appearance.background": "none" } },
     host: { ...host, backdrops: [] },
-    steps: [wait('[data-card="backdrop"]')],
-    note: "Background picker with no artwork returned yet: the real empty state keeps the setting usable while the host list loads or is unavailable.",
+    // With no artwork the picker hides (useBackdropsShown) and the setting draws as its plain row.
+    steps: [wait(row("appearance.background"))],
+    note: "No artwork returned yet: the picker stays hidden and Background is its plain row, so the setting stays usable while the host list loads or is unavailable.",
   }),
   // Add from a Link (backgrounds plan phase 3): the link form open under the picker, a link typed.
   "backdrops-link": variant("appearance", {
@@ -305,24 +454,17 @@ Object.assign(variants, {
       ...host,
       backdrops: [
         {
-          id: "goya-saturn",
-          title: "Saturn Devouring His Son — Francisco Goya",
+          id: "martin-pandemonium",
+          title: "Pandemonium — John Martin",
+          attribution: "Pandemonium · John Martin · 1841 · Musée du Louvre, Paris · Public domain",
+          collection: "darkArt",
+          collection_title: "Dark Art",
+        },
+        {
+          id: "friedrich-forest-moonlight",
+          title: "Forest Interior by Moonlight — Caspar David Friedrich",
           attribution:
-            "Saturn Devouring His Son · Francisco Goya · 1819–1823 · Museo del Prado, Madrid · Public domain",
-          collection: "darkArt",
-          collection_title: "Dark Art",
-        },
-        {
-          id: "bocklin-isle-of-the-dead",
-          title: "Isle of the Dead — Arnold Böcklin",
-          attribution: "Isle of the Dead · Arnold Böcklin · 1880 · Kunstmuseum Basel · Public domain",
-          collection: "darkArt",
-          collection_title: "Dark Art",
-        },
-        {
-          id: "fuseli-nightmare",
-          title: "The Nightmare — Henry Fuseli",
-          attribution: "The Nightmare · Henry Fuseli · 1781 · Detroit Institute of Arts · Public domain",
+            "Forest Interior by Moonlight · Caspar David Friedrich · c. 1823–1830 · Alte Nationalgalerie, Berlin · Public domain",
           collection: "darkArt",
           collection_title: "Dark Art",
         },
@@ -397,9 +539,8 @@ Object.assign(variants, {
       ],
     },
     backdropImages: {
-      "goya-saturn": GOYA_SATURN,
-      "bocklin-isle-of-the-dead": BOCKLIN_ISLE_OF_THE_DEAD,
-      "fuseli-nightmare": FUSELI_NIGHTMARE,
+      "martin-pandemonium": MARTIN_PANDEMONIUM,
+      "friedrich-forest-moonlight": FRIEDRICH_FOREST_MOONLIGHT,
       "van-gogh-starry-night": VAN_GOGH_STARRY_NIGHT,
       "hokusai-great-wave": HOKUSAI_GREAT_WAVE,
       "friedrich-wanderer": FRIEDRICH_WANDERER,
@@ -469,13 +610,6 @@ Object.assign(variants, {
     ],
     note: "Browse More Art: a search answered by three open collections, each work with its source.",
   }),
-  "theme-level-selected": variant("appearance", { steps: [click('input[name="theme-level"][value="workspace"]')] }),
-  "theme-custom-spec": variant("appearance", {
-    steps: [
-      input('[data-card="theme"] input.field', "light:GitHub Light,dark:Dracula"),
-      wait("[data-theme-list] .theme-choice:nth-child(2)"),
-    ],
-  }),
   "terminal-shell-unknown": variant("terminal", {
     host: { ...host, terminal: { ghostty_config: "~/.config/ghostty/config", shell_integration: null } },
   }),
@@ -495,12 +629,48 @@ Object.assign(variants, {
   "long-rooms": variant("rooms", { host: { ...host, rooms: longRows, browser_profiles: longProfiles } }),
   "long-profiles": variant("browser", { host: { ...host, rooms: [], browser_profiles: longProfiles } }),
   "long-machines": variant("machines", { host: { ...host, machines: longRows } }),
+  "machines-row-shape": variant("accounts", {
+    host: { ...host, machines: rowShapeMachines },
+    options: { values: { "appearance.machineColors": { "research build machine": "#7F5FA8" } } },
+    note: "One machine row with its color control and the Dedicated agent machine line below.",
+    play: async (ctx) => {
+      const card = ctx.find({ selector: '[data-card="machines"]' });
+      card.setAttribute("data-gallery-capture", "");
+      card.scrollIntoView({ block: "center" });
+    },
+  }),
+  "cloud-environments-row-shape": variant("accounts", {
+    environments: rowShapeEnvironments,
+    note: "One failed Cloud Environment row with status, repository, error log and actions.",
+    play: async (ctx) => {
+      const card = ctx.find({ selector: '[data-card="cloudEnvironments"]' });
+      card.setAttribute("data-gallery-capture", "");
+      card.scrollIntoView({ block: "center" });
+    },
+  }),
   "profile-editor": variant("browser", {
     steps: [
       click('[data-profile="p-work"] .host-toggle'),
       wait(".host-form"),
       { selector: ".host-form input", action: "select" },
     ],
+  }),
+  "clear-refused": variant("browser", {
+    options: { failing: { "cmux.app.action.run": "cmux.browser.clear_refused" } },
+    note: "Clear Browsing Data refusal, scrolled into view for the captured row.",
+    steps: [click('[data-profile="p-work"] .host-toggle'), wait(".host-form"), click("[data-clear]")],
+    play: async (ctx) => {
+      await ctx.waitFor(() => ctx.document.querySelector("[data-clear-error]"));
+      const field = ctx.find({ selector: "[data-clear-browsing-data]" });
+      field.setAttribute("data-gallery-capture", "");
+      field.scrollIntoView({ block: "center" });
+    },
+  }),
+  // Settings > Updates with the Update Channel menu open: the menu hugs its rows and lines up with
+  // its trigger, and Check Every reads in hours (settings-select-menu-browser.test.ts measures it).
+  "updates-channel-open": variant("updates", {
+    steps: [click(`${row("updates.channel")} .ui-select-button`), wait(".ui-select-popup .ui-menu-item")],
+    note: "Settings > Updates, the Update Channel menu open over the Check Every row.",
   }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
   "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),
@@ -645,10 +815,11 @@ Object.assign(variants, {
   }),
   "invalid-host": variant("browser", {
     focus: "browser.hibernationExclusions",
+    // Scoped to the row: the Browser page has other token fields above it (browser.siteEngines).
     steps: [
-      input(".token-input", "bad host / path"),
-      { selector: ".token-input", action: "enter" },
-      wait(".host-list [role=alert]"),
+      input(`${row("browser.hibernationExclusions")} .token-input`, "bad host / path"),
+      { selector: `${row("browser.hibernationExclusions")} .token-input`, action: "enter" },
+      wait(`${row("browser.hibernationExclusions")} .host-list [role=alert]`),
     ],
   }),
   "write-error": variant("privacy", {
@@ -701,6 +872,17 @@ Object.assign(variants, {
     steps: [wait('[data-card="computer-use"]'), focusComputerUse],
     note: "Computer Use off: both grants Unknown, the card says to turn it on.",
   }),
+  "computer-use-failed": variant("agents", {
+    host: { ...host, computer_use: { phase: "failed", accessibility: null, screen_recording: null, helper: null } },
+    steps: [
+      wait('[data-card="computer-use"]'),
+      {
+        selector: '[data-card="computer-use"] [data-action="palette.computerUse.restart"]',
+        action: "focus",
+      },
+    ],
+    note: "The helper did not respond. Restart Helper is the only action.",
+  }),
   "computer-use-granted": variant("agents", {
     host: {
       ...host,
@@ -708,6 +890,34 @@ Object.assign(variants, {
     },
     steps: [wait('[data-card="computer-use"] [data-granted="true"]'), focusComputerUse],
     note: "Computer Use ready: Accessibility and Screen Recording both allowed.",
+  }),
+  "computer-use-host-unverified": variant("agents", {
+    host: {
+      ...host,
+      computer_use: {
+        phase: "ready",
+        accessibility: true,
+        screen_recording: true,
+        helper: "cmux Computer Use",
+        host_unverified: true,
+      },
+    },
+    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
+    note: "The legacy helper can't verify this build (not team-signed): legacy Computer Use is off.",
+  }),
+  "computer-use-upstream-fallback": variant("agents", {
+    host: {
+      ...host,
+      computer_use: {
+        phase: "ready",
+        accessibility: true,
+        screen_recording: true,
+        helper: "cmux Computer Use",
+        upstream_fallback: true,
+      },
+    },
+    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
+    note: "Driver Upstream in a build without its helper: Legacy runs, and the status line says so.",
   }),
   "computer-use-not-granted": variant("agents", {
     host: {
@@ -722,14 +932,144 @@ Object.assign(variants, {
     steps: [wait("[data-agent-harness]")],
     note: "Every harness acpmux knows: kind, source, a probe problem; Check and Remove on user profiles.",
   }),
-  // Settings > Agents > Chiefs (u2586): every Chief; a row opens the same editor as Home.
-  "agents-chiefs": variant("agents", {
+  "agents-harness-update-ready": variant("agents", {
+    harnesses: {
+      loading: false,
+      problem: null,
+      harnesses: [
+        {
+          id: "codex",
+          name: null,
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "0.3.1",
+          latest: "0.4.0",
+          outdated: true,
+          auth: "signedIn",
+          update: { command: "npm install -g @openai/codex@latest", elevated: false },
+          ownerUpdate: true,
+        },
+        {
+          id: "claude",
+          name: null,
+          kind: "claude-stdio",
+          source: "path",
+          problem: null,
+          version: "2.0.5",
+          latest: "2.0.9",
+          outdated: true,
+          auth: "signedIn",
+          update: { command: "sudo npm install -g @anthropic-ai/claude-code@latest", elevated: true },
+          ownerUpdate: false,
+        },
+        {
+          id: "github-copilot-cli",
+          name: "GitHub Copilot",
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "1.4.0",
+          latest: "1.4.0",
+          outdated: false,
+          auth: "signedIn",
+          update: null,
+        },
+      ],
+    },
+    steps: [
+      wait('[data-harness-update-card="codex"]'),
+      { selector: '[data-harness-update-card="codex"] [data-harness-action="updateCard"]', action: "focus" },
+    ],
+    note: "Harness health with an in-app Codex update and a separate manual command for an elevated Claude Code install.",
+  }),
+  "agents-harness-update-manual": variant("agents", {
+    harnesses: {
+      loading: false,
+      problem: null,
+      harnesses: [
+        {
+          id: "claude",
+          name: null,
+          kind: "claude-stdio",
+          source: "path",
+          problem: null,
+          version: "2.0.5",
+          latest: "2.0.9",
+          outdated: true,
+          auth: "signedIn",
+          update: { command: "sudo npm install -g @anthropic-ai/claude-code@latest", elevated: true },
+          ownerUpdate: false,
+        },
+      ],
+    },
+    steps: [
+      wait('[data-harness-update-card="claude"]'),
+      { selector: "[data-harness-update-command]", action: "focus" },
+    ],
+    note: "An outdated harness whose installer needs admin rights: the card gives the exact manual command and no unsafe one-click action.",
+  }),
+  "agents-harness-update-failed": variant("agents", {
+    harnesses: {
+      loading: false,
+      problem: null,
+      harnesses: [
+        {
+          id: "codex",
+          name: null,
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "0.3.1",
+          latest: "0.4.0",
+          outdated: true,
+          auth: "signedIn",
+          update: { command: "npm install -g @openai/codex@latest", elevated: false },
+          ownerUpdate: true,
+        },
+      ],
+      jobs: [
+        {
+          machine: "sample-machine",
+          session: "sample-session",
+          cli: "codex",
+          profiles: ["codex"],
+          terminal: "sample-terminal",
+          state: "exited",
+          exit_code: 23,
+        },
+      ],
+    },
+    steps: [
+      wait('[data-harness-update-card="codex"]'),
+      { selector: '[data-agent-update-job="exited"]', action: "focus" },
+    ],
+    note: "An update that finished with an error: the receipt stays visible while the card keeps a retryable Update action.",
+  }),
+  // Settings > Chief > Chiefs (u2586): every Chief; a row opens the same editor as Home.
+  "chief-chiefs": variant("chief", {
     steps: [wait('[data-card="chiefs"] [data-chief]')],
     note: "Chiefs: picture, name, role, backend and a Locked badge; New Chief opens the editor.",
   }),
-  "agents-chief-editor": variant("agents", {
+  "chief-editor": variant("chief", {
     steps: [click('[data-chief="agent_release"]'), wait('[data-card="chiefs"] section.chief-editor')],
     note: "A Chief row opens its editor in the card: backend, lock and history, never a dialog.",
+  }),
+  // Settings > Chief > Chief Pet with the pet off (the default): the Chief's character stays checked.
+  "chief-pet-off": variant("chief", {
+    focus: "home.chiefPetMascot",
+    note: "Chief Pet, pet off: the chosen character (Orb) is checked; Show Pet floats it.",
+  }),
+  // Settings > Chief > Chief Pet with Mochi, the first animated set, picked and the pet shown.
+  "chief-pet-mochi": variant("chief", {
+    focus: "home.chiefPetMascot",
+    options: { values: { "home.chiefPetMascot": "mochi", "home.chiefPetEnabled": true } },
+    note: "Chief Pet with Mochi picked: the preview and the checked card show its static frame.",
+  }),
+  // Settings > Chief > Look's foot: the chat's Bubble Style, the row a search for it lands on.
+  "chief-look-bubbles": variant("chief", {
+    focus: "home.chiefBubbleStyle",
+    note: "Look: the pet, the characters, then Bubble Style at the card's foot (no Chief Chat card of its own).",
   }),
   "agents-add-custom": variant("agents", {
     focus: "agents.add",
@@ -791,6 +1131,77 @@ Object.assign(variants, {
     }),
     note: "Empty credential form; fixtures never contain credentials.",
   }),
+  "accounts-team-roles": variant("accounts", {
+    accounts: withTeams(),
+    note: "Teams: each team with your role (Admin or Member), the active one marked, and New Team.",
+  }),
+  "accounts-team-roles-unknown": variant("accounts", {
+    accounts: withTeams((teams) => (teams.rolesUnknown = true)),
+    note: "Only the sign-in service answered: roles read Role unknown.",
+  }),
+  "accounts-team-admin": variant("accounts", {
+    accounts: withTeams((teams) => teams.run({ action: "team.details", team: "team-personal" })),
+    note: "Details as an admin: your role, member count and plan, members (You marked), pending invitations, Rename and Delete.",
+  }),
+  "accounts-team-member": variant("accounts", {
+    accounts: withTeams((teams) => teams.run({ action: "team.details", team: "team-acme" })),
+    note: "Details as a member: read-only, no invitations, no Rename or Delete.",
+  }),
+  "accounts-team-rename": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.run({ action: "team.details", team: "team-personal" });
+      teams.run({ action: "team.rename", team: "team-personal" });
+    }),
+    note: "Rename Team: the field starts at the current name, up to 64 characters.",
+  }),
+  "accounts-team-delete": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.run({ action: "team.details", team: "team-personal" });
+      teams.run({ action: "team.delete", team: "team-personal" });
+    }),
+    note: "Delete Team asks first and names the team.",
+  }),
+  "accounts-team-delete-blocked": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.teams = teams.teams.map((team) => ({ ...team, subscribed: team.id === "team-personal" }));
+      teams.run({ action: "team.details", team: "team-personal" });
+      teams.run({ action: "team.delete", team: "team-personal" });
+      teams.run({ action: "team.confirmDelete", team: "team-personal" });
+    }),
+    note: "A team with an active subscription cannot be deleted: the confirmation says why.",
+  }),
+  "accounts-team-create": variant("accounts", {
+    accounts: withTeams((teams) => teams.run({ action: "team.new" })),
+    note: "New Team: you become its admin and it becomes your active team.",
+  }),
+  "accounts-team-deleted": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.run({ action: "team.details", team: "team-personal" });
+      teams.run({ action: "team.delete", team: "team-personal" });
+      teams.run({ action: "team.confirmDelete", team: "team-personal" });
+    }),
+    note: "After deleting the active team, the other team is active and the notice says so.",
+  }),
+  "accounts-teams": variant("accounts", {
+    accounts: accounts(
+      {},
+      {
+        teams: {
+          title: "Active Team",
+          help: "Cloud machines, CodeRouter and phone access use this team.",
+          options: [
+            { id: "sample-team-1", name: "Sample team", active: true },
+            { id: "sample-team-2", name: "Another sample team", active: false },
+          ],
+          disabled: false,
+          note: null,
+          error: null,
+        },
+        teamList: null,
+      },
+    ),
+    note: "The active team switcher: one row with a pop-up menu of the teams, the active one checked.",
+  }),
   "accounts-success": variant("accounts", {
     accounts: accounts({ outcome: { kind: "success", text: "Account connected." } }),
   }),
@@ -847,10 +1258,11 @@ variants["play-select-scroll"] = variant("appearance", {
     const content = ctx.find({ selector: ".content" });
     const control = `${row("sidebar.sectionLook")} .ui-select-button`;
     const bottom = ctx.find({ selector: control }).getBoundingClientRect().bottom;
-    await ctx.scroll(
-      { selector: ".content" },
-      content.scrollTop + bottom - (content.getBoundingClientRect().bottom - 40),
-    );
+    // Near the bottom of what shows: above the Appearance bar that sits over the content's foot.
+    const floor =
+      ctx.document.querySelector(".appearance-bar")?.getBoundingClientRect().top ??
+      content.getBoundingClientRect().bottom;
+    await ctx.scroll({ selector: ".content" }, content.scrollTop + bottom - (floor - 40));
     await ctx.click({ selector: control });
     await ctx.waitFor(() => ctx.document.querySelector(".ui-select-popup"));
     await ctx.scroll({ selector: ".content" }, content.scrollTop - 160);
@@ -881,8 +1293,11 @@ export default settingsPageEntry({
     "page:cmux.settings",
     "pages/settings/components/AccentPicker.tsx",
     "pages/settings/components/AccountsSection.tsx",
+    "pages/settings/components/AccountsTeams.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
+    "pages/settings/components/AgentIntegrations.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
+    "pages/settings/components/DevicesCard.tsx",
     "pages/settings/components/ChiefsCard.tsx#ChiefsCard",
     "pages/settings/components/HarnessesCard.tsx",
     "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",
@@ -890,6 +1305,11 @@ export default settingsPageEntry({
     "pages/settings/components/ArtBrowser.tsx",
     "pages/settings/components/BackdropLink.tsx",
     "pages/settings/components/BackdropScope.tsx",
+    "pages/settings/components/ChiefPetCard.tsx",
+    "pages/settings/components/ChannelsCard.tsx",
+    "pages/settings/components/ImportSuggestionsCard.tsx",
+    "pages/settings/components/VoiceInputCard.tsx",
+    "pages/settings/components/FontPicker.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",
     "pages/settings/components/Highlight.tsx",
@@ -903,6 +1323,7 @@ export default settingsPageEntry({
     "pages/settings/components/SearchResults.tsx",
     "pages/settings/components/SectionActions.tsx",
     "pages/settings/components/SectionList.tsx",
+    "pages/settings/components/SectionRoute.tsx",
     "pages/settings/components/SectionView.tsx",
     "pages/settings/components/SettingRow.tsx",
     "pages/settings/components/SettingsApp.tsx",
@@ -928,6 +1349,7 @@ export default settingsPageEntry({
     "pages/settings/editors/SegmentedEditor.tsx",
     "pages/settings/editors/Select.tsx",
     "pages/settings/editors/SoundEditor.tsx",
+    "pages/settings/editors/StringMapEditor.tsx",
     "pages/settings/editors/TextEditor.tsx",
     "pages/settings/editors/TimeRangeEditor.tsx",
     "pages/settings/editors/ToggleEditor.tsx",

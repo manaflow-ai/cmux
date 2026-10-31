@@ -54,18 +54,23 @@ struct LinkExportTests {
         let root = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(root["target_scheme"] as? String == "cmux")
         let kinds = try #require(root["kinds"] as? [[String: Any]])
-        #expect(kinds.compactMap { $0["kind"] as? String } == ["workspace", "pane", "tab", "session"])
+        #expect(kinds.compactMap { $0["kind"] as? String } == ["workspace", "pane", "tab", "session", "agent"])
         for kind in kinds {
             let text = try #require(kind["example"] as? String)
             let url = try #require(URL(string: text))
             let link = try #require(DeepLink.parse(url, scheme: "cmux"), "\(text) parses")
             switch (kind["kind"] as? String, link.target) {
-            case ("workspace", .workspace), ("pane", .pane), ("tab", .tab), ("session", .session(_, turn: nil)): break
+            case ("workspace", .workspace), ("pane", .pane), ("tab", .tab), ("session", .session(_, turn: nil)), ("agent", .agent): break
             default: Issue.record("\(text) is not a \(kind["kind"] ?? "?") link")
             }
         }
-        let turn = try #require(kinds.last?["example_with_turn"] as? String)
+        let turn = try #require(kinds.first { $0["kind"] as? String == "session" }?["example_with_turn"] as? String)
         #expect(DeepLink.parse(try #require(URL(string: turn)), scheme: "cmux") == DeepLink(.session("ses-01.example_a", turn: "turn_7")))
+        let hinted = try #require(kinds.first { $0["kind"] as? String == "agent" }?["example_with_hints"] as? String)
+        let hintedURL = try #require(URL(string: hinted))
+        let agent = try #require(DeepLink.parse(hintedURL, scheme: "cmux"))
+        #expect(agent.target == .agent(harness: "claude", session: "0f3c2a91-7d4e-4b8a-9c11-2e5f6a7b8c9d"))
+        #expect(agent.hostHint == "build-mac" && agent.nameHint == "Lanternfish")
         // The id rules the file states hold in the code: 32 lowercase hex digits only.
         #expect(DeepLink(.tab("tab_" + String(repeating: "a", count: 31))).url(scheme: "cmux") == nil)
         #expect(DeepLink(.tab("tab_" + String(repeating: "A", count: 32))).url(scheme: "cmux") == nil)

@@ -42,7 +42,7 @@ nonisolated enum BrowserProfileActionCatalog: ActionCatalogGroup {
             descriptor("browserProfile.clearIcon", text("action.browserProfile.clearIcon", "Remove Browser Profile Icon"), "circle.dashed",
                        "clear-icon", extra: ["icon", "reset", "clear"]),
             deleteDescriptor,
-            descriptor("browserProfile.newTab", text("action.browserProfile.newTab", "New Tab with Browser Profile…"), "plus.square",
+            descriptor("browserProfile.newTab", text("action.browserProfile.newTab", "New Tab with Browser Profile…"), "person.crop.square",
                        "new-tab", extra: ["tab", "open"], arguments: [profile, CatalogArgument.urlString.optional], targets: [.pane]),
             descriptor("browserProfile.newWindow", text("action.browserProfile.newWindow", "New Window with Browser Profile…"),
                        "macwindow.badge.plus", "new-window", extra: ["window"], arguments: [profile], targets: []),
@@ -54,7 +54,7 @@ nonisolated enum BrowserProfileActionCatalog: ActionCatalogGroup {
                        "person.crop.rectangle", "set-workspace-default", extra: ["workspace", "default"], arguments: [profile],
                        targets: [.workspace]),
             descriptor("browserProfile.clearWorkspaceDefault", text("action.browserProfile.clearWorkspaceDefault", "Clear Workspace Browser Profile"),
-                       "person.crop.rectangle.badge.xmark", "clear-workspace-default", extra: ["workspace", "default", "reset"],
+                       "person.slash", "clear-workspace-default", extra: ["workspace", "default", "reset"],
                        targets: [.workspace]),
             descriptor("browserProfile.setSpaceDefault", text("action.browserProfile.setSpaceDefault", "Set Space Browser Profile…"),
                        "person.2.crop.square.stack", "set-space-default", extra: ["room", "default"], arguments: [profile],
@@ -74,6 +74,10 @@ nonisolated enum BrowserProfileActionCatalog: ActionCatalogGroup {
                                    CatalogArgument.clearKind("cookies", text("argument.browsingData.cookies", "Cookies and Site Data")),
                                    CatalogArgument.clearKind("cache", text("argument.browsingData.cache", "Cached Images and Files"))],
                        targets: [.browserProfile], destructive: true),
+            // Everything Import from Browser saved into the profile (pages, bookmarks, tabs), and its Keep in Sync.
+            descriptor("browserProfile.removeImportedData", text("action.browserProfile.removeImportedData", "Remove Imported Browser Data…"),
+                       "tray.and.arrow.down", "remove-imported-data", extra: ["import", "imported", "history", "bookmarks", "privacy", "delete"],
+                       destructive: true),
             descriptor("browserProfile.manageExtensions", text("action.browserProfile.manageExtensions", "Manage Extensions in Browser Profile…"),
                        "puzzlepiece", "manage-extensions", extra: ["extension", "extensions", "addon"], arguments: [profile], targets: []),
         ]

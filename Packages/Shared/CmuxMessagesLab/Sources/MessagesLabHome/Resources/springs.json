@@ -1952,5 +1952,35 @@
     "delta": -752.0
    }
   ]
+ },
+ "bubble.width.fieldShrinkMac2": {
+  "event": "send",
+  "unit": "px@2x",
+  "from": 1052.0,
+  "to": 300.0,
+  "note": "cx-3cb send-width-typed, refit in typed-drafts: macOS 27, a 2-line text that shrinks the field. The components are bubble.width.fieldShrink's; travelLaw puts them on a clock k = k0 (travel / refPt)^q times slower and d0 + d1 ln(travel / refPt) s later, travel = field width - balloon width (pt), clamped to [minPt, maxPt] (no extrapolation). Fitted through the motion gate's parity27 measure (frame boxes) by a laptop replay of the gate's own captures (only the unscaled width changed, W' = W x w_new / w_now; right edge, height, scale kept; morph2 refit), each take against the capture of its own draft: 158.6 pt (2-line wide; send-2line-take2, send-typed-take1, send-typed-media-take1) k 1.00, +8 ms (Messages starts the width 8 ms later, same speed; the per-take best starts are +1.5, +5.7 and +39 ms); 472.2 pt (2-line narrow; send-2line-break-take3/4) k 0.87, +12.8 ms. The first fit (k 1.12, -13.5 ms at 158.6 pt) was made against send-2line-take2's draft for all three wide takes and compensated the draft mismatch. Between 158 and 472 pt the law is an interpolation with no take (UNVERIFIED). The height keeps bubble.width.fieldShrink.",
+  "components": [
+   {
+    "delay": -0.0021,
+    "duration": 0.4296,
+    "bounce": 0.1272,
+    "delta": -419.9
+   },
+   {
+    "delay": 0.0658,
+    "duration": 0.2336,
+    "bounce": 0.5084,
+    "delta": -332.1
+   }
+  ],
+  "travelLaw": {
+   "refPt": 300.0,
+   "k0": 0.92184,
+   "q": -0.12761,
+   "d0": 0.0108,
+   "d1": 0.0044,
+   "minPt": 158.6,
+   "maxPt": 472.2
+  }
  }
 }

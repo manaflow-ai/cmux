@@ -1,8 +1,11 @@
-// The scanner behind test/tooltip-rules.test.ts (Leo, 2026-10-13): a tooltip only names a control
-// that shows no text of its own, an icon-only button, or carries a keyboard shortcut. A row, chip,
-// link, path or thought whose text is on screen gets none, not even its full text when it is cut
-// off. It reads the page code's JSX: an HTML element with `title` or `data-tooltip` and text inside
-// it, and a ui/Tooltip around such an element.
+// The scanner behind test/tooltip-rules.test.ts (Leo, 2026-10-13; revised 2026-10-20): a tooltip
+// only names a control that shows no text of its own, an icon-only button, or carries a keyboard
+// shortcut. A row, chip, link, path or thought whose text is on screen gets no tooltip. A pull
+// request's or link's cut-off title gets a styled hover card instead (ui/Tooltip.tsx AnchoredCard:
+// chips/PullRequestCard.tsx, the link chips' preview card), with what the text can't show: the
+// full title and the facts behind it. Plain decorative text gets neither. It reads the page code's
+// JSX: an HTML element with `title` or `data-tooltip` and text inside it, and a ui/Tooltip around
+// such an element; a hover card is no tooltip.
 import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";

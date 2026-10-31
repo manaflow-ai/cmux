@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 import GhosttyNextKit
 import Testing
@@ -7,9 +6,27 @@ import Testing
 @MainActor
 @Suite("Ghostty security defaults", .serialized)
 struct GhosttySecurityDefaultsTests {
-    @Test(arguments: ["", "clipboard-write = allow\n", "clipboard-write = ask\n"])
-    func programClipboardWritesRequireConsent(_ text: String) throws {
-        #expect(try resolvedString("clipboard-write", configText: text) == "ask")
+    /// Program clipboard writes (OSC 52, e.g. Claude Code copying text) are
+    /// silent by default, as in Ghostty and classic cmux: no consent dialog.
+    @Test(arguments: ["", "clipboard-write = allow\n"])
+    func programClipboardWritesAreAllowedByDefault(_ text: String) throws {
+        #expect(try resolvedString("clipboard-write", configText: text) == "allow")
+    }
+
+    @Test func explicitClipboardWriteAskStillAsks() throws {
+        #expect(try resolvedString("clipboard-write", configText: "clipboard-write = ask\n") == "ask")
+    }
+
+    @Test func programWriteWithoutConfirmationIsCommittedSilently() {
+        #expect(TerminalClipboardRequests.writeDecision(userInitiated: false, requiresConfirmation: false) == .write)
+    }
+
+    @Test func programWriteGhosttyAsksAboutShowsTheDialog() {
+        #expect(TerminalClipboardRequests.writeDecision(userInitiated: false, requiresConfirmation: true) == .confirm)
+    }
+
+    @Test func userCopyNeverShowsTheDialog() {
+        #expect(TerminalClipboardRequests.writeDecision(userInitiated: true, requiresConfirmation: true) == .write)
     }
 
     @Test func explicitClipboardWriteDenyStaysDenied() throws {
@@ -64,20 +81,13 @@ struct GhosttySecurityDefaultsTests {
         }
         try Data(configText.utf8).write(to: file)
 
-        let key = GhosttyRuntime.configOverrideKey
-        let previous = ProcessInfo.processInfo.environment[key]
-        setenv(key, file.path, 1)
-        defer {
-            if let previous {
-                setenv(key, previous, 1)
-            } else {
-                unsetenv(key)
-            }
-        }
-
+        // The file goes in as an argument, never through setenv: a write after
+        // ghostty_init frees the environ copy libghostty reads, and
+        // ghostty_config_finalize then crashed this suite (signal 11).
         var diagnostics: [String] = []
         var opacity = 1.0
-        let config = try #require(GhosttyRuntime.loadConfig(diagnostics: &diagnostics, opacity: &opacity))
+        let config = try #require(GhosttyRuntime.loadConfig(diagnostics: &diagnostics, opacity: &opacity,
+                                                            configFile: file.path))
         defer { ghostty_config_free(config) }
         return try read(config)
     }

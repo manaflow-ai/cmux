@@ -39,8 +39,8 @@ extension ChiefConversationOwner {
     /// that cannot start leaves the page on the build daemon.
     public func pageEndpoint(page: String) async -> PageEndpointOutcome {
         guard let connection else { return isRunning ? .starting : .unavailable }
-        guard supports(DaemonCapabilities.shared.wsListen),
-              supports(DaemonCapabilities.shared.scopedPageCredential) else { return .unavailable }
+        guard supports(DaemonCapability.wsListen.rawValue),
+              supports(DaemonCapability.scopedPageCredential.rawValue) else { return .unavailable }
         do {
             // The owner's listener admits this page's Origin only (loopback, like the build daemon's).
             let listener = try await connection.request(WsListenRequest(allowOrigin: "cmux-page://cmux.\(page)"))

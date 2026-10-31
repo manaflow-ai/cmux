@@ -155,9 +155,10 @@ public struct ThemeTokens: Hashable, Sendable {
         // Text must hold its contrast on the strongest fill it can sit on.
         let worstSurface = [pressed, selection].map { $0.composited(over: bg) }
             .min { fg.contrast(with: $0) < fg.contrast(with: $1) }!
-        let primary = readable(fg, over: worstSurface, minimum: minimumTextContrast)
-        let secondary = muted(primary, toward: bg, upTo: 0.38, over: worstSurface, minimum: minimumTextContrast)
-        let tertiary = muted(primary, toward: bg, upTo: 0.55, over: worstSurface, minimum: minimumMarkContrast)
+        // In a see-through window the quieter inks also hold over the tint on the worst desktop for
+        // the theme (sidebar sweep 2026-10-21); the tint stays the opacity asked for (#22566).
+        let seeThrough = seeThroughSurfaces(bg: bg, opacity: input.backgroundOpacity, isDark: isDark, fills: [pressed, selection])
+        let (primary, secondary, tertiary) = inks(fg, rows: [worstSurface, bg], seeThrough: seeThrough, background: bg)
 
         // The config's selection fill, when text reads on it. Many themes select by inverse video
         // (the foreground as the fill, with a dark `selection-foreground`); chrome and pages draw
@@ -234,6 +235,50 @@ public struct ThemeTokens: Hashable, Sendable {
             candidate = color.mixed(toward: pole, step)
         }
         return candidate
+    }
+
+    /// The primary, secondary and tertiary text for `foreground`, read on every surface in `rows`
+    /// (the strongest row fill and the bare background). A foreground that already reads keeps
+    /// its color. Otherwise it is walked toward white and toward black, and the candidate whose
+    /// primary and secondary keep the higher least contrast over `rows` wins (capped at 4.5:1, so
+    /// of two candidates that both read, the one toward the pole that reads better on the row
+    /// fill wins). Hot Dog Stand's white on red reaches only 4.20:1, so it takes the dark ink;
+    /// Grass's dark ink drops to 3.73:1 on its background, so it takes white.
+    static func inks(_ foreground: ThemeRGB, rows: [ThemeRGB], seeThrough: [ThemeRGB], background bg: ThemeRGB)
+        -> (ThemeRGB, ThemeRGB, ThemeRGB) {
+        func least(_ ink: ThemeRGB) -> Double { rows.map { ink.contrast(with: $0) }.min() ?? 1 }
+        let poles = [ThemeRGB.white, .black].sorted { $0.contrast(with: rows[0]) > $1.contrast(with: rows[0]) }
+        let candidates = poles.map { pole -> (inks: (ThemeRGB, ThemeRGB, ThemeRGB), score: Double) in
+            let primary = readable(foreground, over: rows, toward: pole, minimum: minimumTextContrast)
+            let inkSurface = (rows + seeThrough).min { primary.contrast(with: $0) < primary.contrast(with: $1) } ?? bg
+            let secondary = muted(primary, toward: bg, upTo: 0.38, over: inkSurface, minimum: minimumTextContrast)
+            let tertiary = muted(primary, toward: bg, upTo: 0.55, over: inkSurface, minimum: minimumMarkContrast)
+            return ((primary, secondary, tertiary), min(least(primary), least(secondary), minimumTextContrast))
+        }
+        var chosen = candidates[0]
+        for candidate in candidates.dropFirst() where candidate.score > chosen.score { chosen = candidate }
+        return chosen.inks
+    }
+
+    /// `color` walked toward `pole` until it reaches `minimum` contrast over every surface (or `pole`).
+    static func readable(_ color: ThemeRGB, over surfaces: [ThemeRGB], toward pole: ThemeRGB, minimum: Double) -> ThemeRGB {
+        func reads(_ ink: ThemeRGB) -> Bool { surfaces.allSatisfy { ink.contrast(with: $0) >= minimum } }
+        var step = 0.0
+        var candidate = color
+        while step < 1, !reads(candidate) {
+            step += 0.02
+            candidate = color.mixed(toward: pole, step)
+        }
+        return candidate
+    }
+
+    /// What text sits on in a window of `opacity` below 1: the background at that opacity over
+    /// the worst desktop for the theme (black behind a light theme, white behind a dark one),
+    /// alone and under each of `fills`. Empty for an opaque window.
+    static func seeThroughSurfaces(bg: ThemeRGB, opacity: Double, isDark: Bool, fills: [ThemeRGB]) -> [ThemeRGB] {
+        guard opacity < 1 else { return [] }
+        let tint = bg.withAlpha(opacity).composited(over: isDark ? .white : .black)
+        return [tint] + fills.map { $0.composited(over: tint) }
     }
 
     /// `color` mixed toward `target` as far as `limit` allows while keeping

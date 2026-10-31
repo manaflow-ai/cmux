@@ -66,6 +66,29 @@ export interface TunableGroup {
   rows: TunableRow[];
 }
 
+/** One recent main-thread hang file (HangFileTunables.pageJSON in the app). */
+export interface HangItem {
+  path: string;
+  started_text: string;
+  duration_text: string;
+  /** The file was last written while the main thread was still blocked. */
+  ongoing: boolean;
+  /** The main thread's innermost frames. */
+  frames: string[];
+}
+
+/** The watchdog's hang files, drawn under the tunable section `section`. Text comes from the app. */
+export interface HangsInfo {
+  section: string;
+  title: string;
+  folder: string;
+  empty: string;
+  show_folder: string;
+  reveal: string;
+  copy: string;
+  items: HangItem[];
+}
+
 /** `cmux.debug.tunables.state`: the view state the app owns and the rows it shows. */
 export interface DebugSettingsState {
   query: string;
@@ -77,6 +100,8 @@ export interface DebugSettingsState {
   sections: TunableSectionInfo[];
   groups: TunableGroup[];
   notice?: string;
+  /** Absent in an app without hang files. */
+  hangs?: HangsInfo;
 }
 
 export const DebugTunablesOps = {
@@ -85,6 +110,8 @@ export const DebugTunablesOps = {
   set: "cmux.debug.tunables.set",
   reset: "cmux.debug.tunables.reset",
   export: "cmux.debug.tunables.export",
+  hangsReveal: "cmux.debug.tunables.hangs.reveal",
+  hangsCopy: "cmux.debug.tunables.hangs.copy",
   changed: "cmux.debug.tunables.changed",
 } as const;
 

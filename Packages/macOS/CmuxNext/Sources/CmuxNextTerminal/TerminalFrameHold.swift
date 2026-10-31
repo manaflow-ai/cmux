@@ -50,9 +50,10 @@ final class TerminalFrameHold {
         waitForDraw()
     }
 
-    /// Paints `frame` (an evicted terminal's last frame) over `fresh`, a new session's first
-    /// surface, until the first content queued on its lane (``contentQueued()``) is parsed and drawn.
-    func begin(lastFrame frame: IOSurface, over fresh: TerminalSurfaceView, in host: NSView) {
+    /// Paints `frame` (an evicted terminal's last frame, an IOSurface; or its frame from the last
+    /// quit, a CGImage) over `fresh`, a new session's first surface, until the first content
+    /// queued on its lane (``contentQueued()``) is parsed and drawn.
+    func begin(lastFrame frame: Any, over fresh: TerminalSurfaceView, in host: NSView) {
         end()
         show(frame, over: fresh, like: fresh.layer, in: host)
         awaitingContent = true

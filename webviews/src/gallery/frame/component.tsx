@@ -32,9 +32,12 @@ export async function mountComponent(
     const { applyAgentTheme } = await import("../../agent-session/shared/theme");
     applyAgentTheme(context.agentTheme as never);
     document.documentElement.dataset.cmuxWebviewKind = "acpmux-agent-session";
-    await import("virtual:cmux-gallery/agent-pane.css");
   }
   await import("../../pages/shared/desktop");
+  // After desktop.ts: it inserts desktop.css and the liquid glass (ui/glass/glass.css) on their own,
+  // and the pane's sheet, which holds them in the shipped order ahead of the pane's own sheets, must
+  // come last so a surface's rules outrank `.ui-glass` as they do in the app.
+  if (entry.pane) await import("virtual:cmux-gallery/agent-pane.css");
   await import("../../pages/shared/pageBase.css");
   await import("../../ui/ui.css");
   await entry.styles?.();

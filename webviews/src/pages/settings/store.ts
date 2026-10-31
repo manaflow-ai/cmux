@@ -25,6 +25,7 @@ import {
   shareScope,
   settingsKeys,
   type AccountsData,
+  type DevicesData,
   type HarnessesData,
   type HostData,
   type ScopeData,
@@ -41,10 +42,19 @@ import {
   type AccountsState,
   type AgentsRun,
   type AgentsState,
+  type ChannelsState,
+  type CloudEnvironmentsRun,
+  type CloudEnvironmentsState,
+  type DevicesRun,
+  type DevicesRunResult,
+  type DevicesState,
   type Domains,
+  type MenuLayout,
   type HarnessesRun,
   type HarnessesState,
   type HostLists,
+  type IntegrationsRun,
+  type IntegrationsState,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
@@ -80,6 +90,8 @@ export type SettingsState = {
   accounts: AccountsState | null;
   /** The Harnesses part (Settings > Agents); null until read, or when the host has none. */
   harnesses: HarnessesState | null;
+  /** The Devices part (Settings > Devices); null until read, or when the host has none. */
+  devices: DevicesState | null;
   /** Theme colors by name (cmux.settings.theme.colors); null until read or when the host has none. */
   themeColors: ReadonlyMap<string, GhosttyTheme> | null;
 };
@@ -95,6 +107,7 @@ export type CacheView = {
   host: HostData | undefined;
   accounts: AccountsData | undefined;
   harnesses?: HarnessesData | undefined;
+  devices?: DevicesData | undefined;
   themeColors: ThemeColorsData | undefined;
 };
 
@@ -106,7 +119,7 @@ export type NativeTarget = "cmuxJSON";
 /** `appearance.background`, which the picker's host ops set. */
 const BACKGROUND = "appearance.background";
 
-const emptyDomains: Domains = { themes: [], font_families: [], sounds: [] };
+const emptyDomains: Domains = { themes: [], font_families: [], sounds: [], recent_fonts: [] };
 
 /** The page's state from the cache and the UI state (one function for hooks and getSnapshot). */
 export function composeState(ui: UiState, cache: CacheView): SettingsState {
@@ -125,6 +138,7 @@ export function composeState(ui: UiState, cache: CacheView): SettingsState {
     host: cache.host ?? null,
     accounts: cache.accounts ?? null,
     harnesses: cache.harnesses ?? null,
+    devices: cache.devices ?? null,
     themeColors: cache.themeColors ?? null,
   };
 }
@@ -170,6 +184,9 @@ export class SettingsStore {
     this.queryClient.setQueryDefaults(settingsKeys.harnesses, {
       queryFn: () => this.native("cmux.settings.harnesses.state"),
     });
+    this.queryClient.setQueryDefaults(settingsKeys.devices, {
+      queryFn: () => this.native("cmux.settings.devices.state"),
+    });
     this.queryClient.setQueryDefaults(settingsKeys.themeColors, {
       queryFn: async (): Promise<ThemeColorsData> =>
         new Map((await this.native("cmux.settings.theme.colors")).themes.map((theme) => [theme.name, theme])),
@@ -189,6 +206,17 @@ export class SettingsStore {
       ),
       this.listen("cmux.settings.harnesses.changed", (harnesses) =>
         this.queryClient.setQueryData(settingsKeys.harnesses, harnesses),
+      ),
+      this.listen("cmux.settings.devices.changed", (devices) =>
+        this.queryClient.setQueryData(settingsKeys.devices, devices),
+      ),
+      // A machine's update failing while Updates shows (its toast's Details opens it) shows in
+      // the Channels card's row at once, in every channel's read.
+      this.listen("cmux.settings.channels.machines.changed", (machines) =>
+        this.queryClient.setQueriesData<ChannelsState | null>(
+          { queryKey: [...settingsKeys.all, "channels"] },
+          (state) => (state ? { ...state, machines } : state),
+        ),
       ),
       this.listen("cmux.page.command", (event) => {
         for (const listener of this.commandListeners) listener(event.command);
@@ -265,6 +293,11 @@ export class SettingsStore {
     await this.fetchNative(settingsKeys.accounts);
   }
 
+  /** Reads the Devices part (a host without a device hub rejects, and the part stays null). */
+  async refreshDevices(): Promise<void> {
+    await this.fetchNative(settingsKeys.devices);
+  }
+
   /** Reads the theme colors once (the Theme section asks when it first draws). */
   async loadThemeColors(): Promise<void> {
     // An observer creates the query before any read, so the cache cannot say "already asked".
@@ -296,6 +329,20 @@ export class SettingsStore {
    */
   async importThemeFile(retry?: { token: string; replace: boolean }): Promise<Reply<{ name?: string }>> {
     return this.themeFileSaved(await this.request("cmux.settings.theme.import", retry ?? {}));
+  }
+
+  /**
+   * Let Themes Set Colors: the host turns the Ghostty config's own color lines into comments and
+   * reloads it, so the theme sets those colors; the host lists then drop the notice.
+   */
+  async releaseThemeOverrides(): Promise<Reply<{ files: number }>> {
+    const reply = await this.request("cmux.settings.theme.overrides.release", {});
+    if (reply.ok) await this.refreshHost();
+    return reply;
+  }
+
+  openThemeOverrides(): void {
+    void this.request("cmux.settings.theme.overrides.open", {});
   }
 
   /** After a theme file lands, the theme names and colors are read again so every picker lists it. */
@@ -453,15 +500,77 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Settings > Devices: remove a device from every store that lets it in, then re-read the host lists. */
+  async removeDevice(id: string): Promise<void> {
+    await this.request("cmux.settings.devices.remove", { id });
+    await this.refreshHost();
+  }
+
+  /** Settings > Devices: a paired client machine's Full access on or off, then re-read the host lists. */
+  async setDeviceFullAccess(id: string, on: boolean): Promise<void> {
+    await this.request("cmux.settings.devices.full_access", { id, on });
+    await this.refreshHost();
+  }
+
+  /** Settings > Devices: this joined Mac's Screen sharing or Control on or off, then re-read the host lists. */
+  async setJoinConsent(surface: "screen" | "control", on: boolean): Promise<void> {
+    await this.request("cmux.settings.devices.join_consent", { surface, on });
+    await this.refreshHost();
+  }
+
+  /** Settings > Machines: a Cloud machine's "Dedicated agent machine" on or off, then re-read the host lists. */
+  async setMachineVmHost(id: string, on: boolean): Promise<void> {
+    await this.request("cmux.settings.machines.vm_host", { id, on });
+    await this.refreshHost();
+  }
+
   /** Settings > Mobile: answer a phone's pairing request, then re-read the host lists. */
   async answerPair(id: string, allow: boolean): Promise<void> {
     await this.request("cmux.settings.mobile.answer_pair", { id, allow });
     await this.refreshHost();
   }
 
+  /** Settings > Server: Restart… opens the host's confirm for one server; nothing restarts without it. */
+  async restartServer(kind: string, host: string | null): Promise<void> {
+    await this.request("cmux.settings.server.restart", { kind, host });
+  }
+
+  /** Settings > Server: Pair opens the Server panel's pairing card. */
+  async pairServer(): Promise<void> {
+    await this.request("cmux.settings.server.pair", {});
+  }
+
   /** Settings > Mobile: this Mac was removed; allow iPhone connections again, then re-read the host lists. */
   async allowPhonesAgain(): Promise<void> {
     await this.request("cmux.settings.mobile.allow_again", {});
+    await this.refreshHost();
+  }
+
+  /** Updates > Web UI: Check Now or Roll Back, then re-read the host lists; false when the host refused. */
+  async runWebUpdates(action: "check" | "rollback"): Promise<boolean> {
+    const reply = await this.request(`cmux.settings.web_updates.${action}` as const, {});
+    await this.refreshHost();
+    return reply.ok;
+  }
+
+  /** Settings > Menus: save `menu`'s arrangement (null resets it), then re-read the host lists.
+   * Throws the host's refusal (a managed key, an unreadable cmux.json). */
+  async setContextMenuLayout(menu: string, layout: MenuLayout | null): Promise<void> {
+    const reply = await this.request("cmux.settings.context_menus.set", { menu, layout });
+    await this.refreshHost();
+    if (!reply.ok) throw new TransportError(reply.error);
+  }
+
+  /** Settings > Menus: whether every right-click menu ends with Customize Menu…; throws a refusal. */
+  async setShowCustomizeMenuItem(show: boolean): Promise<void> {
+    const reply = await this.request("cmux.settings.context_menus.show_item", { show });
+    await this.refreshHost();
+    if (!reply.ok) throw new TransportError(reply.error);
+  }
+
+  /** Settings > Chief > Voice input: turn the message box's mic on or off, then re-read the host lists. */
+  async setVoiceInput(on: boolean): Promise<void> {
+    await this.request("cmux.settings.voice_input.set", { on });
     await this.refreshHost();
   }
 
@@ -478,6 +587,26 @@ export class SettingsStore {
   readonly chiefCalls = {
     call: <R>(op: string, params: unknown): Promise<R> => this.client.call<R>(op, params),
   };
+
+  /** Settings > Updates' channels, with the way back to `ring` (the Channel row's value); null
+   * when the host has no updater. */
+  async channelsState(ring?: string): Promise<ChannelsState | null> {
+    const reply = await this.request("cmux.settings.channels.state", ring ? { ring } : {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Settings > Updates' Go Back: the app restarts into the kept build; else the host's reason. */
+  async channelsGoBack(ring: string, build: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.channels.go_back", { ring, build });
+    return reply.ok ? null : reply.error.message;
+  }
+
+  /** The Update button of a machine in Settings > Updates' row of other machines; answers the
+   * host's refusal, else null (the row's push then shows it updating). */
+  async channelsUpdateMachine(id: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.channels.update_machine", { id });
+    return reply.ok ? null : reply.error.message;
+  }
 
   /** Settings > Agents' state; null when the host has no Agents part. */
   async agentsState(): Promise<AgentsState | null> {
@@ -501,16 +630,58 @@ export class SettingsStore {
     }
   }
 
+  /** Settings > Agents > Agent integrations; null when the host has none. */
+  async integrationsState(): Promise<IntegrationsState | null> {
+    const reply = await this.request("cmux.settings.integrations.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Agent integrations gesture, then the part as it is after it (null: the host has none). */
+  async runIntegrations(run: IntegrationsRun): Promise<IntegrationsState | null> {
+    await this.request("cmux.settings.integrations.run", run);
+    return this.integrationsState();
+  }
+
   /** One Harnesses gesture (Settings > Agents), then a fresh read of the part. */
   async runHarnesses(run: HarnessesRun): Promise<void> {
     await this.request("cmux.settings.harnesses.run", run);
     await this.fetchNative(settingsKeys.harnesses);
   }
 
+  /** Settings > Accounts > Cloud Environments: the host's state (null when the host has none). */
+  async environments(): Promise<CloudEnvironmentsState | null> {
+    const reply = await this.request("cmux.settings.environments.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Cloud Environments gesture, then the fresh state; the host's failure text, else null. */
+  async runEnvironments(
+    run: CloudEnvironmentsRun,
+  ): Promise<{ state: CloudEnvironmentsState | null; error: string | null }> {
+    const reply = await this.request("cmux.settings.environments.run", run);
+    const state = await this.environments();
+    if (!reply.ok) return { state, error: reply.error.message };
+    return { state, error: reply.value?.error ?? null };
+  }
+
+  /** One Devices gesture, then a fresh read of the part; answers the host's result (a refusal
+   * as its `error` text). Secrets in a relay draft pass through here and are never kept. */
+  async runDevices(run: DevicesRun): Promise<DevicesRunResult> {
+    const reply = await this.request("cmux.settings.devices.run", run);
+    await this.refreshDevices();
+    if (!reply.ok) return { error: reply.error.message, ok: false };
+    return reply.value ?? {};
+  }
+
   /** Runs one of the page's catalog actions (`target` is `kind:id`), then re-reads the lists. */
-  async runAction(action: SettingsPageAction, args: Record<string, unknown> = {}, target?: string): Promise<void> {
-    await this.request("cmux.app.action.run", target ? { action, args, target } : { action, args });
+  async runAction(
+    action: SettingsPageAction,
+    args: Record<string, unknown> = {},
+    target?: string,
+  ): Promise<Reply<unknown>> {
+    const reply = await this.request("cmux.app.action.run", target ? { action, args, target } : { action, args });
     await this.refreshHost();
+    return reply;
   }
 
   dispose(): void {
@@ -538,6 +709,7 @@ export class SettingsStore {
       host: this.queryClient.getQueryData<HostData>(settingsKeys.host),
       accounts: this.queryClient.getQueryData<AccountsData>(settingsKeys.accounts),
       harnesses: this.queryClient.getQueryData<HarnessesData>(settingsKeys.harnesses),
+      devices: this.queryClient.getQueryData<DevicesData>(settingsKeys.devices),
       themeColors: this.queryClient.getQueryData<ThemeColorsData>(settingsKeys.themeColors),
     };
   }
@@ -555,6 +727,7 @@ export class SettingsStore {
       last.cache.host === cache.host &&
       last.cache.accounts === cache.accounts &&
       last.cache.harnesses === cache.harnesses &&
+      last.cache.devices === cache.devices &&
       last.cache.themeColors === cache.themeColors
     )
       return last.state;

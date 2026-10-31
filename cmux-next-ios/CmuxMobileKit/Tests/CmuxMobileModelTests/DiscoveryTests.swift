@@ -132,6 +132,25 @@ import Testing
         #expect(offer?.mac.name == "On")
         #expect(store().teamWithMacsElsewhere() == nil)
     }
+
+    /// The account-wide look keeps each Mac's machine id (and says the caller owns
+    /// it), so two builds on one Mac stay one listed Mac after it, and an older
+    /// Worker's look (no machine id) keeps the one the team list had.
+    @Test func discoveryKeepsTheMachineID() {
+        let machine = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        let s = AppStore(teams: [Team(id: "b", name: "B", macs: [])], activeTeamID: "b", workspaces: [], feed: [], tabMemory: .inMemory())
+        s.mergeDiscoveredMacs([
+            DiscoveredMac(id: "m1", name: "Mini", isOnline: true, teamID: "b", ownerUserID: "me", machineID: machine),
+            DiscoveredMac(id: "m2", name: "Mini", isOnline: true, teamID: "b", ownerUserID: "me", machineID: machine),
+        ])
+        #expect(MacRoster(s.activeTeam?.macs ?? []).visible.map(\.id) == ["m1"])
+        s.mergeDiscoveredMacs([
+            DiscoveredMac(id: "m1", name: "Mini", isOnline: true, teamID: "b"),
+            DiscoveredMac(id: "m2", name: "Mini", isOnline: true, teamID: "b"),
+        ])
+        #expect(s.activeTeam?.macs.map(\.machineID) == [machine, machine])
+        #expect(MacRoster(s.activeTeam?.macs ?? []).visible.map(\.id) == ["m1"])
+    }
 }
 
 @MainActor @Suite struct SignOutResetTests {
@@ -147,10 +166,12 @@ import Testing
         let store = AppStore.mock(tabMemory: TabMemory(defaults: defaults))
         store.accountMacCount = 2
         store.macLinkStatus = ["m": "Connected"]
+        store.macLinkDiagnostics = ["m": "private diagnostic"]
         store.resetForSignOut(defaults: defaults)
 
         #expect(store.teams.isEmpty && store.activeTeamID.isEmpty && store.workspaces.isEmpty)
         #expect(store.accountMacCount == nil && store.macLinkStatus.isEmpty)
+        #expect(store.macLinkDiagnostics.isEmpty)
         #expect(store.teamDataState == .loading)
         for key in account { #expect(defaults.object(forKey: key) == nil, "\(key) survived sign-out") }
         for key in device { #expect(defaults.string(forKey: key) == "x", "\(key) was dropped") }

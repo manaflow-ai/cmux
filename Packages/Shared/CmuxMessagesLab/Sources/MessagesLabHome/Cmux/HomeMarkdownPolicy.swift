@@ -17,8 +17,13 @@ enum HomeMarkdownPolicy {
         set { done.withLock { $0 = newValue } }
     }
 
+    /// MessagesLab f79bdbe: springs.json is this package's resource (Bundle.main has none), as
+    /// MessagesLabLocalization.bundle; set before the first motion (install() here, the harness).
+    static func installSprings() { Springs.bundle = .module }
+
     /// Thread safe (the sidebar preview may run off the main thread).
     static func install() {
+        installSprings()  // every Home entry calls install() before its first view (ChatController.init too)
         // Set inside the lock: a second caller returns only once the policy is in place.
         done.withLock { was in
             guard !was else { return }
@@ -56,7 +61,7 @@ extension URL {
 
 /// cmux: every app link Home renders and a click hands to the host's `onAppLink` (the app's
 /// `link.open`), never to the system: a Chief subagent's link (``isChiefSubagentLink``), or
-/// `cmux://workspace/ws_<32 hex>`, `pane/pane_<32 hex>`, `tab/tab_<32 hex>`, `session/<id>`
+/// `cmux://workspace/ws_<32 hex>`, `pane/pane_<32 hex>`, `tab/tab_<32 hex>`, `settings/background`, `session/<id>`
 /// (optional `#turn-<id>`) in the `cmux` scheme or a build's `cmux-…` one, with no user, port or
 /// query other than the app's `machine=machine_…` hint. The app parses it again (DeepLink.parse).
 extension URL {
@@ -84,6 +89,8 @@ extension URL {
         case "workspace": return resource("ws_")
         case "pane": return resource("pane_")
         case "tab": return resource("tab_")
+        // Chief's first-launch welcome: its background offer opens the background picker.
+        case "settings": return id == "background" && c.fragment == nil
         case "session":
             guard token(id) else { return false }
             guard let fragment = c.fragment else { return true }

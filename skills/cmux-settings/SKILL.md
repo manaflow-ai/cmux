@@ -53,9 +53,30 @@ also returns `setting_user_only`.
    and `cmux settings list --keys` needs no app.
 2. Set it with `cmux settings set <key> <value>`. JSON literals must be valid
    JSON (`true`, `16`, `'"split"'`, `'["localhost"]'`).
-3. Read it back with `cmux settings get <key>`. `cmux settings validate [FILE]`
-   reports schema problems in the file without the app.
+3. Read it back with `cmux settings get <key>`, then run `cmux settings validate`:
+   it checks the file's schema values (and whether the file parses) without
+   the app, and exits non-zero with one line per refused value
+   (`<message>; expected <accepted>`). It does not check what only the app
+   reads: unknown action ids, unsupported chords and removed keys. Those show
+   in the app's toast and on the key's Settings row.
 4. Tell the user it applied live, and that `cmux settings reset <key>` reverts it.
+
+## When the app ignores a value
+
+A value the running build refuses (a wrong type, a choice it does not know, a
+form a newer build added, such as an `appearance.background` it cannot read)
+is never applied: the key keeps its default. The app says so instead of
+dropping it silently: a toast on the active window names the key, the value
+and why (`cmux-next.json: appearance.background = "folder:~/Pictures" was
+ignored: expected ...`), with Show in Settings, where the key's row carries the
+same warning. A file that does not parse names the parse error, offers Open
+File, and the last settings that loaded stay in effect. The toast comes once
+per bad value; fixing the value closes it. If you see one after your change,
+your value was refused: run `cmux settings validate` for a schema value (an
+action id, a chord or a removed key appears only in the toast and in
+Settings), then set an accepted value with `cmux settings set` or
+`cmux settings reset <key>`. Values a managed profile (MDM, team policy) sets
+are not announced; Settings shows them at their rows.
 
 For a viewer-specific question, read [the viewer matrix](../cmux-customization/references/viewer-types.md)
 first; do not invent keys the schema does not list.
@@ -69,7 +90,7 @@ first; do not invent keys the schema does not list.
 - Browser: `browser.defaultEngine`, `browser.hostsToOpenInEmbeddedBrowser` (user-only), `browser.links.*`, `browser.hibernation`.
 - Diff and files: `diff.layout` (`split | unified`), `diff.wordWrap`, `files.textEditor` (user-only).
 - Computer Use: `computerUse.enabled` (off by default), `computerUse.driver`; both user-only.
-- Shortcuts: `shortcuts.bindings.<actionId>` = `"cmd+b"`, `["ctrl+b","c"]`, `null`, or `""` to unbind. Action ids in [references/shortcut-actions.md](references/shortcut-actions.md).
+- Shortcuts: `shortcuts.bindings.<actionId>` = `"cmd+b"`, `["ctrl+b","c"]`, `{"any": ["ctrl+tab","cmd+]"]}` for several keys on one action, `null`, or `""` to unbind. Action ids in [references/shortcut-actions.md](references/shortcut-actions.md).
 
 ## The bundled helper is classic-only
 
@@ -84,7 +105,7 @@ against the cmux-next schema instead. Use it only for classic cmux, and pass
 
 ## Rules
 
-- Edit cmux-next settings through `cmux settings`; edit the file by hand only when the app is not running, and copy it to a timestamped `.bak` first.
+- Change settings with `cmux settings set` (it validates the value for the running build) and check with `cmux settings validate` (schema values only). Never write a schema key into cmux-next.json by hand: the app ignores a value it refuses. Hand-edit only what `settings set` cannot (custom `actions`), copy the file to a timestamped `.bak` first, run `cmux settings validate` after, and check that the app shows no "was ignored" toast: `validate` does not check action ids, chords or removed keys.
 - Never tell the user to restart cmux. The app reloads on save.
 - Never pass `--confirm` on your own initiative; it asks the person to approve a user-only change.
 - Shortcut action ids must match the schema enum. Look them up before binding.

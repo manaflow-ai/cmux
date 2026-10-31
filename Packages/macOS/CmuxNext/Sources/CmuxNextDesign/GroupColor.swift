@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxTheme
+public import CmuxNextDesignTokens
 
 /// The nine group colors, shared by tab groups and workspace groups so
 /// both render identically. The raw value is the stable token the daemon
@@ -38,6 +39,24 @@ public nonisolated enum GroupColor: String, CaseIterable, Codable, Hashable, Sen
             hash &*= 0x0000_0100_0000_01B3
         }
         return automaticOrder[Int(hash % UInt64(automaticOrder.count))]
+    }
+
+    /// The group color closest to an sRGB `0xRRGGBB` color by hue (another
+    /// browser's profile color, so an imported profile keeps its look);
+    /// grey for colors with almost no saturation.
+    public static func nearest(rgb: UInt32) -> GroupColor {
+        let color = NSColor(srgbRed: CGFloat((rgb >> 16) & 0xFF) / 255, green: CGFloat((rgb >> 8) & 0xFF) / 255,
+                            blue: CGFloat(rgb & 0xFF) / 255, alpha: 1)
+        guard color.saturationComponent >= 0.15, color.brightnessComponent >= 0.12 else { return .grey }
+        let hue = color.hueComponent * 360
+        return allCases.filter { $0.hueAndChroma.chroma > 0 }.min { lhs, rhs in
+            Self.hueDistance(lhs.hueAndChroma.hue, hue) < Self.hueDistance(rhs.hueAndChroma.hue, hue)
+        } ?? .grey
+    }
+
+    private static func hueDistance(_ lhs: CGFloat, _ rhs: CGFloat) -> CGFloat {
+        let distance = abs(lhs - rhs).truncatingRemainder(dividingBy: 360)
+        return min(distance, 360 - distance)
     }
 
     /// The color itself: swatches, group lines, sidebar rails.

@@ -63,6 +63,8 @@ pub enum MuxEvent {
         source: Arc<str>,
         session: Option<Arc<str>>,
         agent: Option<Arc<str>>,
+        /// The harness's own session id a hook reported.
+        agent_session_id: Option<Arc<str>>,
         updated_at_ms: u64,
         /// When the agent entered `state` (Unix ms).
         since_ms: u64,

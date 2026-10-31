@@ -60,6 +60,11 @@ export type Body = {
   readonly type: "steps"
   readonly steps: ReadonlyArray<Step>
 } | {
+  readonly type: "chief"
+  readonly chief: string
+  readonly conversation: ConversationId
+  readonly prompt: string
+} | {
   readonly type: "code"
   readonly ref: CodeRef
   readonly egress?: ReadonlyArray<EgressHost>
@@ -105,10 +110,73 @@ export type CloudConnectInfo = {
     readonly version: string | null
     readonly capabilities: ReadonlyArray<string>
   }
+  readonly vm_kind: "owner" | "team"
   readonly revision: Revision
 }
 
 export type CloudConnectServices = ReadonlyArray<"daemon" | "ssh">
+
+export type CloudEnvironment = {
+  readonly id: EnvironmentId
+  readonly name: string
+  readonly repo: string | null
+  readonly setup_script: string
+  readonly env: ReadonlyArray<CloudEnvironmentVariable>
+  readonly creator: UserId
+  readonly status: "unbuilt" | "building" | "ready" | "stale" | "failed"
+  readonly snapshot: SnapshotId | null
+  readonly last_build: CloudEnvironmentBuildRecord | null
+  readonly created_at: number
+  readonly revision: Revision
+}
+
+export type CloudEnvironmentBuildRecord = {
+  readonly state: "building" | "ready" | "failed"
+  readonly started_at: number
+  readonly finished_at: number | null
+  readonly error: {
+    readonly code: string
+    readonly message: string
+  } | null
+  readonly log_tail: string | null
+  readonly timings: {
+    readonly boot_ms: number
+    readonly ready_ms: number
+    readonly setup_ms: number
+    readonly snapshot_ms: number
+    readonly warm_ms: number
+    readonly total_ms: number
+  } | null
+}
+
+/** A plain variable (baked into the snapshot) or a secret (a vault item name; the value never enters the snapshot). */
+export type CloudEnvironmentVariable = {
+  readonly name: string
+  readonly value: string
+} | {
+  readonly name: string
+  readonly secret: string
+}
+
+export type CloudGroup = {
+  readonly id: GroupId
+  readonly name: string
+  readonly created_by: UserId
+  readonly created_at: number
+  readonly archived: boolean
+  readonly default_placement: "local" | "mini" | "cloud_vm"
+  readonly item_count: number
+  readonly role: "owner" | "edit" | "view"
+}
+
+export type CloudGroupItem = {
+  readonly workspace: GroupWorkspaceId
+  readonly title?: string
+  readonly placement: GroupPlacement
+  readonly position: number
+  readonly added_by: UserId
+  readonly added_at: number
+}
 
 export type CloudMachine = {
   readonly id: MachineId
@@ -262,6 +330,9 @@ export type EnrollmentTokenHash = string
 
 export type EnrollmentTokenId = string
 
+/** A Cloud environment. */
+export type EnvironmentId = string
+
 export type FeedAction = {
   readonly id: string
   readonly label: string
@@ -397,6 +468,17 @@ export type Grant = {
 
 /** A server-side grant; tokens carry only its id. */
 export type GrantId = string
+
+/** A cloud group, minted by TeamDO (grp_ + 20 lowercase hex). */
+export type GroupId = string
+
+export type GroupPlacement = {
+  readonly kind: "local" | "mini" | "cloud_vm"
+  readonly host?: string
+  readonly machine?: string
+}
+
+export type GroupWorkspaceId = string
 
 /** Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: "poster"}. */
 export type HomeAttachmentPoster = {
@@ -761,7 +843,7 @@ export type PolicyChange = {
 }
 
 /** A team policy key (spec/enterprise.md 4.2). */
-export type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "cloud.connectServices" | "cloud.idlePause" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
+export type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "github.allowWorkflows" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "cloud.connectServices" | "cloud.idlePause" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
 
 export type PolicyMode = "enforced" | "default"
 
@@ -1003,6 +1085,7 @@ export type TeamIntegrationPolicy = {
     readonly scope: "linking_user_repos" | "installation"
     readonly require_org_admin: boolean
     readonly repo_allowlist: ReadonlyArray<RepoPattern> | null
+    readonly allow_workflows?: boolean
   }
   readonly source: "default" | "admin" | "sso" | "mdm" | "team_policy"
   readonly locked: boolean
@@ -1037,6 +1120,10 @@ export type TeamPolicyValues = {
   }
   readonly "github.repoAllowList"?: {
     readonly value: "none" | ReadonlyArray<RepoPattern>
+    readonly mode: PolicyMode
+  }
+  readonly "github.allowWorkflows"?: {
+    readonly value: boolean
     readonly mode: PolicyMode
   }
   readonly "integrations.allowedProviders"?: {
@@ -1478,6 +1565,14 @@ export interface CloudOps {
     }
     readonly result: HomeChief
   }
+  /** Delete a chief (not the default; active or archived) for good: it stops waking, its tokens end, its sandboxes are deleted, and only a tombstone keeps its id; its conversation history stays read-only with its members. No restore. */
+  readonly "chief.delete": {
+    readonly params: {
+      readonly chief: ChiefId
+      readonly expected_rev: number | "Infinity" | "-Infinity" | "NaN"
+    }
+    readonly result: HomeChief
+  }
   /** The user's chiefs (active first, the default marked), archived ones on request, and tombstones. */
   readonly "chief.list": {
     readonly params: {
@@ -1514,7 +1609,58 @@ export interface CloudOps {
       readonly url: string
     }
   }
-  /** How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. */
+  /** Create a machine in the environment (the plan checks of cloud.machine.create). boot snapshot: it boots the environment's ready snapshot and runs nothing. boot cold (no build yet, or a stale one): it boots the deployment's image and starts the setup on the machine in the background (~/.cmux/environment-build.log; ~/.cmux/environment.json when it finished). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.environment.boot": {
+    readonly params: {
+      readonly environment: EnvironmentId
+      readonly name?: string
+      readonly size: CloudMachineSize
+    }
+    readonly result: {
+      readonly machine: CloudMachine
+      readonly boot: "snapshot" | "cold"
+    }
+  }
+  /** Build the environment's snapshot: a builder machine from the deployment's image clones the repo, runs the setup script, and is snapshotted and deleted. Answers at once with status building (built: true); the build takes minutes, and cloud.environment.list shows ready or failed with the log tail. A snapshot that still matches answers built: false and changes nothing. The new snapshot counts against max_saved (cloud.quota.exceeded {resource: saved}); it replaces the previous one when it is ready. One build per environment at a time (cloud.environment.busy). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.environment.build": {
+    readonly params: {
+      readonly environment: EnvironmentId
+    }
+    readonly result: {
+      readonly environment: CloudEnvironment
+      readonly built: boolean
+    }
+  }
+  /** Delete an environment and its snapshot (cloud.snapshot.removed follows). Machines booted from it keep running. A build still running answers cloud.environment.busy. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.environment.delete": {
+    readonly params: {
+      readonly environment: EnvironmentId
+    }
+    readonly result: {
+      readonly deleted: true
+    }
+  }
+  /** The team's Cloud environments, oldest first, with each one's build status. */
+  readonly "cloud.environment.list": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly environments: ReadonlyArray<CloudEnvironment>
+    }
+  }
+  /** Create an environment (name required) or edit one. The inputs are checked as a whole: cloud.environment.invalid {field, message} (a GitHub repo as owner/name[@ref] or a github.com URL without credentials, a setup script up to 64 KB, at most 100 variables with names the machine does not own). An edit to the repo, the script or the variables makes a built snapshot stale; a rename does not. At most 20 environments per team (cloud.quota.exceeded {limit, used, resource: environments}). Agent principals are refused; the client asks a person first. */
+  readonly "cloud.environment.set": {
+    readonly params: {
+      readonly environment?: EnvironmentId
+      readonly name?: string
+      readonly repo?: string | null
+      readonly setup_script?: string
+      readonly env?: ReadonlyArray<CloudEnvironmentVariable>
+    }
+    readonly result: {
+      readonly environment: CloudEnvironment
+    }
+  }
+  /** How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner only for its creator on the creator's personal team; every shared-team machine is team). */
   readonly "cloud.machine.connect_info": {
     readonly params: {
       readonly machine?: MachineId
@@ -1560,7 +1706,7 @@ export interface CloudOps {
       readonly machine: CloudMachine
     }
   }
-  /** Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app. */
+  /** Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. The token carries the caller's vm_kind (claim vmk, the same value as the result's vm_kind), so the owner answer is bound to this dial and ends with the token. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app. */
   readonly "cloud.machine.link_token": {
     readonly params: {
       readonly host: HostId
@@ -1572,6 +1718,7 @@ export interface CloudOps {
       readonly host: HostId
       readonly epoch: number
       readonly services: ReadonlyArray<"daemon" | "ssh">
+      readonly vm_kind: "owner" | "team"
     }
   }
   /** List the team's Cloud machines one page at a time; no cursor = the first page. `revision` is the team's registry revision when the page was read. */
@@ -2265,6 +2412,64 @@ export interface CloudOps {
     }
     readonly result: HomeConversationCommit
   }
+  /** Put a workspace in a cloud group and record where it runs (placement: local, mini or cloud_vm). A workspace is in at most one cloud group; adding it again updates its placement and title. The group's owner only. */
+  readonly "group.add_workspace": {
+    readonly params: {
+      readonly group: GroupId
+      readonly workspace: GroupWorkspaceId
+      readonly placement: GroupPlacement
+      readonly title?: string
+    }
+    readonly result: CloudGroupItem
+  }
+  /** Archive a cloud group (its owner only). The id stays; links to it still open, read-only. */
+  readonly "group.archive": {
+    readonly params: {
+      readonly group: GroupId
+    }
+    readonly result: CloudGroup
+  }
+  /** Make a cloud group: a sidebar group whose record lives in cmux Cloud, so its link (cmux://group/<id>) opens on every Mac, iPhone and Chief, also while your Mac sleeps. The server picks the id; read it back with group.get or group.list before you link it. */
+  readonly "group.create": {
+    readonly params: {
+      readonly name: string
+      readonly default_placement?: "local" | "mini" | "cloud_vm"
+    }
+    readonly result: CloudGroup
+  }
+  /** One cloud group with its workspaces (each with its placement) and its links. Link a group only by an id read back here or from group.list. */
+  readonly "group.get": {
+    readonly params: {
+      readonly group: GroupId
+    }
+    readonly result: {
+      readonly group: CloudGroup
+      readonly items: ReadonlyArray<CloudGroupItem>
+      readonly link: string
+      readonly web_link: string
+    }
+  }
+  /** The cloud groups you are a member of, in id order. Archived groups only with include_archived. */
+  readonly "group.list": {
+    readonly params: {
+      readonly cursor?: string
+      readonly limit?: number
+      readonly include_archived?: boolean
+    }
+    readonly result: {
+      readonly team: string
+      readonly groups: ReadonlyArray<CloudGroup>
+      readonly next_cursor: string | null
+    }
+  }
+  /** Rename a cloud group (its owner only). */
+  readonly "group.rename": {
+    readonly params: {
+      readonly group: GroupId
+      readonly name: string
+    }
+    readonly result: CloudGroup
+  }
   /** Your message requests: open invites to your verified email from people you are not connected to, newest first (at most 20). trusted marks a sender with your company email domain. */
   readonly "home.requests.list": {
     readonly params: Readonly<Record<string, never>>
@@ -2531,6 +2736,7 @@ export interface CloudOps {
         readonly scope?: "linking_user_repos" | "installation"
         readonly require_org_admin?: boolean
         readonly repo_allowlist?: ReadonlyArray<RepoPattern> | null
+        readonly allow_workflows?: boolean
       }
     }
     readonly result: TeamIntegrationPolicy
@@ -3574,9 +3780,15 @@ export const cloudOpMeta = {
   "calendar.events.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "chief.archive": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
   "chief.create": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "chief.delete": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
   "chief.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "chief.update": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "cloud.billing.checkout": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.environment.boot": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.environment.build": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.environment.delete": { class: "mutation", owner: "cloud:CloudDO", risk: "destructive" },
+  "cloud.environment.list": { class: "read", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.environment.set": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-shared" },
   "cloud.machine.connect_info": { class: "read", owner: "cloud:CloudDO", risk: "read" },
   "cloud.machine.create": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
   "cloud.machine.delete": { class: "mutation", owner: "cloud:CloudDO", risk: "destructive" },
@@ -3635,6 +3847,12 @@ export const cloudOpMeta = {
   "github.issue.comment": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
   "grant.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "grant.revoke": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "group.add_workspace": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "group.archive": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "group.create": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "group.get": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "group.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "group.rename": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
   "home.requests.list": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
   "home.search": { class: "read", owner: "cloud:planetscale", risk: "read" },
   "home.settings.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },

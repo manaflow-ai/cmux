@@ -1,8 +1,8 @@
 public import Foundation
 
-/// One acpmux session in the lanes view (cx-v9k2f): every agent chat on this Mac and on the
-/// acpmux peers it mirrors, with the lane acpmux decided for it (the summary's `lane`). The app
-/// only reads it; acpmux owns the decision.
+/// One acpmux session's lane (cx-v9k2f): an agent chat on this Mac or on an acpmux peer it
+/// mirrors, with the state acpmux decided for it (the summary's `lane`). The Priority view, the
+/// Chief item and the session tree read it; acpmux owns the decision.
 public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     /// What the session is doing, as acpmux decided it.
     public enum State: String, Sendable {
@@ -43,9 +43,34 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let unread: Bool
     /// The session folder's name (the last part of `cwd`), the Priority view's project tag.
     public let project: String?
+    /// The session whose agent started this one (acpmux `spawnedBy`, one level): the sidebar's
+    /// session tree lists its workspace under that session's.
+    public let spawnedBy: String?
+    /// The session's folder: the sidebar's session tree reads its branch's pull request there.
+    public let cwd: String?
+    /// The pull requests its `gh pr create` calls opened (acpmux `pullRequests`, their URLs): the
+    /// sidebar's session tree counts them beside its folder's branch's.
+    public let pullRequests: [String]
+    /// The acpmux chat index key (`harness:sessionId`) of the chat the session continues: its
+    /// family's index harness and the agent's own session id. Nil for a family the index has none
+    /// of, or before the agent named its session. The session tree's chat history leaves it out.
+    public let chat: String?
+    /// When the session last changed (its last output), when the summary carries it: the Chief
+    /// view gallery's "time since last output".
+    public let updatedAt: Date?
+    /// When the session started, when the summary carries it.
+    public let createdAt: Date?
+    /// What a read or snooze mark on the lane holds for beside its state, when `since` cannot say
+    /// it: another machine's chat tab's notice (``AgentPriorityMarks``). Nil: its `since`.
+    public let markKey: String?
+    /// The usage rules the session breaks, one line each (acpmux `usageWarnings[].text`: no
+    /// autocompact cap, a context or a subagent rate above its limit). Empty when it breaks none.
+    public let usageWarnings: [String]
 
     public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
-                workspaceID: String? = nil, harness: String? = nil, step: String? = nil, unread: Bool = false, project: String? = nil) {
+                workspaceID: String? = nil, harness: String? = nil, step: String? = nil, unread: Bool = false, project: String? = nil,
+                spawnedBy: String? = nil, cwd: String? = nil, pullRequests: [String] = [], chat: String? = nil,
+                updatedAt: Date? = nil, createdAt: Date? = nil, markKey: String? = nil, usageWarnings: [String] = []) {
         self.id = id
         self.name = name
         self.title = title
@@ -59,6 +84,14 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         self.step = step
         self.unread = unread
         self.project = project
+        self.spawnedBy = spawnedBy
+        self.cwd = cwd
+        self.pullRequests = pullRequests
+        self.chat = chat
+        self.updatedAt = updatedAt
+        self.createdAt = createdAt
+        self.markKey = markKey
+        self.usageWarnings = usageWarnings
     }
 
     /// A person should look: it waits on them, failed or was lost.
@@ -66,8 +99,6 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
 
     /// The `mux.parent` tag acpmux sessions started by a coordinator carry.
     public static let parentTag = "mux.parent"
-    /// "Lanes", the view's name (the sidebar item's title too).
-    public static var lanesTitle: String { AgentActivityStrings.lanes }
 
     /// The lane of one `_acpmux/watch` / `session_changed` summary; nil when acpmux decided none
     /// (a closed session, or an acpmux from before `lane`). `id` names the session when the
@@ -88,6 +119,30 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         let project = (summary["cwd"] as? String).map { URL(fileURLWithPath: $0).lastPathComponent }.flatMap { $0.isEmpty || $0 == "/" ? nil : $0 }
         return AgentActivityLane(id: id, name: name, title: title ?? name, peer: summary["peer"] as? String, parent: parent,
                                  state: state, since: since, error: error, workspaceID: workspaceID,
-                                 harness: harness, step: step, unread: unread, project: project)
+                                 harness: harness, step: step, unread: unread, project: project,
+                                 spawnedBy: nonEmpty(summary["spawnedBy"]), cwd: nonEmpty(summary["cwd"]),
+                                 pullRequests: (summary["pullRequests"] as? [Any] ?? []).compactMap { nonEmpty($0) },
+                                 chat: chatKey(family: nonEmpty(summary["family"]), agentSession: nonEmpty(summary["agentSessionId"])),
+                                 updatedAt: date(summary["updatedMs"] ?? summary["updatedAt"]),
+                                 createdAt: date(summary["createdMs"] ?? summary["createdAt"]),
+                                 usageWarnings: (summary["usageWarnings"] as? [[String: Any]] ?? []).compactMap { nonEmpty($0["text"]) })
     }
+
+    /// A summary's epoch-milliseconds field as a date; nil when absent or not a number.
+    private static func date(_ value: Any?) -> Date? {
+        guard let value = value as? NSNumber, value.doubleValue > 0 else { return nil }
+        return Date(timeIntervalSince1970: value.doubleValue / 1000)
+    }
+
+    /// acpmux's `session_chat_key`: only the claude and codex families are indexed.
+    static func chatKey(family: String?, agentSession: String?) -> String? {
+        guard let agentSession else { return nil }
+        return switch family {
+        case "claude": "claude-code:" + agentSession
+        case "codex": "codex:" + agentSession
+        default: nil
+        }
+    }
+
+    private static func nonEmpty(_ value: Any?) -> String? { (value as? String).flatMap { $0.isEmpty ? nil : $0 } }
 }

@@ -22,6 +22,11 @@ nonisolated public enum UpdateCard: Equatable, Sendable {
     case installing
     /// The result of a check the user asked for.
     case note(UpdateNote)
+    /// Restart to Update found a build newer than the staged one, or the staged or running build
+    /// was pulled off the feed: the newest build downloads in its place (`transfer` once its
+    /// download runs), with no click (Leo 2026-10-29: "if there's multiple nightlies, i should
+    /// only need to do one to get the latest"). `pulled`: the running build was pulled (one line says so).
+    case gettingNewest(UpdateTransfer?, pulled: Bool)
 }
 
 /// What a notice card's button does. The raw value is the card action id.

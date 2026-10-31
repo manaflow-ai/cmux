@@ -90,3 +90,45 @@ test("the chip names the pull request's state and checks, and opens a list of ea
     await act(async () => root.unmount());
   }
 });
+
+test("a failing check the base branch's tip fails too says so on its own row", async () => {
+  // Base reds do not hold a pull request (CLAUDE.md's merge rules), so the row that is already red
+  // on the base is marked rather than left to look like work: its dot drops from danger to warning
+  // and it reads "also red on base". The host decides which ones those are
+  // (AgentPanePullRequest `failingOnBase`, newest run per workflow only, so a cancelled run that a
+  // newer one replaced can never excuse a red); the page only draws the answer.
+  const host = dom.window.document.getElementById("root")!;
+  const root = createRoot(host);
+  await act(async () =>
+    root.render(<ChatHeaderTools onTerminal={() => {}} onBrowser={() => {}} summary={null} menu={() => []} />),
+  );
+  const pullRequest = {
+    url: "https://github.com/o/r/pull/7",
+    number: 7,
+    title: "Stage single hunks",
+    state: "open",
+    review: "",
+    mergeable: "mergeable",
+    checks: { state: "failing", passed: 1, total: 3, failingOnBase: 1 },
+    checkList: [
+      { name: "build", state: "failed", onBase: true },
+      { name: "test", state: "failed" },
+      { name: "ci/lint", state: "passed" },
+    ],
+  };
+  await act(async () => applyHostEvent({ kind: "headerState", value: { version: 7, pullRequest } }));
+  try {
+    const chip = host.querySelector<HTMLButtonElement>("button.acpmux-header-pr");
+    await act(async () => chip!.click());
+    await settle();
+    const popover = dom.window.document.querySelector(".acpmux-pr-status");
+    const rows = [...(popover?.querySelectorAll<HTMLElement>(".acpmux-pr-check") ?? [])];
+    expect(rows.map((row) => [row.dataset.state, row.dataset.onBase, row.textContent])).toEqual([
+      ["failed", "", "buildalso red on base"],
+      ["failed", undefined, "test"],
+      ["passed", undefined, "ci/lint"],
+    ]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

@@ -35,8 +35,8 @@ struct WorkspaceNotesUpdate: Equatable {
     /// The daemon capabilities the fields it changes need.
     var capabilities: [String] {
         var needed: [String] = []
-        if description != .unchanged { needed.append(DaemonCapabilities.shared.workspaceDescription) }
-        if taskStatus != .unchanged { needed.append(DaemonCapabilities.shared.workspaceStatus) }
+        if description != .unchanged { needed.append(DaemonCapability.workspaceDescription.rawValue) }
+        if taskStatus != .unchanged { needed.append(DaemonCapability.workspaceStatus.rawValue) }
         return needed
     }
 }

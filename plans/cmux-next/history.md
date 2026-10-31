@@ -260,6 +260,31 @@ Rules:
 5. With `surface` scope and a browser page focused, the actions run the page's back/forward; the
    page's own entry menu (4.1) is the list.
 
+### 4.2c What the right-click list shows (Leo 2026-10-18)
+
+"being able to right click the forward and back buttons for history would be good ... clicking
+between chats/workspaces as history is part of the situation ... there may be situations where
+we want splits of history between browsers and agent sessions."
+
+The R69 list (4.2a rule 4) showed only what Back walks, and a right-click with nothing in scope
+did nothing. With the default workspace steps (`navigation.history.scope` `workspaces`) Back already walks
+the whole window (`LocationTrailService.scope` is `.window`), so by default the list now always
+opens and ends with Show All History; the Other Workspaces section adds rows only when steps are
+finer and the scope is `workspace`. Back's walk is unchanged; only the list grows. Debug Settings `history.menuLayout`
+(DEV and NIGHTLY; Release uses the default):
+
+| Value | List |
+| --- | --- |
+| `scopeThenWindow` (default) | what Back walks, then an Other Workspaces section with this window's other places |
+| `scope` | the R69 list as it was (nothing in scope: no menu) |
+| `byKind` | this window's places split under Browser, Chats and Pages, Terminals |
+
+Rules: nearest first; the added sections hold each place (tab on its machine) once, at its nearest
+entry, at most 12 rows (`LocationTrail.menuSectionLimit`); every row runs `history.goTo {index}`;
+the two new layouts end with Show All History (`history.show`) and always open. With the `surface`
+scope the page's own entry menu (4.1) is the list. Agent chats are `content: other` locations, so
+they share Chats and Pages with cmux pages until the trail records a chat kind.
+
 ### 4.3 Existing actions mapped
 
 | Old | New |

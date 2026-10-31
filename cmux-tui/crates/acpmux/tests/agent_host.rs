@@ -4,8 +4,12 @@
 //! it logged without losing or repeating one.
 #![cfg(unix)]
 
+#[path = "agent_host/carried_hold.rs"]
+mod carried_hold;
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+#[path = "agent_host/orphan_exit.rs"]
+mod orphan_exit;
 // This process runs stand-in agents (the fake agents under tests/).
 const HERMETIC: daemon_env::Process =
     daemon_env::Process::stand_in().with_env(&[("LC_API_TOKEN", "synthetic-locale-shaped-secret")]);
@@ -48,6 +52,9 @@ fn spec(dir: &Path, session: &str) -> SpawnSpec {
         hosts_dir: hosts,
         buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
         router_owner_fifo: None,
+        cwd_pin: None,
+        cpu_class: Default::default(),
+        orphan_exit: None,
     }
 }
 
@@ -272,7 +279,7 @@ async fn an_incompatible_controller_is_refused_and_the_agent_keeps_running() {
     .unwrap();
     let reply: HostFrame = agent_host::read_frame(&mut rd).await.unwrap().unwrap();
     assert!(
-        matches!(reply, HostFrame::Incompatible { min: 1, max: 1, .. }),
+        matches!(reply, HostFrame::Incompatible { min: 1, max: agent_host::PROTOCOL_MAX, .. }),
         "expected Incompatible, got {reply:?}"
     );
     assert_eq!(
@@ -420,6 +427,58 @@ async fn a_failed_start_leaves_no_live_file() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[tokio::test]
+async fn a_start_waits_for_a_harness_binary_an_update_is_replacing() {
+    // `npm install --global` removes the package and its bin link and writes
+    // them again; a chat started in between failed with "spawn harness
+    // process: No such file or directory (os error 2)".
+    let dir = scratch("replaced");
+    let bin = dir.join("lib").join("bin");
+    let program = bin.join("agent");
+    let mut launch = spec(&dir, "s-replaced");
+    launch.program = program.to_string_lossy().into_owned();
+    launch.args.clear();
+    let host = launcher();
+    let mut start = std::pin::pin!(agent_host::program_wait::spawn_within(
+        &host,
+        &launch,
+        Duration::from_secs(20)
+    ));
+    // The start waits while the program is missing.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(300), &mut start).await.is_err(),
+        "the start did not wait for the missing program"
+    );
+    // The update writes the package, then links the program into place.
+    std::fs::create_dir_all(&bin).unwrap();
+    let staged = dir.join("agent.staged");
+    write_executable(&staged, &format!("#!/bin/sh\nexec python3 {}\n", daemon_env::sh_quote(FAKE)));
+    std::fs::rename(&staged, &program).unwrap();
+    let record = start.await.expect("the start waited for the program");
+    let lock = live_lock(&dir, &record);
+    let (owner, _) = connected(&record, 0).await;
+    let mut logged = 0;
+    request(&owner, 1, "initialize", json!({"protocolVersion": 1})).await;
+    read_until(&owner, &mut logged, |e| is_response(e, 1)).await;
+    owner.terminate(Duration::from_millis(500)).await.unwrap();
+    read_until(&owner, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn a_harness_binary_that_never_comes_back_names_its_path() {
+    let dir = scratch("gone");
+    let mut launch = spec(&dir, "s-gone");
+    launch.program = dir.join("missing").join("agent").to_string_lossy().into_owned();
+    let error =
+        agent_host::program_wait::spawn_within(&launcher(), &launch, Duration::from_millis(200))
+            .await
+            .expect_err("a missing harness started");
+    assert!(error.to_string().contains(&launch.program), "{error:#}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn discovery_rejects_linked_records_and_socket_paths_outside_the_host_namespace() {
     use std::os::unix::fs::PermissionsExt;
@@ -469,5 +528,442 @@ fn discovery_rejects_linked_records_and_socket_paths_outside_the_host_namespace(
     assert_eq!(bad.len(), 2, "each refused record is reported: {bad:#?}");
     assert!(outside_socket.exists(), "discovery removed a path outside the hosts directory");
     assert_eq!(std::fs::symlink_metadata(&hosts).unwrap().permissions().mode() & 0o777, 0o700);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A harness that reads nothing for 3 s, then everything (`a_fenced_line_*`).
+fn slow_reader(dir: &Path, session: &str) -> SpawnSpec {
+    let slow = dir.join("agent");
+    write_executable(&slow, "#!/bin/sh\nsleep 3\nexec cat >/dev/null\n");
+    let mut launch = spec(dir, session);
+    launch.program = slow.to_string_lossy().into_owned();
+    launch.args.clear();
+    launch
+}
+
+fn big_line() -> Value {
+    json!({"jsonrpc": "2.0", "method": "note", "params": {"text": "x".repeat(1 << 20)}})
+}
+
+/// A harness that never reads its stdin.
+fn never_reader(dir: &Path, session: &str) -> SpawnSpec {
+    let idle = dir.join("agent");
+    write_executable(&idle, "#!/bin/sh\nexec sleep 60\n");
+    let mut launch = spec(dir, session);
+    launch.program = idle.to_string_lossy().into_owned();
+    launch.args.clear();
+    launch
+}
+
+/// An agent on `record`'s host, whose log takes every entry (`logs`) or none.
+async fn hosted_agent(
+    record: &HostRecord,
+    logs: bool,
+) -> std::sync::Arc<acpmux::agent::ChildAgent> {
+    let (inbound, _) = tokio::sync::mpsc::channel(64);
+    let tap: acpmux::agent::Tap = std::sync::Arc::new(move |_, _, _| logs);
+    let attached = acpmux::agent::ChildAgent::attach_hosted(
+        "fake",
+        record.clone(),
+        0,
+        Vec::new(),
+        inbound,
+        tap,
+    )
+    .await
+    .unwrap();
+    let acpmux::agent::Attached::Ready(agent, ..) = attached else {
+        panic!("the host refused its controller")
+    };
+    agent
+}
+
+/// Review 87 of #23322: a fenced request whose connection another controller took is answered
+/// here with this side's own "agent process closed", which proves nothing about its line: it
+/// stays unsettled, also past any fixed wait, until its host's death is proven.
+#[tokio::test]
+async fn a_fenced_request_cut_off_by_a_new_controller_settles_only_with_its_host() {
+    let dir = scratch("fenced-taken");
+    let record = link::spawn(&launcher(), &never_reader(&dir, "s-fenced-taken")).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    let agent = hosted_agent(&record, true).await;
+    let fence = acpmux::agent::Fence::default();
+    let request = {
+        let (agent, fence) = (agent.clone(), fence.clone());
+        tokio::spawn(async move {
+            let params = json!({"text": "x".repeat(1 << 20)});
+            agent.request_with_hook("note", params, Some(&fence), || {}).await
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let (_second, _) = connected(&record, 0).await;
+    let answered = tokio::time::timeout(Duration::from_secs(10), request).await;
+    assert!(answered.expect("the request ends").unwrap().is_err());
+    assert!(!fence.is_settled(), "a line its host still has counted written");
+    tokio::time::sleep(Duration::from_secs(7)).await;
+    assert!(!fence.is_settled(), "a line its living host still has settled");
+    // SAFETY: the host this test spawned; its live lock is held, so the pid is its own.
+    unsafe { libc::kill(record.host_pid as i32, libc::SIGKILL) };
+    wait_dead(lock).await;
+    tokio::time::timeout(Duration::from_secs(10), fence.settled())
+        .await
+        .expect("the line settles once its host is gone");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review 85 of #23322: a host killed while it still writes a fenced answer (no `Exit`, no
+/// receipt) settles that answer once its death is proven, so nothing waits on it forever; also
+/// when its controller stopped reading because an entry could not be logged (review 87).
+#[tokio::test]
+async fn a_fenced_answer_settles_once_its_host_is_killed() {
+    let dir = scratch("fenced-killed");
+    let record = link::spawn(&launcher(), &never_reader(&dir, "s-fenced-killed")).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    let agent = hosted_agent(&record, false).await;
+    let fence = acpmux::agent::Fence::default();
+    let answer = Ok(json!({"text": "x".repeat(1 << 20)}));
+    agent.respond_fenced(json!(1), answer, Some(&fence)).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // SAFETY: the host this test spawned; its live lock is held, so the pid is its own.
+    unsafe { libc::kill(record.host_pid as i32, libc::SIGKILL) };
+    wait_dead(lock).await;
+    tokio::time::timeout(Duration::from_secs(15), fence.settled())
+        .await
+        .expect("a fenced answer its killed host never wrote settles");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review 87 of #23322, rounds 4 and 5: no answer to a fenced request on a host that gives no
+/// receipt proves its line was written: an error a translator makes up once its harness's
+/// output ended (the Codex bridge), nor a result it makes up for a prompt it gave up on
+/// (Claude's `cancelled`). The line stays unsettled while its host lives.
+#[tokio::test]
+async fn an_answer_does_not_settle_a_request_its_host_still_writes() {
+    let dir = scratch("fenced-answered");
+    let error = json!({"jsonrpc": "2.0", "id": 1,
+        "error": {"code": -32603, "message": "codex app-server stopped: it exited"}});
+    let result = json!({"jsonrpc": "2.0", "id": 2, "result": {"stopReason": "cancelled"}});
+    let harness = dir.join("agent");
+    let script = format!("#!/bin/sh\nsleep 1\necho '{error}'\necho '{result}'\nexec sleep 60\n");
+    write_executable(&harness, &script);
+    let mut launch = spec(&dir, "s-fenced-answered");
+    launch.program = harness.to_string_lossy().into_owned();
+    launch.args.clear();
+    let record = link::spawn(&launcher(), &launch).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    // Before host protocol 2 every host gives no receipt.
+    let agent = hosted_agent(&record, true).await;
+    let (first, second) = (acpmux::agent::Fence::default(), acpmux::agent::Fence::default());
+    // The first, 1 MiB, fills the harness's stdin, which it never reads; the second waits behind.
+    let big = json!({"text": "x".repeat(1 << 20)});
+    let one = agent.request_with_hook("note", big, Some(&first), || {});
+    let two = async {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        agent.request_with_hook("note", json!({}), Some(&second), || {}).await
+    };
+    let answered =
+        tokio::time::timeout(Duration::from_secs(10), async { tokio::join!(one, two) }).await;
+    let settled = (first.is_settled(), second.is_settled());
+    // SAFETY: the host this test spawned; its live lock is held, so the pid is its own.
+    unsafe { libc::kill(record.host_pid as i32, libc::SIGKILL) };
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
+    let (one, two) = answered.expect("both made-up answers come");
+    assert!(one.is_err() && two.is_ok(), "{one:?} {two:?}");
+    assert_eq!(
+        settled,
+        (false, false),
+        "an answer counted a line its host still writes as written"
+    );
+}
+
+/// Review 87 of #23322, round 3: a harness that exits while a descendant keeps its stdin leaves
+/// its host still writing a fenced line. The harness's `Exit` proves nothing of that line, which
+/// stays unsettled while its host lives, also when that `Exit` is never acknowledged.
+#[tokio::test]
+async fn a_harness_exit_does_not_settle_a_line_its_host_still_writes() {
+    let dir = scratch("fenced-kept");
+    let pid_file = dir.join("kept.pid");
+    let hold = format!(
+        "import os, time; os.setsid(); open('{}', 'w').write(str(os.getpid())); time.sleep(30)",
+        pid_file.display()
+    );
+    let kept = dir.join("agent");
+    // The harness exits only once its descendant left its group, so the host's end of the
+    // harness's group does not take it.
+    let script = format!(
+        "#!/bin/sh\nexec 3<&0\npython3 -c \"{hold}\" <&3 3<&- >/dev/null 2>&1 &\nuntil [ -s '{}' ]; do sleep 0.05; done\nexit 0\n",
+        pid_file.display()
+    );
+    write_executable(&kept, &script);
+    let mut launch = spec(&dir, "s-fenced-kept");
+    launch.program = kept.to_string_lossy().into_owned();
+    launch.args.clear();
+    let record = link::spawn(&launcher(), &launch).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    let agent = hosted_agent(&record, false).await;
+    let fence = acpmux::agent::Fence::default();
+    let answer = Ok(json!({"text": "x".repeat(1 << 20)}));
+    agent.respond_fenced(json!(1), answer, Some(&fence)).await.unwrap();
+    // Its harness exited and its host said so; its host still writes the line.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let settled = fence.is_settled();
+    // SAFETY: the host this test spawned; its live lock is held, so the pid is its own.
+    unsafe { libc::kill(record.host_pid as i32, libc::SIGKILL) };
+    if let Some(pid) = std::fs::read_to_string(&pid_file).ok().and_then(|p| p.parse().ok()) {
+        // SAFETY: the descendant this test started, which sleeps holding its pid.
+        unsafe { libc::kill(pid, libc::SIGKILL) };
+    }
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(!settled, "a harness's exit settled a line its host was still writing");
+}
+
+/// Review 85 of #23322: a fenced line to a protocol-1 host (an answer, which gets no answer of
+/// its own) has no receipt. A cut that finds it unproven fails closed: it ends that host by its
+/// start nonce, and the line can not reach the harness after it.
+#[tokio::test]
+async fn a_cut_of_an_unproven_line_to_a_protocol_1_host_ends_that_host() {
+    let dir = scratch("cut-v1");
+    let record = link::spawn(&launcher(), &slow_reader(&dir, "s-cut-v1")).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    let owner = match link::connect_with_max(record.clone(), 0, 1).await.unwrap() {
+        Connect::Ready(link, _) => link,
+        Connect::Incompatible { .. } => panic!("a protocol-1 controller was refused"),
+    };
+    let fence = acpmux::agent::Fence::default();
+    let answer = json!({"jsonrpc": "2.0", "id": 1, "result": {"text": "x".repeat(1 << 20)}});
+    owner.line_fenced(answer, Some(fence.clone())).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!fence.is_settled(), "a protocol-1 host's line counted written with no receipt");
+    let hosts = dir.join("hosts");
+    // The writer `cut_or_end` names for a hosted line: its host, ended by its start nonce.
+    let ended = agent_host::terminate_unadoptable(
+        &hosts,
+        &record.session_id,
+        Some(&record.start_nonce),
+        Some(record.host_pid),
+    )
+    .unwrap();
+    assert!(ended, "the host was not ended");
+    link::settle_receipts_of(&record.incarnation);
+    assert!(fence.is_settled(), "the line still waits after its host ended");
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review 81 of #23322: a fenced line (a family message or answer an MDM off push waits for)
+/// settles once the host wrote it to its harness, not once its frame is in the host's socket:
+/// a harness that reads nothing yet holds it.
+#[tokio::test]
+async fn a_fenced_line_settles_once_the_harness_has_it() {
+    let dir = scratch("fenced");
+    let slow = dir.join("agent");
+    // Reads nothing for 3 s: the host's write of a line larger than the pipe waits that long.
+    write_executable(&slow, "#!/bin/sh\nsleep 3\nexec cat >/dev/null\n");
+    let mut launch = spec(&dir, "s-fenced");
+    launch.program = slow.to_string_lossy().into_owned();
+    launch.args.clear();
+    let record = link::spawn(&launcher(), &launch).await.expect("spawn host");
+    let lock = live_lock(&dir, &record);
+    let (owner, _) = connected(&record, 0).await;
+    let fence = acpmux::agent::Fence::default();
+    let msg = json!({"jsonrpc": "2.0", "method": "note", "params": {"text": "x".repeat(1 << 20)}});
+    owner.line_fenced(msg, Some(fence.clone())).await.unwrap();
+    let settled = fence.settled();
+    tokio::pin!(settled);
+    assert!(
+        tokio::time::timeout(Duration::from_secs(1), &mut settled).await.is_err(),
+        "a fenced line settled before its harness read it"
+    );
+    tokio::time::timeout(Duration::from_secs(20), settled)
+        .await
+        .expect("the line settles once its harness reads it");
+    let mut logged = 0;
+    owner.terminate(Duration::from_millis(500)).await.unwrap();
+    read_until(&owner, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review 82 of #23322: a fenced line the host has but its harness has not read yet stays
+/// unsettled when its controller's connection is replaced (`ChildAgent::reattach`), and
+/// settles once the harness reads it, through the new connection.
+#[tokio::test]
+async fn a_fenced_line_keeps_its_receipt_across_a_new_connection() {
+    let dir = scratch("refenced");
+    let slow = dir.join("agent");
+    // Reads nothing for 3 s: the host's write of a line larger than the pipe waits that long.
+    write_executable(&slow, "#!/bin/sh\nsleep 3\nexec cat >/dev/null\n");
+    let mut launch = spec(&dir, "s-refenced");
+    launch.program = slow.to_string_lossy().into_owned();
+    launch.args.clear();
+    let record = link::spawn(&launcher(), &launch).await.expect("spawn host");
+    let lock = live_lock(&dir, &record);
+    let (first, _) = connected(&record, 0).await;
+    let fence = acpmux::agent::Fence::default();
+    let msg = json!({"jsonrpc": "2.0", "method": "note", "params": {"text": "x".repeat(1 << 20)}});
+    first.line_fenced(msg, Some(fence.clone())).await.unwrap();
+    // The frame is in the host before its connection is replaced.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let (second, _) = connected(&record, 0).await;
+    drop(first);
+    let settled = fence.settled();
+    tokio::pin!(settled);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(500), &mut settled).await.is_err(),
+        "a fenced line settled while its harness had not read it"
+    );
+    tokio::time::timeout(Duration::from_secs(20), settled)
+        .await
+        .expect("the line settles through the new connection once its harness reads it");
+    let mut logged = 0;
+    second.terminate(Duration::from_millis(500)).await.unwrap();
+    read_until(&second, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review 83 of #23322: a host that speaks only protocol 1 (an older build, here a controller
+/// that offers no more) gives no receipt, so a fenced line it took is not counted written: it
+/// settles only once nothing can write it any more (its host ended).
+#[tokio::test]
+async fn a_fenced_line_to_a_protocol_1_host_is_not_counted_written() {
+    let dir = scratch("fenced-v1");
+    let record = link::spawn(&launcher(), &slow_reader(&dir, "s-fenced-v1")).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    let owner = match link::connect_with_max(record.clone(), 0, 1).await.unwrap() {
+        Connect::Ready(link, adopted) => {
+            assert_eq!(adopted.version, 1);
+            link
+        }
+        Connect::Incompatible { .. } => panic!("a protocol-1 controller was refused"),
+    };
+    let fence = acpmux::agent::Fence::default();
+    owner.line_fenced(big_line(), Some(fence.clone())).await.unwrap();
+    let settled = fence.settled();
+    tokio::pin!(settled);
+    assert!(
+        tokio::time::timeout(Duration::from_secs(5), &mut settled).await.is_err(),
+        "a protocol-1 host's fenced line counted written with no receipt"
+    );
+    let mut logged = 0;
+    owner.terminate(Duration::from_millis(500)).await.unwrap();
+    read_until(&owner, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
+    acpmux::agent_host::link::settle_receipts_of(&record.incarnation);
+    tokio::time::timeout(Duration::from_secs(5), settled).await.expect("its host's end settles it");
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review 83 of #23322: a controller of an older build that takes over a host never gets a
+/// frame it does not know, also when the host owes a receipt to the connection before it.
+#[tokio::test]
+async fn an_older_controller_gets_no_frame_it_does_not_know() {
+    let dir = scratch("v1-frames");
+    let record = link::spawn(&launcher(), &slow_reader(&dir, "s-v1-frames")).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    let (first, _) = connected(&record, 0).await;
+    first.line_fenced(big_line(), Some(acpmux::agent::Fence::default())).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    drop(first);
+    // The harness reads the line at about 3 s, with no controller attached.
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let stream = tokio::net::UnixStream::connect(&record.socket).await.unwrap();
+    let (mut rd, mut wr) = stream.into_split();
+    let hello = ControllerFrame::Hello {
+        min: 1,
+        max: 1,
+        token: record.owner_token.clone(),
+        controller_build: "older".into(),
+    };
+    agent_host::write_frame(&mut wr, &hello).await.unwrap();
+    agent_host::write_frame(&mut wr, &ControllerFrame::Resume { after: 0 }).await.unwrap();
+    let known = ["host_hello", "entry", "detach_ack", "terminate_ack", "superseded", "query_reply"];
+    let mut frames = 0;
+    while let Ok(Ok(Some(frame))) = tokio::time::timeout(
+        Duration::from_millis(500),
+        agent_host::read_frame::<_, Value>(&mut rd),
+    )
+    .await
+    {
+        let t = frame["t"].as_str().unwrap_or_default().to_owned();
+        assert!(known.contains(&t.as_str()), "an older controller got a {t:?} frame");
+        frames += 1;
+    }
+    assert!(frames > 0, "the older controller got nothing");
+    drop((rd, wr));
+    agent_host::terminate_unadoptable(
+        &dir.join("hosts"),
+        &record.session_id,
+        Some(&record.start_nonce),
+        Some(record.host_pid),
+    )
+    .unwrap();
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review 83 of #23322: a harness that closed its stdin and runs on never takes a fenced line:
+/// the line settles (it is never written), it does not hold its fence forever.
+#[tokio::test]
+async fn a_fenced_line_to_a_closed_stdin_settles() {
+    let dir = scratch("fenced-closed");
+    let closed = dir.join("agent");
+    write_executable(&closed, "#!/bin/sh\nexec 0<&-\nexec sleep 30\n");
+    let mut launch = spec(&dir, "s-fenced-closed");
+    launch.program = closed.to_string_lossy().into_owned();
+    launch.args.clear();
+    let record = link::spawn(&launcher(), &launch).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    let (owner, _) = connected(&record, 0).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let fence = acpmux::agent::Fence::default();
+    owner.line_fenced(big_line(), Some(fence.clone())).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), fence.settled())
+        .await
+        .expect("a line its harness can not take settles");
+    let mut logged = 0;
+    owner.terminate(Duration::from_millis(500)).await.unwrap();
+    read_until(&owner, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The residual risk of #26241 (#23322 a3 fence): a host logs each fenced line as queued, with its
+/// receipt, before the line itself, and its receipt once the harness has it, so a next daemon can
+/// tell from the log which fenced lines its harness may not have yet.
+#[tokio::test]
+async fn a_fenced_line_is_logged_as_queued_before_it_and_written_after() {
+    let dir = scratch("queued");
+    let record = link::spawn(&launcher(), &slow_reader(&dir, "s-queued")).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    let (owner, adopted) = connected(&record, 0).await;
+    assert_eq!(adopted.version, agent_host::QUEUED_VERSION);
+    owner.line_fenced(big_line(), Some(acpmux::agent::Fence::default())).await.unwrap();
+    let note = |e: &Entry, method: &str| match e {
+        Entry::Tap { dir: TapDir::Out, msg } if msg["method"] == method => {
+            msg["params"]["receipt"].as_u64()
+        }
+        _ => None,
+    };
+    let mut logged = 0;
+    let seen =
+        read_until(&owner, &mut logged, |e| note(e, agent_host::WRITTEN_METHOD).is_some()).await;
+    let queued = seen.iter().position(|(_, e)| note(e, agent_host::QUEUED_METHOD).is_some());
+    let line = seen.iter().position(
+        |(_, e)| matches!(e, Entry::Tap { dir: TapDir::Out, msg } if msg["method"] == "note"),
+    );
+    let (Some(queued), Some(line)) = (queued, line) else { panic!("{seen:?}") };
+    assert!(queued < line, "the line was logged before it was logged as queued");
+    let receipt = |at: usize, method| note(&seen[at].1, method);
+    assert_eq!(
+        receipt(queued, agent_host::QUEUED_METHOD),
+        receipt(seen.len() - 1, agent_host::WRITTEN_METHOD),
+        "the queued line and its receipt name different receipts"
+    );
+    owner.terminate(Duration::from_millis(500)).await.unwrap();
+    read_until(&owner, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
+    wait_dead(lock).await;
     let _ = std::fs::remove_dir_all(&dir);
 }

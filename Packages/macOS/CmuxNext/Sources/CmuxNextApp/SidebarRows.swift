@@ -15,6 +15,9 @@ import CmuxNextSidebar
 final class SidebarRows {
     private let model: SidebarModel
     private var live: [SidebarRowSection] = []
+    /// The sidebar document's `shownChanges` `live` was built at (nil: not from its projection): the creates'
+    /// rows that wait for the window's current row wait while `live` is a projection behind (`layoutCatchingUp`).
+    private var liveShownAt: UInt64?
     private var pending = SidebarPendingEdits()
     /// A group's fold the user asked for that the home store has not shown
     /// yet (cx-qno.17): the newest click wins over a live recompute, so a
@@ -34,22 +37,88 @@ final class SidebarRows {
     /// The rows of creates the daemon has not reported yet, at their slots
     /// over the edits (`PendingWorkspaceRows`), and the home workspace.
     private var creating: (rows: [PendingWorkspaceRows.Row], home: String?) = ([], nil)
+    /// The band groups another window lists (`SidebarDocProjection.bandGroupsListedElsewhere`) as last shown:
+    /// a move of a workspace to another window changes them with no row of this one (#25776).
+    private var elsewhere: Set<String>?
+    /// Preview-only App Store rows are kept in the stored document but are
+    /// removed from every rendered placement, including machine and group
+    /// projections that do not come from `layout.sections`.
+    private var showAppStore = true
+
+    #if DEBUG
+    /// The rows `debug.sidebar_nested_fixture` shows instead of the live ones (nested-groups prototype captures).
+    var fixture: [CmuxNextSidebar.SidebarSection]? {
+        didSet { show() }
+    }
+    #endif
 
     init(model: SidebarModel) {
         self.model = model
     }
 
     /// The layout the sidebar draws: the store's without a stored All chats section (cx-n0i9).
-    static func visibleLayout(_ document: SidebarLayoutDocument) -> SidebarLayoutDocument {
-        document.withoutChats
+    static func visibleLayout(_ document: SidebarLayoutDocument, showAppStore: Bool = true) -> SidebarLayoutDocument {
+        var visible = document.withoutChats
+        guard !showAppStore else { return visible }
+        visible.sections = visible.sections.map { section in
+            var section = section
+            section.items.removeAll { item in
+                item.ref == .builtIn(.appStore) || item.ref == .app(SidebarLayoutDocument.firstPartyApps[.appStore] ?? "cmux/app-store")
+            }
+            return section
+        }
+        return visible
+    }
+
+    /// The layout window `windowID` draws: `visibleLayout` without the band's
+    /// workspaces another window owns, so a new window starts clean. Only on
+    /// the sidebar document, whose band moves anchor on a drawn neighbour; the
+    /// older owner's index ops count the stored layout; the bridge translates
+    /// visible item indexes back to stored indexes before sending edits.
+    static func visibleLayout(_ document: SidebarLayoutDocument, window windowID: String, profile: ProfileID? = nil, machines: MachineRegistry,
+                              registry: WindowRegistry, showAppStore: Bool = true) -> SidebarLayoutDocument {
+        guard SidebarDocWiring.isActive else { return visibleLayout(document, showAppStore: showAppStore) }
+        return visibleLayout(document, showAppStore: showAppStore)
+            .scopedToWindow(ownedElsewhere: bandHides(window: windowID, profile: profile, machines: machines, registry: registry))
+    }
+
+    /// Whether window `windowID`'s band leaves out the workspace item a layout ref value names: another
+    /// window owns the workspace, or the window's space `profile` does not show it
+    /// (plans/cmux-next/spaces-overhaul-DESIGN.md rule 1: a pin draws only in its own space, so a click on
+    /// it never switches the window's space). A closed workspace has no space and stays.
+    static func bandHides(window windowID: String, profile: ProfileID?, machines: MachineRegistry,
+                          registry: WindowRegistry) -> (String) -> Bool {
+        let refs = WorkspaceLayoutRefs(machines: machines)
+        let membership = profile == nil ? nil : WindowProfiles.membership(machines)
+        return { value in
+            if refs.ownedElsewhere(value, window: windowID, registry: registry) { return true }
+            guard let profile, let membership, let id = refs.workspaceID(for: .workspace(value)) else { return false }
+            return !WindowProfiles.shows(id, profile: profile, machines: machines, membership: membership)
+        }
     }
 
     /// Shows `live` (when given) with the pending edits applied, then the
-    /// rows of the creates in flight (`creating`, when given).
-    func show(_ live: [SidebarRowSection]? = nil, creating: (rows: [PendingWorkspaceRows.Row], home: String?)? = nil) {
+    /// rows of the creates in flight (`creating`, when given). `unlessShown`: nothing to do when `live` and `creating`
+    /// are what the rows show already (patches included), so a structural pass that lists nothing new sets no sections
+    /// (sidebar churn: at 400 workspaces each set arranged and compared every row). A changed `elsewhere` shows again.
+    /// `shownAt`: the sidebar document's `shownChanges` `live` was built at; a newer one with creates in flight shows
+    /// again, since a create waiting for the current row may draw now.
+    func show(_ live: [SidebarRowSection]? = nil, shownAt: UInt64? = nil, creating: (rows: [PendingWorkspaceRows.Row], home: String?)? = nil,
+              unlessShown: Bool = false, elsewhere: Set<String>? = nil, showAppStore: Bool? = nil) {
+        let sameVisibility = showAppStore == nil || showAppStore == self.showAppStore
+        if let showAppStore { self.showAppStore = showAppStore }
+        let sameElsewhere = elsewhere == nil || elsewhere == self.elsewhere
+        if let elsewhere { self.elsewhere = elsewhere }
+        let reprojected = live != nil && shownAt != liveShownAt && !(creating ?? self.creating).rows.isEmpty
+        if live != nil { liveShownAt = shownAt }
+        if unlessShown, !reprojected, let live, let creating, live == self.live, creating == self.creating, sameElsewhere, sameVisibility { return }
         if let live { self.live = live }
         if let creating { self.creating = creating }
-        var sections = PendingWorkspaceRows.adding(self.creating.rows, to: pending.apply(to: self.live), home: self.creating.home)
+        #if DEBUG
+        if let fixture { return model.setSections(fixture) }
+        #endif
+        var sections = PendingWorkspaceRows.adding(self.creating.rows, to: pending.apply(to: self.live), home: self.creating.home,
+                                                   catchingUp: layoutCatchingUp)
         for (group, fold) in folds {
             guard let (s, n) = SidebarEdits.locateGroup(group, in: sections), case var .group(shown) = sections[s].nodes[n] else { continue }
             guard shown.isCollapsed != fold.collapsed else {
@@ -59,12 +128,20 @@ final class SidebarRows {
             shown.isCollapsed = fold.collapsed
             sections[s].nodes[n] = .group(shown)
         }
-        model.setSections(model.priorityOrdering ? SidebarPriority().reordered(sections) : sections)
+        // Manual order only (Leo 2026-10-20): a row state shows as a badge; attention order is the Priority view's.
+        model.hiddenItemRefs = self.showAppStore ? [] : [.app("cmux/app-store"), .builtIn(.appStore)]
+        model.setSections(sections)
     }
+
+    /// The live rows are a projection behind the sidebar document (`NewWorkspaceDefaultSlot.layoutCatchingUp`).
+    var layoutCatchingUp: Bool { NewWorkspaceDefaultSlot.layoutCatchingUp(rowsAt: liveShownAt) }
 
     /// Row content of listed workspaces changed (`SidebarRowFeed`): written in place, or shown again when it moves rows.
     func patch(_ changed: [SidebarWorkspace]) {
         live = SidebarSection.patching(changed, in: live)
+        #if DEBUG
+        if fixture != nil { return }
+        #endif
         if !model.patchWorkspaces(changed) { show() }
     }
 

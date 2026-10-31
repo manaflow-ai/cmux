@@ -26,16 +26,28 @@ export default appsPageEntry({
   covers: [
     "page:cmux.apps",
     "pages/apps/AppsPage.tsx",
+    "pages/apps/CloudFeature.tsx",
     "pages/apps/AppDetailView.tsx",
     "pages/apps/InstalledView.tsx",
     "pages/apps/UpdatesView.tsx",
     "pages/apps/GrantsPanel.tsx",
     "pages/apps/parts.tsx",
+    "pages/apps/items.tsx",
   ],
   variants: {
     list: {
-      note: "The discover grid with first-party, verified and unverified apps.",
+      note: "The discover grid with first-party, verified and unverified apps, under the featured Cloud banner.",
       hash: "#/discover?layout=grid",
+      data: base,
+    },
+    "card-compact": {
+      note: "The compact card style (DEV, card=compact): one line of description and the action.",
+      hash: "#/discover?layout=grid&card=compact",
+      data: base,
+    },
+    "card-artwork": {
+      note: "The artwork card style (DEV, card=artwork): the icon leads on a tinted panel.",
+      hash: "#/discover?layout=grid&card=artwork",
       data: base,
     },
     detail: {
@@ -47,6 +59,11 @@ export default appsPageEntry({
       note: "Install confirmation in flight for a catalog app.",
       action: "install",
       hash: "#/discover?layout=grid",
+      data: base,
+    },
+    "detail-installed": {
+      note: "An installed app's page: screenshots, what it adds, permissions, settings and versions.",
+      hash: "#/discover?layout=split&app=cmux.github-prs",
       data: base,
     },
     loading: {
