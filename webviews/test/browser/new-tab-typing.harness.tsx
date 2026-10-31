@@ -11,12 +11,14 @@ import { NewTabPage } from "../../src/agent-session/acpmux/NewTabPage";
 declare global {
   interface Window {
     rerenderHost?: () => void;
+    newTabShellCommands?: string[];
   }
 }
 
 const classic = new URLSearchParams(location.search).get("screen") === "classic";
 const snapshot = noChat();
 const noop = () => {};
+window.newTabShellCommands = [];
 
 function Host() {
   const [update, setUpdate] = useState(0);
@@ -42,7 +44,7 @@ function Host() {
       onAsk={noop}
       onOpen={noop}
       onSearch={noop}
-      onShell={noop}
+      onShell={(command) => window.newTabShellCommands!.push(command)}
       onJump={noop}
       onOpenSession={noop}
       onShowAll={noop}

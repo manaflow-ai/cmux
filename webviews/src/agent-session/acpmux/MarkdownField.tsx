@@ -158,6 +158,8 @@ export type MarkdownFieldProps = {
   plugins?: Plugin[];
   /// Shift-Enter adds a line (default true).
   multiline?: boolean;
+  /// Commands keep literal characters: no Markdown input rules or formatting shortcuts.
+  literal?: boolean;
   placeholder?: string;
   /// A muted keycap after the placeholder, naming the key that takes it (the composer's "Tab").
   placeholderKey?: string;
@@ -188,6 +190,7 @@ function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFiel
   return (
     previous.value === next.value &&
     previous.multiline === next.multiline &&
+    previous.literal === next.literal &&
     previous.placeholder === next.placeholder &&
     previous.placeholderKey === next.placeholderKey &&
     previous.className === next.className &&
@@ -428,6 +431,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     isInlineAttachment,
     plugins = [],
     multiline = true,
+    literal = false,
     placeholder,
     placeholderKey,
     className,
@@ -440,6 +444,30 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const editor = useRef<Editor | undefined>(undefined);
   const view = useRef<EditorView | undefined>(undefined);
   const remark = useRef<RemarkParser | undefined>(undefined);
+  const literalNow = useRef(literal);
+  literalNow.current = literal;
+  const richPlugins = useRef<readonly Plugin[]>([]);
+  const literalKeys = useRef<Plugin | undefined>(undefined);
+  literalKeys.current ??= keymap({
+    ...baseKeymap,
+    "Mod-z": undo,
+    "Shift-Mod-z": redo,
+    "Mod-y": redo,
+  });
+  const configureLiteral = useCallback(() => {
+    const current = view.current;
+    if (!current || !richPlugins.current.length) return;
+    // Removing the input-rule plugin also disables its compositionend handler. Merely
+    // intercepting handleTextInput leaves IME commits able to rewrite a shell command.
+    const plugins = literalNow.current
+      ? [
+          literalKeys.current!,
+          ...richPlugins.current.filter((plugin) => !plugin.spec.isInputRules && !plugin.props.handleKeyDown),
+        ]
+      : richPlugins.current;
+    current.updateState(current.state.reconfigure({ plugins }));
+  }, []);
+  useLayoutEffect(configureLiteral, [configureLiteral, literal]);
   // The markdown the field last emitted or applied; a different `value` comes from outside.
   const known = useRef(value);
   const latest = useRef({
@@ -600,6 +628,16 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               beforeinput: (_view, event) => {
                 const returnInput = latest.current.onReturnInput;
                 const input = event as InputEvent;
+                // Without a rich keymap, the browser can still implement Cmd-B itself.
+                if (
+                  literalNow.current &&
+                  (input.inputType.startsWith("format") ||
+                    input.inputType === "insertOrderedList" ||
+                    input.inputType === "insertUnorderedList")
+                ) {
+                  event.preventDefault();
+                  return true;
+                }
                 if (!returnInput || (input.inputType !== "insertParagraph" && input.inputType !== "insertLineBreak"))
                   return false;
                 event.preventDefault();
@@ -639,6 +677,19 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 // A drag from inside the field moves its own text, as ProseMirror does.
                 if (editorView.dragging) return false;
                 if (!data) return false;
+                if (literalNow.current) {
+                  if (data.files.length || [...data.types].includes("Files")) return false;
+                  const text = data.getData("text/plain");
+                  if (!text) return false;
+                  const at = editorView.posAtCoords({ left: event.clientX, top: event.clientY });
+                  if (at)
+                    editorView.dispatch(
+                      editorView.state.tr.setSelection(TextSelection.near(editorView.state.doc.resolve(at.pos))),
+                    );
+                  insertPlain(editorView, text);
+                  event.preventDefault();
+                  return true;
+                }
                 const files = data.files.length > 0 || [...data.types].includes("Files");
                 const whole = files ? "" : data.getData("text/plain");
                 if (files ? !inlineOn.current || !latest.current.onInlineViews : whole.length <= PASTE_FILE_CHARS)
@@ -660,6 +711,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               paste: (editorView, event) => {
                 const data = event.clipboardData;
                 if (!data) return false;
+                if (literalNow.current) {
+                  const text = data.getData("text/plain") || htmlText(data.getData("text/html"));
+                  if (text) insertPlain(editorView, text);
+                  event.preventDefault();
+                  showPastedEnd(editorView.state);
+                  return true;
+                }
                 // Text past what a prompt carries goes to the surface whole, before anything reads
                 // or parses it (ProseMirror would lay out every line of it first): the composer
                 // attaches it as a file (pastedText.ts PASTE_FILE_CHARS).
@@ -691,6 +749,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
             },
             handleTextInput: (editorView, _from, _to, text) => beforeInput(editorView, text),
             handlePaste: (editorView, event, slice) => {
+              if (literalNow.current) {
+                const data = event.clipboardData;
+                const text = data?.getData("text/plain") || htmlText(data?.getData("text/html") ?? "");
+                if (text) insertPlain(editorView, text);
+                showPastedEnd(editorView.state);
+                return true;
+              }
               // A copy of the prompt's own text with an attachment placed in it carries that
               // attachment (its node, by id); the rest of a paste is its plain text.
               if (placesInline && sliceHoldsInline(slice)) {
@@ -913,6 +978,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         }
         editor.current = made;
         view.current = made.ctx.get(editorViewCtx);
+        richPlugins.current = view.current.state.plugins;
+        configureLiteral();
         remark.current = made.ctx.get(remarkCtx);
         if (known.current || known.current !== madeFrom) setDocument(known.current, false);
         showPlaceholder(known.current);
@@ -931,6 +998,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       editor.current = undefined;
       view.current = undefined;
       remark.current = undefined;
+      richPlugins.current = [];
     };
   }, []);
 

@@ -41,6 +41,33 @@ await requireBrowserLane("new-tab-typing.test.ts", async () => {
     await vite?.close();
   });
 
+  test("shell typing keeps Markdown punctuation literal and restores formatting when shell mode ends", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage();
+    try {
+      await page.goto(`http://127.0.0.1:${port}/test/browser/new-tab-typing.html`);
+      const editor = page.locator(".nt-field .ProseMirror");
+      await editor.focus();
+      // Real keyboard input exercises CommonMark's input rules; handle.type() only parses a value.
+      await page.keyboard.type("!");
+      await page.locator(".nt-shell-glyph").waitFor();
+      const command = "echo _x_ __y__ **z** `date` [a](b)";
+      await page.keyboard.type(command);
+      await page.keyboard.press("Control+b");
+      await page.keyboard.type(" more");
+      await page.keyboard.press("Enter");
+      expect(await page.evaluate(() => window.newTabShellCommands)).toEqual([`${command} more`]);
+      expect(await editor.locator("em, strong, code, a").count()).toBe(0);
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Control+a");
+      await page.keyboard.type("**normal prompt**");
+      // Leaving shell mode restores normal prompt formatting.
+      expect(await editor.locator("strong").textContent()).toBe("normal prompt");
+    } finally {
+      await page.close();
+    }
+  });
+
   for (const screen of ["default", "classic"]) {
     test(`the ${screen} New Tab field keeps every key while the page renders between them`, async () => {
       const { port } = vite!.httpServer!.address() as { port: number };

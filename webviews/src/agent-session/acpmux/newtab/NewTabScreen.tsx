@@ -1720,6 +1720,7 @@ export function NewTabScreen(props: Props) {
                   shell ? t("composer.shellPlaceholder") : dictating ? t("dictation.listening") : placeholder
                 }
                 multiline
+                literal={shell}
                 onReady={() => {
                   inline.ready();
                   setFieldReady(true);

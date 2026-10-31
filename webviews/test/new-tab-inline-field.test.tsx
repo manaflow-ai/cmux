@@ -202,7 +202,10 @@ test("a shell command with punctuation runs exactly as typed", async () => {
   const calls: unknown[][] = [];
   const field = await render(calls);
   const command = "ls *.txt && echo [done] _x_ `date` # \\n";
-  const editor = await type(field, `!${command}`);
+  const editor = await type(field, "!");
+  // Commands are literal input, not a Markdown value loaded by handle.type(). The browser
+  // regression in new-tab-typing also exercises the actual CommonMark input-rule path.
+  for (const character of command) await act(async () => field.acpmuxMarkdownField!.insertTyped(character));
   await press(editor, "Enter");
   expect(calls).toContainEqual(["shell", command]);
 });
