@@ -65,7 +65,7 @@ enum ChiefMemoryImportHandlers {
         return url
     }
 
-    /// What the first-run panel offers: the sources found on this Mac, read off the main thread (none in a build without the tool).
+    /// What the first-run panel offers, read off the main thread (none without the tool): run at launch unasked, so never ~/Downloads (LAUNCH-NO-TCC-PROMPTS).
     static func detectForOffer(muxHome: String) async -> [MemorySource] {
         guard let tool = bundledTool() else { return [] }
         let output = await run(tool, MemoryImportCommand(target: .local(muxHome: muxHome)).detect(), timeout: .seconds(60))
@@ -109,7 +109,7 @@ enum ChiefMemoryImportHandlers {
         }
 
         func detect() async -> [MemorySource] {
-            let arguments = MemoryImportCommand(target: .local(muxHome: ChiefMemoryImportHandlers.muxHome(context))).detect()
+            let arguments = MemoryImportCommand(target: .local(muxHome: ChiefMemoryImportHandlers.muxHome(context))).detect(exports: true)
             let output = await ChiefMemoryImportHandlers.run(tool, arguments, timeout: .seconds(60))
             return MemorySource.parse(Data(output.stdout.utf8))
         }

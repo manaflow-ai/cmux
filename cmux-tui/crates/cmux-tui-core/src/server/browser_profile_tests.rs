@@ -246,6 +246,15 @@ fn a_browser_profile_carries_a_proxy_and_never_a_secret() {
         run(&mux, json!({"cmd":"update-browser-profile","browser_profile":WORK,"proxy":null}))
             .unwrap();
     assert!(cleared["browser_profile"]["proxy"].is_null());
+    // The largest proxy the structure allows (64 bypass rules of 253 bytes)
+    // is stored whole: it is bounded by its fields, not by a byte cap.
+    let rules: Vec<String> = (0..64).map(|i| format!("{i:03}.{}", "b".repeat(249))).collect();
+    let largest = json!({"scheme":"http","host":"gw.test","port":8080,"bypass":rules});
+    let stored =
+        run(&mux, json!({"cmd":"update-browser-profile","browser_profile":WORK,"proxy":largest}))
+            .expect("a proxy with 64 bypass rules of 253 bytes is stored");
+    assert_eq!(stored["browser_profile"]["proxy"], largest);
+    run(&mux, json!({"cmd":"update-browser-profile","browser_profile":WORK,"proxy":null})).unwrap();
     for bad in [
         json!({"scheme":"socks5","host":"127.0.0.1","port":1080,"password":"hunter2"}),
         json!({"scheme":"http","host":"gw.test","port":8080,"username":"me"}),

@@ -130,6 +130,13 @@ nonisolated enum CatalogArgument {
                        isRequired: false)
     }
 
+    /// `file open --as-text`: a page cmux renders (HTML, SVG, Markdown) opens as its source in the
+    /// code editor (Open as Text); other files open as they always do.
+    static var asTextBool: ActionArgument {
+        ActionArgument(name: "asText", title: String(localized: "argument.asText", defaultValue: "As Text", bundle: .module),
+                       kind: .bool, isRequired: false)
+    }
+
     /// `cloud new-terminal-on-machine --workspace <id>`: a workspace on the Cloud machine's own
     /// daemon (the `workspace_id` an earlier run answered). Plain text: `.target(.workspace)`
     /// resolves this Mac's workspaces, not a Cloud machine's.
@@ -212,6 +219,13 @@ nonisolated enum CatalogArgument {
     /// `cloud deliver-secrets --repo OWNER/NAME`: whose repo-scoped secrets the machine gets.
     static var secretRepoString: ActionArgument {
         ActionArgument(name: "repo", title: String(localized: "argument.secretRepo", defaultValue: "Repository", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// `cloud deliver-secrets --names A,B`: the secret names an own machine (SSH or an acpmux peer) gets;
+    /// a Cloud machine's come from its machine config.
+    static var secretNamesString: ActionArgument {
+        ActionArgument(name: "names", title: String(localized: "argument.secretNames", defaultValue: "Secret Names", bundle: .module),
                        kind: .string, isRequired: false)
     }
 

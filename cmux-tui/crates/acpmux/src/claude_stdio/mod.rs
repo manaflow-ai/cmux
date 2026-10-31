@@ -137,6 +137,22 @@ fn effort_value(effort: &str) -> &str {
     }
 }
 
+/// The model id Claude Code accepts for `value`. A versioned family name
+/// without the `claude-` prefix (`opus-5-5`, `sonnet-5-5[1m]`) is not a
+/// Claude Code alias: Claude Code sends it to the API as typed and every turn
+/// fails with "There's an issue with the selected model (opus-5-5)". It takes
+/// the prefix, as the live list's `launch_id` does. Bare aliases (`opus`,
+/// `opusplan`), full ids and other providers' names pass unchanged.
+pub fn model_id(value: &str) -> String {
+    let value = value.trim();
+    let versioned = ["opus-", "sonnet-", "haiku-"].iter().any(|family| {
+        value
+            .strip_prefix(family)
+            .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
+    });
+    if versioned { format!("claude-{value}") } else { value.to_owned() }
+}
+
 /// The Reasoning select's value for a session effort: Ultracode runs at xhigh.
 fn shown_level(effort: &str) -> &str {
     match effort_value(effort) {
@@ -222,6 +238,11 @@ pub(crate) mod agent_transcript;
 mod agent_transcript_tests;
 #[cfg(test)]
 mod background_output_tests;
+// A turn ends when Claude Code ends it; a steer it reads after is the next turn's (`carry.rs`).
+mod carry;
+pub use carry::HOLD_MAX as CARRY_HOLD_MAX;
+#[cfg(test)]
+mod carry_tests;
 #[cfg(test)]
 mod context_usage_tests;
 mod early_calls;
@@ -232,7 +253,13 @@ mod edit_diff_tests;
 mod elicitation;
 #[cfg(test)]
 mod elicitation_tests;
+mod hook_callback;
+#[cfg(test)]
+mod hook_callback_tests;
 mod inbound;
+// What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
+mod logged_bodies;
+pub use logged_bodies::leave_out_bodies;
 mod outbound;
 #[cfg(test)]
 mod steer_now_tests;
@@ -367,7 +394,7 @@ pub fn spawn_plan(
     // A later --model wins over one the profile pins in its argv.
     if let Some(m) = model.filter(|m| !m.is_empty() && *m != "default") {
         args.push("--model".into());
-        args.push(m.into());
+        args.push(model_id(m));
     }
     // Lets the chat switch to bypassPermissions ("Bypass permissions") later; a
     // process that cannot take it is never given bypassPermissions at spawn.
@@ -436,6 +463,12 @@ pub struct Translator {
     /// The waiting lines of other sessions' messages, and those being written again with more
     /// (`steer_batch.rs`). Taken before `steers`.
     batches: Mutex<steer_batch::Batches>,
+    /// Turns Claude Code runs on steers it read after its turn ended (`carry.rs`). Taken before
+    /// `pending`, and after `batches`, `steers` and `steer_lines`.
+    carry: Mutex<carry::Carry>,
+    /// Carried turns whose prompt has not come yet, and the newest carry's number (`carry.rs`
+    /// `holding`).
+    carry_owed: tokio::sync::watch::Sender<(usize, u64)>,
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
@@ -579,7 +612,7 @@ impl Translator {
             session_id: Mutex::new(None),
             acp_session_id,
             mode: Mutex::new(mode.to_owned()),
-            model: Mutex::new(model.to_owned()),
+            model: Mutex::new(model_id(model)),
             effort: Mutex::new(effort_value(effort).to_owned()),
             fast: Mutex::new(false),
             in_turn: AtomicBool::new(false),
@@ -589,6 +622,8 @@ impl Translator {
             steers: Mutex::new(std::collections::VecDeque::new()),
             steer_lines: Mutex::new(HashMap::new()),
             batches: Mutex::new(Default::default()),
+            carry: Mutex::new(carry::Carry::new()),
+            carry_owed: tokio::sync::watch::channel((0, 0)).0,
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
             skills: Mutex::new(Vec::new()),
@@ -648,6 +683,8 @@ impl Translator {
         self.steer_lines.lock().await.clear();
         drop(steers);
         drop(batches);
+        // A carried turn whose prompt has not come yet lost its answer too (`carry.rs`).
+        self.carry.lock().await.fail_owed(message);
         held.extend(ids.into_iter().map(|id| {
             let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
             Message::err(id, RpcError::internal(message))
@@ -664,6 +701,8 @@ impl Translator {
         let held = Self::end_batches(&mut batches, STEER_NO_TURN);
         let failed: Vec<_> = steers.drain(..).collect();
         self.steer_lines.lock().await.clear();
+        // None of them is read after a carry now.
+        self.carry.lock().await.steers.clear();
         drop(steers);
         drop(batches);
         let failed = failed.into_iter().map(|(_, id)| {
@@ -713,6 +752,12 @@ impl Translator {
                 shell.asked = false;
             }
         }
+    }
+
+    /// Whether Claude Code runs a subagent or a background shell: work an agent host whose
+    /// daemon is gone keeps its harness for (`agent_host::OrphanExit`).
+    pub async fn runs_background_work(&self) -> bool {
+        self.interrupt_ends_work().await
     }
 
     pub async fn take_stdin_replies(&self) -> Vec<Value> {

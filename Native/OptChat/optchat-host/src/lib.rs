@@ -19,7 +19,7 @@ mod model;
 pub mod rate;
 mod report;
 
-pub use anthropic::{AnthropicModel, AGENT_HEADER};
+pub use anthropic::{session_key, AnthropicModel, AGENT_HEADER, SESSION_HEADER};
 pub use cap::cap_tool_result;
 pub use chat::{Cancel, Error, Failure, OptChat, Status, DB_FILE};
 pub use clock::{Clock, ManualClock, SystemClock};

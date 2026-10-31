@@ -145,7 +145,7 @@ struct DaemonSideEventEnvelopeTests {
         """#
         var sources: Set<UUID> = []
         for _ in 0..<2 {
-            let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", script])
+            let bridge = DaemonBridge.fakePython(["-c", script])
             let connection = DaemonConnection(endpoint: .init(socketPath: "/tmp/cmux-stamped-events-\(UUID().uuidString).sock", bridge: bridge),
                                               configuration: .init(requiredCapabilities: [], terminalEnvironment: nil))
             do {

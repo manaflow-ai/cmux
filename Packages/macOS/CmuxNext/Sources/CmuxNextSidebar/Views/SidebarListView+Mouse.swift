@@ -45,10 +45,8 @@ extension SidebarListViewComponents {
                 return
             }
             let (oldItem, oldSelection) = (model.selectedItem, model.selection)
-            if flags.contains(.command) {
-                model.toggleSelection(id)
-            } else if flags.contains(.shift) {
-                model.extendSelection(to: id, visibleOrder: visibleWorkspaceOrder)
+            if modifierSelect(id, flags: flags) {
+                // Shift: the drawn range, pinned tiles too; Cmd: toggle; Cmd-Shift: add the range.
             } else if model.selection.contains(id), model.selection.count > 1 {
                 // Keep the multi-selection so it can be dragged; collapse it
                 // on mouse-up if no drag happens.
@@ -112,7 +110,7 @@ extension SidebarListViewComponents {
     override func mouseUp(with event: NSEvent) {
         defer { press = nil }
         if drag != nil {
-            finishDrag()
+            finishDrag(at: event.locationInWindow)
             return
         }
         guard let press, !press.cancelled else { return syncRowStates() }
@@ -164,10 +162,9 @@ extension SidebarListViewComponents {
             model.send(.activateItem(LayoutItemID(item), opensWorkspace: event.modifierFlags.contains(.option)))
         case let .status(section):
             model.toggleStatusSection(section)
-        case let .doneFold(fold):
-            if openDoneFolds.remove(fold) == nil { openDoneFolds.insert(fold) }
-        case let .showMore(list):
-            if openShowMore.remove(list) == nil { openShowMore.insert(list) }
+        case .doneFold, .showMore:
+            _ = SidebarFoldAction(list: self).toggle(press.key)
+            return
         case let .emptyGroup(group):
             // The group's empty row makes a workspace in it, as the header's + does; the new row lays the list out.
             onGroupEditorItem?(group, "workspaceGroup.newWorkspace")
@@ -187,9 +184,8 @@ extension SidebarListViewComponents {
         // F2 renames the active workspace inline.
         if event.keyCode == 120, flags.isEmpty, let active = model.activeWorkspaceID { return inlineRename.begin(.workspace(active)) }
         if event.keyCode == 53 { // Escape
-            if drag != nil { return cancelDrag() }
-            // A held press that has not dragged yet: its release clicks nothing (`endPointerGesture`).
-            if press != nil { return endPointerGesture() }
+            // A held drag or press (a row's or a block item's) ends as a cancel: its release clicks nothing.
+            if escapeSeen() { return }
             if !model.filterText.isEmpty {
                 model.filterText = ""
                 reload(animated: true)
@@ -203,7 +199,7 @@ extension SidebarListViewComponents {
             if flags == [.command, .option] {
                 model.moveSelection(up ? .up : .down)
             } else if flags.isEmpty || flags == .shift {
-                model.moveActive(by: up ? -1 : 1, extending: flags == .shift, visibleOrder: visibleWorkspaceOrder)
+                model.moveActive(by: up ? -1 : 1, extending: flags == .shift, visibleOrder: selectionOrder)
             } else {
                 return super.keyDown(with: event)
             }

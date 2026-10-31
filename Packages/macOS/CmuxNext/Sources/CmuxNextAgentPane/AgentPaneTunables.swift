@@ -215,11 +215,11 @@ public nonisolated struct AgentPaneTunables {
         default: false, code: "AgentPaneTunables.sessionStatus")
 
     /// Side sessions: the composer's `/btw <question>` opens a read-only side session about the chat
-    /// beside it.
+    /// beside it, and the palette offers Ask a Side Question… when the gate is on.
     /// On by default; the page reads it from the header state (``AgentPaneHeaderState/sideSessions``).
     public static let sideSessions = Tunable<Bool>.toggle(
         "agentPane.debug.sideSessions", PageTunables.section, "Side sessions (/btw)",
-        help: "The composer's /btw opens a read-only side session beside the chat.",
+        help: "The composer's /btw opens a read-only side session beside the chat, and the palette offers Ask a Side Question….",
         default: true, code: "AgentPaneTunables.sideSessions")
 
     /// Thoughts fold once done (webviews conversation/ThoughtRow.tsx): the thoughts
@@ -473,7 +473,6 @@ public nonisolated struct AgentPaneTunables {
             reasoningSlider.descriptor,
             reasoningSliderStyle.descriptor,
             updatePeersAutomatically.descriptor,
-            restartUnresponsiveAcpmux.descriptor,
             sessionStatus.descriptor,
             sidebarPreviewVariant.descriptor,
             scrollerFade.descriptor,

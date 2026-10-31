@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
+import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextTerminal
 import Foundation
@@ -78,11 +79,16 @@ final class SettingsPageProvider: PageProvider {
     var removeDevice: (@MainActor (String) async -> String?)?
     /// Settings > Devices' Full access switch on a paired client machine: the error to show, or nil.
     var setDeviceFullAccess: (@MainActor (String, Bool) async -> String?)?
+    /// Settings > Devices' Screen sharing or Control switch of this joined Mac (`screen`, `control`): the error to show, or nil.
+    var setJoinConsent: (@MainActor (String, Bool) async -> String?)?
+    /// Whether the gesture at this uptime was the person's own input from the HID system
+    /// (``PersonInputLedger/backs(_:)``); nil, never.
+    var personBacksGesture: (@MainActor (TimeInterval) -> Bool)?
     /// Settings > Machines' "Dedicated agent machine" switch on a Cloud machine: the error to show, or nil.
     var setMachineVmHost: (@MainActor (String, Bool) async -> String?)?
-    /// The gesture (``PageCallContext/gestureEvent``) that last turned a device's Full access on:
-    /// one click or key turns on one setting.
-    private var spentFullAccessGesture: TimeInterval?
+    /// Touch ID or the password, which every turn-on of Full access or Dedicated agent machine needs; nil, never.
+    var ownerConfirm: (any DeviceOwnerAuthenticating)?
+    let wideningGate: PageWideningGate
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
@@ -90,10 +96,11 @@ final class SettingsPageProvider: PageProvider {
     private static let overrideRounds = 4
 
     init(settings: SettingsController, domains: @escaping @MainActor () -> [String: [String]] = { [:] },
-         hostLists: (@MainActor () -> JSONValue)? = nil) {
+         hostLists: (@MainActor () -> JSONValue)? = nil, wideningGate: PageWideningGate = PageWideningGate()) {
         self.settings = settings
         self.domains = domains
         self.hostLists = hostLists
+        self.wideningGate = wideningGate
     }
 
     /// A theme's colors as the page reads them (`GhosttyTheme` in webviews/src/theme/ghosttyTheme.ts).
@@ -109,6 +116,27 @@ final class SettingsPageProvider: PageProvider {
             if let color { object[key] = .string(AppTheme.hex(color)) }
         }
         return .object(object)
+    }
+
+    /// SECURITY: Full access and Dedicated agent machine turn on only with the person's own click or key in
+    /// this page, spent once, then Touch ID or the password (``PageWideningGate``); an off takes any input.
+    func widen(_ key: String, _ id: String, reason: String, on: Bool, _ context: PageCallContext,
+               _ write: @escaping @MainActor (String, Bool) async -> String?) async throws -> String? {
+        let refusal = PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+        if on {
+            guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
+                  personBacksGesture?(event) == true, wideningGate.claimGesture(event) else { throw refusal }
+        }
+        let confirm: (@MainActor () async -> Bool)?
+        if let owner = ownerConfirm {
+            let confirmReason = reason
+            confirm = { @MainActor in await owner.authenticate(reason: confirmReason) }
+        } else {
+            confirm = nil
+        }
+        return try await wideningGate.set("\(key) \(id)", on: on, confirm: confirm, refusal: refusal) { on, _ in
+            return await write(id, on)
+        }
     }
 
     /// A host the App wires in (nil in tests without an app), or the page's `cmux.page.unavailable`.
@@ -147,35 +175,39 @@ final class SettingsPageProvider: PageProvider {
             guard let id = params["id"]?.stringValue, let on = params["on"]?.boolValue else {
                 throw PageError.invalidParams("id and on are required")
             }
-            // SECURITY: turning Full access on lets that machine's chats edit files and run
-            // commands here without asking, so it needs the person's own click or key in the
-            // Settings page, spent once (the host's record, never the page's word): page script
-            // alone never turns it on. Turning it off only narrows what the machine may do, so it
-            // needs no gesture (a revoke always works, assistive technology included).
+            // SECURITY: on lets that machine's chats edit files and run commands here without asking (``widen``).
+            let reason = RemoteStrings.fullAccessConfirmReason
+            return try await widen("fullAccess", id, reason: reason, on: on, context, Self.host(setDeviceFullAccess, "devices")).map { ["error": .string($0)] } ?? .object([:])
+        case "cmux.settings.devices.join_consent":
+            guard let surface = params["surface"]?.stringValue, JoinConsentSurface(rawValue: surface) != nil,
+                  let on = params["on"]?.boolValue else {
+                throw PageError.invalidParams("surface (screen or control) and on are required")
+            }
+            // SECURITY: turning one on lets the team's other machines see or control this Mac, so,
+            // like Full access, only the person's own click or key in this page turns it on (spent
+            // once), and acpmux then takes it only over a line proven as the person. Stricter than
+            // Full access: the gesture must be the HID system's input (``PersonInputLedger``), so an
+            // agent with Control consent driving this page (the cmux-cua helper posts real-looking
+            // clicks) never grants itself more, and the app's line to acpmux is the person's anyway.
+            // Off only narrows, so it needs no gesture and takes any input.
             if on {
                 guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
-                      event != spentFullAccessGesture else {
+                      personBacksGesture?(event) == true, wideningGate.claimGesture(event) else {
                     throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
                 }
-                spentFullAccessGesture = event
             }
-            return try await Self.host(setDeviceFullAccess, "devices")(id, on).map { ["error": .string($0)] } ?? .object([:])
+            let write = try Self.host(setJoinConsent, "devices")
+            return try await wideningGate.setWithoutConfirmation(
+                "joinConsent \(surface)", on: on,
+                refusal: PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+            ) { value in await write(surface, value) }.map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.machines.vm_host":
             guard let id = params["id"]?.stringValue, let on = params["on"]?.boolValue else {
                 throw PageError.invalidParams("id and on are required")
             }
-            // Turning it on lets that machine take the VM boundary again when this app's own link
-            // asks for it (its remote chains then run without the sandbox), so, like Full access,
-            // only the person's own click or key in this page turns it on (spent once); off makes
-            // the machine keep the sandbox always, which only narrows, so it needs no gesture.
-            if on {
-                guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
-                      event != spentFullAccessGesture else {
-                    throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
-                }
-                spentFullAccessGesture = event
-            }
-            return try await Self.host(setMachineVmHost, "machines")(id, on).map { ["error": .string($0)] } ?? .object([:])
+            // On lets that machine take the VM boundary again (its remote chains run without the sandbox): ``widen``.
+            let reason = RemoteStrings.vmHostConfirmReason
+            return try await widen("vmHost", id, reason: reason, on: on, context, Self.host(setMachineVmHost, "machines")).map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.accounts.state": return try Self.host(accountsState, "accounts")()
         case "cmux.settings.accounts.run": return try await Self.host(accountsRun, "accounts")(params)
         case "cmux.settings.agents.state": return try Self.host(agents, "agents").pageState

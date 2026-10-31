@@ -1,3 +1,5 @@
+import { useContext } from "react";
+import { PullRequestDock, RowPullRequests } from "../summary/PullRequestDock";
 // A reply as it streams: the text flows in over display frames (StreamReveal) instead of in
 // bursts, one per acpmux delta. The same element shows the reply before and after the stream
 // ends, so nothing remounts when it settles.
@@ -224,6 +226,7 @@ function Revealed({
   messageAt?: number;
 }) {
   const { visible, fresh, now } = useStreamReveal(text, streaming);
+  const prs = useContext(RowPullRequests);
   // Until all of it shows, the reply draws as streaming: the frame after the stream ends still
   // lacks the last word, and parsed as finished, a span that word closes showed its raw Markdown.
   return (
@@ -233,6 +236,7 @@ function Revealed({
       now={now}
       githubRepository={githubRepository}
       messageAt={messageAt}
+      trailing={prs?.length ? <PullRequestDock /> : undefined}
     >
       {visible}
     </Markdown>
