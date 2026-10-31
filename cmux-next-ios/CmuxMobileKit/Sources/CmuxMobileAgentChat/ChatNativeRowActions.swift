@@ -50,7 +50,7 @@ enum ChatNativeRowActions {
                 switch hit {
                 case .openDiff(let file):
                     Task { @MainActor in openDiff(await context.changeSet(turnID: turnID, fallbackID: call.id), file: file) }
-                case .toggle(let key): ChatMotion.set { disclosures.set(key, true) }
+                case .toggle(let key): ChatMotion.disclose(surface.foldHold) { disclosures.set(key, true) }
                 default: break
                 }
             }
@@ -110,7 +110,7 @@ enum ChatNativeRowActions {
             break
         }
         actions.hit = { hit in
-            if case .toggle(let key) = hit { ChatMotion.set { disclosures.set(key, true) } }
+            if case .toggle(let key) = hit { ChatMotion.disclose(surface.foldHold) { disclosures.set(key, true) } }
         }
     }
 
@@ -134,6 +134,24 @@ enum ChatMotion {
             change()
         } else {
             withAnimation(.cmuxMobileSmooth) { change() }
+        }
+    }
+
+    /// How long a native row's disclosure holds the tapped line: the transcript reloads the
+    /// row later in this turn and its layout pass then plays on the shared spring.
+    static let discloseHoldSeconds: Double = 0.45
+
+    /// A native row's disclosure tap (a tool's output, a tool group, a thought), as the
+    /// SwiftUI rows' `toggleDisclosure`: the transcript holds the tapped line, so a reader
+    /// on the newest row is not carried to the new bottom past what they opened. The hold
+    /// ends once, after `discloseHoldSeconds` (the transcript's own 1.5 s cap backs it).
+    static func disclose(_ hold: TranscriptFoldHold, _ change: () -> Void) {
+        hold.begin()
+        set(change)
+        let end = hold.end
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(discloseHoldSeconds))
+            end()
         }
     }
 }
