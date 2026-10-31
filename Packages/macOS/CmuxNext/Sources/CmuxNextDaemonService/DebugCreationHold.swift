@@ -55,10 +55,15 @@ public final class DebugCreationHold {
         if number == nil { armed = [] }
     }
 
-    private var report: JSONValue {
-        .object(["armed": .array(armed.sorted().map { .number(Double($0)) }), "started": .number(Double(started)),
-                 "held": .array(waiting.keys.sorted().map { .number(Double($0)) }),
-                 "released": .array(released.sorted().map { .number(Double($0)) })])
+    /// The hold's state, in the control socket's own JSON type, taken from `call`'s params (CmuxNextDaemon has a
+    /// `JSONValue` too), one key per line, as `debug.daemon` builds its reply.
+    private func reply(_ call: ControlCall) -> ControlReply {
+        var report = call.params.filter { _ in false }
+        report["armed"] = .array(armed.sorted().map { .number(Double($0)) })
+        report["started"] = .number(Double(started))
+        report["held"] = .array(waiting.keys.sorted().map { .number(Double($0)) })
+        report["released"] = .array(released.sorted().map { .number(Double($0)) })
+        return .value(.object(report))
     }
 
     /// `debug.creation.hold` and `debug.creation.release`.
@@ -66,7 +71,9 @@ public final class DebugCreationHold {
         [
             .mainActor("debug.creation.hold") { [self] call in
                 let raw = call.params["n"]
-                let numbers = raw?.arrayValue?.compactMap(\.intValue) ?? raw?.intValue.map { [$0] } ?? []
+                var numbers: [Int] = []
+                if let list = raw?.arrayValue { numbers = list.compactMap(\.intValue) }
+                if let one = raw?.intValue { numbers = [one] }
                 guard !numbers.isEmpty, numbers.allSatisfy({ $0 > 0 }) else {
                     throw ControlError.invalidParams("debug.creation.hold: n is a creation number (1 = the next) or a list of them")
                 }
@@ -74,11 +81,11 @@ public final class DebugCreationHold {
                 armed = Set(numbers)
                 started = 0
                 released = []
-                return .value(report)
+                return reply(call)
             },
             .mainActor("debug.creation.release") { [self] call in
                 release(call.params["n"]?.intValue)
-                return .value(report)
+                return reply(call)
             },
         ]
     }
