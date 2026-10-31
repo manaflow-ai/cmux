@@ -473,20 +473,12 @@ import {
 import { ThreadTitle } from "./header/ThreadTitle";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
-import { LegacyPullRequestDock } from "./summary/PullRequestDockLegacy";
-import {
-  PullRequestDock,
-  RowPullRequests,
-  useTranscriptPullRequests,
-  legacyPullRequestDockMode,
-} from "./summary/PullRequestDock";
-import { PullRequestHostVisibility, usePullRequestPlacement } from "./summary/pullRequestPlacement";
-import { pullRequestRows as prSourceRows } from "./summary/pullRequestRows";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
-import { cloudPageRefusal, cloudStartToasted, oneCloudStart, type CloudStart } from "./cloudRun";
-import { folderRunLocation } from "./runLocationDefault";
+import { cloudPageRefusal, cloudStartFolder, cloudStartToasted, oneCloudStart, type CloudStart } from "./cloudRun";
+import { folderRunLocation, newChatRunLocation } from "./runLocationDefault";
+import { harnessLabel } from "./subagents/agentRuns";
 import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProgress } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
@@ -1287,7 +1279,7 @@ const MessageRow = memo(
     if (!replyActions) return reply;
     return (
       <>
-        <RowPullRequests.Provider value={undefined}>{reply}</RowPullRequests.Provider>
+        {reply}
         <ReplyActions row={row} />
       </>
     );
@@ -1896,8 +1888,6 @@ const RowFrame = React.memo(function RowFrame({
   tabStop,
   onFocus,
   onRowKeyDown,
-  pullRequests,
-  onPullRequestVisibility,
   referenceScope,
   children,
 }: {
@@ -1936,8 +1926,6 @@ const RowFrame = React.memo(function RowFrame({
   tabStop: boolean;
   onFocus: (id: string) => void;
   onRowKeyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
-  pullRequests?: React.ContextType<typeof RowPullRequests>;
-  onPullRequestVisibility?: (visible: boolean) => void;
   /// What the child row draws from, compared instead of `children` (a new element every render).
   contentType: unknown;
   controls?: string;
@@ -1968,11 +1956,7 @@ const RowFrame = React.memo(function RowFrame({
   );
   const rowTabStop = rovingTabStopProps(tabStop, handleKeyDown);
   const content = (
-    <ReferenceScopeContext.Provider value={referenceScope ?? null}>
-      <PullRequestHostVisibility.Provider value={onPullRequestVisibility}>
-        <RowPullRequests.Provider value={pullRequests}>{children}</RowPullRequests.Provider>
-      </PullRequestHostVisibility.Provider>
-    </ReferenceScopeContext.Provider>
+    <ReferenceScopeContext.Provider value={referenceScope ?? null}>{children}</ReferenceScopeContext.Provider>
   );
   useLayoutEffect(() => {
     if (entering) onEntered(row.id);
@@ -2351,7 +2335,6 @@ export function VirtualTranscript({
   githubRepository,
   fallbackRepository,
   sourceRows,
-  pullRequestRows,
   find,
   reveal,
   working = false,
@@ -2425,8 +2408,6 @@ export function VirtualTranscript({
   /// The client's rows, which still hold the work a closed "Worked for" folds away: where a bare
   /// `#N`'s repository is looked for (conversation/bareReferences.ts). Else `rows`.
   sourceRows?: readonly AcpmuxRow[];
-  /// Original producer snapshot: filtered rows lose its O(1) PR revision marker.
-  pullRequestRows?: readonly AcpmuxRow[];
   /// Find in Chat (chatFind.ts): its bar, the query to highlight and the match to bring into view.
   find?: ChatFind;
   /// A row to bring into view (a count on the running line, WorkingFor.tsx); a new `key` asks again.
@@ -2451,7 +2432,6 @@ export function VirtualTranscript({
   endReserve?: number;
 }) {
   const t = useT();
-  const pullRequests = useTranscriptPullRequests(pullRequestRows ?? sourceRows ?? rows, githubRepository);
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.span("vt.renders", 1);
@@ -3203,11 +3183,6 @@ export function VirtualTranscript({
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [rows, registry, sessionId, chatLook, scaledRowWidth]);
-  const {
-    rowId: prRow,
-    report: reportPullRequestHost,
-    fallback: pullRequestFallback,
-  } = usePullRequestPlacement(rows, estimated.layout, pullRequests.length > 0, sessionId);
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
@@ -3451,9 +3426,6 @@ export function VirtualTranscript({
   // window changes. Keep this signature primitive so scroll and layout state updates that leave
   // the mounted rows alone do not walk every text node in the transcript again.
   const mountedRangeKey = mountedRanges.map(({ first, last }) => `${first}:${last}`).join(",");
-  const fallbackPullRequests = pullRequestFallback((index) =>
-    mountedRanges.some(({ first, last }) => index >= first && index < last),
-  );
   // The scrolled rows only: a held row far from the view would widen every drawn-height search
   // (`measured`) to the rows between them. The held rows are looked up by index instead.
   if (lastPlaced.current) {
@@ -4820,8 +4792,6 @@ export function VirtualTranscript({
                       tabStop={tabStopId === row.id}
                       onFocus={rowFocus}
                       onRowKeyDown={handleRowKeyDown}
-                      pullRequests={row.id === prRow ? pullRequests : undefined}
-                      onPullRequestVisibility={row.id === prRow ? reportPullRequestHost : undefined}
                       contentType={Component}
                       controls={controls}
                       onToggleActivity={toggleRow}
@@ -4847,20 +4817,13 @@ export function VirtualTranscript({
           </div>
         </TranscriptContext>
       </div>
-      {(afterLatest || fallbackPullRequests) && (
+      {afterLatest && (
         <div
           className="acpmux-transcript-after-latest"
           // The dock is absolute over the stage. Keep an after-latest tray in flow above its
           // measured room so the composer never covers the expansion or its live tail.
           style={dockHeight > 0 ? { marginBottom: dockHeight } : undefined}
         >
-          {fallbackPullRequests && (
-            <div className="acpmux-pr-fallback">
-              <RowPullRequests.Provider value={pullRequests}>
-                <PullRequestDock />
-              </RowPullRequests.Provider>
-            </div>
-          )}
           {afterLatest}
         </div>
       )}
@@ -5117,7 +5080,7 @@ function AcpmuxPane() {
   // Debug measurement (acpmuxPerf): the pane's own render, before its children.
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
   const t = useT();
-  const { scrollToBottomOnSend } = useComposerSettings();
+  const { scrollToBottomOnSend, newChatsIn } = useComposerSettings();
   const scrollToBottomOnSendRef = useRef(scrollToBottomOnSend);
   scrollToBottomOnSendRef.current = scrollToBottomOnSend;
   /// A new chat's Run as (hq#3367): Persistent is the chat as before; Sandboxed runs the
@@ -7310,7 +7273,9 @@ function AcpmuxPane() {
     // Another Return while a start waits starts nothing, and the card keeps that start.
     if (!started) return false;
     cloudStartPending.current = true;
-    setCloudStart(cloudStartBegun(key, text, start.cwd));
+    setCloudStart(
+      cloudStartBegun(key, text, start.cwd, start.harness ? harnessLabel(start.harness) : undefined, start.home),
+    );
     void started.then((answer) => {
       cloudStartPending.current = false;
       setCloudStartsEnded((count) => count + 1);
@@ -7621,7 +7586,7 @@ function AcpmuxPane() {
         : undefined,
     [quick, inspectorLocal, remoteControlState],
   );
-  // Compact from Session Info's Context and the composer ring's card sends the agent's own /compact
+  // Compact from Session Info's Context sends the agent's own /compact
   // with the reach a context-full failure's Compact has: only where the agent lists it, never to a
   // View Only chat or a read-only pane, never the next chat during a switch's hold (#17537 had it on
   // the ring; #20454 dropped its wiring).
@@ -8354,12 +8319,27 @@ function AcpmuxPane() {
   /// went to a Cloud machine, else this Mac. Only while Cloud is offered, and only until the person
   /// picks in this pane. Sandboxed, or Cloud the person picked, is never changed; a Cloud default
   /// goes back to this Mac when the folder's history no longer says Cloud or Cloud is not offered.
+  /// Settings' Start New Chats In (`agentPane.newChatsIn`) set to Cloud makes it Cloud whatever the
+  /// folder's history says (newChatRunLocation); This Mac in the composer's picker still wins.
+  /// Never in a tab on another machine (SSH, Cloud): its chat stays on that machine, and the host
+  /// refuses `cloud.startChat` from it.
   const folderRunDefault = useMemo(
     () =>
-      sandboxOffered
-        ? folderRunLocation(composerSnapshot.summary?.cwd ?? newTab?.cwd, snapshot.sessions, snapshot.peerKinds)
+      sandboxOffered && !remoteChat
+        ? newChatRunLocation(
+            newChatsIn,
+            folderRunLocation(composerSnapshot.summary?.cwd ?? newTab?.cwd, snapshot.sessions, snapshot.peerKinds),
+          )
         : undefined,
-    [sandboxOffered, composerSnapshot.summary?.cwd, newTab?.cwd, snapshot.sessions, snapshot.peerKinds],
+    [
+      sandboxOffered,
+      remoteChat,
+      newChatsIn,
+      composerSnapshot.summary?.cwd,
+      newTab?.cwd,
+      snapshot.sessions,
+      snapshot.peerKinds,
+    ],
   );
   /// The chat the folder default last saw (its session, or the New Tab adoption it came with).
   const defaultedChat = useRef<string | undefined>(undefined);
@@ -10726,13 +10706,13 @@ function AcpmuxPane() {
     const fork = row("fork");
     const archive = row("archive");
     const archiveItem = archive
-      ? { ...archive, shortcutLabel: "A" }
+      ? { ...archive, accelerator: "A" }
       : {
           key: "archive",
           label: t("chatMenu.archive"),
           icon: "inbox",
           disabled: true,
-          shortcutLabel: "A",
+          accelerator: "A",
         };
     const moveChildren = [
       ...(moves.includes(CONNECT_ACTIONS.move) && moveTargets.length > 0
@@ -10752,24 +10732,24 @@ function AcpmuxPane() {
           ]
         : []),
     ];
+    // Two groups with one line between them, before the destructive pair, as Claude and ChatGPT
+    // draw it (design/menus.md); no line between every row.
     return guardedChatMenu(
       menuGroups(
-        rename ? [{ ...rename, shortcutLabel: "R" }] : [],
         [
-          // `F` only on a Fork row that runs: a submenu row (children, no onSelect) keeps no letter.
+          ...(rename ? [{ ...rename, accelerator: "R" }] : []),
+          // `F` only on a Fork row that runs: a submenu row (children, no onSelect) takes no letter.
           fork
             ? fork.onSelect
-              ? { ...fork, shortcutLabel: "F" }
+              ? { ...fork, accelerator: "F" }
               : fork
             : {
                 key: "fork",
                 label: t("chatMenu.fork"),
                 icon: "agent.fork",
                 disabled: true,
-                shortcutLabel: "F",
+                accelerator: "F",
               },
-        ],
-        [
           {
             key: "moveMachine",
             label: moves.includes(CONNECT_ACTIONS.move)
@@ -10781,8 +10761,6 @@ function AcpmuxPane() {
             disabled: moveChildren.length === 0,
             children: moveChildren,
           },
-        ],
-        [
           {
             key: "openIn",
             label: t("preview.openIn"),
@@ -10799,14 +10777,14 @@ function AcpmuxPane() {
             ],
           },
         ],
-        [archiveItem],
         [
+          archiveItem,
           {
             key: "delete",
             label: t("permission.verb.delete"),
             icon: "action.delete",
             onSelect: requestDelete,
-            shortcutLabel: "D",
+            accelerator: "D",
           },
         ],
       ),
@@ -11201,7 +11179,6 @@ function AcpmuxPane() {
                                                 <VirtualTranscript
                                                   rows={transcriptRows}
                                                   sourceRows={childRows ? undefined : sourceRows}
-                                                  pullRequestRows={prSourceRows(snapshot, childRows, subagentView)}
                                                   endReserve={previewBeside ? COMPUTER_USE_PREVIEW_RESERVE : 0}
                                                   working={snapshot.isWorking}
                                                   // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
@@ -11563,15 +11540,6 @@ function AcpmuxPane() {
   ) : (
     !reviewing && (
       <>
-        {legacyPullRequestDockMode() && (
-          <LegacyPullRequestDock
-            key={snapshot.sessionId}
-            rows={snapshot.rows}
-            repository={githubRepository ?? undefined}
-            sessionId={snapshot.sessionId}
-            onOpenChanges={inspector.reveal ? () => inspector.reveal!("changes") : undefined}
-          />
-        )}
         {recapCard.recap && (
           <RecapCard
             recap={recapCard.recap}
@@ -11771,7 +11739,6 @@ function AcpmuxPane() {
             chips={ComposerChips}
             permissionAccess={permissionAccess}
             onOpenContext={inspector.reveal ? () => inspector.reveal?.("context") : undefined}
-            onCompact={compactChat}
             draft={draft}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
             onTyping={quick ? undefined : postTyping}
@@ -11786,8 +11753,9 @@ function AcpmuxPane() {
               if (authBlock) return false;
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               if (cloudPicked) {
+                // The chat's project, copied to the machine; none: the machine's own folder (cloudStartFolder).
                 const refused = sendToCloud(text, chips?.length ?? 0, {
-                  ...(projectDraft ? { cwd: projectDraft } : {}),
+                  ...cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd),
                   ...heldPick(composerSnapshot),
                 });
                 if (refused) directClient.current?.notice(refused);
@@ -12401,7 +12369,7 @@ function AcpmuxPane() {
                         ) =>
                           sendToCloud(text, attachments.length, {
                             harness,
-                            ...(cwd ? { cwd } : {}),
+                            ...cloudStartFolder(cwd),
                             ...(model ? { model } : {}),
                           }),
                         onSandbox: (harness: string, text: string, attachments: ComposerAttachment[]) => {
