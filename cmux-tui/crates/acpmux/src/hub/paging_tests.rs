@@ -447,6 +447,21 @@ fn a_reply_fits_one_message_whatever_holds_its_bytes() {
     );
     assert_eq!(session["_meta"]["acpmux"]["omitted"]["fields"], json!(["sessionReceipt"]));
 
+    // Nor a record's envelope: an agent names its own sessionUpdate, which becomes the kind.
+    let mut kind = json!({
+        "session": {"sessionId": "s", "status": "idle"},
+        "events": [{"seq": 7, "at": 1, "dir": "in", "kind": "k".repeat(15 << 20), "msg": {"a": 1}}],
+        "turnOpener": null,
+    });
+    fit_reply(&mut kind);
+    let bytes = serde_json::to_string(&kind).unwrap().len();
+    assert!(bytes <= MAX_REPLY_BYTES, "{bytes}");
+    assert_eq!(
+        kind["events"][0],
+        json!({"seq": 7, "at": 1, "dir": "in", "kind": "", "msg": {"a": 1}})
+    );
+    assert_eq!(kind["session"], json!({"sessionId": "s", "status": "idle"}));
+
     // A reply that fits is left exactly as it is.
     let small =
         json!({"session": {"sessionId": "s"}, "events": [event(1, "a")], "turnOpener": null});

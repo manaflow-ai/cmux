@@ -258,6 +258,9 @@ const DETAIL_FIELDS: &[(&str, fn() -> Value)] = &[
 const IDENTITY_FIELDS: &[&str] =
     &["id", "qualifiedSessionId", "sessionReceipt", "status", "harness", "cwd", "peer"];
 
+/// A record envelope field (`kind`, `dir`) past this is given up with the record's `msg`.
+const ENVELOPE_FIELD_BYTES: usize = 1 << 10;
+
 /// `value`'s empty value of its own type: what a field given up becomes after the detail's.
 fn empty_like(value: &Value) -> Value {
     match value {
@@ -275,7 +278,8 @@ fn empty_like(value: &Value) -> Value {
 /// "this is completely hardlocked bc of message size").
 ///
 /// First the largest records' `msg` become [`omitted`] stubs, largest first, until the reply
-/// fits; every record keeps its seq, kind and time. The records are `events` (an array of
+/// fits; every record keeps its seq and time, and its kind unless that is past
+/// [`ENVELOPE_FIELD_BYTES`]. The records are `events` (an array of
 /// `_acpmux/event` values) and `turnOpener` (one). If it still does not fit, the `session`
 /// detail's own fields ([`DETAIL_FIELDS`]) go, largest first, and then any other field but
 /// the chat's identity ([`IDENTITY_FIELDS`]), each to its empty value and named in
@@ -289,32 +293,41 @@ pub fn fit_reply(reply: &mut Value) {
     if bytes <= MAX_REPLY_BYTES {
         return;
     }
-    let msg_bytes = |record: &Value| record.get("msg").map_or(0, size);
     let mut records: Vec<(String, usize)> = reply
         .get("events")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .enumerate()
-        .map(|(index, record)| (format!("/events/{index}/msg"), msg_bytes(record)))
+        .map(|(index, record)| (format!("/events/{index}"), size(record)))
         .collect();
     if let Some(opener) = reply.get("turnOpener").filter(|opener| opener.is_object()) {
-        records.push(("/turnOpener/msg".to_owned(), msg_bytes(opener)));
+        records.push(("/turnOpener".to_owned(), size(opener)));
     }
     records.sort_by_key(|(_, bytes)| std::cmp::Reverse(*bytes));
-    for (at, msg_size) in records {
+    for (at, record_size) in records {
         if bytes <= MAX_REPLY_BYTES {
             return;
         }
-        let stub = omitted(msg_size);
-        let stub_size = size(&stub);
-        // A stub no smaller than its record saves nothing; the smaller ones after it neither.
-        if stub_size >= msg_size {
-            break;
+        let Some(record) = reply.pointer_mut(&at).and_then(Value::as_object_mut) else {
+            continue;
+        };
+        // Each change only shrinks the record: a stub smaller than its msg, an empty value.
+        if let Some(msg) = record.get_mut("msg") {
+            let msg_size = size(&*msg);
+            let stub = omitted(msg_size);
+            if size(&stub) < msg_size {
+                *msg = stub;
+            }
         }
-        let Some(msg) = reply.pointer_mut(&at) else { continue };
-        *msg = stub;
-        bytes = bytes - msg_size + stub_size;
+        // The envelope too: an agent's own `sessionUpdate` name is its `kind`.
+        for (name, value) in record.iter_mut() {
+            if name != "seq" && name != "msg" && size(&*value) > ENVELOPE_FIELD_BYTES {
+                *value = empty_like(&*value);
+            }
+        }
+        let Some(record) = reply.pointer(&at) else { continue };
+        bytes = bytes - record_size + size(record);
     }
     let Some(session) = reply.get_mut("session").and_then(Value::as_object_mut) else { return };
     let mut left_out = Vec::new();
