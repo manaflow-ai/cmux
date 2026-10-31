@@ -64,6 +64,9 @@ public final class PushReplies {
     var headlessRunning: Bool { headlessSession.running }
     @ObservationIgnored private let headlessSession = HeadlessPushSession<LiveCoordinator>()
     @ObservationIgnored private var draining = false
+    /// A reply or App Group read belongs to the account generation in which it began.
+    @ObservationIgnored private var accountEpoch = 0
+    @ObservationIgnored private var foregroundTask: Task<Void, Never>?
     /// The first drain after a cold attach waits as long as a cold launch does (review #7).
     @ObservationIgnored private var coldAttach = true
     @ObservationIgnored private var activeObserver: NSObjectProtocol?
@@ -119,6 +122,20 @@ public final class PushReplies {
     func attach(live: LiveCoordinator) {
         self.live = live
         drainOutbox()
+    }
+
+    /// Sign-out drops foreground replies and pending routes owned by this
+    /// account. A queued App Group read or send from an older generation
+    /// cannot populate or deliver into the next signed-in account.
+    func signedOut() {
+        accountEpoch &+= 1
+        foregroundTask?.cancel()
+        foregroundTask = nil
+        waiting.removeAll()
+        live = nil
+        draining = false
+        coldAttach = true
+        NotificationRouter.shared.opened()
     }
 
     /// Waits for a headless delivery to end (RootView calls it before it
@@ -232,9 +249,17 @@ public final class PushReplies {
     }
 
     private func takeOutbox() async {
+        let epoch = accountEpoch
         guard let outbox = PushOutbox(group: await PushAppGroup.resolved()) else { return }
         // `take` claims each file by renaming it, so two drains never both take one reply.
         let replies = await Task.detached(priority: .userInitiated) { outbox.takeAll() }.value
+        acceptOutbox(replies, epoch: epoch)
+    }
+
+    /// An App Group read may finish after sign-out; its replies belong to the
+    /// previous account even if the next account has already attached.
+    func acceptOutbox(_ replies: [PushReply], epoch: Int) {
+        guard epoch == accountEpoch else { return }
         for reply in replies {
             NotificationRouter.shared.open(reply: reply)
             // Text into a terminal never comes from the outbox: anything in
@@ -269,10 +294,14 @@ public final class PushReplies {
         waiting = []
         let budget = coldAttach ? Self.coldBudget : LiveCoordinator.pushReplyBudget
         coldAttach = false
-        Task {
+        let epoch = accountEpoch
+        foregroundTask = Task {
             for reply in batch {
-                await self.send(reply, on: live, budget: budget)
+                guard !Task.isCancelled, epoch == self.accountEpoch else { return }
+                await self.send(reply, on: live, budget: budget, epoch: epoch)
             }
+            guard epoch == self.accountEpoch else { return }
+            self.foregroundTask = nil
             self.draining = false
             self.drain()
         }
@@ -282,17 +311,19 @@ public final class PushReplies {
     public func appStateChanged() { drain() }
 
     private func deliverInBackground(_ reply: PushReply) async {
+        let epoch = accountEpoch
         if let live {
-            await send(reply, on: live, budget: LiveCoordinator.pushReplyBudget)
+            await send(reply, on: live, budget: LiveCoordinator.pushReplyBudget, epoch: epoch)
             return
         }
         // One headless coordinator for every reply of a cold launch (the hub keeps one socket per device).
         await headlessSession.withCoordinator(create: { await self.headless() }, stop: { $0.stop() }) { coordinator in
+            guard epoch == self.accountEpoch else { return }
             guard let coordinator else {
                 await self.postCouldNotReach(reply, reason: String(localized: "Open cmux to sign in."))
                 return
             }
-            await self.send(reply, on: coordinator, budget: Self.coldBudget)
+            await self.send(reply, on: coordinator, budget: Self.coldBudget, epoch: epoch)
         }
     }
 
