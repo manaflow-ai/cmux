@@ -220,9 +220,55 @@ fn fit_sized(mut rec: EventRecord, bytes: usize, bounded: bool) -> (EventRecord,
     if !bounded || bytes <= MAX_RECORD_BYTES {
         return (rec, bytes);
     }
-    rec.msg = json!({"_meta": {"acpmux": {"omitted": {"bytes": bytes, "reason": "too_large"}}}});
+    rec.msg = omitted(bytes);
     let stub = record_bytes(&rec);
     (rec, stub)
+}
+
+/// What a record's `msg` becomes when no message can carry it: what it left out, and how much.
+pub fn omitted(bytes: usize) -> Value {
+    json!({"_meta": {"acpmux": {"omitted": {"bytes": bytes, "reason": "too_large"}}}})
+}
+
+/// The most a reply carrying records holds before its JSON-RPC envelope: the same one MiB room
+/// as a record's ([`MAX_RECORD_BYTES`]) for the id, the wrapper and a relaying peer's name.
+pub const MAX_REPLY_BYTES: usize = MAX_RECORD_BYTES;
+
+/// Makes a reply of records fit one message when each record fits but together they do not:
+/// `_acpmux/attach`'s page and its `turnOpener` each keep a record of up to
+/// [`MAX_RECORD_BYTES`], so two 8 MB prompts were a 16.9 MB reply refused as
+/// `message.too_large` at every open, and the chat never opened again (Leo, 2026-10-31: "this
+/// is completely hardlocked bc of message size"). The largest records' `msg` become
+/// [`omitted`] stubs, largest first, until the reply fits; every record keeps its seq, kind and
+/// time. The records are `events` (an array of `_acpmux/event` values) and `turnOpener` (one).
+pub fn fit_reply(reply: &mut Value) {
+    let size = |value: &Value| serde_json::to_string(value).map_or(usize::MAX, |text| text.len());
+    let mut bytes = size(reply);
+    if bytes <= MAX_REPLY_BYTES {
+        return;
+    }
+    let msg_bytes = |record: &Value| record.get("msg").map_or(0, size);
+    let mut records: Vec<(String, usize)> = reply
+        .get("events")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .map(|(index, record)| (format!("/events/{index}/msg"), msg_bytes(record)))
+        .collect();
+    if let Some(opener) = reply.get("turnOpener").filter(|opener| opener.is_object()) {
+        records.push(("/turnOpener/msg".to_owned(), msg_bytes(opener)));
+    }
+    records.sort_by_key(|(_, bytes)| std::cmp::Reverse(*bytes));
+    for (at, msg_size) in records {
+        if bytes <= MAX_REPLY_BYTES {
+            break;
+        }
+        let Some(msg) = reply.pointer_mut(&at) else { continue };
+        let stub = omitted(msg_size);
+        bytes = bytes.saturating_sub(msg_size.saturating_sub(size(&stub)));
+        *msg = stub;
+    }
 }
 
 /// One page of a session's log, oldest first.
