@@ -156,18 +156,18 @@ extension WindowManager {
     }
 
     private func isWindowHome(_ id: String) -> Bool { services.workspace(id: id)?.isWindowHome == true }
-    /// Refuses a move out of or into a window that keeps its own browser tabs (a daemon without frontend browser tabs):
-    /// keyed by pane id, which can repeat across machines, they would mix with a moved pane's or die with their window.
+    /// Refuses a move out of or into a window keeping its own browser tabs: keyed by pane id (repeats across machines).
     private func refuseLocalTabs(_ windows: [String]) throws {
         let keeps = windows.contains { states[$0]?.localBrowserTabs.all.isEmpty == false }
         if keeps { throw ActionFailure.invalidTarget(RefusalStrings.gatherLocalTabs) }
     }
 
-    /// Refuses a move out of a window still creating a workspace (claim, placement, lane, provisional row): it may anchor there.
+    /// Refuses a move out of a window still creating a workspace (claim, placement, lane, provisional row): it may anchor
+    /// there. A claim on a workspace the window already holds only protects one not reported yet (`protectIfUnknown`).
     private func refuseClosingCreating(_ windows: [String]) throws {
-        for window in windows { let rows = PendingWorkspaceRows.shared.rows
+        for window in windows { let rows = PendingWorkspaceRows.shared.rows, held = Set(registry.value.window(window)?.workspaceIDs ?? [])
             WorkspaceLanes.shared.prune(window) { self.services.workspace(id: $0) != nil }
-            if pendingClaims.values.contains(window) || pendingPlacements.values.contains(where: { $0.window == window })
+            if pendingClaims.contains(where: { $0.value == window && !held.contains($0.key) }) || pendingPlacements.values.contains(where: { $0.window == window })
                 || WorkspaceLanes.shared.outstandingCreates(in: window) > 0 || rows.contains(where: { $0.window == window }) {
                 throw ActionFailure.invalidTarget(RefusalStrings.gatherWhileCreating)
             }
