@@ -27,7 +27,8 @@ fn hosts_of(daemons: &[u32]) -> std::collections::BTreeMap<u32, String> {
             }
             let owner = args.split_whitespace().skip_while(|arg| *arg != "--owner").nth(1)?;
             let daemon: u32 = owner.rsplit_once('@')?.1.parse().ok()?;
-            daemons.contains(&daemon).then(|| (pid.parse().ok()?, args.to_string()))
+            let pid: u32 = pid.parse().ok()?;
+            daemons.contains(&daemon).then(|| (pid, args.to_string()))
         })
         .collect()
 }
