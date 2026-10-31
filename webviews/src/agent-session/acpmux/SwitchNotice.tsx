@@ -24,12 +24,7 @@ export function SwitchNotice({
   share?: MachineShareProps;
 }) {
   const t = useT();
-  const machineShare = useMachineShare(
-    share,
-    switching?.phase === "failed" ? switching : undefined,
-    onRetry,
-    onShared,
-  );
+  const machineShare = useMachineShare(share, switching?.phase === "failed" ? switching : undefined, onRetry, onShared);
   if (!switching || switching.phase === "starting") return null;
   if (switching.phase === "deferred")
     return <output className="acpmux-switch-notice">{t("switch.deferred", { agent: switching.name })}</output>;
