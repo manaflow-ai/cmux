@@ -20,18 +20,29 @@ package final class ChildProcess: Sendable {
     private let executable: URL
     private let arguments: [String]
     private let environment: [String: String]
+    private let input: Data?
 
-    package init(executable: URL, arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment) {
+    /// A bounded secret is written before launch; inherited Native sockets use start(inheritedInput:).
+    package init(executable: URL, arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment,
+                 input: Data? = nil) {
         self.executable = executable
         self.arguments = arguments
         self.environment = environment
+        self.input = input
         (lines, continuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingNewest(256))
     }
 
-    package func start(input: Data? = nil) throws {
-        let input = try input.map(ChildProcessInput.init)
-        try launch(standardInput: input?.pipe.fileHandleForReading ?? FileHandle.nullDevice)
-        do { try input?.send() } catch { terminateProcessOnly(); throw error }
+    package func start() throws {
+        let stdin = input.map { _ in Pipe() }
+        if let stdin, let input {
+            // The read end remains ours and the payload fits the pipe's 16 KB
+            // buffer, so this pre-launch write cannot block or raise SIGPIPE.
+            guard input.count <= 16 * 1024 else { throw CocoaError(.fileWriteOutOfSpace) }
+            let writer = stdin.fileHandleForWriting
+            defer { try? writer.close() }
+            try writer.write(contentsOf: input)
+        }
+        try launch(standardInput: stdin?.fileHandleForReading ?? FileHandle.nullDevice)
     }
 
     /// A private socket inherited as stdin, for the owned Native link only.
