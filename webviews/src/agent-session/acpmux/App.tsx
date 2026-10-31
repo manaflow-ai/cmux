@@ -4552,14 +4552,21 @@ export function VirtualTranscript({
       setFoldRoom(end);
     };
     const beginBottomStackFold = (toggle: HTMLElement, line: HTMLElement): boolean => {
+      const closing = toggle.getAttribute("aria-expanded") === "true";
       if (!atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)) {
+        stopBottomStackFold();
+        return false;
+      }
+      // The pinned stack is for tool-call disclosures. Other transcript folds retain their
+      // clicked-line anchor, and Reduce Motion has no compositor stack to pin.
+      if (!toggle.matches(".cv-tool.is-toggle") || foldMs(toggle) <= 0) {
+        if (closing && toggle.matches(".cv-tool.is-toggle")) keepBottomFoldRoom();
         stopBottomStackFold();
         return false;
       }
       stopBottomStackFold();
       // On close, preserve the expanded end as blank room. On open, an already sticky room is
       // part of the reader's chosen end; only transient, non-bottom room is discarded.
-      const closing = toggle.getAttribute("aria-expanded") === "true";
       if (closing) keepBottomFoldRoom();
       else if (!stickyFoldRoom.current) dropFoldRoom();
       const stack: BottomStackFold = {
