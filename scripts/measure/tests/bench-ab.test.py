@@ -90,9 +90,9 @@ class Statistics(unittest.TestCase):
                                             for _ in range(12)]}) for i, jm in enumerate(rng.gauss(0, 2) for _ in range(3))]
                         for arm in ("before", "after")}
                 v = bench_ab.compare("instant-x", arms, seed=seed)["rows"][0]["verdict"]
-                false += sum(x == "REGRESSION" for x in v.values())
-                total += len(v)
-            self.assertLessEqual(false / total, 0.03)
+                false += v["p50"] == "REGRESSION"  # p95/p99 are too-few at 36 samples: judge p50 alone
+                total += 1
+            self.assertLessEqual(false / total, 0.05)
         finally:
             bench_ab.BOOT = saved
 
@@ -148,6 +148,33 @@ class Extractors(unittest.TestCase):
         self.assertEqual(r["unit"], "replicate")
         self.assertEqual(set(r["verdict"]), {"p50"})
         self.assertEqual(r["jobs_a"], 4)
+
+    def test_rounds_of_one_job_stay_one_job(self):
+        # typing-frame and terminal-resize keep 2 rounds per fleet job: the job is the unit (review of 03e16dac747).
+        def doc(vals):
+            return {"layouts": [{"layout": "light", "rounds": [{"frames": {"missed": v}} for v in vals]}]}
+        tmp = tempfile.mkdtemp()
+        write_jobs(tmp, "resize", [(1, "before", doc([1, 1])), (2, "before", doc([2, 2])), (1, "after", doc([9, 9]))])
+        r = row(bench_ab.compare("resize", bench_ab.load(tmp, "resize")), "light", "frames.missed")
+        self.assertEqual((r["jobs_a"], r["jobs_b"], r["n_b"]), (2, 1, 2))
+        self.assertEqual(r["verdict"]["p50"], "too-few")  # one B job, however many rounds
+
+    def test_replicate_rows_with_rounds_rarely_give_a_false_regression(self):
+        bench_ab.BOOT, saved = 300, bench_ab.BOOT
+        try:
+            false = 0
+            for seed in range(80):
+                rng = random.Random(seed)
+                def job():
+                    m = 10 + rng.gauss(0, 3)
+                    return {"layouts": [{"layout": "light", "rounds": [{"frames": {"missed": m + rng.gauss(0, .3)}}
+                                                                       for _ in range(2)]}]}
+                arms = {"before": [(i, job()) for i in range(4)], "after": [(i, job()) for i in range(4)]}
+                r = row(bench_ab.compare("resize", arms, seed=seed), "light", "frames.missed")
+                false += r["verdict"]["p50"] == "REGRESSION"
+            self.assertLessEqual(false / 80, 0.05)
+        finally:
+            bench_ab.BOOT = saved
 
     def test_launch_typing_resize(self):
         self.assertEqual(bench_ab.samples_launch({"t": {"cold": [{"first_frame": 200}, {"first_frame": 210}]}}),

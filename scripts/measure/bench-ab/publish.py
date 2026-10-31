@@ -31,7 +31,9 @@ def fmt(v):
     return f"{val:g} [{ci[0]:g}, {ci[1]:g}]" if ci else f"{val:g}"
 
 
-def jobs(plans, bench):
+def jobs(plans, bench, base="", tip=""):
+    """This tip's ended jobs of BENCH: keys that name the base or the tip commit (earlier tips' jobs stay out)."""
+    shas = tuple(x[:8] for x in (base, tip) if x)
     out = []
     for path in sorted(glob.glob(os.path.join(plans, "**", f"{bench}.state*.jsonl"), recursive=True)):
         with open(path) as f:
@@ -41,7 +43,7 @@ def jobs(plans, bench):
                 r = json.loads(line)
             except ValueError:
                 continue
-            if r.get("job") and r.get("result") in ENDED:
+            if r.get("job") and r.get("result") in ENDED and (not shas or any(x in r["key"] for x in shas)):
                 out.append(f"{r['key'].replace('bench-', '')} {r['job'][:8]} {r['result']}")
     return out
 
@@ -62,7 +64,7 @@ def section(tip, base, plans, benches, note="", rng_text=""):
     regressions = []
     for bench in benches:
         res = bench_ab.compare(bench, bench_ab.load(os.path.join(plans, "artifacts"), bench, base, tip))
-        lines += [f"### {bench}", "", f"Jobs: {'; '.join(jobs(plans, bench)) or 'none ended'}. "
+        lines += [f"### {bench}", "", f"Jobs: {'; '.join(jobs(plans, bench, base, tip)) or 'none ended'}. "
                   f"Artifacts: A {res['jobs_a']}, B {res['jobs_b']}.", ""]
         rows = [r for r in res["rows"] if r["unit"] == "sample" or r["metric"] in HEAD_METRICS]
         if not rows:

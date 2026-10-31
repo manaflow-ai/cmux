@@ -30,7 +30,8 @@ tip (scripts/measure/tests/bench-ab.test.py checks it over many seeds).
 
 The unit of resampling is the raw sample where the bench keeps it ("sample": instant-new-surfaces runs[], bench-startup
 runs), else one value per job or round ("replicate": every-action rows keep only their own p50/p95, typing-frame and
-terminal-resize keep one value per round). A replicate row is judged on its median only.
+terminal-resize keep one value per round, and a job's rounds stay together as that job). A replicate row is judged on
+its median only, and needs MIN_JOBS jobs in each arm and in each A/A half.
 """
 import glob, json, os, random, re, sys
 
@@ -235,9 +236,9 @@ def compare(bench, arms, seed=SEED):
         b = [v for j in b_jobs for v in j]
         if not a or not b:
             continue
+        # The fleet job is the unit: a job's rounds (typing-frame, terminal-resize --rounds) share one launch on one
+        # mini, so they stay together in the job's list; the two-level bootstrap draws jobs, then rounds in each job.
         a_jobs, b_jobs = [j for j in a_jobs if j], [j for j in b_jobs if j]
-        if unit == "replicate":  # one value per job: the job is the sample
-            a_jobs, b_jobs = [[v] for v in a], [[v] for v in b]
         ja, jb = len(a_jobs), len(b_jobs)
         a1, a2 = a_jobs[0::2], a_jobs[1::2]
         row = {"key": key, "metric": metric, "unit": unit, "jobs_a": ja, "jobs_b": jb, "n_a": len(a), "n_b": len(b),
@@ -258,7 +259,7 @@ def compare(bench, arms, seed=SEED):
             row["aa"][st] = ([round(f(flat2) - f(flat1), 2), boot_delta(a1, a2, f, rng)] if flat1 and flat2
                              else [None, None])
             if unit == "replicate":
-                aa_jobs = (len(a1), len(a2))
+                aa_jobs = (len(a1), len(a2))  # values per job are few: each A/A half needs MIN_JOBS jobs
             else:
                 aa_jobs = (MIN_JOBS, MIN_JOBS) if a1 and a2 else (0, 0)  # raw samples: one job per half is enough
             row["verdict"][st] = verdict(row["delta"][st][1], row["aa"][st][1], ja, jb, aa_jobs,
