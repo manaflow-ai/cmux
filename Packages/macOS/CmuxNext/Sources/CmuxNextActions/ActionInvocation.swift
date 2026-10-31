@@ -48,6 +48,8 @@ public nonisolated enum ActionOrigin: String, Sendable, Hashable, CaseIterable {
 /// CLI `--target`, or nil for "the focused one") and the collected arguments.
 public nonisolated struct ActionInvocation: Sendable, Hashable {
     public var target: ActionTargetRef?
+    /// Namespace of a native menu's target. It identifies its owner, never grants authority.
+    public var targetMachineID: String?
     public var arguments: [String: ActionValue]
     /// In-app runs are the user's; the control socket sets its caller's.
     public var origin: ActionOrigin
