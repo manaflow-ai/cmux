@@ -433,7 +433,7 @@ mod macos {
     }
 
     /// Whether `trust`'s chain verifies as of `at` (Core Foundation absolute
-    /// time); the error names the trust failure.
+    /// time); the error is the trust failure's result code.
     fn chain_verifies(trust: CFTypeRef, at: f64) -> Result<(), String> {
         // SAFETY: no pointers; CFDateCreate copies the value.
         let date = Cf::new(
@@ -454,9 +454,7 @@ mod macos {
             // SAFETY: the error is a live CFError.
             .map(|error| unsafe { CFErrorGetCode(error.0) })
             .unwrap_or(0);
-        Err(format!(
-            "its CMS signature's certificate chain does not verify (certificate result {code})"
-        ))
+        Err(format!("certificate result {code}"))
     }
 
     /// The team ID (certificate OU) of the single CMS signer over
@@ -536,10 +534,26 @@ mod macos {
             // own time, its secure timestamp (a time-stamping authority's
             // signed time), else the signing time the signer signed. A time
             // after `now` is never used, and no time at all keeps the refusal.
-            let signed_at = signer_time(decoder.0)
-                .filter(|at| *at <= now)
-                .ok_or(at_now)?;
-            chain_verifies(trust.0, signed_at)?;
+            let refused = |why: &str, result: String| {
+                format!("its CMS signature's certificate chain does not verify {why} ({result})")
+            };
+            match signer_time(decoder.0) {
+                None => {
+                    return Err(refused(
+                        "as of now, and the signature has no secure timestamp or signing time",
+                        at_now,
+                    ));
+                }
+                Some(at) if at > now => {
+                    return Err(refused(
+                        "as of now, and the signature is dated after now",
+                        at_now,
+                    ));
+                }
+                Some(at) => chain_verifies(trust.0, at).map_err(|result| {
+                    refused("as of now or as of the signature's own time", result)
+                })?,
+            }
         }
         // SAFETY: trust is live.
         let chain = Cf::new(
