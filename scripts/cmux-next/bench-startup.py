@@ -188,6 +188,54 @@ def app_pids(tag):
     return pgrep(f"{bundle_root(tag)}.*/Contents/MacOS/")
 
 
+# A process of the tag that is still alive LINGER_LIMIT_S after the app's own quit is a finding, not harness noise
+# (coordinator 2026-10-31: the same class as the orphan-daemon P0). The bench reports every such process, then waits
+# for it, and never ends it itself: a run that has to wait says so in the report (`linger`), so it cannot be hidden.
+LINGER_LIMIT_S = 10.0
+LINGER_WAIT_S = 60.0
+
+
+def process_rows(pids):
+    """[{pid, ppid, cpu, etime, command}] of the live pids (ps); a pid that exited is left out."""
+    if not pids:
+        return []
+    out = subprocess.run(["ps", "-o", "pid=,ppid=,%cpu=,etime=,command=", "-p", ",".join(map(str, pids))],
+                         capture_output=True, text=True).stdout
+    rows = []
+    for line in out.splitlines():
+        parts = line.split(None, 4)
+        if len(parts) == 5 and parts[0].isdigit():
+            rows.append({"pid": int(parts[0]), "ppid": int(parts[1]), "cpu": float(parts[2]), "etime": parts[3],
+                         "command": parts[4][:240]})
+    return rows
+
+
+def watch_linger(tag, quit_at):
+    """After the app's quit: every process of the bundle with /Contents/MacOS/ (the app, its CEF helpers, a bundled
+    daemon), each one's exit time after the quit, and the ones alive past LINGER_LIMIT_S. Waits up to LINGER_WAIT_S;
+    ends nothing. Returns the report (also printed as one BENCH-LINGER line)."""
+    first = process_rows(app_pids(tag))
+    exits, start = {}, {r["pid"]: r for r in first}
+    deadline = quit_at + LINGER_WAIT_S
+    while True:
+        live = set(app_pids(tag))
+        now = time.monotonic()
+        for pid in start:
+            if pid not in live and pid not in exits:
+                exits[pid] = round(now - quit_at, 2)
+        if not (live & set(start)) or now >= deadline:
+            break
+        time.sleep(0.25)  # bench: a process list read, bounded by the deadline
+    still = process_rows(sorted(set(app_pids(tag)) & set(start)))
+    report = {"at_quit": first, "exit_s": exits, "past_limit": [p for p, s in exits.items() if s > LINGER_LIMIT_S],
+              "still_running_after_s": LINGER_WAIT_S if still else None, "still": still}
+    print("BENCH-LINGER " + json.dumps(report), flush=True)
+    for row in still:
+        print(f"  LINGER: {row['pid']} ppid {row['ppid']} cpu {row['cpu']} % up {row['etime']}: {row['command']}",
+              flush=True)
+    return report
+
+
 def wait_exit(pids, timeout):
     """Blocks until every pid exited (kqueue NOTE_EXIT) or the timeout passes."""
     queue = select.kqueue()
@@ -241,13 +289,19 @@ class Launch:
             **(extra_env or {}),
         }
         with finder_limits() as changed:  # the limits a Finder launch gets (bench_launch.py, Resource limits)
+            # The bench's own clock (pre-main gap owner, STATUS 1800): the app's marks count from the kernel's
+            # p_starttime, so the time before Popen and the arrival of each mark are kept too. main_start's arrival
+            # minus spawned_at is the spawn-to-main time this process saw, independent of p_starttime.
+            self.spawned_at = time.monotonic()
             self.process = subprocess.Popen([app_binary(tag)], env=env, stdout=subprocess.DEVNULL,
                                             stderr=subprocess.DEVNULL, start_new_session=True, pass_fds=(write_fd,))
+            self.popen_returned_at = time.monotonic()
         print(f"bench-startup: app limits {limits_line(changed)}", file=sys.stderr, flush=True)
         os.close(write_fd)
         self.read_fd = read_fd
         self.buffer = b""
         self.marks = {}
+        self.arrived = {}  # mark -> ms after spawned_at when its line arrived on the pipe (the bench's clock)
 
     def wait_for(self, mark, timeout, any_of=False):
         """Reads marks until `mark` (or every mark of a list; with `any_of`,
@@ -270,6 +324,8 @@ class Launch:
             for line in lines:
                 name, _, ms = line.decode().partition(" ")
                 if name and ms:
+                    if name not in self.marks:
+                        self.arrived.setdefault(name, round((time.monotonic() - self.spawned_at) * 1000, 1))
                     self.marks.setdefault(name, float(ms))
         return True
 
@@ -492,12 +548,20 @@ def one_run(tag, mode, timeout, profile=None):
             launch.stalls = launch_stalls(tag)
     finally:
         launch.quit()
+        launch.linger = watch_linger(tag, time.monotonic())
     if not reached:
         missing = [mark for mark in final if mark not in launch.marks]
         print(f"  {tag} {mode}: {', '.join(missing)} not reached within {timeout} s", file=sys.stderr)
+    marks = dict(launch.marks)
     if getattr(launch, "stalls", None) is not None:
-        return {**launch.marks, "stalls": launch.stalls}
-    return launch.marks
+        marks["stalls"] = launch.stalls
+    marks["linger"] = launch.linger
+    marks["bench_clock"] = {"popen_ms": round((launch.popen_returned_at - launch.spawned_at) * 1000, 1),
+                            "arrived_ms": {k: launch.arrived[k] for k in ("main_start", "first_window_frame_committed",
+                                                                          FINAL_MARK, AGENT_MARK) if k in launch.arrived}}
+    print("BENCH-CLOCK " + json.dumps({"mode": mode, **marks["bench_clock"],
+                                       "app_main_start_ms": launch.marks.get("main_start")}), flush=True)
+    return marks
 
 
 def launch_stalls(tag):
