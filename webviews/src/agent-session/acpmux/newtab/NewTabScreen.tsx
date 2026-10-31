@@ -16,6 +16,7 @@ import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
 import { WorktreeFailure } from "../startFolder";
+import { errorMessage } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
@@ -120,7 +121,7 @@ export type NewTabScreenActions = NewTabCommandActions & {
     noProject?: boolean,
     attachments?: ComposerAttachment[],
     saved?: { peer?: string },
-  ): void;
+  ): unknown;
   onOpen(url: string): void;
   onSearch(text: string): void;
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
@@ -192,6 +193,7 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// The page goes with an unsent draft (a typed prompt, staged attachments): handed over so the
   /// view that replaces it can keep it (the tab's Sandboxed run taking the chat view).
   onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;
+  startNotice?: React.ReactNode;
 };
 
 /// The agent's model, effort and speed chip (App's composer chips), for the agent and project a
@@ -577,6 +579,27 @@ export function NewTabScreen(props: Props) {
   /// the box, and the prompt stays. Tagged with the run it refused: Auto may send to Cloud while the
   /// Run as mode is Persistent.
   const [sandboxRefusal, setSandboxRefusal] = useState<{ run: "cloud" | "sandboxed"; code: string }>();
+  const [startError, setStartError] = useState<string>();
+  const asking = useRef(false);
+  const requestChat = (...args: Parameters<NewTabScreenActions["onAsk"]>) => {
+    if (asking.current) return;
+    asking.current = true;
+    setStartError(undefined);
+    const failed = (error: unknown) => {
+      setStartError(errorMessage(error) || t("switch.unknownError"));
+      created.current = false;
+    };
+    try {
+      Promise.resolve(props.onAsk(...args))
+        .catch(failed)
+        .finally(() => {
+          asking.current = false;
+        });
+    } catch (error) {
+      failed(error);
+      asking.current = false;
+    }
+  };
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
     if (targetAuthPending || authBlocksSend(targetAuth)) return false;
@@ -597,11 +620,11 @@ export function NewTabScreen(props: Props) {
     }
     if (environment) return askInEnvironment(environment, agent, prompt, model);
     if (auto?.to === "machine")
-      return props.onAsk(agent, prompt, auto.cwd, model, undefined, attachments.length ? attachments : undefined, {
+      return requestChat(agent, prompt, auto.cwd, model, undefined, attachments.length ? attachments : undefined, {
         peer: auto.environment.id,
       });
     if (machine)
-      return props.onAsk(
+      return requestChat(
         agent,
         prompt,
         machine.folder,
@@ -612,8 +635,8 @@ export function NewTabScreen(props: Props) {
           peer: machine.peer,
         },
       );
-    if (attachments.length > 0) return props.onAsk(agent, prompt, cwd, model, none || undefined, attachments);
-    return none ? props.onAsk(agent, prompt, cwd, model, true) : props.onAsk(agent, prompt, cwd, model);
+    if (attachments.length > 0) return requestChat(agent, prompt, cwd, model, none || undefined, attachments);
+    return none ? requestChat(agent, prompt, cwd, model, true) : requestChat(agent, prompt, cwd, model);
   };
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
   const remembered = useLastPick(chatFolder);
@@ -1277,9 +1300,9 @@ export function NewTabScreen(props: Props) {
   function askInEnvironment(picked: SavedEnvironment, agent: string, prompt: string, model?: string) {
     const extra = attachments.length > 0 ? attachments : undefined;
     if (picked.kind === "ssh")
-      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, { peer: picked.host });
+      return requestChat(agent, prompt, picked.folder, model, undefined, extra, { peer: picked.host });
     if (!picked.worktree || !picked.folder || !props.onNewWorktree)
-      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, {});
+      return requestChat(agent, prompt, picked.folder, model, undefined, extra, {});
     if (worktreePending.current) return;
     worktreePending.current = true;
     const choice = ++projectChoice.current;
@@ -1293,7 +1316,7 @@ export function NewTabScreen(props: Props) {
       (folder) => {
         if (!folder || choice !== projectChoice.current) return unstarted();
         worktreePending.current = false;
-        props.onAsk(agent, prompt, folder, model, undefined, extra, {});
+        requestChat(agent, prompt, folder, model, undefined, extra, {});
       },
       (error: unknown) => {
         unstarted();
@@ -1603,6 +1626,13 @@ export function NewTabScreen(props: Props) {
         {authBlocksSend(targetAuth) && (
           <p className="acpmux-composer-remote-note" role="alert">
             {targetAuthText}
+          </p>
+        )}
+        {props.startNotice}
+
+        {startError && (
+          <p role="alert" className="acpmux-switch-notice">
+            {startError}
           </p>
         )}
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
