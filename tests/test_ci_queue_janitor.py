@@ -1201,6 +1201,8 @@ class FakeGitHub(janitor.GitHub):
             if run_id in self.unreadable_jobs or self.runs.get(run_id, {}).get("head_branch") in self.unreadable_branches:
                 raise RuntimeError(f"GET /actions/runs/{run_id}/jobs failed (502)")
             return {"jobs": self.job_map.get(run_id, [])}
+        if method == "POST" and parts[2] == "jobs" and parts[-1] == "rerun":
+            return {}
         if method == "POST" and parts[-1] == "rerun-failed-jobs":
             if run_id in self.refuse_rerun:
                 raise RuntimeError(f"POST /actions/runs/{run_id}/rerun-failed-jobs failed (403)")
@@ -2224,19 +2226,280 @@ class LostJobDetectionTests(unittest.TestCase):
         # Still queued is no evidence.
         self.assertEqual(janitor.skipped_by_pool(job, since, [unassigned_job(age=35)]), 0)
 
-    def test_wait_starts_when_the_runs_last_other_job_finished(self):
-        # A job record can exist before its needs finished; the wait starts when it could run.
+    def test_wait_starts_when_the_last_job_it_may_need_finished(self):
+        # A sibling created before the job may be one of its needs; the wait starts when it could run.
         job = unassigned_job(age=60)
-        gate = started_job(age=60, status="completed", label=LINUX)
+        gate = started_job(age=61, status="completed", label=LINUX)
         gate["completed_at"] = iso(20)
         self.assertEqual(janitor.lost_wait_start(job, [job, gate]), janitor.parse_time(iso(20)))
         self.assertEqual(janitor.lost_wait_start(job, [job]), janitor.parse_time(iso(60)))
+        # A sibling with no created_at may be a need too.
+        undated = dict(gate, created_at=None)
+        self.assertEqual(janitor.lost_wait_start(job, [job, undated]), janitor.parse_time(iso(20)))
+        # GitHub creates a job only once its needs finished: a sibling created with it or later is no need.
+        for age in (60, 50):
+            with self.subTest(sibling_created_minutes_ago=age):
+                sibling = started_job(age=age, status="completed", label=LINUX)
+                sibling["completed_at"] = iso(20)
+                self.assertFalse(janitor.may_need(job, sibling))
+                self.assertEqual(janitor.lost_wait_start(job, [job, sibling]), janitor.parse_time(iso(60)))
 
     def test_a_gated_job_is_not_lost_before_it_could_run_for_thirty_minutes(self):
-        gate = started_job(age=60, status="completed", label=LINUX)
+        gate = started_job(age=61, status="completed", label=LINUX)
         gate["completed_at"] = iso(20)
         stuck, other, jobs = lost_world(age=60, evidence_age=15, siblings=[gate])
         self.assertEqual(janitor.find_lost([stuck, other], jobs, now=NOW), {})
+
+
+def recorded_jobs(history, at):
+    """Job records as the jobs API showed them at `at`, from (id, name, label, created, started, completed, runner).
+
+    A job appears once created; a runner shows from its start; `completed` None means it was still unfinished at
+    the end of the record. A job with no label is one that was skipped when it was created.
+    """
+    when = janitor.parse_time(at)
+    jobs = []
+    for job_id, name, label, created, started, completed, runner in history:
+        if janitor.parse_time(created) > when:
+            continue
+        job = {"id": job_id, "name": name, "labels": [label] if label else [], "created_at": created,
+               "started_at": started or created, "completed_at": None, "conclusion": None, "runner_id": 0,
+               "runner_name": None, "status": "queued"}
+        if not label:
+            job.update(status="completed", conclusion="skipped", completed_at=created)
+        elif completed and janitor.parse_time(completed) <= when:
+            job.update(status="completed", conclusion="success", completed_at=completed, runner_id=runner,
+                       runner_name=f"runner-{runner}")
+        elif runner and started and janitor.parse_time(started) <= when:
+            job.update(status="in_progress", runner_id=runner, runner_name=f"runner-{runner}")
+        jobs.append(job)
+    return jobs
+
+
+# Run 41158893861 attempt 1, as the jobs API recorded it: (id, name, label, created, started, completed, runner).
+GHOSTTYKIT_LABEL = "blacksmith-4vcpu-ubuntu-2404"
+LINUX_32 = "blacksmith-32vcpu-ubuntu-2404"
+GHOSTTYKIT_RUN_HISTORY = (
+    (124411760843, "changes", GHOSTTYKIT_LABEL, "2026-10-31T02:12:02Z", "2026-10-31T02:18:00Z", "2026-10-31T02:18:12Z", 5323721),
+    (124411761827, "Fast static checks", None, "2026-10-31T02:12:02Z", None, None, None),
+    (124411798261, "CI fast guards", None, "2026-10-31T02:12:11Z", None, None, None),
+    (124413283263, "GhosttyKit release check", GHOSTTYKIT_LABEL, "2026-10-31T02:18:12Z", None, None, None),
+    (124413283312, "web / web-subarea-scope", GHOSTTYKIT_LABEL, "2026-10-31T02:18:12Z", "2026-10-31T02:29:57Z",
+     "2026-10-31T02:30:24Z", 5327146),
+    (124413283459, "web / runners / Resolve runner capabilities", GHOSTTYKIT_LABEL, "2026-10-31T02:18:12Z",
+     "2026-10-31T02:43:45Z", "2026-10-31T02:43:49Z", 5331201),
+    *((job_id, name, None, "2026-10-31T02:18:12Z", None, None, None) for job_id, name in (
+        (124413284096, "macos"), (124413284415, "guards"), (124413284463, "Dogfood build"),
+        (124413284512, "remote-daemon"), (124413284665, "browser"))),
+    (124416184629, "web / react-apps-check (4)", LINUX_32, "2026-10-31T02:30:24Z", "2026-10-31T02:30:27Z",
+     "2026-10-31T02:57:37Z", 5327215),
+    (124416184651, "web / react-apps-check (1)", LINUX_32, "2026-10-31T02:30:24Z", "2026-10-31T02:30:27Z",
+     "2026-10-31T02:54:30Z", 5327221),
+    (124416184652, "web / react-apps-check (3)", LINUX_32, "2026-10-31T02:30:24Z", "2026-10-31T02:30:27Z",
+     "2026-10-31T02:42:57Z", 5327228),
+    (124416184731, "web / react-apps-check (2)", LINUX_32, "2026-10-31T02:30:24Z", "2026-10-31T02:30:37Z",
+     "2026-10-31T02:43:21Z", 5327226),
+    *((job_id, name, None, "2026-10-31T02:30:24Z", None, None, None) for job_id, name in (
+        (124416185471, "web / web-production-build"), (124416185700, "web / web-typecheck"),
+        (124416185767, "web / web-instant-navigation"), (124416185799, "web / Web tests"),
+        (124416185996, "web / web-db-migrations"), (124416186228, "web / diff-sidecar-check"))),
+    (124419203091, "web / react-doctor", "blacksmith-16vcpu-ubuntu-2404", "2026-10-31T02:43:49Z",
+     "2026-10-31T02:43:51Z", "2026-10-31T02:54:20Z", 5330616),
+    (124422166158, "web / webviews-test-durations", GHOSTTYKIT_LABEL, "2026-10-31T02:57:37Z", "2026-10-31T03:13:00Z",
+     "2026-10-31T03:13:04Z", 5339621),
+    *((job_id, f"web / react-apps-base-check ({shard})", LINUX_32, "2026-10-31T02:57:37Z", "2026-10-31T02:57:41Z",
+       done, runner) for job_id, shard, done, runner in (
+        (124422166175, 1, "2026-10-31T03:05:29Z", 5335039), (124422166177, 2, "2026-10-31T02:59:03Z", 5335090),
+        (124422166204, 4, "2026-10-31T02:59:29Z", 5334949), (124422166224, 3, "2026-10-31T02:58:59Z", 5335187))),
+    (124422167396, "web / webviews-test-history", None, "2026-10-31T02:57:37Z", None, None, None),
+)
+
+
+class LostBesideLaterSiblingsTests(unittest.TestCase):
+    """Run 41158893861 (PR #28749, CI, 2026-10-31): a lost job beside siblings created after it.
+
+    `GhosttyKit release check` (job 124413283263, blacksmith-4vcpu-ubuntu-2404, needs `changes`) was created at
+    02:18:12Z and queued with runner_id 0 until 02:59:09Z, while a newer job on its label started (the janitor's
+    own sweep job 124415812116: created 02:28:45Z, started 02:42:40Z). The jobs created after it at 02:30:24Z,
+    02:43:49Z and 02:57:37Z cannot be its needs (GitHub creates a job once its needs finished), but each of
+    them unfinished gated it (_gated()), and each completion moved its wait start (lost_wait_start()), so it
+    was never found lost. The history below is the jobs API's record of attempt 1.
+    """
+
+    LABEL = GHOSTTYKIT_LABEL
+    SHA = "7f1a501dcb390a02ca61e8485c445bd1dcc45a8a"
+    HISTORY = GHOSTTYKIT_RUN_HISTORY
+
+    def world(self, at):
+        run = {"id": 41158893861, "event": "pull_request", "status": "queued", "run_attempt": 1,
+               "head_branch": "lane/orch-lane-report-ui", "head_sha": self.SHA, "path": ".github/workflows/ci.yml",
+               "name": "CI", "created_at": "2026-10-31T02:12:01Z", "triggering_actor": {"login": "teamleaderleo"},
+               "head_repository": {"full_name": "manaflow-ai/cmux", "owner": {"login": "manaflow-ai"}},
+               "pull_requests": [{"number": 28749}]}
+        sweep = make_run(event="schedule", branch="main", sha="ddd", path=".github/workflows/ci-queue-janitor.yml",
+                         name="CI queue janitor")
+        evidence = recorded_jobs([(124415812116, "Sweep wasted macOS demand", self.LABEL, "2026-10-31T02:28:45Z",
+                                   "2026-10-31T02:42:40Z", "2026-10-31T02:45:58Z", 5330856)], at)
+        return run, sweep, {run["id"]: recorded_jobs(self.HISTORY, at), sweep["id"]: evidence}
+
+    def stuck(self, jobs, run):
+        return next(job for job in jobs[run["id"]] if job["id"] == 124413283263)
+
+    def test_its_wait_starts_when_it_was_created_not_when_a_later_sibling_finished(self):
+        for at in ("2026-10-31T02:48:30Z", "2026-10-31T02:57:39Z"):
+            with self.subTest(at=at):
+                run, _, jobs = self.world(at)
+                stuck = self.stuck(jobs, run)
+                self.assertEqual(stuck["status"], "queued")
+                # Before the fix: 02:43:49Z (`web / runners`) at 02:48:30Z, and 02:57:37Z at 02:57:39Z.
+                self.assertEqual(janitor.lost_wait_start(stuck, jobs[run["id"]]),
+                                 janitor.parse_time("2026-10-31T02:18:12Z"))
+
+    def test_it_is_lost_from_02_48_and_fails_over_at_the_open_head(self):
+        # 30 minutes after 02:18:12Z, react-apps-check (1) and (4) and react-doctor were running (created 02:30Z
+        # and 02:43Z) and `web / runners` had just finished (02:43:49Z); at 02:57:39Z the react-apps-base-check
+        # shards had been created and were queued. None of them can be its need, and the run cannot finish
+        # without it, so it is lost at both: the cancel's re-run of failed (cancelled) jobs brings them back too.
+        for at in ("2026-10-31T02:48:30Z", "2026-10-31T02:57:39Z"):
+            with self.subTest(at=at):
+                self.assert_fails_over(at)
+        # Not before its 30 minutes.
+        run, sweep, jobs = self.world("2026-10-31T02:48:00Z")
+        self.assertEqual(janitor.find_lost([run, sweep], jobs, now=janitor.parse_time("2026-10-31T02:48:00Z")), {})
+
+    def assert_fails_over(self, at):
+        now = janitor.parse_time(at)
+        run, sweep, jobs = self.world(at)
+        lost = janitor.find_lost([run, sweep], jobs, now=now)
+        self.assertEqual(lost[run["id"]].job_name, "GhosttyKit release check")
+        self.assertEqual(lost[run["id"]].labels, self.LABEL)
+        self.assertEqual(lost[run["id"]].job_id, 124413283263)
+        # `web / runners`, created the same second, is no newer job; the sweep job is.
+        self.assertEqual(lost[run["id"]].skipped, 1)
+        pr = make_pr(28749, head=self.SHA)
+        result = janitor.build_plan([run, sweep], jobs, {run["head_branch"]: [pr], "main": []}, threshold=6,
+                                    max_cancels=10, pull_request_policy="compile-only", now=now, rerun_state=True,
+                                    cmux_bot_rerun=True)
+        decision = decision_for(result, run)
+        self.assertEqual((decision.action, decision.candidate.category), ("cancel", "lost"))
+        self.assertTrue(decision.candidate.rerun and decision.candidate.open_head)
+        # Nothing failed: the run's failed (cancelled) jobs are re-run, the later siblings with it.
+        self.assertIsNone(decision.candidate.rerun_job)
+        self.assertIn("PR #28749", decision.candidate.reason)
+
+    def test_a_sibling_created_before_it_still_gates_it(self):
+        # One that may be its need, still running, or queued in a backed-up pool (no newer job on its label
+        # started): the job may be waiting on it.
+        now = janitor.parse_time("2026-10-31T02:57:39Z")
+        for status, runner in (("in_progress", 11), ("queued", 0)):
+            with self.subTest(status=status):
+                run, sweep, jobs = self.world("2026-10-31T02:57:39Z")
+                gate = dict(self.stuck(jobs, run), id=1, name="earlier gate", status=status, runner_id=runner,
+                            runner_name=f"runner-{runner}" if runner else None,
+                            labels=["blacksmith-8vcpu-ubuntu-2404"], created_at="2026-10-31T02:15:00Z")
+                jobs[run["id"]].append(gate)
+                self.assertEqual(janitor.find_lost([run, sweep], jobs, now=now), {})
+
+
+class LostInAFailedRunTests(unittest.TestCase):
+    """Run 41150189497 (PR #28544, cmux-next, 2026-10-31): a lost job in a run that had already failed.
+
+    `cmux-next fast tier` (job 124387425580, glaeda-side-std-xcode-26.6) was created at 00:36:11Z and queued
+    with runner_id 0 until a person cancelled the run at 03:11:49Z and re-ran it by hand, while newer jobs on
+    its label ran. Every sweep found it lost ("queued 48m with no runner while 1 newer job(s) on
+    `glaeda-side-std-xcode-26.6` started", 02:28Z) and kept it: `cmux-next swift test` had failed at 01:35:23Z,
+    and open_head_lost() refused any run that already failed, because a re-run of its failed jobs would repeat
+    that red. It was the run's only unfinished job, so cancelling the run kills nothing else, and re-running
+    that one job (POST /actions/jobs/{id}/rerun) keeps the red as it is.
+    """
+
+    SIDE_LABEL = "glaeda-side-std-xcode-26.6"
+    SHA = "f36beccbd8df0bdf692914d81d2eee6873df8928"
+    AT = "2026-10-31T02:28:30Z"
+
+    def world(self):
+        history = [
+            (124384817073, "cmux-next push head preflight", LINUX, "2026-10-31T00:27:20Z", "2026-10-31T00:30:44Z",
+             "2026-10-31T00:30:47Z", 5292677),
+            (124384817218, "cmux-next path routing", LINUX, "2026-10-31T00:27:20Z", "2026-10-31T00:30:43Z",
+             "2026-10-31T00:31:01Z", 5292676),
+            (124385904142, "cmux-next fleet Release compile", LINUX, "2026-10-31T00:31:01Z", "2026-10-31T00:31:02Z",
+             "2026-10-31T01:01:00Z", 5292739),
+            (124385904145, "cmux-next macOS placement", LINUX, "2026-10-31T00:31:01Z", "2026-10-31T00:35:59Z",
+             "2026-10-31T00:36:11Z", 5294236),
+            (124387425580, "cmux-next fast tier", self.SIDE_LABEL, "2026-10-31T00:36:11Z", None, None, None),
+            (124387425614, "cmux-next app compile (build fleet)", "glaeda-gateway-xcode-26.6",
+             "2026-10-31T00:36:11Z", "2026-10-31T00:36:14Z", "2026-10-31T00:41:27Z", 5143970),
+            (124387425690, "cmux-next swift test", "glaeda-gui-std-xcode-26.6", "2026-10-31T00:36:11Z",
+             "2026-10-31T01:30:30Z", "2026-10-31T01:35:23Z", 2782327),
+            (124387427841, "cmux-next Swift canary", None, "2026-10-31T00:36:11Z", None, None, None),
+            (124403018305, "cmux-next generated files (shared build)", "blacksmith-2vcpu-ubuntu-2404",
+             "2026-10-31T01:35:24Z", "2026-10-31T01:35:26Z", "2026-10-31T01:35:31Z", 5311369),
+        ]
+        jobs = recorded_jobs(history, self.AT)
+        for job in jobs:
+            if job["name"] in ("cmux-next swift test", "cmux-next generated files (shared build)"):
+                job["conclusion"] = "failure"
+        run = {"id": 41150189497, "event": "pull_request", "status": "queued", "run_attempt": 1,
+               "head_branch": "lane/ux-chat-link-right-pane", "head_sha": self.SHA,
+               "path": ".github/workflows/cmux-next.yml", "name": "cmux-next · 669c45fc6f2e6d3287cd22a9fd08a0c23a94b15a",
+               "created_at": "2026-10-31T00:26:39Z", "triggering_actor": {"login": "teamleaderleo"},
+               "head_repository": {"full_name": "manaflow-ai/cmux", "owner": {"login": "manaflow-ai"}},
+               "pull_requests": [{"number": 28544}]}
+        other = make_run(event="pull_request", branch="another-pr", sha="ccc", path=".github/workflows/cmux-next.yml",
+                         name="cmux-next · ccc", status="in_progress")
+        served = recorded_jobs([(1, "cmux-next fast tier", self.SIDE_LABEL, "2026-10-31T01:50:00Z",
+                                 "2026-10-31T01:52:00Z", None, 77)], self.AT)
+        return run, other, {run["id"]: jobs, other["id"]: served}, {run["head_branch"]: [make_pr(28544, head=self.SHA)],
+                                                                    "another-pr": []}
+
+    def plan(self, runs, jobs, prs):
+        return janitor.build_plan(runs, jobs, prs, threshold=6, max_cancels=10, pull_request_policy="compile-only",
+                                  now=janitor.parse_time(self.AT), rerun_state=True, branch_heads={},
+                                  app_rerun=True, cmux_bot_rerun=True)
+
+    def test_the_lost_job_alone_is_cancelled_and_re_run(self):
+        run, other, jobs, prs = self.world()
+        lost = janitor.find_lost([run, other], jobs, now=janitor.parse_time(self.AT))
+        self.assertEqual((lost[run["id"]].job_name, lost[run["id"]].job_id), ("cmux-next fast tier", 124387425580))
+        decision = decision_for(self.plan([run, other], jobs, prs), run)
+        self.assertEqual((decision.action, decision.candidate.category), ("cancel", "lost"))
+        self.assertTrue(decision.candidate.rerun and decision.candidate.open_head)
+        self.assertEqual(decision.candidate.rerun_job, 124387425580)
+        self.assertIn("only the lost job is re-run", decision.candidate.reason)
+        entry, = janitor.new_lost_reruns([decision.candidate], {run["id"]: "cancelled"}, now=janitor.parse_time(self.AT))
+        self.assertEqual((entry["job_id"], entry["open_head"]), (124387425580, True))
+
+    def test_another_unfinished_job_keeps_the_red_rule(self):
+        # A cancel would kill it, and a one-job re-run would not bring it back.
+        run, other, jobs, prs = self.world()
+        jobs[run["id"]].append(dict(jobs[run["id"]][-1], id=2, name="still running", status="in_progress",
+                                    conclusion=None, completed_at=None, created_at="2026-10-31T00:20:00Z"))
+        decision = decision_for(self.plan([run, other], jobs, prs), run)
+        self.assertTrue(decision is None or decision.action == "skip")
+        # And a lost job whose id the listing did not give keeps it too.
+        run, other, jobs, prs = self.world()
+        for job in jobs[run["id"]]:
+            if job["name"] == "cmux-next fast tier":
+                del job["id"]
+        decision = decision_for(self.plan([run, other], jobs, prs), run)
+        self.assertEqual((decision.action, decision.note), ("skip", janitor.OPEN_HEAD_RULE))
+        self.assertIn("already failed", decision.candidate.reason)
+
+    def test_the_re_run_posts_the_job_not_the_runs_failed_jobs(self):
+        fake = FakeGitHub({})
+        fake.app_token = True
+        entry = {"run_id": 41150189497, "attempt": 1, "head_sha": self.SHA, "branch": "lane/ux-chat-link-right-pane",
+                 "cancelled_at": self.AT, "open_head": True, "job_id": 124387425580}
+        pending, results, failures = janitor.rerun_lost(fake, [janitor.LostRerun(entry, "rerun", "", None)])
+        self.assertEqual((pending, failures), ([], 0))
+        self.assertEqual(results, {41150189497: "re-ran job 124387425580"})
+        self.assertEqual(fake.app_only_posts, ["/repos/manaflow-ai/cmux/actions/jobs/124387425580/rerun"])
+        # Never on the workflow's token: cmux-bot's re-run or none, as for the run's failed jobs.
+        workflow_only = FakeGitHub({})
+        pending, results, failures = janitor.rerun_lost(workflow_only, [janitor.LostRerun(entry, "rerun", "", None)])
+        self.assertEqual((len(pending), failures), (1, 1))
+        self.assertEqual(workflow_only.app_only_posts, [])
 
 
 class LostAssignmentPlanTests(unittest.TestCase):
