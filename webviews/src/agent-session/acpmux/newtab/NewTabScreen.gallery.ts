@@ -1146,6 +1146,23 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="ask"][aria-selected="true"]'));
       },
     },
+    "typed-hover-ask": {
+      note: 'Leo 2026-10-31 ("i cant even press enter on that hello anymore it doesnt send it to claude"): "hello" typed, the pointer on New browser tab. The pointer only lights that item; Ask Claude Code keeps the selection and its Return glyph, so Return sends the prompt.',
+      ready: newTab({ projects: [CWD] }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("hello", { selector: ".nt-field" });
+        await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="ask"][aria-selected="true"]'));
+        const browser = () =>
+          [...ctx.document.querySelectorAll<HTMLElement>(".nt-create-strip-item")].find(
+            (item) => item.querySelector(".nt-row-title")?.textContent === "New browser tab",
+          );
+        await ctx.waitFor(() => browser() !== undefined);
+        browser()!.dataset.galleryHover = "";
+        // What Return takes is asserted in test/new-tab-hover-enter.test.tsx; this state is the picture.
+        await ctx.hover({ selector: ".nt-create-strip-item[data-gallery-hover]" });
+      },
+    },
     "typed-tab-match-stage": {
       note: "The Default template's stage layout with text that matches open tabs: the composer at the foot, so the rows open above it (popup-escape).",
       ready: newTab({ template: "default", omnibar: RELEASE_OMNIBAR }),
