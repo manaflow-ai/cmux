@@ -80,6 +80,12 @@ OWNED_FAMILY = re.compile(
 )
 
 
+def owned_class(label: str) -> str:
+    """An owned label's class (std, light, xl), or "" for any other label."""
+    match = OWNED_FAMILY.fullmatch(label or "")
+    return match.group("class") if match else ""
+
+
 def owned_family(label: str) -> str:
     """Return a namespace-qualified family key for any owned label."""
     match = OWNED_FAMILY.fullmatch(label or "")
