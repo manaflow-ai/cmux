@@ -809,7 +809,7 @@ fn json_rpc_lifecycle_and_errors() {
         .handle(&json!({"jsonrpc": "2.0", "id": "i", "method": "initialize",
                         "params": {"protocolVersion": "1999-01-01"}}))
         .unwrap();
-    assert_eq!(newest["result"]["protocolVersion"], PROTOCOL_VERSIONS[0]);
+    assert_eq!(newest["result"]["protocolVersion"], acpmux::secret_mcp::PROTOCOL_VERSIONS[0]);
     assert_eq!(
         server.handle(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"})),
         None

@@ -98,8 +98,6 @@ pub(super) fn agent_failure_value(failure: CallFailure) -> Value {
     error
 }
 
-/// MCP revisions this server speaks, newest first.
-const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 /// The largest JSON-RPC line read from the client.
 const MAX_MESSAGE_BYTES: usize = 8 << 20;
 /// The largest tool result; a larger page is cut and says where to go on.
@@ -1187,13 +1185,8 @@ impl<B: Backend> Server<B> {
 }
 
 fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
-    let requested = params["protocolVersion"].as_str();
-    let version = PROTOCOL_VERSIONS
-        .iter()
-        .find(|version| Some(**version) == requested)
-        .unwrap_or(&PROTOCOL_VERSIONS[0]);
     json!({
-        "protocolVersion": version,
+        "protocolVersion": acpmux::secret_mcp::protocol_version(params),
         "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
         "instructions": format!(
