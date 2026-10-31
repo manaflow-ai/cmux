@@ -21,7 +21,7 @@ struct GatherWindowsTests {
     static let keys = ["k0", "k1", "k2", "k3"]
     static func room(of key: String) -> ProfileID { rooms[keys.firstIndex(of: key)! / 2] }
 
-    static func services() throws -> AppServices {
+    static func services(storeHome: Bool = false) throws -> AppServices {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.machines.local.store
@@ -43,6 +43,12 @@ struct GatherWindowsTests {
         }
         workspaces.append(WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 9), key: WorkspaceKey(rawValue: "wh"), name: "Home",
                                             screens: screen(9, [page, TabSnapshot(surface: 209)])))
+        if storeHome { // the store's own Home (`kind` home), in no space
+            var home = WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 10), key: WorkspaceKey(rawValue: "hs"), name: "Home",
+                                         screens: screen(10, [TabSnapshot(surface: 210)]))
+            home.kind = "home"
+            workspaces.append(home)
+        }
         var tree = DaemonTree(registryID: "s-local", workspaces: workspaces)
         tree.personal = PersonalState(
             sessions: [SessionRecord(id: "s-local")],
@@ -203,6 +209,22 @@ struct GatherWindowsTests {
         #expect(registry.window(here.state.id)?.workspaceIDs.contains("wh") == false, "Merge All took a window's Home")
         #expect(registry.window(there.state.id)?.isOpen != true, "the merged window stayed open")
         #expect(services.workspace(id: "wh") != nil, "the merged window's Home was closed")
+    }
+
+    /// The store's Home stays in its window too: moved beside the destination's own Home, one of the two would be out of reach.
+    @Test func theStoresHomeStaysWithItsWindow() throws {
+        let services = try Self.services(storeHome: true)
+        defer { Self.closeAll(services) }
+        #expect(services.workspace(id: "hs")?.isAnyHome == true)
+        let here = try Self.open(["k0", "wh"], services), there = try Self.open(["k2", "hs"], services)
+        services.windows.select("k2", in: there.state)
+
+        try services.windows.bringSpace(Self.rooms[1], into: here.state)
+        #expect(services.windows.registry.value.window(here.state.id)?.workspaceIDs.contains("hs") == false, "Move Space took the store's Home")
+        #expect(services.windows.registry.value.window(there.state.id)?.workspaceIDs.contains("hs") == true)
+
+        try services.windows.mergeWindows(into: here.state)
+        #expect(services.windows.registry.value.window(here.state.id)?.workspaceIDs.contains("hs") == false, "Merge All took the store's Home")
     }
 
     /// Nothing to move but another window's Home: the plain switch it falls back to leaves that Home there.
