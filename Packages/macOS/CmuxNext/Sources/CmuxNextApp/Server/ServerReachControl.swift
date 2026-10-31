@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextSettings
 import Foundation
