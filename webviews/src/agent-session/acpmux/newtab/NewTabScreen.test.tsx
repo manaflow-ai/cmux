@@ -235,18 +235,19 @@ test("the location bar has no New Worktree control; the folder menu still offers
       <NewTabScreen
         {...firstRunProps}
         cwd="/Users/you/src/cmux"
+        startCwd="/Users/you/src/cmux"
         projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
         environments
         onNewWorktree={async () => undefined}
       />,
     );
   });
-  const strip = container.querySelector(".acpmux-composer-context");
+  const strip = container.querySelector(".acpmux-composer-context")!;
   expect(strip).toBeTruthy();
-  const buttons = [...strip!.querySelectorAll("button")].map((button) => button.textContent?.trim());
+  const buttons = [...strip.querySelectorAll("button")].map((button) => button.textContent?.trim());
   expect(buttons.some((text) => text?.includes("New Worktree"))).toBe(false);
-  const folder = strip!.querySelector<HTMLButtonElement>('[aria-label="Folder"]');
-  expect(folder).toBeTruthy();
+  const folder = strip.querySelector<HTMLButtonElement>('[aria-label="Folder"]');
+  expect(folder?.textContent).toContain("cmux");
   await act(async () => folder!.click());
   const options = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((o) => o.textContent?.trim());
   expect(options).toContain("New Worktree");
