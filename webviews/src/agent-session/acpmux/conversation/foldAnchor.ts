@@ -19,14 +19,17 @@ import { foldMs } from "./fold";
 /// (a button or a `role="button"` line with `aria-expanded`: a tool or sent message's line, Show
 /// more, Show all lines, Raw, a file list's "+N more"), a `<summary>`, and the words of a line that
 /// toggle with its button (`data-interactive` inside an agent message's line). A menu's trigger
-/// (`aria-haspopup`) opens no body in the row and is left out.
+/// (`aria-haspopup`) opens no body in the row and is left out. An `aria-pressed` button is held only
+/// when it says it changes its block's height (`data-fold-toggle`: Wrap lines, a tool output's Raw):
+/// a reply's Pin and Read aloud are `aria-pressed` too, and holding them would stop following a
+/// reply that streams on.
 export const FOLD_TOGGLE = [
   "button[aria-expanded]:not([aria-haspopup])",
   '[role="button"][aria-expanded]:not([aria-haspopup])',
   "summary",
   ".cv-agentmsg__line > [data-interactive]",
-  // Toggles that change their block's height in place: Wrap lines, a diagram's chart or code.
-  "button[aria-pressed]",
+  // Toggles that change their block's height in place: Wrap lines, Raw, a diagram's chart or code.
+  "button[aria-pressed][data-fold-toggle]",
   "button.cv-diagram__toggle",
 ].join(", ");
 /// The controls a click lands on: one inside a toggle is its own, not the toggle's.

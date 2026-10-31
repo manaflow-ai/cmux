@@ -11,6 +11,7 @@ import {
   foldHolding,
   foldRoomFor,
   foldToggleAt,
+  holdFold,
   keepFold,
   trimmedFoldRoom,
   verticalWheel,
@@ -92,7 +93,16 @@ describe("foldToggleAt", () => {
       "span",
     ],
     ["a summary", "<details><summary>Context</summary>body</details>", "summary"],
-    ["a block's Wrap lines", '<button class="cv-codeblock__action" aria-pressed="false">wrap</button>', "button"],
+    [
+      "a block's Wrap lines",
+      '<button class="cv-codeblock__action" aria-pressed="false" data-fold-toggle="">wrap</button>',
+      "button",
+    ],
+    [
+      "a tool output's Raw",
+      '<button class="cv-tool-output__raw" aria-pressed="false" data-fold-toggle="">Raw</button>',
+      "button",
+    ],
     ["a diagram's chart or code", '<button class="cv-diagram__toggle">Code</button>', "button"],
     ["a question's pill", '<button class="acpmux-question-pill" aria-expanded="false">Q</button>', "button"],
     ["a permission's details", '<button class="acpmux-ask-toggle" aria-expanded="false">Details</button>', "button"],
@@ -100,6 +110,40 @@ describe("foldToggleAt", () => {
   ] as const) {
     test(`holds ${kind}`, () => {
       expect(row(html).at(selector)).toBeDefined();
+    });
+  }
+  // A reply's own actions change nothing in its row's height: Pin and Read aloud are `aria-pressed`
+  // like Wrap lines, but a click on one while the reply streams must neither hold the row nor stop
+  // following the latest reply (App.tsx's folding pass calls follow(false) for a held line).
+  for (const [kind, html] of [
+    [
+      "a reply's Pin",
+      '<button class="cv-iconbtn cv-iconbtn--compact cv-message-pin" aria-pressed="false" aria-label="Pin">p</button>',
+    ],
+    [
+      "a reply's Read aloud",
+      '<button class="cv-iconbtn cv-iconbtn--compact cv-read-aloud" aria-pressed="false" aria-label="Read aloud">r</button>',
+    ],
+    [
+      "a reply's Read aloud while it reads (Stop)",
+      '<button class="cv-iconbtn cv-iconbtn--compact cv-read-aloud" aria-pressed="true" data-reading="true">s</button>',
+    ],
+  ] as const) {
+    test(`leaves ${kind} alone, so a click while a reply streams neither holds nor unfollows`, () => {
+      const { document, scroller } = row(
+        `<div class="cv-agentmsg">streaming…</div><div class="cv-turn-actions cv-reply-actions"><span class="cv-turn-action-group">${html}</span></div>`,
+      );
+      const button = document.querySelector<HTMLElement>(".cv-turn-action-group button")!;
+      // What App.tsx's pointerdown and click handlers do with the press and the click.
+      const press = foldToggleAt(button, scroller);
+      const pressed = press ? holdFold(foldHoldTarget(press, scroller)) : undefined;
+      const click = foldToggleAt(button, scroller);
+      const anchor = click ? clickFold(foldHoldTarget(click, scroller), pressed) : undefined;
+      expect(press).toBeUndefined();
+      expect(anchor).toBeUndefined();
+      // The next placement pass: nothing held, so it is no folding pass and follows the latest row.
+      const folding = Boolean(anchor && keepFold(anchor, scroller));
+      expect(folding).toBe(false);
     });
   }
   test("leaves a menu's trigger alone", () => {
