@@ -842,6 +842,84 @@ test("an older save that fails after a newer save of the same row began does not
   expect(unhandled).toEqual([]);
 });
 
+// Two rows saved, then both calls fail in one batch (one bridge reconnect): the first reopens its editor
+// with its text; the second waits, keeps its text, and reopens when the first editor closes. Neither
+// overwrites the other's recovery, and a waiting row that has gone hands its text to the composer.
+async function twoFailedSaves() {
+  const calls: { reject(error: Error): void }[] = [];
+  const lost: [string, string][] = [];
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  const container = installDom();
+  const draw = (rows: typeof queue) =>
+    root!.render(
+      <ComposerQueue
+        queue={rows}
+        chat="c"
+        t={t}
+        onChange={() => new Promise<boolean>((_, reject) => calls.push({ reject }))}
+        onRemove={async () => true}
+        onLost={(text, id) => lost.push([id, text])}
+      />,
+    );
+  await act(async () => {
+    root = createRoot(container);
+    draw(queue);
+  });
+  const saveAs = async (id: string, text: string) => {
+    await startEdit(container, id);
+    const field = container.querySelector<HTMLTextAreaElement>(`[data-prompt-id="${id}"] textarea`)!;
+    await act(async () => {
+      field.value = text;
+      field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+  };
+  await saveAs("p-1", "one edited");
+  await saveAs("p-2", "two edited");
+  const notConnected = () => Object.assign(new Error("not connected"), { code: "native.not_connected" });
+  await act(async () => {
+    calls[0]!.reject(notConnected());
+    calls[1]!.reject(notConnected());
+  });
+  await settle();
+  await settle();
+  process.off("unhandledRejection", onUnhandled);
+  const editor = (id: string) => container.querySelector<HTMLTextAreaElement>(`[data-prompt-id="${id}"] textarea`);
+  const escape = (id: string) =>
+    act(async () => {
+      editor(id)!.dispatchEvent(
+        new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+      );
+    });
+  return { lost, unhandled, editor, escape, redraw: (rows: typeof queue) => act(async () => draw(rows)) };
+}
+
+test("two saves that fail in one batch each keep their text: the second reopens when the first editor closes", async () => {
+  const run = await twoFailedSaves();
+  expect(run.editor("p-1")?.value).toBe("one edited");
+  expect(run.editor("p-2")).toBeNull();
+  expect(run.lost).toEqual([]);
+  await run.escape("p-1");
+  await settle();
+  expect(run.editor("p-1")).toBeNull();
+  expect(run.editor("p-2")?.value).toBe("two edited");
+  expect(run.lost).toEqual([]);
+  expect(run.unhandled).toEqual([]);
+});
+
+test("a waiting recovery whose row is gone when the editor frees hands its text to the composer", async () => {
+  const run = await twoFailedSaves();
+  await run.redraw([queue[0]!]);
+  await run.escape("p-1");
+  await settle();
+  expect(run.lost).toEqual([["p-2", "two edited"]]);
+  expect(run.editor("p-2")).toBeNull();
+});
+
 for (const [name, error] of [
   ["timed out", { code: "native.timed_out" }],
   ["closed", { code: "transport.closed" }],
