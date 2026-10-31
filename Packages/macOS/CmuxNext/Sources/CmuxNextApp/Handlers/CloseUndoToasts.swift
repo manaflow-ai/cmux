@@ -157,7 +157,7 @@ final class CloseUndoToasts {
         // A close of a tab whose page was deciding (the page's own close after it decided, a close
         // button): that decision is over; the close below starts a new one if the page decides again.
         for part in parts { for id in part.ids { undoToasts?.pageClosing.end(id.rawValue) } }
-        let parts = (undoToasts?.pageDecidedCloses.absorb(parts) ?? parts).map { (pane: $0.pane, ids: $0.ids.filter { !pending.contains($0) }) }.filter { !$0.ids.isEmpty }
+        let parts = (undoToasts?.pageDecidedCloses.absorb(parts) ?? parts).map { part in (pane: part.pane, ids: part.ids.filter { !pending.contains($0) }) }.filter { !$0.ids.isEmpty }
         guard let first = parts.first?.pane else { return }
         let user = isUserClose, services = first.services, daemon = first.daemon
         let tabs = parts.flatMap { part in part.ids.compactMap(part.pane.tab) }

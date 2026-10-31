@@ -43,7 +43,7 @@ extension PaneHandlers {
             // Either way the window drops the stand-in and the focus goes to a live pane in this turn (showCancelledCreation).
             if invocation.target == nil, let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelSplit(showing: id) { ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window); return content.showCancelledCreation() }
             guard let pane = ctx.daemonPane(invocation) else { return }
-            if ctx.services.daemon(for: pane).cancelCreation(pane: pane.handle) { return ctx.services.paneController(for: pane)?.workspace?.showCancelledCreation() }
+            if ctx.services.daemon(for: pane).cancelCreation(pane: pane.handle) { ctx.services.paneController(for: pane)?.workspace?.showCancelledCreation(); return }
             // A person's close in the Home Chief pane keeps the pane and says why; the CLI and MCP
             // still ask and get the daemon's `dock-column-pinned` refusal (home-chief-pane.md).
             if invocation.origin == .user, ctx.services.paneController(for: pane)?.isPinnedDockPane == true {
