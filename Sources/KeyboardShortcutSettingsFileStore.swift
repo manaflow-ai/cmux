@@ -60,6 +60,7 @@ final class CmuxSettingsFileStore {
     private var socketPasswordObserver: NSObjectProtocol?
 
     private var shortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
+    private var shortcutBindingsByAction: [KeyboardShortcutSettings.Action: [ConfiguredShortcutBinding]] = [:]
     private var managedShortcutActions: Set<KeyboardShortcutSettings.Action> = []
     private var whenClausesByAction: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
     private var activeManagedUserDefaults: [String: ManagedSettingsValue] = [:]
@@ -165,6 +166,7 @@ final class CmuxSettingsFileStore {
         let previousState = synchronized {
             (
                 shortcuts: shortcutsByAction,
+                shortcutBindings: shortcutBindingsByAction,
                 managedShortcutActions: managedShortcutActions,
                 whenClauses: whenClausesByAction,
                 importedManagedDefaults: importedManagedDefaults,
@@ -184,6 +186,7 @@ final class CmuxSettingsFileStore {
         )
         synchronized {
             shortcutsByAction = resolved.shortcuts
+            shortcutBindingsByAction = resolved.shortcutBindings
             managedShortcutActions = resolved.managedShortcutActions
             whenClausesByAction = resolved.whenClauses
             activeManagedUserDefaults = resolved.managedUserDefaults
@@ -196,6 +199,7 @@ final class CmuxSettingsFileStore {
 
         if previousState.shortcuts != resolved.shortcuts
             || previousState.managedShortcutActions != resolved.managedShortcutActions
+            || previousState.shortcutBindings != resolved.shortcutBindings
             || previousState.whenClauses != resolved.whenClauses
             || previousState.sourcePath != resolved.path {
             KeyboardShortcutSettings.notifySettingsFileDidChange(
@@ -216,6 +220,12 @@ final class CmuxSettingsFileStore {
 
     func override(for action: KeyboardShortcutSettings.Action) -> StoredShortcut? {
         synchronized { shortcutsByAction[action] }
+    }
+
+    /// Returns the configured bindings for an action, including per-binding
+    /// `when` clauses from `shortcuts.keybindings`.
+    func configuredBindings(for action: KeyboardShortcutSettings.Action) -> [ConfiguredShortcutBinding]? {
+        synchronized { shortcutBindingsByAction[action] }
     }
 
     /// The `when`-clause override for an action parsed from `shortcuts.when` in
@@ -290,6 +300,7 @@ final class CmuxSettingsFileStore {
                 ResolvedSettingsSnapshot(
                     path: activeSourcePath,
                     shortcuts: shortcutsByAction,
+                    shortcutBindings: shortcutBindingsByAction,
                     managedShortcutActions: managedShortcutActions,
                     whenClauses: whenClausesByAction,
                     managedUserDefaults: activeManagedUserDefaults,
@@ -1050,9 +1061,15 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("showModifierHoldHints") {
             logInvalid("shortcuts.showModifierHoldHints", sourcePath: sourcePath)
         }
-        for (key, rawValue) in section where key != "bindings" && key != "showModifierHoldHints" && key != "when" {
+        for (key, rawValue) in section where key != "bindings" && key != "showModifierHoldHints" && key != "when" && key != "keybindings" {
             bindings[key] = rawValue
         }
+
+        // Parse the legacy action-level clauses first so a simple binding can
+        // be represented by the same resolved binding value as a keybindings
+        // entry. Entries in `keybindings` below override the simple maps for
+        // every action they name.
+        parseShortcutWhenClauses(section["when"], sourcePath: sourcePath, snapshot: &snapshot)
 
         for (rawAction, rawBinding) in bindings {
             guard let action = KeyboardShortcutSettings.Action(rawValue: rawAction) else {
@@ -1067,7 +1084,65 @@ final class CmuxSettingsFileStore {
             snapshot.shortcuts[action] = shortcut
         }
 
-        parseShortcutWhenClauses(section["when"], sourcePath: sourcePath, snapshot: &snapshot)
+        parseShortcutKeybindings(section["keybindings"], sourcePath: sourcePath, snapshot: &snapshot)
+    }
+
+    /// Parses the general binding list: `{ "key", "action", "when"? }`.
+    /// A listed action uses these entries instead of its simple map value.
+    private func parseShortcutKeybindings(
+        _ rawValue: Any?,
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        guard let rawValue else { return }
+        guard let rawEntries = rawValue as? [Any] else {
+            logInvalid("shortcuts.keybindings", sourcePath: sourcePath)
+            return
+        }
+
+        var parsedByAction: [KeyboardShortcutSettings.Action: [ConfiguredShortcutBinding]] = [:]
+        for (index, rawEntry) in rawEntries.enumerated() {
+            guard let entry = rawEntry as? [String: Any],
+                  let rawAction = jsonString(entry["action"]),
+                  let action = KeyboardShortcutSettings.Action(rawValue: rawAction) else {
+                cmuxSettingsFileStoreLogger.warning("ignoring invalid shortcuts.keybindings entry \(index, privacy: .public) in \(sourcePath, privacy: .private(mask: .hash))")
+                continue
+            }
+            guard let rawKey = entry["key"],
+                  let shortcut = parseShortcutBindingValue(rawKey, action: action),
+                  !shortcut.isUnbound else {
+                cmuxSettingsFileStoreLogger.warning("ignoring invalid shortcut key for '\(rawAction, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
+                continue
+            }
+
+            let whenClause: ShortcutWhenClause
+            let hasExplicitWhenClause: Bool
+            if let rawWhen = entry["when"] {
+                guard let expression = jsonString(rawWhen),
+                      let parsed = ShortcutWhenClause.parse(expression) else {
+                    cmuxSettingsFileStoreLogger.warning("ignoring invalid shortcuts.keybindings when clause for '\(rawAction, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
+                    continue
+                }
+                whenClause = parsed
+                hasExplicitWhenClause = true
+            } else {
+                whenClause = action.shortcutContext.defaultWhenClause
+                hasExplicitWhenClause = false
+            }
+            parsedByAction[action, default: []].append(
+                ConfiguredShortcutBinding(
+                    shortcut: shortcut,
+                    whenClause: whenClause,
+                    hasExplicitWhenClause: hasExplicitWhenClause
+                )
+            )
+        }
+
+        for (action, parsed) in parsedByAction where !parsed.isEmpty {
+            snapshot.managedShortcutActions.insert(action)
+            snapshot.shortcutBindings[action] = parsed
+            snapshot.shortcuts[action] = parsed[0].shortcut
+        }
     }
 
     /// Parses the optional `shortcuts.when` map — `{ "<actionId>": "<predicate>" }`
@@ -1932,9 +2007,27 @@ final class CmuxSettingsFileStore {
 
 typealias KeyboardShortcutSettingsFileStore = CmuxSettingsFileStore
 
+/// One resolved shortcut and the context in which it is active.
+struct ConfiguredShortcutBinding: Equatable {
+    let shortcut: StoredShortcut
+    let whenClause: ShortcutWhenClause
+    let hasExplicitWhenClause: Bool
+
+    init(
+        shortcut: StoredShortcut,
+        whenClause: ShortcutWhenClause,
+        hasExplicitWhenClause: Bool = false
+    ) {
+        self.shortcut = shortcut
+        self.whenClause = whenClause
+        self.hasExplicitWhenClause = hasExplicitWhenClause
+    }
+}
+
 struct ResolvedSettingsSnapshot {
     var path: String?
     var shortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
+    var shortcutBindings: [KeyboardShortcutSettings.Action: [ConfiguredShortcutBinding]] = [:]
     var managedShortcutActions: Set<KeyboardShortcutSettings.Action> = []
     /// Per-action `when`-clause overrides parsed from `shortcuts.when` — gate a
     /// binding to a focus context (see ``ShortcutWhenClause``).
@@ -1958,6 +2051,9 @@ struct ResolvedSettingsSnapshot {
             managedShortcutActions.insert(action)
             if let shortcut = fallback.shortcuts[action] {
                 shortcuts[action] = shortcut
+            }
+            if let bindings = fallback.shortcutBindings[action] {
+                shortcutBindings[action] = bindings
             }
         }
         for (action, clause) in fallback.whenClauses where whenClauses[action] == nil {

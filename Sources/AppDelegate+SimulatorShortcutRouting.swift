@@ -20,9 +20,12 @@ extension AppDelegate {
             let focusContext = shortcutEventFocusContext(event)
             guard focusContext.simulatorFocused else { return handleSimulatorShortcut(event) }
             guard focusContext.allowsSimulatorShortcutRouting else { return false }
-            let shortcutContext = focusContext.shortcutContext
             let chordActions = KeyboardShortcutSettings.Action.simulatorActions.filter { action in
-                KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(shortcutContext)
+                KeyboardShortcutSettings.shortcutBindings(for: action).contains { binding in
+                    binding.whenClause.evaluate(
+                        shortcutWhenClauseContext(for: action, clause: binding.whenClause, event: event)
+                    )
+                }
             }
             if armConfiguredShortcutChordIfNeeded(event: event, actions: chordActions) {
                 return true

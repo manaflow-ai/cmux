@@ -377,29 +377,30 @@ extension AppDelegate {
         // matcher below can judge them. Over-approximate instead of claiming
         // the terminal is not on the alternate screen.
         guard event.type == .keyDown else { return true }
-        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-        guard !shortcut.isUnbound else { return false }
-        let stroke: ShortcutStroke
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
-            guard shortcut.firstStroke == prefix, let secondStroke = shortcut.secondStroke else {
+        return KeyboardShortcutSettings.shortcutBindings(for: action).contains { binding in
+            let shortcut = binding.shortcut
+            let stroke: ShortcutStroke
+            if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
+                guard shortcut.firstStroke == prefix, let secondStroke = shortcut.secondStroke else {
+                    return false
+                }
+                stroke = secondStroke
+            } else {
+                stroke = shortcut.firstStroke
+            }
+            guard ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags) == stroke.modifierFlags else {
                 return false
             }
-            stroke = secondStroke
-        } else {
-            stroke = shortcut.firstStroke
+            if action.usesNumberedDigitMatching {
+                return true
+            }
+            // `matchesTab` matches key code 48 whatever the stroke's key says, so a
+            // Tab event can reach a matcher the stroke matcher below would reject.
+            if event.keyCode == 48 {
+                return true
+            }
+            return matchShortcutStroke(event: event, stroke: stroke)
         }
-        guard ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags) == stroke.modifierFlags else {
-            return false
-        }
-        if action.usesNumberedDigitMatching {
-            return true
-        }
-        // `matchesTab` matches key code 48 whatever the stroke's key says, so a
-        // Tab event can reach a matcher the stroke matcher below would reject.
-        if event.keyCode == 48 {
-            return true
-        }
-        return matchShortcutStroke(event: event, stroke: stroke)
     }
 
     /// Whether the terminal that would receive `event` is on the alternate

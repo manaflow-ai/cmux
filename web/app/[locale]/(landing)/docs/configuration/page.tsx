@@ -440,6 +440,24 @@ working-directory = ~/code`}</CodeBlock>
         The defaults below are the same cmux-owned actions listed on the{" "}
         <Link href="/docs/keyboard-shortcuts">keyboard shortcuts page</Link>.
       </p>
+      <DocsHeading level={3} id="shortcuts-keybindings">
+        <code>shortcuts.keybindings</code>
+      </DocsHeading>
+      <p>
+        Use this list when an action needs more than one shortcut or different context for each
+        shortcut. Each entry has a <code>key</code>, an <code>action</code>, and an optional{" "}
+        <code>when</code> clause. For actions named in the list, these entries replace the simple
+        binding and retain the action&apos;s built-in context when <code>when</code> is omitted.
+      </p>
+      <CodeBlock lang="json">{`{
+  "shortcuts": {
+    "keybindings": [
+      { "key": "cmd+l", "action": "focusRightSidebar", "when": "terminalFocus" },
+      { "key": "cmd+shift+l", "action": "focusRightSidebar" },
+      { "key": ["ctrl+b", "c"], "action": "newSurface" }
+    ]
+  }
+}`}</CodeBlock>
       {shortcutCategories.map((category) => (
         <section key={category.id}>
           <h4>{shortcutTranslations(`cat.${category.titleKey}` as never)}</h4>
