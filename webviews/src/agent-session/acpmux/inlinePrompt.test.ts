@@ -21,7 +21,10 @@ const settle = async (done: () => boolean) => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
 };
-type Hooks = { answer: (method: string, params: any) => Promise<unknown>; emit: (target: string, step: any) => void };
+type Hooks = {
+  answer: (method: string, params: any) => Promise<unknown>;
+  emit: (target: string, step: any) => void;
+};
 async function connect(hold = false, refuse = false) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
@@ -79,18 +82,34 @@ const movie: ComposerAttachment = {
   mimeType: "video/mp4",
   size: 12,
   path: "/tmp/clip.mp4",
-  video: { durationMs: 1000, width: 20, height: 10, poster: "data:image/jpeg;base64,AQID", frames: [] },
+  video: {
+    durationMs: 1000,
+    width: 20,
+    height: 10,
+    poster: "data:image/jpeg;base64,AQID",
+    frames: [],
+  },
 };
-const shape = (blocks: any[]) => blocks.map((block) => (block.type === "text" ? block.text : block.type));
+const shape = (blocks: any[]) =>
+  blocks.map((block) => (block.type === "text" ? block.text : block.type));
 test("send retains ID-bound image and video order through a reply before echo", async () => {
   const io = await connect();
   try {
     const input = `before${inlineToken("one")}between${inlineToken("movie")}after`;
     await io.client.send(input, [movie, image("one")]);
     const sent = io.sent[0];
-    expect(shape(sent.prompt)).toEqual(["before", "image", "resource_link", "between", "resource_link", "after"]);
+    expect(shape(sent.prompt)).toEqual([
+      "before",
+      "image",
+      "resource_link",
+      "between",
+      "resource_link",
+      "after",
+    ]);
     const optimistic = io.rows().find((row) => row.id.startsWith("local-")) as any;
-    expect(optimistic.inlineParts?.map((part: any) => part.kind).join(",")).toBe("text,image,file,text,file,text");
+    expect(optimistic.inlineParts?.map((part: any) => part.kind).join(",")).toBe(
+      "text,image,file,text,file,text",
+    );
     expect(sent._meta.acpmux.inlineParts.map((part: any) => part.blockIndex)).toEqual([1, 2, 4]);
     const record = {
       promptId: sent._meta.acpmux.promptId,
@@ -107,7 +126,12 @@ test("send retains ID-bound image and video order through a reply before echo", 
     };
     io.emit(sent.sessionId, { mux: "user_message", msg: record });
     await settle(() =>
-      io.rows().some((row) => row.promptId === sent._meta.acpmux.promptId && row.text === "before\nbetween\nafter"),
+      io
+        .rows()
+        .some(
+          (row) =>
+            row.promptId === sent._meta.acpmux.promptId && row.text === "before\nbetween\nafter",
+        ),
     );
     const row = io.rows().find((row) => row.text === "before\nbetween\nafter") as any;
     expect(row.inlineParts[2].companionOf).toBe(row.inlineParts[1].blockIndex);
@@ -163,7 +187,9 @@ test("history retry preserves repeated image occurrences and a video link", asyn
     const draft = await io.client.resendPrompt(row.id, row.text!);
     expect(new Set(draft.attachments.map((a) => a.id)).size).toBe(3);
     await io.client.send(draft.input, draft.attachments);
-    expect(shape(io.sent[1].prompt).join(",")).toBe("image,resource_link,one,resource_link,two,image,three");
+    expect(shape(io.sent[1].prompt).join(",")).toBe(
+      "image,resource_link,one,resource_link,two,image,three",
+    );
     expect(io.sent[1].prompt[3].uri).toBe("file:///tmp/clip.mp4");
   } finally {
     io.client.close?.();
@@ -188,7 +214,11 @@ test("an inline paste goes exactly once on retry and edits keep whole tokens", a
       msg: { promptId: sent._meta.acpmux.promptId, text: "a\npasted\nb\nc" },
     });
     await settle(() =>
-      io.rows().some((row) => row.promptId === sent._meta.acpmux.promptId && row.text === "a\npasted\nb\nc"),
+      io
+        .rows()
+        .some(
+          (row) => row.promptId === sent._meta.acpmux.promptId && row.text === "a\npasted\nb\nc",
+        ),
     );
     const row = io.rows().find((row) => row.text === "a\npasted\nb\nc")!;
     const draft = await io.client.resendPrompt(row.id, row.text!);
@@ -209,9 +239,11 @@ test("refused Retry and Edit retain every screenshot and video preview in strip 
     await settle(() => io.rows().some((row) => row.failed));
     const row = io.rows().find((row) => row.failed)!;
     expect(io.sent[0]._meta.acpmux.inlineParts).toHaveLength(8);
-    expect(io.sent[0]._meta.acpmux.inlineParts.every((part: any) => part.companionOf + 1 === part.blockIndex)).toBe(
-      true,
-    );
+    expect(
+      io.sent[0]._meta.acpmux.inlineParts.every(
+        (part: any) => part.companionOf + 1 === part.blockIndex,
+      ),
+    ).toBe(true);
     expect(row.inlineParts).toBeUndefined();
     expect(row.images).toHaveLength(8);
     expect(row.images?.every((image) => image.src === "data:image/png;base64,AQID")).toBe(true);
@@ -248,17 +280,28 @@ test("queue acceptance retains ordered metadata before the prompt reply", async 
     expect(io.queue()[0].inlineParts?.[1]).toMatchObject({ video: movie.video });
     io.emit(sent.sessionId, {
       mux: "queue_updated",
-      msg: { promptId: sent._meta.acpmux.promptId, text: "removed", inlineParts: [{ kind: "text", text: "removed" }] },
+      msg: {
+        promptId: sent._meta.acpmux.promptId,
+        text: "removed",
+        inlineParts: [{ kind: "text", text: "removed" }],
+      },
     });
     await settle(() => io.queue()[0]?.prompt === "removed");
     expect(io.queue()[0].inlineParts?.some((part) => part.kind !== "text")).toBe(false);
     io.emit(sent.sessionId, {
       mux: "user_message",
-      msg: { promptId: sent._meta.acpmux.promptId, text: "removed", inlineParts: [{ kind: "text", text: "removed" }] },
+      msg: {
+        promptId: sent._meta.acpmux.promptId,
+        text: "removed",
+        inlineParts: [{ kind: "text", text: "removed" }],
+      },
     });
     await settle(() => io.rows().some((row) => row.text === "removed"));
     const row = io.rows().find((row) => row.text === "removed")!;
-    expect(await io.client.resendPrompt(row.id, row.text!)).toEqual({ input: "removed", attachments: [] });
+    expect(await io.client.resendPrompt(row.id, row.text!)).toEqual({
+      input: "removed",
+      attachments: [],
+    });
   } finally {
     io.client.close?.();
   }
@@ -280,7 +323,13 @@ test("a queued prompt keeps paste and file metadata when its transcript echo omi
         inlineParts: [
           { kind: "text", text: "look" },
           { kind: "text", text: "pasted content", pasted: true, placed: true },
-          { kind: "file", name: "notes.txt", uri: "file:///tmp/notes.txt", mimeType: "text/plain", size: 12 },
+          {
+            kind: "file",
+            name: "notes.txt",
+            uri: "file:///tmp/notes.txt",
+            mimeType: "text/plain",
+            size: 12,
+          },
           { kind: "text", text: "then" },
         ],
       },
@@ -300,7 +349,9 @@ test("a queued prompt keeps paste and file metadata when its transcript echo omi
       { kind: "pasted", text: "pasted content" },
       { kind: "link", name: "notes.txt", path: "/tmp/notes.txt", mimeType: "text/plain", size: 12 },
     ]);
-    expect(draft.input).toBe(`look${inlineToken(draft.attachments[0].id)}${inlineToken(draft.attachments[1].id)}then`);
+    expect(draft.input).toBe(
+      `look${inlineToken(draft.attachments[0].id)}${inlineToken(draft.attachments[1].id)}then`,
+    );
   } finally {
     io.client.close?.();
   }
@@ -332,10 +383,17 @@ test("strip echo Retry and Edit retain local bytes, original path and video", as
         ],
       },
     });
-    await settle(() => io.rows().some((r) => r.promptId === sent._meta.acpmux.promptId && r.text === "strip"));
-    const row = io.rows().find((r) => r.promptId === sent._meta.acpmux.promptId && r.text === "strip")!;
+    await settle(() =>
+      io.rows().some((r) => r.promptId === sent._meta.acpmux.promptId && r.text === "strip"),
+    );
+    const row = io
+      .rows()
+      .find((r) => r.promptId === sent._meta.acpmux.promptId && r.text === "strip")!;
     expect(await io.client.resendPrompt(row.id, "strip")).toEqual({ input: "strip", attachments });
-    expect(await io.client.resendPrompt(row.id, "edited")).toEqual({ input: "edited", attachments });
+    expect(await io.client.resendPrompt(row.id, "edited")).toEqual({
+      input: "edited",
+      attachments,
+    });
   } finally {
     io.client.close?.();
   }
@@ -367,16 +425,29 @@ test("strip-mode files keep type and byte count in the actual prompt metadata an
         text: "Use this key",
         inlineParts: [
           { kind: "text", text: "Use this key" },
-          { kind: "file", name: file.name, mimeType: file.mimeType, size: 2048, uri: "file:///tmp/production-key.pem" },
+          {
+            kind: "file",
+            name: file.name,
+            mimeType: file.mimeType,
+            size: 2048,
+            uri: "file:///tmp/production-key.pem",
+          },
         ],
       },
     });
     await settle(() =>
-      io.rows().some((row) => row.inlineParts?.some((part) => part.kind === "file" && part.name === file.name)),
+      io
+        .rows()
+        .some((row) =>
+          row.inlineParts?.some((part) => part.kind === "file" && part.name === file.name),
+        ),
     );
     expect(
-      io.rows().find((row) => row.inlineParts?.some((part) => part.kind === "file" && part.name === file.name))
-        ?.inlineParts?.[1],
+      io
+        .rows()
+        .find((row) =>
+          row.inlineParts?.some((part) => part.kind === "file" && part.name === file.name),
+        )?.inlineParts?.[1],
     ).toMatchObject({
       kind: "file",
       name: file.name,
@@ -394,7 +465,9 @@ test("path-only files omit an empty MIME so the daemon accepts their display met
       { id: "key", kind: "link", name: "key.pem", path: "/tmp/key.pem", mimeType: "", size: 0 },
     ]);
     const sent = io.sent[0];
-    expect(sent._meta.acpmux.inlineParts).toEqual([{ kind: "file", name: "key.pem", blockIndex: 1 }]);
+    expect(sent._meta.acpmux.inlineParts).toEqual([
+      { kind: "file", name: "key.pem", blockIndex: 1 },
+    ]);
   } finally {
     io.client.close?.();
   }
@@ -411,9 +484,11 @@ test("a placed prompt marks its attachments placed, through the echo; an unplace
     expect(sent._meta.acpmux.inlineParts.length).toBeGreaterThan(0);
     expect(sent._meta.acpmux.inlineParts.every((part: any) => part.placed === true)).toBe(true);
     const optimistic = io.rows().find((row) => row.id.startsWith("local-"))!;
-    expect(optimistic.inlineParts?.filter((part) => part.kind !== "text").every((part) => part.placed === true)).toBe(
-      true,
-    );
+    expect(
+      optimistic.inlineParts
+        ?.filter((part) => part.kind !== "text")
+        .every((part) => part.placed === true),
+    ).toBe(true);
     // An acpmux from before the marker records none: this pane's own prompt stays placed.
     io.emit(sent.sessionId, {
       mux: "user_message",
@@ -465,14 +540,18 @@ test("a recorded part keeps acpmux's placed marker, and only a true one", async 
 // `placed`; the strip's goes after the text unmarked, so the bubble keeps it in its band.
 test("a mixed draft marks only the attachment it placed in the text", async () => {
   const { inlinePrompt } = await import("./inlinePrompt");
-  const built = inlinePrompt(`look${inlineToken("one")} here`, [image("one"), { ...image("two"), name: "two.png" }])!;
+  const built = inlinePrompt(`look${inlineToken("one")} here`, [
+    image("one"),
+    { ...image("two"), name: "two.png" },
+  ])!;
   // Each image sends its original after it (a companion file of the same name).
   const placedBy = (parts: readonly { name?: string; placed?: true }[]) => [
     ...new Set(parts.flatMap((part) => (part.name ? [`${part.name}:${part.placed ?? "-"}`] : []))),
   ];
-  expect(placedBy(built.parts.filter((part) => part.kind !== "text") as { name?: string; placed?: true }[])).toEqual([
-    "one.png:true",
-    "two.png:-",
-  ]);
+  expect(
+    placedBy(
+      built.parts.filter((part) => part.kind !== "text") as { name?: string; placed?: true }[],
+    ),
+  ).toEqual(["one.png:true", "two.png:-"]);
   expect(placedBy(built.display)).toEqual(["one.png:true", "two.png:-"]);
 });
