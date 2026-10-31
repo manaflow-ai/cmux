@@ -31,7 +31,15 @@ import Testing
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
     func renderMotionVariants() throws {
         _ = NSApplication.shared
-        let out = AANestedGroupsGalleryTests.packageRoot.appending(path: "sidebar-insert-motion-gallery-\(UUID().uuidString)")
+        let packageRoot = AANestedGroupsGalleryTests.packageRoot
+        let out = packageRoot.appending(path: "sidebar-insert-motion-gallery")
+        let archive = packageRoot.appending(path: "sidebar-insert-motion-gallery.tar")
+        if FileManager.default.fileExists(atPath: out.path) {
+            try FileManager.default.removeItem(at: out)
+        }
+        if FileManager.default.fileExists(atPath: archive.path) {
+            try FileManager.default.removeItem(at: archive)
+        }
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
@@ -52,7 +60,6 @@ import Testing
             sidebar.frame = NSRect(x: 0, y: 0, width: 280, height: 420)
             let window = NSWindow(contentRect: sidebar.frame, styleMask: [.titled], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
-            defer { window.close() }
             window.title = motion.tunableTitle + (motion == .snap ? " (selected)" : "")
             window.appearance = NSAppearance(named: .darkAqua)
             window.contentView = sidebar
@@ -70,9 +77,17 @@ import Testing
             sidebar.list.reload(animated: true)
             RunLoop.current.run(until: Date(timeIntervalSinceNow: Motion.sidebar.spring(motion.token).settlingTime() + 0.1))
             try Self.render(sidebar, to: out.appending(path: "\(motion.rawValue)-after.png"))
+            window.close()
         }
         try "Selected: snap. Existing rows land immediately; only the new row fades. PNGs show settled states.\n"
             .write(to: out.appending(path: "README.txt"), atomically: true, encoding: .utf8)
+        let tar = Process()
+        tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+        tar.currentDirectoryURL = packageRoot
+        tar.arguments = ["cf", archive.lastPathComponent, out.lastPathComponent]
+        try tar.run()
+        tar.waitUntilExit()
+        #expect(tar.terminationStatus == 0)
         print("Sidebar insert gallery: \(out.path)")
     }
 }
