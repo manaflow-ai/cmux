@@ -271,6 +271,7 @@ export function useChatInspector({
   beside,
   wide = false,
   onReconnectMcp,
+  onCompact,
 }: {
   snapshot: AcpmuxSnapshot;
   /// A view has the pane in the chat's place (App.tsx: a turn's diff in place, the event Inspector):
@@ -332,6 +333,8 @@ export function useChatInspector({
   subagent?: SubagentScope;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  /// Sends the chat's agent its `/compact` (Context's Compact); unset where Compact cannot reach.
+  onCompact?: () => void;
 }): {
   on: boolean;
   /// The panel shows (on, open, not stepped aside): a card under it keeps no room of its own beside
@@ -464,6 +467,7 @@ export function useChatInspector({
         onOpenFolder={onOpenFolder}
         onSaveEnvironment={onSaveEnvironment}
         onReconnectMcp={onReconnectMcp}
+        onCompact={onCompact}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
         scope={subagent}
@@ -513,6 +517,7 @@ function InspectorPresence({
   onOpenFolder,
   onSaveEnvironment,
   onReconnectMcp,
+  onCompact,
   onOpenDocument,
   onShowCall,
   scope,
@@ -558,6 +563,7 @@ function InspectorPresence({
   onOpenFolder?: (path: string) => void;
   onSaveEnvironment?: () => Promise<unknown>;
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  onCompact?: () => void;
   onOpenDocument?: (artifact: Artifact) => void;
   onShowCall?: (toolCallId: string) => boolean;
   /// The subagent it lists, while the pane shows one's own view.
@@ -733,6 +739,9 @@ function InspectorPresence({
         // Save keeps the chat's machine and folder, not a subagent's.
         onSaveEnvironment={scope ? undefined : onSaveEnvironment}
         onReconnectMcp={onReconnectMcp}
+        // Compact ends the chat's context, not a subagent's.
+        onCompact={scope ? undefined : onCompact}
+        working={snapshot.isWorking}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
       />
@@ -917,6 +926,8 @@ export function ChatInspector({
   remoteControl,
   onSaveEnvironment,
   onReconnectMcp,
+  onCompact,
+  working = false,
   onOpenFolder,
   onShowCall,
   banner,
@@ -979,6 +990,10 @@ export function ChatInspector({
   onSaveEnvironment?: () => Promise<unknown> | void;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  /// Sends the chat's agent its `/compact`: Context's Compact (ContextSection), off while `working`.
+  onCompact?: () => void;
+  /// A turn runs.
+  working?: boolean;
   /// Opens the chat's project folder in the Files tree beside the chat.
   onOpenFolder?: (path: string) => void;
   /// Shows the Bash call that started a background command in the transcript: what its row opens
@@ -1101,7 +1116,13 @@ export function ChatInspector({
         </>
       }
     >
-      <ContextSection usage={usage} percent={percent} breakdown={summary?.contextBreakdown} />
+      <ContextSection
+        usage={usage}
+        percent={percent}
+        breakdown={summary?.contextBreakdown}
+        onCompact={onCompact}
+        working={working}
+      />
     </InspectorSection>
   ) : (
     progress.length > 0 && (

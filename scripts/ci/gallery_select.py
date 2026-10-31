@@ -272,7 +272,8 @@ def section(doc: dict) -> str:
         f"{len(changed)} images differ"
         + (f", {doc['more']} more touched states not rendered" if doc["more"] else "")
         + (" (picked by the `Gallery:` line in the PR body)" if doc["override"] else "")
-        + ". Images are in the run's artifact, not on this public PR.",
+        + ". Images are in the run's artifact, not on this public PR; the independent review of this head "
+          "reads them on its own, so the PR needs no hand-made screenshots of these states.",
         "",
         f"`{doc['download']}` (then read `gallery-review.json`)",
         "",
