@@ -91,6 +91,9 @@ extension URL {
         case "tab": return resource("tab_")
         // Chief's first-launch welcome: its background offer opens the background picker.
         case "settings": return id == "background" && c.fragment == nil
+        // An agent-message fold's row (HomeAgentMessageRow.toggleLink): a click expands or collapses it.
+        case "agent-messages":
+            return c.fragment == nil && id.utf8.count == 16 && id.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
         case "session":
             guard token(id) else { return false }
             guard let fragment = c.fragment else { return true }

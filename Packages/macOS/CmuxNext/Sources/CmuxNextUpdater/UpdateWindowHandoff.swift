@@ -1,7 +1,14 @@
 import AppKit
 public import CmuxNextDesign
 
-/// Restart to Update (cx-ncc.45 S1): what the old windows do at the click.
+/// Restart to Update (cx-ncc.45 S1): what the old windows do when Sparkle
+/// commits to a relaunch the person asked for (`updaterWillRelaunchApplication`,
+/// right before its installer finishes and quits the app), not at the click.
+/// An install nobody clicked leaves the windows as they are. A click
+/// whose install never reaches the installer (Sparkle gives up after 7 s:
+/// "An error occurred while starting the installer") kept every window
+/// transparent for those seconds, and the app looked frozen (slow quit,
+/// 2026-10-20).
 /// ``mode`` is the one switch (hq-a3 rule 2026-10-10: hide when the click
 /// to the relaunched window's first frame takes 300 ms or less, else keep
 /// the windows on screen, frozen, with the update card's Installing state

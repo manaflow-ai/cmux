@@ -122,23 +122,31 @@ export function OutputsSection({
         const cut = file.displayPath.lastIndexOf("/");
         const name = cut >= 0 ? file.displayPath.slice(cut + 1) : file.displayPath;
         const folder = cut > 0 ? file.displayPath.slice(0, cut) : undefined;
+        const content = (
+          <>
+            <Icon name={file.created ? "file.new" : "file.text"} size={ROW_ICON} row />
+            <span className="acpmux-chat-inspector-row__name">{name}</span>
+            {folder && <span className="acpmux-chat-inspector-row__detail">{folder}</span>}
+            {!file.binary && (
+              <span className="acpmux-chat-inspector-row__end">
+                <Counts additions={file.additions} deletions={file.deletions} />
+              </span>
+            )}
+          </>
+        );
         return (
           <li key={file.path}>
-            <button
-              type="button"
-              className="acpmux-chat-inspector-row acpmux-chat-inspector-row--button"
-              disabled={!onOpenFile}
-              onClick={() => onOpenFile?.(file.path)}
-            >
-              <Icon name={file.created ? "file.new" : "file.text"} size={ROW_ICON} row />
-              <span className="acpmux-chat-inspector-row__name">{name}</span>
-              {folder && <span className="acpmux-chat-inspector-row__detail">{folder}</span>}
-              {!file.binary && (
-                <span className="acpmux-chat-inspector-row__end">
-                  <Counts additions={file.additions} deletions={file.deletions} />
-                </span>
-              )}
-            </button>
+            {onOpenFile ? (
+              <button
+                type="button"
+                className="acpmux-chat-inspector-row acpmux-chat-inspector-row--button"
+                onClick={() => onOpenFile(file.path)}
+              >
+                {content}
+              </button>
+            ) : (
+              <div className="acpmux-chat-inspector-row">{content}</div>
+            )}
           </li>
         );
       })}

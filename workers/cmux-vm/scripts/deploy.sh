@@ -36,6 +36,29 @@ if [ "$TARGET" = preview ]; then
 fi
 node scripts/wrangler-config.mjs "$TARGET" "$hyperdrive_id" $lane
 
+# CMUX_VM_SERVICE_KEYS_EXTRA (optional) holds more service key entries, appended to
+# CMUX_VM_SERVICE_KEYS, so a key is added without reading back or rewriting that write-only
+# secret. Checked here, before anything deploys: both must be JSON arrays, ids and hashes
+# unique (the Worker turns every service key off on a duplicate). Values never reach the log.
+service_keys="${CMUX_VM_SERVICE_KEYS:-}"
+if [ -n "${CMUX_VM_SERVICE_KEYS_EXTRA:-}" ]; then
+  if [ -z "$service_keys" ]; then
+    echo "::error::CMUX_VM_SERVICE_KEYS_EXTRA is set without CMUX_VM_SERVICE_KEYS; refusing to replace the Worker's service keys with the extra entries alone"
+    exit 1
+  fi
+  for name in CMUX_VM_SERVICE_KEYS CMUX_VM_SERVICE_KEYS_EXTRA; do
+    if ! printf '%s' "${!name}" | jq -e 'type == "array"' >/dev/null 2>&1; then
+      echo "::error::$name is not a JSON array"
+      exit 1
+    fi
+  done
+  service_keys="$(jq -cn --arg a "$service_keys" --arg b "$CMUX_VM_SERVICE_KEYS_EXTRA" '($a | fromjson) + ($b | fromjson)' 2>/dev/null)"
+  if ! printf '%s' "$service_keys" | jq -e '([.[].id] | length == (unique | length)) and ([.[].sha256] | length == (unique | length))' >/dev/null 2>&1; then
+    echo "::error::CMUX_VM_SERVICE_KEYS and CMUX_VM_SERVICE_KEYS_EXTRA share a service key id or hash"
+    exit 1
+  fi
+fi
+
 umask 077
 secrets="$(mktemp)"
 trap 'rm -f "$secrets"' EXIT
@@ -43,7 +66,7 @@ jq -n \
   --arg upstream "$CMUX_VM_UPSTREAM_API_KEY" \
   --arg project "$CMUX_VM_STACK_PROJECT_ID" \
   --arg server "$CMUX_VM_STACK_SECRET_SERVER_KEY" \
-  --arg service_keys "${CMUX_VM_SERVICE_KEYS:-}" \
+  --arg service_keys "$service_keys" \
   '{UPSTREAM_API_KEY: $upstream, STACK_PROJECT_ID: $project, STACK_SECRET_SERVER_KEY: $server}
    + (if $service_keys == "" then {} else {CMUX_VM_SERVICE_KEYS: $service_keys} end)' > "$secrets"
 

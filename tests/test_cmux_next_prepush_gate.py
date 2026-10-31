@@ -1079,6 +1079,12 @@ let package = Package(
                                 text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_the_app_id_special_cases_guard_rules_hold(self):
+        # Zero first-party privilege (docs/app-store-platonic-ideal.md 5): the guard's own rule tests.
+        result = subprocess.run(["bash", str(SOURCE / "scripts/cmux-next/tests/check-app-id-special-cases.test.sh")],
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_push_that_names_an_apple_device_in_an_app_intent_is_refused(self):
         # ITMS-90626 (2026-10-20): Apple rejected cmux INTERNAL builds after upload for this text.
         before = self.remote_head()

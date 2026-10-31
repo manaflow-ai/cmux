@@ -471,7 +471,10 @@ extension WindowManager {
         }
         // Before the ephemeral placements: one there is not the person opening the machine, and an
         // unopened machine's ephemeral workspace opens no incognito window either.
-        let unopened = Self.unopenedCloudWorkspaces(cloud) { registered.owner(of: $0) != nil || placements[$0] != nil }
+        backgroundClaims.formIntersection(pendingClaims.keys)
+        let unopened = Self.unopenedCloudWorkspaces(cloud) { registered.owner(of: $0) != nil || (placements[$0] != nil && !backgroundClaims.contains($0)) }
+        // A background create's claim never places a held workspace (#28609): opening its machine does.
+        for id in unopened where backgroundClaims.remove(id) != nil { (pendingClaims[id], placements[id]) = (nil, nil); quietClaims.remove(id) }
         placements.merge(EphemeralWorkspaces.placements(self, live: live.filter { !unopened.contains($0) }, placements: placements)) { claimed, _ in claimed }
         // While an ephemeral workspace is being created here, a new
         // unflagged one of this daemon may be it before its flag arrived:
@@ -480,7 +483,7 @@ extension WindowManager {
             registered.owner(of: id) == nil && placements[id] == nil
                 && services.machines.workspace(id: id).map { $0.1 === services.daemon } == true
         })
-        for id in live where !held.contains(id) { pendingClaims[id] = nil }
+        for id in live where !held.contains(id) { pendingClaims[id] = nil; backgroundClaims.remove(id) }
         // A claimed workspace is selected in its window, unless it was
         // claimed quietly (`claim(select: false)`).
         let before = registry.value

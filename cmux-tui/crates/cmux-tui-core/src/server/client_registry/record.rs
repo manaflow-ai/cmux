@@ -36,6 +36,12 @@ pub(in crate::server) struct ClientRecord {
     /// `page-credential`), not the static or file token: the person's own
     /// client for the Cloud lease (`ws-cloud-conversations-v1`).
     pub(in crate::server) person: bool,
+    /// The connection comes from this owner's own journal plugin (its
+    /// process group, checked before it registers): the bundled screen detector
+    /// connects back at start and stays. It is not a client a person
+    /// reattaches through, so the orphan exit does not count it
+    /// (orphan_shutdown.rs).
+    pub(in crate::server) owner_plugin: bool,
     #[cfg(unix)]
     pub(in crate::server) machine_catalog: Option<super::machine_catalog::Publication>,
 }

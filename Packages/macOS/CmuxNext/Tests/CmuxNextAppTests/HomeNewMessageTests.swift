@@ -3,6 +3,7 @@ import CmuxHomeCore
 import CmuxNextDesign
 @testable import CmuxNextHome
 @testable import MessagesLabSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// New Message is a page, as in Messages (Lawrence 2026-10-19: "it makes a modal but iMessage
@@ -10,7 +11,7 @@ import Testing
 /// whose text becomes tokens (Return, comma, Tab; Backspace removes the last), live suggestions,
 /// red tokens for nobody, the existing conversation of exactly those people, a "New Message" row
 /// at the top of the list, and a blank page whose first send makes the conversation.
-@MainActor
+@MainActor @Suite(.closesItsWindows)
 struct HomeNewMessageTests {
     static let me = ParticipantID("me")
     static let ada = HomeContact(id: ParticipantID("ada"), name: "Ada Lovelace", source: .team)
@@ -423,6 +424,7 @@ struct HomeNewMessageTests {
     /// carries the x; its click asks the page to discard the draft; without a draft no row has one.
     @Test func theDraftRowAloneCarriesAnXThatAsksThePageToDiscardTheDraft() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 600), styleMask: [.borderless], backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         let sidebar = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         window.contentView = sidebar
         var closes = 0

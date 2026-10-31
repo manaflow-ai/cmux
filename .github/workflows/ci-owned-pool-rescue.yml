@@ -66,6 +66,7 @@ on:
       - Auth and session lifecycle
       - cmux-next base autofix
       - cmux-next batch queue
+      - cmux NEXT Stable
       - cmux-next frame pacing
       - cmux-next media
       - cmux-next PR autofix
@@ -117,6 +118,7 @@ env:
     .github/workflows/auth-refresh-tests.yml
     .github/workflows/cmux-next-base-autofix.yml
     .github/workflows/cmux-next-batch.yml
+    .github/workflows/stable-next.yml
     .github/workflows/cmux-next-frame-pacing.yml
     .github/workflows/cmux-next-media.yml
     .github/workflows/cmux-next-pr-autofix.yml

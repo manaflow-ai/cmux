@@ -314,7 +314,7 @@ extension CEFRuntime {
     func devTools(_ browser: Int32, method: String, params: [String: Any] = [:],
                   timeout: Duration = CEFRuntime.devToolsTimeout) async throws -> String {
         guard let shim else { throw BrowserTabError.closed }
-        // Chromium answers some methods inside ExecuteDevToolsMethod, before a
+        // Chromium answers some methods inside the shim call (SendDevToolsMessage), before a
         // waiter exists; without this the result was dropped and the call
         // timed out after `timeout` (every device emulation lost 5 s on
         // Emulation.setEmitTouchEventsForMouse).

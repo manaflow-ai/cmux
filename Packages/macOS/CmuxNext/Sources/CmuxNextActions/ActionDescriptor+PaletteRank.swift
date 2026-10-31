@@ -86,7 +86,8 @@ extension ActionDescriptor {
         // Interface Size is a Debug opt-in (chrome.interfaceSize); Interface Scale is the setting.
         "appearance.interfaceSize.increase", "appearance.interfaceSize.decrease", "appearance.interfaceSize.reset",
         // Cloud machine plumbing.
-        "cloudPrepareSCP", "cloudDomainList", "cloudNetworkList", "cloudPublicationList", "palette.cloud.promoteTemplate",
+        "cloudPrepareSCP", "cloudDomainList", "cloudNetworkList", "cloudPublicationList", "cloudAPIKeyList", "cloudAPIKeyRevoke",
+        "palette.cloud.promoteTemplate",
     ]
 
     /// Built-in palette aliases: a query that is one of these words puts the action first (as a
@@ -269,6 +270,8 @@ extension ActionDescriptor {
         PaletteFamily("forkConversation", parent: "palette.forkAgentConversation", members: [
                           "palette.forkAgentConversationRight", "palette.forkAgentConversationLeft",
                           "palette.forkAgentConversationTop", "palette.forkAgentConversationBottom",
+                          "palette.forkAgentConversationNewColumnRight", "palette.forkAgentConversationNewColumnLeft",
+                          "palette.forkAgentConversationNewRow",
                           "palette.forkAgentConversationNewTab", "palette.forkAgentConversationNewWorkspace",
                           "palette.forkAgentConversationNewWindow",
                       ]),
