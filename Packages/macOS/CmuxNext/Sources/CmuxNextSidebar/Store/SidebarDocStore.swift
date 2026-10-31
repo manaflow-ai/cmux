@@ -99,6 +99,12 @@ public final class SidebarDocStore {
     @ObservationIgnored private var adopting: Set<SidebarDocWorkspaceRef> = []
     /// What to run when a fold (`setGroupCollapsed`) is refused, by its key.
     @ObservationIgnored private var foldRefusals: [String: @MainActor () -> Void] = [:]
+    /// What pending changes write on records (a group's name, color, icon; a new group), drawn over `records` (#26382).
+    @ObservationIgnored private var pendingRecords = SidebarDocPendingRecords()
+
+    /// The records the rows draw: the confirmed ones with the pending changes' writes (`SidebarDocPendingRecords`).
+    public var shownRecords: SidebarDocRecords { pendingRecords.isEmpty ? records : pendingRecords.applied(to: records) }
+
     /// The Chief's adds not echoed yet, oldest first, with their keys (`SidebarPendingChief`): what the sidebar draws
     /// for it until then.
     @ObservationIgnored var pendingChief: [(key: String, add: SidebarPendingChief)] = []
@@ -162,8 +168,9 @@ public final class SidebarDocStore {
             return
         }
         loading = true
-        // The load answers the changes unanswered before it was asked for (a later one asks for another load).
-        let answering = unanswered
+        // The load answers the changes unanswered before it was asked for (a later one asks for another load), and holds
+        // the changes answered before it was asked for: a change answered while it is on the way may not be in it.
+        let answering = unanswered, held = pendingRecords.replied
         // task-owner: one sidebar.get; settles the load
         Task { [weak self] in
             defer {
@@ -191,7 +198,11 @@ public final class SidebarDocStore {
             let rejected = settled.flatMap { mirror.reject($0) }
             // A Chief change the load holds or the mirror dropped (it no longer applies, on the load or behind a
             // change put back) is settled; one it replays stays pending.
-            self.settlePendingChief(settled.union(dropped).union(rejected))
+            let done = settled.union(dropped).union(rejected)
+            self.settlePendingChief(done)
+            // The document holds the changes answered before the load was asked for (or never will), and the mirror
+            // no longer replays those it dropped: their rows draw it.
+            for key in done.union(held) { self.pendingRecords.remove(key) }
             self.unanswered.subtract(answering)
             self.records = records
             self.groupFolds = records.items.compactMapValues(\.body.groupCollapsed)
@@ -212,6 +223,8 @@ public final class SidebarDocStore {
             if loading, mirror != nil, earlyBatches.count < 512 { earlyBatches.append(data) }
             return
         }
+        // The mirror drops the pending intent with the batch's key in every case: so do its record writes.
+        let settled = !pendingRecords.isEmpty && SidebarDocWire.Batch.key(of: data).map { pendingRecords.remove($0) } == true
         // The reducer judges the revision chain: a skipped one refetches. While a Chief change waits, the mirror also
         // names the intents the batch settled or dropped.
         let outcome: SidebarMirror.BatchOutcome
@@ -220,15 +233,17 @@ public final class SidebarDocStore {
         } else {
             let (applied, dropped) = mirror.applyDropping(batch: data)
             outcome = applied
-            if settlePendingChief(Set(dropped)) { bump() }
+            let wrote = dropped.reduce(false) { pendingRecords.remove($1) || $0 }
+            if settlePendingChief(Set(dropped)) || wrote { bump() }
         }
         switch outcome {
-        case .stale: return
+        case .stale:
+            if settled { bump() }
         case .refetch: return refresh()
         case .applied(let revision):
             let folds = records.apply(batch: data)
             if let revision { records.revision = revision }
-            guard let folds else {
+            guard let folds, !settled else {
                 groupFolds = records.items.compactMapValues(\.body.groupCollapsed)
                 return bump()
             }
@@ -328,8 +343,10 @@ public final class SidebarDocStore {
                 try await remote.apply(ops: stamped ?? data, key: key)
             }
         } catch {
+            // Refused at once (the document is not active, or the mirror refuses it): say why, as a later refusal does (#26382).
             foldRefusals[intent.idempotencyKey] = nil
             refused()
+            onRefused(error.message)
         }
     }
 
@@ -389,8 +406,10 @@ public final class SidebarDocStore {
             throw refused(SidebarDocStrings.unavailable)
         }
         if let chief = SidebarPendingChief(ops: intent.ops) { pendingChief.append((intent.idempotencyKey, chief)) }
-        if redraws { bump() }
         let key = intent.idempotencyKey
+        // A rename, recolor or new group draws from its records: they show with the rows, not at the echo (#26382).
+        pendingRecords.add(key: key, ops: stamped ?? intent.ops, records: shownRecords)
+        if redraws { bump() }
         // An undo's or redo's inverse fills the step the undo put; a user's change puts its own step now (cx-kpicb).
         let origin = Self.undoOrigin ?? (undoable ? onUndoPending(title) : nil)
         inFlight += 1
@@ -407,6 +426,7 @@ public final class SidebarDocStore {
                     // echo, and the first echo may have gone to a closed connection. The next load settles the key.
                     if asked > 1 { self.settleByLoad(key) }
                     self.foldRefusals[key] = nil
+                    self.pendingRecords.noteReplied(key)
                     if reply.hasInverse, let revision = reply.revision, self.pendingChief.contains(where: { $0.key == key }) {
                         self.answeredChief[key] = revision
                     }
@@ -461,8 +481,9 @@ public final class SidebarDocStore {
     }
 
     private func drop(_ key: String, redraws: Bool = true) {
-        settlePendingChief(Set(mirror?.reject(key) ?? []).union([key]))
-        if redraws { bump() }
+        let dropped = Set(mirror?.reject(key) ?? []).union([key])
+        settlePendingChief(dropped)
+        if dropped.reduce(false, { pendingRecords.remove($1) || $0 }) || redraws { bump() }
     }
 
     private func bump() { version &+= 1 }

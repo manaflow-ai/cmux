@@ -17,6 +17,8 @@ export type SubsessionState = "working" | "input" | "failed" | "done";
 
 export type SubsessionInfo = {
   sessionId: string;
+  /// Its harness identity, used by every session list and card.
+  harness?: string;
   /// Its short name, else its title.
   name: string;
   state: SubsessionState;
@@ -94,6 +96,7 @@ export function subsessionInfo(entry: AcpmuxSessionEntry): SubsessionInfo {
   const state = subsessionState(entry);
   return {
     sessionId: entry.sessionId,
+    ...(entry.harness ? { harness: entry.harness } : {}),
     name: entry.shortName || entry.displayTitle || entry.title || entry.sessionId,
     state,
     ...(state === "done" && entry.unread ? { unread: true as const } : {}),

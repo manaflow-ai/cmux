@@ -258,10 +258,17 @@ _CI_GUARD_PROFILE_MARKER = "scripts/ci/cmux_workload_profile.py run cmux.ci.guar
 _CI_GUARD_ENTRYPOINT = "scripts/ci/workloads/ci-guard.sh"
 
 
+# ci-guards.yml's guard tests take a free mini from portable placement
+# (scripts/ci/portable_job_placement.py) only when cmux-next-guards.yml passes
+# one. That job runs the same Linux guard tests, not the app's macOS lanes, so
+# the term does not make the tests it names macOS-relevant.
+_PORTABLE_RUNNER_TERM = "inputs.guard_tests_runner != '' && inputs.guard_tests_runner ||"
+
+
 def is_plainly_linux_runner(runs_on: str) -> bool:
     # Anything else counts as macOS: a matrix or needs expression, a list or
     # group on the following lines, or a label this does not recognize.
-    value = runs_on.strip()
+    value = runs_on.strip().replace(_PORTABLE_RUNNER_TERM, "")
     if not value or re.search(r"macos|matrix\.|needs\.|inputs\.", value, re.IGNORECASE):
         return False
     return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu", value))

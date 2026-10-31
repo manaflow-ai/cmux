@@ -203,7 +203,8 @@ final class MachineSectionHeaderView: NSView {
 }
 
 /// One machine: its kind's icon in the icon column, its name and last check, its link state (a second
-/// line, or at the trailing edge when it is not connected: a spinner while connecting), and New
+/// line, or at the trailing edge when it is not connected: a spinner while connecting or resuming, the
+/// server's state in words for a paused, failed or deleted Cloud machine), and New
 /// Workspace as a trailing button that shows while the pointer is on the row or its menu is open. The
 /// button's hover fill covers the button alone. The right-click menu and VoiceOver reach it too.
 final class MachineSectionRowView: NSView {
@@ -279,6 +280,9 @@ final class MachineSectionRowView: NSView {
     var shownText: String {
         ([nameLabel] + (stateLabel.isHidden ? [] : [stateLabel])).map(\.stringValue).joined(separator: " · ")
     }
+
+    /// Whether the trailing spinner shows (a connect or a resume on its way, never a paused machine).
+    var showsSpinner: Bool { !spinner.isHidden }
 
     /// Whether New Workspace is showing (the pointer is on the row, its menu is open, or it has keyboard focus).
     var revealsNewWorkspace: Bool { newButton.alphaValue > 0 }

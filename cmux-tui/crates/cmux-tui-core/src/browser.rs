@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError, sync_channel};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError, sync_channel};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use cmux_tui_cdp::{
@@ -17,6 +17,8 @@ use crate::surface::{Surface, SurfaceMeta, SurfaceOptions};
 use crate::{Mux, MuxEvent, SurfaceId};
 
 mod cdp_events;
+mod event_lanes;
+mod event_registry;
 mod navigation_hold;
 mod navigation_hold_tests;
 mod surface_input;
@@ -36,16 +38,17 @@ mod surface_reconfigure;
 mod surface_state;
 mod surface_transitions;
 mod worker;
+use event_lanes::SurfaceRoute;
 #[cfg(test)]
 use runtime::runtime_endpoint;
 use runtime::{browser_geometry_locked, capture_scale_for, scaled_pixels};
 pub(crate) use runtime::{new_surface, new_surface_with_resource_identity};
+use worker::{BrowserCommandTx, is_cdp_timeout_error, start_browser_worker, start_surface_thread};
 #[cfg(test)]
 use worker::{
     clear_attention_if_page_changed, next_pointer_lifecycle_deadline, record_browser_worker_result,
     release_abandoned_pointer_presses, take_latest_worker_commands,
 };
-use worker::{is_cdp_timeout_error, start_browser_worker, start_surface_thread};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserSource {
@@ -108,7 +111,7 @@ impl Drop for BrowserFrameStream {
 /// a natively hosted page wakes the worker, which stops its screencast.
 struct FrameViewer {
     viewers: Arc<AtomicUsize>,
-    command_tx: Arc<Mutex<Option<SyncSender<SequencedBrowserCommand>>>>,
+    command_tx: Arc<Mutex<Option<BrowserCommandTx>>>,
     command_order: Arc<Mutex<BrowserCommandOrder>>,
 }
 
@@ -409,6 +412,7 @@ struct PointerFrameInvalidation {
 
 enum BrowserCommand {
     WakeLatest,
+    EventRegistry(Box<event_registry::DeferredRegistryWork>),
     Mouse {
         input_owner: BrowserPointerOwner,
         event_type: String,
@@ -494,6 +498,10 @@ struct SequencedBrowserCommand {
 struct BrowserCommandOrder {
     next_sequence: u64,
     retained_releases: VecDeque<SequencedBrowserCommand>,
+    // Each route pauses until its work completes, retaining at most one.
+    // Distinct old/new provider routes must not overwrite each other's work.
+    registry_work: VecDeque<SequencedBrowserCommand>,
+    registry_exit: Option<SequencedBrowserCommand>,
 }
 
 impl BrowserCommandOrder {
@@ -665,118 +673,6 @@ struct Routes {
     by_target: HashMap<String, Arc<SurfaceRoute>>,
 }
 
-struct SurfaceRoute {
-    state: Mutex<SurfaceRouteState>,
-    ready: Condvar,
-}
-
-#[derive(Default)]
-struct SurfaceRouteState {
-    events: VecDeque<QueuedSurfaceEvent>,
-    retained_bytes: usize,
-    closed: bool,
-}
-
-struct QueuedSurfaceEvent {
-    event: CdpEvent,
-    retained_bytes: usize,
-}
-
-impl SurfaceRoute {
-    fn new() -> Self {
-        Self { state: Mutex::new(SurfaceRouteState::default()), ready: Condvar::new() }
-    }
-
-    /// Returns true when the route must be removed from the runtime maps.
-    fn deliver(&self, event: CdpEvent) -> bool {
-        let mut state = self.state.lock().unwrap();
-        if state.closed {
-            return true;
-        }
-
-        let replacement = match &event {
-            CdpEvent::ScreencastFrame(_) => state
-                .events
-                .iter()
-                .position(|queued| matches!(&queued.event, CdpEvent::ScreencastFrame(_))),
-            CdpEvent::ScreencastFrameCaptureRequested { .. } => {
-                state.events.iter().position(|queued| {
-                    matches!(
-                        &queued.event,
-                        CdpEvent::ScreencastFrameCaptureRequested { .. }
-                    )
-                })
-            }
-            CdpEvent::TargetInfoChanged(info) => state.events.iter().position(|queued| {
-                matches!(&queued.event, CdpEvent::TargetInfoChanged(existing) if existing.target_id == info.target_id)
-            }),
-            _ => None,
-        };
-        if let Some(index) = replacement
-            && let Some(removed) = state.events.remove(index)
-        {
-            state.retained_bytes = state.retained_bytes.saturating_sub(removed.retained_bytes);
-        }
-        let event_bytes = cmux_tui_cdp::event_retained_bytes(&event);
-        if state.events.len() >= CDP_EVENT_QUEUE_CAPACITY
-            || event_bytes > cmux_tui_cdp::CDP_EVENT_QUEUE_MAX_BYTES - state.retained_bytes
-        {
-            fail_surface_route(&mut state, "CDP surface event queue overflow");
-            self.ready.notify_one();
-            return true;
-        }
-        state.events.push_back(QueuedSurfaceEvent { event, retained_bytes: event_bytes });
-        state.retained_bytes += event_bytes;
-        self.ready.notify_one();
-        false
-    }
-
-    fn recv(&self) -> Option<CdpEvent> {
-        let mut state = self.state.lock().unwrap();
-        loop {
-            if let Some(queued) = state.events.pop_front() {
-                state.retained_bytes = state.retained_bytes.saturating_sub(queued.retained_bytes);
-                return Some(queued.event);
-            }
-            if state.closed {
-                return None;
-            }
-            state = self.ready.wait(state).unwrap();
-        }
-    }
-
-    fn close(&self, reason: String) {
-        let mut state = self.state.lock().unwrap();
-        if state.closed {
-            return;
-        }
-        fail_surface_route(&mut state, &reason);
-        self.ready.notify_one();
-    }
-
-    #[cfg(test)]
-    fn is_closed(&self) -> bool {
-        self.state.lock().unwrap().closed
-    }
-
-    #[cfg(test)]
-    fn try_recv(&self) -> Option<CdpEvent> {
-        let mut state = self.state.lock().unwrap();
-        let queued = state.events.pop_front()?;
-        state.retained_bytes = state.retained_bytes.saturating_sub(queued.retained_bytes);
-        Some(queued.event)
-    }
-}
-
-fn fail_surface_route(state: &mut SurfaceRouteState, reason: &str) {
-    state.events.clear();
-    let event = CdpEvent::Closed(reason.to_string());
-    let retained_bytes = cmux_tui_cdp::event_retained_bytes(&event);
-    state.retained_bytes = retained_bytes;
-    state.events.push_back(QueuedSurfaceEvent { event, retained_bytes });
-    state.closed = true;
-}
-
 pub struct BrowserSurface {
     pub(crate) meta: SurfaceMeta,
     session: Mutex<Option<BrowserSession>>,
@@ -788,7 +684,7 @@ pub struct BrowserSurface {
     dead: AtomicBool,
     cell_pixels: Mutex<(u16, u16)>,
     capture_options: BrowserCaptureOptions,
-    command_tx: Arc<Mutex<Option<SyncSender<SequencedBrowserCommand>>>>,
+    command_tx: Arc<Mutex<Option<BrowserCommandTx>>>,
     /// Live [`BrowserFrameStream`]s (attached viewers) of this surface.
     frame_viewers: Arc<AtomicUsize>,
     command_order: Arc<Mutex<BrowserCommandOrder>>,
