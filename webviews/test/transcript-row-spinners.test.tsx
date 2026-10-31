@@ -31,7 +31,7 @@ afterEach(resetTranscriptDisclosure);
 
 for (const background of [false, true]) {
   test(`three running commands have only the group header activity mark (background=${background})`, () => {
-    const items = [1, 2, 3].map((n) => activity(n, background));
+    const items = [1, 2, 3].map((n) => activity(n, background && n > 1));
     const view = markup(<ToolGroupRow kind="commands" items={items} disclosureKey="spinner-group" />);
     expect(view.querySelectorAll(".cv-step")).toHaveLength(3);
     expect(view.querySelectorAll("[data-tool-group] .cv-spinner")).toHaveLength(1);
@@ -62,7 +62,7 @@ test("a sending message row has no spinner", () => {
 });
 
 test("a Claude SendMessage row has no spinner while sending", () => {
-  const view = markup(<MessageCard item={activity(2)} message={{ to: "reviewer", text: "Please review." }} />);
+  const view = markup(<MessageCard item={activity(2)} message={{ channel: "agent", to: "reviewer", text: "Please review." }} />);
   expect(view.querySelector('[data-delivery="sending"]')).not.toBeNull();
   expect(view.querySelectorAll(".cv-spinner")).toHaveLength(0);
 });
