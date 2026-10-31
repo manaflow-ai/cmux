@@ -18,6 +18,13 @@ import CmuxNextCompat
 /// therefore costs nothing, and a steadily busy app one check per window.
 /// A spin on a background thread that never wakes the main thread is seen
 /// only in the window after the last main-thread wake.
+///
+/// It watches the main thread, so it never blocks it: every kernel read (each
+/// process's `proc_pid_rusage` and `proc_pidinfo`, the helper list, the main
+/// thread's `thread_info` and its stack sample) runs on its own serial queue
+/// (`com.cmuxterm.next.busy-watchdog`, threading-model.md). The main thread's part is ``noteAwake()``: two
+/// atomics, and one queue hop when it opens a window. v229 (2026-10-30): a
+/// window end on the main thread stalled it 1,261 ms in `proc_pidinfo`.
 public final class BusyWatchdog: Sendable {
     public struct Configuration: Sendable {
         public var window: Duration
@@ -47,7 +54,20 @@ public final class BusyWatchdog: Sendable {
         }
     }
 
+    /// What the watchdog reads from the kernel: each read is a system call that can block for as long as the
+    /// kernel holds the process (`proc_pid_rusage`, `proc_pidinfo`, `thread_info`).
+    struct Probe: Sendable {
+        /// One process's cumulative CPU time and wakeups; nil when it is gone.
+        var usage: @Sendable (pid_t) -> ProcessUsage?
+        /// One thread's CPU time (user + system) in ns; nil when `thread_info` fails.
+        var threadCPUNanos: @Sendable (thread_act_t) -> UInt64?
+
+        /// The kernel's answers.
+        static let system = Probe(usage: { ProcessUsage.sample($0) }, threadCPUNanos: { BusyWatchdog.cpuNanos(of: $0) })
+    }
+
     public let configuration: Configuration
+    private let probe: Probe
     private let log: HangLog
     private let ledger: WakeupLedger
     private let activity: ExpectedActivity
@@ -58,6 +78,10 @@ public final class BusyWatchdog: Sendable {
     private let awakeDuringWindow = Atomic<Bool>(false)
     private let window: Mutex<Window?> = Mutex(nil)
     private let timer: DemandTimer
+    /// Runs every open and close, so every kernel read: serial, so a window's close follows its open. At
+    /// most one open or close is pending (``measuring`` admits one window at a time, its deadline one close),
+    /// so the queue needs no bound; a read the kernel holds delays only the next window.
+    private let sampling = DispatchQueue(label: "com.cmuxterm.next.busy-watchdog", qos: .utility)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hangs")
 
     /// A value wrapper prevents inout Mutex reads from reabstracting and
@@ -74,9 +98,16 @@ public final class BusyWatchdog: Sendable {
         var startNanos: UInt64
     }
 
-    public init(configuration: Configuration = Configuration(), log: HangLog, ledger: WakeupLedger = .shared,
-                activity: ExpectedActivity = .shared, clock: any Clock<Duration> = ContinuousClock()) {
+    public convenience init(configuration: Configuration = Configuration(), log: HangLog, ledger: WakeupLedger = .shared,
+                            activity: ExpectedActivity = .shared, clock: any Clock<Duration> = ContinuousClock()) {
+        self.init(configuration: configuration, log: log, ledger: ledger, activity: activity, clock: clock, probe: .system)
+    }
+
+    /// The seam initializer: `probe` reads the kernel (tests record where each read runs).
+    init(configuration: Configuration, log: HangLog, ledger: WakeupLedger, activity: ExpectedActivity,
+         clock: any Clock<Duration>, probe: Probe) {
         self.configuration = configuration
+        self.probe = probe
         self.log = log
         self.ledger = ledger
         self.activity = activity
@@ -101,35 +132,51 @@ public final class BusyWatchdog: Sendable {
         helpers.withLock { $0.list }
     }
 
-    /// The main run loop woke. Cheap: one atomic store, plus opening a
-    /// window when none is open.
+    /// The main run loop woke. Cheap, and it never reads the kernel: two
+    /// atomics, and when no window is open one hop that opens it on the
+    /// sampling queue.
     public func noteAwake() {
-        awakeDuringWindow.store(true, ordering: .relaxed)
-        guard measuring.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else { return }
-        openWindow()
+        guard measuring.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else {
+            awakeDuringWindow.store(true, ordering: .relaxed)
+            return
+        }
+        // This wake opens the window; it is not a wake during it. The expected-activity count is stamped here, in
+        // the waking turn (atomic loads, no system call), so input in this turn counts as during the window.
+        awakeDuringWindow.store(false, ordering: .relaxed)
+        let activityAtWake = activity.total
+        sampling.async { [self] in openWindow(activity: activityAtWake) }
     }
 
-    private func openWindow() {
-        awakeDuringWindow.store(false, ordering: .relaxed)
+    /// Takes the window's start samples. On the sampling queue. `activity`: the expected-activity count when the
+    /// window began (the waking turn's stamp, or the close's for a window that follows one).
+    private func openWindow(activity activityAtStart: UInt64) {
         let helperList = helperSource()()
         var sampled: [pid_t: (label: String, usage: ProcessUsage)] = [:]
         for helper in helperList {
-            if let usage = ProcessUsage.sample(helper.pid) { sampled[helper.pid] = (helper.label, usage) }
+            if let usage = probe.usage(helper.pid) { sampled[helper.pid] = (helper.label, usage) }
         }
-        let start = Window(process: ProcessUsage.sample(getpid()), mainCPUNanos: mainCPUNanos(), activity: activity.total,
+        let start = Window(process: probe.usage(getpid()), mainCPUNanos: mainCPUNanos(), activity: activityAtStart,
                            helpers: sampled, startNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
         window.withLock { $0 = start }
-        timer.schedule(after: configuration.window) { [weak self] in self?.closeWindow() }
+        timer.schedule(after: configuration.window) { [weak self] in self?.endWindow() }
     }
 
-    func closeWindow() {
+    /// The window's deadline fired: its close runs on the sampling queue.
+    private func endWindow() {
+        sampling.async { [self] in closeWindow() }
+    }
+
+    /// Takes the window's end samples, records a busy window, and opens the next window when the app woke
+    /// during this one. On the sampling queue.
+    private func closeWindow() {
         guard let start = window.withLock({ window in defer { window = nil }; return window }) else { return }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let wall = Double(max(now &- start.startNanos, 1))
-        let quiet = activity.total == start.activity
+        let activityAtEnd = activity.total
+        let quiet = activityAtEnd == start.activity
         if quiet {
             let mainShare = Double(mainCPUNanos() &- start.mainCPUNanos) / wall
-            let process = ProcessUsage.sample(getpid())
+            let process = probe.usage(getpid())
             let processShare = process.flatMap { end in start.process.map { end.cpuShare(since: $0) } } ?? 0
             if mainShare > configuration.mainThreadThreshold || processShare > configuration.processThreshold {
                 let addresses = sampler.withLock { $0?.sample() } ?? []
@@ -138,18 +185,23 @@ public final class BusyWatchdog: Sendable {
                        wall: wall, addresses: addresses)
             }
             for (pid, entry) in start.helpers {
-                guard let usage = ProcessUsage.sample(pid) else { continue }
+                guard let usage = probe.usage(pid) else { continue }
                 let share = usage.cpuShare(since: entry.usage)
                 if share > configuration.helperThreshold {
                     record(scope: "helper", pid: pid, name: usage.name, label: entry.label, share: share, wall: wall, addresses: [])
                 }
             }
         }
-        // Keep watching only while the app stays awake.
-        if awakeDuringWindow.load(ordering: .relaxed) {
-            openWindow()
-        } else {
-            measuring.store(false, ordering: .releasing)
+        // Keep watching only while the app stays awake. The next window starts with no wake counted.
+        if awakeDuringWindow.exchange(false, ordering: .relaxed) {
+            openWindow(activity: activityAtEnd)
+            return
+        }
+        measuring.store(false, ordering: .releasing)
+        // A wake between the exchange and the store found the watch still on and opened nothing: open for it.
+        if awakeDuringWindow.exchange(false, ordering: .relaxed),
+           measuring.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged {
+            openWindow(activity: activityAtEnd)
         }
     }
 
@@ -176,6 +228,11 @@ public final class BusyWatchdog: Sendable {
     /// before ``watchCurrentThread()`` or when `thread_info` fails.
     func mainThreadCPUNanos() -> UInt64? {
         guard let thread = mainThread.withLock({ $0 }) else { return nil }
+        return probe.threadCPUNanos(thread)
+    }
+
+    /// `thread`'s CPU time (user + system) from `thread_info`, from any thread; nil when it fails.
+    static func cpuNanos(of thread: thread_act_t) -> UInt64? {
         var info = thread_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info>.size / MemoryLayout<natural_t>.size)
         let result = withUnsafeMutablePointer(to: &info) {
