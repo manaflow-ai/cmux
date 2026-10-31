@@ -27,6 +27,7 @@ import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
 import { ServiceKeys } from "../../src/auth/service-keys.ts";
 import { makeMeshFakes, type MeshFakeOptions } from "./mesh-fakes.ts";
 import { AgentStore, type ClientSessionRow } from "../../src/db/agents.ts";
+import { makeDomainFakes } from "./domain-fakes.ts";
 
 export const STACK_API_URL = "https://stack.test";
 export const STACK_PROJECT_ID = "project-test";
@@ -50,10 +51,14 @@ export interface HarnessOptions {
   readonly ratePerMinute?: Partial<Record<"read" | "write" | "exec" | "files", number>>;
   /** Largest file upload accepted, in bytes. */
   readonly maxUploadBytes?: number;
+  /** Largest file a resumable upload may commit, in bytes. */
+  readonly maxResumableUploadBytes?: number;
   /** Mesh experiment (cx-0op): flag, allowlisted tenants (default team_alpha and team_bravo) and budgets. */
   readonly mesh?: MeshFakeOptions;
   /** The Stack webhook signing secret (whsec_...); absent: the webhook answers 503. */
   readonly stackWebhookSecret?: string;
+  /** Domains (cx-b4h.6): the managed zone, edge host and certificate nameserver the deployment publishes. */
+  readonly domains?: { readonly managedZone?: string; readonly edgeHost?: string; readonly certificateNameserver?: string };
 }
 
 /** One audit row as a test sees it. */
@@ -189,6 +194,25 @@ export async function makeHarness(options: HarnessOptions = {}) {
       Effect.sync(() =>
         Option.fromNullable(resources.find((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && !live(row))),
       ),
+    setDisplayName: (tenantId, kind, cmuxId, displayName) =>
+      Effect.sync(() => {
+        const index = resources.findIndex((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && live(row));
+        const row = resources[index];
+        if (row === undefined) return false;
+        resources[index] = { ...row, displayName };
+        return true;
+      }),
+    // Mirrors the SQL: only the tenant's live committed row of that kind, and only while it holds `expected`.
+    updateMetadata: (tenantId, kind, cmuxId, expected, metadata) =>
+      Effect.sync(() => {
+        const index = resources.findIndex((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && live(row) && row.committed !== false);
+        const row = resources[index];
+        if (row === undefined || row.displayName !== expected.displayName) return false;
+        const same = Object.keys(row.labels).length === Object.keys(expected.labels).length && Object.entries(expected.labels).every(([key, value]) => row.labels[key] === value);
+        if (!same) return false;
+        resources[index] = { ...row, displayName: metadata.displayName, labels: metadata.labels };
+        return true;
+      }),
   });
 
   const auditStore = Layer.succeed(AuditStore, {
@@ -206,6 +230,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     ...(options.maxSnapshots === undefined ? {} : { maxSnapshots: options.maxSnapshots }),
     ...(options.ratePerMinute === undefined ? {} : { ratePerMinute: options.ratePerMinute }),
     ...(options.maxUploadBytes === undefined ? {} : { maxUploadBytes: options.maxUploadBytes }),
+    ...(options.maxResumableUploadBytes === undefined ? {} : { maxResumableUploadBytes: options.maxResumableUploadBytes }),
   });
 
   const entitlements = Layer.succeed(Entitlements, {
@@ -231,8 +256,11 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const s3a = makeS3aFakes(resources, upstream);
   /** Mesh networking routes (cx-0op) are served by mesh-fakes.ts first. */
   const mesh = makeMeshFakes(upstream, options.mesh);
+  /** Domain and TLS routes (cx-b4h.6) are served by domain-fakes.ts first. */
+  const domains = makeDomainFakes(upstream, options.domains ?? {}, (tenant, vmId) =>
+    resources.some((row) => row.tenantId === tenant && row.kind === "vm" && row.cmuxId === vmId && live(row)));
   const upstreamFetch = async (request: Request): Promise<Response> =>
-    (await mesh.upstream(request)) ?? (await s3a.upstream(request)) ?? upstream.fetch(request);
+    (await domains.upstream(request)) ?? (await mesh.upstream(request)) ?? (await s3a.upstream(request)) ?? upstream.fetch(request);
 
   let configuredImages = parseVmImages(options.bootImages).images;
   const services = Layer.mergeAll(
@@ -276,6 +304,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     webhookDeliveries.layer,
     s3a.layer(upstreamFetch),
     mesh.layer(upstreamFetch),
+    domains.layer(upstreamFetch),
     Layer.succeed(AgentStore, {
       findAgentKey: (tenantId, id) =>
         Effect.sync(() => {
@@ -318,6 +347,25 @@ export async function makeHarness(options: HarnessOptions = {}) {
         }),
       orphanClientSessions: (limit) =>
         Effect.sync(() => clientSessions.filter((row) => row.revokedAt === null && deleted.has(row.vmId)).slice(0, limit)),
+      setClientSessionLinuxUser: (tenantId, id, from, to) =>
+        Effect.sync(() => {
+          const index = clientSessions.findIndex((row) => row.tenantId === tenantId && row.id === id && row.revokedAt === null && row.linuxUser === from);
+          const found = clientSessions[index];
+          if (found === undefined) return false;
+          clientSessions[index] = { ...found, linuxUser: to };
+          return true;
+        }),
+      liveTenantClientSessions: (tenantId, after, limit) =>
+        Effect.sync(() =>
+          clientSessions
+            .filter((row) => row.tenantId === tenantId && row.revokedAt === null && !deleted.has(row.vmId) && (after === null || row.id > after))
+            .flatMap((row) => {
+              const vm = resources.find((resource) => resource.tenantId === tenantId && resource.kind === "vm" && resource.cmuxId === row.vmId);
+              return vm === undefined ? [] : [{ ...row, vmLabels: vm.labels }];
+            })
+            .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+            .slice(0, limit),
+        ),
     }),
     Layer.succeed(TeamAdmin, {
       isAdmin: (tenantId, userId) => Effect.sync(() => admins.get(tenantId)?.has(userId) ?? false),
@@ -395,6 +443,8 @@ export async function makeHarness(options: HarnessOptions = {}) {
     },
     /** Whether the ownership row for `cmuxId` is marked deleted. */
     isDeleted: (cmuxId: string) => deleted.has(cmuxId),
+    /** Tombstones an ownership row directly, as a delete path that ran no cleanup (or an older release) left it. */
+    markDeleted: (cmuxId: string) => void deleted.add(cmuxId),
     audit,
     /** Whether `tenant`'s plan allows creating VMs (team_alpha and team_bravo do by default). */
     /** Simulates a redeployed operator catalog while retaining the tenant ledger. */
@@ -407,6 +457,8 @@ export async function makeHarness(options: HarnessOptions = {}) {
     s3a,
     /** Mesh experiment (cx-0op): mesh tables and the provider's networking state. */
     mesh,
+    /** Domains and TLS (cx-b4h.6): cmux tables, provider challenges, DNS records and certificates. */
+    domains,
     /** Records a VM owned by `tenant` and backed by a fake upstream VM. Returns its public id. */
     addVm(
       tenant: string,

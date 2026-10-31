@@ -7,7 +7,9 @@ import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 
 // Agent keys, client sessions and the agent reaper measured 417.0 KiB (409.3 KiB before); no dependency was added.
-const BUDGET_GZIP_BYTES = 425 * 1024; // 298 KiB at S1
+// Domains, verifications, certificates, TLS rules and forward auth (cx-b4h.6) measured 433.1 KiB (417.3 KiB before); no dependency was added.
+// Provider parity (client-session identities, mesh network reads, file ops and uploads, VM and snapshot updates, with domains/TLS) measured 447.0 KiB (433.1 KiB with domains/TLS alone); no dependency was added.
+const BUDGET_GZIP_BYTES = 456 * 1024; // 298 KiB at S1
 const dir = process.argv[2] ?? "dist";
 
 const files = readdirSync(dir, { recursive: true })

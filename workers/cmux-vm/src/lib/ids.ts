@@ -60,6 +60,13 @@ export type ApiKeyId = typeof ApiKeyId.Type;
 export const ClientSessionId = Schema.String.pipe(Schema.pattern(opaque("vcs_")), Schema.brand("ClientSessionId"));
 export type ClientSessionId = typeof ClientSessionId.Type;
 
+/**
+ * One access token of a client session. The id is derived from the provider's token id by a one-way hash
+ * (src/upstream/live-client-session-tokens.ts), so it is stable without being stored and names no provider id.
+ */
+export const ClientSessionTokenId = Schema.String.pipe(Schema.pattern(opaque("vct_")), Schema.brand("ClientSessionTokenId"));
+export type ClientSessionTokenId = typeof ClientSessionTokenId.Type;
+
 /** A tenant is a Stack Auth team id. */
 export const TenantId = Schema.String.pipe(
   Schema.minLength(1),
@@ -109,6 +116,10 @@ export const newTunnelId = (): TunnelId => TunnelId.make(RESOURCE_PREFIXES.tunne
 export const newApiKeyId = (): ApiKeyId => ApiKeyId.make("vmk_" + randomIdBody());
 export const newClientSessionId = (): ClientSessionId => ClientSessionId.make("vcs_" + randomIdBody());
 export const parseClientSessionId = Schema.decodeUnknownOption(ClientSessionId);
+export const parseClientSessionTokenId = Schema.decodeUnknownOption(ClientSessionTokenId);
+
+/** The public id body (26 base32 characters, like randomIdBody) of the first 128 bits of a digest. */
+export const idBodyFromDigest = (digest: Uint8Array): string => randomIdBody(() => digest.slice(0, 17));
 
 /** Decodes a public VM id; any malformed input is simply "no such VM". */
 export const parseVmId = Schema.decodeUnknownOption(VmId);

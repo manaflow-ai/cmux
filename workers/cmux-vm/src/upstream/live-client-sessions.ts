@@ -10,6 +10,7 @@ import { UpstreamId } from "../lib/ids.ts";
 import { upstreamIdOf } from "../proofs/tenant-owns-resource.ts";
 import { UpstreamError, type UpstreamClientService } from "./client.ts";
 import type { UpstreamHttp } from "./live-http.ts";
+import { publicTokenId } from "./live-client-session-tokens.ts";
 
 const CreatedIdentity = Schema.Struct({ id: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200)) });
 const CreatedToken = Schema.Struct({ id: Schema.String, token: Schema.String.pipe(Schema.minLength(1)) });
@@ -49,6 +50,7 @@ export const makeClientSessions = (
         return {
           upstreamIdentityId: identityId,
           token: granted.token,
+          tokenId: yield* publicTokenId(identityId, granted.id),
           providerVmId,
           apiBaseUrl,
           sshHost: PROVIDER_SSH_HOST,

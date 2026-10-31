@@ -7,7 +7,7 @@ import { SCOPES, type Scope } from "../../src/domain/scopes.ts";
 
 export interface VmEndpointCase {
   readonly name: string;
-  readonly method: "GET" | "POST" | "PUT" | "DELETE";
+  readonly method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   /** The OpenAPI path template. */
   readonly template: string;
   readonly path: (vmId: string) => string;
@@ -60,6 +60,23 @@ export const VM_ENDPOINTS: ReadonlyArray<VmEndpointCase> = [
     path: (id) => `/v1/vms/${id}/files/entries?path=%2Ftmp`,
     scope: "vm:files",
   },
+  // Provider parity (cx-b4h.2): update, exists, mkdir, remove and resumable uploads.
+  { name: "updateVm", method: "PATCH", template: "/v1/vms/{vmId}", path: (id) => `/v1/vms/${id}`, scope: "vm:write", json: { displayName: "renamed" } },
+  { name: "pathExists", method: "GET", template: "/v1/vms/{vmId}/files/exists", path: (id) => `/v1/vms/${id}/files/exists?path=%2Ftmp`, scope: "vm:files" },
+  { name: "makeDirectory", method: "POST", template: "/v1/vms/{vmId}/files/directories", path: (id) => `/v1/vms/${id}/files/directories`, scope: "vm:files", json: { path: "/tmp/new" } },
+  { name: "removePath", method: "DELETE", template: "/v1/vms/{vmId}/files", path: (id) => `/v1/vms/${id}/files?path=%2Ftmp%2Fnote.txt`, scope: "vm:files" },
+  { name: "beginFileUpload", method: "POST", template: "/v1/vms/{vmId}/files/uploads", path: (id) => `/v1/vms/${id}/files/uploads`, scope: "vm:files", json: { path: "/tmp/big.bin", size: 5 } },
+  { name: "getFileUpload", method: "GET", template: "/v1/vms/{vmId}/files/uploads/{uploadId}", path: (id) => `/v1/vms/${id}/files/uploads/upl_x`, scope: "vm:files" },
+  {
+    name: "uploadFileChunk",
+    method: "PUT",
+    template: "/v1/vms/{vmId}/files/uploads/{uploadId}",
+    path: (id) => `/v1/vms/${id}/files/uploads/upl_x?offset=0`,
+    scope: "vm:files",
+    bytes: new TextEncoder().encode("hello"),
+  },
+  { name: "commitFileUpload", method: "POST", template: "/v1/vms/{vmId}/files/uploads/{uploadId}/commit", path: (id) => `/v1/vms/${id}/files/uploads/upl_x/commit`, scope: "vm:files" },
+  { name: "abortFileUpload", method: "DELETE", template: "/v1/vms/{vmId}/files/uploads/{uploadId}", path: (id) => `/v1/vms/${id}/files/uploads/upl_x`, scope: "vm:files" },
   // Snapshots and terminals (slice S3a).
   {
     name: "createSnapshot",
@@ -95,6 +112,17 @@ export const VM_ENDPOINTS: ReadonlyArray<VmEndpointCase> = [
     path: (id) => `/v1/vms/${id}/client-sessions/vcs_00000000000000000000000000`,
     scope: "vm:exec",
   },
+  // Client session identities (cx-b4h.6); test/workers/client-sessions.test.ts covers the rest.
+  { name: "getClientSession", method: "GET", template: "/v1/vms/{vmId}/client-sessions/{sessionId}",
+    path: (id) => `/v1/vms/${id}/client-sessions/vcs_00000000000000000000000000`, scope: "vm:exec" },
+  { name: "setClientSessionLinuxUser", method: "PUT", template: "/v1/vms/{vmId}/client-sessions/{sessionId}/linux-user",
+    path: (id) => `/v1/vms/${id}/client-sessions/vcs_00000000000000000000000000/linux-user`, scope: "vm:exec", json: { linuxUser: "cmux" } },
+  { name: "listClientSessionTokens", method: "GET", template: "/v1/vms/{vmId}/client-sessions/{sessionId}/tokens",
+    path: (id) => `/v1/vms/${id}/client-sessions/vcs_00000000000000000000000000/tokens`, scope: "vm:exec" },
+  { name: "createClientSessionToken", method: "POST", template: "/v1/vms/{vmId}/client-sessions/{sessionId}/tokens",
+    path: (id) => `/v1/vms/${id}/client-sessions/vcs_00000000000000000000000000/tokens`, scope: "vm:exec" },
+  { name: "revokeClientSessionToken", method: "DELETE", template: "/v1/vms/{vmId}/client-sessions/{sessionId}/tokens/{tokenId}",
+    path: (id) => `/v1/vms/${id}/client-sessions/vcs_00000000000000000000000000/tokens/vct_00000000000000000000000000`, scope: "vm:exec" },
 ];
 
 /** Endpoints that act on one snapshot (slice S3a); test/workers/snapshots.test.ts runs the isolation cases. */
@@ -104,6 +132,7 @@ export const SNAPSHOT_ENDPOINTS = [
   { name: "cancelSnapshotCreation", method: "POST", template: "/v1/snapshot-creations/{snapshotId}/cancel", scope: "snapshot:write" },
   { name: "getSnapshot", method: "GET", template: "/v1/snapshots/{snapshotId}", scope: "snapshot:read" },
   { name: "deleteSnapshot", method: "DELETE", template: "/v1/snapshots/{snapshotId}", scope: "snapshot:write" },
+  { name: "updateSnapshot", method: "PATCH", template: "/v1/snapshots/{snapshotId}", scope: "snapshot:write", json: { displayName: "renamed" } },
 ] as const;
 
 /** Endpoints that act on the tenant rather than one VM. */
@@ -126,6 +155,8 @@ export const TENANT_ENDPOINTS = [
   // Agent keys; test/workers/agent-keys.test.ts runs the isolation cases.
   { name: "createAgentKey", method: "POST", template: "/v1/agent-keys", scope: "vm:write" },
   { name: "revokeAgentKey", method: "DELETE", template: "/v1/agent-keys/{keyId}", scope: "vm:write" },
+  // Client session identities (cx-b4h.6); test/workers/client-sessions.test.ts runs the isolation cases.
+  { name: "listTenantClientSessions", method: "GET", template: "/v1/client-sessions", scope: "vm:exec" },
 ] as const;
 
 export const ALL_SCOPES: ReadonlyArray<Scope> = SCOPES;
@@ -160,6 +191,44 @@ export const MESH_ENDPOINTS = [
   // M2 (cx-0op.4). The code enrollment route has no bearer; test/workers/mesh-m2.test.ts covers it.
   { name: "createEnrollmentCode", method: "POST", template: "/v1/meshes/{meshId}/enrollment-codes", scope: "mesh:join", target: "mesh" },
   { name: "rotateDeviceKey", method: "POST", template: "/v1/devices/{deviceId}/rotate-key", scope: "mesh:join", target: "device" },
+  // Networking parity (cx-0op): src/api/mesh-network.ts.
+  { name: "updateMesh", method: "PATCH", template: "/v1/meshes/{meshId}", scope: "mesh:write", target: "mesh" },
+  { name: "listMeshAddresses", method: "GET", template: "/v1/meshes/{meshId}/addresses", scope: "mesh:read", target: "mesh" },
+  { name: "listTunnels", method: "GET", template: "/v1/tunnels", scope: "mesh:read", target: "tenant" },
+  { name: "updateDevice", method: "PATCH", template: "/v1/devices/{deviceId}", scope: "mesh:join", target: "device" },
+  { name: "listMeshFirewallRules", method: "GET", template: "/v1/meshes/{meshId}/acl/rules", scope: "acl:read", target: "mesh" },
+  { name: "getMeshFirewallRule", method: "GET", template: "/v1/meshes/{meshId}/acl/rules/{ruleId}", scope: "acl:read", target: "mesh" },
+  { name: "evaluateMeshAcl", method: "POST", template: "/v1/meshes/{meshId}/acl/evaluate", scope: "acl:read", target: "mesh" },
+] as const;
+
+/** A well-formed firewall rule id that names no rule. */
+export const ABSENT_RULE_ID = `fwr_${"0".repeat(32)}`;
+
+/**
+ * Domains and TLS (cx-b4h.6); test/workers/domains.test.ts runs the isolation
+ * cases. `target` says which public id the path names.
+ */
+export const DOMAIN_ENDPOINTS = [
+  { name: "listDomains", method: "GET", template: "/v1/domains", scope: "domain:read", target: "tenant" },
+  { name: "getDomain", method: "GET", template: "/v1/domains/{domainId}", scope: "domain:read", target: "domain" },
+  { name: "deleteDomain", method: "DELETE", template: "/v1/domains/{domainId}", scope: "domain:write", target: "domain" },
+  { name: "requestWildcardCertificate", method: "POST", template: "/v1/domains/{domainId}/wildcard-certificate", scope: "domain:write", target: "domain" },
+  { name: "listCertificates", method: "GET", template: "/v1/certificates", scope: "domain:read", target: "tenant" },
+  { name: "createDomainVerification", method: "POST", template: "/v1/domain-verifications", scope: "domain:write", target: "tenant" },
+  { name: "listDomainVerifications", method: "GET", template: "/v1/domain-verifications", scope: "domain:read", target: "tenant" },
+  { name: "getDomainVerification", method: "GET", template: "/v1/domain-verifications/{verificationId}", scope: "domain:read", target: "verification" },
+  { name: "verifyDomain", method: "POST", template: "/v1/domain-verifications/{verificationId}/verify", scope: "domain:write", target: "verification" },
+  { name: "deleteDomainVerification", method: "DELETE", template: "/v1/domain-verifications/{verificationId}", scope: "domain:write", target: "verification" },
+  { name: "listTlsRules", method: "GET", template: "/v1/tls-rules", scope: "domain:read", target: "tenant" },
+  { name: "createTlsRule", method: "POST", template: "/v1/tls-rules", scope: "domain:write", target: "tenant" },
+  { name: "getTlsRule", method: "GET", template: "/v1/tls-rules/{ruleId}", scope: "domain:read", target: "rule" },
+  { name: "updateTlsRule", method: "PUT", template: "/v1/tls-rules/{ruleId}", scope: "domain:write", target: "rule" },
+  { name: "deleteTlsRule", method: "DELETE", template: "/v1/tls-rules/{ruleId}", scope: "domain:write", target: "rule" },
+  { name: "listTlsForwardAuths", method: "GET", template: "/v1/tls-forward-auths", scope: "domain:read", target: "tenant" },
+  { name: "createTlsForwardAuth", method: "POST", template: "/v1/tls-forward-auths", scope: "domain:write", target: "tenant" },
+  { name: "getTlsForwardAuth", method: "GET", template: "/v1/tls-forward-auths/{forwardAuthId}", scope: "domain:read", target: "forwardAuth" },
+  { name: "updateTlsForwardAuth", method: "PUT", template: "/v1/tls-forward-auths/{forwardAuthId}", scope: "domain:write", target: "forwardAuth" },
+  { name: "deleteTlsForwardAuth", method: "DELETE", template: "/v1/tls-forward-auths/{forwardAuthId}", scope: "domain:write", target: "forwardAuth" },
 ] as const;
 
 /** Every scope that does not grant `scope`: the scope itself and its family scope (`snapshot:*`) are left out. */

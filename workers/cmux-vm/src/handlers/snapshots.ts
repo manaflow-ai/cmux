@@ -19,6 +19,7 @@ import { SnapshotId, VmId } from "../lib/ids.ts";
 import { UpstreamSnapshots, type UpstreamSnapshot } from "../upstream/snapshots.ts";
 import { audited, withCaller } from "./common.ts";
 import { snapshotNotFound, withOwnedSnapshot } from "./owned.ts";
+import { updateSnapshot } from "./updates.ts";
 
 const DEFAULT_PAGE = 50;
 
@@ -159,6 +160,7 @@ export const snapshotsHandlers = HttpApiBuilder.group(CmuxVmApi, "snapshots", (h
         );
       }),
     )
+    .handle("updateSnapshot", ({ path, payload }) => updateSnapshot(path.snapshotId, payload))
     .handle("deleteSnapshot", ({ path }) =>
       Effect.gen(function* () {
         const upstream = yield* UpstreamSnapshots;

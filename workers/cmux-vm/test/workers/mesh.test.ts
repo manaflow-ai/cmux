@@ -5,7 +5,7 @@
  * isolation on every mesh endpoint.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ALL_SCOPES, allScopesExcept, bearer, MESH_ENDPOINTS } from "../support/endpoints.ts";
+import { ABSENT_RULE_ID, ALL_SCOPES, allScopesExcept, bearer, MESH_ENDPOINTS } from "../support/endpoints.ts";
 import { makeHarness, type HarnessOptions } from "../support/harness.ts";
 import { enrollBody, makeInstallKey, rotateBody, type InstallKey } from "../support/mesh-signing.ts";
 
@@ -74,9 +74,16 @@ describe("the experiment flag", () => {
         .replace("{meshId}", "mesh_00000000000000000000000000")
         .replace("{deviceId}", "dev_00000000000000000000000000")
         .replace("{tunnelId}", "tun_00000000000000000000000000")
-        .replace("{vmId}", "vm_00000000000000000000000000");
+        .replace("{vmId}", "vm_00000000000000000000000000")
+        .replace("{ruleId}", ABSENT_RULE_ID);
       const body =
-        endpoint.name === "enrollDevice" || endpoint.name === "enrollOverlayServer" || endpoint.name === "createOverlayServerCode"
+        endpoint.name === "updateMesh"
+          ? { displayName: "renamed" }
+          : endpoint.name === "updateDevice"
+            ? { name: "renamed" }
+            : endpoint.name === "evaluateMeshAcl"
+              ? { src: "dev_00000000000000000000000000", dst: "vm_00000000000000000000000000", protocol: "icmp" }
+              : endpoint.name === "enrollDevice" || endpoint.name === "enrollOverlayServer" || endpoint.name === "createOverlayServerCode"
           ? await signedEnroll("mesh_00000000000000000000000000", "laptop", KEY_1)
           : endpoint.name === "rotateDeviceKey"
             ? await rotateBody(install ?? (install = await makeInstallKey()), "dev_00000000000000000000000000", KEY_3)
@@ -382,10 +389,21 @@ describe("tenant isolation", () => {
   };
 
   const pathFor = (template: string, ids: { meshId: string; vmId: string; deviceId: string; tunnelId: string }) =>
-    template.replace("{meshId}", ids.meshId).replace("{vmId}", ids.vmId).replace("{deviceId}", ids.deviceId).replace("{tunnelId}", ids.tunnelId);
+    template
+      .replace("{meshId}", ids.meshId)
+      .replace("{vmId}", ids.vmId)
+      .replace("{deviceId}", ids.deviceId)
+      .replace("{tunnelId}", ids.tunnelId)
+      .replace("{ruleId}", ABSENT_RULE_ID);
 
-  const bodyFor = async (name: string, ids: { meshId: string; deviceId: string }) =>
-    name === "enrollDevice" || name === "enrollOverlayServer" || name === "createOverlayServerCode"
+  const bodyFor = async (name: string, ids: { meshId: string; deviceId: string; vmId?: string }) =>
+    name === "updateMesh"
+      ? { displayName: "renamed" }
+      : name === "updateDevice"
+        ? { name: "renamed" }
+        : name === "evaluateMeshAcl"
+          ? { src: ids.deviceId, dst: ids.vmId ?? "vm_00000000000000000000000000", protocol: "icmp" }
+          : name === "enrollDevice" || name === "enrollOverlayServer" || name === "createOverlayServerCode"
       ? await signedEnroll(ids.meshId, "intruder", KEY_2)
       : name === "rotateDeviceKey"
         ? await rotateBody(install ?? (install = await makeInstallKey()), ids.deviceId, KEY_3)

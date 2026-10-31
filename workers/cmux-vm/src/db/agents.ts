@@ -32,6 +32,11 @@ export interface ClientSessionRow {
   readonly revokedAt: Date | null;
 }
 
+/** A live client session with its live VM's labels, for the tenant-wide list (labels decide what a service key sees). */
+export interface TenantClientSessionRow extends ClientSessionRow {
+  readonly vmLabels: Readonly<Record<string, string>>;
+}
+
 export interface AgentStoreService {
   /** The tenant's agent key with this id (revoked or expired included), or null. */
   readonly findAgentKey: (tenantId: TenantId, id: ApiKeyId) => Effect.Effect<AgentKeyRow | null, StoreError>;
@@ -48,6 +53,17 @@ export interface AgentStoreService {
   readonly markClientSessionRevoked: (tenantId: TenantId, id: ClientSessionId, at: Date) => Effect.Effect<void, StoreError>;
   /** Live client sessions whose VM is deleted: their revoke failed when the VM went. */
   readonly orphanClientSessions: (limit: number) => Effect.Effect<ReadonlyArray<ClientSessionRow>, StoreError>;
+  /**
+   * Records a live session's new Linux user (after the provider grant changed), only while its recorded user is
+   * still `from`: a compare-and-set, false when another change got there first (or the session is gone).
+   */
+  readonly setClientSessionLinuxUser: (tenantId: TenantId, id: ClientSessionId, from: string, to: string) => Effect.Effect<boolean, StoreError>;
+  /** The tenant's live client sessions on live VMs, by id after `after`, at most `limit`. */
+  readonly liveTenantClientSessions: (
+    tenantId: TenantId,
+    after: ClientSessionId | null,
+    limit: number,
+  ) => Effect.Effect<ReadonlyArray<TenantClientSessionRow>, StoreError>;
 }
 
 export class AgentStore extends Context.Tag("cmux-vm/AgentStore")<AgentStore, AgentStoreService>() {}
@@ -75,6 +91,8 @@ const SessionRow = Schema.Struct({
   revoked_at: Schema.NullOr(When),
 });
 
+const TenantSessionRow = Schema.Struct({ ...SessionRow.fields, vm_labels: Labels });
+
 const AGENT_COLUMNS = "id, tenant_id, created_by, agent_labels::text AS agent_labels, expires_at, revoked_at";
 const SESSION_COLUMNS = "s.id, s.tenant_id, s.vm_cmux_id, s.upstream_identity_id, s.linux_user, s.created_by, s.created_at, s.revoked_at";
 
@@ -100,6 +118,8 @@ const toSession = (row: typeof SessionRow.Type): ClientSessionRow => ({
   createdAt: row.created_at,
   revokedAt: row.revoked_at,
 });
+
+const toTenantSession = (row: typeof TenantSessionRow.Type): TenantClientSessionRow => ({ ...toSession(row), vmLabels: row.vm_labels });
 
 export const sqlAgentStoreLayer: Layer.Layer<AgentStore, never, SqlClient> = Layer.effect(
   AgentStore,
@@ -185,5 +205,25 @@ export const sqlAgentStoreLayer: Layer.Layer<AgentStore, never, SqlClient> = Lay
           [limit],
         )
         .pipe(Effect.flatMap(decode(SessionRow, "clientSessions.orphans")), Effect.map((rows) => rows.map(toSession))),
+    setClientSessionLinuxUser: (tenantId, id, from, to) =>
+      sql
+        .query(
+          "clientSessions.linuxUser",
+          `UPDATE cmux_vm.vm_client_sessions SET linux_user = $4 WHERE id = $1 AND tenant_id = $2 AND revoked_at IS NULL AND linux_user = $3 RETURNING id`,
+          [id, tenantId, from, to],
+        )
+        .pipe(Effect.map((rows) => rows.length === 1)),
+    liveTenantClientSessions: (tenantId, after, limit) =>
+      sql
+        .query(
+          "clientSessions.tenant",
+          `SELECT ${SESSION_COLUMNS}, r.labels::text AS vm_labels FROM cmux_vm.vm_client_sessions s
+             JOIN cmux_vm.resources r ON r.tenant_id = s.tenant_id AND r.cmux_id = s.vm_cmux_id AND r.kind = 'vm'
+            WHERE s.tenant_id = $1 AND s.revoked_at IS NULL AND r.deleted_at IS NULL AND ($2::text IS NULL OR s.id COLLATE "C" > $2::text COLLATE "C")
+            ORDER BY s.id COLLATE "C"
+            LIMIT $3`,
+          [tenantId, after, limit],
+        )
+        .pipe(Effect.flatMap(decode(TenantSessionRow, "clientSessions.tenant")), Effect.map((rows) => rows.map(toTenantSession))),
   })),
 );

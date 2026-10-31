@@ -56,6 +56,18 @@ impl<'a> Printer<'a> {
         Self { json, out }
     }
 
+    /// Whether `--json` was given.
+    pub(crate) fn is_json(&self) -> bool {
+        self.json
+    }
+
+    /// Raw bytes, such as a guest file's content, unchanged.
+    pub(crate) fn bytes(&mut self, bytes: &[u8]) -> Result<(), CliError> {
+        self.out
+            .write_all(bytes)
+            .map_err(|e| CliError::unexpected(format!("write output: {e}")))
+    }
+
     pub fn overlay_policy(&mut self, body: &[u8]) -> Result<(), CliError> {
         let policy: cmux_vm_client::types::DeviceOverlayPolicy = decode(body)?;
         if self.json {
@@ -632,20 +644,20 @@ impl<'a> Printer<'a> {
 
     /// Pretty-prints a response body without decoding it into the generated
     /// types, so unknown fields survive.
-    fn raw_json(&mut self, body: &[u8]) -> Result<(), CliError> {
+    pub(crate) fn raw_json(&mut self, body: &[u8]) -> Result<(), CliError> {
         let value: serde_json::Value = serde_json::from_slice(body).map_err(|e| {
             CliError::unexpected(format!("the cmux VM API sent a body that is not JSON: {e}"))
         })?;
         self.json_value(&value)
     }
 
-    fn json_value(&mut self, value: &impl Serialize) -> Result<(), CliError> {
+    pub(crate) fn json_value(&mut self, value: &impl Serialize) -> Result<(), CliError> {
         let text = serde_json::to_string_pretty(value)
             .map_err(|e| CliError::unexpected(format!("encode JSON output: {e}")))?;
         self.line(&text)
     }
 
-    fn line(&mut self, text: &str) -> Result<(), CliError> {
+    pub(crate) fn line(&mut self, text: &str) -> Result<(), CliError> {
         writeln!(self.out, "{text}").map_err(|e| CliError::unexpected(format!("write output: {e}")))
     }
 }

@@ -11,6 +11,7 @@ import { badRequest, conflict, fileNotFound, PayloadTooLarge, unavailable, vmNot
 import { TenantPolicy } from "../policy.ts";
 import { UpstreamClient } from "../upstream/client.ts";
 import { audited, auditableVmId, withOwnedVm } from "./common.ts";
+import { abortFileUpload, beginFileUpload, commitFileUpload, getFileUpload, makeDirectory, pathExists, removePath, uploadFileChunk } from "./file-ops.ts";
 
 const kindOf = (kind: string): FileEntryKind => (kind === "file" || kind === "directory" || kind === "symlink" ? kind : "other");
 
@@ -103,5 +104,14 @@ export const filesHandlers = HttpApiBuilder.group(CmuxVmApi, "files", (handlers)
           });
         }),
       ),
-    ),
+    )
+    .handle("pathExists", ({ path, urlParams }) => pathExists(path.vmId, urlParams.path))
+    .handle("makeDirectory", ({ path, payload }) => makeDirectory(path.vmId, payload.path))
+    .handle("removePath", ({ path, urlParams }) => removePath(path.vmId, urlParams.path))
+    .handle("beginFileUpload", ({ path, payload }) => beginFileUpload(path.vmId, payload))
+    .handle("getFileUpload", ({ path }) => getFileUpload(path.vmId, path.uploadId))
+    .handleRaw("uploadFileChunk", ({ path, urlParams, headers, request }) =>
+      uploadFileChunk(path.vmId, path.uploadId, urlParams.offset, headers["content-length"], request.source))
+    .handle("commitFileUpload", ({ path }) => commitFileUpload(path.vmId, path.uploadId))
+    .handle("abortFileUpload", ({ path }) => abortFileUpload(path.vmId, path.uploadId)),
 );

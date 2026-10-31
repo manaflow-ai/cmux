@@ -15,9 +15,15 @@ path = "src/main.rs"
 clap.workspace = true
 cmux-vm-client = { path = "../cmux-vm-client" }
 futures.workspace = true
+reqwest.workspace = true
+# SHA-256 of resumable uploads (already in the lock through the TLS stack).
+ring = "0.17"
 serde.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
-tokio.workspace = true
+# `signal`: abandon a resumable upload on Ctrl-C, revoke an ssh session on
+# SIGHUP/SIGTERM. `process`: wait for ssh without blocking a runtime thread.
+# `time`: retry backoff and the upload stall watchdog.
+tokio = { workspace = true, features = ["process", "signal", "time"] }
 
 [dev-dependencies]
 wiremock.workspace = true

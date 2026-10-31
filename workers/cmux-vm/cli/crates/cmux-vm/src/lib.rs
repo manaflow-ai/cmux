@@ -9,12 +9,18 @@
 
 pub mod exit;
 
+mod access;
 mod config;
 mod creation_history;
+mod edge;
 mod error;
+mod files;
+mod network;
 mod output;
 mod prompt;
+mod update;
 
+pub use access::askpass;
 pub use prompt::{NoPrompt, Prompt, StdinPrompt};
 
 use std::ffi::OsString;
@@ -91,7 +97,10 @@ enum Command {
     Resize(ResizeArgs),
     /// Show a VM
     Get(VmArg),
-    /// Show the canonical allocation fingerprint, optionally checking whether the VM still exists
+    /// Change a VM's name, labels (replacing the whole set) or limits
+    Update(update::UpdateArgs),
+    /// `identity VM_ID`: the canonical allocation fingerprint, optionally checking whether the
+    /// VM still exists. `identity <subcommand>`: the client-session group (see `session`)
     Identity(IdentityArgs),
     /// List the team's VMs
     List(ListArgs),
@@ -123,9 +132,41 @@ enum Command {
     /// Create, list and revoke API keys
     #[command(subcommand, name = "api-key")]
     ApiKey(ApiKeyCommand),
-    /// Read guest file metadata without starting the VM
+    /// List, read, write and stat guest files
+    #[command(subcommand, visible_alias = "fs")]
+    File(files::FileCommand),
+    /// Copy a local file into a VM: push LOCAL VM_ID:/path
+    Push(files::PushArgs),
+    /// Copy a guest file out of a VM: pull VM_ID:/path LOCAL
+    Pull(files::PullArgs),
+    /// Copy one file either way: scp SOURCE DESTINATION, one side VM_ID:/path
+    Scp(files::ScpArgs),
+    /// Open an SSH session (or run a command) in a VM through a short-lived client session
+    Ssh(access::SshArgs),
+    /// Create, list and revoke a VM's client sessions (SSH logins)
     #[command(subcommand)]
-    File(FileCommand),
+    Session(access::SessionCommand),
+    /// List and close a VM's terminal sessions
+    #[command(subcommand)]
+    Terminal(access::TerminalCommand),
+    /// Create, list, show and delete private networks; attach and detach VMs
+    #[command(subcommand, visible_alias = "mesh")]
+    Vpc(network::VpcCommand),
+    /// Enroll, show, rotate and remove WireGuard devices and their tunnels
+    #[command(subcommand, visible_alias = "tunnels")]
+    Tunnel(network::TunnelCommand),
+    /// Show and replace a private network's firewall rules
+    #[command(subcommand)]
+    Firewall(network::FirewallCommand),
+    /// Replace a VM's HTTPS proxy
+    #[command(subcommand, name = "https-proxy")]
+    HttpsProxy(network::HttpsProxyCommand),
+    /// Verify domains, list and release them, and request certificates
+    #[command(subcommand, visible_alias = "domains")]
+    Domain(edge::DomainCommand),
+    /// Create, list, show, replace and delete TLS rules and forward-auth checks
+    #[command(subcommand)]
+    Tls(edge::TlsCommand),
 }
 
 #[derive(Subcommand, Debug)]
@@ -170,12 +211,6 @@ struct CreationListArgs {
     /// Continue from a previous page's opaque cursor
     #[arg(long)]
     cursor: Option<String>,
-}
-
-#[derive(Subcommand, Debug)]
-enum FileCommand {
-    /// Show file metadata on a running, paused, stopped or retired VM
-    Stat(FileStatArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -226,14 +261,6 @@ struct DeviceArg {
     device_id: String,
 }
 
-#[derive(Args, Debug)]
-struct FileStatArgs {
-    /// VM id (vm_...)
-    vm_id: String,
-    /// Absolute guest path, without parent segments
-    path: String,
-}
-
 #[derive(Subcommand, Debug)]
 enum SnapshotCommand {
     /// Capture a VM's memory and disk as a snapshot
@@ -244,6 +271,9 @@ enum SnapshotCommand {
     List(SnapshotListArgs),
     /// Delete a snapshot permanently (asks to type the snapshot id, or needs --yes without a terminal)
     Delete(SnapshotDeleteArgs),
+    /// Change a snapshot's name, labels (replacing the whole set) or retention
+    #[command(visible_alias = "rename")]
+    Update(update::SnapshotUpdateArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -394,9 +424,16 @@ struct ExecArgs {
     command: Vec<String>,
 }
 
+/// `identity VM_ID [--check-presence]`, or `identity <subcommand>`. A VM id
+/// always starts with `vm_`, so it never reads as a subcommand name.
 #[derive(Args, Debug)]
+#[command(args_conflicts_with_subcommands = true, subcommand_negates_reqs = true)]
 struct IdentityArgs {
-    vm_id: String,
+    #[command(subcommand)]
+    command: Option<access::SessionCommand>,
+    /// VM id (vm_...)
+    #[arg(required = true)]
+    vm_id: Option<String>,
     /// Read provider presence without starting the VM
     #[arg(long)]
     check_presence: bool,
@@ -581,8 +618,13 @@ async fn execute(
             concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
         )
         .map_err(|e| CliError::usage(e.to_string()))?;
+        let transfer = files::TransferClients {
+            stream: client.clone(),
+            upload: client.clone(),
+        };
         return dispatch(
             &client,
+            &transfer,
             cli.command,
             prompt,
             output::Printer::new(cli.json, stdout),
@@ -598,19 +640,38 @@ async fn execute(
     for warning in &settings.warnings {
         error::report_warning(warning, cli.json, stderr);
     }
-    let client = cmux_vm_client::authenticated_raw_client(
-        &settings.base_url,
-        &settings.api_key,
-        settings.team_id.as_deref(),
-        concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
-    )
-    .map_err(|e| CliError::usage(e.to_string()))?;
-    let out = output::Printer::new(cli.json, stdout);
-    dispatch(&client, cli.command, prompt, out).await
+    // Ordinary calls keep a total deadline; transfers get their own clients
+    // without one (see `files::TransferClients`).
+    let build = |limits| {
+        cmux_vm_client::authenticated_raw_client_with(
+            &settings.base_url,
+            &settings.api_key,
+            settings.team_id.as_deref(),
+            concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
+            limits,
+        )
+        .map_err(|e| CliError::usage(e.to_string()))
+    };
+    let client = build(cmux_vm_client::Limits::API)?;
+    let transfer = files::TransferClients {
+        stream: build(cmux_vm_client::Limits::STREAM)?,
+        upload: build(cmux_vm_client::Limits::UPLOAD)?,
+    };
+    match cli.command {
+        Command::Ssh(args) => {
+            let program = env(access::SSH_PROGRAM_ENV).unwrap_or_else(|| "ssh".to_owned());
+            access::ssh(&client, args, &program, cli.json, stderr).await
+        }
+        command => {
+            let out = output::Printer::new(cli.json, stdout);
+            dispatch(&client, &transfer, command, prompt, out).await
+        }
+    }
 }
 
 async fn dispatch(
     client: &Client,
+    transfer: &files::TransferClients,
     command: Command,
     prompt: &mut dyn Prompt,
     mut out: output::Printer<'_>,
@@ -785,10 +846,16 @@ async fn dispatch(
             out.vm(&vm)
         }
         Command::Identity(IdentityArgs {
+            command: Some(command),
+            ..
+        }) => access::session(client, command, prompt, out).await,
+        Command::Identity(IdentityArgs {
             vm_id,
             check_presence,
+            command: None,
         }) => {
             let id = vm_id
+                .unwrap_or_default()
                 .parse::<types::VmId>()
                 .map_err(|_| CliError::usage("invalid VM id"))?;
             let presence = parse_opt(
@@ -979,29 +1046,29 @@ async fn dispatch(
             out.revoked(id.as_str())
         }
         Command::ApiKey(command) => api_key(client, command, prompt, out).await,
-        Command::File(FileCommand::Stat(args)) => {
-            let id = args
-                .vm_id
-                .parse::<types::VmId>()
-                .map_err(|_| CliError::usage("invalid VM id"))?;
-            if !args.path.starts_with('/')
-                || args.path.contains('\0')
-                || args.path.split('/').any(|part| part == "..")
-                || args.path.encode_utf16().count() > 4096
-            {
-                return Err(CliError::usage(
-                    "guest path must be absolute, at most 4096 characters, without parent segments or NUL",
-                ));
-            }
-            let path = args
-                .path
-                .parse::<types::GuestPath>()
-                .map_err(|_| CliError::usage("invalid guest path"))?;
-            let body = fetch_body(client.files_stat_file(id.as_str(), &path, None))
-                .await
-                .map_err(|e| e.for_vm(id.as_str(), "file stat"))?;
-            out.file_stat(&body)
+        Command::File(command) => files::file(client, transfer, command, prompt, out).await,
+        Command::Push(args) => {
+            let copy = files::Transfer::push(args)?;
+            files::copy(client, transfer, copy.0, copy.1, out).await
         }
+        Command::Pull(args) => {
+            let copy = files::Transfer::pull(args)?;
+            files::copy(client, transfer, copy, files::UploadOptions::default(), out).await
+        }
+        Command::Scp(args) => {
+            let (copy, mode) = files::Transfer::scp(args)?;
+            files::copy(client, transfer, copy, mode, out).await
+        }
+        Command::Ssh(_) => Err(CliError::usage("ssh needs account configuration")),
+        Command::Session(command) => access::session(client, command, prompt, out).await,
+        Command::Terminal(command) => access::terminal(client, command, prompt, out).await,
+        Command::Vpc(command) => network::vpc(client, command, prompt, out).await,
+        Command::Tunnel(command) => network::tunnel(client, command, prompt, out).await,
+        Command::Firewall(command) => network::firewall(client, command, out).await,
+        Command::HttpsProxy(command) => network::https_proxy(client, command, out).await,
+        Command::Update(args) => update::update_vm(client, args, out).await,
+        Command::Domain(command) => edge::domain(client, command, prompt, out).await,
+        Command::Tls(command) => edge::tls(client, command, prompt, out).await,
     }
 }
 
@@ -1133,6 +1200,7 @@ async fn snapshot(
             call(client.snapshots_delete_snapshot(&snapshot_id, None)).await?;
             out.deleted(&snapshot_id)
         }
+        SnapshotCommand::Update(args) => update::update_snapshot(client, args, out).await,
     }
 }
 
@@ -1176,6 +1244,16 @@ enum Destroy {
     DeleteSnapshot,
     RevokeApiKey,
     RevokeOverlayServer,
+    RevokeSession,
+    CloseTerminal,
+    DeleteMesh,
+    DeleteDevice,
+    RemovePath,
+    RevokeToken,
+    DeleteDomain,
+    DeleteVerification,
+    DeleteTlsRule,
+    DeleteForwardAuth,
 }
 
 impl Destroy {
@@ -1187,6 +1265,16 @@ impl Destroy {
             Destroy::DeleteSnapshot => ("delete", "Delete", "snapshot id"),
             Destroy::RevokeApiKey => ("revoke", "Revoke", "API key id"),
             Destroy::RevokeOverlayServer => ("revoke", "Revoke", "device id"),
+            Destroy::RevokeSession => ("revoke", "Revoke", "session id"),
+            Destroy::CloseTerminal => ("close", "Close", "terminal id"),
+            Destroy::DeleteMesh => ("delete", "Delete", "mesh id"),
+            Destroy::DeleteDevice => ("delete", "Delete", "device id"),
+            Destroy::RemovePath => ("remove", "Remove", "path"),
+            Destroy::RevokeToken => ("revoke", "Revoke", "access token id"),
+            Destroy::DeleteDomain => ("release", "Release", "domain id"),
+            Destroy::DeleteVerification => ("withdraw", "Withdraw", "verification id"),
+            Destroy::DeleteTlsRule => ("delete", "Delete", "TLS rule id"),
+            Destroy::DeleteForwardAuth => ("delete", "Delete", "forward-auth id"),
         }
     }
 }
@@ -1205,8 +1293,14 @@ fn confirm(prompt: &mut dyn Prompt, action: Destroy, id: &str) -> Result<(), Cli
         Destroy::RetireVm => format!(
             "Retire {id} permanently? It cannot run again; files remain readable until deletion. Type the VM id to confirm: "
         ),
-        Destroy::RevokeApiKey => format!(
+        Destroy::RemovePath => format!(
+            "Remove {id} from the VM? A directory goes with everything in it. Type the path to confirm: "
+        ),
+        Destroy::RevokeApiKey | Destroy::RevokeSession | Destroy::RevokeToken => format!(
             "{question_verb} {id}? Requests that use it will fail. Type the {id_name} to confirm: "
+        ),
+        Destroy::CloseTerminal => format!(
+            "{question_verb} terminal {id}? Its processes are killed. Type the {id_name} to confirm: "
         ),
         _ => format!(
             "{question_verb} {id} permanently? This cannot be undone. Type the {id_name} to confirm: "
@@ -1220,7 +1314,14 @@ fn confirm(prompt: &mut dyn Prompt, action: Destroy, id: &str) -> Result<(), Cli
     } else {
         let past = match action {
             Destroy::RetireVm => "retired",
-            Destroy::RevokeApiKey | Destroy::RevokeOverlayServer => "revoked",
+            Destroy::RevokeApiKey
+            | Destroy::RevokeOverlayServer
+            | Destroy::RevokeSession
+            | Destroy::RevokeToken => "revoked",
+            Destroy::CloseTerminal => "closed",
+            Destroy::RemovePath => "removed",
+            Destroy::DeleteDomain => "released",
+            Destroy::DeleteVerification => "withdrawn",
             _ => "deleted",
         };
         Err(CliError::cancelled(format!(

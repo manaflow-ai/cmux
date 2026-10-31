@@ -5,7 +5,7 @@
  */
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { Conflict, Forbidden, NotFound, PaymentRequired, QuotaExceeded } from "../errors.ts";
+import { BadRequest, Conflict, Forbidden, NotFound, PaymentRequired, QuotaExceeded, ServiceUnavailable } from "../errors.ts";
 import { SnapshotId, VmId } from "../lib/ids.ts";
 import { CreatedByCaller, describe, DisplayName, GroupCreateHeaders, GroupCreationKeyHeaders, GroupTeamHeaders, InvalidRequest } from "./common.ts";
 
@@ -94,6 +94,17 @@ export class CreateSnapshotRequest extends Schema.Class<CreateSnapshotRequest>("
   autoDeleteSeconds: Schema.optional(RetentionSeconds),
 }) {}
 
+/** cx-b4h.9: rename, relabel or change the retention of a snapshot. The provider slug is never a field. */
+export class UpdateSnapshotRequest extends Schema.Class<UpdateSnapshotRequest>("UpdateSnapshotRequest")({
+  displayName: Schema.optional(Schema.NullOr(DisplayName).annotations({ description: "A new name; null clears it." })),
+  labels: Schema.optional(Labels.annotations({ description: "Replaces the whole label set. Labels starting with cmux. keep their values; a service or agent key keeps the labels it is limited to." })),
+  ttlSeconds: Schema.optional(Schema.NullOr(RetentionSeconds).annotations({ description: "Delete the snapshot this many seconds after it was taken (not from now); null removes the deadline." })),
+  autoDeleteSeconds: Schema.optional(Schema.NullOr(RetentionSeconds).annotations({ description: "Delete it once this many seconds pass without a VM being created from it; null removes the window." })),
+}, {
+  parseOptions: { onExcessProperty: "error" },
+  description: "Omitted fields stay as they are; at least one is required. Any other field is refused with 400.",
+}) {}
+
 export const ListSnapshotsParams = Schema.Struct({
   createdBy: Schema.optional(CreatedByCaller),
   limit: Schema.optional(Schema.NumberFromString.pipe(Schema.int(), Schema.between(1, 100))),
@@ -163,6 +174,22 @@ export class SnapshotsGroupDefinition extends HttpApiGroup.make("snapshots")
       .addError(NotFound)
       .addError(QuotaExceeded)
       .annotateContext(describe("Get a snapshot", "snapshot:read")),
+  )
+  .add(
+    HttpApiEndpoint.patch("updateSnapshot", "/v1/snapshots/:snapshotId")
+      .setPath(SnapshotPath)
+      .setHeaders(GroupTeamHeaders)
+      .setPayload(UpdateSnapshotRequest)
+      .addSuccess(Snapshot)
+      .addError(BadRequest)
+      .addError(Forbidden)
+      .addError(NotFound)
+      .addError(Conflict)
+      .addError(QuotaExceeded)
+      .addError(ServiceUnavailable)
+      .annotateContext(
+        describe("Update a snapshot's name, labels or retention", "snapshot:write", "Name and labels are stored by cmux; retention is applied to the snapshot. Labels replace the whole set; labels starting with cmux. cannot be added, removed or changed, and a service or agent key cannot drop the labels it is limited to (403). Audited."),
+      ),
   )
   .add(
     HttpApiEndpoint.del("deleteSnapshot", "/v1/snapshots/:snapshotId")

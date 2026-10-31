@@ -15,6 +15,8 @@ export interface FakeVm {
   metadata: Record<string, string>;
   snapshotId: string | null;
   maxRunTotalSeconds?: number | null;
+  maxRunSeconds?: number | null;
+  autoDeleteSeconds?: number | null;
 }
 
 export interface FakeSnapshot {
@@ -58,11 +60,34 @@ export type UpstreamOperation =
   | "createIdentity"
   | "grantVmPermission"
   | "createAccessToken"
-  | "deleteIdentity";
+  | "deleteIdentity"
+  | "updateVmAllowedLinuxUsers"
+  | "listAccessTokens"
+  | "revokeAccessToken"
+  | "exists"
+  | "mkdir"
+  | "remove"
+  | "beginUpload"
+  | "uploadStatus"
+  | "uploadChunk"
+  | "commitUpload"
+  | "abortUpload"
+  | "updateSnapshot";
 
 const VM_PATH = /^\/v5\/vms\/([^/]+)(?:\/(.+))?$/;
 const SNAPSHOT_PATH = /^\/v5\/snapshots\/([^/]+)$/;
-const IDENTITY_PATH = /^\/v5\/identities\/([^/]+)(?:\/(permissions\/vm|tokens))?$/;
+const UPLOAD_PATH = /^fs\/uploads\/([^/]+)(\/commit)?$/;
+
+/** A provider upload session (fs/uploads). */
+export interface FakeUpload {
+  readonly id: string;
+  readonly vmId: string;
+  readonly path: string;
+  readonly size: number;
+  readonly sha256: string | null;
+  received: Uint8Array<ArrayBuffer>;
+}
+const IDENTITY_PATH = /^\/v5\/identities\/([^/]+)(?:\/(permissions\/vm|tokens)(?:\/([^/]+))?)?$/;
 
 /** A provider identity: its VM grants and access tokens (client sessions). */
 interface FakeIdentity {
@@ -79,6 +104,8 @@ const vmBody = (vm: FakeVm) => ({
   resources: vm.resources,
   idleTimeoutSeconds: vm.idleTimeoutSeconds,
   maxRunTotalSeconds: vm.maxRunTotalSeconds ?? null,
+  ...(vm.maxRunSeconds === undefined ? {} : { maxRunSeconds: vm.maxRunSeconds }),
+  ...(vm.autoDeleteSeconds === undefined ? {} : { autoDeleteSeconds: vm.autoDeleteSeconds }),
   displayName: vm.displayName,
   metadata: { ...vm.metadata, cmuxTenant: "leak-check" },
   createdAt: "2026-10-01T00:00:00Z",
@@ -111,6 +138,9 @@ export function makeFakeUpstream(apiKey: string) {
   const execReplies = new Map<string, () => Response>();
   const resizeReplies = new Map<string, () => Response>();
   const updateReplies = new Map<string, () => Response>();
+  /** Directories made with fs/mkdir, as `${vmId}\u0000${path}`. */
+  const directories = new Set<string>();
+  const uploads = new Map<string, FakeUpload>();
 
   const takeFailure = (operation: UpstreamOperation): Response | null => {
     const queue = failures.get(operation);
@@ -148,6 +178,25 @@ export function makeFakeUpstream(apiKey: string) {
         const token = { id: `tok-${crypto.randomUUID()}`, token: `fs_identity_${crypto.randomUUID()}` };
         identity.tokens.push(token);
         return Response.json(token);
+      }
+      case "updateVmAllowedLinuxUsers": {
+        const grantVm = identityMatch?.[3] === undefined ? "" : decodeURIComponent(identityMatch[3]);
+        const index = identity?.grants.findIndex((grant) => grant.vmId === grantVm) ?? -1;
+        if (identity === undefined || index < 0) return notFound();
+        const body: unknown = await request.json();
+        const users: unknown = typeof body === "object" && body !== null ? Reflect.get(body, "allowedLinuxUsers") : undefined;
+        const allowedLinuxUsers = Array.isArray(users) ? users.filter((user): user is string => typeof user === "string") : null;
+        identity.grants[index] = { vmId: grantVm, allowedLinuxUsers };
+        return Response.json({ id: "perm-x", identityId: identity.id, vmId: grantVm, allowedLinuxUsers, grantedAt: "2026-10-21T00:00:00Z", grantedBy: "acct" });
+      }
+      case "listAccessTokens":
+        return identity === undefined ? notFound() : Response.json(identity.tokens.map((token) => ({ id: token.id })));
+      case "revokeAccessToken": {
+        const tokenId = identityMatch?.[3] === undefined ? "" : decodeURIComponent(identityMatch[3]);
+        const index = identity?.tokens.findIndex((token) => token.id === tokenId) ?? -1;
+        if (identity === undefined || index < 0) return notFound();
+        identity.tokens.splice(index, 1);
+        return new Response(null, { status: 204 });
       }
       case "deleteIdentity": {
         if (identity === undefined) return notFound();
@@ -197,7 +246,7 @@ export function makeFakeUpstream(apiKey: string) {
       case "getSnapshot": {
         const id = decodeURIComponent(url.pathname.slice("/v5/snapshots/".length));
         const snapshot = snapshots.get(id) ?? [...snapshots.values()].find((s) => s.slug === id);
-        return snapshot === undefined ? notFound() : Response.json(snapshot);
+        return snapshot === undefined ? notFound() : Response.json({ ...snapshot, createdAt: "2026-10-03T00:00:00Z", updatedAt: "2026-10-03T00:00:00Z" });
       }
       case "listTlsRules": {
         // Deliberately return unrelated/shared rules too: the client must verify exact source ownership.
@@ -236,6 +285,15 @@ export function makeFakeUpstream(apiKey: string) {
         if (typeof body === "object" && body !== null && "maxRunTotalSeconds" in body && body.maxRunTotalSeconds === 0) {
           vm.maxRunTotalSeconds = 0;
           if (vm.state !== "stopped") vm.state = "paused";
+        }
+        if (typeof body === "object" && body !== null) {
+          if ("idleTimeoutSeconds" in body && typeof body.idleTimeoutSeconds === "number") vm.idleTimeoutSeconds = body.idleTimeoutSeconds;
+          if ("maxRunSeconds" in body && typeof body.maxRunSeconds === "number") vm.maxRunSeconds = body.maxRunSeconds;
+          if ("autoDeleteSeconds" in body && typeof body.autoDeleteSeconds === "number") vm.autoDeleteSeconds = body.autoDeleteSeconds;
+          if ("displayName" in body && typeof body.displayName === "string") vm.displayName = body.displayName;
+          if ("metadata" in body && typeof body.metadata === "object" && body.metadata !== null) {
+            Object.assign(vm.metadata, Object.fromEntries(Object.entries(body.metadata).map(([key, value]) => [key, String(value)])));
+          }
         }
         return Response.json(vmBody(vm));
       }
@@ -339,6 +397,91 @@ export function makeFakeUpstream(apiKey: string) {
           vmId: vm.id,
         });
       }
+      case "updateSnapshot": {
+        const match = SNAPSHOT_PATH.exec(url.pathname);
+        const id = match?.[1] === undefined ? "" : decodeURIComponent(match[1]);
+        const snapshot = snapshots.get(id);
+        if (snapshot === undefined) return Response.json({ code: "NOT_FOUND", message: "no such snapshot" }, { status: 404 });
+        const body: unknown = await request.clone().json();
+        const read = (key: string): unknown => (typeof body === "object" && body !== null && key in body ? Reflect.get(body, key) : undefined);
+        const next: FakeSnapshot = {
+          ...snapshot,
+          ...(typeof read("ttlSeconds") === "number" ? { ttlSeconds: Number(read("ttlSeconds")) < 0 ? null : Number(read("ttlSeconds")) } : {}),
+          ...(typeof read("autoDeleteSeconds") === "number" ? { autoDeleteSeconds: Number(read("autoDeleteSeconds")) < 0 ? null : Number(read("autoDeleteSeconds")) } : {}),
+          ...(typeof read("displayName") === "string" ? { displayName: String(read("displayName")) } : {}),
+          ...(typeof read("slug") === "string" ? { slug: String(read("slug")) } : {}),
+        };
+        snapshots.set(id, next);
+        return Response.json({ ...next, accountId: "acct-leak-check", createdAt: "2026-10-03T00:00:00Z", updatedAt: "2026-10-04T00:00:00Z" });
+      }
+      case "exists": {
+        if (vm === undefined) return notFound();
+        const path = url.searchParams.get("path") ?? "";
+        const prefix = `${vm.id}\u0000${path}`;
+        const exists = directories.has(prefix) || [...files.keys()].some((key) => key === prefix || key.startsWith(`${prefix}/`));
+        return Response.json({ exists, vmId: vm.id });
+      }
+      case "mkdir": {
+        if (vm === undefined) return notFound();
+        if (vm.maxRunTotalSeconds === 0) return conflict("lifetime budget exhausted");
+        const body: unknown = await request.clone().json();
+        const path = typeof body === "object" && body !== null && "path" in body ? String(body.path) : "";
+        directories.add(fileKey(vm.id, path));
+        return new Response(null, { status: 204 });
+      }
+      case "remove": {
+        if (vm === undefined) return notFound();
+        if (vm.maxRunTotalSeconds === 0) return conflict("lifetime budget exhausted");
+        const path = url.searchParams.get("path") ?? "";
+        const key = fileKey(vm.id, path);
+        const doomed = [...files.keys()].filter((name) => name === key || name.startsWith(`${key}/`));
+        if (doomed.length === 0 && !directories.delete(key)) return Response.json({ code: "NOT_FOUND", message: "no such path" }, { status: 404 });
+        for (const name of doomed) files.delete(name);
+        return new Response(null, { status: 204 });
+      }
+      case "beginUpload": {
+        if (vm === undefined) return notFound();
+        if (vm.maxRunTotalSeconds === 0) return conflict("lifetime budget exhausted");
+        const body: unknown = await request.clone().json();
+        const read = (key: string): unknown => (typeof body === "object" && body !== null && key in body ? Reflect.get(body, key) : undefined);
+        const size = Number(read("size"));
+        if (!Number.isSafeInteger(size) || size < 0 || size > 16 * 1024 ** 3) return Response.json({ code: "BAD_REQUEST", message: "bad size" }, { status: 400 });
+        const upload: FakeUpload = { id: `up-${crypto.randomUUID()}`, vmId: vm.id, path: String(read("path")), size, sha256: typeof read("sha256") === "string" ? String(read("sha256")) : null, received: new Uint8Array(0) };
+        uploads.set(upload.id, upload);
+        return Response.json({ uploadId: upload.id, path: upload.path, size, receivedBytes: 0, node: "host-leak-check" });
+      }
+      case "uploadStatus":
+      case "uploadChunk":
+      case "commitUpload":
+      case "abortUpload": {
+        if (vm === undefined) return notFound();
+        const match = UPLOAD_PATH.exec(url.pathname.replace(/^\/v5\/vms\/[^/]+\//, ""));
+        const upload = match?.[1] === undefined ? undefined : uploads.get(decodeURIComponent(match[1]));
+        if (upload === undefined || upload.vmId !== vm.id) return Response.json({ code: "NOT_FOUND", message: "no such session" }, { status: 404 });
+        const status = () => Response.json({ uploadId: upload.id, path: upload.path, size: upload.size, receivedBytes: upload.received.length });
+        if (operation === "uploadStatus") return status();
+        if (operation === "abortUpload") { uploads.delete(upload.id); return new Response(null, { status: 204 }); }
+        if (operation === "uploadChunk") {
+          const offset = Number(url.searchParams.get("offset"));
+          const bytes = new Uint8Array(await request.clone().arrayBuffer());
+          if (offset > upload.received.length) return conflict("gap");
+          if (offset < upload.received.length) return status();
+          if (offset + bytes.length > upload.size) return Response.json({ code: "BAD_REQUEST", message: "overrun" }, { status: 400 });
+          const next = new Uint8Array(upload.received.length + bytes.length);
+          next.set(upload.received);
+          next.set(bytes, upload.received.length);
+          upload.received = next;
+          return status();
+        }
+        if (upload.received.length !== upload.size) return Response.json({ code: "BAD_REQUEST", message: "incomplete" }, { status: 400 });
+        if (upload.sha256 !== null) {
+          const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", upload.received)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+          if (digest !== upload.sha256) return Response.json({ code: "BAD_REQUEST", message: "sha256 mismatch" }, { status: 400 });
+        }
+        files.set(fileKey(vm.id, upload.path), upload.received);
+        uploads.delete(upload.id);
+        return new Response(null, { status: 204 });
+      }
       case "stat": {
         if (vm === undefined) return notFound();
         const path = url.searchParams.get("path") ?? "";
@@ -356,13 +499,17 @@ export function makeFakeUpstream(apiKey: string) {
     if (url.pathname === "/v5/identities" && method === "POST") return { operation: "createIdentity", vmId: null };
     const identity = IDENTITY_PATH.exec(url.pathname);
     if (identity !== null) {
-      if (identity[2] === "permissions/vm" && method === "POST") return { operation: "grantVmPermission", vmId: null };
-      if (identity[2] === "tokens" && method === "POST") return { operation: "createAccessToken", vmId: null };
+      if (identity[2] === "permissions/vm" && identity[3] === undefined && method === "POST") return { operation: "grantVmPermission", vmId: null };
+      if (identity[2] === "permissions/vm" && identity[3] !== undefined && method === "PATCH") return { operation: "updateVmAllowedLinuxUsers", vmId: null };
+      if (identity[2] === "tokens" && identity[3] === undefined && method === "POST") return { operation: "createAccessToken", vmId: null };
+      if (identity[2] === "tokens" && identity[3] === undefined && method === "GET") return { operation: "listAccessTokens", vmId: null };
+      if (identity[2] === "tokens" && identity[3] !== undefined && method === "DELETE") return { operation: "revokeAccessToken", vmId: null };
       if (identity[2] === undefined && method === "DELETE") return { operation: "deleteIdentity", vmId: null };
       return null;
     }
     if (SNAPSHOT_PATH.test(url.pathname) && method === "DELETE") return { operation: "deleteSnapshot", vmId: null };
     if (SNAPSHOT_PATH.test(url.pathname) && method === "GET") return { operation: "getSnapshot", vmId: null };
+    if (SNAPSHOT_PATH.test(url.pathname) && method === "PATCH") return { operation: "updateSnapshot", vmId: null };
     const match = VM_PATH.exec(url.pathname);
     if (match?.[1] === undefined) return null;
     const vmId = decodeURIComponent(match[1]);
@@ -383,7 +530,19 @@ export function makeFakeUpstream(apiKey: string) {
       "PUT fs/write": "write",
       "GET fs/dir": "dir",
       "GET fs/stat": "stat",
+      "GET fs/exists": "exists",
+      "POST fs/mkdir": "mkdir",
+      "DELETE fs/remove": "remove",
+      "POST fs/uploads": "beginUpload",
     };
+    const upload = UPLOAD_PATH.exec(rest);
+    if (upload !== null) {
+      if (upload[2] === "/commit") return method === "POST" ? { operation: "commitUpload", vmId } : null;
+      if (method === "GET") return { operation: "uploadStatus", vmId };
+      if (method === "PUT") return { operation: "uploadChunk", vmId };
+      if (method === "DELETE") return { operation: "abortUpload", vmId };
+      return null;
+    }
     const operation = table[`${method} ${rest}`];
     return operation === undefined ? null : { operation, vmId };
   };
@@ -414,6 +573,8 @@ export function makeFakeUpstream(apiKey: string) {
     tlsRules,
     resizeReplies,
     updateReplies,
+    directories,
+    uploads,
     /** Makes the next `times` calls of `operation` answer `status`. */
     fail(operation: UpstreamOperation, status: number, times = 1, body?: unknown) {
       const queue = failures.get(operation) ?? [];
@@ -448,6 +609,8 @@ export function makeFakeUpstream(apiKey: string) {
     tokenValid: (token: string) => [...identities.values()].some((id) => id.tokens.some((t) => t.token === token)),
     /** The VM grants of the identity holding `token`. */
     identityGrants: (token: string) => [...identities.values()].find((id) => id.tokens.some((t) => t.token === token))?.grants ?? [],
+    /** The provider token ids of the identity holding `token` (test inspection only; never in a cmux response). */
+    identityTokenIds: (token: string) => [...identities.values()].find((id) => id.tokens.some((t) => t.token === token))?.tokens.map((t) => t.id) ?? [],
     /** Upstream calls of one operation kind, in order. */
     callsTo(method: string, pathPattern: RegExp) {
       return calls.filter((call) => call.method === method && pathPattern.test(call.path));

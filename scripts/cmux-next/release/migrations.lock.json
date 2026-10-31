@@ -52,7 +52,8 @@
         "0014_cmux_vm_overlay_servers.sql": "f21124a605b9c811c6b379aaa5b5c371b46f279bafd8629ee8d06b18cc10c383",
         "0015_cmux_vm_overlay_server_codes.sql": "a0a7c6fcb425f8d64a319730ad2a523bf0b91b77ac0a956dc0966e90153ecb51",
         "0016_cmux_vm_agent_keys.sql": "558b159aafaf1c7f64d4436b646e239c28e7f3f482b2046f81a03d9b27f86360",
-        "0017_cmux_vm_client_session_index.sql": "219a97ca929c141b59ffb9e820e76b4051ce0b72b45dc8e40a3f8eb06ad9c882"
+        "0017_cmux_vm_client_session_index.sql": "219a97ca929c141b59ffb9e820e76b4051ce0b72b45dc8e40a3f8eb06ad9c882",
+        "0018_cmux_vm_domains_tls.sql": "61f862b232e26df5c038454d9a5fb519a9a378222182743ae418754fb7f6e568"
       }
     },
     "backend": {

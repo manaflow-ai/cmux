@@ -19,7 +19,12 @@ pub struct CliError {
     /// For HTTP 429, which budget ran out (`snapshots`, `vms`, `rate` or
     /// `capacity`), when the server names it.
     budget: Option<String>,
+    /// How long the server asked the caller to wait before retrying (the
+    /// `Retry-After` header, or `retryAfterSeconds` in the error body).
+    retry_after: Option<std::time::Duration>,
     message: String,
+    /// A plain "no" from a yes/no check: the exit code alone carries it.
+    silent: bool,
 }
 
 impl CliError {
@@ -59,12 +64,45 @@ impl CliError {
             status: None,
             tag: Some(tag.to_owned()),
             budget: None,
+            retry_after: None,
             message: message.into(),
+            silent: false,
+        }
+    }
+
+    /// The answer "no" of a yes/no check: exit [`exit::NO`], print nothing.
+    pub fn answered_no() -> Self {
+        Self {
+            code: exit::NO,
+            status: None,
+            tag: None,
+            budget: None,
+            retry_after: None,
+            message: String::new(),
+            silent: true,
+        }
+    }
+
+    /// A child process (ssh) that exited with `code`; its exit code is ours.
+    pub fn child_exit(code: i32, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            status: None,
+            tag: Some("ChildExit".to_owned()),
+            budget: None,
+            retry_after: None,
+            message: message.into(),
+            silent: false,
         }
     }
 
     pub fn exit_code(&self) -> i32 {
         self.code
+    }
+
+    /// The wait the server asked for before a retry, when it named one.
+    pub fn retry_after(&self) -> Option<std::time::Duration> {
+        self.retry_after
     }
 
     /// Keep the original intent key visible after a resize error, including a partial provider failure.
@@ -124,11 +162,13 @@ impl CliError {
         match error {
             Error::ErrorResponse(response) => {
                 let status = response.status().as_u16();
+                let retry_after = retry_after_header(response.headers());
                 let body = read_stream(response.into_inner()).await;
-                Self::from_status(status, &body)
+                Self::from_status(status, &body).with_retry_after_header(retry_after)
             }
             Error::UnexpectedResponse(mut response) => {
                 let status = response.status().as_u16();
+                let retry_after = retry_after_header(response.headers());
                 let mut body = Vec::new();
                 while body.len() < MAX_ERROR_BODY {
                     match response.chunk().await {
@@ -136,7 +176,7 @@ impl CliError {
                         _ => break,
                     }
                 }
-                Self::from_status(status, &body)
+                Self::from_status(status, &body).with_retry_after_header(retry_after)
             }
             Error::CommunicationError(e) | Error::ResponseBodyError(e) => Self::network(format!(
                 "could not reach the cmux VM API: {e}; check your network; run `cmux-vm list` to check connectivity"
@@ -152,6 +192,12 @@ impl CliError {
         }
     }
 
+    /// An HTTP error status and its (capped) body, for the few requests the
+    /// CLI sends without the generated client.
+    pub(crate) fn from_http(status: u16, body: &[u8]) -> Self {
+        Self::from_status(status, &body[..body.len().min(MAX_ERROR_BODY)])
+    }
+
     fn from_status(status: u16, body: &[u8]) -> Self {
         let parsed: Option<Value> = serde_json::from_slice(body).ok();
         let field = |name: &str| {
@@ -163,6 +209,11 @@ impl CliError {
         };
         let tag = field("_tag");
         let budget = field("budget");
+        let retry_after = parsed
+            .as_ref()
+            .and_then(|v| v.get("retryAfterSeconds"))
+            .and_then(Value::as_u64)
+            .map(std::time::Duration::from_secs);
         let server_message = field("message");
         let missing_scope = field("missingScope").or_else(|| field("scope"));
         let field_name = field("field");
@@ -210,11 +261,24 @@ impl CliError {
             status: Some(status),
             tag,
             budget,
+            retry_after,
             message,
+            silent: false,
         }
     }
 
+    /// A `Retry-After` header wins over the body's `retryAfterSeconds`.
+    fn with_retry_after_header(mut self, header: Option<std::time::Duration>) -> Self {
+        if header.is_some() {
+            self.retry_after = header;
+        }
+        self
+    }
+
     pub fn report(&self, json: bool, stderr: &mut dyn Write) {
+        if self.silent {
+            return;
+        }
         let _ = if json {
             let mut error = json!({
                 "status": self.status,
@@ -269,6 +333,21 @@ async fn read_stream(stream: ByteStream) -> Vec<u8> {
 fn append_capped(body: &mut Vec<u8>, chunk: &[u8]) {
     let room = MAX_ERROR_BODY.saturating_sub(body.len());
     body.extend_from_slice(&chunk[..chunk.len().min(room)]);
+}
+
+/// `Retry-After` in delay-seconds form; the HTTP-date form is not used by the
+/// cmux VM API and is ignored.
+pub(crate) fn retry_after_header(
+    headers: &reqwest::header::HeaderMap,
+) -> Option<std::time::Duration> {
+    headers
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .map(std::time::Duration::from_secs)
 }
 
 #[cfg(test)]

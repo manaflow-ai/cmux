@@ -125,6 +125,60 @@ describe("client sessions", () => {
     expect((await run(Effect.flatMap(AgentStore, (store) => store.orphanClientSessions(10)))).map((row) => row.id)).toEqual([second.id]);
   });
 
+  it("lists the tenant's live sessions on live VMs by id with their VM's labels, and pages by cursor", async () => {
+    const record = (tenantId: TenantId, labels: Record<string, string>) =>
+      Effect.gen(function* () {
+        const vmId = newVmId();
+        yield* (yield* OwnershipStore).record({ tenantId, kind: "vm", cmuxId: vmId, upstreamId: UpstreamId.make(`up-${vmId}`), createdBy: "key:agent", createdAt: at(0), displayName: null, labels });
+        return vmId;
+      });
+    const chiefVm = await run(record(T, { role: "chief" }));
+    const goneVm = await run(record(T, {}));
+    const otherVm = await run(record(OTHER, {}));
+    const a = session(chiefVm, "id-a");
+    const b = session(chiefVm, "id-b");
+    const revoked = session(chiefVm, "id-r");
+    const gone = session(goneVm, "id-g");
+    const foreign = { ...session(otherVm, "id-o"), tenantId: OTHER };
+    await run(Effect.flatMap(AgentStore, (store) => Effect.all([a, b, revoked, gone, foreign].map((row) => store.insertClientSession(row)))));
+    await run(Effect.flatMap(AgentStore, (store) => store.markClientSessionRevoked(T, revoked.id, at(2))));
+    await run(Effect.flatMap(OwnershipStore, (store) => store.markDeleted(T, "vm", goneVm, at(3))));
+
+    const all = await run(Effect.flatMap(AgentStore, (store) => store.liveTenantClientSessions(T, null, 10)));
+    const ids = [a.id, b.id].sort();
+    expect(all.map((row) => row.id)).toEqual(ids);
+    expect(all.map((row) => row.vmLabels)).toEqual([{ role: "chief" }, { role: "chief" }]);
+    const firstPage = await run(Effect.flatMap(AgentStore, (store) => store.liveTenantClientSessions(T, null, 1)));
+    expect(firstPage.map((row) => row.id)).toEqual([ids[0]]);
+    const rest = await run(Effect.flatMap(AgentStore, (store) => store.liveTenantClientSessions(T, firstPage[0]?.id ?? null, 10)));
+    expect(rest.map((row) => row.id)).toEqual([ids[1]]);
+  });
+
+  it("changes a live session's Linux user per tenant, never a revoked one's", async () => {
+    const vmId = newVmId();
+    const live = session(vmId, "id-l");
+    const revoked = session(vmId, "id-v");
+    await run(Effect.flatMap(AgentStore, (store) => Effect.all([store.insertClientSession(live), store.insertClientSession(revoked)])));
+    await run(Effect.flatMap(AgentStore, (store) => store.markClientSessionRevoked(T, revoked.id, at(2))));
+    expect(await run(Effect.flatMap(AgentStore, (store) => store.setClientSessionLinuxUser(OTHER, live.id, "ubuntu", "root")))).toBe(false);
+    expect(await run(Effect.flatMap(AgentStore, (store) => store.setClientSessionLinuxUser(T, revoked.id, "ubuntu", "cmux")))).toBe(false);
+    expect((await run(Effect.flatMap(AgentStore, (store) => store.findClientSession(T, vmId, live.id))))?.linuxUser).toBe("ubuntu");
+    expect(await run(Effect.flatMap(AgentStore, (store) => store.setClientSessionLinuxUser(T, live.id, "ubuntu", "cmux")))).toBe(true);
+    expect((await run(Effect.flatMap(AgentStore, (store) => store.findClientSession(T, vmId, live.id))))?.linuxUser).toBe("cmux");
+    expect((await run(Effect.flatMap(AgentStore, (store) => store.findClientSession(T, vmId, revoked.id))))?.linuxUser).toBe("ubuntu");
+    await expect(run(Effect.flatMap(AgentStore, (store) => store.setClientSessionLinuxUser(T, live.id, "cmux", "Bad User")))).rejects.toThrow();
+  });
+
+  it("changes the Linux user only from the value the caller read (compare-and-set)", async () => {
+    const vmId = newVmId();
+    const live = session(vmId, "id-cas");
+    await run(Effect.flatMap(AgentStore, (store) => store.insertClientSession(live)));
+    expect(await run(Effect.flatMap(AgentStore, (store) => store.setClientSessionLinuxUser(T, live.id, "ubuntu", "bob")))).toBe(true);
+    // A second writer that read "ubuntu" before the first change lost the race: nothing changes.
+    expect(await run(Effect.flatMap(AgentStore, (store) => store.setClientSessionLinuxUser(T, live.id, "ubuntu", "cmux")))).toBe(false);
+    expect((await run(Effect.flatMap(AgentStore, (store) => store.findClientSession(T, vmId, live.id))))?.linuxUser).toBe("bob");
+  });
+
   it("refuses a malformed Linux user and a reused provider identity", async () => {
     const vmId = newVmId();
     await expect(run(Effect.flatMap(AgentStore, (store) => store.insertClientSession({ ...session(vmId, "id-x"), linuxUser: "Bad User" })))).rejects.toThrow();

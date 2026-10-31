@@ -166,7 +166,11 @@ export interface paths {
         delete: operations["vms.deleteVm"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update a VM's name, labels or limits
+         * @description Update a VM's name, labels or limits. Requires the vm:write scope. Name and labels are stored by cmux; idleTimeoutSeconds, maxRunSeconds and autoDeleteSeconds are applied to the VM (-1 removes a limit; dev/test tenants keep the 1 to 300 second idle rule). Labels replace the whole set; labels starting with cmux. cannot be added, removed or changed, and a service or agent key cannot drop the labels it is limited to (403). The provider's slug, metadata, tenant tagging and the lifetime run budget (which keeps a retired VM retired) cannot be changed. A VM whose create has not finished is 409, and so is a concurrent change of its name or labels (read and retry). Audited. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         */
+        patch: operations["vms.updateVm"];
         trace?: never;
     };
     "/v1/vms/{vmId}/start": {
@@ -433,6 +437,134 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/vms/{vmId}/files/exists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Check whether a path exists in a VM
+         * @description Check whether a path exists in a VM. Requires the vm:files scope. Answers exists:false for a missing path; 404 means the VM. No audit row. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         */
+        get: operations["files.pathExists"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/vms/{vmId}/files/directories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a directory in a VM
+         * @description Create a directory in a VM. Requires the vm:files scope. Creates missing parent directories too (like mkdir -p); an existing directory is success. Wakes a paused VM; a retired VM is 409. Audited by action and VM, never by path. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         */
+        post: operations["files.makeDirectory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/vms/{vmId}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a file or directory in a VM
+         * @description Delete a file or directory in a VM. Requires the vm:files scope. There is no recursive flag: the path is removed as the platform's remove does, a directory together with its contents. A missing path is 404 File not found. Wakes a paused VM; a retired VM is 409. Audited by action and VM, never by path. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         */
+        delete: operations["files.removePath"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/vms/{vmId}/files/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a resumable file upload into a VM
+         * @description Start a resumable file upload into a VM. Requires the vm:files scope. For files larger than one PUT /files/content allows. Send the bytes in order with PUT /files/uploads/{uploadId}?offset=N, each chunk at most maxChunkBytes, then POST .../commit. The file appears at path only on commit, atomically. A size over 16 GiB is 400; a size over a lower deployment limit is 413; too many open uploads on the VM is 409. Audited. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         */
+        post: operations["files.beginFileUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/vms/{vmId}/files/uploads/{uploadId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a resumable upload's progress
+         * @description Read a resumable upload's progress. Requires the vm:files scope. After a failed chunk, resume at receivedBytes. An unknown, expired or foreign upload id is 404 Upload not found. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         */
+        get: operations["files.getFileUpload"];
+        /**
+         * Send one chunk of a resumable upload
+         * @description Send one chunk of a resumable upload. Requires the vm:files scope. The body is the chunk's raw bytes with Content-Length set, at most maxChunkBytes (413 otherwise). A gap after receivedBytes, or an upload being committed, is 409; a chunk that overruns the declared size is 400. Chunks are not audited. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         */
+        put: operations["files.uploadFileChunk"];
+        post?: never;
+        /**
+         * Abandon a resumable upload
+         * @description Abandon a resumable upload. Requires the vm:files scope. Frees the stored chunks. An upload being committed is 409. Audited. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         */
+        delete: operations["files.abortFileUpload"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/vms/{vmId}/files/uploads/{uploadId}/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish a resumable upload
+         * @description Finish a resumable upload. Requires the vm:files scope. Verifies the size (and sha256 when given) and renames the file into place atomically; the target never holds a partial file. Missing bytes or a sha256 mismatch is 400 and the upload stays open, so commit can be retried. A commit already running is 409. A commit whose answer was lost (503) may still complete: a later 404 Upload not found then means it finished, so check the path. Audited (vm.files.upload.commit). Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         */
+        post: operations["files.commitFileUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/snapshot-creations": {
         parameters: {
             query?: never;
@@ -614,7 +746,11 @@ export interface paths {
         delete: operations["snapshots.deleteSnapshot"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update a snapshot's name, labels or retention
+         * @description Update a snapshot's name, labels or retention. Requires the snapshot:write scope. Name and labels are stored by cmux; retention is applied to the snapshot. Labels replace the whole set; labels starting with cmux. cannot be added, removed or changed, and a service or agent key cannot drop the labels it is limited to (403). Audited.
+         */
+        patch: operations["snapshots.updateSnapshot"];
         trace?: never;
     };
     "/v1/vms/{vmId}/terminal": {
@@ -812,7 +948,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Read a VM's client session
+         * @description Read one live client session of this VM: id, its one Linux user and creation time. A revoked session, another VM's session, or another tenant's or agent's VM is 404. Requires the vm:exec scope.
+         */
+        get: operations["clientSessions.getClientSession"];
         put?: never;
         post?: never;
         /**
@@ -820,6 +960,90 @@ export interface paths {
          * @description Revoke a client session's provider token at once. Requires the vm:exec scope. Revoking twice is not an error.
          */
         delete: operations["agents.revokeClientSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/client-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the team's live client sessions
+         * @description List the live client sessions on the caller's live VMs, across the team, by session id (default limit 100, at most 200). Only sessions on VMs the credential reaches are listed: a key limited to resources or labels sees only those VMs' sessions. Tokens are never returned. A filtered page can hold fewer than `limit` items; follow `nextCursor`. Requires the vm:exec scope.
+         */
+        get: operations["clientSessions.listTenantClientSessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/vms/{vmId}/client-sessions/{sessionId}/linux-user": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change a client session's Linux user
+         * @description Replace the one Linux user the session's tokens (existing and future) may act as on this VM. Exactly one user: a session is never unrestricted. Setting the current user again is not an error. A revoked session is 404. A change that raced another change of the same session and lost is 409; the session keeps the winner's user, on the grant too. Requires the vm:exec scope.
+         */
+        put: operations["clientSessions.setClientSessionLinuxUser"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/vms/{vmId}/client-sessions/{sessionId}/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a client session's tokens
+         * @description List the live access tokens of a live client session: their ids only. Tokens are shown once, when minted. A revoked session is 404. Requires the vm:exec scope.
+         */
+        get: operations["clientSessions.listClientSessionTokens"];
+        put?: never;
+        /**
+         * Mint another token for a client session
+         * @description Mint another access token for a live client session: same VM, same Linux user. The token is shown once; the response carries the SSH login and API origin like the session's first token. A revoked session is 404. Requires the vm:exec scope.
+         */
+        post: operations["clientSessions.createClientSessionToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/vms/{vmId}/client-sessions/{sessionId}/tokens/{tokenId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke one token of a client session
+         * @description Revoke one access token at once; the session and its other tokens stay. Revoking a token that is already gone is not an error. A revoked session, or a token id that is malformed, is 404. Requires the vm:exec scope.
+         */
+        delete: operations["clientSessions.revokeClientSessionToken"];
         options?: never;
         head?: never;
         patch?: never;
@@ -870,7 +1094,11 @@ export interface paths {
         delete: operations["mesh.deleteMesh"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Rename a mesh
+         * @description Rename a mesh. Requires the mesh:write scope. A session must be a team admin. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+         */
+        patch: operations["meshNetwork.updateMesh"];
         trace?: never;
     };
     "/v1/meshes/{meshId}/devices": {
@@ -918,7 +1146,11 @@ export interface paths {
         delete: operations["mesh.deleteDevice"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Rename a device and its tunnel
+         * @description Rename a device and its tunnel. Requires the mesh:join scope. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+         */
+        patch: operations["meshNetwork.updateDevice"];
         trace?: never;
     };
     "/v1/devices/{deviceId}/peers": {
@@ -1337,6 +1569,362 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/meshes/{meshId}/addresses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the addresses assigned in a mesh
+         * @description List the addresses assigned in a mesh. Requires the mesh:read scope. Each member VM's address and each device's address as mesh members see it. A tenant admin sees every device; any other principal only the devices it enrolled. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+         */
+        get: operations["meshNetwork.listMeshAddresses"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tunnels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the team's device tunnels
+         * @description List the team's device tunnels. Requires the mesh:read scope. Every mesh's device tunnels, without keys or configs (GET /v1/tunnels/{tunnelId} returns a config). A tenant admin sees every tunnel; any other principal only those of devices it enrolled. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+         */
+        get: operations["meshNetwork.listTunnels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/meshes/{meshId}/acl/rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the firewall rules a mesh's ACL compiled to
+         * @description List the firewall rules a mesh's ACL compiled to. Requires the acl:read scope. The provider firewall rules in place for this mesh, one per device, VM and port, as the last apply left them. Device-to-device permissions are not firewall rules; read them with GET /v1/devices/{deviceId}/overlay-policy. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+         */
+        get: operations["meshNetwork.listMeshFirewallRules"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/meshes/{meshId}/acl/rules/{ruleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one firewall rule of a mesh
+         * @description Get one firewall rule of a mesh. Requires the acl:read scope. An unknown rule, or another mesh's, is 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+         */
+        get: operations["meshNetwork.getMeshFirewallRule"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/meshes/{meshId}/acl/evaluate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check whether the mesh's ACL allows a connection
+         * @description Check whether the mesh's ACL allows a connection. Requires the acl:read scope. Evaluated by the same compiler an apply uses, against the current ACL and the mesh's current devices and VMs; changes nothing. A src that is not a device of this mesh, or a dst that is not one of its devices or VMs, is 400. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+         */
+        post: operations["meshNetwork.evaluateMeshAcl"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/domains": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List your verified domains
+         * @description List your verified domains. Requires the domain:read scope. Also names your managed hostname suffix. Service keys, agent keys and resource-allowlisted keys cannot create these resources; allowlisted keys see only the ids they list.
+         */
+        get: operations["domains.listDomains"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/domains/{domainId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a verified domain
+         * @description Read a verified domain. Requires the domain:read scope.
+         */
+        get: operations["domains.getDomain"];
+        put?: never;
+        post?: never;
+        /**
+         * Release a verified domain
+         * @description Release a verified domain. Requires the domain:write scope. Refused (409) while a TLS rule of yours routes a name under it. Another team may then verify it with its own challenge.
+         */
+        delete: operations["domains.deleteDomain"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/domains/{domainId}/wildcard-certificate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request an ongoing wildcard certificate for a verified domain
+         * @description Request an ongoing wildcard certificate for a verified domain. Requires the domain:write scope. Delegate `_acme-challenge.<domain>` first (see the domain's dns.wildcardCertificate); wildcards can only be proven over DNS.
+         */
+        post: operations["domains.requestWildcardCertificate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/certificates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List certificates for your verified domains
+         * @description List certificates for your verified domains. Requires the domain:read scope. Only certificates for names under domains your team verified (the most specific verified domain decides).
+         */
+        get: operations["domains.listCertificates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/domain-verifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List your domain verifications
+         * @description List your domain verifications. Requires the domain:read scope.
+         */
+        get: operations["domains.listDomainVerifications"];
+        put?: never;
+        /**
+         * Start proving you control a domain
+         * @description Start proving you control a domain. Requires the domain:write scope. Reserves the domain for your team while the challenge is pending (another team's request is 409). An unverified reservation lapses 7 days after your team's first request: another request, or withdrawing every challenge and starting again, does not extend it. After it lapses any other team may reserve it at once, while your team gets 409 for another 7 days. Names under the managed zone cannot be verified. Service keys, agent keys and resource-allowlisted keys cannot create these resources; allowlisted keys see only the ids they list.
+         */
+        post: operations["domains.createDomainVerification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/domain-verifications/{verificationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a domain verification
+         * @description Read a domain verification. Requires the domain:read scope.
+         */
+        get: operations["domains.getDomainVerification"];
+        put?: never;
+        post?: never;
+        /**
+         * Withdraw a pending domain verification
+         * @description Withdraw a pending domain verification. Requires the domain:write scope. A completed verification is a permanent record (409); release the domain instead. Withdrawing does not release or reset the reservation: it still lapses 7 days after your team's first request.
+         */
+        delete: operations["domains.deleteDomainVerification"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/domain-verifications/{verificationId}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check the TXT record and verify the domain
+         * @description Check the TXT record and verify the domain. Requires the domain:write scope. Only this challenge's own code counts. 400 while the record is not visible yet; retrying after success returns the domain.
+         */
+        post: operations["domains.verifyDomain"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tls-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List your TLS rules, newest first
+         * @description List your TLS rules, newest first. Requires the domain:read scope. Only rules whose VMs you can reach; filter by one VM with vmId.
+         */
+        get: operations["tlsRules.listTlsRules"];
+        put?: never;
+        /**
+         * Create a TLS rule
+         * @description Create a TLS rule. Requires the domain:write scope. Also requires vm:network; every VM it names must be yours. Ingress (source public) routes a managed hostname or a verified domain of yours to one of your VMs; egress (source one of your VMs) reaches only HTTPS origins the deployment approved. Private networks, socks5 and credential transforms other than headers are not offered. Service keys, agent keys and resource-allowlisted keys cannot create these resources; allowlisted keys see only the ids they list.
+         */
+        post: operations["tlsRules.createTlsRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tls-rules/{ruleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a TLS rule
+         * @description Read a TLS rule. Requires the domain:read scope. Header values are never returned.
+         */
+        get: operations["tlsRules.getTlsRule"];
+        /**
+         * Replace a TLS rule in place
+         * @description Replace a TLS rule in place. Requires the domain:write scope. The body is a whole rule, checked like a create (also requires vm:network). Rotates header secrets without dropping traffic; omitted headers clear them.
+         */
+        put: operations["tlsRules.updateTlsRule"];
+        post?: never;
+        /**
+         * Delete a TLS rule
+         * @description Delete a TLS rule. Requires the domain:write scope. The VMs it named are untouched.
+         */
+        delete: operations["tlsRules.deleteTlsRule"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tls-forward-auths": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List your forward-auth checks, newest first
+         * @description List your forward-auth checks, newest first. Requires the domain:read scope.
+         */
+        get: operations["tlsForwardAuth.listTlsForwardAuths"];
+        put?: never;
+        /**
+         * Create a forward-auth check
+         * @description Create a forward-auth check. Requires the domain:write scope. The edge sends a bodyless GET to the URL before forwarding a protected request to your VM. Header values are write-only. Service keys, agent keys and resource-allowlisted keys cannot create these resources; allowlisted keys see only the ids they list.
+         */
+        post: operations["tlsForwardAuth.createTlsForwardAuth"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tls-forward-auths/{forwardAuthId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a forward-auth check
+         * @description Read a forward-auth check. Requires the domain:read scope. Header values are never returned.
+         */
+        get: operations["tlsForwardAuth.getTlsForwardAuth"];
+        /**
+         * Replace a forward-auth check in place
+         * @description Replace a forward-auth check in place. Requires the domain:write scope. Rules keep referencing the same id; omitted headers clear them.
+         */
+        put: operations["tlsForwardAuth.updateTlsForwardAuth"];
+        post?: never;
+        /**
+         * Delete an unused forward-auth check
+         * @description Delete an unused forward-auth check. Requires the domain:write scope. Refused (409) while a TLS rule uses it.
+         */
+        delete: operations["tlsForwardAuth.deleteTlsForwardAuth"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1669,6 +2257,29 @@ export interface components {
             id: string;
             hostname: string;
         };
+        /** @description Change a VM's name, labels or limits. Omitted fields stay as they are; at least one is required. Any other field (slug, metadata, the lifetime run budget) is refused with 400. */
+        UpdateVmRequest: {
+            /** @description A new name; null clears it. */
+            displayName?: string | null;
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * between(-1, 604800)
+             * @description Seconds without network activity before the VM pauses itself (memory kept; start or resume continues it). Only network traffic to or from the VM counts as activity: CPU work and disk I/O alone do not keep it awake. A long job without traffic needs -1 or a larger value. -1 never pauses for idleness. Dev/test tenants: 1 to 300, default 300. Other tenants: default -1 (the cmux app pauses product machines itself).
+             */
+            idleTimeoutSeconds?: components["schemas"]["Int"];
+            /**
+             * between(-1, 2592000)
+             * @description Pause the VM once a single run has lasted this many seconds, however busy it is; each start gives a fresh budget. -1 or omitted: no cap.
+             */
+            maxRunSeconds?: components["schemas"]["Int"];
+            /**
+             * between(-1, 31536000)
+             * @description Delete the VM once it has gone this many seconds without running; each start resets the clock, and a running VM is never deleted for this. 0 deletes it as soon as it stops. -1 or omitted: never.
+             */
+            autoDeleteSeconds?: components["schemas"]["Int"];
+        };
         ForkVmRequest: {
             /**
              * maxLength(100)
@@ -1835,6 +2446,52 @@ export interface components {
             /** @enum {string} */
             kind: "file" | "directory" | "symlink" | "other";
         };
+        PathExists: {
+            exists: boolean;
+        };
+        MakeDirectoryRequest: {
+            path: components["schemas"]["GuestPath"];
+        };
+        BeginFileUploadRequest: {
+            /**
+             * maxLength(4096)
+             * @description a string at most 4096 character(s) long
+             */
+            path: string;
+            /**
+             * between(0, 17179869184)
+             * @description The whole file's size in bytes, up to the deployment's resumable upload limit (at most 16 GiB).
+             */
+            size: components["schemas"]["Int"];
+            /** @description SHA-256 of the whole file, 64 hex characters. Commit fails with 400 when the received bytes do not match. */
+            sha256?: string;
+            /**
+             * between(0, 4095)
+             * @description Final permission bits as a decimal integer, e.g. 493 for 0755. Default: the existing file's mode, or 0600 for a new file.
+             */
+            mode?: components["schemas"]["Int"];
+        };
+        FileUpload: {
+            /** @description Opaque upload handle, valid only for this VM and tenant. Sessions expire after about an hour without a chunk and do not survive a host restart (then 404: begin again). */
+            uploadId: string;
+            /** @description Absolute guest path the file will be committed to. */
+            path: string;
+            /**
+             * between(0, 17179869184)
+             * @description a number between 0 and 17179869184
+             */
+            size: components["schemas"]["Int"];
+            /**
+             * between(0, 17179869184)
+             * @description Bytes stored so far: the offset the next chunk must start at.
+             */
+            receivedBytes: components["schemas"]["Int"];
+            /**
+             * int
+             * @description The largest chunk this API accepts for this tenant, in bytes.
+             */
+            maxChunkBytes: number;
+        };
         SnapshotCreationList: {
             items: components["schemas"]["SnapshotCreationStatus"][];
             nextCursor: string | null;
@@ -1910,6 +2567,18 @@ export interface components {
             /** @enum {string} */
             _tag: "InvalidRequest";
         };
+        /** @description Omitted fields stay as they are; at least one is required. Any other field is refused with 400. */
+        UpdateSnapshotRequest: {
+            /** @description A new name; null clears it. */
+            displayName?: string | null;
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description Delete the snapshot this many seconds after it was taken (not from now); null removes the deadline. */
+            ttlSeconds?: components["schemas"]["Int"] | null;
+            /** @description Delete it once this many seconds pass without a VM being created from it; null removes the window. */
+            autoDeleteSeconds?: components["schemas"]["Int"] | null;
+        };
         /**
          * @description a string to be decoded into a boolean
          * @enum {string}
@@ -1948,7 +2617,7 @@ export interface components {
              * maxItems(32)
              * @description an array of at most 32 item(s)
              */
-            scopes: ("vm:read" | "vm:write" | "vm:network" | "vm:exec" | "vm:files" | "vm:terminal" | "snapshot:*" | "snapshot:read" | "snapshot:write" | "domain:*" | "deploy:*" | "git:*" | "mesh:read" | "mesh:write" | "mesh:join" | "acl:read" | "acl:write" | "admin")[];
+            scopes: ("vm:read" | "vm:write" | "vm:network" | "vm:exec" | "vm:files" | "vm:terminal" | "snapshot:*" | "snapshot:read" | "snapshot:write" | "domain:*" | "domain:read" | "domain:write" | "deploy:*" | "git:*" | "mesh:read" | "mesh:write" | "mesh:join" | "acl:read" | "acl:write" | "admin")[];
             /**
              * maxItems(100)
              * @description an array of at most 100 item(s)
@@ -1992,7 +2661,7 @@ export interface components {
              * maxItems(3)
              * @description an array of at most 3 item(s)
              */
-            scopes?: ("vm:read" | "vm:write" | "vm:network" | "vm:exec" | "vm:files" | "vm:terminal" | "snapshot:*" | "snapshot:read" | "snapshot:write" | "domain:*" | "deploy:*" | "git:*" | "mesh:read" | "mesh:write" | "mesh:join" | "acl:read" | "acl:write" | "admin")[];
+            scopes?: ("vm:read" | "vm:write" | "vm:network" | "vm:exec" | "vm:files" | "vm:terminal" | "snapshot:*" | "snapshot:read" | "snapshot:write" | "domain:*" | "domain:read" | "domain:write" | "deploy:*" | "git:*" | "mesh:read" | "mesh:write" | "mesh:join" | "acl:read" | "acl:write" | "admin")[];
             /**
              * between(60, 86400)
              * @description a number between 60 and 86400
@@ -2040,6 +2709,8 @@ export interface components {
                 user: string;
             };
             createdAt: string;
+            /** @description a string matching the pattern ^vct_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            tokenId: string;
         };
         ClientSessionList: {
             sessions: components["schemas"]["ClientSessionSummary"][];
@@ -2049,6 +2720,40 @@ export interface components {
             id: string;
             vmId: string;
             linuxUser: string;
+            createdAt: string;
+        };
+        ClientSessionPage: {
+            sessions: components["schemas"]["ClientSessionSummary"][];
+            /** @description Pass as `cursor` to read the next page; null on the last page. */
+            nextCursor: string | null;
+        };
+        SetClientSessionLinuxUserRequest: {
+            /** @description A Linux user name on the VM (lowercase letter or _ first, then lowercase letters, digits, _ or -; at most 32). */
+            linuxUser: string;
+        };
+        ClientSessionTokenList: {
+            tokens: components["schemas"]["ClientSessionTokenSummary"][];
+        };
+        ClientSessionTokenSummary: {
+            /** @description a string matching the pattern ^vct_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            id: string;
+            /** @description a string matching the pattern ^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            sessionId: string;
+        };
+        ClientSessionToken: {
+            /** @description a string matching the pattern ^vct_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            id: string;
+            /** @description a string matching the pattern ^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            sessionId: string;
+            vmId: string;
+            token: string;
+            providerVmId: string;
+            linuxUser: string;
+            apiBaseUrl: string;
+            ssh: {
+                host: string;
+                user: string;
+            };
             createdAt: string;
         };
         CreateMeshRequest: {
@@ -2403,6 +3108,297 @@ export interface components {
             signature: string;
             /** @description a string matching the pattern ^msc_[0-9a-hjkmnp-tv-z]{26}$ */
             code: string;
+        };
+        /** @description Only the name changes: the mesh keeps its id, address block, devices, VMs and ACL. */
+        UpdateMeshRequest: {
+            /** @description The new name; null clears it. */
+            displayName: string | null;
+        };
+        MeshAddressList: {
+            /** @description a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            meshId: string;
+            items: components["schemas"]["MeshAddress"][];
+        };
+        MeshAddress: {
+            /** @enum {string} */
+            kind: "vm" | "device";
+            /** @description The VM's vm_ id or the device's dev_ id. */
+            id: string;
+            /** @description Its IPv4 address inside the mesh; null when none is assigned. */
+            ipv4: string | null;
+        };
+        TunnelList: {
+            items: components["schemas"]["TunnelSummary"][];
+        };
+        TunnelSummary: {
+            /** @description a string matching the pattern ^tun_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            id: string;
+            /** @description a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            deviceId: string;
+            /** @description a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            meshId: string;
+            name: string;
+            createdAt: string;
+        };
+        /** @description Only the name changes: keys, tunnel, addresses and firewall rules are untouched, so a connected device sees nothing change. */
+        UpdateDeviceRequest: {
+            /** @description a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$ */
+            name: string;
+        };
+        MeshFirewallRuleList: {
+            /** @description a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            meshId: string;
+            aclVersion: components["schemas"]["Int"];
+            items: components["schemas"]["MeshFirewallRule"][];
+        };
+        MeshFirewallRule: {
+            /** @description Stable for as long as the rule exists; derived from the rule itself, never a provider id. */
+            id: string;
+            /** @description a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            meshId: string;
+            /** @description a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            deviceId: string;
+            /** @description a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            vmId: string;
+            /**
+             * @description tunnel: traffic through the device's tunnel. address: the device's published public IPv6 address to the VM's overlay endpoint (UDP 4101) only.
+             * @enum {string}
+             */
+            source: "tunnel" | "address";
+            /** @description null: every protocol. */
+            protocol: ("tcp" | "udp" | "icmp") | null;
+            /** @description null: every port of the protocol. */
+            port: components["schemas"]["Int"] | null;
+            createdAt: string;
+        };
+        /** @description A connection to check against the mesh's current ACL. Nothing changes. */
+        EvaluateMeshAclRequest: {
+            /**
+             * maxLength(64)
+             * @description The dev_ id of the device that opens the connection.
+             */
+            src: string;
+            /**
+             * maxLength(64)
+             * @description The vm_ or dev_ id it connects to.
+             */
+            dst: string;
+            /** @enum {string} */
+            protocol: "tcp" | "udp" | "icmp";
+            /** @description Required for tcp and udp; not allowed for icmp. */
+            port?: components["schemas"]["Int"];
+        };
+        MeshAclEvaluation: {
+            /** @description a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            meshId: string;
+            aclVersion: components["schemas"]["Int"];
+            allowed: boolean;
+            /**
+             * @description firewall: a device to a VM, enforced by provider firewall rules. overlay: a device to a device, enforced by directed overlay permissions.
+             * @enum {string}
+             */
+            path: "firewall" | "overlay";
+            /** @description The index in the ACL's rules of the first rule that allows it; null when denied (default deny). */
+            ruleIndex: components["schemas"]["Int"] | null;
+        };
+        DomainList: {
+            items: components["schemas"]["Domain"][];
+            /** @description Managed hostnames of your team are one label ending in this suffix (for example `app` + suffix); they need no verification. Null when the deployment has no managed zone. */
+            managedSuffix: string | null;
+        };
+        /** @description A custom domain your team proved it controls. TLS rules may route it and one label below it. */
+        Domain: {
+            /** @description a string matching the pattern ^dom_[0-9abcdefghjkmnpqrstvwxyz]{26}$ */
+            id: string;
+            domain: string;
+            verifiedAt: string;
+            dns: components["schemas"]["DomainDns"];
+        };
+        DomainDns: {
+            /** @description Point names under the domain at the edge (a CNAME for subdomains; the apex needs ALIAS/ANAME or CNAME flattening to the same value). Null when the deployment publishes no edge host. */
+            routing: components["schemas"]["DnsRecord"] | null;
+            /** @description Delegate `_acme-challenge.<domain>` before requesting a wildcard certificate. Null when the deployment publishes no certificate nameserver. */
+            wildcardCertificate: components["schemas"]["DnsRecord"] | null;
+        };
+        /** @description One DNS record to publish at your DNS host. */
+        DnsRecord: {
+            name: string;
+            /** @enum {string} */
+            type: "TXT" | "CNAME" | "NS";
+            value: string;
+        };
+        Certificate: {
+            domain: string;
+            wildcard: boolean;
+            active: boolean;
+            notAfter: string;
+            generation: number;
+        };
+        CertificateList: {
+            items: components["schemas"]["Certificate"][];
+        };
+        CreateDomainVerificationRequest: {
+            /**
+             * maxLength(253)
+             * @description a string at most 253 character(s) long
+             */
+            domain: string;
+        };
+        /** @description One ownership challenge. Only the team that created it can see it or complete it. */
+        DomainVerification: {
+            /** @description a string matching the pattern ^dvr_[0-9abcdefghjkmnpqrstvwxyz]{26}$ */
+            id: string;
+            domain: string;
+            /** @enum {string} */
+            state: "pending" | "verified";
+            /** @description Publish this TXT record, then call verify. */
+            record: {
+                name: string;
+                /** @enum {string} */
+                type: "TXT" | "CNAME" | "NS";
+                value: string;
+            };
+            createdAt: string;
+            verifiedAt: string | null;
+        };
+        DomainVerificationList: {
+            items: components["schemas"]["DomainVerification"][];
+        };
+        TlsRuleList: {
+            items: components["schemas"]["TlsRule"][];
+        };
+        /** @description A named session over a hostname to or from your own VMs. Deleting a VM it names deletes the rule. */
+        TlsRule: {
+            /** @description a string matching the pattern ^tlsr_[0-9abcdefghjkmnpqrstvwxyz]{26}$ */
+            id: string;
+            domain: string;
+            protocol: components["schemas"]["TlsProtocol"];
+            /** @enum {string} */
+            direction: "ingress" | "egress";
+            source: {
+                /** @description a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+                vmId?: string;
+                /** @enum {boolean} */
+                public?: true;
+            };
+            destination: {
+                /** @description a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+                vmId?: string;
+                port?: components["schemas"]["Int"];
+                host?: string;
+                /** @enum {boolean} */
+                public?: true;
+            };
+            forwardAuthId: string | null;
+            match: components["schemas"]["HttpRequestMatch"] | null;
+            /** @description Names of the headers the rule sets; values are never returned. */
+            headerNames: string[];
+            description: string | null;
+            createdAt: string;
+            updatedAt: string;
+        };
+        /**
+         * @description http (443, terminated), tcp (443, SNI splice to your VM's own certificate), postgres (5432, terminated), minecraft (25565), imap (993 terminated) or imaps (993 spliced). Egress rules are http only.
+         * @enum {string}
+         */
+        TlsProtocol: "http" | "tcp" | "postgres" | "minecraft" | "imap" | "imaps";
+        /** @description Egress only: which requests get the header transform (methods ORed, path exact). Others pass through unchanged. */
+        HttpRequestMatch: {
+            /**
+             * maxItems(16)
+             * @description an array of at most 16 item(s)
+             */
+            method?: string[];
+            path?: {
+                /**
+                 * maxLength(2048)
+                 * @description a string matching the pattern ^\/
+                 */
+                exact: string;
+            };
+        };
+        TlsRuleRequest: {
+            /**
+             * maxLength(255)
+             * @description The name the session is addressed to: one hostname, or `*.` plus a verified domain you own (ingress only).
+             */
+            domain: string;
+            /** @description Defaults to http. */
+            protocol?: components["schemas"]["TlsProtocol"];
+            /** @description Exactly one: `public: true` (ingress from the Internet) or one of your VMs (egress). */
+            source: {
+                /**
+                 * maxLength(64)
+                 * @description a string at most 64 character(s) long
+                 */
+                vmId?: string;
+                /** @enum {boolean} */
+                public?: true;
+            };
+            /** @description Ingress: one of your VMs plus a port. Egress: `public: true` or `host` + `port`, which must be an HTTPS origin the deployment approved. */
+            destination: {
+                /**
+                 * maxLength(64)
+                 * @description a string at most 64 character(s) long
+                 */
+                vmId?: string;
+                /**
+                 * between(1, 65535)
+                 * @description a number between 1 and 65535
+                 */
+                port?: components["schemas"]["Int"];
+                /**
+                 * maxLength(253)
+                 * @description a string at most 253 character(s) long
+                 */
+                host?: string;
+                /** @enum {boolean} */
+                public?: true;
+            };
+            /** @description Ingress http only: run this forward-auth check of yours before each request reaches the VM. */
+            forwardAuthId?: string | null;
+            match?: components["schemas"]["HttpRequestMatch"] | null;
+            /** @description http only: headers set on each request. Write-only. */
+            headers?: components["schemas"]["SecretHeaders"];
+            description?: string | null;
+        };
+        SecretHeaders: {
+            [key: string]: string;
+        };
+        TlsForwardAuthList: {
+            items: components["schemas"]["TlsForwardAuth"][];
+        };
+        /** @description A reusable authorization check for public HTTP ingress. Header values are write-only. */
+        TlsForwardAuth: {
+            /** @description a string matching the pattern ^fwa_[0-9abcdefghjkmnpqrstvwxyz]{26}$ */
+            id: string;
+            url: string;
+            headerNames: string[];
+            authResponseHeaders: string[];
+            protectedCookies: string[];
+            timeoutMs: components["schemas"]["Int"];
+            createdAt: string;
+            updatedAt: string;
+        };
+        TlsForwardAuthRequest: {
+            /**
+             * maxLength(2048)
+             * @description Absolute HTTPS URL that receives a bodyless GET before each protected request.
+             */
+            url: string;
+            headers?: components["schemas"]["SecretHeaders"];
+            /**
+             * maxItems(16)
+             * @description Headers copied from a successful check onto the request to the VM.
+             */
+            authResponseHeaders?: string[];
+            /**
+             * maxItems(16)
+             * @description Cookie names the check sees but the VM never receives.
+             */
+            protectedCookies?: string[];
+            /** @description Per-check deadline; defaults to 1500. */
+            timeoutMs?: components["schemas"]["Int"];
         };
     };
     responses: never;
@@ -3155,6 +4151,98 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "vms.updateVm": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                vmId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateVmRequest"];
+            };
+        };
+        responses: {
+            /** @description Vm */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Vm"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
                 };
             };
             /** @description Unauthorized */
@@ -4448,6 +5536,745 @@ export interface operations {
             };
         };
     };
+    "files.pathExists": {
+        parameters: {
+            query: {
+                path: components["schemas"]["GuestPath"];
+            };
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                vmId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description PathExists */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PathExists"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "files.makeDirectory": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                vmId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MakeDirectoryRequest"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "files.removePath": {
+        parameters: {
+            query: {
+                path: components["schemas"]["GuestPath"];
+            };
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                vmId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "files.beginFileUpload": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                vmId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BeginFileUploadRequest"];
+            };
+        };
+        responses: {
+            /** @description FileUpload */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileUpload"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description PayloadTooLarge */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayloadTooLarge"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "files.getFileUpload": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                vmId: string;
+                uploadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description FileUpload */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileUpload"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "files.uploadFileChunk": {
+        parameters: {
+            query: {
+                /** @description a string to be decoded into a number */
+                offset: string;
+            };
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+                /** @description a string matching the pattern ^\d{1,19}$ */
+                "content-length"?: string;
+            };
+            path: {
+                vmId: string;
+                uploadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description FileUpload */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileUpload"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description PayloadTooLarge */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayloadTooLarge"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "files.abortFileUpload": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                vmId: string;
+                uploadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "files.commitFileUpload": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                vmId: string;
+                uploadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
     "snapshots.listSnapshotCreations": {
         parameters: {
             query?: {
@@ -5245,6 +7072,98 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "snapshots.updateSnapshot": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                snapshotId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSnapshotRequest"];
+            };
+        };
+        responses: {
+            /** @description A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Snapshot"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
                 };
             };
             /** @description Unauthorized */
@@ -6211,6 +8130,86 @@ export interface operations {
             };
         };
     };
+    "clientSessions.getClientSession": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                vmId: string;
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description ClientSessionSummary */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientSessionSummary"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
     "agents.revokeClientSession": {
         parameters: {
             query?: never;
@@ -6221,6 +8220,411 @@ export interface operations {
             path: {
                 vmId: string;
                 sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "clientSessions.listTenantClientSessions": {
+        parameters: {
+            query?: {
+                /** @description a string to be decoded into a number */
+                limit?: string;
+                /** @description The `nextCursor` of the previous page. */
+                cursor?: string;
+            };
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description ClientSessionPage */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientSessionPage"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "clientSessions.setClientSessionLinuxUser": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                vmId: string;
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetClientSessionLinuxUserRequest"];
+            };
+        };
+        responses: {
+            /** @description ClientSessionSummary */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientSessionSummary"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "clientSessions.listClientSessionTokens": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                vmId: string;
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description ClientSessionTokenList */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientSessionTokenList"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "clientSessions.createClientSessionToken": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                vmId: string;
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description ClientSessionToken */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientSessionToken"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "clientSessions.revokeClientSessionToken": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                vmId: string;
+                sessionId: string;
+                tokenId: string;
             };
             cookie?: never;
         };
@@ -6623,6 +9027,89 @@ export interface operations {
             };
         };
     };
+    "meshNetwork.updateMesh": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                meshId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateMeshRequest"];
+            };
+        };
+        responses: {
+            /** @description Mesh */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Mesh"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
     "mesh.listDevices": {
         parameters: {
             query?: never;
@@ -6948,6 +9435,89 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "meshNetwork.updateDevice": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                deviceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description Device */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Device"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
                 };
             };
             /** @description QuotaExceeded */
@@ -8938,6 +11508,1994 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "meshNetwork.listMeshAddresses": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                meshId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description MeshAddressList */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshAddressList"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "meshNetwork.listTunnels": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description TunnelList */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TunnelList"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "meshNetwork.listMeshFirewallRules": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                meshId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description MeshFirewallRuleList */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshFirewallRuleList"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "meshNetwork.getMeshFirewallRule": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                meshId: string;
+                ruleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description MeshFirewallRule */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshFirewallRule"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "meshNetwork.evaluateMeshAcl": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                meshId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluateMeshAclRequest"];
+            };
+        };
+        responses: {
+            /** @description MeshAclEvaluation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshAclEvaluation"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "domains.listDomains": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DomainList */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainList"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "domains.getDomain": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                domainId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A custom domain your team proved it controls. TLS rules may route it and one label below it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Domain"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "domains.deleteDomain": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                domainId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "domains.requestWildcardCertificate": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                domainId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Certificate */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Certificate"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "domains.listCertificates": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CertificateList */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CertificateList"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "domains.listDomainVerifications": {
+        parameters: {
+            query?: {
+                state?: "pending" | "verified";
+            };
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DomainVerificationList */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainVerificationList"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "domains.createDomainVerification": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDomainVerificationRequest"];
+            };
+        };
+        responses: {
+            /** @description One ownership challenge. Only the team that created it can see it or complete it. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainVerification"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "domains.getDomainVerification": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                verificationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One ownership challenge. Only the team that created it can see it or complete it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainVerification"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "domains.deleteDomainVerification": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                verificationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "domains.verifyDomain": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                verificationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A custom domain your team proved it controls. TLS rules may route it and one label below it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Domain"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "tlsRules.listTlsRules": {
+        parameters: {
+            query?: {
+                /** @description a string at most 64 character(s) long */
+                vmId?: string;
+            };
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description TlsRuleList */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TlsRuleList"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "tlsRules.createTlsRule": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TlsRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description A named session over a hostname to or from your own VMs. Deleting a VM it names deletes the rule. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TlsRule"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "tlsRules.getTlsRule": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                ruleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A named session over a hostname to or from your own VMs. Deleting a VM it names deletes the rule. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TlsRule"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "tlsRules.updateTlsRule": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                ruleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TlsRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description A named session over a hostname to or from your own VMs. Deleting a VM it names deletes the rule. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TlsRule"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "tlsRules.deleteTlsRule": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                ruleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "tlsForwardAuth.listTlsForwardAuths": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description TlsForwardAuthList */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TlsForwardAuthList"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "tlsForwardAuth.createTlsForwardAuth": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TlsForwardAuthRequest"];
+            };
+        };
+        responses: {
+            /** @description A reusable authorization check for public HTTP ingress. Header values are write-only. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TlsForwardAuth"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "tlsForwardAuth.getTlsForwardAuth": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                forwardAuthId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A reusable authorization check for public HTTP ingress. Header values are write-only. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TlsForwardAuth"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "tlsForwardAuth.updateTlsForwardAuth": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                forwardAuthId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TlsForwardAuthRequest"];
+            };
+        };
+        responses: {
+            /** @description A reusable authorization check for public HTTP ingress. Header values are write-only. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TlsForwardAuth"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "tlsForwardAuth.deleteTlsForwardAuth": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                forwardAuthId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
                 };
             };
             /** @description Forbidden */

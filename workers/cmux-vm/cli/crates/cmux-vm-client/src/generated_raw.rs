@@ -953,6 +953,123 @@ pub mod types {
             value.parse()
         }
     }
+    ///`BeginFileUploadRequest`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct BeginFileUploadRequest {
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub mode: ::std::option::Option<i64>,
+        ///a string at most 4096 character(s) long
+        pub path: BeginFileUploadRequestPath,
+        ///SHA-256 of the whole file, 64 hex characters. Commit fails with 400 when the received bytes do not match.
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub sha256: ::std::option::Option<BeginFileUploadRequestSha256>,
+        pub size: i64,
+    }
+    ///a string at most 4096 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct BeginFileUploadRequestPath(::std::string::String);
+    impl ::std::ops::Deref for BeginFileUploadRequestPath {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<BeginFileUploadRequestPath> for ::std::string::String {
+        fn from(value: BeginFileUploadRequestPath) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for BeginFileUploadRequestPath {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 4096usize {
+                return Err("longer than 4096 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for BeginFileUploadRequestPath {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for BeginFileUploadRequestPath {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for BeginFileUploadRequestPath {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///SHA-256 of the whole file, 64 hex characters. Commit fails with 400 when the received bytes do not match.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct BeginFileUploadRequestSha256(::std::string::String);
+    impl ::std::ops::Deref for BeginFileUploadRequestSha256 {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<BeginFileUploadRequestSha256> for ::std::string::String {
+        fn from(value: BeginFileUploadRequestSha256) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for BeginFileUploadRequestSha256 {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9a-fA-F]{64}$").unwrap());
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[0-9a-fA-F]{64}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for BeginFileUploadRequestSha256 {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for BeginFileUploadRequestSha256 {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for BeginFileUploadRequestSha256 {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///a string to be decoded into a boolean
     #[derive(
         ::serde::Deserialize, ::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd,
@@ -1053,6 +1170,21 @@ pub mod types {
                 })
         }
     }
+    ///`Certificate`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct Certificate {
+        pub active: bool,
+        pub domain: ::std::string::String,
+        pub generation: f64,
+        #[serde(rename = "notAfter")]
+        pub not_after: ::std::string::String,
+        pub wildcard: bool,
+    }
+    ///`CertificateList`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct CertificateList {
+        pub items: ::std::vec::Vec<Certificate>,
+    }
     ///`ClientSession`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct ClientSession {
@@ -1068,6 +1200,9 @@ pub mod types {
         pub provider_vm_id: ::std::string::String,
         pub ssh: ClientSessionSsh,
         pub token: ::std::string::String,
+        ///a string matching the pattern ^vct_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "tokenId")]
+        pub token_id: ClientSessionTokenId,
         #[serde(rename = "vmId")]
         pub vm_id: ::std::string::String,
     }
@@ -1130,6 +1265,17 @@ pub mod types {
     ///`ClientSessionList`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct ClientSessionList {
+        pub sessions: ::std::vec::Vec<ClientSessionSummary>,
+    }
+    ///`ClientSessionPage`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct ClientSessionPage {
+        ///Pass as `cursor` to read the next page; null on the last page.
+        #[serde(
+            rename = "nextCursor",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub next_cursor: ::std::option::Option<::std::string::String>,
         pub sessions: ::std::vec::Vec<ClientSessionSummary>,
     }
     ///`ClientSessionSsh`
@@ -1195,6 +1341,667 @@ pub mod types {
         }
     }
     impl<'de> ::serde::Deserialize<'de> for ClientSessionSummaryId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`ClientSessionToken`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct ClientSessionToken {
+        #[serde(rename = "apiBaseUrl")]
+        pub api_base_url: ::std::string::String,
+        #[serde(rename = "createdAt")]
+        pub created_at: ::std::string::String,
+        ///a string matching the pattern ^vct_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        pub id: ClientSessionTokenId,
+        #[serde(rename = "linuxUser")]
+        pub linux_user: ::std::string::String,
+        #[serde(rename = "providerVmId")]
+        pub provider_vm_id: ::std::string::String,
+        ///a string matching the pattern ^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "sessionId")]
+        pub session_id: ClientSessionTokenSessionId,
+        pub ssh: ClientSessionTokenSsh,
+        pub token: ::std::string::String,
+        #[serde(rename = "vmId")]
+        pub vm_id: ::std::string::String,
+    }
+    ///a string matching the pattern ^vct_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct ClientSessionTokenId(::std::string::String);
+    impl ::std::ops::Deref for ClientSessionTokenId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<ClientSessionTokenId> for ::std::string::String {
+        fn from(value: ClientSessionTokenId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for ClientSessionTokenId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^vct_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^vct_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for ClientSessionTokenId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for ClientSessionTokenId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for ClientSessionTokenId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`ClientSessionTokenList`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct ClientSessionTokenList {
+        pub tokens: ::std::vec::Vec<ClientSessionTokenSummary>,
+    }
+    ///a string matching the pattern ^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct ClientSessionTokenSessionId(::std::string::String);
+    impl ::std::ops::Deref for ClientSessionTokenSessionId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<ClientSessionTokenSessionId> for ::std::string::String {
+        fn from(value: ClientSessionTokenSessionId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for ClientSessionTokenSessionId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for ClientSessionTokenSessionId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for ClientSessionTokenSessionId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for ClientSessionTokenSessionId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`ClientSessionTokenSsh`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct ClientSessionTokenSsh {
+        pub host: ::std::string::String,
+        pub user: ::std::string::String,
+    }
+    ///`ClientSessionTokenSummary`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct ClientSessionTokenSummary {
+        ///a string matching the pattern ^vct_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        pub id: ClientSessionTokenSummaryId,
+        ///a string matching the pattern ^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "sessionId")]
+        pub session_id: ClientSessionTokenSummarySessionId,
+    }
+    ///a string matching the pattern ^vct_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct ClientSessionTokenSummaryId(::std::string::String);
+    impl ::std::ops::Deref for ClientSessionTokenSummaryId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<ClientSessionTokenSummaryId> for ::std::string::String {
+        fn from(value: ClientSessionTokenSummaryId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for ClientSessionTokenSummaryId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^vct_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^vct_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for ClientSessionTokenSummaryId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for ClientSessionTokenSummaryId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for ClientSessionTokenSummaryId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct ClientSessionTokenSummarySessionId(::std::string::String);
+    impl ::std::ops::Deref for ClientSessionTokenSummarySessionId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<ClientSessionTokenSummarySessionId> for ::std::string::String {
+        fn from(value: ClientSessionTokenSummarySessionId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for ClientSessionTokenSummarySessionId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for ClientSessionTokenSummarySessionId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for ClientSessionTokenSummarySessionId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for ClientSessionTokenSummarySessionId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct ClientSessionsCreateClientSessionTokenXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for ClientSessionsCreateClientSessionTokenXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<ClientSessionsCreateClientSessionTokenXCmuxTeamId>
+        for ::std::string::String
+    {
+        fn from(value: ClientSessionsCreateClientSessionTokenXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for ClientSessionsCreateClientSessionTokenXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for ClientSessionsCreateClientSessionTokenXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String>
+        for ClientSessionsCreateClientSessionTokenXCmuxTeamId
+    {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for ClientSessionsCreateClientSessionTokenXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct ClientSessionsGetClientSessionXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for ClientSessionsGetClientSessionXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<ClientSessionsGetClientSessionXCmuxTeamId> for ::std::string::String {
+        fn from(value: ClientSessionsGetClientSessionXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for ClientSessionsGetClientSessionXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for ClientSessionsGetClientSessionXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for ClientSessionsGetClientSessionXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for ClientSessionsGetClientSessionXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct ClientSessionsListClientSessionTokensXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for ClientSessionsListClientSessionTokensXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<ClientSessionsListClientSessionTokensXCmuxTeamId>
+        for ::std::string::String
+    {
+        fn from(value: ClientSessionsListClientSessionTokensXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for ClientSessionsListClientSessionTokensXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for ClientSessionsListClientSessionTokensXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String>
+        for ClientSessionsListClientSessionTokensXCmuxTeamId
+    {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for ClientSessionsListClientSessionTokensXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///The `nextCursor` of the previous page.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct ClientSessionsListTenantClientSessionsCursor(::std::string::String);
+    impl ::std::ops::Deref for ClientSessionsListTenantClientSessionsCursor {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<ClientSessionsListTenantClientSessionsCursor> for ::std::string::String {
+        fn from(value: ClientSessionsListTenantClientSessionsCursor) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for ClientSessionsListTenantClientSessionsCursor {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for ClientSessionsListTenantClientSessionsCursor {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String>
+        for ClientSessionsListTenantClientSessionsCursor
+    {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for ClientSessionsListTenantClientSessionsCursor {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct ClientSessionsListTenantClientSessionsXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for ClientSessionsListTenantClientSessionsXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<ClientSessionsListTenantClientSessionsXCmuxTeamId>
+        for ::std::string::String
+    {
+        fn from(value: ClientSessionsListTenantClientSessionsXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for ClientSessionsListTenantClientSessionsXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for ClientSessionsListTenantClientSessionsXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String>
+        for ClientSessionsListTenantClientSessionsXCmuxTeamId
+    {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for ClientSessionsListTenantClientSessionsXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct ClientSessionsRevokeClientSessionTokenXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for ClientSessionsRevokeClientSessionTokenXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<ClientSessionsRevokeClientSessionTokenXCmuxTeamId>
+        for ::std::string::String
+    {
+        fn from(value: ClientSessionsRevokeClientSessionTokenXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for ClientSessionsRevokeClientSessionTokenXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for ClientSessionsRevokeClientSessionTokenXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String>
+        for ClientSessionsRevokeClientSessionTokenXCmuxTeamId
+    {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for ClientSessionsRevokeClientSessionTokenXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct ClientSessionsSetClientSessionLinuxUserXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for ClientSessionsSetClientSessionLinuxUserXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<ClientSessionsSetClientSessionLinuxUserXCmuxTeamId>
+        for ::std::string::String
+    {
+        fn from(value: ClientSessionsSetClientSessionLinuxUserXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for ClientSessionsSetClientSessionLinuxUserXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for ClientSessionsSetClientSessionLinuxUserXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String>
+        for ClientSessionsSetClientSessionLinuxUserXCmuxTeamId
+    {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for ClientSessionsSetClientSessionLinuxUserXCmuxTeamId {
         fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
         where
             D: ::serde::Deserializer<'de>,
@@ -2299,6 +3106,65 @@ pub mod types {
         }
     }
     impl<'de> ::serde::Deserialize<'de> for CreateClientSessionRequestLinuxUser {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`CreateDomainVerificationRequest`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct CreateDomainVerificationRequest {
+        ///a string at most 253 character(s) long
+        pub domain: CreateDomainVerificationRequestDomain,
+    }
+    ///a string at most 253 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct CreateDomainVerificationRequestDomain(::std::string::String);
+    impl ::std::ops::Deref for CreateDomainVerificationRequestDomain {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<CreateDomainVerificationRequestDomain> for ::std::string::String {
+        fn from(value: CreateDomainVerificationRequestDomain) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for CreateDomainVerificationRequestDomain {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 253usize {
+                return Err("longer than 253 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for CreateDomainVerificationRequestDomain {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for CreateDomainVerificationRequestDomain {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for CreateDomainVerificationRequestDomain {
         fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
         where
             D: ::serde::Deserializer<'de>,
@@ -3595,6 +4461,772 @@ pub mod types {
                 })
         }
     }
+    ///One DNS record to publish at your DNS host.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct DnsRecord {
+        pub name: ::std::string::String,
+        #[serde(rename = "type")]
+        pub type_: ::std::string::String,
+        pub value: ::std::string::String,
+    }
+    ///A custom domain your team proved it controls. TLS rules may route it and one label below it.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct Domain {
+        pub dns: DomainDns,
+        pub domain: ::std::string::String,
+        ///a string matching the pattern ^dom_[0-9abcdefghjkmnpqrstvwxyz]{26}$
+        pub id: DomainId,
+        #[serde(rename = "verifiedAt")]
+        pub verified_at: ::std::string::String,
+    }
+    ///`DomainDns`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct DomainDns {
+        ///Point names under the domain at the edge (a CNAME for subdomains; the apex needs ALIAS/ANAME or CNAME flattening to the same value). Null when the deployment publishes no edge host.
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        pub routing: ::std::option::Option<DnsRecord>,
+        ///Delegate `_acme-challenge.<domain>` before requesting a wildcard certificate. Null when the deployment publishes no certificate nameserver.
+        #[serde(
+            rename = "wildcardCertificate",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub wildcard_certificate: ::std::option::Option<DnsRecord>,
+    }
+    ///a string matching the pattern ^dom_[0-9abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct DomainId(::std::string::String);
+    impl ::std::ops::Deref for DomainId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<DomainId> for ::std::string::String {
+        fn from(value: DomainId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for DomainId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^dom_[0-9abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^dom_[0-9abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for DomainId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for DomainId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for DomainId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`DomainList`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct DomainList {
+        pub items: ::std::vec::Vec<Domain>,
+        ///Managed hostnames of your team are one label ending in this suffix (for example `app` + suffix); they need no verification. Null when the deployment has no managed zone.
+        #[serde(
+            rename = "managedSuffix",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub managed_suffix: ::std::option::Option<::std::string::String>,
+    }
+    ///One ownership challenge. Only the team that created it can see it or complete it.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct DomainVerification {
+        #[serde(rename = "createdAt")]
+        pub created_at: ::std::string::String,
+        pub domain: ::std::string::String,
+        ///a string matching the pattern ^dvr_[0-9abcdefghjkmnpqrstvwxyz]{26}$
+        pub id: DomainVerificationId,
+        pub record: DomainVerificationRecord,
+        pub state: ::std::string::String,
+        #[serde(
+            rename = "verifiedAt",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub verified_at: ::std::option::Option<::std::string::String>,
+    }
+    ///a string matching the pattern ^dvr_[0-9abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct DomainVerificationId(::std::string::String);
+    impl ::std::ops::Deref for DomainVerificationId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<DomainVerificationId> for ::std::string::String {
+        fn from(value: DomainVerificationId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for DomainVerificationId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^dvr_[0-9abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^dvr_[0-9abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for DomainVerificationId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for DomainVerificationId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for DomainVerificationId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`DomainVerificationList`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct DomainVerificationList {
+        pub items: ::std::vec::Vec<DomainVerification>,
+    }
+    ///Publish this TXT record, then call verify.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct DomainVerificationRecord {
+        pub name: ::std::string::String,
+        #[serde(rename = "type")]
+        pub type_: ::std::string::String,
+        pub value: ::std::string::String,
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct DomainsCreateDomainVerificationXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for DomainsCreateDomainVerificationXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<DomainsCreateDomainVerificationXCmuxTeamId> for ::std::string::String {
+        fn from(value: DomainsCreateDomainVerificationXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for DomainsCreateDomainVerificationXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for DomainsCreateDomainVerificationXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for DomainsCreateDomainVerificationXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for DomainsCreateDomainVerificationXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct DomainsDeleteDomainVerificationXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for DomainsDeleteDomainVerificationXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<DomainsDeleteDomainVerificationXCmuxTeamId> for ::std::string::String {
+        fn from(value: DomainsDeleteDomainVerificationXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for DomainsDeleteDomainVerificationXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for DomainsDeleteDomainVerificationXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for DomainsDeleteDomainVerificationXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for DomainsDeleteDomainVerificationXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct DomainsDeleteDomainXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for DomainsDeleteDomainXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<DomainsDeleteDomainXCmuxTeamId> for ::std::string::String {
+        fn from(value: DomainsDeleteDomainXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for DomainsDeleteDomainXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for DomainsDeleteDomainXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for DomainsDeleteDomainXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for DomainsDeleteDomainXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct DomainsGetDomainVerificationXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for DomainsGetDomainVerificationXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<DomainsGetDomainVerificationXCmuxTeamId> for ::std::string::String {
+        fn from(value: DomainsGetDomainVerificationXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for DomainsGetDomainVerificationXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for DomainsGetDomainVerificationXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for DomainsGetDomainVerificationXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for DomainsGetDomainVerificationXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct DomainsGetDomainXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for DomainsGetDomainXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<DomainsGetDomainXCmuxTeamId> for ::std::string::String {
+        fn from(value: DomainsGetDomainXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for DomainsGetDomainXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for DomainsGetDomainXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for DomainsGetDomainXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for DomainsGetDomainXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct DomainsListCertificatesXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for DomainsListCertificatesXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<DomainsListCertificatesXCmuxTeamId> for ::std::string::String {
+        fn from(value: DomainsListCertificatesXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for DomainsListCertificatesXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for DomainsListCertificatesXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for DomainsListCertificatesXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for DomainsListCertificatesXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`DomainsListDomainVerificationsState`
+    #[derive(
+        ::serde::Deserialize,
+        ::serde::Serialize,
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+    )]
+    pub enum DomainsListDomainVerificationsState {
+        #[serde(rename = "pending")]
+        Pending,
+        #[serde(rename = "verified")]
+        Verified,
+    }
+    impl ::std::fmt::Display for DomainsListDomainVerificationsState {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            match *self {
+                Self::Pending => f.write_str("pending"),
+                Self::Verified => f.write_str("verified"),
+            }
+        }
+    }
+    impl ::std::str::FromStr for DomainsListDomainVerificationsState {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            match value {
+                "pending" => Ok(Self::Pending),
+                "verified" => Ok(Self::Verified),
+                _ => Err("invalid value".into()),
+            }
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for DomainsListDomainVerificationsState {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for DomainsListDomainVerificationsState {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct DomainsListDomainVerificationsXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for DomainsListDomainVerificationsXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<DomainsListDomainVerificationsXCmuxTeamId> for ::std::string::String {
+        fn from(value: DomainsListDomainVerificationsXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for DomainsListDomainVerificationsXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for DomainsListDomainVerificationsXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for DomainsListDomainVerificationsXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for DomainsListDomainVerificationsXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct DomainsListDomainsXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for DomainsListDomainsXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<DomainsListDomainsXCmuxTeamId> for ::std::string::String {
+        fn from(value: DomainsListDomainsXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for DomainsListDomainsXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for DomainsListDomainsXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for DomainsListDomainsXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for DomainsListDomainsXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct DomainsRequestWildcardCertificateXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for DomainsRequestWildcardCertificateXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<DomainsRequestWildcardCertificateXCmuxTeamId> for ::std::string::String {
+        fn from(value: DomainsRequestWildcardCertificateXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for DomainsRequestWildcardCertificateXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for DomainsRequestWildcardCertificateXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String>
+        for DomainsRequestWildcardCertificateXCmuxTeamId
+    {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for DomainsRequestWildcardCertificateXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct DomainsVerifyDomainXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for DomainsVerifyDomainXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<DomainsVerifyDomainXCmuxTeamId> for ::std::string::String {
+        fn from(value: DomainsVerifyDomainXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for DomainsVerifyDomainXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for DomainsVerifyDomainXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for DomainsVerifyDomainXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for DomainsVerifyDomainXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///Signed by the device's install key over the cmux-mesh-v1 message (workers/cmux-vm/src/mesh/signed-request.ts); a stale (more than 120 s off), forged or tampered request is 403, a replayed one 409.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct EnrollDeviceRequest {
@@ -3996,6 +5628,118 @@ pub mod types {
         }
     }
     impl<'de> ::serde::Deserialize<'de> for EnrollmentCodeMeshId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///A connection to check against the mesh's current ACL. Nothing changes.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct EvaluateMeshAclRequest {
+        ///The vm_ or dev_ id it connects to.
+        pub dst: EvaluateMeshAclRequestDst,
+        ///Required for tcp and udp; not allowed for icmp.
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub port: ::std::option::Option<::std::num::NonZeroU64>,
+        pub protocol: ::std::string::String,
+        ///The dev_ id of the device that opens the connection.
+        pub src: EvaluateMeshAclRequestSrc,
+    }
+    ///The vm_ or dev_ id it connects to.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct EvaluateMeshAclRequestDst(::std::string::String);
+    impl ::std::ops::Deref for EvaluateMeshAclRequestDst {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<EvaluateMeshAclRequestDst> for ::std::string::String {
+        fn from(value: EvaluateMeshAclRequestDst) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for EvaluateMeshAclRequestDst {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 64usize {
+                return Err("longer than 64 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for EvaluateMeshAclRequestDst {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for EvaluateMeshAclRequestDst {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for EvaluateMeshAclRequestDst {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///The dev_ id of the device that opens the connection.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct EvaluateMeshAclRequestSrc(::std::string::String);
+    impl ::std::ops::Deref for EvaluateMeshAclRequestSrc {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<EvaluateMeshAclRequestSrc> for ::std::string::String {
+        fn from(value: EvaluateMeshAclRequestSrc) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for EvaluateMeshAclRequestSrc {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 64usize {
+                return Err("longer than 64 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for EvaluateMeshAclRequestSrc {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for EvaluateMeshAclRequestSrc {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for EvaluateMeshAclRequestSrc {
         fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
         where
             D: ::serde::Deserializer<'de>,
@@ -4439,6 +6183,233 @@ pub mod types {
                 })
         }
     }
+    ///`FileUpload`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct FileUpload {
+        ///The largest chunk this API accepts for this tenant, in bytes.
+        #[serde(rename = "maxChunkBytes")]
+        pub max_chunk_bytes: i64,
+        ///Absolute guest path the file will be committed to.
+        pub path: ::std::string::String,
+        #[serde(rename = "receivedBytes")]
+        pub received_bytes: i64,
+        pub size: i64,
+        ///Opaque upload handle, valid only for this VM and tenant. Sessions expire after about an hour without a chunk and do not survive a host restart (then 404: begin again).
+        #[serde(rename = "uploadId")]
+        pub upload_id: ::std::string::String,
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct FilesAbortFileUploadXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for FilesAbortFileUploadXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<FilesAbortFileUploadXCmuxTeamId> for ::std::string::String {
+        fn from(value: FilesAbortFileUploadXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for FilesAbortFileUploadXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for FilesAbortFileUploadXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for FilesAbortFileUploadXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for FilesAbortFileUploadXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct FilesBeginFileUploadXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for FilesBeginFileUploadXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<FilesBeginFileUploadXCmuxTeamId> for ::std::string::String {
+        fn from(value: FilesBeginFileUploadXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for FilesBeginFileUploadXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for FilesBeginFileUploadXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for FilesBeginFileUploadXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for FilesBeginFileUploadXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct FilesCommitFileUploadXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for FilesCommitFileUploadXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<FilesCommitFileUploadXCmuxTeamId> for ::std::string::String {
+        fn from(value: FilesCommitFileUploadXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for FilesCommitFileUploadXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for FilesCommitFileUploadXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for FilesCommitFileUploadXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for FilesCommitFileUploadXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct FilesGetFileUploadXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for FilesGetFileUploadXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<FilesGetFileUploadXCmuxTeamId> for ::std::string::String {
+        fn from(value: FilesGetFileUploadXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for FilesGetFileUploadXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for FilesGetFileUploadXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for FilesGetFileUploadXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for FilesGetFileUploadXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///a string at most 128 character(s) long
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     #[serde(transparent)]
@@ -4481,6 +6452,112 @@ pub mod types {
         }
     }
     impl<'de> ::serde::Deserialize<'de> for FilesListFilesXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct FilesMakeDirectoryXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for FilesMakeDirectoryXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<FilesMakeDirectoryXCmuxTeamId> for ::std::string::String {
+        fn from(value: FilesMakeDirectoryXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for FilesMakeDirectoryXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for FilesMakeDirectoryXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for FilesMakeDirectoryXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for FilesMakeDirectoryXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct FilesPathExistsXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for FilesPathExistsXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<FilesPathExistsXCmuxTeamId> for ::std::string::String {
+        fn from(value: FilesPathExistsXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for FilesPathExistsXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for FilesPathExistsXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for FilesPathExistsXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for FilesPathExistsXCmuxTeamId {
         fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
         where
             D: ::serde::Deserializer<'de>,
@@ -4602,6 +6679,59 @@ pub mod types {
     ///a string at most 128 character(s) long
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     #[serde(transparent)]
+    pub struct FilesRemovePathXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for FilesRemovePathXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<FilesRemovePathXCmuxTeamId> for ::std::string::String {
+        fn from(value: FilesRemovePathXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for FilesRemovePathXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for FilesRemovePathXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for FilesRemovePathXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for FilesRemovePathXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
     pub struct FilesStatFileXCmuxTeamId(::std::string::String);
     impl ::std::ops::Deref for FilesStatFileXCmuxTeamId {
         type Target = ::std::string::String;
@@ -4641,6 +6771,111 @@ pub mod types {
         }
     }
     impl<'de> ::serde::Deserialize<'de> for FilesStatFileXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^\d{1,19}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct FilesUploadFileChunkContentLength(::std::string::String);
+    impl ::std::ops::Deref for FilesUploadFileChunkContentLength {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<FilesUploadFileChunkContentLength> for ::std::string::String {
+        fn from(value: FilesUploadFileChunkContentLength) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for FilesUploadFileChunkContentLength {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| ::regress::Regex::new("^\\d{1,19}$").unwrap());
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^\\d{1,19}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for FilesUploadFileChunkContentLength {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for FilesUploadFileChunkContentLength {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for FilesUploadFileChunkContentLength {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct FilesUploadFileChunkXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for FilesUploadFileChunkXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<FilesUploadFileChunkXCmuxTeamId> for ::std::string::String {
+        fn from(value: FilesUploadFileChunkXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for FilesUploadFileChunkXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for FilesUploadFileChunkXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for FilesUploadFileChunkXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for FilesUploadFileChunkXCmuxTeamId {
         fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
         where
             D: ::serde::Deserializer<'de>,
@@ -5245,6 +7480,131 @@ pub mod types {
             value.parse()
         }
     }
+    ///Egress only: which requests get the header transform (methods ORed, path exact). Others pass through unchanged.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+    pub struct HttpRequestMatch {
+        ///an array of at most 16 item(s)
+        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+        pub method: ::std::vec::Vec<HttpRequestMatchMethodItem>,
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub path: ::std::option::Option<HttpRequestMatchPath>,
+    }
+    ///a string matching the pattern ^[A-Z]{1,16}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct HttpRequestMatchMethodItem(::std::string::String);
+    impl ::std::ops::Deref for HttpRequestMatchMethodItem {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<HttpRequestMatchMethodItem> for ::std::string::String {
+        fn from(value: HttpRequestMatchMethodItem) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for HttpRequestMatchMethodItem {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[A-Z]{1,16}$").unwrap());
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Z]{1,16}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for HttpRequestMatchMethodItem {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for HttpRequestMatchMethodItem {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for HttpRequestMatchMethodItem {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`HttpRequestMatchPath`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct HttpRequestMatchPath {
+        ///a string matching the pattern ^\/
+        pub exact: HttpRequestMatchPathExact,
+    }
+    ///a string matching the pattern ^\/
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct HttpRequestMatchPathExact(::std::string::String);
+    impl ::std::ops::Deref for HttpRequestMatchPathExact {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<HttpRequestMatchPathExact> for ::std::string::String {
+        fn from(value: HttpRequestMatchPathExact) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for HttpRequestMatchPathExact {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 2048usize {
+                return Err("longer than 2048 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| ::regress::Regex::new("^\\/").unwrap());
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^\\/\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for HttpRequestMatchPathExact {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for HttpRequestMatchPathExact {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for HttpRequestMatchPathExact {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///Network intent for the new VM only. Requires vm:network in addition to vm:write. Omit to keep the private default.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct InitialVmNetwork {
@@ -5454,6 +7814,11 @@ pub mod types {
                 })
         }
     }
+    ///`MakeDirectoryRequest`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct MakeDirectoryRequest {
+        pub path: GuestPath,
+    }
     ///`Mesh`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct Mesh {
@@ -5469,6 +7834,156 @@ pub mod types {
         ///The mesh's IPv4 block; VMs and devices get addresses inside it.
         #[serde(rename = "ipv4Cidr")]
         pub ipv4_cidr: ::std::string::String,
+    }
+    ///`MeshAclEvaluation`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct MeshAclEvaluation {
+        #[serde(rename = "aclVersion")]
+        pub acl_version: Int,
+        pub allowed: bool,
+        ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "meshId")]
+        pub mesh_id: MeshAclEvaluationMeshId,
+        ///firewall: a device to a VM, enforced by provider firewall rules. overlay: a device to a device, enforced by directed overlay permissions.
+        pub path: ::std::string::String,
+        ///The index in the ACL's rules of the first rule that allows it; null when denied (default deny).
+        #[serde(
+            rename = "ruleIndex",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub rule_index: ::std::option::Option<Int>,
+    }
+    ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshAclEvaluationMeshId(::std::string::String);
+    impl ::std::ops::Deref for MeshAclEvaluationMeshId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshAclEvaluationMeshId> for ::std::string::String {
+        fn from(value: MeshAclEvaluationMeshId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshAclEvaluationMeshId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\""
+                        .into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshAclEvaluationMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshAclEvaluationMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshAclEvaluationMeshId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`MeshAddress`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct MeshAddress {
+        ///The VM's vm_ id or the device's dev_ id.
+        pub id: ::std::string::String,
+        ///Its IPv4 address inside the mesh; null when none is assigned.
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        pub ipv4: ::std::option::Option<::std::string::String>,
+        pub kind: ::std::string::String,
+    }
+    ///`MeshAddressList`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct MeshAddressList {
+        pub items: ::std::vec::Vec<MeshAddress>,
+        ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "meshId")]
+        pub mesh_id: MeshAddressListMeshId,
+    }
+    ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshAddressListMeshId(::std::string::String);
+    impl ::std::ops::Deref for MeshAddressListMeshId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshAddressListMeshId> for ::std::string::String {
+        fn from(value: MeshAddressListMeshId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshAddressListMeshId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\""
+                        .into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshAddressListMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshAddressListMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshAddressListMeshId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
     }
     ///a string at most 128 character(s) long
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -5989,6 +8504,319 @@ pub mod types {
         }
     }
     impl<'de> ::serde::Deserialize<'de> for MeshEnrollDeviceXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`MeshFirewallRule`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct MeshFirewallRule {
+        #[serde(rename = "createdAt")]
+        pub created_at: ::std::string::String,
+        ///a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "deviceId")]
+        pub device_id: MeshFirewallRuleDeviceId,
+        ///Stable for as long as the rule exists; derived from the rule itself, never a provider id.
+        pub id: MeshFirewallRuleId,
+        ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "meshId")]
+        pub mesh_id: MeshFirewallRuleMeshId,
+        ///null: every port of the protocol.
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        pub port: ::std::option::Option<Int>,
+        ///null: every protocol.
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        pub protocol: ::std::option::Option<::std::string::String>,
+        ///tunnel: traffic through the device's tunnel. address: the device's published public IPv6 address to the VM's overlay endpoint (UDP 4101) only.
+        pub source: ::std::string::String,
+        ///a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "vmId")]
+        pub vm_id: MeshFirewallRuleVmId,
+    }
+    ///a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshFirewallRuleDeviceId(::std::string::String);
+    impl ::std::ops::Deref for MeshFirewallRuleDeviceId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshFirewallRuleDeviceId> for ::std::string::String {
+        fn from(value: MeshFirewallRuleDeviceId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshFirewallRuleDeviceId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshFirewallRuleDeviceId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshFirewallRuleDeviceId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshFirewallRuleDeviceId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///Stable for as long as the rule exists; derived from the rule itself, never a provider id.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshFirewallRuleId(::std::string::String);
+    impl ::std::ops::Deref for MeshFirewallRuleId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshFirewallRuleId> for ::std::string::String {
+        fn from(value: MeshFirewallRuleId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshFirewallRuleId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| ::regress::Regex::new("^fwr_[0-9a-f]{32}$").unwrap());
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^fwr_[0-9a-f]{32}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshFirewallRuleId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshFirewallRuleId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshFirewallRuleId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`MeshFirewallRuleList`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct MeshFirewallRuleList {
+        #[serde(rename = "aclVersion")]
+        pub acl_version: Int,
+        pub items: ::std::vec::Vec<MeshFirewallRule>,
+        ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "meshId")]
+        pub mesh_id: MeshFirewallRuleListMeshId,
+    }
+    ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshFirewallRuleListMeshId(::std::string::String);
+    impl ::std::ops::Deref for MeshFirewallRuleListMeshId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshFirewallRuleListMeshId> for ::std::string::String {
+        fn from(value: MeshFirewallRuleListMeshId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshFirewallRuleListMeshId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\""
+                        .into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshFirewallRuleListMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshFirewallRuleListMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshFirewallRuleListMeshId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshFirewallRuleMeshId(::std::string::String);
+    impl ::std::ops::Deref for MeshFirewallRuleMeshId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshFirewallRuleMeshId> for ::std::string::String {
+        fn from(value: MeshFirewallRuleMeshId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshFirewallRuleMeshId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\""
+                        .into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshFirewallRuleMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshFirewallRuleMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshFirewallRuleMeshId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshFirewallRuleVmId(::std::string::String);
+    impl ::std::ops::Deref for MeshFirewallRuleVmId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshFirewallRuleVmId> for ::std::string::String {
+        fn from(value: MeshFirewallRuleVmId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshFirewallRuleVmId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshFirewallRuleVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshFirewallRuleVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshFirewallRuleVmId {
         fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
         where
             D: ::serde::Deserializer<'de>,
@@ -6602,6 +9430,379 @@ pub mod types {
         }
     }
     impl<'de> ::serde::Deserialize<'de> for MeshMemberVmId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshNetworkEvaluateMeshAclXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshNetworkEvaluateMeshAclXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshNetworkEvaluateMeshAclXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshNetworkEvaluateMeshAclXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshNetworkEvaluateMeshAclXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshNetworkEvaluateMeshAclXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshNetworkEvaluateMeshAclXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshNetworkEvaluateMeshAclXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshNetworkGetMeshFirewallRuleXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshNetworkGetMeshFirewallRuleXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshNetworkGetMeshFirewallRuleXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshNetworkGetMeshFirewallRuleXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshNetworkGetMeshFirewallRuleXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshNetworkGetMeshFirewallRuleXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshNetworkGetMeshFirewallRuleXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshNetworkGetMeshFirewallRuleXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshNetworkListMeshAddressesXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshNetworkListMeshAddressesXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshNetworkListMeshAddressesXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshNetworkListMeshAddressesXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshNetworkListMeshAddressesXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshNetworkListMeshAddressesXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshNetworkListMeshAddressesXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshNetworkListMeshAddressesXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshNetworkListMeshFirewallRulesXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshNetworkListMeshFirewallRulesXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshNetworkListMeshFirewallRulesXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshNetworkListMeshFirewallRulesXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshNetworkListMeshFirewallRulesXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshNetworkListMeshFirewallRulesXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String>
+        for MeshNetworkListMeshFirewallRulesXCmuxTeamId
+    {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshNetworkListMeshFirewallRulesXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshNetworkListTunnelsXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshNetworkListTunnelsXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshNetworkListTunnelsXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshNetworkListTunnelsXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshNetworkListTunnelsXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshNetworkListTunnelsXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshNetworkListTunnelsXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshNetworkListTunnelsXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshNetworkUpdateDeviceXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshNetworkUpdateDeviceXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshNetworkUpdateDeviceXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshNetworkUpdateDeviceXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshNetworkUpdateDeviceXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshNetworkUpdateDeviceXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshNetworkUpdateDeviceXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshNetworkUpdateDeviceXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshNetworkUpdateMeshXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshNetworkUpdateMeshXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshNetworkUpdateMeshXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshNetworkUpdateMeshXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshNetworkUpdateMeshXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshNetworkUpdateMeshXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshNetworkUpdateMeshXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshNetworkUpdateMeshXCmuxTeamId {
         fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
         where
             D: ::serde::Deserializer<'de>,
@@ -8588,6 +11789,11 @@ pub mod types {
                 })
         }
     }
+    ///`PathExists`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct PathExists {
+        pub exists: bool,
+    }
     ///`PayloadTooLarge`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct PayloadTooLarge {
@@ -9656,6 +12862,38 @@ pub mod types {
                 })
         }
     }
+    ///`SecretHeaders`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    #[serde(transparent)]
+    pub struct SecretHeaders(
+        pub ::std::collections::HashMap<::std::string::String, ::std::string::String>,
+    );
+    impl ::std::ops::Deref for SecretHeaders {
+        type Target = ::std::collections::HashMap<::std::string::String, ::std::string::String>;
+        fn deref(
+            &self,
+        ) -> &::std::collections::HashMap<::std::string::String, ::std::string::String> {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<SecretHeaders>
+        for ::std::collections::HashMap<::std::string::String, ::std::string::String>
+    {
+        fn from(value: SecretHeaders) -> Self {
+            value.0
+        }
+    }
+    impl
+        ::std::convert::From<
+            ::std::collections::HashMap<::std::string::String, ::std::string::String>,
+        > for SecretHeaders
+    {
+        fn from(
+            value: ::std::collections::HashMap<::std::string::String, ::std::string::String>,
+        ) -> Self {
+            Self(value)
+        }
+    }
     ///`ServiceUnavailable`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct ServiceUnavailable {
@@ -9775,6 +13013,67 @@ pub mod types {
             value: ::std::string::String,
         ) -> ::std::result::Result<Self, self::error::ConversionError> {
             value.parse()
+        }
+    }
+    ///`SetClientSessionLinuxUserRequest`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct SetClientSessionLinuxUserRequest {
+        ///A Linux user name on the VM (lowercase letter or _ first, then lowercase letters, digits, _ or -; at most 32).
+        #[serde(rename = "linuxUser")]
+        pub linux_user: SetClientSessionLinuxUserRequestLinuxUser,
+    }
+    ///A Linux user name on the VM (lowercase letter or _ first, then lowercase letters, digits, _ or -; at most 32).
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct SetClientSessionLinuxUserRequestLinuxUser(::std::string::String);
+    impl ::std::ops::Deref for SetClientSessionLinuxUserRequestLinuxUser {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<SetClientSessionLinuxUserRequestLinuxUser> for ::std::string::String {
+        fn from(value: SetClientSessionLinuxUserRequestLinuxUser) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for SetClientSessionLinuxUserRequestLinuxUser {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[a-z_][a-z0-9_-]{0,31}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[a-z_][a-z0-9_-]{0,31}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for SetClientSessionLinuxUserRequestLinuxUser {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for SetClientSessionLinuxUserRequestLinuxUser {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for SetClientSessionLinuxUserRequestLinuxUser {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
         }
     }
     ///An identity's own request, authenticated only by its install key: the cmux-mesh-v1 message with the purpose specified by the endpoint, the device id as target, an empty WireGuard key and name, and the recorded install public key. Fresh (120 s) and single use.
@@ -11380,6 +14679,59 @@ pub mod types {
                 })
         }
     }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct SnapshotsUpdateSnapshotXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for SnapshotsUpdateSnapshotXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<SnapshotsUpdateSnapshotXCmuxTeamId> for ::std::string::String {
+        fn from(value: SnapshotsUpdateSnapshotXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for SnapshotsUpdateSnapshotXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for SnapshotsUpdateSnapshotXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for SnapshotsUpdateSnapshotXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for SnapshotsUpdateSnapshotXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///`TerminalSession`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct TerminalSession {
@@ -11619,6 +14971,1538 @@ pub mod types {
                 })
         }
     }
+    ///A reusable authorization check for public HTTP ingress. Header values are write-only.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct TlsForwardAuth {
+        #[serde(rename = "authResponseHeaders")]
+        pub auth_response_headers: ::std::vec::Vec<::std::string::String>,
+        #[serde(rename = "createdAt")]
+        pub created_at: ::std::string::String,
+        #[serde(rename = "headerNames")]
+        pub header_names: ::std::vec::Vec<::std::string::String>,
+        ///a string matching the pattern ^fwa_[0-9abcdefghjkmnpqrstvwxyz]{26}$
+        pub id: TlsForwardAuthId,
+        #[serde(rename = "protectedCookies")]
+        pub protected_cookies: ::std::vec::Vec<::std::string::String>,
+        #[serde(rename = "timeoutMs")]
+        pub timeout_ms: Int,
+        #[serde(rename = "updatedAt")]
+        pub updated_at: ::std::string::String,
+        pub url: ::std::string::String,
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsForwardAuthCreateTlsForwardAuthXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for TlsForwardAuthCreateTlsForwardAuthXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsForwardAuthCreateTlsForwardAuthXCmuxTeamId> for ::std::string::String {
+        fn from(value: TlsForwardAuthCreateTlsForwardAuthXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsForwardAuthCreateTlsForwardAuthXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsForwardAuthCreateTlsForwardAuthXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String>
+        for TlsForwardAuthCreateTlsForwardAuthXCmuxTeamId
+    {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsForwardAuthCreateTlsForwardAuthXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsForwardAuthDeleteTlsForwardAuthXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for TlsForwardAuthDeleteTlsForwardAuthXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsForwardAuthDeleteTlsForwardAuthXCmuxTeamId> for ::std::string::String {
+        fn from(value: TlsForwardAuthDeleteTlsForwardAuthXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsForwardAuthDeleteTlsForwardAuthXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsForwardAuthDeleteTlsForwardAuthXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String>
+        for TlsForwardAuthDeleteTlsForwardAuthXCmuxTeamId
+    {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsForwardAuthDeleteTlsForwardAuthXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsForwardAuthGetTlsForwardAuthXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for TlsForwardAuthGetTlsForwardAuthXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsForwardAuthGetTlsForwardAuthXCmuxTeamId> for ::std::string::String {
+        fn from(value: TlsForwardAuthGetTlsForwardAuthXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsForwardAuthGetTlsForwardAuthXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsForwardAuthGetTlsForwardAuthXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TlsForwardAuthGetTlsForwardAuthXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsForwardAuthGetTlsForwardAuthXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^fwa_[0-9abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsForwardAuthId(::std::string::String);
+    impl ::std::ops::Deref for TlsForwardAuthId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsForwardAuthId> for ::std::string::String {
+        fn from(value: TlsForwardAuthId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsForwardAuthId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^fwa_[0-9abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^fwa_[0-9abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsForwardAuthId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TlsForwardAuthId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsForwardAuthId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`TlsForwardAuthList`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct TlsForwardAuthList {
+        pub items: ::std::vec::Vec<TlsForwardAuth>,
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsForwardAuthListTlsForwardAuthsXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for TlsForwardAuthListTlsForwardAuthsXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsForwardAuthListTlsForwardAuthsXCmuxTeamId> for ::std::string::String {
+        fn from(value: TlsForwardAuthListTlsForwardAuthsXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsForwardAuthListTlsForwardAuthsXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsForwardAuthListTlsForwardAuthsXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String>
+        for TlsForwardAuthListTlsForwardAuthsXCmuxTeamId
+    {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsForwardAuthListTlsForwardAuthsXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`TlsForwardAuthRequest`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct TlsForwardAuthRequest {
+        ///Headers copied from a successful check onto the request to the VM.
+        #[serde(
+            rename = "authResponseHeaders",
+            default,
+            skip_serializing_if = "::std::vec::Vec::is_empty"
+        )]
+        pub auth_response_headers: ::std::vec::Vec<TlsForwardAuthRequestAuthResponseHeadersItem>,
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub headers: ::std::option::Option<SecretHeaders>,
+        ///Cookie names the check sees but the VM never receives.
+        #[serde(
+            rename = "protectedCookies",
+            default,
+            skip_serializing_if = "::std::vec::Vec::is_empty"
+        )]
+        pub protected_cookies: ::std::vec::Vec<TlsForwardAuthRequestProtectedCookiesItem>,
+        ///Per-check deadline; defaults to 1500.
+        #[serde(
+            rename = "timeoutMs",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub timeout_ms: ::std::option::Option<i64>,
+        ///Absolute HTTPS URL that receives a bodyless GET before each protected request.
+        pub url: TlsForwardAuthRequestUrl,
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsForwardAuthRequestAuthResponseHeadersItem(::std::string::String);
+    impl ::std::ops::Deref for TlsForwardAuthRequestAuthResponseHeadersItem {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsForwardAuthRequestAuthResponseHeadersItem> for ::std::string::String {
+        fn from(value: TlsForwardAuthRequestAuthResponseHeadersItem) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsForwardAuthRequestAuthResponseHeadersItem {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsForwardAuthRequestAuthResponseHeadersItem {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String>
+        for TlsForwardAuthRequestAuthResponseHeadersItem
+    {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsForwardAuthRequestAuthResponseHeadersItem {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsForwardAuthRequestProtectedCookiesItem(::std::string::String);
+    impl ::std::ops::Deref for TlsForwardAuthRequestProtectedCookiesItem {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsForwardAuthRequestProtectedCookiesItem> for ::std::string::String {
+        fn from(value: TlsForwardAuthRequestProtectedCookiesItem) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsForwardAuthRequestProtectedCookiesItem {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsForwardAuthRequestProtectedCookiesItem {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TlsForwardAuthRequestProtectedCookiesItem {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsForwardAuthRequestProtectedCookiesItem {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///Absolute HTTPS URL that receives a bodyless GET before each protected request.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsForwardAuthRequestUrl(::std::string::String);
+    impl ::std::ops::Deref for TlsForwardAuthRequestUrl {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsForwardAuthRequestUrl> for ::std::string::String {
+        fn from(value: TlsForwardAuthRequestUrl) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsForwardAuthRequestUrl {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 2048usize {
+                return Err("longer than 2048 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsForwardAuthRequestUrl {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TlsForwardAuthRequestUrl {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsForwardAuthRequestUrl {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsForwardAuthUpdateTlsForwardAuthXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for TlsForwardAuthUpdateTlsForwardAuthXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsForwardAuthUpdateTlsForwardAuthXCmuxTeamId> for ::std::string::String {
+        fn from(value: TlsForwardAuthUpdateTlsForwardAuthXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsForwardAuthUpdateTlsForwardAuthXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsForwardAuthUpdateTlsForwardAuthXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String>
+        for TlsForwardAuthUpdateTlsForwardAuthXCmuxTeamId
+    {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsForwardAuthUpdateTlsForwardAuthXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///http (443, terminated), tcp (443, SNI splice to your VM's own certificate), postgres (5432, terminated), minecraft (25565), imap (993 terminated) or imaps (993 spliced). Egress rules are http only.
+    #[derive(
+        ::serde::Deserialize, ::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd,
+    )]
+    #[serde(transparent)]
+    pub struct TlsProtocol(pub ::std::string::String);
+    impl ::std::ops::Deref for TlsProtocol {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsProtocol> for ::std::string::String {
+        fn from(value: TlsProtocol) -> Self {
+            value.0
+        }
+    }
+    impl ::std::convert::From<::std::string::String> for TlsProtocol {
+        fn from(value: ::std::string::String) -> Self {
+            Self(value)
+        }
+    }
+    impl ::std::fmt::Display for TlsProtocol {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            self.0.fmt(f)
+        }
+    }
+    impl ::std::str::FromStr for TlsProtocol {
+        type Err = ::std::convert::Infallible;
+        fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+            Ok(Self(value.to_string()))
+        }
+    }
+    ///A named session over a hostname to or from your own VMs. Deleting a VM it names deletes the rule.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct TlsRule {
+        #[serde(rename = "createdAt")]
+        pub created_at: ::std::string::String,
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        pub description: ::std::option::Option<::std::string::String>,
+        pub destination: TlsRuleDestination,
+        pub direction: ::std::string::String,
+        pub domain: ::std::string::String,
+        ///a string matching the pattern ^fwa_[0-9abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(
+            rename = "forwardAuthId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub forward_auth_id: ::std::option::Option<TlsRuleForwardAuthId>,
+        ///Names of the headers the rule sets; values are never returned.
+        #[serde(rename = "headerNames")]
+        pub header_names: ::std::vec::Vec<::std::string::String>,
+        ///a string matching the pattern ^tlsr_[0-9abcdefghjkmnpqrstvwxyz]{26}$
+        pub id: TlsRuleId,
+        #[serde(
+            rename = "match",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub match_: ::std::option::Option<HttpRequestMatch>,
+        pub protocol: TlsProtocol,
+        pub source: TlsRuleSource,
+        #[serde(rename = "updatedAt")]
+        pub updated_at: ::std::string::String,
+    }
+    ///`TlsRuleDestination`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+    pub struct TlsRuleDestination {
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub host: ::std::option::Option<::std::string::String>,
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub port: ::std::option::Option<Int>,
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub public: ::std::option::Option<bool>,
+        ///a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(
+            rename = "vmId",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub vm_id: ::std::option::Option<TlsRuleDestinationVmId>,
+    }
+    ///a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsRuleDestinationVmId(::std::string::String);
+    impl ::std::ops::Deref for TlsRuleDestinationVmId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsRuleDestinationVmId> for ::std::string::String {
+        fn from(value: TlsRuleDestinationVmId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsRuleDestinationVmId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsRuleDestinationVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TlsRuleDestinationVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsRuleDestinationVmId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^fwa_[0-9abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsRuleForwardAuthId(::std::string::String);
+    impl ::std::ops::Deref for TlsRuleForwardAuthId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsRuleForwardAuthId> for ::std::string::String {
+        fn from(value: TlsRuleForwardAuthId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsRuleForwardAuthId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^fwa_[0-9abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^fwa_[0-9abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsRuleForwardAuthId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TlsRuleForwardAuthId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsRuleForwardAuthId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^tlsr_[0-9abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsRuleId(::std::string::String);
+    impl ::std::ops::Deref for TlsRuleId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsRuleId> for ::std::string::String {
+        fn from(value: TlsRuleId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsRuleId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^tlsr_[0-9abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^tlsr_[0-9abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsRuleId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TlsRuleId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsRuleId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`TlsRuleList`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct TlsRuleList {
+        pub items: ::std::vec::Vec<TlsRule>,
+    }
+    ///`TlsRuleRequest`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct TlsRuleRequest {
+        ///a string at most 1024 character(s) long
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub description: ::std::option::Option<TlsRuleRequestDescription>,
+        pub destination: TlsRuleRequestDestination,
+        ///The name the session is addressed to: one hostname, or `*.` plus a verified domain you own (ingress only).
+        pub domain: TlsRuleRequestDomain,
+        ///Ingress http only: run this forward-auth check of yours before each request reaches the VM.
+        #[serde(
+            rename = "forwardAuthId",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub forward_auth_id: ::std::option::Option<TlsRuleRequestForwardAuthId>,
+        ///http only: headers set on each request. Write-only.
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub headers: ::std::option::Option<SecretHeaders>,
+        #[serde(
+            rename = "match",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub match_: ::std::option::Option<HttpRequestMatch>,
+        ///Defaults to http.
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub protocol: ::std::option::Option<TlsProtocol>,
+        pub source: TlsRuleRequestSource,
+    }
+    ///a string at most 1024 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsRuleRequestDescription(::std::string::String);
+    impl ::std::ops::Deref for TlsRuleRequestDescription {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsRuleRequestDescription> for ::std::string::String {
+        fn from(value: TlsRuleRequestDescription) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsRuleRequestDescription {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 1024usize {
+                return Err("longer than 1024 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsRuleRequestDescription {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TlsRuleRequestDescription {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsRuleRequestDescription {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///Ingress: one of your VMs plus a port. Egress: `public: true` or `host` + `port`, which must be an HTTPS origin the deployment approved.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+    pub struct TlsRuleRequestDestination {
+        ///a string at most 253 character(s) long
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub host: ::std::option::Option<TlsRuleRequestDestinationHost>,
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub port: ::std::option::Option<::std::num::NonZeroU64>,
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub public: ::std::option::Option<bool>,
+        ///a string at most 64 character(s) long
+        #[serde(
+            rename = "vmId",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub vm_id: ::std::option::Option<TlsRuleRequestDestinationVmId>,
+    }
+    ///a string at most 253 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsRuleRequestDestinationHost(::std::string::String);
+    impl ::std::ops::Deref for TlsRuleRequestDestinationHost {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsRuleRequestDestinationHost> for ::std::string::String {
+        fn from(value: TlsRuleRequestDestinationHost) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsRuleRequestDestinationHost {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 253usize {
+                return Err("longer than 253 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsRuleRequestDestinationHost {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TlsRuleRequestDestinationHost {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsRuleRequestDestinationHost {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 64 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsRuleRequestDestinationVmId(::std::string::String);
+    impl ::std::ops::Deref for TlsRuleRequestDestinationVmId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsRuleRequestDestinationVmId> for ::std::string::String {
+        fn from(value: TlsRuleRequestDestinationVmId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsRuleRequestDestinationVmId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 64usize {
+                return Err("longer than 64 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsRuleRequestDestinationVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TlsRuleRequestDestinationVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsRuleRequestDestinationVmId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///The name the session is addressed to: one hostname, or `*.` plus a verified domain you own (ingress only).
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsRuleRequestDomain(::std::string::String);
+    impl ::std::ops::Deref for TlsRuleRequestDomain {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsRuleRequestDomain> for ::std::string::String {
+        fn from(value: TlsRuleRequestDomain) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsRuleRequestDomain {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 255usize {
+                return Err("longer than 255 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsRuleRequestDomain {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TlsRuleRequestDomain {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsRuleRequestDomain {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///Ingress http only: run this forward-auth check of yours before each request reaches the VM.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsRuleRequestForwardAuthId(::std::string::String);
+    impl ::std::ops::Deref for TlsRuleRequestForwardAuthId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsRuleRequestForwardAuthId> for ::std::string::String {
+        fn from(value: TlsRuleRequestForwardAuthId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsRuleRequestForwardAuthId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 64usize {
+                return Err("longer than 64 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsRuleRequestForwardAuthId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TlsRuleRequestForwardAuthId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsRuleRequestForwardAuthId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///Exactly one: `public: true` (ingress from the Internet) or one of your VMs (egress).
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+    pub struct TlsRuleRequestSource {
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub public: ::std::option::Option<bool>,
+        ///a string at most 64 character(s) long
+        #[serde(
+            rename = "vmId",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub vm_id: ::std::option::Option<TlsRuleRequestSourceVmId>,
+    }
+    ///a string at most 64 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsRuleRequestSourceVmId(::std::string::String);
+    impl ::std::ops::Deref for TlsRuleRequestSourceVmId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsRuleRequestSourceVmId> for ::std::string::String {
+        fn from(value: TlsRuleRequestSourceVmId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsRuleRequestSourceVmId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 64usize {
+                return Err("longer than 64 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsRuleRequestSourceVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TlsRuleRequestSourceVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsRuleRequestSourceVmId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`TlsRuleSource`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+    pub struct TlsRuleSource {
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub public: ::std::option::Option<bool>,
+        ///a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(
+            rename = "vmId",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub vm_id: ::std::option::Option<TlsRuleSourceVmId>,
+    }
+    ///a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsRuleSourceVmId(::std::string::String);
+    impl ::std::ops::Deref for TlsRuleSourceVmId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsRuleSourceVmId> for ::std::string::String {
+        fn from(value: TlsRuleSourceVmId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsRuleSourceVmId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsRuleSourceVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TlsRuleSourceVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsRuleSourceVmId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsRulesCreateTlsRuleXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for TlsRulesCreateTlsRuleXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsRulesCreateTlsRuleXCmuxTeamId> for ::std::string::String {
+        fn from(value: TlsRulesCreateTlsRuleXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsRulesCreateTlsRuleXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsRulesCreateTlsRuleXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TlsRulesCreateTlsRuleXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsRulesCreateTlsRuleXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsRulesDeleteTlsRuleXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for TlsRulesDeleteTlsRuleXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsRulesDeleteTlsRuleXCmuxTeamId> for ::std::string::String {
+        fn from(value: TlsRulesDeleteTlsRuleXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsRulesDeleteTlsRuleXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsRulesDeleteTlsRuleXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TlsRulesDeleteTlsRuleXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsRulesDeleteTlsRuleXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsRulesGetTlsRuleXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for TlsRulesGetTlsRuleXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsRulesGetTlsRuleXCmuxTeamId> for ::std::string::String {
+        fn from(value: TlsRulesGetTlsRuleXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsRulesGetTlsRuleXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsRulesGetTlsRuleXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TlsRulesGetTlsRuleXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsRulesGetTlsRuleXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 64 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsRulesListTlsRulesVmId(::std::string::String);
+    impl ::std::ops::Deref for TlsRulesListTlsRulesVmId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsRulesListTlsRulesVmId> for ::std::string::String {
+        fn from(value: TlsRulesListTlsRulesVmId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsRulesListTlsRulesVmId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 64usize {
+                return Err("longer than 64 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsRulesListTlsRulesVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TlsRulesListTlsRulesVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsRulesListTlsRulesVmId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsRulesListTlsRulesXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for TlsRulesListTlsRulesXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsRulesListTlsRulesXCmuxTeamId> for ::std::string::String {
+        fn from(value: TlsRulesListTlsRulesXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsRulesListTlsRulesXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsRulesListTlsRulesXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TlsRulesListTlsRulesXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsRulesListTlsRulesXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TlsRulesUpdateTlsRuleXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for TlsRulesUpdateTlsRuleXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TlsRulesUpdateTlsRuleXCmuxTeamId> for ::std::string::String {
+        fn from(value: TlsRulesUpdateTlsRuleXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TlsRulesUpdateTlsRuleXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TlsRulesUpdateTlsRuleXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TlsRulesUpdateTlsRuleXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TlsRulesUpdateTlsRuleXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///Everything a device needs to bring its tunnel up, except its own private key, which only the device has.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct TunnelConfig {
@@ -11821,6 +16705,195 @@ pub mod types {
                 })
         }
     }
+    ///`TunnelList`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct TunnelList {
+        pub items: ::std::vec::Vec<TunnelSummary>,
+    }
+    ///`TunnelSummary`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct TunnelSummary {
+        #[serde(rename = "createdAt")]
+        pub created_at: ::std::string::String,
+        ///a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "deviceId")]
+        pub device_id: TunnelSummaryDeviceId,
+        ///a string matching the pattern ^tun_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        pub id: TunnelSummaryId,
+        ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "meshId")]
+        pub mesh_id: TunnelSummaryMeshId,
+        pub name: ::std::string::String,
+    }
+    ///a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TunnelSummaryDeviceId(::std::string::String);
+    impl ::std::ops::Deref for TunnelSummaryDeviceId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TunnelSummaryDeviceId> for ::std::string::String {
+        fn from(value: TunnelSummaryDeviceId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TunnelSummaryDeviceId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TunnelSummaryDeviceId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TunnelSummaryDeviceId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TunnelSummaryDeviceId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^tun_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TunnelSummaryId(::std::string::String);
+    impl ::std::ops::Deref for TunnelSummaryId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TunnelSummaryId> for ::std::string::String {
+        fn from(value: TunnelSummaryId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TunnelSummaryId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^tun_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^tun_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TunnelSummaryId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TunnelSummaryId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TunnelSummaryId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TunnelSummaryMeshId(::std::string::String);
+    impl ::std::ops::Deref for TunnelSummaryMeshId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TunnelSummaryMeshId> for ::std::string::String {
+        fn from(value: TunnelSummaryMeshId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TunnelSummaryMeshId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\""
+                        .into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TunnelSummaryMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TunnelSummaryMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TunnelSummaryMeshId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///`Unauthorized`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct Unauthorized {
@@ -11872,6 +16945,401 @@ pub mod types {
             value: ::std::string::String,
         ) -> ::std::result::Result<Self, self::error::ConversionError> {
             value.parse()
+        }
+    }
+    ///Only the name changes: keys, tunnel, addresses and firewall rules are untouched, so a connected device sees nothing change.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct UpdateDeviceRequest {
+        ///a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$
+        pub name: UpdateDeviceRequestName,
+    }
+    ///a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct UpdateDeviceRequestName(::std::string::String);
+    impl ::std::ops::Deref for UpdateDeviceRequestName {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<UpdateDeviceRequestName> for ::std::string::String {
+        fn from(value: UpdateDeviceRequestName) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for UpdateDeviceRequestName {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for UpdateDeviceRequestName {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for UpdateDeviceRequestName {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for UpdateDeviceRequestName {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///Only the name changes: the mesh keeps its id, address block, devices, VMs and ACL.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct UpdateMeshRequest {
+        ///The new name; null clears it.
+        #[serde(
+            rename = "displayName",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub display_name: ::std::option::Option<UpdateMeshRequestDisplayName>,
+    }
+    ///The new name; null clears it.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct UpdateMeshRequestDisplayName(::std::string::String);
+    impl ::std::ops::Deref for UpdateMeshRequestDisplayName {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<UpdateMeshRequestDisplayName> for ::std::string::String {
+        fn from(value: UpdateMeshRequestDisplayName) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for UpdateMeshRequestDisplayName {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 100usize {
+                return Err("longer than 100 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for UpdateMeshRequestDisplayName {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for UpdateMeshRequestDisplayName {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for UpdateMeshRequestDisplayName {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///Omitted fields stay as they are; at least one is required. Any other field is refused with 400.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+    pub struct UpdateSnapshotRequest {
+        ///Delete it once this many seconds pass without a VM being created from it; null removes the window.
+        #[serde(
+            rename = "autoDeleteSeconds",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub auto_delete_seconds: ::std::option::Option<i64>,
+        ///A new name; null clears it.
+        #[serde(
+            rename = "displayName",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub display_name: ::std::option::Option<UpdateSnapshotRequestDisplayName>,
+        #[serde(
+            default,
+            skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+        )]
+        pub labels:
+            ::std::collections::HashMap<::std::string::String, UpdateSnapshotRequestLabelsValue>,
+        ///Delete the snapshot this many seconds after it was taken (not from now); null removes the deadline.
+        #[serde(
+            rename = "ttlSeconds",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub ttl_seconds: ::std::option::Option<i64>,
+    }
+    ///A new name; null clears it.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct UpdateSnapshotRequestDisplayName(::std::string::String);
+    impl ::std::ops::Deref for UpdateSnapshotRequestDisplayName {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<UpdateSnapshotRequestDisplayName> for ::std::string::String {
+        fn from(value: UpdateSnapshotRequestDisplayName) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for UpdateSnapshotRequestDisplayName {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 100usize {
+                return Err("longer than 100 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for UpdateSnapshotRequestDisplayName {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for UpdateSnapshotRequestDisplayName {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for UpdateSnapshotRequestDisplayName {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct UpdateSnapshotRequestLabelsValue(::std::string::String);
+    impl ::std::ops::Deref for UpdateSnapshotRequestLabelsValue {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<UpdateSnapshotRequestLabelsValue> for ::std::string::String {
+        fn from(value: UpdateSnapshotRequestLabelsValue) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for UpdateSnapshotRequestLabelsValue {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9._:/@-]{0,63}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9._:/@-]{0,63}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for UpdateSnapshotRequestLabelsValue {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for UpdateSnapshotRequestLabelsValue {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for UpdateSnapshotRequestLabelsValue {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///Change a VM's name, labels or limits. Omitted fields stay as they are; at least one is required. Any other field (slug, metadata, the lifetime run budget) is refused with 400.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+    pub struct UpdateVmRequest {
+        #[serde(
+            rename = "autoDeleteSeconds",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub auto_delete_seconds: ::std::option::Option<i64>,
+        ///A new name; null clears it.
+        #[serde(
+            rename = "displayName",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub display_name: ::std::option::Option<UpdateVmRequestDisplayName>,
+        #[serde(
+            rename = "idleTimeoutSeconds",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub idle_timeout_seconds: ::std::option::Option<i64>,
+        #[serde(
+            default,
+            skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+        )]
+        pub labels: ::std::collections::HashMap<::std::string::String, UpdateVmRequestLabelsValue>,
+        #[serde(
+            rename = "maxRunSeconds",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub max_run_seconds: ::std::option::Option<i64>,
+    }
+    ///A new name; null clears it.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct UpdateVmRequestDisplayName(::std::string::String);
+    impl ::std::ops::Deref for UpdateVmRequestDisplayName {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<UpdateVmRequestDisplayName> for ::std::string::String {
+        fn from(value: UpdateVmRequestDisplayName) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for UpdateVmRequestDisplayName {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 100usize {
+                return Err("longer than 100 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for UpdateVmRequestDisplayName {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for UpdateVmRequestDisplayName {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for UpdateVmRequestDisplayName {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct UpdateVmRequestLabelsValue(::std::string::String);
+    impl ::std::ops::Deref for UpdateVmRequestLabelsValue {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<UpdateVmRequestLabelsValue> for ::std::string::String {
+        fn from(value: UpdateVmRequestLabelsValue) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for UpdateVmRequestLabelsValue {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9._:/@-]{0,63}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9._:/@-]{0,63}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for UpdateVmRequestLabelsValue {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for UpdateVmRequestLabelsValue {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for UpdateVmRequestLabelsValue {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
         }
     }
     ///`UpgradeRequired`
@@ -14862,6 +20330,59 @@ pub mod types {
                 })
         }
     }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct VmsUpdateVmXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for VmsUpdateVmXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<VmsUpdateVmXCmuxTeamId> for ::std::string::String {
+        fn from(value: VmsUpdateVmXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for VmsUpdateVmXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for VmsUpdateVmXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for VmsUpdateVmXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for VmsUpdateVmXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     /// Error types.
     pub mod error {
         /// Error from a `TryFrom` or `FromStr` implementation.
@@ -15209,6 +20730,98 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
+    /**List certificates for your verified domains
+
+    List certificates for your verified domains. Requires the domain:read scope. Only certificates for names under domains your team verified (the most specific verified domain decides).
+
+    Sends a `GET` request to `/v1/certificates`
+
+    Arguments:
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn domains_list_certificates<'a>(
+        &'a self,
+        x_cmux_team_id: Option<&'a types::DomainsListCertificatesXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!("{}/v1/certificates", self.baseurl,);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.get(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "domains_list_certificates",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**List the team's live client sessions
+
+    List the live client sessions on the caller's live VMs, across the team, by session id (default limit 100, at most 200). Only sessions on VMs the credential reaches are listed: a key limited to resources or labels sees only those VMs' sessions. Tokens are never returned. A filtered page can hold fewer than `limit` items; follow `nextCursor`. Requires the vm:exec scope.
+
+    Sends a `GET` request to `/v1/client-sessions`
+
+    Arguments:
+    - `cursor`: The `nextCursor` of the previous page.
+    - `limit`: a string to be decoded into a number
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn client_sessions_list_tenant_client_sessions<'a>(
+        &'a self,
+        cursor: Option<&'a types::ClientSessionsListTenantClientSessionsCursor>,
+        limit: Option<&'a str>,
+        x_cmux_team_id: Option<&'a types::ClientSessionsListTenantClientSessionsXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!("{}/v1/client-sessions", self.baseurl,);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .get(url)
+            .query(&progenitor_client::QueryParam::new("cursor", &cursor))
+            .query(&progenitor_client::QueryParam::new("limit", &limit))
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "client_sessions_list_tenant_client_sessions",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
     /**Get a device
 
     Get a device. Requires the mesh:read scope. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.
@@ -15301,6 +20914,61 @@ impl Client {
             403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Rename a device and its tunnel
+
+    Rename a device and its tunnel. Requires the mesh:join scope. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `PATCH` request to `/v1/devices/{deviceId}`
+
+    Arguments:
+    - `device_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn mesh_network_update_device<'a>(
+        &'a self,
+        device_id: &'a str,
+        x_cmux_team_id: Option<&'a types::MeshNetworkUpdateDeviceXCmuxTeamId>,
+        body: &'a types::UpdateDeviceRequest,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/devices/{}",
+            self.baseurl,
+            encode_path(&device_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .patch(url)
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_network_update_device",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             _ => Err(Error::UnexpectedResponse(response)),
@@ -15694,6 +21362,435 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
+    /**List your domain verifications
+
+    List your domain verifications. Requires the domain:read scope.
+
+    Sends a `GET` request to `/v1/domain-verifications`
+
+    Arguments:
+    - `state`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn domains_list_domain_verifications<'a>(
+        &'a self,
+        state: Option<types::DomainsListDomainVerificationsState>,
+        x_cmux_team_id: Option<&'a types::DomainsListDomainVerificationsXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!("{}/v1/domain-verifications", self.baseurl,);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .get(url)
+            .query(&progenitor_client::QueryParam::new("state", &state))
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "domains_list_domain_verifications",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Start proving you control a domain
+
+    Start proving you control a domain. Requires the domain:write scope. Reserves the domain for your team while the challenge is pending (another team's request is 409). An unverified reservation lapses 7 days after your team's first request: another request, or withdrawing every challenge and starting again, does not extend it. After it lapses any other team may reserve it at once, while your team gets 409 for another 7 days. Names under the managed zone cannot be verified. Service keys, agent keys and resource-allowlisted keys cannot create these resources; allowlisted keys see only the ids they list.
+
+    Sends a `POST` request to `/v1/domain-verifications`
+
+    Arguments:
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn domains_create_domain_verification<'a>(
+        &'a self,
+        x_cmux_team_id: Option<&'a types::DomainsCreateDomainVerificationXCmuxTeamId>,
+        body: &'a types::CreateDomainVerificationRequest,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!("{}/v1/domain-verifications", self.baseurl,);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .post(url)
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "domains_create_domain_verification",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            201u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Read a domain verification
+
+    Read a domain verification. Requires the domain:read scope.
+
+    Sends a `GET` request to `/v1/domain-verifications/{verificationId}`
+
+    Arguments:
+    - `verification_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn domains_get_domain_verification<'a>(
+        &'a self,
+        verification_id: &'a str,
+        x_cmux_team_id: Option<&'a types::DomainsGetDomainVerificationXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/domain-verifications/{}",
+            self.baseurl,
+            encode_path(&verification_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.get(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "domains_get_domain_verification",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Withdraw a pending domain verification
+
+    Withdraw a pending domain verification. Requires the domain:write scope. A completed verification is a permanent record (409); release the domain instead. Withdrawing does not release or reset the reservation: it still lapses 7 days after your team's first request.
+
+    Sends a `DELETE` request to `/v1/domain-verifications/{verificationId}`
+
+    Arguments:
+    - `verification_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn domains_delete_domain_verification<'a>(
+        &'a self,
+        verification_id: &'a str,
+        x_cmux_team_id: Option<&'a types::DomainsDeleteDomainVerificationXCmuxTeamId>,
+    ) -> Result<ResponseValue<()>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/domain-verifications/{}",
+            self.baseurl,
+            encode_path(&verification_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.delete(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "domains_delete_domain_verification",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            204u16 => Ok(ResponseValue::empty(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Check the TXT record and verify the domain
+
+    Check the TXT record and verify the domain. Requires the domain:write scope. Only this challenge's own code counts. 400 while the record is not visible yet; retrying after success returns the domain.
+
+    Sends a `POST` request to `/v1/domain-verifications/{verificationId}/verify`
+
+    Arguments:
+    - `verification_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn domains_verify_domain<'a>(
+        &'a self,
+        verification_id: &'a str,
+        x_cmux_team_id: Option<&'a types::DomainsVerifyDomainXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/domain-verifications/{}/verify",
+            self.baseurl,
+            encode_path(&verification_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.post(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "domains_verify_domain",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**List your verified domains
+
+    List your verified domains. Requires the domain:read scope. Also names your managed hostname suffix. Service keys, agent keys and resource-allowlisted keys cannot create these resources; allowlisted keys see only the ids they list.
+
+    Sends a `GET` request to `/v1/domains`
+
+    Arguments:
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn domains_list_domains<'a>(
+        &'a self,
+        x_cmux_team_id: Option<&'a types::DomainsListDomainsXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!("{}/v1/domains", self.baseurl,);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.get(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "domains_list_domains",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Read a verified domain
+
+    Read a verified domain. Requires the domain:read scope.
+
+    Sends a `GET` request to `/v1/domains/{domainId}`
+
+    Arguments:
+    - `domain_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn domains_get_domain<'a>(
+        &'a self,
+        domain_id: &'a str,
+        x_cmux_team_id: Option<&'a types::DomainsGetDomainXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/domains/{}",
+            self.baseurl,
+            encode_path(&domain_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.get(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "domains_get_domain",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Release a verified domain
+
+    Release a verified domain. Requires the domain:write scope. Refused (409) while a TLS rule of yours routes a name under it. Another team may then verify it with its own challenge.
+
+    Sends a `DELETE` request to `/v1/domains/{domainId}`
+
+    Arguments:
+    - `domain_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn domains_delete_domain<'a>(
+        &'a self,
+        domain_id: &'a str,
+        x_cmux_team_id: Option<&'a types::DomainsDeleteDomainXCmuxTeamId>,
+    ) -> Result<ResponseValue<()>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/domains/{}",
+            self.baseurl,
+            encode_path(&domain_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.delete(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "domains_delete_domain",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            204u16 => Ok(ResponseValue::empty(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Request an ongoing wildcard certificate for a verified domain
+
+    Request an ongoing wildcard certificate for a verified domain. Requires the domain:write scope. Delegate `_acme-challenge.<domain>` first (see the domain's dns.wildcardCertificate); wildcards can only be proven over DNS.
+
+    Sends a `POST` request to `/v1/domains/{domainId}/wildcard-certificate`
+
+    Arguments:
+    - `domain_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn domains_request_wildcard_certificate<'a>(
+        &'a self,
+        domain_id: &'a str,
+        x_cmux_team_id: Option<&'a types::DomainsRequestWildcardCertificateXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/domains/{}/wildcard-certificate",
+            self.baseurl,
+            encode_path(&domain_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.post(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "domains_request_wildcard_certificate",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
     /**List the team's meshes
 
     List the team's meshes. Requires the mesh:read scope. Experiment: answers 404 unless the mesh experiment is enabled for the team.
@@ -15888,6 +21985,61 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
+    /**Rename a mesh
+
+    Rename a mesh. Requires the mesh:write scope. A session must be a team admin. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `PATCH` request to `/v1/meshes/{meshId}`
+
+    Arguments:
+    - `mesh_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn mesh_network_update_mesh<'a>(
+        &'a self,
+        mesh_id: &'a str,
+        x_cmux_team_id: Option<&'a types::MeshNetworkUpdateMeshXCmuxTeamId>,
+        body: &'a types::UpdateMeshRequest,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/meshes/{}",
+            self.baseurl,
+            encode_path(&mesh_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .patch(url)
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_network_update_mesh",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
     /**Get a mesh's ACL
 
     Get a mesh's ACL. Requires the acl:read scope. Experiment: answers 404 unless the mesh experiment is enabled for the team.
@@ -15987,6 +22139,208 @@ impl Client {
             403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Check whether the mesh's ACL allows a connection
+
+    Check whether the mesh's ACL allows a connection. Requires the acl:read scope. Evaluated by the same compiler an apply uses, against the current ACL and the mesh's current devices and VMs; changes nothing. A src that is not a device of this mesh, or a dst that is not one of its devices or VMs, is 400. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `POST` request to `/v1/meshes/{meshId}/acl/evaluate`
+
+    Arguments:
+    - `mesh_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn mesh_network_evaluate_mesh_acl<'a>(
+        &'a self,
+        mesh_id: &'a str,
+        x_cmux_team_id: Option<&'a types::MeshNetworkEvaluateMeshAclXCmuxTeamId>,
+        body: &'a types::EvaluateMeshAclRequest,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/meshes/{}/acl/evaluate",
+            self.baseurl,
+            encode_path(&mesh_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .post(url)
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_network_evaluate_mesh_acl",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**List the firewall rules a mesh's ACL compiled to
+
+    List the firewall rules a mesh's ACL compiled to. Requires the acl:read scope. The provider firewall rules in place for this mesh, one per device, VM and port, as the last apply left them. Device-to-device permissions are not firewall rules; read them with GET /v1/devices/{deviceId}/overlay-policy. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `GET` request to `/v1/meshes/{meshId}/acl/rules`
+
+    Arguments:
+    - `mesh_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn mesh_network_list_mesh_firewall_rules<'a>(
+        &'a self,
+        mesh_id: &'a str,
+        x_cmux_team_id: Option<&'a types::MeshNetworkListMeshFirewallRulesXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/meshes/{}/acl/rules",
+            self.baseurl,
+            encode_path(&mesh_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.get(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_network_list_mesh_firewall_rules",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Get one firewall rule of a mesh
+
+    Get one firewall rule of a mesh. Requires the acl:read scope. An unknown rule, or another mesh's, is 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `GET` request to `/v1/meshes/{meshId}/acl/rules/{ruleId}`
+
+    Arguments:
+    - `mesh_id`
+    - `rule_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn mesh_network_get_mesh_firewall_rule<'a>(
+        &'a self,
+        mesh_id: &'a str,
+        rule_id: &'a str,
+        x_cmux_team_id: Option<&'a types::MeshNetworkGetMeshFirewallRuleXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/meshes/{}/acl/rules/{}",
+            self.baseurl,
+            encode_path(&mesh_id.to_string()),
+            encode_path(&rule_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.get(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_network_get_mesh_firewall_rule",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**List the addresses assigned in a mesh
+
+    List the addresses assigned in a mesh. Requires the mesh:read scope. Each member VM's address and each device's address as mesh members see it. A tenant admin sees every device; any other principal only the devices it enrolled. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `GET` request to `/v1/meshes/{meshId}/addresses`
+
+    Arguments:
+    - `mesh_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn mesh_network_list_mesh_addresses<'a>(
+        &'a self,
+        mesh_id: &'a str,
+        x_cmux_team_id: Option<&'a types::MeshNetworkListMeshAddressesXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/meshes/{}/addresses",
+            self.baseurl,
+            encode_path(&mesh_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.get(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_network_list_mesh_addresses",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             _ => Err(Error::UnexpectedResponse(response)),
@@ -17230,6 +23584,596 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
+    /**Update a snapshot's name, labels or retention
+
+    Update a snapshot's name, labels or retention. Requires the snapshot:write scope. Name and labels are stored by cmux; retention is applied to the snapshot. Labels replace the whole set; labels starting with cmux. cannot be added, removed or changed, and a service or agent key cannot drop the labels it is limited to (403). Audited.
+
+    Sends a `PATCH` request to `/v1/snapshots/{snapshotId}`
+
+    Arguments:
+    - `snapshot_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn snapshots_update_snapshot<'a>(
+        &'a self,
+        snapshot_id: &'a str,
+        x_cmux_team_id: Option<&'a types::SnapshotsUpdateSnapshotXCmuxTeamId>,
+        body: &'a types::UpdateSnapshotRequest,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/snapshots/{}",
+            self.baseurl,
+            encode_path(&snapshot_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .patch(url)
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "snapshots_update_snapshot",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**List your forward-auth checks, newest first
+
+    List your forward-auth checks, newest first. Requires the domain:read scope.
+
+    Sends a `GET` request to `/v1/tls-forward-auths`
+
+    Arguments:
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn tls_forward_auth_list_tls_forward_auths<'a>(
+        &'a self,
+        x_cmux_team_id: Option<&'a types::TlsForwardAuthListTlsForwardAuthsXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!("{}/v1/tls-forward-auths", self.baseurl,);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.get(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "tls_forward_auth_list_tls_forward_auths",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Create a forward-auth check
+
+    Create a forward-auth check. Requires the domain:write scope. The edge sends a bodyless GET to the URL before forwarding a protected request to your VM. Header values are write-only. Service keys, agent keys and resource-allowlisted keys cannot create these resources; allowlisted keys see only the ids they list.
+
+    Sends a `POST` request to `/v1/tls-forward-auths`
+
+    Arguments:
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn tls_forward_auth_create_tls_forward_auth<'a>(
+        &'a self,
+        x_cmux_team_id: Option<&'a types::TlsForwardAuthCreateTlsForwardAuthXCmuxTeamId>,
+        body: &'a types::TlsForwardAuthRequest,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!("{}/v1/tls-forward-auths", self.baseurl,);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .post(url)
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "tls_forward_auth_create_tls_forward_auth",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            201u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Read a forward-auth check
+
+    Read a forward-auth check. Requires the domain:read scope. Header values are never returned.
+
+    Sends a `GET` request to `/v1/tls-forward-auths/{forwardAuthId}`
+
+    Arguments:
+    - `forward_auth_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn tls_forward_auth_get_tls_forward_auth<'a>(
+        &'a self,
+        forward_auth_id: &'a str,
+        x_cmux_team_id: Option<&'a types::TlsForwardAuthGetTlsForwardAuthXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/tls-forward-auths/{}",
+            self.baseurl,
+            encode_path(&forward_auth_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.get(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "tls_forward_auth_get_tls_forward_auth",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Replace a forward-auth check in place
+
+    Replace a forward-auth check in place. Requires the domain:write scope. Rules keep referencing the same id; omitted headers clear them.
+
+    Sends a `PUT` request to `/v1/tls-forward-auths/{forwardAuthId}`
+
+    Arguments:
+    - `forward_auth_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn tls_forward_auth_update_tls_forward_auth<'a>(
+        &'a self,
+        forward_auth_id: &'a str,
+        x_cmux_team_id: Option<&'a types::TlsForwardAuthUpdateTlsForwardAuthXCmuxTeamId>,
+        body: &'a types::TlsForwardAuthRequest,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/tls-forward-auths/{}",
+            self.baseurl,
+            encode_path(&forward_auth_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .put(url)
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "tls_forward_auth_update_tls_forward_auth",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Delete an unused forward-auth check
+
+    Delete an unused forward-auth check. Requires the domain:write scope. Refused (409) while a TLS rule uses it.
+
+    Sends a `DELETE` request to `/v1/tls-forward-auths/{forwardAuthId}`
+
+    Arguments:
+    - `forward_auth_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn tls_forward_auth_delete_tls_forward_auth<'a>(
+        &'a self,
+        forward_auth_id: &'a str,
+        x_cmux_team_id: Option<&'a types::TlsForwardAuthDeleteTlsForwardAuthXCmuxTeamId>,
+    ) -> Result<ResponseValue<()>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/tls-forward-auths/{}",
+            self.baseurl,
+            encode_path(&forward_auth_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.delete(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "tls_forward_auth_delete_tls_forward_auth",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            204u16 => Ok(ResponseValue::empty(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**List your TLS rules, newest first
+
+    List your TLS rules, newest first. Requires the domain:read scope. Only rules whose VMs you can reach; filter by one VM with vmId.
+
+    Sends a `GET` request to `/v1/tls-rules`
+
+    Arguments:
+    - `vm_id`: a string at most 64 character(s) long
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn tls_rules_list_tls_rules<'a>(
+        &'a self,
+        vm_id: Option<&'a types::TlsRulesListTlsRulesVmId>,
+        x_cmux_team_id: Option<&'a types::TlsRulesListTlsRulesXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!("{}/v1/tls-rules", self.baseurl,);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .get(url)
+            .query(&progenitor_client::QueryParam::new("vmId", &vm_id))
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "tls_rules_list_tls_rules",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Create a TLS rule
+
+    Create a TLS rule. Requires the domain:write scope. Also requires vm:network; every VM it names must be yours. Ingress (source public) routes a managed hostname or a verified domain of yours to one of your VMs; egress (source one of your VMs) reaches only HTTPS origins the deployment approved. Private networks, socks5 and credential transforms other than headers are not offered. Service keys, agent keys and resource-allowlisted keys cannot create these resources; allowlisted keys see only the ids they list.
+
+    Sends a `POST` request to `/v1/tls-rules`
+
+    Arguments:
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn tls_rules_create_tls_rule<'a>(
+        &'a self,
+        x_cmux_team_id: Option<&'a types::TlsRulesCreateTlsRuleXCmuxTeamId>,
+        body: &'a types::TlsRuleRequest,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!("{}/v1/tls-rules", self.baseurl,);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .post(url)
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "tls_rules_create_tls_rule",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            201u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Read a TLS rule
+
+    Read a TLS rule. Requires the domain:read scope. Header values are never returned.
+
+    Sends a `GET` request to `/v1/tls-rules/{ruleId}`
+
+    Arguments:
+    - `rule_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn tls_rules_get_tls_rule<'a>(
+        &'a self,
+        rule_id: &'a str,
+        x_cmux_team_id: Option<&'a types::TlsRulesGetTlsRuleXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/tls-rules/{}",
+            self.baseurl,
+            encode_path(&rule_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.get(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "tls_rules_get_tls_rule",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Replace a TLS rule in place
+
+    Replace a TLS rule in place. Requires the domain:write scope. The body is a whole rule, checked like a create (also requires vm:network). Rotates header secrets without dropping traffic; omitted headers clear them.
+
+    Sends a `PUT` request to `/v1/tls-rules/{ruleId}`
+
+    Arguments:
+    - `rule_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn tls_rules_update_tls_rule<'a>(
+        &'a self,
+        rule_id: &'a str,
+        x_cmux_team_id: Option<&'a types::TlsRulesUpdateTlsRuleXCmuxTeamId>,
+        body: &'a types::TlsRuleRequest,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/tls-rules/{}",
+            self.baseurl,
+            encode_path(&rule_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .put(url)
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "tls_rules_update_tls_rule",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Delete a TLS rule
+
+    Delete a TLS rule. Requires the domain:write scope. The VMs it named are untouched.
+
+    Sends a `DELETE` request to `/v1/tls-rules/{ruleId}`
+
+    Arguments:
+    - `rule_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn tls_rules_delete_tls_rule<'a>(
+        &'a self,
+        rule_id: &'a str,
+        x_cmux_team_id: Option<&'a types::TlsRulesDeleteTlsRuleXCmuxTeamId>,
+    ) -> Result<ResponseValue<()>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/tls-rules/{}",
+            self.baseurl,
+            encode_path(&rule_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.delete(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "tls_rules_delete_tls_rule",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            204u16 => Ok(ResponseValue::empty(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**List the team's device tunnels
+
+    List the team's device tunnels. Requires the mesh:read scope. Every mesh's device tunnels, without keys or configs (GET /v1/tunnels/{tunnelId} returns a config). A tenant admin sees every tunnel; any other principal only those of devices it enrolled. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `GET` request to `/v1/tunnels`
+
+    Arguments:
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn mesh_network_list_tunnels<'a>(
+        &'a self,
+        x_cmux_team_id: Option<&'a types::MeshNetworkListTunnelsXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!("{}/v1/tunnels", self.baseurl,);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.get(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_network_list_tunnels",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
     /**Get a device tunnel's config
 
     Get a device tunnel's config. Requires the mesh:read scope. Never includes a private key. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.
@@ -17725,6 +24669,62 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
+    /**Update a VM's name, labels or limits
+
+    Update a VM's name, labels or limits. Requires the vm:write scope. Name and labels are stored by cmux; idleTimeoutSeconds, maxRunSeconds and autoDeleteSeconds are applied to the VM (-1 removes a limit; dev/test tenants keep the 1 to 300 second idle rule). Labels replace the whole set; labels starting with cmux. cannot be added, removed or changed, and a service or agent key cannot drop the labels it is limited to (403). The provider's slug, metadata, tenant tagging and the lifetime run budget (which keeps a retired VM retired) cannot be changed. A VM whose create has not finished is 409, and so is a concurrent change of its name or labels (read and retry). Audited. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+
+    Sends a `PATCH` request to `/v1/vms/{vmId}`
+
+    Arguments:
+    - `vm_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn vms_update_vm<'a>(
+        &'a self,
+        vm_id: &'a str,
+        x_cmux_team_id: Option<&'a types::VmsUpdateVmXCmuxTeamId>,
+        body: &'a types::UpdateVmRequest,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .patch(url)
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "vms_update_vm",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
     /**Mint a provider token for one VM
 
     Mint a provider access token scoped to this VM and one Linux user. Requires the vm:exec scope. The token works only on this VM, is shown once, and is revoked when the VM is deleted or the session is revoked. Another tenant's or another agent's VM is 404.
@@ -17828,6 +24828,57 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
+    /**Read a VM's client session
+
+    Read one live client session of this VM: id, its one Linux user and creation time. A revoked session, another VM's session, or another tenant's or agent's VM is 404. Requires the vm:exec scope.
+
+    Sends a `GET` request to `/v1/vms/{vmId}/client-sessions/{sessionId}`
+
+    Arguments:
+    - `vm_id`
+    - `session_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn client_sessions_get_client_session<'a>(
+        &'a self,
+        vm_id: &'a str,
+        session_id: &'a str,
+        x_cmux_team_id: Option<&'a types::ClientSessionsGetClientSessionXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/client-sessions/{}",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+            encode_path(&session_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.get(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "client_sessions_get_client_session",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
     /**Revoke a VM's client session
 
     Revoke a client session's provider token at once. Requires the vm:exec scope. Revoking twice is not an error.
@@ -17863,6 +24914,221 @@ impl Client {
         let mut request = self.client.delete(url).headers(header_map).build()?;
         let info = OperationInfo {
             operation_id: "agents_revoke_client_session",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            204u16 => Ok(ResponseValue::empty(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Change a client session's Linux user
+
+    Replace the one Linux user the session's tokens (existing and future) may act as on this VM. Exactly one user: a session is never unrestricted. Setting the current user again is not an error. A revoked session is 404. A change that raced another change of the same session and lost is 409; the session keeps the winner's user, on the grant too. Requires the vm:exec scope.
+
+    Sends a `PUT` request to `/v1/vms/{vmId}/client-sessions/{sessionId}/linux-user`
+
+    Arguments:
+    - `vm_id`
+    - `session_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn client_sessions_set_client_session_linux_user<'a>(
+        &'a self,
+        vm_id: &'a str,
+        session_id: &'a str,
+        x_cmux_team_id: Option<&'a types::ClientSessionsSetClientSessionLinuxUserXCmuxTeamId>,
+        body: &'a types::SetClientSessionLinuxUserRequest,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/client-sessions/{}/linux-user",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+            encode_path(&session_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .put(url)
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "client_sessions_set_client_session_linux_user",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**List a client session's tokens
+
+    List the live access tokens of a live client session: their ids only. Tokens are shown once, when minted. A revoked session is 404. Requires the vm:exec scope.
+
+    Sends a `GET` request to `/v1/vms/{vmId}/client-sessions/{sessionId}/tokens`
+
+    Arguments:
+    - `vm_id`
+    - `session_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn client_sessions_list_client_session_tokens<'a>(
+        &'a self,
+        vm_id: &'a str,
+        session_id: &'a str,
+        x_cmux_team_id: Option<&'a types::ClientSessionsListClientSessionTokensXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/client-sessions/{}/tokens",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+            encode_path(&session_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.get(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "client_sessions_list_client_session_tokens",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Mint another token for a client session
+
+    Mint another access token for a live client session: same VM, same Linux user. The token is shown once; the response carries the SSH login and API origin like the session's first token. A revoked session is 404. Requires the vm:exec scope.
+
+    Sends a `POST` request to `/v1/vms/{vmId}/client-sessions/{sessionId}/tokens`
+
+    Arguments:
+    - `vm_id`
+    - `session_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn client_sessions_create_client_session_token<'a>(
+        &'a self,
+        vm_id: &'a str,
+        session_id: &'a str,
+        x_cmux_team_id: Option<&'a types::ClientSessionsCreateClientSessionTokenXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/client-sessions/{}/tokens",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+            encode_path(&session_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.post(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "client_sessions_create_client_session_token",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            201u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Revoke one token of a client session
+
+    Revoke one access token at once; the session and its other tokens stay. Revoking a token that is already gone is not an error. A revoked session, or a token id that is malformed, is 404. Requires the vm:exec scope.
+
+    Sends a `DELETE` request to `/v1/vms/{vmId}/client-sessions/{sessionId}/tokens/{tokenId}`
+
+    Arguments:
+    - `vm_id`
+    - `session_id`
+    - `token_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn client_sessions_revoke_client_session_token<'a>(
+        &'a self,
+        vm_id: &'a str,
+        session_id: &'a str,
+        token_id: &'a str,
+        x_cmux_team_id: Option<&'a types::ClientSessionsRevokeClientSessionTokenXCmuxTeamId>,
+    ) -> Result<ResponseValue<()>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/client-sessions/{}/tokens/{}",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+            encode_path(&session_id.to_string()),
+            encode_path(&token_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.delete(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "client_sessions_revoke_client_session_token",
         };
         self.pre(&mut request, &info).await?;
         let result = self.exec(request, &info).await;
@@ -17925,6 +25191,62 @@ impl Client {
         let response = result?;
         match response.status().as_u16() {
             200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Delete a file or directory in a VM
+
+    Delete a file or directory in a VM. Requires the vm:files scope. There is no recursive flag: the path is removed as the platform's remove does, a directory together with its contents. A missing path is 404 File not found. Wakes a paused VM; a retired VM is 409. Audited by action and VM, never by path. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+
+    Sends a `DELETE` request to `/v1/vms/{vmId}/files`
+
+    Arguments:
+    - `vm_id`
+    - `path`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn files_remove_path<'a>(
+        &'a self,
+        vm_id: &'a str,
+        path: &'a types::GuestPath,
+        x_cmux_team_id: Option<&'a types::FilesRemovePathXCmuxTeamId>,
+    ) -> Result<ResponseValue<()>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/files",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .delete(url)
+            .query(&progenitor_client::QueryParam::new("path", &path))
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "files_remove_path",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            204u16 => Ok(ResponseValue::empty(response)),
             400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
@@ -18068,6 +25390,62 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
+    /**Create a directory in a VM
+
+    Create a directory in a VM. Requires the vm:files scope. Creates missing parent directories too (like mkdir -p); an existing directory is success. Wakes a paused VM; a retired VM is 409. Audited by action and VM, never by path. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+
+    Sends a `POST` request to `/v1/vms/{vmId}/files/directories`
+
+    Arguments:
+    - `vm_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn files_make_directory<'a>(
+        &'a self,
+        vm_id: &'a str,
+        x_cmux_team_id: Option<&'a types::FilesMakeDirectoryXCmuxTeamId>,
+        body: &'a types::MakeDirectoryRequest,
+    ) -> Result<ResponseValue<()>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/files/directories",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .post(url)
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "files_make_directory",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            204u16 => Ok(ResponseValue::empty(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
     /**List a directory in a VM
 
     List a directory in a VM. Requires the vm:files scope. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
@@ -18107,6 +25485,62 @@ impl Client {
             .build()?;
         let info = OperationInfo {
             operation_id: "files_list_files",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Check whether a path exists in a VM
+
+    Check whether a path exists in a VM. Requires the vm:files scope. Answers exists:false for a missing path; 404 means the VM. No audit row. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+
+    Sends a `GET` request to `/v1/vms/{vmId}/files/exists`
+
+    Arguments:
+    - `vm_id`
+    - `path`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn files_path_exists<'a>(
+        &'a self,
+        vm_id: &'a str,
+        path: &'a types::GuestPath,
+        x_cmux_team_id: Option<&'a types::FilesPathExistsXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/files/exists",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .get(url)
+            .query(&progenitor_client::QueryParam::new("path", &path))
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "files_path_exists",
         };
         self.pre(&mut request, &info).await?;
         let result = self.exec(request, &info).await;
@@ -18174,6 +25608,291 @@ impl Client {
             401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Start a resumable file upload into a VM
+
+    Start a resumable file upload into a VM. Requires the vm:files scope. For files larger than one PUT /files/content allows. Send the bytes in order with PUT /files/uploads/{uploadId}?offset=N, each chunk at most maxChunkBytes, then POST .../commit. The file appears at path only on commit, atomically. A size over 16 GiB is 400; a size over a lower deployment limit is 413; too many open uploads on the VM is 409. Audited. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+
+    Sends a `POST` request to `/v1/vms/{vmId}/files/uploads`
+
+    Arguments:
+    - `vm_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn files_begin_file_upload<'a>(
+        &'a self,
+        vm_id: &'a str,
+        x_cmux_team_id: Option<&'a types::FilesBeginFileUploadXCmuxTeamId>,
+        body: &'a types::BeginFileUploadRequest,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/files/uploads",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .post(url)
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "files_begin_file_upload",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            201u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            413u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Read a resumable upload's progress
+
+    Read a resumable upload's progress. Requires the vm:files scope. After a failed chunk, resume at receivedBytes. An unknown, expired or foreign upload id is 404 Upload not found. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+
+    Sends a `GET` request to `/v1/vms/{vmId}/files/uploads/{uploadId}`
+
+    Arguments:
+    - `vm_id`
+    - `upload_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn files_get_file_upload<'a>(
+        &'a self,
+        vm_id: &'a str,
+        upload_id: &'a str,
+        x_cmux_team_id: Option<&'a types::FilesGetFileUploadXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/files/uploads/{}",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+            encode_path(&upload_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.get(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "files_get_file_upload",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Send one chunk of a resumable upload
+
+    Send one chunk of a resumable upload. Requires the vm:files scope. The body is the chunk's raw bytes with Content-Length set, at most maxChunkBytes (413 otherwise). A gap after receivedBytes, or an upload being committed, is 409; a chunk that overruns the declared size is 400. Chunks are not audited. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+
+    Sends a `PUT` request to `/v1/vms/{vmId}/files/uploads/{uploadId}`
+
+    Arguments:
+    - `vm_id`
+    - `upload_id`
+    - `offset`: a string to be decoded into a number
+    - `content_length`: a string matching the pattern ^\d{1,19}$
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn files_upload_file_chunk<'a, B: Into<reqwest::Body>>(
+        &'a self,
+        vm_id: &'a str,
+        upload_id: &'a str,
+        offset: &'a str,
+        content_length: Option<&'a types::FilesUploadFileChunkContentLength>,
+        x_cmux_team_id: Option<&'a types::FilesUploadFileChunkXCmuxTeamId>,
+        body: B,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/files/uploads/{}",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+            encode_path(&upload_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(3usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = content_length {
+            header_map.append("content-length", value.to_string().try_into()?);
+        }
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .put(url)
+            .header(
+                ::reqwest::header::CONTENT_TYPE,
+                ::reqwest::header::HeaderValue::from_static("application/octet-stream"),
+            )
+            .body(body)
+            .query(&progenitor_client::QueryParam::new("offset", &offset))
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "files_upload_file_chunk",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            413u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Abandon a resumable upload
+
+    Abandon a resumable upload. Requires the vm:files scope. Frees the stored chunks. An upload being committed is 409. Audited. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+
+    Sends a `DELETE` request to `/v1/vms/{vmId}/files/uploads/{uploadId}`
+
+    Arguments:
+    - `vm_id`
+    - `upload_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn files_abort_file_upload<'a>(
+        &'a self,
+        vm_id: &'a str,
+        upload_id: &'a str,
+        x_cmux_team_id: Option<&'a types::FilesAbortFileUploadXCmuxTeamId>,
+    ) -> Result<ResponseValue<()>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/files/uploads/{}",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+            encode_path(&upload_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.delete(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "files_abort_file_upload",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            204u16 => Ok(ResponseValue::empty(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Finish a resumable upload
+
+    Finish a resumable upload. Requires the vm:files scope. Verifies the size (and sha256 when given) and renames the file into place atomically; the target never holds a partial file. Missing bytes or a sha256 mismatch is 400 and the upload stays open, so commit can be retried. A commit already running is 409. A commit whose answer was lost (503) may still complete: a later 404 Upload not found then means it finished, so check the path. Audited (vm.files.upload.commit). Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+
+    Sends a `POST` request to `/v1/vms/{vmId}/files/uploads/{uploadId}/commit`
+
+    Arguments:
+    - `vm_id`
+    - `upload_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn files_commit_file_upload<'a>(
+        &'a self,
+        vm_id: &'a str,
+        upload_id: &'a str,
+        x_cmux_team_id: Option<&'a types::FilesCommitFileUploadXCmuxTeamId>,
+    ) -> Result<ResponseValue<()>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/files/uploads/{}/commit",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+            encode_path(&upload_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.post(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "files_commit_file_upload",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            204u16 => Ok(ResponseValue::empty(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             _ => Err(Error::UnexpectedResponse(response)),

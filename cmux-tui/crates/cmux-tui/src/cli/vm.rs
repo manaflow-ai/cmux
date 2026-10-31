@@ -1,10 +1,11 @@
-//! `cmux vm new|ls|get|pause|resume|start|stop|rm|exec|fork|snapshot|client-session`: the
-//! cmux VM API (vm.cmux.dev)
-//! from the cmux-next CLI. It adds no second client: each verb runs the
-//! `cmux-vm` CLI (workers/cmux-vm/cli), which owns the API key, base URL,
-//! team and typed refusals (exit 12 is a 402, 16 a quota). `--json` is
-//! passed through. Opening a VM as a workspace is an app action
-//! (`cmux cloud new-workspace`), not a CLI verb.
+//! `cmux vm …`: the cmux VM API (vm.cmux.dev) from the cmux-next CLI. It
+//! adds no second client: each verb runs the `cmux-vm` CLI
+//! (workers/cmux-vm/cli), which owns the API key, base URL, team and typed
+//! refusals (exit 12 is a 402, 16 a quota). Every `cmux-vm` verb is forwarded
+//! with the friendly aliases `new`, `ls` and `rm`; `--json` is passed through.
+//! Opening a VM as a workspace is an app action (`cmux cloud new-workspace`),
+//! and resizing a Cloud machine is `cmux cloud resize-machine`; neither is a
+//! VM verb.
 
 #[cfg(test)]
 mod tests;
@@ -16,14 +17,84 @@ use super::{OutputMode, UsageError};
 /// Override for the `cmux-vm` binary (tests, unusual installs).
 const BIN_ENV: &str = "CMUX_VM_BIN";
 
+/// Every `cmux-vm` verb, forwarded unchanged. `fs`, `mesh`, `tunnels` and
+/// `domains` are its own aliases of `file`, `vpc`, `tunnel` and `domain`.
+const FORWARDED: &[&str] = &[
+    "create",
+    "list",
+    "get",
+    "update",
+    "delete",
+    "start",
+    "stop",
+    "pause",
+    "resume",
+    "retire",
+    "fork",
+    "identity",
+    "client-session",
+    "exec",
+    "ssh",
+    "scp",
+    "push",
+    "pull",
+    "file",
+    "fs",
+    "session",
+    "terminal",
+    "snapshot",
+    "image",
+    "vpc",
+    "mesh",
+    "tunnel",
+    "tunnels",
+    "firewall",
+    "https-proxy",
+    "domain",
+    "domains",
+    "tls",
+    "api-key",
+    "creation",
+    "device",
+];
+
+/// The verbs named in usage errors: the friendly aliases first.
+const VERBS: &[&str] = &[
+    "new",
+    "ls",
+    "get",
+    "update",
+    "rm",
+    "start",
+    "stop",
+    "pause",
+    "resume",
+    "fork",
+    "exec",
+    "ssh",
+    "scp",
+    "push",
+    "pull",
+    "file",
+    "session",
+    "client-session",
+    "identity",
+    "terminal",
+    "snapshot",
+    "vpc",
+    "tunnel",
+    "firewall",
+    "https-proxy",
+    "domain",
+    "tls",
+    "...",
+];
+
 /// `Some(args after "vm")` when `command_args` start with `vm`.
 pub(super) fn split(command_args: &[String]) -> Option<&[String]> {
     let (first, rest) = command_args.split_first()?;
     (first == "vm").then_some(rest)
 }
-
-const VM_VERBS: &str =
-    "new, ls, get, pause, resume, start, stop, rm, exec, fork, snapshot, client-session";
 
 const VM_HELP: &str = "usage: cmux vm <verb> [options]
 
@@ -41,6 +112,10 @@ VERBS
   snapshot  Manage snapshots (create, get, list, delete)
   client-session  Manage scoped client sessions (create, list, revoke)
 
+Every other cmux-vm verb is forwarded as is: update, retire, identity, ssh,
+scp, push, pull, file (fs), session, terminal, image, vpc (mesh), tunnel,
+firewall, https-proxy, domain, tls, api-key, creation, device.
+
 Use `cmux cloud resize-machine` for Cloud machine resizing.
 Use `cmux vm <verb> --help` for the bundled cmux-vm command's options.
 ";
@@ -52,15 +127,23 @@ fn usage(message: impl AsRef<str>) -> UsageError {
 /// The `cmux-vm` argument list for `cmux vm <rest>`.
 pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, UsageError> {
     let Some((verb, tail)) = rest.split_first() else {
-        return Err(usage(format!("cmux vm needs a verb: {VM_VERBS}")));
+        return Err(usage(format!(
+            "cmux vm needs a verb: {} (see `cmux vm --help`)",
+            VERBS.join(", ")
+        )));
     };
     let mapped = match verb.as_str() {
-        "-h" | "--help" | "help" => return Err(UsageError::new(VM_HELP.trim_end())),
-        "new" | "create" => "create",
-        "ls" | "list" => "list",
-        "rm" | "delete" => "delete",
-        "get" | "pause" | "resume" | "start" | "stop" | "exec" | "fork" | "snapshot"
-        | "client-session" => verb.as_str(),
+        "-h" | "--help" | "help" => {
+            // `cmux vm help ssh` is `cmux-vm help ssh`: the verb's own help.
+            let first = if tail.is_empty() { "--help" } else { "help" };
+            let mut help = vec![first.to_owned()];
+            help.extend(tail.iter().cloned());
+            return Ok(help);
+        }
+        "-V" | "--version" => return Ok(vec!["--version".to_owned()]),
+        "new" => "create",
+        "ls" => "list",
+        "rm" => "delete",
         "resize" => {
             return Err(usage("`cmux vm resize` moved to `cmux cloud resize-machine`"));
         }
@@ -69,7 +152,13 @@ pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, U
                 "a VM opens as a workspace through the app: run `cmux cloud new-workspace`",
             ));
         }
-        other => return Err(usage(format!("unknown vm verb \"{other}\"; verbs: {VM_VERBS}"))),
+        known if FORWARDED.contains(&known) => known,
+        other => {
+            return Err(usage(format!(
+                "unknown vm verb \"{other}\"; verbs: {}",
+                VERBS.join(", ")
+            )));
+        }
     };
     let mut plan = Vec::new();
     if output == OutputMode::Json {

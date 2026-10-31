@@ -16,7 +16,7 @@ import { Schema } from "effect";
 import { AGENT_DEFAULTS, AGENT_LIMITS, AGENT_SCOPES } from "../domain/agents.ts";
 import { ReportedScope, Scope } from "../domain/scopes.ts";
 import { BadRequest, Forbidden, NotFound, QuotaExceeded, ServiceUnavailable } from "../errors.ts";
-import { ApiKeyId, ClientSessionId } from "../lib/ids.ts";
+import { ApiKeyId, ClientSessionId, ClientSessionTokenId } from "../lib/ids.ts";
 import { GroupTeamHeaders } from "./common.ts";
 
 const AgentScope = Scope.pipe(Schema.filter((scope) => AGENT_SCOPES.includes(scope), { message: () => `agent keys hold only ${AGENT_SCOPES.join(", ")}` }));
@@ -62,6 +62,8 @@ export class ClientSession extends Schema.Class<ClientSession>("ClientSession")(
   /** Provider SSH proxy: `ssh <user>@<host>` with the token as the password. */
   ssh: Schema.Struct({ host: Schema.String, user: Schema.String }),
   createdAt: Schema.String,
+  /** The id of this first token, for `DELETE …/client-sessions/{sessionId}/tokens/{tokenId}`. */
+  tokenId: ClientSessionTokenId,
 }) {}
 
 /** A live client session as listed: everything but the token, which is shown once at creation. */

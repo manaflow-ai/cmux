@@ -42,6 +42,32 @@ key's actor. Creator references remain private. Arbitrary actor selectors are
 rejected. The operator CLI sends this filter with `cmux-vm list --created-by-me`
 and `cmux-vm snapshot list --created-by-me`.
 
+## Mesh networking reads and renames
+
+The provider's network, tunnel and firewall reads map onto the mesh model
+(`src/api/mesh-network.ts`), behind the same experiment gate, scopes and
+per-tenant 404s as the other mesh routes:
+
+- `PATCH /v1/meshes/{meshId}` (`mesh:write`, a session must be a team admin)
+  and `PATCH /v1/devices/{deviceId}` (`mesh:join`, the device's owner or a
+  tenant admin) rename. Only cmux's names change; the provider network and
+  tunnel keep their cmux-managed names, so no provider call is made.
+- `GET /v1/meshes/{meshId}/addresses` (`mesh:read`) lists each member VM's
+  and each visible device's address inside the mesh, from one provider read
+  matched back through proofs of the tenant's own devices.
+- `GET /v1/tunnels` (`mesh:read`) lists the team's device tunnels without
+  keys; a non-admin sees only the devices it enrolled.
+- `GET /v1/meshes/{meshId}/acl/rules[/{ruleId}]` (`acl:read`) reads the
+  provider firewall rules the ACL compiled to, from the mesh's own rule
+  table. Rule ids (`fwr_` and 32 hex digits) derive from the rule and name no
+  provider id or device address.
+- `POST /v1/meshes/{meshId}/acl/evaluate` (`acl:read`) answers whether a
+  device may open a connection to a VM or another device, using the same
+  compiler as an apply, and names the first allowing ACL rule.
+
+A device stays one tunnel in one mesh: attaching another network to a tunnel
+is denied (`upstream/coverage.json`).
+
 ## Device overlay policy
 
 Mesh ACL destinations accept device IDs and `device:*` as well as VM
@@ -261,6 +287,41 @@ pauses them. Until the billing source is wired (TODO in
 `bun scripts/smoke.ts` (CI job `smoke-staging`, after each staging deploy)
 creates, execs, pauses and deletes a VM by exact id on the smoke tenant.
 
+## Update, more file operations and resumable uploads (cx-b4h.2, cx-b4h.9)
+
+`PATCH /v1/vms/{vmId}` (`vm:write`, audited `vm.update`) changes `displayName`
+(null clears), `labels` (replaces the set), `idleTimeoutSeconds`,
+`maxRunSeconds` and `autoDeleteSeconds` (create's field names and ranges; -1
+removes a limit; dev/test tenants keep the 1 to 300 second idle rule). Name and
+labels live in the ownership row; only the three limits are sent to the
+provider. Any other field (slug, metadata, the lifetime run budget that keeps a
+retired VM retired) is 400. Labels starting with `cmux.` (an agent key's
+`cmux.agent`, which its reaper follows) cannot be added, removed or changed,
+and a service or agent key cannot drop the labels it is confined to (403). A VM
+whose create has not finished is 409. `PATCH /v1/snapshots/{snapshotId}`
+(`snapshot:write`, audited `snapshot.update`) does the same for a snapshot's
+name and labels, plus `ttlSeconds` and `autoDeleteSeconds` (null removes).
+
+Under `vm:files`, with the same guest path rule as read and write:
+`GET .../files/exists?path=` answers `{ exists }` (no audit);
+`POST .../files/directories` `{ path }` creates it with missing parents;
+`DELETE .../files?path=` removes a file or a directory with its contents
+(there is no recursive flag; a missing path is 404 File not found). Both are
+audited by action and VM only. Writes wake a paused VM; a retired VM is 409.
+
+Resumable uploads carry files past the single PUT limit, up to the policy's
+`maxResumableUploadBytes` (default and provider ceiling 16 GiB):
+`POST .../files/uploads` `{ path, size, sha256?, mode? }` returns
+`{ uploadId, path, size, receivedBytes, maxChunkBytes }`; send ordered chunks
+with `PUT .../files/uploads/{uploadId}?offset=N` and an exact Content-Length,
+each at most `maxChunkBytes` (the tenant's `maxUploadBytes`, at most 256 MiB);
+resume from `GET .../files/uploads/{uploadId}`; finish with
+`POST .../commit` (atomic, verifies size and sha256) or abandon with `DELETE`.
+Begin, commit and abort are audited; chunks are not. The `upl_` handle is the
+provider's id sealed with AES-256-GCM under a key derived from the provider key,
+bound to the exact VM: it opens for no other VM or tenant, and the provider id
+is never returned. Sessions expire after an hour idle upstream.
+
 ## Recover a create without a client key
 
 VM creates and forks always journal the VM allocation before provider I/O.
@@ -478,6 +539,32 @@ is useless without it. Only the identity id is stored
 `DELETE /v1/vms/{vmId}/client-sessions/{sessionId}`, deletes the identity, which
 revokes the token and grant.
 
+The response also carries `tokenId`, the id of that first token. The rest of
+a session's life (the provider CLI's `identity` commands; cx-b4h.6), all
+`vm:exec`, all reaching only sessions on VMs the credential reaches:
+
+| route | does |
+| --- | --- |
+| `GET /v1/client-sessions` | the team's live sessions on live VMs, by id (`limit` up to 200, `cursor`); allowlisted, service and agent keys see only their VMs' sessions |
+| `GET /v1/vms/{vmId}/client-sessions/{sessionId}` | one live session (id, Linux user, created) |
+| `PUT /v1/vms/{vmId}/client-sessions/{sessionId}/linux-user` | `{ "linuxUser": "cmux" }` replaces the grant's one Linux user, for existing tokens too; never a list, never unrestricted |
+| `GET …/{sessionId}/tokens` | the session's live tokens, ids only |
+| `POST …/{sessionId}/tokens` | one more token, shown once, with `ssh`, `providerVmId` and `apiBaseUrl` like the first |
+| `DELETE …/{sessionId}/tokens/{tokenId}` | revokes one token; the session and its other tokens stay |
+
+A token id is `vct_` plus the first 128 bits of SHA-256 over a fixed label,
+the provider identity id and the provider token id
+(`src/upstream/live-client-session-tokens.ts`): stable without being stored,
+naming no provider id. Token routes read the provider's token list, so a token
+minted before `tokenId` existed is listed and revocable too. A session's one
+VM permission is the session itself: listing and reading permissions is
+reading the session, revoking it is revoking the session. Nothing here needs a
+migration.
+
+To SSH with a session: `ssh <ssh.user>@<ssh.host>`, entering `token` as the
+password (`ssh.user` is `<providerVmId>+<linuxUser>`). Clients take host and
+user from the response; they never hard-code the provider's host.
+
 The operator CLI exposes the same Tenant API:
 
 ```sh
@@ -500,6 +587,71 @@ commands are available through `cmux vm client-session ...`.
 Migrations 0016 (agent columns on `api_keys`, `vm_client_sessions`) and 0017
 (its concurrent index) apply through the release runner; grant the Worker role
 SELECT, INSERT and UPDATE on `cmux_vm.vm_client_sessions`.
+
+## Domains and TLS rules
+
+Scopes `domain:read` and `domain:write` (both members of `domain:*`) cover
+`/v1/domains`, `/v1/domain-verifications`, `/v1/certificates`, `/v1/tls-rules`
+and `/v1/tls-forward-auths` (cx-b4h.6). The provider holds these resources
+account-wide; migration 0018 makes each one belong to one tenant, with opaque
+ids (`dom_`, `dvr_`, `tlsr_`, `fwa_`). Another tenant's id is 404 and absent
+from lists; service and agent keys see none of them; allowlisted keys see only
+listed ids and cannot create.
+
+- A domain is reserved by the first tenant to create a verification for it;
+  another tenant gets 409 until it is released, or for an unverified
+  reservation until it lapses seven days after the first claim. Re-claiming or
+  withdrawing every challenge never drops or extends it, and after the lapse
+  the previous holder gets 409 for another seven days while any other tenant
+  may take the domain at once. Verify checks only that
+  challenge's own TXT record. Names under the managed zone cannot be verified.
+- An ingress rule (source `public: true`) lands on one of the caller's VMs
+  (vm:network) and may name a managed hostname of the caller
+  (`<name>--<tenant tag>.<CMUX_VM_MANAGED_DOMAIN_ZONE>`, see `managedSuffix`
+  on the domain list), a verified domain of the caller, or one label below
+  it. When tenants verified nested domains, the most specific one decides.
+  `*.<domain>` needs the domain verified and no other tenant's child below it.
+- An egress rule (source one of the caller's VMs) is http only and reaches
+  only an origin in `VM_HTTPS_PROXY_ORIGINS`.
+- Header values (rules and forward-auth checks) are write-only; responses list
+  header names. Private networks, socks5 and non-header credential
+  transforms are not offered.
+
+Optional vars: `CMUX_VM_MANAGED_DOMAIN_ZONE` (a zone the provider account
+holds, with a wildcard certificate; unset disables managed hostnames),
+`CMUX_VM_DOMAIN_EDGE_HOST` and `CMUX_VM_CERTIFICATE_NAMESERVER` (DNS
+instructions in domain responses; unset omits them).
+
+## Operator CLI verbs
+
+`cmux-vm` (and `cmux vm`, which forwards every verb) uses the provider CLI's
+verb vocabulary over the tenant routes. Every verb takes the global `--json`,
+which prints the response body unchanged; destructive verbs ask for the id at a
+terminal and need `--yes` otherwise.
+
+| Verbs | Routes |
+| --- | --- |
+| `create`, `list` (`ls`), `get`, `delete` (`rm`), `start`, `stop`, `pause`, `resume`, `resize`, `retire`, `fork`, `identity VM`, `exec` | `/v1/vms…` |
+| `update VM [--name N\|--clear-name] [--label K=V…\|--labels-file F\|--clear-labels] [--idle S] [--max-run S] [--auto-delete S]` | `PATCH /v1/vms/{id}`; labels replace the whole set, `-1` removes a limit |
+| `file ls\|read\|write\|stat\|mkdir\|rm\|exists` (also `fs`) | `/v1/vms/{id}/files/{entries,content,stat,directories,exists}`, `DELETE /v1/vms/{id}/files`; `read --out` and `write` stream, `--mode` is octal; `mkdir` makes parents; `rm` removes a directory with its contents (there is no non-recursive form) and asks for the path; `exists` exits 0 or 1 |
+| `push LOCAL VM:PATH`, `pull VM:PATH LOCAL`, `scp SRC DST` | the same file routes, one file per copy; a directory destination takes the source name |
+| resumable uploads (`push`, `scp`, `file write` over 64 MiB, or `--resumable`) | `/v1/vms/{id}/files/uploads[/{upload}[/commit]]`: chunks of at most 8 MiB with the file's sha256, resumed at the server's `receivedBytes` after a failed chunk (exponential backoff with jitter, honoring `Retry-After`), abandoned on Ctrl-C or failure; a commit whose answer was lost, or that answers 409 while one runs, is followed by status reads until it settles, and "upload not found" counts as committed only when the target has the uploaded size. Transfers have no total deadline: a download fails after 300 s of silence, an upload when its body stops moving for 120 s |
+| `ssh VM [--linux-user U] [-- CMD]` | `POST …/client-session`, then the system `ssh`; the token reaches `ssh` only through `cmux-vm` as its askpass helper, and the session is revoked on exit unless `--keep-session`, also when `cmux-vm` gets SIGHUP or SIGTERM (SIGINT and SIGQUIT go to `ssh`); `CMUX_VM_SSH` names another OpenSSH-compatible client |
+| `session create\|list [VM\|--all]\|get\|set-user\|tokens\|token-create\|token-revoke\|revoke` | `…/client-session`, `…/client-sessions[/{id}[/linux-user\|/tokens[/{token}]]]`, `GET /v1/client-sessions`; tokens are printed only with `--json` |
+| `identity <subcommand>` | the same verbs as `session` (a cmux identity is one VM plus one Linux user); `get` is also `permissions`, `revoke` is also `delete`; `identity VM_ID` keeps the allocation fingerprint |
+| `terminal list\|close` | `…/terminals[/{terminal}]` (attach is a WebSocket and stays in the app) |
+| `vpc create\|list\|get\|update\|delete\|attach\|detach\|devices\|tunnels\|ips` (also `mesh`) | `/v1/meshes…`, `PUT/DELETE /v1/meshes/{mesh}/vms/{vm}`, `GET …/addresses` |
+| `tunnel create\|list [MESH]\|get\|update\|peers\|rotate\|delete\|enrollment-code` (also `tunnels`) | mesh devices, `GET /v1/tunnels[/{id}]`, `/v1/devices/{id}[/peers\|/rotate-key]` (`PATCH` renames), `…/enrollment-codes`; signed requests come from `--request FILE` and only their public fields are sent |
+| `firewall get\|set\|rules\|rule\|evaluate` | `GET/PUT /v1/meshes/{mesh}/acl`, `…/acl/rules[/{rule}]`, `POST …/acl/evaluate`; `set --file` takes edited `firewall get --json` output and applies at its version; `evaluate --from --to [--port] [--proto]` exits 0 allowed, 1 denied |
+| `https-proxy set VM HOST --destination ORIGIN` | `PUT /v1/vms/{id}/https-proxies/{hostname}`; `--headers-file` keeps header values off the command line |
+| `domain list\|get\|delete\|verify-create\|verifications\|verification\|verify\|verification-delete\|certs\|wildcard` (also `domains`) | `/v1/domains[/{id}[/wildcard-certificate]]`, `/v1/domain-verifications[/{id}[/verify]]`, `/v1/certificates`; `verify-create` prints the TXT record to add |
+| `tls list\|get\|create\|update\|delete` | `/v1/tls-rules[/{id}]`; `--host H --vm VM --port N` builds the common public-to-VM rule, `--file` takes the whole rule (edited `tls get --json` works); header values are write-only, so `update` of a rule that sets headers refuses unless the headers are sent again (`--header`, `--headers-file` or the file's `headers`) or `--clear-headers` is given |
+| `tls forward-auth list\|get\|create\|update\|delete` | `/v1/tls-forward-auths[/{id}]`; create and update read `--file`; `update` of a check that sends headers needs them in the file or `--clear-headers` |
+| `snapshot create\|get\|list\|delete\|update` (`update` also `rename`) | `/v1/snapshots…`; `update` sets name, labels (whole set), `--ttl`/`--no-ttl`, `--auto-delete`/`--no-auto-delete` |
+| `image`, `api-key`, `creation`, `device` | as before |
+
+`file exists` and `firewall evaluate` answer with the exit code: 0 for yes, 1 for
+no (nothing on stderr); `--json` also prints the response.
 
 ## Layout
 

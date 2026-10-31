@@ -148,6 +148,13 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       vpcs.delete(id);
       return new Response(null, { status: 204 });
     }
+    const vpcTunnelsMatch = /^\/v5\/vpcs\/([^/]+)\/tunnels$/u.exec(path);
+    if (vpcTunnelsMatch !== null && method === "GET") {
+      const id = decodeURIComponent(vpcTunnelsMatch[1] ?? "");
+      if (!vpcs.has(id)) return json({ message: "not found" }, 404);
+      const attached = [...tunnels.values()].filter((tunnel) => tunnel.vpc === id).map((tunnel) => tunnelBody(tunnel, ""));
+      return json({ tunnels: attached, totalCount: attached.length });
+    }
     if (path === "/v5/tunnels" && method === "POST") {
       if (state.tunnelCreateStatus !== null) return json({ message: "injected failure" }, state.tunnelCreateStatus);
       const attach = Array.isArray(fields["vpcs"]) ? fields["vpcs"][0] : undefined;

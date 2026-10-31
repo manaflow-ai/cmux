@@ -319,3 +319,22 @@ it("keeps an uncommitted creation listed but out of the live count until the sam
   await run(store.markDeleted(tenantId, "vm", cmuxId, new Date()));
   expect(await run(store.creationKey(tenantId, cmuxId))).toBe(key);
 });
+
+it("updates a name and labels only on the tenant's live committed row that still holds the expected values (cx-b4h.2)", async () => {
+  const store = await run(OwnershipStore), tenantId = TenantId.make("team_update"), cmuxId = newVmId();
+  const row: OwnedResource = { cmuxId, tenantId, kind: "vm", upstreamId: UpstreamId.make("update-upstream"), createdBy: "user:x", createdAt: new Date("2026-10-01T00:00:00Z"), displayName: "a", labels: { role: "chief" } };
+  await run(store.record(row));
+  const before = { displayName: "a", labels: { role: "chief" } };
+  expect(await run(store.updateMetadata(TenantId.make("team_other"), "vm", cmuxId, before, { displayName: "x", labels: {} }))).toBe(false);
+  expect(await run(store.updateMetadata(tenantId, "snapshot", cmuxId, before, { displayName: "x", labels: {} }))).toBe(false);
+  expect(await run(store.updateMetadata(tenantId, "vm", cmuxId, { displayName: "a", labels: {} }, { displayName: "x", labels: {} }))).toBe(false);
+  expect(await run(store.updateMetadata(tenantId, "vm", cmuxId, before, { displayName: null, labels: { team: "b" } }))).toBe(true);
+  // A decision taken on the older read no longer applies.
+  expect(await run(store.updateMetadata(tenantId, "vm", cmuxId, before, { displayName: "y", labels: { role: "chief" } }))).toBe(false);
+  expect(Option.map(await run(store.find(tenantId, "vm", cmuxId)), (r) => [r.displayName, r.labels])).toEqual(Option.some([null, { team: "b" }]));
+  await run(store.markDeleted(tenantId, "vm", cmuxId, new Date()));
+  expect(await run(store.updateMetadata(tenantId, "vm", cmuxId, { displayName: null, labels: { team: "b" } }, { displayName: "z", labels: {} }))).toBe(false);
+  const pending = newVmId();
+  await run(store.record({ ...row, cmuxId: pending, upstreamId: UpstreamId.make("update-pending"), committed: false }));
+  expect(await run(store.updateMetadata(tenantId, "vm", pending, before, { displayName: "z", labels: {} }))).toBe(false);
+});

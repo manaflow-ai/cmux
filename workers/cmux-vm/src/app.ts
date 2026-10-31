@@ -23,6 +23,7 @@ import { snapshotsHandlers } from "./handlers/snapshots.ts";
 import { terminalsHandlers } from "./handlers/terminals.ts";
 import { apiKeysHandlers } from "./handlers/api-keys.ts";
 import { agentsHandlers } from "./handlers/agents.ts";
+import { clientSessionsHandlers } from "./handlers/client-sessions.ts";
 import type { AgentStore } from "./db/agents.ts";
 import { runAgentReaper, type ReapReport } from "./agents/reaper.ts";
 import type { TeamAdmin } from "./auth/team-admin.ts";
@@ -32,12 +33,17 @@ import type { UpstreamSnapshots } from "./upstream/snapshots.ts";
 import type { UpstreamTerminals } from "./upstream/terminals.ts";
 import { meshDeviceHandlers, meshEnrollHandlers, meshHandlers } from "./handlers/mesh.ts";
 import { overlayServerDeviceHandlers, overlayServerHandlers } from "./handlers/overlay-servers.ts";
+import { meshNetworkHandlers } from "./handlers/mesh-network.ts";
 import type { MeshStore } from "./db/mesh.ts";
 import type { MeshConfig } from "./mesh/config.ts";
 import type { UpstreamMesh } from "./upstream/mesh.ts";
 import type { MembershipCache } from "./auth/membership-cache.ts";
 import type { WebhookDeliveryStore } from "./db/identity.ts";
 import { handleStackWebhook, STACK_WEBHOOK_PATH } from "./handlers/stack-webhook.ts";
+import { domainsHandlers, tlsForwardAuthHandlers, tlsRulesHandlers } from "./handlers/domains.ts";
+import type { DomainStore } from "./db/domains.ts";
+import type { DomainPolicy } from "./domain/domains.ts";
+import type { UpstreamDomains } from "./upstream/domains.ts";
 
 export type Services =
   | VmImages
@@ -52,7 +58,11 @@ export type Services =
   | TenantPolicy
   | Entitlements
   | S3aServices
-  | MeshServices;
+  | MeshServices
+  | DomainServices;
+
+/** Domains and TLS (cx-b4h.6). */
+type DomainServices = DomainStore | UpstreamDomains | DomainPolicy;
 
 /** Mesh experiment (cx-0op); the membership cache and webhook deliveries are M4 (cx-0op.6, cx-0op.7). */
 type MeshServices = MeshStore | UpstreamMesh | MeshConfig | MembershipCache | WebhookDeliveryStore;
@@ -63,7 +73,8 @@ type S3aServices = SnapshotStore | UpstreamSnapshots | UpstreamTerminals | ApiKe
 /** JSON request bodies above this are refused with 413 before any handler runs. File uploads have their own limit. */
 export const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024;
 
-const UPLOAD_PATH = /^\/v1\/vms\/[^/]+\/files\/content$/u;
+/** Raw byte bodies: whole files and resumable upload chunks, each with its own limit in its handler. */
+const UPLOAD_PATH = /^\/v1\/vms\/[^/]+\/files\/(?:content|uploads\/[^/]+)$/u;
 
 const tooLarge = () =>
   Response.json(
@@ -106,9 +117,14 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
     Layer.provide(authenticated(terminalsHandlers)),
     Layer.provide(authenticated(apiKeysHandlers)),
     Layer.provide(authenticated(agentsHandlers)),
+    Layer.provide(authenticated(clientSessionsHandlers)),
     Layer.provide(authenticated(meshHandlers)),
     Layer.provide(authenticated(overlayServerHandlers)),
     Layer.provide(overlayServerDeviceHandlers),
+    Layer.provide(authenticated(meshNetworkHandlers)),
+    Layer.provide(authenticated(domainsHandlers)),
+    Layer.provide(authenticated(tlsRulesHandlers)),
+    Layer.provide(authenticated(tlsForwardAuthHandlers)),
     // The one-time enrollment code is the credential (mesh M2, cx-0op.4).
     Layer.provide(meshEnrollHandlers),
     // The device's install-key signature is the credential (mesh M3, cx-0op.5).

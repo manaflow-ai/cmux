@@ -46,7 +46,7 @@ const hostnameOf = (value: string): string | null => {
     label.length <= 63 && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u.test(label)) ? lower : null;
 };
 
-const headersOf = (value: Readonly<Record<string, string>>): Readonly<Record<string, string>> | null => {
+export const headersOf = (value: Readonly<Record<string, string>>): Readonly<Record<string, string>> | null => {
   const entries = Object.entries(value);
   if (entries.length > 16) return null;
   const names = new Set<string>();

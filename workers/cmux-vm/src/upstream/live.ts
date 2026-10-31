@@ -10,8 +10,11 @@ import { Effect, Layer, Redacted, Schema } from "effect";
 import { makeUpstreamHttp } from "./live-http.ts";
 import { makeHttpsProxies } from "./live-https-proxies.ts";
 import { makeRetireVm } from "./live-retire.ts";
-import { makeClientSessions } from "./live-client-sessions.ts";
+import { makeClientSessions, PROVIDER_SSH_HOST } from "./live-client-sessions.ts";
+import { makeClientSessionTokens } from "./live-client-session-tokens.ts";
 import { makeStatFile } from "./live-file-stat.ts";
+import { makeFileOps } from "./live-file-ops.ts";
+import { makeUpdates } from "./live-update.ts";
 import { vmInstanceIdentity } from "./live-identity.ts";
 import { makeDurableCreate, makeRecoverCreation, makeInspectCancellation, makeDeleteCancellation } from "./live-create.ts";
 import { UpstreamId } from "../lib/ids.ts";
@@ -217,7 +220,10 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
     ...makeHttpsProxies(makeUpstreamHttp(config)),
     ...makeRetireVm(makeUpstreamHttp(config)),
     ...makeClientSessions(makeUpstreamHttp(config), base.origin),
+    ...makeClientSessionTokens(makeUpstreamHttp(config), base.origin, PROVIDER_SSH_HOST),
     ...makeStatFile(makeUpstreamHttp(config)),
+    ...makeFileOps(config, makeUpstreamHttp(config)),
+    ...makeUpdates(makeUpstreamHttp(config)),
     getVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getVmById("getVm", id)),
 
     getVmForWrite: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getVmById("getVm", id)),

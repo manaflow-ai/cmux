@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import openapiText from "../../openapi.json?raw";
-import { ALL_SCOPES, allScopesExcept, bearer, MESH_ENDPOINTS, SNAPSHOT_ENDPOINTS, TENANT_ENDPOINTS, VM_ENDPOINTS, type VmEndpointCase } from "../support/endpoints.ts";
+import { ALL_SCOPES, allScopesExcept, bearer, DOMAIN_ENDPOINTS, MESH_ENDPOINTS, SNAPSHOT_ENDPOINTS, TENANT_ENDPOINTS, VM_ENDPOINTS, type VmEndpointCase } from "../support/endpoints.ts";
 import { makeHarness } from "../support/harness.ts";
 
 type Harness = Awaited<ReturnType<typeof makeHarness>>;
@@ -52,6 +52,8 @@ describe("the endpoint table", () => {
       ...TENANT_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
       ...SNAPSHOT_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
       ...MESH_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
+      // Domains and TLS (cx-b4h.6); test/workers/domains.test.ts runs the isolation cases.
+      ...DOMAIN_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
     ];
     expect([...published].sort()).toEqual([...covered].sort());
   });

@@ -14,19 +14,16 @@
       "reason": "Transport detail of the provider client: a request is backgrounded only when the caller sends the background-after header, which cmux VM never does, and background request ids are account-wide, so they cannot be scoped to a tenant."
     },
     "list_certificates": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["domains.listCertificates"]
     },
     "request_wildcard": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["domains.requestWildcardCertificate"]
     },
     "list_domains": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["domains.listDomains", "domains.getDomain", "domains.deleteDomain"]
     },
     "delete_placeholder_branding": {
       "status": "denied",
@@ -41,14 +38,16 @@
       "reason": "Placeholder branding is one account-wide setting for every verified domain of every tenant; letting one tenant set it would change every other tenant's pages."
     },
     "evaluate_firewall": {
-      "status": "planned",
-      "bead": "cx-0op",
-      "reason": "planned in cx-0op"
+      "status": "wrapped",
+      "by": [
+        "meshNetwork.evaluateMeshAcl"
+      ]
     },
     "list_firewall_rules": {
-      "status": "planned",
-      "bead": "cx-0op",
-      "reason": "planned in cx-0op"
+      "status": "wrapped",
+      "by": [
+        "meshNetwork.listMeshFirewallRules"
+      ]
     },
     "create_firewall_rule": {
       "status": "wrapped",
@@ -67,9 +66,10 @@
       ]
     },
     "get_firewall_rule": {
-      "status": "planned",
-      "bead": "cx-0op",
-      "reason": "planned in cx-0op"
+      "status": "wrapped",
+      "by": [
+        "meshNetwork.getMeshFirewallRule"
+      ]
     },
     "list_hardware": {
       "status": "denied",
@@ -92,60 +92,61 @@
       "reason": "Customer profiles are account-wide provider abuse-protection records keyed by our own ids; cmux VM sets each VM's customer inline on create from the caller's tenant id and never lets a tenant read or write a profile."
     },
     "list_identities": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["clientSessions.listTenantClientSessions", "agents.listClientSessions"]
     },
     "create_identity": {
       "status": "wrapped",
-      "by": ["agents.createClientSession"]
+      "by": [
+        "agents.createClientSession"
+      ]
     },
     "delete_identity": {
       "status": "wrapped",
-      "by": ["agents.createClientSession", "agents.revokeClientSession", "agents.revokeAgentKey", "vms.deleteVm"]
+      "by": [
+        "agents.createClientSession",
+        "agents.revokeClientSession",
+        "agents.revokeAgentKey",
+        "vms.deleteVm"
+      ]
     },
     "describe_identity": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["clientSessions.getClientSession"]
     },
     "list_vm_permissions": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["clientSessions.getClientSession", "agents.listClientSessions"]
     },
     "grant_vm_permission": {
       "status": "wrapped",
-      "by": ["agents.createClientSession"]
+      "by": [
+        "agents.createClientSession"
+      ]
     },
     "revoke_vm_permission": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["agents.revokeClientSession"]
     },
     "describe_vm_permission": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["clientSessions.getClientSession"]
     },
     "update_vm_allowed_linux_users": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["clientSessions.setClientSessionLinuxUser"]
     },
     "list_access_tokens": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["clientSessions.listClientSessionTokens"]
     },
     "create_access_token": {
       "status": "wrapped",
-      "by": ["agents.createClientSession"]
+      "by": ["agents.createClientSession", "clientSessions.createClientSessionToken"]
     },
     "revoke_access_token": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["clientSessions.revokeClientSessionToken"]
     },
     "list_snapshots": {
       "status": "wrapped",
@@ -168,66 +169,56 @@
       ]
     },
     "update_snapshot": {
-      "status": "planned",
-      "bead": "cx-b4h.9",
-      "reason": "planned in cx-b4h.9"
+      "status": "wrapped",
+      "by": [
+        "snapshots.updateSnapshot"
+      ]
     },
     "list_tls_rules": {
       "status": "wrapped",
-      "by": [
-        "vms.replaceVmHttpsProxy"
-      ]
+      "by": ["vms.replaceVmHttpsProxy", "tlsRules.listTlsRules"]
     },
     "create_tls_rule": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["tlsRules.createTlsRule"]
     },
     "list_tls_forward_auth": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["tlsForwardAuth.listTlsForwardAuths"]
     },
     "create_tls_forward_auth": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["tlsForwardAuth.createTlsForwardAuth"]
     },
     "delete_tls_forward_auth": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["tlsForwardAuth.deleteTlsForwardAuth"]
     },
     "get_tls_forward_auth": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["tlsForwardAuth.getTlsForwardAuth"]
     },
     "update_tls_forward_auth": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["tlsForwardAuth.updateTlsForwardAuth"]
     },
     "delete_tls_rule": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["tlsRules.deleteTlsRule"]
     },
     "get_tls_rule": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["tlsRules.getTlsRule"]
     },
     "update_tls_rule": {
       "status": "wrapped",
-      "by": [
-        "vms.replaceVmHttpsProxy"
-      ]
+      "by": ["vms.replaceVmHttpsProxy", "tlsRules.updateTlsRule"]
     },
     "list_tunnels": {
-      "status": "planned",
-      "bead": "cx-0op",
-      "reason": "planned in cx-0op"
+      "status": "wrapped",
+      "by": [
+        "meshNetwork.listTunnels"
+      ]
     },
     "create_tunnel": {
       "status": "wrapped",
@@ -251,9 +242,10 @@
       ]
     },
     "update_tunnel": {
-      "status": "planned",
-      "bead": "cx-0op",
-      "reason": "planned in cx-0op"
+      "status": "wrapped",
+      "by": [
+        "meshNetwork.updateDevice"
+      ]
     },
     "rotate_tunnel_key": {
       "status": "wrapped",
@@ -262,39 +254,32 @@
       ]
     },
     "detach_vpc_from_tunnel": {
-      "status": "planned",
-      "bead": "cx-0op",
-      "reason": "planned in cx-0op"
+      "status": "denied",
+      "reason": "A cmux device is one tunnel in exactly one mesh: its routes, firewall rules and ACL are scoped to that mesh, so attaching another network would bridge two meshes outside their ACLs; joining another mesh is a new device enrollment there."
     },
     "attach_vpc_to_tunnel": {
-      "status": "planned",
-      "bead": "cx-0op",
-      "reason": "planned in cx-0op"
+      "status": "denied",
+      "reason": "A cmux device is one tunnel in exactly one mesh: its routes, firewall rules and ACL are scoped to that mesh, so attaching another network would bridge two meshes outside their ACLs; joining another mesh is a new device enrollment there."
     },
     "list_verifications": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["domains.listDomainVerifications"]
     },
     "create_verification": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["domains.createDomainVerification"]
     },
     "delete_verification": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["domains.deleteDomainVerification"]
     },
     "get_verification": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["domains.getDomainVerification"]
     },
     "verify_domain": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["domains.verifyDomain"]
     },
     "list_vms": {
       "status": "wrapped",
@@ -322,9 +307,10 @@
       ]
     },
     "update_vm": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "vms.updateVm"
+      ]
     },
     "exec_vm": {
       "status": "wrapped",
@@ -340,14 +326,16 @@
       ]
     },
     "path_exists": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "files.pathExists"
+      ]
     },
     "make_dir": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "files.makeDirectory"
+      ]
     },
     "read_file": {
       "status": "wrapped",
@@ -356,38 +344,46 @@
       ]
     },
     "remove_path": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "files.removePath"
+      ]
     },
     "stat_path": {
       "status": "wrapped",
-      "by": ["files.statFile"]
+      "by": [
+        "files.statFile"
+      ]
     },
     "begin_upload": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "files.beginFileUpload"
+      ]
     },
     "abort_upload": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "files.abortFileUpload"
+      ]
     },
     "upload_status": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "files.getFileUpload"
+      ]
     },
     "upload_chunk": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "files.uploadFileChunk"
+      ]
     },
     "commit_upload": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "files.commitFileUpload"
+      ]
     },
     "write_file": {
       "status": "wrapped",
@@ -434,7 +430,10 @@
     },
     "resize_vm": {
       "status": "wrapped",
-      "by": ["vms.createVm", "vms.resizeVm"]
+      "by": [
+        "vms.createVm",
+        "vms.resizeVm"
+      ]
     },
     "snapshot_vm": {
       "status": "wrapped",
@@ -451,9 +450,10 @@
       ]
     },
     "list_vpcs": {
-      "status": "planned",
-      "bead": "cx-0op",
-      "reason": "planned in cx-0op"
+      "status": "wrapped",
+      "by": [
+        "mesh.listMeshes"
+      ]
     },
     "create_vpc": {
       "status": "wrapped",
@@ -475,19 +475,23 @@
       ]
     },
     "update_vpc": {
-      "status": "planned",
-      "bead": "cx-0op",
-      "reason": "planned in cx-0op"
+      "status": "wrapped",
+      "by": [
+        "meshNetwork.updateMesh"
+      ]
     },
     "list_vpc_ips": {
-      "status": "planned",
-      "bead": "cx-0op",
-      "reason": "planned in cx-0op"
+      "status": "wrapped",
+      "by": [
+        "meshNetwork.listMeshAddresses"
+      ]
     },
     "list_vpc_tunnels": {
-      "status": "planned",
-      "bead": "cx-0op",
-      "reason": "planned in cx-0op"
+      "status": "wrapped",
+      "by": [
+        "mesh.listDevices",
+        "meshNetwork.listMeshAddresses"
+      ]
     }
   },
   "sdk": {

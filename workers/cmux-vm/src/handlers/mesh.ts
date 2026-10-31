@@ -48,7 +48,7 @@ import {
 } from "../lib/ids.ts";
 import type { RateClass } from "../limits/ledger.ts";
 import { TenantLimits } from "../limits/service.ts";
-import { compileAcl, isAddressRuleKey, outsideSourceSlash64, parseDeviceIpv6, peersOf, planApply, type AclDocument, type CompileResult, type DesiredRule } from "../mesh/acl.ts";
+import { compileAcl, isAddressRuleKey, outsideSourceSlash64, parseDeviceIpv6, peersOf, planApply, type AclDocument, type CompileInput, type CompileResult, type DesiredRule } from "../mesh/acl.ts";
 import { ENROLLMENT_CODE_TTL_MS, MESH_MTU, MESH_PERSISTENT_KEEPALIVE_SECONDS, MESH_SLOTS, MeshConfig, slotCidr } from "../mesh/config.ts";
 import { sha256Hex } from "../mesh/signed-request.ts";
 import { actorOf, ownerStillValid } from "../mesh/owner.ts";
@@ -122,7 +122,7 @@ export const withOwnedMesh = <const S extends Scope, A, E, R>(
     }),
   );
 
-const withOwnedDevice = <const S extends Scope, A, E, R>(
+export const withOwnedDevice = <const S extends Scope, A, E, R>(
   rawId: string,
   scope: S,
   rateClass: RateClass,
@@ -154,14 +154,14 @@ const withOwnedDevice = <const S extends Scope, A, E, R>(
   );
 
 /** A session must belong to a team admin; an API key is trusted with the scope it was issued (by an admin). */
-const requireAdmin = (principal: Principal, scope: Scope) =>
+export const requireAdmin = (principal: Principal, scope: Scope) =>
   Effect.gen(function* () {
     if (principal.actor.kind !== "session") return;
     const admin = yield* (yield* TeamAdmin).isAdmin(principal.tenantId, principal.actor.userId).pipe(Effect.mapError(() => unavailable()));
     if (!admin) return yield* Effect.fail(new Forbidden({ message: "Only a team admin can change the mesh or its ACL", missingScope: scope }));
   });
 
-const toMesh = (id: string, displayName: string | null, cidr: string, createdAt: Date) =>
+export const toMesh = (id: string, displayName: string | null, cidr: string, createdAt: Date) =>
   new Mesh({ id: MeshId_(id), displayName, ipv4Cidr: cidr, createdAt: createdAt.toISOString() });
 
 // Rows hold ids this service minted and validated on write; decode them back to their brands.
@@ -170,7 +170,7 @@ const DeviceId_ = (id: string): DeviceId => Option.getOrThrow(parseDeviceId(id))
 const TunnelId_ = (id: string): TunnelId => Option.getOrThrow(parseTunnelId(id));
 const VmId_ = (id: string): VmId => Option.getOrThrow(parseVmId(id));
 
-const toDevice = (row: MeshDeviceRow) =>
+export const toDevice = (row: MeshDeviceRow) =>
   new Device({
     id: DeviceId_(row.deviceId),
     meshId: MeshId_(row.meshId),
@@ -196,10 +196,10 @@ const toTunnel = (row: MeshDeviceRow, info: TunnelInfo) =>
     persistentKeepaliveSeconds: MESH_PERSISTENT_KEEPALIVE_SECONDS,
   });
 
-const EMPTY_ACL: AclDocument = { rules: [] };
+export const EMPTY_ACL: AclDocument = { rules: [] };
 
 /** Compiles `document` against the mesh's live devices and VMs. Lenient: names that left the mesh are skipped. */
-const compileFor = (tenantId: Principal["tenantId"], meshId: string, document: AclDocument, strict: boolean, additional: ReadonlyArray<OverlayServerRow> = []) =>
+export const compileFor = (tenantId: Principal["tenantId"], meshId: string, document: AclDocument, strict: boolean, additional: ReadonlyArray<OverlayServerRow> = []) =>
   Effect.gen(function* () {
     const store = yield* MeshStore;
     const config = yield* MeshConfig;
@@ -224,7 +224,7 @@ const compileFor = (tenantId: Principal["tenantId"], meshId: string, document: A
             }))
             .filter((rule) => rule.src.length > 0 && rule.dst.length > 0),
         };
-    const result: CompileResult = compileAcl({
+    const input: CompileInput = {
       document: effective,
       deviceIds,
       sourceDeviceIds: gatewayDevices.map((device) => device.deviceId),
@@ -235,11 +235,12 @@ const compileFor = (tenantId: Principal["tenantId"], meshId: string, document: A
       rulesPerMesh: config.budgets.rulesPerMesh,
       overlayRulesPerMesh: config.budgets.overlayRulesPerMesh,
       overlayRulesPerDevice: config.budgets.overlayRulesPerDevice,
-    });
-    return { result, members, devices };
+    };
+    const result: CompileResult = compileAcl(input);
+    return { result, members, devices, input };
   });
 
-const compiled = (result: CompileResult) =>
+export const compiled = (result: CompileResult) =>
   Effect.gen(function* () {
     if (result.ok) return result.rules;
     if (result.reason === "invalid") return yield* Effect.fail(new BadRequest({ message: result.message }));
