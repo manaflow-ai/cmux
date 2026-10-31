@@ -29,6 +29,7 @@ import { useFindReveal } from "./chatFind";
 import { AlertCircle, ChevronRight, Envelope, Spinner } from "./icons";
 import { AgentMessageBody } from "./AgentMessageBody";
 import { SentActions } from "./MessageActions";
+import { acpmuxMcpSendCall } from "./acpmuxMcpSends";
 import { McpCallDetails } from "./McpCallRows";
 import { mcpCall, mcpRawName } from "./mcpCalls";
 import { ShellBlock } from "./ShellBlock";
@@ -325,7 +326,7 @@ export function AcpmuxSendLine({ tool, send }: { tool: Tool; send: AcpmuxSendCal
 /// response.
 function SendRaw({ tool, reveal, live }: { tool: Tool; reveal: number; live: boolean }) {
   const id = useId();
-  const call = useMemo(() => (tool.command ? undefined : mcpCall(tool)), [tool]);
+  const call = useMemo(() => (tool.command ? undefined : (mcpCall(tool) ?? acpmuxMcpSendCall(tool))), [tool]);
   if (call)
     return (
       <McpCallDetails

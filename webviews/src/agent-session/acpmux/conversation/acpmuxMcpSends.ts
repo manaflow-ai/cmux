@@ -14,22 +14,28 @@
 // comes, each item is one row: its `to`, or its tag.
 import type { AcpmuxActivity } from "../model";
 import type { AcpmuxSendCallPart } from "./acpmuxSends";
-import { mcpCall } from "./mcpCalls";
+import { mcpCall, type McpCall } from "./mcpCalls";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 type Item = { to?: string; tag?: string; text?: string; file?: string; steer?: boolean };
 type Result = { index?: number; to?: string; target?: string; ok?: boolean; status?: string };
 
-/// The tool calls this file reads: `acpmux_send` on the cmux server, `send` on acpmux's own.
-function sendArgs(tool: Tool): Record<string, unknown> | undefined {
+/// The send call as an MCP call: `acpmux_send` on the cmux server, `send` on acpmux's own, or the
+/// tool's bare or dotted name (`acpmux_send`, `cmux.acpmux_send`), which names its server here.
+export function acpmuxMcpSendCall(tool: Tool): McpCall | undefined {
   if (tool.command) return undefined;
   const call = mcpCall(tool);
-  const named = call
-    ? (call.server === "cmux" && call.tool === "acpmux_send") || (call.server === "acpmux" && call.tool === "send")
-    : /^(?:cmux\.)?acpmux_send$/.test(tool.title.trim());
-  if (!named) return undefined;
-  const args = call ? call.args : parse(tool.inputSummary);
-  return record(args);
+  if (call)
+    return (call.server === "cmux" && call.tool === "acpmux_send") || (call.server === "acpmux" && call.tool === "send")
+      ? call
+      : undefined;
+  return /^(?:cmux\.)?acpmux_send$/.test(tool.title.trim())
+    ? { server: "cmux", tool: "acpmux_send", args: parse(tool.inputSummary) }
+    : undefined;
+}
+
+function sendArgs(tool: Tool): Record<string, unknown> | undefined {
+  return record(acpmuxMcpSendCall(tool)?.args);
 }
 
 const record = (value: unknown): Record<string, unknown> | undefined =>
@@ -117,9 +123,10 @@ function results(output: string | undefined): Row[] | undefined {
           ...(typeof row.index === "number" && { index: row.index }),
         };
       });
+    // The first shape names only the routing key (`target`): the row keeps the `to` asked for.
     if (text(structured.target)) {
       const row = structured as Result & { delivery?: unknown };
-      return [{ target: text(row.target), ok: value.isError !== true, delivery: deliveryOf(row) }];
+      return [{ ok: value.isError !== true, delivery: deliveryOf(row) }];
     }
     const content = Array.isArray(value.content) ? record(value.content[0]) : undefined;
     if (typeof content?.text === "string") return textRows(content.text);
@@ -127,6 +134,8 @@ function results(output: string | undefined): Row[] | undefined {
   return textRows(trimmed);
 }
 
+/// The tool takes at most 32 items (more and it sends nothing) and reaches at most 64 sessions.
+const ITEM_CAP = 32;
 const MESSAGE_CAP = 64;
 
 /// The messages an acpmux MCP send call with `messages`, `file` or `tag` makes, one per recipient
@@ -139,7 +148,7 @@ export function acpmuxMcpSends(tool: Tool): AcpmuxSendCallPart[] | undefined {
   if (!list && !text(args.file) && !text(args.tag)) return undefined;
   const defaults = item(args, {});
   const items = list ? list.map((entry) => item(record(entry) ?? {}, defaults)) : [defaults];
-  if (!items.length || items.length > MESSAGE_CAP) return undefined;
+  if (!items.length || items.length > ITEM_CAP) return undefined;
   const running = tool.status === "pending" || tool.status === "in_progress";
   const failed = tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0);
   const rows = running ? undefined : results(tool.output);

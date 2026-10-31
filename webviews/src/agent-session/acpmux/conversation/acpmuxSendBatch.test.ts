@@ -126,6 +126,8 @@ describe("acpmuxSendBatch", () => {
       'for lane in $(cat lanes); do acpmux send "$lane" hi; done',
       'acpmux send "$LANE" hi; acpmux send b hi',
       "exit 0; acpmux send a hi; acpmux send b hi",
+      "if false; then acpmux send a hi; acpmux send b hi; fi",
+      'case "$x" in a) acpmux send a hi;; b) acpmux send b hi;; esac',
       "acpmux send a hi || acpmux send b hi",
       's(){ acpmux send "$1" hi; }; s "$NEXT"',
       "bash -c 'acpmux send a one; acpmux send b two'",
@@ -279,6 +281,25 @@ describe("acpmuxMcpSends", () => {
     expect(
       acpmuxMcpSends(mcp({ messages: [{ to: "x", text: "y" }] }, { output: envelope, status: "failed" }))?.[0]?.state,
     ).toBe("failed");
+  });
+
+  test("the first shape's JSON names a routing key: the row keeps the to asked for", () => {
+    const output = JSON.stringify({
+      deliveryId: "d",
+      target: "peer/01a1aaaa",
+      status: "delivered",
+      delivery: "queued",
+    });
+    expect(acpmuxMcpSends(mcp({ to: "build-box/tests", file: "/tmp/b.md" }, { output }))?.[0]).toMatchObject({
+      target: "build-box/tests",
+      delivery: "queued",
+      state: "sent",
+    });
+    // More than the tool takes (32 items): it sent nothing, so no rows are drawn for it.
+    const many = Array.from({ length: 33 }, (_, at) => ({ to: `lane-${at}`, text: "hi" }));
+    expect(acpmuxMcpSends(mcp({ messages: many }))).toBeUndefined();
+    // The tool's bare name is read too.
+    expect(acpmuxMcpSends({ ...mcp({ to: "a", file: "/tmp/a.md" }), title: "acpmux_send" })?.[0]?.target).toBe("a");
   });
 
   test("the first shape with a file: its result line, sent or not", () => {

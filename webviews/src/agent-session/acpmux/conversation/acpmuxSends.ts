@@ -1109,6 +1109,8 @@ const BATCH_CAP = 64;
 const FUNCTION_HEAD = /(?:function[ \t]+)?([A-Za-z_][\w-]*)[ \t]*\([ \t]*\)[ \t\n]*\{/y;
 const FUNCTION_KEYWORD = /function[ \t]+([A-Za-z_][\w-]*)[ \t\n]*\{/y;
 const NAME = /^[A-Za-z_]\w*$/;
+/// Words that start or branch a construct whose body may not run: its sends are not known to go.
+const CONDITIONAL = new Set(["while", "until", "if", "then", "elif", "else", "fi", "case", "esac", "select"]);
 /// `$(<path)`: bash's way to read a file, which does nothing else.
 const READS_FILE = /^\s*<\s*[^\s;&|<>()]+\s*$/;
 
@@ -1220,11 +1222,7 @@ export function acpmuxSendBatch(line: string): AcpmuxSendBatch | undefined {
       // A `while` or `until` loop's targets come from what it reads: not known here. Whether a
       // send after `exit` or a `||` runs is not known from the line either (the single reader
       // refuses those too).
-      if (
-        (head?.literal && (head.text === "while" || head.text === "until")) ||
-        program(head) === "exit" ||
-        command.op === "||"
-      ) {
+      if ((head?.literal && CONDITIONAL.has(head.text)) || program(head) === "exit" || command.op === "||") {
         refused = true;
         return;
       }
