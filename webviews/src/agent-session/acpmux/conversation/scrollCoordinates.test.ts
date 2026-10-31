@@ -3,6 +3,7 @@ import {
   clearScrollOrigin,
   layoutScrollTop,
   physicalScrollTop,
+  retainScrollOrigin,
   SCROLL_ORIGIN_PROPERTY,
   scrollOrigin,
   writeAnchorScrollTop,
@@ -67,6 +68,24 @@ test("wheel movement preserves the origin and intentional navigation resets it",
   expect(layoutScrollTop(node)).toBe(node.scrollTop);
   expect(physicalScrollTop(node, 200)).toBe(200);
   expect(css.has(SCROLL_ORIGIN_PROPERTY)).toBe(false);
+});
+
+test("a rounded follow end retains fractional remeasurement even without a physical write", () => {
+  const { node, writes } = quantizedNode(205);
+  let logicalEnd = 204.5;
+  let rowTop = 92.5;
+  retainScrollOrigin(node, logicalEnd);
+  const visual = rowTop + scrollOrigin(node) - node.scrollTop;
+  expect(visual).toBe(-112);
+  expect(writes()).toBe(0);
+  for (const delta of [0.25, 0.25, -0.5, -10.5, 10.5]) {
+    logicalEnd += delta;
+    rowTop += delta;
+    node.scrollTop = Math.ceil(logicalEnd - 0.01);
+    retainScrollOrigin(node, logicalEnd);
+    expect(rowTop + scrollOrigin(node) - node.scrollTop).toBe(visual);
+    expect(layoutScrollTop(node)).toBe(logicalEnd);
+  }
 });
 
 test("large clamp residuals reset and coordinates do not leak between scrollers", () => {

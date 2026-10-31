@@ -82,6 +82,18 @@ struct AgentPaneConnectActionTests {
         #expect(ran == ["cloudMove", "cloudBringBack"])
     }
 
+    /// The + menu's Search chats and Search pages open the command palette's chats and History
+    /// search pages without a gesture; an action outside the pane's table stays refused.
+    @Test func paletteSearchPagesRunWithoutAGesture() async {
+        let model = AgentPaneModel(host: NoHost())
+        var ran: [String] = []
+        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return true }
+        #expect(await model.respond(to: .runAction("agentPane.searchChats"))["ok"] as? Bool == true)
+        #expect(await model.respond(to: .runAction("history.search"))["ok"] as? Bool == true)
+        #expect(await model.respond(to: .runAction("searchFiles"))["ok"] as? Bool != true)
+        #expect(ran == ["agentPane.searchChats", "history.search"])
+    }
+
     /// An action the app did not run (turned off, or not available for this chat) is a failure, so
     /// the page can say so instead of nothing happening.
     @Test func anActionTheAppDidNotRunIsAFailure() async {
