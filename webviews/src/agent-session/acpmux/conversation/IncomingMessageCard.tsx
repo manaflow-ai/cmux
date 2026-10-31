@@ -74,7 +74,15 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
   const sessionId = message.chief ? undefined : sender.sessionId;
   const avatar = useAgentAvatar(sender.sessionId);
   const from = message.relation ? t(RELATION_LABEL[message.relation], { name }) : name;
-  const harness = knownMark(sender.harness, message.harness, message.name, message.name.split("/")[0]);
+  // The first candidate with a mark today; with none, the sender's own harness id, so a profile icon
+  // that arrives later still replaces the fallback (AgentIdentity stays subscribed to that id).
+  const harness = knownMark(
+    sender.harness,
+    message.harness,
+    message.name,
+    message.name.split("/")[0],
+    sender.harness ?? message.harness,
+  );
   const picture = message.chief ? chief?.src : avatar;
   const icon = picture ? (
     <img className="cv-agent-avatar" src={picture} alt="" width={16} height={16} />
