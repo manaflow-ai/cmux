@@ -142,6 +142,7 @@ export function SubagentStatusList({
   onOpen,
   autoOpen,
   onShowAll,
+  onOpenInPane,
   subsessions = [],
   onOpenSession,
   sessions = NO_SESSIONS,
@@ -160,6 +161,8 @@ export function SubagentStatusList({
   autoOpen?: { on: boolean; set: (on: boolean) => void };
   /// Opens the card's Subagents tab; the title is a button only with it.
   onShowAll?: () => void;
+  /// Opens Session Info's complete Subagents section beside the chat.
+  onOpenInPane?: () => void;
   /// The other chats the agent started, after the sub-sessions.
   sessions?: readonly StartedSession[];
   /// Subagents an older record names only by their Task calls (sessionSummary.ts), as one line,
@@ -217,6 +220,12 @@ export function SubagentStatusList({
         ))}
         <ChildSessionRows sessions={sessions} onOpen={onOpenSession} />
       </ul>
+      {onOpenInPane && (agents.length > 0 || subsessions.length > 0 || sessions.length > 0) && (
+        <button type="button" className="acpmux-summary-more" onClick={onOpenInPane}>
+          <Icon name="pane.split.right" size={ROW_ICON} row />
+          {t("summary.openInPane")}
+        </button>
+      )}
       {autoOpen && (
         <label className="acpmux-summary-row acpmux-summary-autoopen">
           <input
