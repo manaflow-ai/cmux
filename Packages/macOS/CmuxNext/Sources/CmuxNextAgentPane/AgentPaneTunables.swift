@@ -90,14 +90,19 @@ public nonisolated enum AgentPaneReasoningSliderStyle: String, Sendable, CaseIte
     }
 }
 
-/// Alternative harness placements for the model picker (DEV/NIGHTLY).
+/// Harness placements for the model picker. `symbols`, the default, is one row of harness symbols
+/// at the top, each name on hover (Leo 2026-10-30: "honestly we had a pretty good thing going with
+/// teh symbols of the harneses at the top :("); the others are alternatives (DEV/NIGHTLY).
 public nonisolated enum AgentPaneHarnessPlacement: String, Sendable, CaseIterable, TunableChoice {
+    case symbols
     case left
     case top
     case compact
 
     public var tunableTitle: String {
         switch self {
+        case .symbols:
+            String(localized: "agentPane.harnessPlacement.symbols", defaultValue: "Top row of harness symbols", bundle: .module)
         case .left:
             String(localized: "agentPane.harnessPlacement.left", defaultValue: "Left rail with names", bundle: .module)
         case .top:
@@ -309,7 +314,7 @@ public nonisolated struct AgentPaneTunables {
         String(localized: "agentPane.harnessPlacement.title", defaultValue: "Model picker harness placement", bundle: .module),
         help: String(localized: "agentPane.harnessPlacement.help",
                      defaultValue: "Compare a named left rail, a wrapping top strip and a compact left rail.", bundle: .module),
-        default: .left, code: "AgentPaneTunables.harnessPlacement")
+        default: .symbols, code: "AgentPaneTunables.harnessPlacement")
 
     /// Tool runs fold as the Codex desktop app folds them (webviews conversation/turns.ts
     /// `codexRuns`, cx-ncc.108): each finished run is one summary line between the paragraphs

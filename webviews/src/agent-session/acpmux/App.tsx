@@ -131,7 +131,13 @@ import {
 } from "./conversation/scrollCoordinates";
 import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
-import { composerDraft, DRAFT_SETTLE_MS, notifyDraftActionsChanged, settleDraftWithin } from "./composerDraft";
+import {
+  composerDraft,
+  DRAFT_SETTLE_MS,
+  notifyDraftActionsChanged,
+  settleDraftWithin,
+  writePersistedDraft,
+} from "./composerDraft";
 import { paneContext } from "./paneContext";
 import {
   createPaneQueryClient,
@@ -160,6 +166,7 @@ import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
+import { FolderContinuation, folderContinuationRequest } from "./folderContinuation";
 import type { BrowseRequest } from "./AddProjectPanel";
 import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
 import {
@@ -273,6 +280,7 @@ import { chatHasSummaryContent } from "./summary/summaryContent";
 import { createWorkflowAdapter, workflowDetailRequest, type WorkflowDetailRequest } from "./summary/foldWorkflows";
 import { workflowPaneId, workflowPaneRequest } from "./summary/workflowTranscript";
 import { useWorkflowTranscript } from "./summary/useWorkflowTranscript";
+import { noteReaderScroll, releaseReaderScroll, useHeldWhileScrolling } from "./summary/heldWhileScrolling";
 import type { WorkflowAgent, WorkflowSummary } from "./summary/workflow";
 import { WorkflowSideTab } from "./summary/WorkflowSideTab";
 import {
@@ -4260,6 +4268,9 @@ export function VirtualTranscript({
       return;
     }
     const programmatic = !userScrollIntent(node).isHeld();
+    // The right-hand card holds what it shows until the reader's scroll settles
+    // (summary/heldWhileScrolling.ts): older history paged in under the scroll lands there once.
+    if (!programmatic) noteReaderScroll();
     // ResizeObserver/layout work can emit a scroll event after the stack below the transcript
     // changes. While the reader is following, keep the viewport at the new end and do not let
     // that synthetic event clear the follow state. A real wheel/touch/key event marks itself first.
@@ -4414,6 +4425,10 @@ export function VirtualTranscript({
       if (event?.type === "touchstart") touchY = (event as TouchEvent).touches[0]?.clientY;
       else if (touch) touchY = touch.clientY;
       readerAt.current = performance.now();
+      // Wheeling on at the top of the loaded rows scrolls nothing while older history pages in: the
+      // reader's input, not only its scroll events, keeps the right-hand card held
+      // (summary/heldWhileScrolling.ts).
+      noteReaderScroll();
       followTrace.input();
       // The reader takes the view: a follow step still easing lands where it lays out.
       followGlide.current?.stop();
@@ -5225,6 +5240,8 @@ function AcpmuxPane() {
   const [clientSnapshot, setSnapshot] = useState<AcpmuxSnapshot>(cachedSnapshot);
   const [harnessSwitch] = useState(() => new HarnessSwitch());
   const switchView = useSyncExternalStore(harnessSwitch.subscribe, harnessSwitch.view, harnessSwitch.view);
+  const switchViewRef = useRef(switchView);
+  switchViewRef.current = switchView;
   // Typing in a new chat (this pane's fresh composer or its New Tab page) warms the agent its Enter
   // starts (newChatPrewarm.ts, acpmux hub/pool). Silent: a folder without a Trust answer asks at Enter.
   const [newChatPrewarm] = useState(
@@ -5821,6 +5838,11 @@ function AcpmuxPane() {
     healthLocal && snapshot.origin !== "remote" && snapshot.origin !== "peer",
     blockSend,
   );
+  // A no-folder recovery must not win over a trust answer made while its session switch is in
+  // flight. The revision is advanced by Trust/Undo and by trust refusals, and read through a ref
+  // because the host action handler outlives the render that installed it.
+  const trustRevision = useRef(trustAsk.revision);
+  trustRevision.current = trustAsk.revision;
   const trustRoute = trustAsk.refused;
   trustRefused.current = trustRoute;
   // The connection's action table outlives renders; Retry must read the current folder/auth gate.
@@ -6291,9 +6313,19 @@ function AcpmuxPane() {
   useEffect(() => {
     clearWorkflowSideTab();
   }, [shownSessionId, workflowLabsEnabled, clearWorkflowSideTab]);
+  // The rows the right-hand card reads (the Summary card and Session Info): the chat's rows as they
+  // stood when the reader started scrolling, until the scroll settles (summary/heldWhileScrolling.ts;
+  // Leo, 2026-10-25: "session summary on top right flickers when im scrolling thru the chat").
+  const cardRows = useHeldWhileScrolling(snapshot.rows, shownSessionId);
+  // Another chat, or the pane going, lets go of a scroll that has not settled yet.
+  useEffect(() => releaseReaderScroll, [shownSessionId]);
+  const cardSnapshot = useMemo(
+    () => (cardRows === snapshot.rows ? snapshot : { ...snapshot, rows: cardRows }),
+    [snapshot, cardRows],
+  );
   const summaryHasContent = useMemo(
-    () => chatHasSummaryContent(snapshot.rows) || chatSubsessions.rows.length > 0 || workflows.length > 0,
-    [snapshot.rows, chatSubsessions, workflows],
+    () => chatHasSummaryContent(cardRows) || chatSubsessions.rows.length > 0 || workflows.length > 0,
+    [cardRows, chatSubsessions, workflows],
   );
   const [shell, setShell] = useState<HTMLElement | null>(null);
   /// The chat's bottom stack (bottomStack.css): the transcript runs under it and keeps its end above it.
@@ -6433,6 +6465,20 @@ function AcpmuxPane() {
   // The Inspector's Background tasks and Servers read acpmux's process registry through the pane's
   // client. A reconnect makes a new client, so the source changes with it and they list again.
   const [clientEpoch, setClientEpoch] = useState(0);
+  const [folderContinuation] = useState(() => new FolderContinuation());
+  const continuationProject = useRef(projectDraft);
+  const continuationProjectGeneration = useRef(0);
+  useLayoutEffect(() => {
+    if (continuationProject.current !== projectDraft) continuationProjectGeneration.current += 1;
+    continuationProject.current = projectDraft;
+  }, [projectDraft]);
+  // Session changes are fenced by the live client generation, including before React renders.
+  // Invalidating on snapshot.sessionId would also cancel recovery on its own destination render.
+  useLayoutEffect(() => {
+    folderContinuation.invalidate();
+    return () => folderContinuation.invalidate();
+  }, [folderContinuation, projectDraft, clientEpoch]);
+
   const processSource = useMemo<ProcessSource>(
     () => ({
       listProcesses: (sessionId) => directClient.current?.listProcesses(sessionId) ?? Promise.reject(new Error()),
@@ -7022,6 +7068,9 @@ function AcpmuxPane() {
     () => (lastEditTurn ? turnCountsFor(lastEditTurn.rowId, lastEditTurn.files, lastEditTurn.pathsOnly) : undefined),
     [lastEditTurn, turnCountsFor],
   );
+  // The card's Changes reads the same history its rows do: an older edit paged in under the reader's
+  // scroll lands there once the scroll settles too (summary/heldWhileScrolling.ts).
+  const cardChanges = useHeldWhileScrolling(lastChanges, shownSessionId);
   // The header's Preview: the local page of the latest of the last few turns that started or mentioned one.
   // Each turn is scanned again only when its rows change, so streaming rescans the live turn alone.
   const previewTurns = useRef(new Map<string, { key: string; url: string | undefined }>());
@@ -7516,7 +7565,7 @@ function AcpmuxPane() {
     [restartChat, compactOffered],
   );
   const inspector = useChatInspector({
-    snapshot,
+    snapshot: cardSnapshot,
     machineName,
     repository: githubRepository,
     shell,
@@ -8294,6 +8343,8 @@ function AcpmuxPane() {
   const pickedProject = useRef<string | undefined>(undefined);
   const chooseProject = useCallback(
     (cwd: string, peer?: string) => {
+      folderContinuation.invalidate();
+      continuationProjectGeneration.current += 1;
       pickedProject.current = undefined;
       // Another computer's folder is that computer's to check.
       if (peer) {
@@ -8307,7 +8358,7 @@ function AcpmuxPane() {
         else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
       });
     },
-    [requestFolder],
+    [folderContinuation, requestFolder],
   );
   /// New Worktree (cx-lyqio.2): the new chat starts in a worktree of its folder, or says why not.
 
@@ -9276,7 +9327,55 @@ function AcpmuxPane() {
           // A pick of another harness is a switch: drawn now, started behind it.
           // A new chat without a folder starts in the chat's start folder (startFolder.tsx);
           // a chat with no project (`noProject`) or for a peer gets no start folder.
-          "chat.new": async ({ harness, cwd, peer, deferred, noProject, model, options }) => {
+          "chat.new": async ({ harness, cwd, peer, deferred, noProject, model, options, continueWithoutFolder }) => {
+            if (noProject === true && continueWithoutFolder === true) {
+              let generation = client.trustGeneration;
+              const trustGeneration = trustRevision.current;
+              const projectGeneration = continuationProjectGeneration.current;
+              const holder = composerHandle.current;
+              const summary = snapshotRef.current?.summary;
+              const intent = switchViewRef.current.intent;
+              const selectedHarness = intent?.harness ?? summary?.harness;
+              const selectedModel = intent?.config.model ?? summary?.model;
+              // A pending harness switch may still hold prompts behind this folder's trust gate.
+              // Recovery is a different start, so retire that intent before taking the draft.
+              harnessSwitch.cancel();
+              return folderContinuation.run({
+                start: () => client.startSession(selectedHarness, undefined, undefined, undefined, true, selectedModel),
+                current: () =>
+                  directClient.current === client &&
+                  client.trustGeneration === generation &&
+                  trustRevision.current === trustGeneration &&
+                  composerHandle.current === holder,
+                copyText: (id) => writePersistedDraft(id, holder?.draftText() ?? ""),
+                clearFolder: () => setProjectDraft(undefined),
+                select: async (id) => {
+                  holder?.suppressAttachmentCarryFor(summary?.sessionId);
+                  try {
+                    // select advances the visit synchronously. Adopt only this operation's
+                    // bump before awaiting it, so any later navigation still invalidates us.
+                    const selection = client.select(id);
+                    generation = client.trustGeneration;
+                    const selected = await selection;
+                    if (
+                      selected !== id ||
+                      client.selectedSession !== id ||
+                      directClient.current !== client ||
+                      continuationProjectGeneration.current !== projectGeneration
+                    ) {
+                      holder?.clearAttachmentCarrySuppression();
+                      return false;
+                    }
+                    void persistSession(selected);
+                    return true;
+                  } catch {
+                    holder?.clearAttachmentCarrySuppression();
+                    return false;
+                  }
+                },
+              });
+            }
+            folderContinuation.invalidate();
             const folder = cwd ? String(cwd) : peer || noProject === true ? undefined : startFolderRef.current;
             if (harness && !peer && noProject !== true) {
               // A new chat starts on its pick, else on acpmux's saved default, else on the model last
@@ -9856,7 +9955,16 @@ function AcpmuxPane() {
     };
     // These are stable for the pane's life (state, provider client, a memoized bridge callback, and
     // the early New Tab flag, one object from a useState initializer).
-  }, [harnessSwitch, newChatPrewarm, queryClient, toggleInspector, earlyNewTab, restartGate, sandbox]);
+  }, [
+    folderContinuation,
+    harnessSwitch,
+    newChatPrewarm,
+    queryClient,
+    toggleInspector,
+    earlyNewTab,
+    restartGate,
+    sandbox,
+  ]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot; permissionAccess?: ComposerPermissionAccess }>
     | undefined;
@@ -11076,6 +11184,7 @@ function AcpmuxPane() {
   // trust), permission and secret cards stay out of the tree so the user never has two different
   // asks competing for the same answer. A read in flight asks nothing and holds nothing: the cards
   // keep their place (no blink on a chat switch). A trusted receipt can sit above the next ask.
+  const continueWithoutFolder = useCallback(() => callNative<void>("chat.new", folderContinuationRequest), []);
   const trustPending = trustAsk.holdsAsks;
   // A secret is the one ask held while the trust read is in flight: a value typed into it must
   // never go before the folder is known to need no trust answer first.
@@ -11169,6 +11278,17 @@ function AcpmuxPane() {
           onTrustRepo={trustAsk.trustRepo}
           onDistrust={trustAsk.distrust}
           onUndo={trustAsk.undo}
+          onContinueWithoutFolder={
+            healthLocal &&
+            !remoteChat &&
+            Boolean(snapshot.sessionId) &&
+            !directClient.current?.startsOnSend &&
+            trustAsk.ask?.state === "decided" &&
+            trustAsk.ask.level === "untrusted" &&
+            !isAgentHome(trustAsk.ask.cwd)
+              ? continueWithoutFolder
+              : undefined
+          }
           answers={answersTrust}
         />
       )}
@@ -11989,9 +12109,9 @@ function AcpmuxPane() {
           <SummaryCard
             key={snapshot.sessionId}
             card={summaryCard}
-            rows={snapshot.rows}
+            rows={cardRows}
             cwd={snapshot.summary?.cwd}
-            changes={quick ? undefined : lastChanges}
+            changes={quick ? undefined : cardChanges}
             onOpenChanges={toggleLastChanges}
             onOpenOutput={quick ? undefined : openOutput}
             onOpenImage={quick ? undefined : openImage}

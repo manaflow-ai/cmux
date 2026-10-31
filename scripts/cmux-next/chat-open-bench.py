@@ -401,13 +401,14 @@ def click_subagent(run):
     and which of the chat's subagent lines it renders depends on the build: a fixed name per open
     failed with "no visible element matches" for "Auditor 0" at one base and "Auditor 1" at
     another (2026-10-31). A click that matches nothing returns that error at once and does
-    nothing, so the next name is tried. Each open is its own copy of the chat with its own
+    nothing, so the next name is tried. The reply is the app's (its `clicked` and any `error` as
+    they came), with the subagent it named under `subagent`. Each open is its own copy of the chat with its own
     subagents, so the same name in two opens opens two subagents."""
     reply = None
     for k in range(SUBAGENTS - 1, -1, -1):
         reply = run.rpc("debug.agent_pane", {"action": "click", "text": f"Auditor {k}"}) or {}
         if reply.get("error") != "no visible element matches":
-            return {**reply, "clicked": f"Auditor {k}"}
+            return {**reply, "subagent": f"Auditor {k}"}
     return reply
 
 
