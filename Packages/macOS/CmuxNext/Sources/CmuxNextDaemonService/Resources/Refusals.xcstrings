@@ -11400,134 +11400,134 @@
         }
       }
     },
-    "handlers.refusal.gatherTabCollision": {
-      "comment": "Refusal of Move Space to This Window or Merge All Windows when a moved pane's id matches a pane in the receiving window that keeps browser tabs.",
+    "handlers.refusal.gatherLocalTabs": {
+      "comment": "Refusal of Move Space to This Window or Merge All Windows when a window it takes workspaces from keeps its own browser tabs (a daemon without frontend browser tabs).",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A pane from another machine has the same id as one in this window, so its browser tabs can't move here."
+            "value": "A window this would change keeps browser tabs that can't move with its workspaces. Close those tabs first."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يحمل جزء من جهاز آخر المعرّف نفسه لجزء في هذه النافذة، لذا لا يمكن نقل علامات تبويب المتصفح الخاصة به إلى هنا."
+            "value": "تحتفظ نافذة سيغيّرها هذا الإجراء بعلامات تبويب متصفح لا يمكن نقلها مع مساحات العمل الخاصة بها. أغلق علامات التبويب هذه أولاً."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Okno s druge mašine ima isti ID kao jedno u ovom prozoru, pa se njegove kartice preglednika ne mogu premjestiti ovdje."
+            "value": "Prozor koji bi ovo promijenilo čuva kartice preglednika koje se ne mogu premjestiti s njegovim radnim prostorima. Prvo zatvorite te kartice."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En rude fra en anden maskine har samme id som en i dette vindue, så dens browserfaner kan ikke flyttes hertil."
+            "value": "Et vindue, som dette ville ændre, har browserfaner, der ikke kan flyttes med dets arbejdsområder. Luk de faner først."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ein Bereich von einem anderen Rechner hat dieselbe ID wie einer in diesem Fenster, daher können seine Browser-Tabs nicht hierher verschoben werden."
+            "value": "Ein Fenster, das dadurch geändert würde, hat Browser-Tabs, die nicht mit seinen Arbeitsbereichen verschoben werden können. Schließe diese Tabs zuerst."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un panel de otra máquina tiene el mismo id que uno de esta ventana, así que sus pestañas del navegador no pueden moverse aquí."
+            "value": "Una ventana que esto cambiaría tiene pestañas del navegador que no pueden moverse con sus espacios de trabajo. Cierra esas pestañas primero."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un volet d'une autre machine a le même identifiant qu'un volet de cette fenêtre : ses onglets de navigateur ne peuvent pas être déplacés ici."
+            "value": "Une fenêtre que cette action modifierait contient des onglets de navigateur qui ne peuvent pas suivre ses espaces de travail. Fermez d'abord ces onglets."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un riquadro di un'altra macchina ha lo stesso id di uno in questa finestra, quindi le sue schede del browser non possono essere spostate qui."
+            "value": "Una finestra che questa azione modificherebbe ha schede del browser che non possono spostarsi con i suoi spazi di lavoro. Chiudi prima quelle schede."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "別のマシンのペインがこのウインドウのペインと同じ ID を持っているため、そのブラウザタブをここに移動できません。"
+            "value": "この操作で変わるウインドウに、ワークスペースと一緒に移動できないブラウザタブがあります。先にそれらのタブを閉じてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្ទាំងពីម៉ាស៊ីនផ្សេងមាន ID ដូចផ្ទាំងមួយក្នុងបង្អួចនេះ ដូច្នេះផ្ទាំងកម្មវិធីរុករករបស់វាមិនអាចផ្លាស់ទីមកទីនេះបានទេ។"
+            "value": "បង្អួចដែលសកម្មភាពនេះនឹងផ្លាស់ប្តូរ មានផ្ទាំងកម្មវិធីរុករកដែលមិនអាចផ្លាស់ទីជាមួយកន្លែងធ្វើការរបស់វាបានទេ។ សូមបិទផ្ទាំងទាំងនោះជាមុនសិន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "다른 머신의 패널이 이 창의 패널과 같은 ID를 가지고 있어 해당 브라우저 탭을 여기로 옮길 수 없습니다."
+            "value": "이 작업으로 바뀔 창에 작업 공간과 함께 옮길 수 없는 브라우저 탭이 있습니다. 먼저 해당 탭을 닫으세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En rute fra en annen maskin har samme id som en i dette vinduet, så nettleserfanene kan ikke flyttes hit."
+            "value": "Et vindu som dette ville endre, har nettleserfaner som ikke kan flyttes med arbeidsområdene. Lukk disse fanene først."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Panel z innej maszyny ma ten sam identyfikator co panel w tym oknie, więc jego karty przeglądarki nie mogą zostać tu przeniesione."
+            "value": "Okno, które to zmieni, ma karty przeglądarki, których nie można przenieść razem z jego obszarami roboczymi. Najpierw zamknij te karty."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Um painel de outra máquina tem o mesmo id de um desta janela, então as abas do navegador dele não podem ser movidas para cá."
+            "value": "Uma janela que isto mudaria tem abas do navegador que não podem ser movidas com os espaços de trabalho dela. Feche essas abas primeiro."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Панель с другого компьютера имеет тот же идентификатор, что и панель в этом окне, поэтому её вкладки браузера нельзя перенести сюда."
+            "value": "В окне, которое изменит это действие, есть вкладки браузера, которые нельзя перенести вместе с его рабочими пространствами. Сначала закройте эти вкладки."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "บานหน้าต่างจากเครื่องอื่นมี ID เดียวกับบานหน้าต่างในหน้าต่างนี้ จึงย้ายแท็บเบราว์เซอร์ของบานนั้นมาที่นี่ไม่ได้"
+            "value": "หน้าต่างที่การทำงานนี้จะเปลี่ยนมีแท็บเบราว์เซอร์ที่ย้ายไปพร้อมพื้นที่ทำงานไม่ได้ โปรดปิดแท็บเหล่านั้นก่อน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Başka bir makinedeki bir bölme bu penceredeki bir bölmeyle aynı kimliğe sahip, bu yüzden tarayıcı sekmeleri buraya taşınamaz."
+            "value": "Bunun değiştireceği bir pencerede, çalışma alanlarıyla birlikte taşınamayan tarayıcı sekmeleri var. Önce bu sekmeleri kapatın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Панель з іншого комп'ютера має той самий ідентифікатор, що й панель у цьому вікні, тож її вкладки браузера не можна перенести сюди."
+            "value": "У вікні, яке це змінить, є вкладки браузера, які не можна перенести разом із його робочими просторами. Спершу закрийте ці вкладки."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Một ngăn từ máy khác có cùng id với một ngăn trong cửa sổ này, nên các tab trình duyệt của nó không thể chuyển sang đây."
+            "value": "Một cửa sổ mà thao tác này sẽ thay đổi có các tab trình duyệt không thể di chuyển cùng không gian làm việc của nó. Hãy đóng các tab đó trước."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "另一台机器上的窗格与此窗口中的一个窗格 ID 相同，因此无法将其浏览器标签页移到这里。"
+            "value": "此操作将更改的窗口中有无法随其工作区移动的浏览器标签页。请先关闭这些标签页。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "另一台機器上的窗格與此視窗中的一個窗格 ID 相同，因此無法將其瀏覽器分頁移到這裡。"
+            "value": "此操作將變更的視窗中有無法隨其工作區移動的瀏覽器分頁。請先關閉這些分頁。"
           }
         }
       }

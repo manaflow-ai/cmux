@@ -29,18 +29,4 @@ public final class LocalBrowserTabs {
 
     /// Every pane with tabs (reads every pane).
     public var all: [(pane: String, tabs: [LocalBrowserTab])] { panes.entries.map { ($0.key, $0.value) } }
-
-    /// Whether `other` keeps tabs under one of `panes` that has tabs here (pane ids can repeat across machines).
-    public func collides(panes ids: Set<String>, with other: LocalBrowserTabs) -> Bool {
-        other !== self && all.contains { ids.contains($0.pane) && !other[$0.pane].isEmpty }
-    }
-
-    /// Moves the tabs of `panes` to `other` (their workspace moved to another window).
-    public func move(panes ids: Set<String>, to other: LocalBrowserTabs) {
-        guard other !== self else { return }
-        for (pane, tabs) in all where ids.contains(pane) {
-            other[pane] += tabs
-            self[pane] = []
-        }
-    }
 }

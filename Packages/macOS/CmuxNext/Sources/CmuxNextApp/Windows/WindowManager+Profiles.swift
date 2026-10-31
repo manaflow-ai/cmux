@@ -99,7 +99,7 @@ extension DaemonStore {
 // workspaces change owner and keep running, an emptied window closes. Incognito never moves (spaces-overhaul rule 2).
 extension WindowManager {
     /// Move Space to This Window: `profile`'s workspaces in other normal windows move here, and this window shows `profile`
-    /// at its last shown workspace (none elsewhere: a plain switch; no view-change permission: the view stays).
+    /// at its last shown workspace, or keeps its selection when already on it (none elsewhere: a plain switch).
     func bringSpace(_ profile: ProfileID, into state: WindowState) throws {
         let value = registry.value
         if value.isIncognito(state.id) || incognitoSpaces[state.id] != nil || incognitoSpaces.values.contains(profile) {
@@ -111,20 +111,20 @@ extension WindowManager {
         let moving = sources.flatMap { WindowProfiles.visible($0.workspaceIDs, profile: profile, machines: machines) }
             .filter { WindowProfiles.qualified($0, machines: machines) != nil && !isWindowHome($0) }
         try refuseClosingCreating(sources.filter { !$0.workspaceIDs.isEmpty && Set(moving).isSuperset(of: $0.workspaceIDs) }.map(\.id))
-        let moved = try movedPanes(moving, from: sources, into: state)
+        try refuseLocalTabs(sources.filter { !Set($0.workspaceIDs).isDisjoint(with: moving) })
         // A CLI or MCP run without focus permission leaves this window's view alone (as `RoomHandlers.startNewSpace`).
         let mayShow = ActionRunScope.viewChangeAllowed()
         guard !moving.isEmpty else {
             if mayShow { switchProfile(profile, in: state) }
             return
         }
+        // A window already on the space keeps its selection; else the space's last shown workspace.
         var preferred: [String: [String]] = [:]
         if state.profileID != profile, mayShow {
             let candidates = Set(moving + WindowProfiles.visible(value.window(state.id)?.workspaceIDs ?? [], profile: profile, machines: machines))
             preferred[state.id] = lastShown(in: profile, recency: value.recency, here: state).filter(candidates.contains)
             state.enterProfile(profile)
         }
-        for (tabs, panes) in moved { tabs.move(panes: panes, to: state.localBrowserTabs) }
         transition(select: preferred) { $0.move(moving, to: state.id) }
         recordSaver.stateDidChange(state)
     }
@@ -141,7 +141,7 @@ extension WindowManager {
         let moving = sources.flatMap(\.workspaceIDs).filter { !isWindowHome($0) }
         guard !sources.isEmpty else { return }
         try refuseClosingCreating(sources.map(\.id))
-        let moved = try movedPanes(moving, from: sources, into: state)
+        try refuseLocalTabs(sources)
         let order = Dictionary(value.recency.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         for source in sources.sorted(by: { order[$0.id, default: .max] < order[$1.id, default: .max] }) {
             guard let other = states[source.id] else { continue }
@@ -149,7 +149,6 @@ extension WindowManager {
             if let workspaceID = other.workspaceID { shown[other.profileID] = workspaceID }
             for (space, id) in shown where space != state.profileID && state.profileWorkspaces[space] == nil { state.profileWorkspaces[space] = id }
         }
-        for (tabs, panes) in moved { tabs.move(panes: panes, to: state.localBrowserTabs) }
         transition { registry in
             defer { for source in sources where registry.window(source.id)?.isOpen == true { _ = registry.close(source.id) } }
             return registry.move(moving, to: state.id)
@@ -158,13 +157,11 @@ extension WindowManager {
     }
 
     private func isWindowHome(_ id: String) -> Bool { services.workspace(id: id)?.isWindowHome == true }
-    /// Each source's moved panes with its window-kept browser tabs; a pane id this window keeps tabs under (another machine's) refuses.
-    private func movedPanes(_ moving: [String], from sources: [WindowRegistry.Window], into state: WindowState) throws -> [(LocalBrowserTabs, Set<String>)] {
-        let moved = sources.compactMap { source in states[source.id].map { ($0.localBrowserTabs, Set(moving.filter(source.workspaceIDs.contains)
-            .compactMap { services.workspace(id: $0) }.flatMap { $0.screens.flatMap(\.panes).map(\.id) })) } }
-        let collides = moved.contains { $0.0.collides(panes: $0.1, with: state.localBrowserTabs) }
-        if collides { throw ActionFailure.invalidTarget(RefusalStrings.gatherTabCollision) }
-        return moved
+    /// Refuses taking a workspace out of a window that keeps its own browser tabs (keyed by pane id, which can repeat
+    /// across machines; they die with the window): a daemon without frontend browser tabs.
+    private func refuseLocalTabs(_ windows: [WindowRegistry.Window]) throws {
+        let keeps = windows.contains { states[$0.id]?.localBrowserTabs.all.isEmpty == false }
+        if keeps { throw ActionFailure.invalidTarget(RefusalStrings.gatherLocalTabs) }
     }
 
     /// Refuses closing a window still creating a workspace (claim, placement, lane, provisional row): it would reopen it.

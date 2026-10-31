@@ -40,9 +40,9 @@ public nonisolated enum RefusalStrings {
     public static var gatherWhileCreating: String {
         text("handlers.refusal.gatherWhileCreating", "A new workspace is still opening in a window this would close. Try again in a moment.")
     }
-    /// Move Space to This Window or Merge All Windows: a moved pane's browser tabs would share a pane id with this window's.
-    public static var gatherTabCollision: String {
-        text("handlers.refusal.gatherTabCollision", "A pane from another machine has the same id as one in this window, so its browser tabs can't move here.")
+    /// Move Space to This Window or Merge All Windows would take a workspace out of a window that keeps its own browser tabs.
+    public static var gatherLocalTabs: String {
+        text("handlers.refusal.gatherLocalTabs", "A window this would change keeps browser tabs that can't move with its workspaces. Close those tabs first.")
     }
     public static var chromiumUnavailable: String { text("handlers.refusal.chromiumUnavailable", "Chromium is not available in this build.") }
     public static var homeNotReady: String { text("handlers.refusal.homeNotReady", "Home is not ready yet.") }
