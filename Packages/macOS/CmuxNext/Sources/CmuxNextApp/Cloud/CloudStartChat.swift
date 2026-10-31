@@ -18,17 +18,34 @@ import Foundation
 @MainActor
 struct CloudStartChat {
     let services: AppServices
+    let destinations: Destinations
 
     /// The page's runner for every pane (``AgentPageChats/seed(_:)``): `view` is the pane that sent.
     static func runner(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any] {
-        { [weak tabs, weak services] view, start in
+        let destinations = Destinations()
+        return { [weak tabs, weak services] view, start in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             // Only a tab of this Mac's daemon: the folder it names is copied from this Mac.
             guard let view, let key = tabs?.views.first(where: { $0.value === view })?.key, let (tab, _) = services.locateTab(key),
                   services.machines.daemon(forTab: tab).isLocal else {
                 return AgentPaneReply.failure(code: "unavailable", message: CloudMoveStrings.notAChat)
             }
-            return await CloudStartChat(services: services).reply(start, tab: tab)
+            return await CloudStartChat(services: services, destinations: destinations).reply(start, tab: tab)
+        }
+    }
+
+    /// The machine each recent send went to, by its key: a retry of a send whose answer was lost
+    /// goes back to that machine (its daemon knows the tab's creation key), never to another one
+    /// that would make a second chat. The newest 32 sends are kept.
+    @MainActor final class Destinations {
+        private var machines: [(key: String, machineID: String)] = []
+
+        func machine(for key: String) -> String? { machines.last { $0.key == key }?.machineID }
+
+        func record(_ machineID: String, for key: String) {
+            machines.removeAll { $0.key == key }
+            machines.append((key, machineID))
+            if machines.count > 32 { machines.removeFirst(machines.count - 32) }
         }
     }
 
@@ -72,8 +89,12 @@ struct CloudStartChat {
         guard !folder.isTooBroad else { throw CloudMove.Failure(message: CloudMoveStrings.homeFolder) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let move = CloudMove(services: services)
-        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
+        // A retry of this send goes to the machine its first try picked.
+        let picked = destinations.machine(for: start.key)
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id),
+                                          arguments: picked.map { ["machine": .string($0)] } ?? [:], origin: .user)
         let machine = try await move.machine(invocation) { await CloudChatPick(services: services).read(folder: chat, tab: tab) }
+        destinations.record(machine.machineID, for: start.key)
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
         guard let socket = await machine.daemon.connection?.endpoint?.socketPath else {
             throw CloudMove.Failure(message: CloudMoveStrings.notConnected(name))
