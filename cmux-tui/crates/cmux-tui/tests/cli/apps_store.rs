@@ -1219,3 +1219,60 @@ fn the_store_examples_list_and_install_for_the_user() {
     );
     assert_eq!(ok(&removed)["app"]["state"]["installed"], false, "{removed}");
 }
+
+/// `cmux apps list` and `cmux apps info` read the store from the CLI with
+/// no Mac app (a self-hosted Linux host included): the examples with their
+/// tier and install state, `--installed` for the installed apps only, and a
+/// listing's scopes with their risk class.
+#[test]
+fn apps_list_and_info_read_the_store_from_the_cli() {
+    let apps = Apps::new("cli-list");
+    copy_store_examples(&apps.dir.join("bundled"));
+    apps.start();
+    let cli = |args: &[&str]| -> Output {
+        Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+            .arg("--socket")
+            .arg(&apps.socket)
+            .args(args)
+            .env("CMUX_TUI_STATE_DIR", apps.dir.join("state"))
+            .env("CMUX_TUI_CONFIG", apps.dir.join("config.json"))
+            .output()
+            .unwrap()
+    };
+
+    let out = cli(&["apps", "list", "--json"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let listed: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let standup = listed["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["app"] == "manaflow-ai/standup")
+        .unwrap_or_else(|| panic!("standup listed: {listed}"));
+    assert_eq!(
+        (standup["tier"].clone(), standup["installed"].clone()),
+        (json!("unverified"), json!(false)),
+        "{standup}"
+    );
+
+    let out = cli(&["apps", "list"]);
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success() && text.contains("manaflow-ai/standup"), "{text}");
+    assert!(text.contains("Standup"), "the name shows: {text}");
+
+    let out = cli(&["apps", "list", "--installed", "--json"]);
+    let installed: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(
+        installed["apps"].as_array().unwrap().iter().all(|row| row["installed"] == true),
+        "{installed}"
+    );
+
+    let out = cli(&["apps", "info", "manaflow-ai/standup", "--json"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let info: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(info["scopes"][0]["scope"], "storage:local", "{info}");
+
+    let out = cli(&["apps", "info", "acme/nothing"]);
+    assert_eq!(out.status.code(), Some(1), "an unknown app fails");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("apps.unknown"));
+}
