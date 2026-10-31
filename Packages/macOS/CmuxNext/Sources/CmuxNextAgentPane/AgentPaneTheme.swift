@@ -128,10 +128,23 @@ enum AgentPaneTheme {
     /// pane backs it with the window's own background, as it backs a terminal (cx-tcju).
     @MainActor static func webTheme(_ tokens: ThemeTokens, surface: SurfaceKind,
                                     backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> WebTheme {
+        WebTheme(tokens, surface: surface, backgrounds: pageBackgrounds(tokens, surface: surface, backgrounds: backgrounds))
+    }
+
+    /// What the page of `surface` paints under its content, as ``webTheme(_:surface:backgrounds:)``
+    /// gives it (`--cmux-surface-background`), in the active scope. Opaque only when the page hides
+    /// everything under it, so a picture of it needs no alpha (`PageImageBackground`).
+    @MainActor static func pageBackground(_ tokens: ThemeTokens, surface: SurfaceKind,
+                                          backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> ThemeRGB {
+        WebTheme.pageBackground(tokens, surface: surface, backgrounds: pageBackgrounds(tokens, surface: surface, backgrounds: backgrounds))
+    }
+
+    /// `backgrounds` as the page of `surface` gets them: the New Tab page is clear unless it has its own.
+    private static func pageBackgrounds(_ tokens: ThemeTokens, surface: SurfaceKind, backgrounds: SurfaceBackgrounds) -> SurfaceBackgrounds {
         var backgrounds = backgrounds
         if surface == .newTabPage, backgrounds[.newTabPage] == nil {
             backgrounds.overrides[.newTabPage] = SurfaceBackground(color: tokens.surfaceBackground.withAlpha(0))
         }
-        return WebTheme(tokens, surface: surface, backgrounds: backgrounds)
+        return backgrounds
     }
 }

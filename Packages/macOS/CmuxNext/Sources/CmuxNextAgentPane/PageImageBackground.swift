@@ -17,15 +17,22 @@ enum PageImageBackground {
     /// The picture a pane may draw for its page until the live page paints, or nil when there is none.
     ///
     /// A picture that cannot keep the page's clear pixels (a Chromium capture is a JPEG with no
-    /// alpha, `PageWebView.snapshotKeepsClearAreas`) shows those pixels black. Over an opaque color
-    /// the page paints its own background, so it has no clear pixels and the picture is flattened as
-    /// any other. A transparent page (a glass, frosted or see-through window, or a background image)
-    /// has them: its picture is no cover at all, and the pane shows its loading state on the window's
-    /// own backdrop instead. Leo, 2026-10-26: "on restarting after an update/maybe in general, we dont
-    /// wanna see a black background on the agent chat".
+    /// alpha, `PageWebView.snapshotKeepsClearAreas`) shows those pixels black. A page that paints an
+    /// opaque background of its own (`pageIsOpaque`: an opaque window, or a surface background that
+    /// hides the window) has no clear pixels, so its picture still covers. A page that is clear
+    /// anywhere (a glass, frosted or see-through window, or a background image) has them: its picture
+    /// is no cover at all, and the pane shows its loading state on the window's own backdrop instead.
+    /// Leo, 2026-10-26: "on restarting after an update/maybe in general, we dont wanna see a black
+    /// background on the agent chat".
+    ///
+    /// - Parameters:
+    ///   - page: The picture; nil when none was taken.
+    ///   - color: The color the pane shows under the page, which an opaque one is flattened over.
+    ///   - pageIsOpaque: Whether the page paints an opaque background of its own.
+    ///   - keepsClearAreas: Whether the picture keeps the page's clear pixels (it has alpha).
     @MainActor
-    static func cover(_ page: NSImage?, color: ThemeRGB, keepsClearAreas: Bool) -> NSImage? {
-        guard let page, keepsClearAreas || isOpaque(color) else { return nil }
+    static func cover(_ page: NSImage?, color: ThemeRGB, pageIsOpaque: Bool, keepsClearAreas: Bool) -> NSImage? {
+        guard let page, keepsClearAreas || pageIsOpaque else { return nil }
         return fill(page, color)
     }
 
