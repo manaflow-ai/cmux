@@ -38,7 +38,7 @@ pub(super) fn after_exit(pid: i32, bundle: &Path) -> Result<(), String> {
             }
         }
         if event.flags & libc::EV_ERROR != 0 {
-            if event.data == libc::ESRCH as _ {
+            if event.data == libc::ESRCH as libc::intptr_t {
                 break;
             }
             return Err(std::io::Error::from_raw_os_error(event.data as i32).to_string());
