@@ -18,6 +18,7 @@ mod query;
 mod settings;
 pub(crate) mod sources;
 mod watch;
+mod window;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -37,6 +38,7 @@ pub use open::{StoreProfile, plan_open, store_profiles};
 pub use query::{ChatCursor, ChatQuery};
 pub use settings::{ChatSettings, SettingsRefusal, probe};
 pub use sources::{ChatSources, EnvLookup, launch_roots, login_var, lookup, refusal};
+pub use window::{WindowRows, WindowSpec, WindowState};
 
 /// Work run once the chat index has started.
 pub type ChatsWaiter = Box<dyn FnOnce(&Arc<ChatService>) + Send>;
@@ -138,6 +140,46 @@ impl ChatService {
         let more = start + held.len() < matching.len();
         let next = held.last().filter(|_| more).map(|last| ChatCursor::after(last).to_text());
         (page, next, seq)
+    }
+
+    /// The rows of a client's window (`_acpmux/chats_window`), read under the index lock: none
+    /// while chats are off.
+    pub fn window_rows(&self, spec: &WindowSpec, activity: &ChatActivity) -> WindowRows {
+        let state = lock(&self.state);
+        if !state.settings.enabled {
+            return WindowRows::default();
+        }
+        window::rows(spec, &state.index, activity)
+    }
+
+    /// `_acpmux/chat_projects`: each harness's project folders, every absolute chat folder with
+    /// the time of its newest chat (a chat another chat started left out), by harness id then
+    /// path. acpmux groups its own index, so the app relays a few rows, never every chat. None
+    /// while chats are off.
+    pub fn projects(&self, activity: &ChatActivity) -> Option<Vec<Value>> {
+        let state = lock(&self.state);
+        if !state.settings.enabled {
+            return None;
+        }
+        let mut newest: std::collections::BTreeMap<(&str, &str), i64> =
+            std::collections::BTreeMap::new();
+        for chat in state.index.chats() {
+            let entry = &chat.entry;
+            let Some(cwd) = entry.cwd.as_deref().filter(|cwd| cwd.starts_with('/')) else {
+                continue;
+            };
+            if activity.has_parent(&key_text(&entry.key())) {
+                continue;
+            }
+            let used = newest.entry((entry.harness.id(), cwd)).or_insert(i64::MIN);
+            *used = (*used).max(entry.updated_ms);
+        }
+        Some(
+            newest
+                .into_iter()
+                .map(|((harness, path), used)| json!({"harness": harness, "path": path, "lastUsedMs": used}))
+                .collect(),
+        )
     }
 
     pub fn get(&self, key: &ChatKey) -> Option<IndexedChat> {
