@@ -3,7 +3,8 @@
 //     when a draft shows it) share one vertical center, and each glyph sits in the center of its button;
 //   - the box's columns: + sits as far from the box's left edge as the mic's glyph sits from its right
 //     edge (8 px and 8 px: + and the mic glyphs' centers both sit 22 px in), and the placeholder
-//     starts the prompt's 7 px inset after the + button, so the caret lines up with that column;
+//     starts one 8 px lead gap after the + button, so the caret lines up with that column (Leo
+//     2026-10-31: "composer still looks like shit with the + spacing indent to the text");
 //   - the quiet row under the box: the permission mode (button, text, shield), the model (button,
 //     text) and the context ring (the spinner before usage is reported) share one vertical center.
 // Measured in Chromium on the gallery's composer row (agent-pane.composer-row, the idle chat with an
@@ -20,8 +21,8 @@ import { measureComposerAlignment, type Center, type ComposerAlignment } from ".
 await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
   /** Half a pixel: the subpixel rounding a centered 28 px control and its 16 px glyph can show. */
   const TOLERANCE = 0.5;
-  /** The placeholder starts the prompt's own 7 px inset (markdownField's padding; the placeholder's left) after the + button's box. */
-  const TEXT_GAP = 7;
+  /** The placeholder starts one lead gap (--acpmux-composer-lead-gap, 8 px) after the + button's box. */
+  const TEXT_GAP = 8;
   setDefaultTimeout(180_000);
   try {
     await (await chromium.launch({ headless: true })).close();

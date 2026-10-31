@@ -1536,9 +1536,11 @@ export function NewTabScreen(props: Props) {
             browser's address bar does; the text itself keeps its own press (caret, selection).
             Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
           {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the input inside is the control and takes the keyboard itself. */}
-          <div className="nt-input" onMouseDown={focusFromRow}>
+          <div className="nt-input" data-split={split || undefined} onMouseDown={focusFromRow}>
             {split && attachmentPicker}
-            <div className="nt-field-slot">
+            {/* A prompt glyph (the Console's `>`) keeps a column of its own before the text; with
+              none the text starts one gap after +, and shell mode's `!` stands in that gap. */}
+            <div className="nt-field-slot" data-glyph-column={sections.prompt || undefined}>
               {(shell || sections.prompt) && (
                 <span
                   className={shell ? "nt-input-glyph nt-shell-glyph" : "nt-input-glyph nt-prompt-glyph"}

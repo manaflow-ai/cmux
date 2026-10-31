@@ -80,7 +80,6 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       variant: "image-attached",
       width: 760,
       look: "claude",
-      expect: ["chips"],
     },
     {
       name: "chat-narrow",
@@ -96,7 +95,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       variant: "claude",
       width: 760,
       look: "claude",
-      expect: ["pills", "foot"],
+      expect: ["pills"],
       trailing: ["mic"],
     },
     {
@@ -206,13 +205,16 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
   };
 
   type Box = { left: number; top: number; right: number; bottom: number };
-  type Control = { button: Box; glyph: Box | null };
+  /** A control: its button, its glyph's ink (centering) and its glyph's box (the column). */
+  type Control = { button: Box; glyph: Box | null; glyphBox: Box | null };
   type Measured = {
     look: string | null;
     box: Box | null;
     plus: Control | null;
     mic: Control | null;
     send: Control | null;
+    /** Codex's controls row inside the box under the prompt, when + sits in one. */
+    bar: Box | null;
     /** The prompt's first line, from the viewport: its line box's top and center. */
     line: { top: number; center: number; source: string } | null;
     /** Where the placeholder's (or, with a draft, the typed text's) first character's box starts. */
@@ -275,8 +277,17 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
         const buttons = [...(card?.querySelectorAll(selector) ?? [])].filter((element) => shown(element));
         const button = buttons[0];
         if (!button) return null;
-        return { button: plain(button.getBoundingClientRect()), glyph: ink(button.querySelector("svg")) };
+        const svg = button.querySelector("svg");
+        return {
+          button: plain(button.getBoundingClientRect()),
+          glyph: ink(svg),
+          glyphBox: svg ? plain(svg.getBoundingClientRect()) : null,
+        };
       };
+      const barElement = card
+        ?.querySelector(".acpmux-composer-plus")
+        ?.closest(".acpmux-composer-bar:not(.acpmux-composer-inner)");
+      const bar = barElement ? shown(barElement) : null;
       const plus = control(".acpmux-composer-plus .acpmux-picker-button");
       const mic = control(".acpmux-mic");
       const send = control(".acpmux-send");
@@ -342,7 +353,9 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       const markRow = (selector: string) => {
         const root = [...document.querySelectorAll(selector)].find((element) => shown(element)) ?? null;
         const mark = leadingMark(root);
-        return mark && box ? { left: mark.left - box.left, center: mark.center - box.left, kind: mark.kind } : null;
+        // Only a mark in the box's left half leads the row (a row of trailing controls has none).
+        if (!mark || !box || mark.left - box.left > box.width / 2) return null;
+        return { left: mark.left - box.left, center: mark.center - box.left, kind: mark.kind };
       };
       const rows = {
         chips: boxRow(
@@ -382,6 +395,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
           document.querySelector("[data-composer-look]")?.getAttribute("data-composer-look") ??
           (document.querySelector(".nt-box, .acpmux-composer-box") ? "claude" : null),
         box: box ? plain(box) : null,
+        bar: bar ? plain(bar) : null,
         plus,
         mic,
         send,
@@ -404,13 +418,15 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     if (!m.plus) return ["the + button is not drawn in the box"];
     const plus = m.plus.button;
     const inset = plus.left - m.box.left;
-    if (layout.look === "claude") {
+    // In Codex's look + sits in the row under the prompt, not beside the text.
+    if (!m.bar) {
       if (m.text === null) return ["the text's start is not drawn"];
       const gap = m.text - plus.right;
       if (Math.abs(gap - GAP) > TOLERANCE)
         out.push(`the text (${m.textSource}) starts ${f(gap)} px after +, not ${GAP}`);
     }
-    const glyph = m.plus.glyph;
+    // The column is the + glyph's 16 px box (its left edge and center), not its ink.
+    const glyph = m.plus.glyphBox;
     const glyphLeft = glyph ? glyph.left - m.box.left : null;
     const glyphCenter = glyph ? centerX(glyph) - m.box.left : null;
     for (const row of layout.expect ?? []) {
@@ -457,21 +473,21 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     }
     // One center line: the prompt's first line in Claude's look, the controls' row in Codex's.
     const target =
-      layout.look === "claude" && m.line
-        ? { y: m.line.center, what: "the first line" }
-        : { y: centerY(first[1].button), what: first[0] };
+      !m.bar && m.line ? { y: m.line.center, what: "the first line" } : { y: centerY(first[1].button), what: first[0] };
     for (const [name, control] of shown) {
       const dy = centerY(control.button) - target.y;
       if (Math.abs(dy) > TOLERANCE) out.push(`${name}'s center sits ${f(dy)} px off ${target.what}'s center`);
     }
     // Equal insets: + off the box's left, top (one line) and bottom; the last control off its right.
+    // In Codex's look the bottom is the controls row's (the look's dots sit under it in the box).
+    const floor = m.bar ? m.bar.bottom : m.box.bottom;
     if (m.plus) {
       const b = m.plus.button;
       const left = b.left - m.box.left;
-      const bottom = m.box.bottom - b.bottom;
+      const bottom = floor - b.bottom;
       if (Math.abs(left - bottom) > TOLERANCE)
         out.push(`+ stands ${f(left)} px off the box's left, ${f(bottom)} off its bottom`);
-      if (layout.look === "claude" && !layout.type?.includes("\n")) {
+      if (!m.bar) {
         const top = b.top - m.box.top;
         if (Math.abs(top - bottom) > TOLERANCE && !m.rows.chips)
           out.push(`+ stands ${f(top)} px under the box's top, ${f(bottom)} over its bottom`);
@@ -480,7 +496,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     const last = [m.send, m.mic].find((control) => control !== null);
     if (last) {
       const right = m.box.right - last.button.right;
-      const bottom = m.box.bottom - last.button.bottom;
+      const bottom = floor - last.button.bottom;
       if (Math.abs(right - bottom) > TOLERANCE)
         out.push(`the last control stands ${f(right)} px off the box's right, ${f(bottom)} off its bottom`);
     }

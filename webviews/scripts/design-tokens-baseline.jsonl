@@ -44,7 +44,7 @@
 {"file":"agent-session/acpmux/composerLocation.css","kind":"height","property":"height","values":{"46px":1,"calc(46px + var(--acpmux-strip-gap, 4px))":2,"22px":4,"1px":3,"12px":1,"16px":3,"6px":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"height","property":"min-height","values":{"52px":1,"16px":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"gap","values":{"1px":1,"6px":1,"3px":1}}
-{"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding","values":{"0 var(--acpmux-strip-inset, 3px)":1,"0 6px":2,"0 3px":1,"5px 4px":1,"4px 4px 2px":1,"0 5px":1,"0 calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset) - 6px) var(--acpmux-tray-tuck)":1,"0 0 calc(2px + var(--acpmux-tray-tuck)) calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset))":1,"6px 8px":1,"1px 4px":1,"calc(11px * var(--cmux-interface-scale, 1)) max(0px, calc(8px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px))) calc(11px * var(--cmux-interface-scale, 1)) calc(7px * var(--cmux-interface-scale, 1))":1}}
+{"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding","values":{"0 var(--acpmux-strip-inset, 3px)":1,"0 6px":2,"0 3px":1,"5px 4px":1,"4px 4px 2px":1,"0 5px":1,"0 calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset) - 6px) var(--acpmux-tray-tuck)":1,"0 0 calc(2px + var(--acpmux-tray-tuck)) calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset))":1,"6px 8px":1,"1px 4px":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding-block","values":{"6px":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding-bottom","values":{"2px":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding-inline","values":{"calc(var(--acpmux-top-strip-edge) - 6px)":1}}
@@ -298,7 +298,7 @@
 {"file":"pages/settings/refined.css","kind":"height","property":"height","values":{"16px":1}}
 {"file":"pages/settings/refined.css","kind":"height","property":"min-height","values":{"30px":1}}
 {"file":"pages/settings/refined.css","kind":"spacing","property":"padding","values":{"32px clamp(24px, 4vw, 64px) var(--content-pad-end)":1,"2px":1,"3px 10px":1,"10px 12px 8px":1,"20px 12px var(--content-pad-end)":1,"10px":1}}
-{"file":"pages/settings/styles.css","kind":"height","property":"height","values":{"22px":2,"18px":1,"1px":1,"16px":2,"14px":1,"68px":1,"26px":1,"12px":1,"6px":1}}
+{"file":"pages/settings/styles.css","kind":"height","property":"height","values":{"22px":2,"18px":1,"1px":1,"16px":2,"14px":1,"68px":1,"26px":1,"6px":1,"12px":1}}
 {"file":"pages/settings/styles.css","kind":"height","property":"min-height","values":{"72px":1}}
 {"file":"pages/settings/styles.css","kind":"spacing","property":"gap","values":{"10px":4,"1px":2,"6px":12,"2px":2,"3px":1}}
 {"file":"pages/settings/styles.css","kind":"spacing","property":"padding","values":{"14px 10px":1,"5px 6px":2,"9px 8px":1,"6px 0 8px":1,"2px 8px":1,"3px 8px":1,"1px":2,"1px 10px":1,"3px 10px":1,"3px":1,"3px 6px":1,"1px 2px 1px 8px":1,"10px 0 4px 32px":1,"6px 0 0 40px":1,"0 6px":2,"0 7px":1,"2px":1,"6px":1,"2px var(--density-inset) 6px":1}}

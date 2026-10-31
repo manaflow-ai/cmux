@@ -87,10 +87,18 @@
 .nt-shell-glyph {
   color: var(--agent-ansi-5, #d670d6);
 }
-/* Reserve the text column too, before the first key: changing only the textarea's inner inset
-   still shifts its anonymous text box. The shared icon size is independent of the mode's font. */
-.nt-field-slot .nt-field {
+/* A template with a prompt glyph (the Console's `>`) reserves its text column before the first key:
+   changing only the textarea's inner inset still shifts its anonymous text box. The shared icon size
+   is independent of the mode's font. With no prompt glyph the text starts one lead gap after +
+   (Leo 2026-10-31: "composer still looks like shit with the + spacing indent to the text"), and
+   shell mode's `!` stands in that gap, right before the command, so entering it moves no text. */
+.nt-field-slot[data-glyph-column] .nt-field {
   padding-inline-start: var(--ds-control-icon);
+}
+.nt-input[data-split] .nt-field-slot:not([data-glyph-column]) .nt-input-glyph {
+  inset-inline-start: calc(-1 * var(--acpmux-composer-lead-gap));
+  width: var(--acpmux-composer-lead-gap);
+  justify-content: center;
 }
 .nt-screen[data-shell] .nt-field {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -141,8 +149,11 @@
      2026-10-29: "stop making them take up so much space"). */
   --acpmux-strip-height: 24px;
   margin: 0;
-  /* The ghost buttons' own inset puts the folder icon on the field's text edge. */
+  /* The folder icon's center is 15.5 px into the strip's first ghost button (its padding and ink):
+     the strip's leading padding puts it on the + glyph's center, inset + 14 (Leo 2026-10-31: the
+     project chip row starts at a different x than + and the text). */
   padding: 0 6px;
+  padding-inline-start: calc(var(--nt-composer-inset) - 1.5px);
   border-radius: 0;
   background: none;
   box-shadow: none;
@@ -356,6 +367,40 @@
   align-items: center;
   height: var(--text-content--line-height);
   margin-top: var(--nt-input-pad-block);
+}
+/* The split row's controls, as the chat composer's (composerLocation.css; leo-workspace
+   design/composer.md, Controls; Leo 2026-10-31: "why is our shit not vertically centered like
+   claude's is??? applies to the send and mic buttons"): +, the mic and Send one 28 px control, each
+   the same inset off every box edge it meets, and every center on the field's line. The row keeps
+   its font-scaled padding (newtab-input-scale), so the inset is derived from the one-line row:
+   (line + 2 x padding - 28) / 2. The text starts one lead gap after +. */
+/* The inset the split row's controls stand off the box (below), on the composer and on its
+   suggestions' popover (a portal outside it), which puts its rows' glyphs on the + glyph's column. */
+:root,
+.nt-composer,
+.nt-popover {
+  --nt-composer-inset: max(0px, calc((var(--text-content--line-height) + 2 * var(--text-content) - 28px) / 2));
+}
+.nt-screen .nt-composer {
+  --acpmux-composer-inset: var(--nt-composer-inset);
+}
+/* The suggestions' rows: each row's 16 px glyph centered under the + glyph (inset + 14), past the
+   popover's padding (Leo 2026-10-31: the suggestion rows start at a different x than + and the text). */
+.nt-popover .nt-rows > .nt-row {
+  padding-inline-start: calc(var(--nt-composer-inset) + 6px - var(--ui-popup-padding, 4px));
+}
+.nt-input[data-split] {
+  gap: var(--acpmux-composer-lead-gap);
+  padding: 0 var(--acpmux-composer-inset);
+}
+.nt-input[data-split] > .acpmux-chrome-area > .nt-pickers {
+  min-height: var(--acpmux-composer-control);
+  margin: 0 0 max(0px, calc(var(--nt-input-pad-block) + var(--text-content--line-height) / 2 - var(--acpmux-composer-control) / 2));
+}
+.nt-input[data-split] .nt-pickers .acpmux-mic,
+.nt-input[data-split] .nt-pickers .acpmux-send {
+  width: var(--acpmux-composer-control);
+  height: var(--acpmux-composer-control);
 }
 /* The dictation mic beside Send (DictationMic), both in the bar's end group. */
 .nt-pickers .acpmux-mic {
