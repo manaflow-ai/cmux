@@ -526,6 +526,13 @@ test("a message's closed line previews its first line of text, its spaces collap
   expect(messagePreview("")).toBe("");
   expect(messagePreview("## **Merged** `#23727`")).toBe("Merged #23727");
   expect(messagePreview("- [x] landed")).toBe("landed");
+  // A bare pull request or issue address reads as its short label, as its chip does.
+  expect(messagePreview("merged https://github.com/teamleaderleo/leo-workspace/pull/1234")).toBe(
+    "merged teamleaderleo/leo-workspace#1234",
+  );
+  expect(messagePreview("see https://github.com/manaflow-ai/cmux/issues/27/files, then go")).toBe(
+    "see manaflow-ai/cmux#27, then go",
+  );
   expect(messagePreview("x".repeat(400))).toHaveLength(240);
   // A code fence's marker is no text: its first code line is.
   expect(messagePreview("```ts\nconst retries = 3;\n```\nMore")).toBe("const retries = 3;");
@@ -741,4 +748,47 @@ test("a card drops a signature naming its sender that a record still has", () =>
   expect(unsigned("From claude-sr2: hi", "claude-sr2")).toBe("hi");
   expect(unsigned("[WIP] MERGED", "agent-message-style")).toBe("[WIP] MERGED");
   expect(unsigned("[lane-b] MERGED", "lane-a")).toBe("[lane-b] MERGED");
+});
+
+test("hub lane reports retain their sender, report identity and structured details", () => {
+  const text = "[review-7] SHIP at 123456789abc · no findings · turn 1, idle";
+  const details = { sessionId: "lane-7", commits: ["123456789abc"] };
+  expect(
+    incomingPrompt(text, {
+      _meta: { provenance: { kind: "lane_report", from: "lane-7", fromName: "review-7", details } },
+    }),
+  ).toEqual({
+    kind: "message",
+    message: {
+      name: "review-7",
+      sessionId: "lane-7",
+      report: true,
+      details,
+      text: "SHIP at 123456789abc · no findings · turn 1, idle",
+      raw: text,
+    },
+  });
+});
+
+test("hub inbox notices keep thread identity and participants without inventing a sender session", () => {
+  const text = "[inbox] New messages from other agents in 1 thread.";
+  expect(
+    incomingPrompt(text, {
+      _meta: {
+        provenance: {
+          kind: "inbox_notice",
+          threads: [{ threadId: "from:review/pr:7", from: ["review", "builder"] }, null],
+        },
+      },
+    }),
+  ).toEqual({
+    kind: "message",
+    message: {
+      name: "inbox",
+      text: "New messages from other agents in 1 thread.",
+      raw: text,
+      noticeThreads: [{ id: "from:review/pr:7", sender: "review, builder" }],
+    },
+  });
+  expect(incomingPrompt(text, { client: "app" })).toBeUndefined();
 });
