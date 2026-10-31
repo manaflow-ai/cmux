@@ -10,7 +10,7 @@ const rows = [
       tool("Read the second fixture", "read", "completed", { id: "card-height-two" }),
     ],
     1,
-    { id: "card-height-group", folded: true },
+    { id: "card-height-group", foldRun: true },
   ),
 ];
 

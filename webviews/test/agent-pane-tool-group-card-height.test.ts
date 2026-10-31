@@ -40,8 +40,16 @@ await requireBrowserLane("agent-pane-tool-group-card-height.test.ts", async () =
     );
     const toggle = page.locator(".cv-tool[data-tool-group]").first();
     await toggle.waitFor();
+    await page.waitForFunction(
+      () => document.querySelector(".cv-tool[data-tool-group]")?.getAttribute("aria-expanded") === "false",
+    );
     await toggle.click();
-    await page.waitForFunction(() => document.querySelector('.cv-steps')?.getAnimations().length === 0);
+    await page.waitForFunction(
+      () => document.querySelector(".cv-tool[data-tool-group]")?.getAttribute("aria-expanded") === "true",
+    );
+    await page.waitForFunction(
+      () => document.querySelector<HTMLElement>(".cv-fold")?.getAnimations().length === 0,
+    );
     const card = page.locator(".cv-steps");
     await card.waitFor();
     const geometry = await card.evaluate((node) => {
