@@ -83,6 +83,7 @@ export class AgentProgressStore {
     return changed;
   }
   remove(id: string): void {
+    this.changedProgress.delete(id);
     if (this.structures.delete(id)) this.structureVersion += 1;
     if (!this.values.delete(id)) return;
     this.listeners.get(id)?.forEach((notify) => notify());

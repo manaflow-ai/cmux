@@ -229,6 +229,7 @@ export class SubagentFold {
   private dropPhantom(id: string): void {
     const groups = new Set<Group>([...this.groupOf.values(), ...this.changed, ...(this.open ? [this.open] : [])]);
     this.agents.delete(id);
+    this.progressSource.remove(id);
     this.startedSeq.delete(id);
     const phantomGroup = this.groupOf.get(id);
     this.groupOf.delete(id);
