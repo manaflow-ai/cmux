@@ -63,11 +63,11 @@ afterEach(() => {
   saved.clear();
 });
 
-test("secondary and middle mouse presses leave a recent item unopened and keep native mouse handling", () => {
+test("context-menu presses (right, middle and Mac Control-click) never open a recent item", () => {
   const ran: string[] = [];
   const row = mount(ran);
-  for (const button of [2, 1]) {
-    const event = new MouseEvent("mousedown", { bubbles: true, cancelable: true, button });
+  for (const options of [{ button: 2 }, { button: 1 }, { button: 0, ctrlKey: true }]) {
+    const event = new MouseEvent("mousedown", { bubbles: true, cancelable: true, ...options });
     act(() => {
       row.dispatchEvent(event);
     });
