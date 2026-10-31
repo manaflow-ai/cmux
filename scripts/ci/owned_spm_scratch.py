@@ -109,6 +109,10 @@ SCRATCH = "spm-scratch"
 TRASH = ".trash-"
 # The lock new shared roots are admitted under (not a root's lock: no .lock suffix).
 ADMISSION = ".admission"
+# What a new shared root is admitted for before any root on the mini is measured: one fast-tier build plus
+# its mirrored source (11.6 GiB + 1.8 GiB per root, `du` of spm-scratch on a mini, 2026-10-30), rounded up.
+# A measured root larger than this is used instead.
+ROOT_BYTES_UNMEASURED = 14 * 1024**3
 HELD = "held"
 # swift-package-tests' timeout-minutes is 60: a holder outliving it belongs to a job the runner lost.
 HOLD_SECONDS = 65 * 60

@@ -54,9 +54,13 @@ class Scratch(unittest.TestCase):
         # Plenty of disk unless a test says otherwise.
         self.reserve = unittest.mock.patch.object(scratch, "disk_reserve_bytes", return_value=0)
         self.reserve.start()
+        # A new root's size before any is measured: small, so the tests' disk always has room unless one says not.
+        self.floor = unittest.mock.patch.object(scratch, "ROOT_BYTES_UNMEASURED", 1024)
+        self.floor.start()
 
     def tearDown(self):
         self.reserve.stop()
+        self.floor.stop()
         for holder in scratch.HOLDERS:
             holder.kill()
             holder.wait()
@@ -592,6 +596,59 @@ class Scratch(unittest.TestCase):
         self.assertIn("Tool.sh", os.listdir(source))
         self.assertIn("sources", os.listdir(source / "Packages/macOS/B"))
         self.assertEqual((source / "Packages/macOS/B/sources/b.swift").read_text(), "let b = 1\n")
+
+    def test_resource_bundles_are_never_dropped_through_a_link(self):
+        # A kept build whose <triple> or <config> folder is a link outside the scratch: its bundles are not ours.
+        outside = Path(self.tmp.name) / "outside-build"
+        (outside / "debug/Other.bundle").mkdir(parents=True)
+        (outside / "debug/description.json").write_text("{}")
+        (outside / "triple/debug/Deep.bundle").mkdir(parents=True)
+        (outside / "triple/debug/description.json").write_text("{}")
+        build = self.scratch / "xcode-a/Packages__macOS__B"
+        (build / "arm64-apple-macosx").mkdir(parents=True)
+        os.symlink(str(outside / "debug"), build / "arm64-apple-macosx/debug")
+        os.symlink(str(outside / "triple"), build / "x86_64-apple-macosx")
+        own = build / "arm64-apple-macosx/release"
+        (own / "Own.bundle").mkdir(parents=True)
+        (own / "description.json").write_text("{}")
+        self.assertEqual(scratch.drop_resource_bundles(build), [own / "Own.bundle"])
+        self.assertTrue((outside / "debug/Other.bundle").is_dir())
+        self.assertTrue((outside / "triple/debug/Deep.bundle").is_dir())
+
+    def test_an_empty_store_with_no_room_above_the_reserve_makes_no_root(self):
+        # No root measured yet: a new root still needs room for a whole build, not zero bytes.
+        self.checkout()
+        with unittest.mock.patch.object(scratch, "ROOT_BYTES_UNMEASURED", 10**9), \
+                unittest.mock.patch.object(scratch, "free_bytes", return_value=10**9 + 10), \
+                unittest.mock.patch.object(scratch, "disk_reserve_bytes", return_value=10**9):
+            self.assertIsNone(self.lease())
+        self.assertFalse((self.scratch / "root-0").exists())
+
+    def test_jobs_starting_on_an_empty_store_reserve_room_for_each_pending_root(self):
+        # Another job just made root 0 (held, unbuilt) on an empty store: with room for one root, no second.
+        self.checkout()
+        self.lease(("root-0", "root-1"))
+        with unittest.mock.patch.object(scratch, "ROOT_BYTES_UNMEASURED", 10**6), \
+                unittest.mock.patch.object(scratch, "free_bytes", return_value=10**6 + 10**6 // 2), \
+                unittest.mock.patch.object(scratch, "disk_reserve_bytes", return_value=0):
+            self.assertIsNone(self.lease(("root-0", "root-1")))
+        self.assertFalse((self.scratch / "root-1").exists())
+
+    def test_a_root_evicted_before_its_lock_is_taken_goes_through_admission(self):
+        self.checkout()
+        self.lease(("root-0",))
+        scratch.release_holders()
+        real_open = os.open
+
+        def evict_then_open(path, *args, **kwargs):
+            if str(path) == str(scratch.lock_path(self.scratch / "root-0")) and (self.scratch / "root-0").is_dir():
+                scratch.drop(self.scratch / "root-0")  # prune on another slot, after the scan
+            return real_open(path, *args, **kwargs)
+        with unittest.mock.patch.object(scratch.os, "open", evict_then_open), \
+                unittest.mock.patch.object(scratch, "free_bytes", return_value=10), \
+                unittest.mock.patch.object(scratch, "disk_reserve_bytes", return_value=10):
+            self.assertIsNone(self.lease(("root-0",)))  # no room: not remade without admission
+        self.assertFalse((self.scratch / "root-0").exists())
 
     def test_a_directory_replaced_by_a_link(self):
         self.checkout()
