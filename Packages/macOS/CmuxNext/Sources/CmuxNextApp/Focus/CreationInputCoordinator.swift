@@ -23,6 +23,8 @@ final class CreationInputCoordinator {
     private var replaying = false
     /// The longest a key waits for a selected terminal's surface (the slowest takes about 350 ms).
     var holdLimit: Duration = .seconds(2)
+    /// How a held key runs again: `NSApplication.sendEvent`, as typed (the key router, key equivalents and the menu).
+    var runKey: @MainActor (NSEvent, NSWindow) -> Void = { event, _ in NSApp.sendEvent(event) }
 
     /// How each window's creation holds ended (``CreationHoldEnd``, R-L5: its end is a signal).
     private(set) var holdEnds = CreationHoldLog()
@@ -150,7 +152,7 @@ final class CreationInputCoordinator {
         let opened = buffer.openedCount
         for (index, key) in keys.enumerated() {
             replaying = true
-            NSApp.sendEvent(key)
+            runKey(key, window)
             replaying = false
             if let next = buffers[window.windowNumber], next !== buffer || next.openedCount != opened {
                 next.prepend(keys.dropFirst(index + 1))
