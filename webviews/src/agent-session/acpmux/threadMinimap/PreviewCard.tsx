@@ -168,52 +168,56 @@ export const PreviewCard = React.forwardRef<
   // The text budget is six lines: the old two-line prompt plus four-line reply. Measure the
   // prompt's actual wrapped lines when the card opens (and when its width changes), then give the
   // reply the remaining whole lines. Metadata and failure details keep their old natural rows.
+  /// Sets the reply's line budget for this card's kind, in place (no state: it changes no React
+  /// output), then places the card by its height after that change. Every card kind takes this one
+  /// path, at open and on every resize, so a card reused for another kind (a prompt's card, then a
+  /// reply's) is measured after its clamp changed, never before (#28540 review).
+  const fit = useCallback(
+    (node: HTMLElement, promptCard: boolean) => {
+      const replyNode = node.querySelector<HTMLElement>(".acpmux-minimap__reply");
+      const promptNode = node.querySelector<HTMLElement>(".acpmux-minimap__prompt");
+      const style = promptNode?.ownerDocument.defaultView?.getComputedStyle(promptNode);
+      if (!promptCard || !replyNode || !promptNode || !style) {
+        // A reply's card takes the reply's own clamp (data-only): no prompt card's budget.
+        replyNode?.style.removeProperty("--acpmux-minimap-reply-lines");
+        replyNode?.style.removeProperty("--acpmux-minimap-reply-line-height");
+      } else {
+        const lineHeight = Number.parseFloat(style.lineHeight) || 20;
+        const promptLines = Math.max(1, Math.min(3, Math.ceil(promptNode.getBoundingClientRect().height / lineHeight)));
+        const naturalReply = replyNode.cloneNode(true) as HTMLElement;
+        naturalReply.style.cssText =
+          "position:absolute; visibility:hidden; display:block; height:auto; max-height:none; -webkit-line-clamp:unset;";
+        naturalReply.style.width = `${replyNode.getBoundingClientRect().width}px`;
+        node.append(naturalReply);
+        const naturalReplyLines = Math.max(
+          1,
+          Math.min(4, Math.ceil(naturalReply.getBoundingClientRect().height / lineHeight)),
+        );
+        naturalReply.remove();
+        // Match the old two-line prompt + four-line reply text budget for this same content. A
+        // longer prompt spends only the reply lines it needs, so the card never grows because of it.
+        const oldTextLines = Math.min(2, promptLines) + naturalReplyLines;
+        const lines = Math.max(1, Math.min(4, oldTextLines - promptLines));
+        replyNode.style.setProperty("--acpmux-minimap-reply-lines", String(lines));
+        replyNode.style.setProperty("--acpmux-minimap-reply-line-height", `${lineHeight}px`);
+      }
+      // The budget sets the card's height, and with it where the card centers.
+      place();
+    },
+    [place],
+  );
   useLayoutEffect(() => {
     const node = self.current;
     if (!node) return;
-    if (prompt === undefined) {
-      // A reply's card takes the reply's own clamp (data-only): drop a prompt card's budget.
-      const replyNode = node.querySelector<HTMLElement>(".acpmux-minimap__reply");
-      replyNode?.style.removeProperty("--acpmux-minimap-reply-lines");
-      replyNode?.style.removeProperty("--acpmux-minimap-reply-line-height");
-      return;
-    }
-    const update = () => {
-      const promptNode = node.querySelector<HTMLElement>(".acpmux-minimap__prompt");
-      const replyNode = node.querySelector<HTMLElement>(".acpmux-minimap__reply");
-      if (!promptNode || !replyNode) return;
-      const style = promptNode.ownerDocument.defaultView?.getComputedStyle(promptNode);
-      if (!style) return;
-      const lineHeight = Number.parseFloat(style.lineHeight) || 20;
-      const promptLines = Math.max(1, Math.min(3, Math.ceil(promptNode.getBoundingClientRect().height / lineHeight)));
-      const naturalReply = replyNode.cloneNode(true) as HTMLElement;
-      naturalReply.style.cssText =
-        "position:absolute; visibility:hidden; display:block; height:auto; max-height:none; -webkit-line-clamp:unset;";
-      naturalReply.style.width = `${replyNode.getBoundingClientRect().width}px`;
-      node.append(naturalReply);
-      const naturalReplyLines = Math.max(
-        1,
-        Math.min(4, Math.ceil(naturalReply.getBoundingClientRect().height / lineHeight)),
-      );
-      naturalReply.remove();
-      // Match the old two-line prompt + four-line reply text budget for this same content. A
-      // longer prompt spends only the reply lines it needs, so the card never grows because of it.
-      const oldTextLines = Math.min(2, promptLines) + naturalReplyLines;
-      const lines = Math.max(1, Math.min(4, oldTextLines - promptLines));
-      // Written in place, not held in state: the budget changes no React output, and a state change
-      // here cost the card a second commit each time it opened or changed rows.
-      replyNode.style.setProperty("--acpmux-minimap-reply-lines", String(lines));
-      replyNode.style.setProperty("--acpmux-minimap-reply-line-height", `${lineHeight}px`);
-      // A new budget changes the card's height, and with it where the card centers.
-      place();
-    };
+    const promptCard = prompt !== undefined;
+    const update = () => fit(node, promptCard);
     update();
-    // Stops with the card's content (a new prompt, reply or failure) or the card going: disconnected
-    // in the cleanup either way.
+    // Stops with the card's content (a new prompt, reply or failure, or a change of kind) or the
+    // card going: disconnected in the cleanup either way.
     const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
     observer?.observe(node);
     return () => observer?.disconnect();
-  }, [metadata?.failure, metadata?.failed, prompt, reply, place]);
+  }, [metadata?.failure, metadata?.failed, prompt, reply, fit]);
   const own = useCallback(
     (node: HTMLDivElement | null) => {
       self.current = node;
