@@ -5,6 +5,7 @@ mod daemon_env;
 const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
 
 use acpmux::peer::Peer;
+use acpmux::peer_link::Backoff;
 use futures_util::SinkExt;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -41,14 +42,18 @@ async fn close_1012_reports_restarting_retries_immediately_then_resumes_failure_
     assert_eq!(summary["connected"], false);
     assert!(summary["error"].is_null(), "restart is not a transport error: {summary}");
 
-    let (retry, _) = timeout_at(restarting_at + Duration::from_millis(500), listener.accept())
+    // Sooner than the shortest ordinary backoff step (half of `Backoff::BASE`), so this is the
+    // restart's own immediate retry and not a backoff wait.
+    let (retry, _) = timeout_at(restarting_at + Backoff::BASE / 2, listener.accept())
         .await
-        .expect("Close 1012 must retry within 500ms, without the ordinary 1s minimum delay")
+        .expect("Close 1012 must retry at once, without the ordinary backoff wait")
         .unwrap();
-    assert!(restarting_at.elapsed() < Duration::from_millis(500));
+    assert!(restarting_at.elapsed() < Backoff::BASE / 2);
 
     // Reset the immediate retry during its WebSocket handshake. The restart exception is
-    // consumed: an actual failure must wait before trying again, and must still retry.
+    // consumed: an actual failure waits its ordinary first backoff step before it tries again
+    // (at least half of `Backoff::BASE`, 250 ms since #28646 made the base 0.5 s), and still
+    // retries.
     let failed_at = Instant::now();
     drop(retry);
     timeout(Duration::from_secs(5), notices.recv()).await.unwrap().unwrap();
@@ -58,15 +63,16 @@ async fn close_1012_reports_restarting_retries_immediately_then_resumes_failure_
         "a failed retry is an ordinary failure: {summary}"
     );
     assert!(summary["error"].is_string());
-    assert!(
-        timeout(Duration::from_millis(500), listener.accept()).await.is_err(),
-        "the failed retry must not inherit the immediate-retry exception"
-    );
     let (_next, _) = timeout(Duration::from_secs(3), listener.accept())
         .await
         .expect("ordinary reconnect backoff still retries")
         .unwrap();
-    assert!(failed_at.elapsed() >= Duration::from_secs(1), "real failure keeps minimum backoff");
+    // Measured from before the reset: the backoff wait starts only once the failure is seen.
+    let waited = failed_at.elapsed();
+    assert!(
+        waited >= Backoff::BASE / 2,
+        "the failed retry must not inherit the immediate-retry exception: it came after {waited:?}"
+    );
 
     peer.stop();
     // End the unfinished handshake so run observes stop.
