@@ -253,6 +253,7 @@ public final class DaemonService {
                 await connection.closeAndWait()
                 return
             }
+            await connection.observePaneNotReady(self.paneNotReadyReporter)
             self.didConnect(connection, identity: identity)
             self.windowState = WindowStateStore(connection: connection)
             logger.info("cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
@@ -336,6 +337,7 @@ public final class DaemonService {
                     await connection.closeAndWait()
                     return
                 }
+                await connection.observePaneNotReady(self.paneNotReadyReporter)
                 self.didConnect(connection, identity: identity)
                 logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
                 await store.run(connection: connection, scheduler: drainScheduler)
@@ -349,6 +351,18 @@ public final class DaemonService {
     private func didConnect(_ connection: DaemonConnection, identity: DaemonIdentity) {
         Self.launchMark("daemon_connected")
         self.connection = connection
+        let recovery = recovery
+        connection.observeAnswering { [weak connection] answering in
+            // task-owner: one hop to main per heartbeat edge or unanswered ask; nothing to cancel. On main it reads the
+            // connection's answering again, so hops that land out of order never leave a stale state; an unanswered
+            // ask that still holds probes the owner once more.
+            Task { @MainActor in
+                guard let connection else { return }
+                let now = connection.daemonAnswering
+                if now == answering || now { recovery.noteDaemonAnswering(now) }
+            }
+        }
+        recovery.noteDaemonAnswering(connection.daemonAnswering)
         rememberLaunchSnapshot(identity)
         resumeConnectionWaiters()
         store.noteHandshake(identity)
@@ -469,13 +483,41 @@ public final class DaemonService {
         } catch {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             await closeTicket(ticket, label: label, error: error)
-            return ActionWorkFailure(label, error)
+            return workFailure(label, error)
         }
     }
 
     /// Receives every command task `send` starts, so an action run from the
     /// control socket can await it (`ActionRegistry.track`).
     @ObservationIgnored public var workTracker: ((ActionWork) -> Void)?
+    /// Shows a request refused because it names a pane still opening (``PaneNotReady``) when no open action scope
+    /// answers it; the app sets it (the refusal path: log + HUD). Gets the localized reason.
+    @ObservationIgnored public var onPaneNotReady: ((_ reason: String) -> Void)?
+
+    /// What each connection calls when it refuses a request that names a pane still opening, from any sender
+    /// (`DaemonConnection.observePaneNotReady`): the notice shows on the next frame (the drain batcher: work a person's
+    /// action caused), once.
+    /// The service stays on the main actor: the hook carries only a main-actor closure (Sendable because it runs
+    /// there), never the service itself.
+    var paneNotReadyReporter: @Sendable (PaneNotReady) -> Void {
+        let batcher = drainScheduler
+        let show: @MainActor @Sendable (PaneNotReady) -> Void = { [weak self] notReady in self?.showPaneNotReady(notReady) }
+        return { notReady in batcher.scheduleFrame { show(notReady) } }
+    }
+
+    private func showPaneNotReady(_ notReady: PaneNotReady) {
+        onPaneNotReady?(paneNotReadyText?() ?? notReady.reason)
+    }
+
+    /// ``PaneNotReady``'s text in the app's language (the app sets it; its string catalog). Nil: the English text.
+    @ObservationIgnored public var paneNotReadyText: (() -> String)?
+
+    /// The failure of command `label` as the person reads it: ``PaneNotReady`` as a typed refusal in the app's language.
+    public func workFailure(_ label: String, _ error: any Error) -> ActionWorkFailure {
+        var failure = ActionWorkFailure(label, error)
+        if error is PaneNotReady, let text = paneNotReadyText?() { failure.message = text }
+        return failure
+    }
 
     /// Teardown that must finish before the caller removes a test session's state or reaps its owner.
     public func shutdownConnectionAndWait() async {

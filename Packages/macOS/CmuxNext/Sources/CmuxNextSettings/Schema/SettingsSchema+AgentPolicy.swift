@@ -57,7 +57,7 @@ extension SettingsSchema {
         "tabs.plusButton",
         "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons", "browser.toolbarPosition",
         "navigation.historyScope", "navigation.history.scope",
-        "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors",
+        "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.textSize", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors",
         "sidebar.showLocalMachine",
         "sidebar.controlsOnHover", // sidebar control visibility (looks only)
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",
@@ -65,10 +65,11 @@ extension SettingsSchema {
         "sidebar.side", "sidebar.style",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
         "tabs.newTabTemplate",
+        "tabs.nativeNewTabPage", // which New Tab page draws; a look switch, ends no work
         "tabs.newTabPosition",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
-        "tabs.terminalFirst",
+        "tabs.nativeNewTabPage", // which New Tab page opens; ends no work
         "app.hideDockIconWithoutWindows", // Dock icon and Cmd-Tab entry with no window open; ends no work
         "app.showMenuBarIcon", // the menu bar item; looks only, ends no work
         "tabs.overflow",
@@ -185,7 +186,7 @@ extension SettingsSchema {
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
-        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.noFade", "sidebar.showChats", "sidebar.sessionTree",
+        "sidebar.pinnedBandsScroll", "sidebar.noFade", "sidebar.showChats", "sidebar.sessionTree",
         "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.maxRows",
         "sidebar.hoverCards.sections.timings", "sidebar.hoverCards.sections.prompts", "sidebar.hoverCards.sections.waiting",
         "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.hoverCards.groups.workspaceGroups", "sidebar.hoverCards.groups.tabGroups",
@@ -198,6 +199,8 @@ extension SettingsSchema {
         "browser.siteEngines",
         "browser.newTabPage",
         "browser.showBookmarksBar",
+        // Whether browser tabs offer to import cookies: the card reads nothing until the person clicks Import.
+        "browser.import.cookieBanner",
         "browser.toolbarButtons",
         "browser.hibernation",
         "browser.hibernationExclusions",
