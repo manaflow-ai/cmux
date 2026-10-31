@@ -15,7 +15,7 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct CloudNewWorkspaceLateStartTests {
     private struct Recorded: DaemonRequest {
-        typealias Response = JSONValue
+        typealias Response = CmuxNextDaemon.JSONValue
         static let command = "test-cloud-creates"
     }
 
@@ -103,7 +103,7 @@ struct CloudNewWorkspaceLateStartTests {
         } catch {
             failure = error
         }
-        let recorded: JSONValue
+        let recorded: CmuxNextDaemon.JSONValue
         do {
             recorded = try await connection.request(Recorded())
         } catch {
