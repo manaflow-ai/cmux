@@ -75,6 +75,10 @@ jobs:
           if [ "$LISTED" != true ]; then
             gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/paths.txt"
           fi
+          size=()
+          # The base copy runs; one from before the light path has no size flags.
+          if grep -q -- "--additions" scripts/ci/pr_perf_section_check.py; then
+            size=(--additions "$ADDITIONS" --deletions "$DELETIONS")
+          fi
           python3 scripts/ci/pr_perf_section_check.py --body-file "$RUNNER_TEMP/body.md" \
-            --paths-file "$RUNNER_TEMP/paths.txt" --title "$TITLE" --labels "$LABELS" \
-            --additions "$ADDITIONS" --deletions "$DELETIONS"
+            --paths-file "$RUNNER_TEMP/paths.txt" --title "$TITLE" --labels "$LABELS" "${size[@]}"
