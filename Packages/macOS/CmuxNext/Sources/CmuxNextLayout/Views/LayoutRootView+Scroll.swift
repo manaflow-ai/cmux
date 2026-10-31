@@ -78,13 +78,14 @@ extension LayoutRootView: ScrollGestureOwning {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
             let point = convert(event.locationInWindow, from: nil)
             guard bounds.contains(point), let active = model.activeScreenID, let view = screenViews[active] else { return event }
-            // A press AppKit gives to the window's frame (its resize edges and corners, inside the frame
-            // too) resizes the window and reaches no pane: it focuses none (cmux-ad P0 2026-10-31).
-            guard Self.pressReachesContent(event.locationInWindow, in: window) else { return event }
             // The strip scrollbar takes its own clicks.
             if let scrollbar = view.scrollbar, !scrollbar.isHidden,
                scrollbar.hitTest(view.convert(event.locationInWindow, from: nil)) != nil { return event }
-            if let pane = view.pane(at: view.convert(event.locationInWindow, from: nil)) {
+            // Only the pane AppKit gives the press to takes the focus (cmux-ad P0 2026-10-31). A press
+            // the window frame keeps (a resize at an edge or corner, inside the frame too), a divider's
+            // hit area, the sidebar's resize band or the titlebar's buttons reaches no pane, although it
+            // lies over one: it focuses none, so the next keys go where the person was typing.
+            if let pane = paneReceivingPress(at: event.locationInWindow, in: view) {
                 model.focus(pane, source: .pointer)
             }
             return event
@@ -95,14 +96,18 @@ extension LayoutRootView: ScrollGestureOwning {
         }
     }
 
-    /// Whether a press at `locationInWindow` reaches `window`'s content view, by the hit test AppKit
-    /// dispatches the press with (from the window's frame view). The monitor sees a press before
-    /// AppKit dispatches it; where the frame view keeps the press for itself (a window resize at an
-    /// edge or corner), no view in the content gets it, so the press is not a click in a pane.
-    static func pressReachesContent(_ locationInWindow: NSPoint, in window: NSWindow?) -> Bool {
-        guard let content = window?.contentView, let frameView = content.superview else { return true }
-        guard let hit = frameView.hitTest(frameView.convert(locationInWindow, from: nil)) else { return false }
-        return hit === content || hit.isDescendant(of: content)
+    /// The pane a press at `locationInWindow` reaches: the one whose host holds the view AppKit
+    /// dispatches the press to, by its hit test from the window's frame view. The monitor sees the
+    /// press before that dispatch; nil when the press reaches no pane of `screen` (the frame view, a
+    /// divider, a view over the layout such as the sidebar's resize band).
+    func paneReceivingPress(at locationInWindow: NSPoint, in screen: ScreenContentView) -> PaneID? {
+        guard let frameView = window?.contentView?.superview,
+              let hit = frameView.hitTest(frameView.convert(locationInWindow, from: nil)) else { return nil }
+        for view in sequence(first: hit, next: \.superview) {
+            if view === screen { return nil }
+            if let host = view as? PaneHostView, context.hosts[host.pane] === host, host.isDescendant(of: screen) { return host.pane }
+        }
+        return nil
     }
 
     /// The monitor's scroll routing: `event` as `eventWindow`, the window AppKit sent it to, has it
