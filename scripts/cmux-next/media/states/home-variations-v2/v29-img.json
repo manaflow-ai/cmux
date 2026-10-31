@@ -1,0 +1,110 @@
+{
+ "title": "Home variation V29 (background picture)",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Workspace bug-412-login",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "bug-412-login"
+   ],
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "Workspace bug-418-crash",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "bug-418-crash"
+   ],
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "Workspace bug-421-scroll",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "bug-421-scroll"
+   ],
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "Go to Home",
+   "cmux": [
+    "action",
+    "run",
+    "home.show"
+   ],
+   "wait": 3,
+   "shot": false,
+   "optional": "Home needs its page"
+  },
+  {
+   "title": "Empty list",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "count": 0,
+     "team": 6
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "Sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 6
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "Variant",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 29,
+     "monogram": "CH",
+     "image": true
+    }
+   },
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "V29",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 29,
+     "monogram": "CH",
+     "image": true
+    }
+   },
+   "wait": 1.5
+  }
+ ],
+ "settings": {
+  "appearance": {
+   "background": "friedrich-wanderer"
+  }
+ }
+}

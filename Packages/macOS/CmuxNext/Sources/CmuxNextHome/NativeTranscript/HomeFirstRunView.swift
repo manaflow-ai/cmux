@@ -63,6 +63,10 @@ final class HomeFirstRunView: NSView {
     let variantTiles = NSStackView()
     let variantFrame = NSView()
     let variantHeading = ChromeLabel(labelWithString: "")
+    /// DEBUG: the variant's "Chief made a workspace" thread and workspace cards (round 2).
+    let variantWorkspaces = DebugVariantWorkspacesView()
+    lazy var variantWorkspacesWidth = variantWorkspaces.widthAnchor.constraint(equalToConstant: 0)
+    lazy var variantWorkspacesHeight = variantWorkspaces.heightAnchor.constraint(equalToConstant: 0)
     #endif
     lazy var headerWidth = agentsHeader.widthAnchor.constraint(equalToConstant: Self.maxWidth)
     /// Called when the user picks open a terminal or start an agent.

@@ -28,6 +28,8 @@ final class HomeService {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// DEBUG: the Chiefs of `debug.home.sidebar_fixture`'s rows, which wear their own characters too.
     var debugChiefs: Set<String> = []
+    /// DEBUG: the variations gallery's text avatar (e.g. "CH") for every Chief, no picture.
+    var debugChiefMonogram: String?
     #endif
     /// While a Chief turn waits for the compactor (ChiefSettleWatch).
     var settleNotice: String?

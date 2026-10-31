@@ -1,0 +1,212 @@
+{
+ "title": "Home variation V28 (background picture)",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Workspace bug-412-login",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "bug-412-login"
+   ],
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "Tab in bug-412-login",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "extra tab"
+  },
+  {
+   "title": "Browser in bug-412-login",
+   "cmux": [
+    "tab",
+    "new-browser",
+    "--url",
+    "https://example.com"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "browser tab"
+  },
+  {
+   "title": "Workspace bug-418-crash",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "bug-418-crash"
+   ],
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "Workspace bug-421-scroll",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "bug-421-scroll"
+   ],
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "Tab in bug-421-scroll",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "extra tab"
+  },
+  {
+   "title": "Browser in bug-421-scroll",
+   "cmux": [
+    "tab",
+    "new-browser",
+    "--url",
+    "https://example.com"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "browser tab"
+  },
+  {
+   "title": "Workspace api",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "api"
+   ],
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "Workspace docs",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "docs"
+   ],
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "Tab in docs",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "extra tab"
+  },
+  {
+   "title": "Browser in docs",
+   "cmux": [
+    "tab",
+    "new-browser",
+    "--url",
+    "https://example.com"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "browser tab"
+  },
+  {
+   "title": "Workspace release-1.3",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "release-1.3"
+   ],
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "Go to Home",
+   "cmux": [
+    "action",
+    "run",
+    "home.show"
+   ],
+   "wait": 3,
+   "shot": false,
+   "optional": "Home needs its page"
+  },
+  {
+   "title": "Empty list",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "count": 0,
+     "team": 0
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "Sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "Variant",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 28,
+     "monogram": "CH",
+     "image": true
+    }
+   },
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "V28",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 28,
+     "monogram": "CH",
+     "image": true
+    }
+   },
+   "wait": 1.5
+  }
+ ],
+ "settings": {
+  "appearance": {
+   "background": "van-gogh-starry-night"
+  }
+ }
+}

@@ -24,6 +24,10 @@ extension HomeFirstRunView {
             setMemoryOfferSilently(variant.actions.contains("memory") ? (variant.actionTitles["memory"] ?? variant.memoryTitle) : nil)
             setIntro(variant.parts.contains(.intro) ? (variant.intro ?? HomeStrings.firstRunIntro) : nil)
             variantHeading.stringValue = variant.heading ?? ""
+            variantWorkspaces.ask = variant.ask
+            variantWorkspaces.reply = variant.reply
+            variantWorkspaces.compact = variant.compactCards
+            variantWorkspaces.workspaces = variant.workspaces
         } else {
             starters.look = .wrapped
             setIntro(nil)
@@ -84,6 +88,8 @@ extension HomeFirstRunView {
             variantTiles.orientation = .horizontal
             variantTiles.distribution = .fillEqually
             variantTiles.translatesAutoresizingMaskIntoConstraints = false
+            variantWorkspacesWidth.isActive = true
+            variantWorkspacesHeight.isActive = true
         }
         variantFrame.isHidden = !variant.framed
         stack.alignment = variant.leading ? .leading : .centerX
@@ -100,6 +106,7 @@ extension HomeFirstRunView {
                 for row in variantActionRows { variantTiles.addArrangedSubview(row) }
                 groups.append([variantTiles])
             case .switchCard: groups.append([switchCard])
+            case .workspaces: groups.append([variantWorkspaces])
             }
         }
         for group in groups { for view in group { stack.addArrangedSubview(view); view.isHidden = false } }
@@ -129,6 +136,9 @@ extension HomeFirstRunView {
         heroHeight.constant = hero.height(for: width)
         introHeight.constant = intro.height(for: introW)
         cardHeight.constant = switchCard.height(for: width)
+        variantWorkspaces.scale = scale
+        variantWorkspacesWidth.constant = width
+        variantWorkspacesHeight.constant = variantWorkspaces.height(for: width)
         variantHeading.font = .systemFont(ofSize: TypeScale.heading * scale, weight: TypeScale.emphasis)
         variantHeading.alignment = variant.leading ? .left : .center
         variantHeading.frame.size.width = width
@@ -157,6 +167,7 @@ extension HomeFirstRunView {
         switchCard.applyColors(primary: colors.primary, tertiary: colors.tertiary, fill: .clear, border: colors.border)
         variantFrame.layer?.backgroundColor = NSColor.clear.cgColor
         variantFrame.layer?.borderColor = colors.border.cgColor
+        variantWorkspaces.colors = colors
         if variant.introBlue {
             // The sent-message blue Messages uses, white text: Chief's first line reads as a chat bubble.
             intro.applyColors(text: .white, fill: NSColor(srgbRed: 0.04, green: 0.52, blue: 1.0, alpha: 1))
@@ -172,12 +183,17 @@ extension HomeFirstRunView {
 extension HomeNativeTranscriptView {
     /// DEBUG: shows the first-run panel as variation `number` (1...16; anything else: the shipping
     /// panel) and returns its caption (nil for the shipping panel).
-    @discardableResult public func debugSetFirstRunVariant(_ number: Int) -> String? {
+    /// `monogram` (e.g. "CH") replaces the Chief's picture in the header and hero; `image` keeps the
+    /// window's background picture (`appearance.background`) as the one shared background instead of
+    /// the variant's colour.
+    @discardableResult public func debugSetFirstRunVariant(_ number: Int, monogram: String? = nil, image: Bool = false) -> String? {
         debugVariantNumber = number
+        debugImageBackdrop = image
         let variant = HomeFirstRunVariant.numbered(number)
         firstRun.variant = variant
-        if let window, let background = variant?.background, background.color(dark: false) != nil {
-            DebugUnifiedBackdrop.install(in: window, background: background)
+        if let monogram { setChiefAvatar(picture: nil, text: monogram) }
+        if let window, let background = variant?.background, background.color(dark: false) != nil || image {
+            DebugUnifiedBackdrop.install(in: window, background: background, image: image)
             // No tinted glass band over the chat's top: it read as a second background.
             transcript.setTopFadeStyle(.edgeShadow)
             applyTheme()
@@ -187,13 +203,14 @@ extension HomeNativeTranscriptView {
         firstRun.needsLayout = true
         needsLayout = true
         guard let variant else { return nil }
-        return "\(variant.caption). Background: \(variant.background.name)"
+        return "\(variant.caption). Background: \(image ? "the window's background picture" : variant.background.name)"
     }
 
     /// DEBUG: the variant's shared background for this view's appearance, nil without one; the
     /// chat's own palette background takes it (`applyTheme`).
     func debugVariantBackground() -> NSColor? {
         guard let number = debugVariantNumber, let variant = HomeFirstRunVariant.numbered(number) else { return nil }
+        if debugImageBackdrop { return .clear }
         return variant.background.color(dark: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
     }
 }
@@ -205,6 +222,8 @@ extension HomeNativeTranscriptView {
 /// search and filter capsules, bubbles, buttons) keep their own look.
 final class DebugUnifiedBackdrop: NSView {
     var background: HomeFirstRunVariant.Background
+    /// The window's background picture is the shared background: nothing is painted over it.
+    var image = false
 
     init(background: HomeFirstRunVariant.Background) {
         self.background = background
@@ -215,7 +234,7 @@ final class DebugUnifiedBackdrop: NSView {
 
     required init?(coder: NSCoder) { nil }
 
-    static func install(in window: NSWindow, background: HomeFirstRunVariant.Background) {
+    static func install(in window: NSWindow, background: HomeFirstRunVariant.Background, image: Bool = false) {
         guard let content = window.contentView else { return }
         let view = content.subviews.compactMap { $0 as? DebugUnifiedBackdrop }.first ?? {
             let view = DebugUnifiedBackdrop(background: background)
@@ -224,6 +243,7 @@ final class DebugUnifiedBackdrop: NSView {
             return view
         }()
         view.background = background
+        view.image = image
         window.titlebarAppearsTransparent = true
         view.needsDisplay = true
         view.repaint()
@@ -242,13 +262,34 @@ final class DebugUnifiedBackdrop: NSView {
     func repaint() {
         guard let window, let content = window.contentView else { return }
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let wide = content.bounds.width * 0.2, tall = content.bounds.height * 0.5
+        // Sidebar cards ("Did you know?"): no fill or glass rim of their own, a hairline only.
+        func flattenCards(_ view: NSView) {
+            for child in view.subviews {
+                if let card = child as? CardSurfaceView {
+                    card.layer?.backgroundColor = NSColor.clear.cgColor
+                    card.rimView?.isHidden = true
+                    card.edgeView?.isHidden = true
+                    card.layer?.borderWidth = 1 / max(window.backingScaleFactor, 1)
+                    card.layer?.borderColor = (dark ? NSColor.white : NSColor.black).withAlphaComponent(0.14).cgColor
+                }
+                flattenCards(child)
+            }
+        }
+        flattenCards(content)
+        if let frame = content.superview { for sibling in frame.subviews where sibling !== content { flattenCards(sibling) } }
+        if image {
+            layer?.backgroundColor = NSColor.clear.cgColor
+            for transcript in Self.transcripts(in: content) where transcript.debugVariantNumber != nil { transcript.applyTheme() }
+            return
+        }
         guard let color = background.color(dark: dark) else { return }
         layer?.backgroundColor = color.cgColor
         window.backgroundColor = color
-        let wide = content.bounds.width * 0.2
         func walk(_ view: NSView) {
             for child in view.subviews where child !== self {
-                let big = child.bounds.width >= wide
+                // A narrow full-height column (the collapsed list strip) counts as a panel too.
+                let big = child.bounds.width >= wide || child.bounds.height >= tall
                 if big, child is NSVisualEffectView || child is GlassPanelView, child.bounds.height >= 24 {
                     child.isHidden = true
                     continue

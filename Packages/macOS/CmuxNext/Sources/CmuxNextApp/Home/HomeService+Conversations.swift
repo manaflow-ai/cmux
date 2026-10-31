@@ -161,7 +161,12 @@ extension HomeService {
             rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
             me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] },
             chiefAvatars: { [weak self] in self?.chiefFaces ?? [:] },
-            defaultChiefAvatar: { [weak self] in HomeHostView.defaultTileAvatar(picture: self?.services.characterPicture(of: nil)) },
+            defaultChiefAvatar: { [weak self] in
+                #if DEBUG || CMUX_BENCH_HOOKS
+                if let monogram = self?.debugChiefMonogram { return .text(monogram) }
+                #endif
+                return HomeHostView.defaultTileAvatar(picture: self?.services.characterPicture(of: nil))
+            },
             chiefHarnesses: { [weak self] in self?.directory.chiefHarnesses ?? [:] },
             chiefRoster: { [weak self] in self?.chiefRoster ?? HomeChiefRoster() },
             chiefNames: { [weak self] in self?.chiefNames ?? [:] })
@@ -283,6 +288,9 @@ extension HomeService {
         var chiefs = Set(homeStore.rows.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
         #if DEBUG
         chiefs.formUnion(debugChiefs)
+        if let monogram = debugChiefMonogram {
+            return Dictionary(uniqueKeysWithValues: (chiefs.union([DaemonHomeSource.chief.id])).map { ($0, HomeChiefAvatar.text(monogram)) })
+        }
         #endif
         return Self.chiefFaces(chiefs: chiefs, own: directory.chiefAvatars) { services.characterPicture(of: $0) }
     }

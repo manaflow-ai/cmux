@@ -24,6 +24,8 @@ public final class HomeNativeTranscriptView: NSView {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// DEBUG: the variations gallery's current variant (`debugSetFirstRunVariant`), nil when never set.
     var debugVariantNumber: Int?
+    /// DEBUG: the gallery's background-picture capture (the chat paints no background of its own).
+    var debugImageBackdrop = false
     #endif
     var starterSent = false
     var starterIntakes = 0 { didSet { updateStarterAvailability() } }

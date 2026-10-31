@@ -7,7 +7,7 @@ import AppKit
 /// gallery. Copy here is draft copy, not localized: a chosen variant moves into `HomeStrings`.
 public struct HomeFirstRunVariant: Sendable {
     /// The panel's parts, in the order the variant stacks them.
-    public enum Part: Sendable { case heading, intro, hero, starters, actions, tiles, switchCard }
+    public enum Part: Sendable { case heading, intro, hero, starters, actions, tiles, switchCard, workspaces }
     /// How the action rows draw.
     public enum RowStyle: Sendable { case card, plain, pill, tall }
     public enum Vertical: Sendable { case center, top, bottom }
@@ -63,17 +63,25 @@ public struct HomeFirstRunVariant: Sendable {
     /// The whole panel sits on a raised card.
     var framed = false
     var background: Background = .paper
+    /// Round 2: the person's ask, Chief's answer and the workspace cards (`Part.workspaces`).
+    var ask: String?
+    var reply: String?
+    var workspaces: [DebugVariantWorkspacesView.Workspace] = []
+    var compactCards = false
 
     // swiftlint:disable line_length
     /// The gallery's variations, V1 to V16 (V0 is the shipping panel, nil).
     public static let all: [HomeFirstRunVariant] = designs.map { design in
         var variant = design
+        guard design.number <= 16 else { return variant }
         let cycle: [Background] = [.paper, .messages, .warm, .mist, .graphite]
         variant.background = cycle[(design.number - 1) % cycle.count]
         return variant
     }
 
-    private static let designs: [HomeFirstRunVariant] = [
+    private static let designs: [HomeFirstRunVariant] = roundOne + roundTwo
+
+    private static let roundOne: [HomeFirstRunVariant] = [
         HomeFirstRunVariant(number: 1, caption: "Quiet: no hero, three plain suggestions just above the field", parts: [.starters], width: 520, leading: true, vertical: .bottom,
                             starters: ["Fix the failing test in my repo", "Start an agent on a new branch", "What can you do?"], starterLook: .plain),
         HomeFirstRunVariant(number: 2, caption: "iMessage thread: Chief's welcome as a blue bubble at the top, chips under it", parts: [.intro, .starters], width: 460, leading: true, vertical: .top,
@@ -114,9 +122,63 @@ public struct HomeFirstRunVariant: Sendable {
                             rowStyle: .plain, spacing: 2, groupGap: 12, face: 32, heroTitle: "Chief", heroBody: "Type below, or pick one:",
                             heroTitleSize: 15, starters: ["What can you do?", "Start an agent on this repo"], starterLook: .plain),
     ]
+    private typealias W = DebugVariantWorkspacesView.Workspace
+    private static let landing = W(name: "landing-page", detail: "Claude Code · working · ~/code/site", status: "working", key: "⌘1")
+    private static let bugs = [
+        W(name: "bug-412-login", detail: "Codex · working · fix sign-in loop", status: "working", key: "⌘1"),
+        W(name: "bug-418-crash", detail: "Claude Code · working · crash on resume", status: "working", key: "⌘2"),
+        W(name: "bug-421-scroll", detail: "Claude Code · done · PR ready", status: "done", key: "⌘3"),
+    ]
+    private static let six = bugs + [
+        W(name: "api", detail: "Terminal · bun dev", status: "idle", key: "⌘4"),
+        W(name: "docs", detail: "Browser · localhost:3000", status: "idle", key: "⌘5"),
+        W(name: "release-1.3", detail: "Codex · working · changelog", status: "working", key: "⌘6"),
+    ]
+    private static let welcome = "Hi, I'm Chief. I can make workspaces, start agents in them and set up cmux for you. What should we work on?"
+
+    private static let roundTwo: [HomeFirstRunVariant] = [
+        HomeFirstRunVariant(number: 17, caption: "Empty, hello: CH face, what Chief can do, three starters; no workspaces yet", parts: [.hero, .starters], width: 420, face: 64,
+                            heroTitle: "Hi, I'm Chief", heroBody: "I can make workspaces, start agents in them and set up cmux for you.", heroTitleSize: 22,
+                            starters: ["Make a workspace for my repo", "Start an agent", "Set up cmux"], background: .paper),
+        HomeFirstRunVariant(number: 18, caption: "Empty, first-launch welcome: Chief's first message as a chat bubble, chips under it", parts: [.intro, .starters], width: 460, leading: true, vertical: .top,
+                            intro: welcome, introWidth: 340, starters: ["Make my first workspace", "Import my Claude Code memory", "Set up cmux"], background: .messages),
+        HomeFirstRunVariant(number: 19, caption: "Empty, checklist: \"Get started\" steps, the first one makes a workspace", parts: [.heading, .actions], width: 380, leading: true, vertical: .top, rowStyle: .plain,
+                            heading: "Get started", actions: ["agent", "terminal", "memory"],
+                            actionTitles: ["agent": "1   Make your first workspace", "terminal": "2   Open a terminal in it", "memory": "3   Bring your memory from Claude Code"], background: .warm),
+        HomeFirstRunVariant(number: 20, caption: "Empty, tiles: small CH face, three big buttons (New workspace, Start an agent, Set up cmux)", parts: [.hero, .tiles], width: 480, face: 48,
+                            heroTitle: "Chief", heroBody: "", actions: ["terminal", "agent", "memory"],
+                            actionTitles: ["terminal": "New workspace", "agent": "Start an agent", "memory": "Set up cmux"], background: .mist),
+        HomeFirstRunVariant(number: 21, caption: "Just made one: your ask, Chief's answer, the new workspace as a card; the sidebar shows it", parts: [.workspaces, .starters], width: 440, leading: true, vertical: .bottom,
+                            starters: ["Open landing-page", "Make another"], starterLook: .plain, background: .paper,
+                            ask: "Make a workspace for the landing page", reply: "Made landing-page and started Claude Code in it. I'll tell you here when it's done.", workspaces: [landing]),
+        HomeFirstRunVariant(number: 22, caption: "Just made three: one ask fans out to three workspaces, one agent each", parts: [.workspaces], width: 460, leading: true, vertical: .bottom,
+                            background: .messages,
+                            ask: "Start agents on the three open bugs", reply: "Made three workspaces, one agent each. Two are working, one has a PR ready.", workspaces: bugs),
+        HomeFirstRunVariant(number: 23, caption: "Just made one, minimal: Chief's answer only, two chips, no card", parts: [.workspaces, .starters], width: 420, leading: true, vertical: .bottom,
+                            starters: ["Open landing-page   ⌘1", "Make another"], background: .warm,
+                            reply: "Made landing-page with Claude Code in it. It's on the left."),
+        HomeFirstRunVariant(number: 24, caption: "Welcome back: small hero, your workspaces as cards, starters", parts: [.hero, .workspaces, .starters], width: 420, face: 40,
+                            heroTitle: "Welcome back", heroBody: "", heroTitleSize: 18, starters: ["What changed today?", "Make a workspace"], background: .mist,
+                            workspaces: bugs),
+        HomeFirstRunVariant(number: 25, caption: "Populated, dense: \"Today\" with six workspaces in compact rows, top left", parts: [.heading, .workspaces], width: 380, leading: true, vertical: .top,
+                            heading: "Today", background: .graphite, workspaces: six, compactCards: true),
+        HomeFirstRunVariant(number: 26, caption: "Populated, quiet: no hero, plain suggestions above the field; the sidebar carries the workspaces", parts: [.starters], width: 520, leading: true, vertical: .bottom,
+                            starters: ["Check on bug-418-crash", "Make a workspace", "What changed today?"], starterLook: .plain, background: .paper),
+        HomeFirstRunVariant(number: 27, caption: "Populated, framed: \"3 workspaces running\" and their cards inside one hairline outline", parts: [.hero, .workspaces], width: 360, face: 40,
+                            heroTitle: "3 workspaces running", heroBody: "", heroTitleSize: 18, framed: true, background: .messages, workspaces: bugs),
+        HomeFirstRunVariant(number: 28, caption: "Populated, question: \"What's next?\" with chips that name your workspaces", parts: [.hero, .starters], width: 460, face: 56,
+                            heroTitle: "What's next?", heroBody: "", heroTitleSize: 22,
+                            starters: ["Review bug-421-scroll's PR", "Unblock bug-418-crash", "Make a workspace for docs"], background: .warm),
+        HomeFirstRunVariant(number: 29, caption: "Team and workspaces: teammates in the list, workspaces in the sidebar, Chief offers both", parts: [.hero, .starters], width: 420, face: 56,
+                            heroTitle: "Your team is here", heroBody: "Message a teammate, or ask Chief to make a workspace for all of you.",
+                            starters: ["Make a shared workspace", "What is everyone working on?"], background: .mist),
+        HomeFirstRunVariant(number: 30, caption: "Busy window: a dozen workspaces, tabs and splits open; Home stays quiet, one line", parts: [.hero, .starters], width: 520, face: 0,
+                            heroTitle: "Ask Chief anything", heroBody: "", heroTitleSize: 26,
+                            starters: ["Which workspaces need me?", "Close the done ones"], background: .paper),
+    ]
     // swiftlint:enable line_length
 
-    /// The variation numbered `number` (1...16); nil for any other number (the shipping panel).
+    /// The variation numbered `number` (1...30); nil for any other number (the shipping panel).
     public static func numbered(_ number: Int) -> HomeFirstRunVariant? { all.first { $0.number == number } }
 }
 #endif

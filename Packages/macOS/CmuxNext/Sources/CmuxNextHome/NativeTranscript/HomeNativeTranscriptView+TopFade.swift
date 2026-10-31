@@ -15,6 +15,10 @@ extension HomeNativeTranscriptView {
     /// The chosen top fade, or no header's own fade (``HomeTunables/chatHeader`` off). Also from
     /// `applyTheme`, so the bands take a new theme's background.
     func applyTopFadeStyle() {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // The variations gallery: no band or fade over the chat's top, one background (user 2026-10-30).
+        if debugVariantNumber != nil, showsHeader { transcript.setTopFadeStyle(.edgeShadow); return }
+        #endif
         let style = HomeTunables.topFadeStyle.value.style
         if showsHeader { transcript.setTopFadeStyle(style) } else { transcript.setBareTop() }
     }

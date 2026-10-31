@@ -30,7 +30,10 @@ enum DebugHomeSidebarFixture {
         // Home variations gallery: `first_run_variant` N (0: the shipping panel) on the default Chief's empty conversation.
         if let number = params["first_run_variant"]?.intValue {
             if let chief = TopHomePageView.chief(services.home) { page.show(ConversationID(chief)) }
-            let caption = page.host?.transcript.debugSetFirstRunVariant(number)
+            let monogram = params["monogram"]?.stringValue
+            services.home.debugChiefMonogram = monogram
+            if monogram != nil { page.list.update(page.sidebar.model()) }
+            let caption = page.host?.transcript.debugSetFirstRunVariant(number, monogram: monogram, image: params["image"]?.boolValue ?? false)
             return .object(["variant": .number(Double(number)), "caption": caption.map { .string($0) } ?? .null,
                             "host": .bool(page.host != nil),
                             "first_run_shown": .bool(page.host?.transcript.debugFirstRunShown ?? false)])
