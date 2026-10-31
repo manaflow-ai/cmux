@@ -10,7 +10,7 @@
 //! 2. its first line is a valid peer stamp (`cmux_link::stamp`), read before
 //!    anything else and only here, never on the local socket. A stamp with
 //!    `check: link_token` (the host accepted a control-plane link token for
-//!    this stream) records the install's good check before the stream binds,
+//!    this stream) records its signed `check_issued_at_ms` before the stream binds,
 //!    but only when the daemon started with a real token verifier
 //!    ([`cmux_link::token::StampChecks`], from the daemon's own config). Under
 //!    the default (`DenyAllTokens`) a stamp with any `check` is malformed:
@@ -223,15 +223,16 @@ fn serve_remote_connection(
         return;
     };
     // The link accepted a control-plane link token for this stream: the
-    // install's good check, recorded before the stream binds. Only a daemon
+    // install's good check at the signed issue time, before the stream binds. Only a daemon
     // that started with a real verifier records it; otherwise any `check` is
     // malformed (on Linux any same-user process passes the caller check and
     // can write one). A poisoned relay lock records nothing and closes the
     // stream (fail closed).
     let refused = match check {
         None => false,
-        Some(cmux_link::stamp::StampCheck::LinkToken) => {
-            !config.record_checks || mux.record_remote_check(&peer.install).is_err()
+        Some(cmux_link::stamp::StampCheck::LinkToken { issued_at_ms }) => {
+            !config.record_checks
+                || !matches!(mux.record_remote_check_at(&peer.install, issued_at_ms), Ok(true))
         }
     };
     if refused {
