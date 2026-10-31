@@ -41,7 +41,9 @@ final class CaptureSceneRegistry {
     /// Seeds one dense real scene, waits for the agent page to paint, and snapshots the app window.
     func render(_ params: [String: CmuxNextSettings.JSONValue]) async -> CmuxNextSettings.JSONValue {
         let name = params["scene"]?.stringValue ?? "main-showcase"
-        // A cloud-machine-disconnected picture stays for the capture's stills; any next render ends it.
+        // A cloud-agent-machines or cloud-machine-disconnected picture stays for the capture's
+        // stills; any next render ends it.
+        endAgentCloudMachines()
         endCloudMachineDisconnected()
         guard let definition = Self.definitions.first(where: { $0.name == name }) else {
             return .object([
@@ -104,6 +106,10 @@ final class CaptureSceneRegistry {
             ])
         }
 
+        // The sidebar is its picture: the showcase window, then the machines, with no agent turn.
+        if definition.name == Self.cloudAgentMachinesScene || definition.name == Self.cloudAgentMachinesLeakedScene {
+            return await renderAgentCloudMachines(params, definition: definition, windowID: targetWindowID)
+        }
         // The sidebar's machine headers are its picture: the showcase window, then the machines, with no agent turn.
         if definition.name == Self.cloudMachineDisconnectedScene {
             return await renderCloudMachineDisconnected(params, definition: definition, windowID: targetWindowID)
@@ -241,6 +247,10 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: "settings", description: "Showcase window with the settings destination available."),
         CaptureSceneDefinition(name: "history-narrow", description: "Narrow history destination fixture."),
         CaptureSceneDefinition(name: "cloud-start-session-ask", description: "An agent's cmux cloud start-session ask card in its chat."),
+        CaptureSceneDefinition(name: "cloud-agent-machines",
+                               description: "A Cloud machine the person opened (its my-project row) and two that agents made, never opened here, each with its image's own workspace-1: the agents' rows show (leaked: true) or none do (false)."),
+        CaptureSceneDefinition(name: "cloud-agent-machines-leaked",
+                               description: "The same scene as cloud-agent-machines (an older name, kept for capture commands)."),
         CaptureSceneDefinition(name: "hints-cmd-held", description: "Command modifier hint destination."),
         CaptureSceneDefinition(name: "hints-ctrl-held", description: "Control modifier hint destination."),
         CaptureSceneDefinition(name: "workspace-auto-name",
@@ -253,6 +263,182 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: "home-chief-long-draft",
                                description: "The home-chief scene with a long draft that grows the field up into the first-run panel; the panel drops what does not fit and nothing it shows runs under the field."),
     ]
+}
+
+/// Leo 2026-10-29, on agents' Cloud machines in his sidebar: "why is there all this weird stuff at the
+/// bottom of the sidebar". The account's machine list connects every Cloud machine, and each starts
+/// with a workspace from its image: this scene adds two such machines, as that list would, beside one the person opened.
+extension CaptureSceneRegistry {
+    static let cloudAgentMachinesScene = "cloud-agent-machines"
+    static let cloudAgentMachinesLeakedScene = "cloud-agent-machines-leaked"
+    /// The machine the person opened, then the two agents made.
+    static let openedMachineID = "capture-vm-mine"
+    static let agentMachineIDs = ["capture-vm-lane-1", "capture-vm-test-2"]
+    static var sceneMachineIDs: [String] { [openedMachineID] + agentMachineIDs }
+
+    /// Adds the three machines to the settled showcase window, opens the person's one (its workspace
+    /// claimed into the window, as Open Machine does), scrolls the sidebar to them, and snapshots the
+    /// window once the opened machine's row is drawn in view and the agents' rows are either all
+    /// drawn (the leak, `leaked: true`) or listed nowhere (`false`). Anything else fails, and the
+    /// error names what each machine got to. The capture driver takes its stills after this returns,
+    /// so a pictured scene keeps its machines until the next render; a failure takes them away.
+    func renderAgentCloudMachines(_ params: [String: CmuxNextSettings.JSONValue], definition: CaptureSceneDefinition,
+                                  windowID: String) async -> CmuxNextSettings.JSONValue {
+        guard let controller = services.windows.controller(for: windowID) else {
+            return .object(["error": .string("no window"), "scene": .string(definition.name)])
+        }
+        controller.sidebar.restore(width: 300, hidden: false)
+        endAgentCloudMachines()
+        var shown = false
+        defer { if !shown { endAgentCloudMachines() } }
+        addAgentCloudMachines()
+        services.windows.claim(workspaceID: Self.sceneWorkspace(Self.openedMachineID), in: controller.state, select: false)
+        let opened = SidebarRowKey.workspace(WorkspaceID(Self.sceneWorkspace(Self.openedMachineID)))
+        let agentRows = Self.agentMachineIDs.map { SidebarRowKey.workspace(WorkspaceID(Self.sceneWorkspace($0))) }
+        frames.start()
+        let listed = await frames.settled(until: { [self] in agentMachineRow(opened, windowID: windowID) != nil },
+                                          start: ContinuousClock.now, window: 300, deadline: 10_000)
+        _ = frames.stop()
+        scrollToAgentMachines(windowID: windowID)
+        let pictured = { [self] in
+            guard agentMachineRowShown(opened, windowID: windowID) else { return false }
+            let drawn = agentRows.filter { agentMachineRowShown($0, windowID: windowID) }.count
+            let absent = Self.agentMachineIDs.filter { id in
+                agentMachineRow(.workspace(WorkspaceID(Self.sceneWorkspace(id))), windowID: windowID) == nil
+                    && services.windows.registry.value.owner(of: Self.sceneWorkspace(id)) == nil
+            }.count
+            return drawn == agentRows.count || absent == agentRows.count
+        }
+        frames.start()
+        var settled: Double?
+        if listed != nil { settled = await frames.settled(until: pictured, start: ContinuousClock.now, window: 300, deadline: 3_000) }
+        let frameStats = frames.stop()
+        let report = agentMachinesReport(windowID: windowID)
+        // Checked again in the snapshot's own turn: the settle window must not have moved it.
+        guard settled != nil, pictured() else {
+            return .object(["error": .string("\(definition.name): \(listed == nil ? "the opened machine's row never listed" : "rows never settled in view") [\(Self.summary(report))]"),
+                            "scene": .string(definition.name), "scene_action": report, "frames": frameStats])
+        }
+        let leaked = agentRows.allSatisfy { agentMachineRowShown($0, windowID: windowID) }
+        var snapshotParams = params
+        snapshotParams["window"] = .string(windowID)
+        let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
+        guard case .object(var result) = snapshot else { return snapshot }
+        shown = result["error"] == nil
+        result["scene"] = .string(definition.name)
+        result["description"] = .string(definition.description)
+        result["settled_ms"] = settled.map(CmuxNextSettings.JSONValue.number) ?? .null
+        result["frames"] = frameStats
+        result["leaked"] = .bool(leaked)
+        result["scene_action"] = report
+        return .object(result)
+    }
+
+    static func sceneWorkspace(_ machineID: String) -> String { "ws-\(machineID)" }
+
+    /// Takes a cloud-agent-machines picture away, whatever is left of it (a Cloud refresh may have
+    /// taken the machines already). Stateless: each render is a new registry.
+    func endAgentCloudMachines() {
+        let removed = Self.sceneMachineIDs.compactMap { services.machines.remove($0) }
+        for session in removed { session.disconnect() }
+        if !removed.isEmpty { services.windows.reconcileMembership() }
+    }
+
+    /// Row `key` in `windowID`'s sidebar list, as the list laid it out; nil until the list has it.
+    func agentMachineRow(_ key: SidebarRowKey, windowID: String) -> SidebarDebugRow? {
+        guard let sidebar = services.windows.controller(for: windowID)?.sidebar.container.sidebarView else { return nil }
+        let wanted = String(describing: key)
+        return sidebar.debugRows().rows.first { $0.key == wanted }
+    }
+
+    /// The sidebar list's scroll view and its visible part (top-left window points); nil while hidden.
+    func agentMachineVisibleList(windowID: String) -> (scroll: NSScrollView, visible: CGRect)? {
+        guard let controller = services.windows.controller(for: windowID) else { return nil }
+        let sidebar = controller.sidebar.container.sidebarView
+        guard !sidebar.isHiddenOrHasHiddenAncestor, sidebar.window != nil, !sidebar.visibleRect.isEmpty,
+              let scroll = Self.agentMachineScrollView(in: sidebar), !scroll.isHiddenOrHasHiddenAncestor else { return nil }
+        let height = controller.window?.contentView?.bounds.height ?? 0
+        let clip = scroll.contentView.convert(scroll.contentView.bounds, to: nil).intersection(sidebar.convert(sidebar.visibleRect, to: nil))
+        guard !clip.isEmpty else { return nil }
+        return (scroll, CGRect(x: clip.minX, y: height - clip.maxY, width: clip.width, height: clip.height))
+    }
+
+    /// Whether row `key` is drawn: in the list, sized, not suppressed or faded, its middle in the visible part.
+    func agentMachineRowShown(_ key: SidebarRowKey, windowID: String) -> Bool {
+        guard let row = agentMachineRow(key, windowID: windowID), let list = agentMachineVisibleList(windowID: windowID) else { return false }
+        return row.inList && !row.suppressed && row.windowFrame.height > 0 && (row.viewAlpha ?? 0) > 0
+            && list.visible.contains(CGPoint(x: row.windowFrame.midX, y: row.windowFrame.midY))
+    }
+
+    /// Scrolls the list so every scene machine's row the list has shows.
+    func scrollToAgentMachines(windowID: String) {
+        guard let list = agentMachineVisibleList(windowID: windowID), let document = list.scroll.documentView,
+              let height = services.windows.controller(for: windowID)?.window?.contentView?.bounds.height else { return }
+        let frames = Self.sceneMachineIDs.compactMap { agentMachineRow(.workspace(WorkspaceID(Self.sceneWorkspace($0))), windowID: windowID)?.windowFrame }
+        guard let first = frames.first else { return }
+        let union = frames.dropFirst().reduce(first) { $0.union($1) }
+        document.scrollToVisible(document.convert(CGRect(x: union.minX, y: height - union.maxY, width: union.width, height: union.height), from: nil))
+        list.scroll.reflectScrolledClipView(list.scroll.contentView)
+    }
+
+    static func agentMachineScrollView(in view: NSView) -> NSScrollView? {
+        if let scroll = view as? NSScrollView { return scroll }
+        return view.subviews.lazy.compactMap(agentMachineScrollView(in:)).first
+    }
+
+    /// What each machine got to: its workspace in its store and in the daemon order, the window that
+    /// took it, the sidebar model listing it, and its row laid out and drawn.
+    func agentMachinesReport(windowID: String) -> CmuxNextSettings.JSONValue {
+        let registry = services.windows.registry.value
+        let listed = Set(services.windows.controller(for: windowID)?.sidebar.model.sections.flatMap(\.workspaces).map(\.id.rawValue) ?? [])
+        return .array(Self.sceneMachineIDs.map { id in
+            let ws = Self.sceneWorkspace(id), session = services.machines.session(id)
+            let ordered = session.map { WindowManager.orderedIDs(of: $0.daemon, machines: services.machines).contains(ws) } ?? false
+            let row = SidebarRowKey.workspace(WorkspaceID(ws))
+            return .object([
+                "machine": .string(id), "in_store": .bool(session?.daemon.store.workspace(id: ws) != nil), "in_order": .bool(ordered),
+                "window": registry.owner(of: ws).map { .string($0 == windowID ? "scene" : "other") } ?? .string("none"),
+                "listed": .bool(listed.contains(ws)),
+                "row": .string(agentMachineRowShown(row, windowID: windowID) ? "drawn" : agentMachineRow(row, windowID: windowID) != nil ? "laid out" : "none"),
+            ])
+        })
+    }
+
+    /// One line of ``agentMachinesReport(windowID:)`` for an error a capture prints.
+    static func summary(_ report: CmuxNextSettings.JSONValue) -> String {
+        guard case .array(let machines) = report else { return "" }
+        return machines.compactMap { machine -> String? in
+            guard case .object(let m) = machine else { return nil }
+            let field = { (key: String) in m[key].map { value -> String in
+                if case .string(let text) = value { return text }
+                if case .bool(let flag) = value { return flag ? "yes" : "no" }
+                return "?"
+            } ?? "?" }
+            return "\(field("machine")): store \(field("in_store")), order \(field("in_order")), window \(field("window")), listed \(field("listed")), row \(field("row"))"
+        }.joined(separator: "; ")
+    }
+
+    /// The three running, connected machines, each with one workspace: the person's my-project, and
+    /// the image's own workspace-1 on each machine an agent made.
+    func addAgentCloudMachines() {
+        let api = services.cloud.api, binary = URL(fileURLWithPath: "/usr/bin/false")
+        let paths = CloudPaths(root: FileManager.default.temporaryDirectory.appendingPathComponent("cn-capture-cloud-machines"))
+        let hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: "capture")
+        for (id, name, workspace) in [(Self.openedMachineID, "my-vm", "my-project"), (Self.agentMachineIDs[0], "lane-vm-1", "workspace-1"),
+                                      (Self.agentMachineIDs[1], "test-vm-2", "workspace-1")] {
+            let link = CloudMachineLink(machineID: id, api: api, hub: hub, paths: paths, binary: binary, deviceName: "capture")
+            let session = CloudMachineSession(machine: CloudMachine(id: id, status: .running, displayName: name), link: link,
+                                              mainWork: services.mainWork)
+            services.machines.add(session)
+            // Connected, as the account's list leaves a running machine: a connecting one draws no rows.
+            _ = session.daemon.store.apply(.connected(DaemonIdentity(registryID: "s-\(id)", generation: "capture"),
+                                                      generationChanged: false))
+            session.daemon.store.apply(snapshot: DaemonTree(registryID: "s-\(id)", workspaces: [
+                WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: Self.sceneWorkspace(id)), name: workspace),
+            ]))
+        }
+        services.windows.reconcileMembership()
+    }
 }
 
 /// A real daemon workspace and agent tab for before/after auto-name captures.
