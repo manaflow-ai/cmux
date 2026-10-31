@@ -234,6 +234,18 @@ export function SummaryCard({
         data-collapsed={!card.column && card.collapsed ? "" : undefined}
       >
         <div className="acpmux-summary-card__head">
+          {tab && !card.column && (
+            // The popover keeps its fold control beside the tabs, so a narrow pane can still fold it.
+            <button
+              type="button"
+              className="acpmux-summary-card__fold acpmux-summary-card__fold--icon"
+              aria-expanded={!card.collapsed}
+              aria-label={foldLabel}
+              onClick={() => card.fold(!card.collapsed)}
+            >
+              <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
+            </button>
+          )}
           {tab ? (
             // Toggle buttons (aria-pressed), as the gallery's filters are: page code carries no raw roles.
             <div className="acpmux-summary-tabs">
@@ -305,11 +317,6 @@ export function SummaryCard({
                 {environment && <EnvironmentSection {...environment} />}
               </section>
             )}
-            {!card.column && (
-              <button type="button" className="acpmux-summary-more" onClick={closeTab}>
-                <Icon name="nav.back" size={12} /> {t("summary.subagents.closeTab")}
-              </button>
-            )}
             <SubagentsTab agents={agents} waiting={waiting} onOpen={subagents.onOpen} />
           </div>
         )}
@@ -331,7 +338,8 @@ export function SummaryCard({
                 onOpen={subagents.onOpen}
                 autoOpen={agents.length > 0 ? subagents.autoOpen : undefined}
                 // The tab lists subagents only; a chat with only sub-sessions or started chats has none to show there.
-                onShowAll={card.column && agents.length > 0 ? () => setTab("subagents") : undefined}
+                // The popover has no title row, so this title is its one way into the tab too.
+                onShowAll={agents.length > 0 ? () => setTab("subagents") : undefined}
                 subsessions={subsessionRows}
                 sessions={children}
                 onOpenSession={sessions?.onOpen ?? subsessions?.onOpen}
