@@ -124,8 +124,8 @@ final class ProjectsImport {
     }
 
     /// `project.sync` first on a `fresh` connection, then one complete `project.observe` per batch, in order.
-    /// The first failed request ends the relay.
-    @concurrent private nonisolated static func deliver(_ batches: [Batch], fresh: Bool, to client: ProjectStateClient) async -> Sent {
+    /// The first failed request ends the relay. On the main actor, as the relay's sends have always run.
+    private static func deliver(_ batches: [Batch], fresh: Bool, to client: ProjectStateClient) async -> Sent {
         var sent = Sent(synced: !fresh, delivered: [:])
         do {
             if fresh {
