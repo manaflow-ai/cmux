@@ -26,6 +26,11 @@ export function turnCopyParts(rows: readonly AcpmuxRow[]): TurnCopyPart[] | unde
       run = undefined;
       parts.push({ text });
       said = true;
+    } else if (row.kind === "user") {
+      // A steer is visible between tool runs in the opened turn. Keep the copied
+      // top-level lines in the same order as the transcript instead of merging
+      // work from before and after that steer into one block.
+      run = undefined;
     } else if (row.kind === "activity") {
       // A draft call the transcript hides (turns.ts withoutDrafts) is not copied either.
       const tools = (row.items ?? []).filter((item) => item.tool && !isDraftCall(item.tool));
