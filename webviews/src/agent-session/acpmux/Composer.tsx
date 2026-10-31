@@ -16,6 +16,7 @@ import {
   type DroppedKind,
   type LinkItem,
 } from "./attachments";
+import { awaitsOriginals } from "./promptBudget";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import { opensProcessTerminal } from "./processTerminal";
@@ -106,6 +107,7 @@ import {
   attachmentErrorText,
   useAttachmentIntake,
   useSendWhenAttached,
+  useSendWhenOriginals,
 } from "./composer/attachmentIntake";
 import { keepElsewhere, type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
@@ -206,6 +208,11 @@ export const COMPOSER_LABELS = {
 export type ComposerHandle = {
   /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest.
   restore(text: string, attachments: ComposerAttachment[]): void;
+  /// Snapshot the unsent text without attachment markers or taking it out of this chat.
+  draftText(): string;
+  /// Prevent ordinary session-switch attachment handoff for text-only recovery.
+  suppressAttachmentCarryFor(sessionId?: string): void;
+  clearAttachmentCarrySuppression(): void;
   /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
   /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
   attach(attachment: ComposerAttachment): void;
@@ -230,6 +237,8 @@ export type ComposerHandle = {
   /// typed after it, and puts the caret at the end. A prompt that already starts with it only
   /// takes focus.
   prefill(prefix: string): void;
+  /// Quote in Reply: append after the draft, regardless of focus, ready to type below it.
+  quoteReply(markdown: string): void;
   /// What it holds that acpmux's draft does not, for a page about to let go (`pane.wakeState`):
   /// file chips and shell mode's unrun command. Shell runs and move chips stay with their page.
   wakeState(): ComposerWake;
@@ -300,6 +309,9 @@ type Props = {
   /// Receives the composer's handle, which puts a prompt a harness switch held back (its text
   /// and attachments) into the composer.
   handle?: React.Ref<ComposerHandle>;
+  /// Quotes the composer took (`quoteReply`) while its editor was still being made, when it goes
+  /// before the editor is: the host holds them for the next composer, so none is lost.
+  onUnplacedQuotes?(quotes: string[]): void;
   /// The context menu's Cut, Copy, Paste and Paste as Plain Text: the host runs the web view's own
   /// editing command (`pane.edit`). Without it those items are disabled.
   onEdit?(command: ComposerEditCommand): void;
@@ -463,6 +475,7 @@ export function Composer({
   onEmptyCommandReturn,
   onShellChange,
   handle,
+  onUnplacedQuotes,
   sessionId,
   switching,
   blocked,
@@ -543,6 +556,8 @@ export function Composer({
   const promptKeyDown = useRef<NonNullable<MarkdownFieldProps["onKeyDown"]>>(() => {});
   const promptReturnInput = useRef<NonNullable<MarkdownFieldProps["onReturnInput"]>>(() => {});
   const promptComposition = useRef<NonNullable<MarkdownFieldProps["onCompositionChange"]>>(() => {});
+  const promptUnplacedQuotes = useRef(onUnplacedQuotes);
+  promptUnplacedQuotes.current = onUnplacedQuotes;
   const stablePromptCallbacks = useMemo(
     () => ({
       onBeforeInput: (...args: Parameters<NonNullable<MarkdownFieldProps["onBeforeInput"]>>) =>
@@ -552,6 +567,7 @@ export function Composer({
       onKeyDown: (event: KeyboardEvent) => promptKeyDown.current(event),
       onReturnInput: () => promptReturnInput.current(),
       onCompositionChange: (value: boolean) => promptComposition.current(value),
+      onUnplacedQuotes: (quotes: string[]) => promptUnplacedQuotes.current?.(quotes),
     }),
     [],
   );
@@ -588,6 +604,9 @@ export function Composer({
   const restoringSession = useRef(false);
   /// Set while a switch runs and kept until the session change it brings (Lucas 2026-10-19).
   const carryPrompt = useRef(false);
+  /// A folder-trust recovery carries only its draft text. Keep source chips with that chat while
+  /// destination selection is in flight, then release after the destination is rendered.
+  const suppressedAttachmentCarry = useRef<{ from?: string } | undefined>(undefined);
   // Once a new chat has shown its location strip, keep its layout slot through the first send.
   // Resetting on a session key prevents a reopened chat from inheriting that reserved space.
   const locationSlotSession = useRef<string | undefined>(undefined);
@@ -629,6 +648,7 @@ export function Composer({
     retry,
     revive,
     originalFailures,
+    originalUploads,
     attachError,
     setAttachError,
     drop,
@@ -659,7 +679,11 @@ export function Composer({
     elsewhere: (chat, chips) => {
       if (keptAttachments) void keepElsewhere(keptAttachments, chat, chips);
     },
-    carries: () => carryPrompt.current || Boolean(switching),
+    carries: () => !suppressedAttachmentCarry.current && (carryPrompt.current || Boolean(switching)),
+    suppressCarry: (from) => {
+      const suppressed = suppressedAttachmentCarry.current;
+      return Boolean(suppressed && suppressed.from === from);
+    },
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
@@ -675,6 +699,12 @@ export function Composer({
     );
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
   const holdForAttachments = useSendWhenAttached(loading + videoReading, sessionId, unsettled + videoReading);
+  /// A prompt too large for one acpmux message waits for its images' originals still uploading,
+  /// then goes with them as links (promptBudget.ts); the person's x on one lets it go without it.
+  const holdForOriginals = useSendWhenOriginals(
+    attachments.filter((attachment) => originalUploads.has(attachment.id)).length,
+    sessionId,
+  );
   // The box makes a huge paste a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
   const box = useRef<ComposerBoxHandle>(null);
   // A paste anywhere in the pane outside a text field goes into the prompt, after what is already
@@ -712,6 +742,16 @@ export function Composer({
   useImperativeHandle(
     handle,
     () => ({
+      draftText: () =>
+        withoutInlineTokens(field.current?.value() ?? textRef.current, (id) =>
+          attachmentsRef.current.some((attachment) => attachment.id === id),
+        ),
+      suppressAttachmentCarryFor(sessionId) {
+        suppressedAttachmentCarry.current = { from: sessionId };
+      },
+      clearAttachmentCarrySuppression() {
+        suppressedAttachmentCarry.current = undefined;
+      },
       restore(restoredText, restoredAttachments) {
         const restored = bindMarks(restoredText, restoredAttachments);
         restoredText = restored.text;
@@ -763,6 +803,18 @@ export function Composer({
           setCaret(next.length);
         }
         field.current?.focus();
+      },
+      quoteReply(markdown) {
+        notTyped();
+        if (!field.current?.quoteReply(markdown)) {
+          const typed = textRef.current;
+          const next = typed ? typed + "\n\n" + markdown : markdown;
+          textRef.current = next;
+          pendingCaret.current = next.length;
+          setText(next);
+          setCaret(next.length);
+          field.current?.focus();
+        }
       },
       wakeState: () => ({
         attachments: attachmentsRef.current.filter((chip) => !chip.shellRun),
@@ -844,7 +896,19 @@ export function Composer({
   // The pane closes: what it queued for its chat still goes to acpmux, but no quit compares it again.
   useEffect(() => () => forgetQueuedDraft(persistedSession.current), []);
   // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
-  useKeptAttachments(sessionId, attachments, setAttachments, keptAttachments, () => carryPrompt.current);
+  useKeptAttachments(
+    sessionId,
+    attachments,
+    setAttachments,
+    keptAttachments,
+    () => !suppressedAttachmentCarry.current && carryPrompt.current,
+  );
+  // Run after useKeptAttachments' session read/effects. Recovery copied text only; ordinary
+  // switching can carry attachments again once the destination session is shown.
+  useEffect(() => {
+    const suppressed = suppressedAttachmentCarry.current;
+    if (suppressed && sessionId !== suppressed.from) suppressedAttachmentCarry.current = undefined;
+  }, [sessionId]);
   // WEB-SWAP: a web update reloads the page only when the prompt comes back as it is: text and
   // chips kept with the chat (composerDraft.ts, keptAttachments.ts), nothing being sent, read or
   // dictated, no shell mode (pages/shared/webSwap.ts).
@@ -1076,6 +1140,9 @@ export function Composer({
     return send(false, steersAlways);
   };
   const send = (force: boolean, steer = false): boolean => {
+    // A send waiting for its images' originals is this one's to replace: whatever this one does
+    // (it goes, waits again, runs a command or stops), the earlier one never goes on its own.
+    holdForOriginals(false, () => undefined);
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
     if (!remote.canSend) return false;
     // The folder's trust question is open: the prompt stays where it is.
@@ -1200,6 +1267,14 @@ export function Composer({
     }
     // A file pasted or dropped a moment ago is still being read: the prompt waits for its chip.
     if (holdForAttachments(() => submitNow.current(force, steer))) return false;
+    // Too large for one message until the originals still uploading are saved: it waits for them.
+    if (
+      holdForOriginals(
+        awaitsOriginals(prompt, placed.attachments, (id) => originalUploads.has(id)),
+        () => submitNow.current(force, steer),
+      )
+    )
+      return false;
     if (command?.kind === "cliOnly") {
       setAttachError(t(command.key, { command: command.name }));
       return false;
@@ -2011,6 +2086,7 @@ export function Composer({
           onKeyDown: stablePromptCallbacks.onKeyDown,
           onReturnInput: stablePromptCallbacks.onReturnInput,
           onCompositionChange: stablePromptCallbacks.onCompositionChange,
+          onUnplacedQuotes: stablePromptCallbacks.onUnplacedQuotes,
         }}
         attachments={attachments}
         pending={pending}
