@@ -269,6 +269,55 @@ mod e2_shift_probe {
     use super::*;
 
     /// Diagnosis only (scratch branch): the row flags and segment plan of E2's shift case. Always fails with them.
+    /// Diagnosis only: the first byte after which some row keeps wrap_continuation while the row before it does not
+    /// wrap (a stale flag). Checks right after the resize too. Always fails with the finding.
+    #[test]
+    fn e2_stale_flag_probe() {
+        fn stale(term: &Terminal) -> Option<u64> {
+            let sb = term.scrollbar()?;
+            (1..sb.total).find(|&y| {
+                term.row_flag(
+                    sys::GHOSTTY_POINT_TAG_SCREEN,
+                    y,
+                    sys::GHOSTTY_ROW_DATA_WRAP_CONTINUATION,
+                ) == Some(true)
+                    && term.row_flag(
+                        sys::GHOSTTY_POINT_TAG_SCREEN,
+                        y - 1,
+                        sys::GHOSTTY_ROW_DATA_WRAP,
+                    ) == Some(false)
+            })
+        }
+        let mut term = Terminal::new(20, 5, 1 << 20, Callbacks::default()).unwrap();
+        for (i, b) in PRE.iter().enumerate() {
+            term.vt_write(std::slice::from_ref(b));
+            if let Some(y) = stale(&term) {
+                panic!(
+                    "PROBE stale before resize after PRE byte {i} (row {y}); context {:?}",
+                    String::from_utf8_lossy(&PRE[i.saturating_sub(24)..=i])
+                );
+            }
+        }
+        term.resize(164, 14, 8, 16).unwrap();
+        if let Some(y) = stale(&term) {
+            panic!(
+                "PROBE stale right after the resize (row {y}); viewport {:?}",
+                term.viewport_text().unwrap()
+            );
+        }
+        for (i, b) in POST.iter().enumerate() {
+            term.vt_write(std::slice::from_ref(b));
+            if let Some(y) = stale(&term) {
+                panic!(
+                    "PROBE stale after POST byte {i} {:?} (row {y}); context {:?}",
+                    *b as char,
+                    String::from_utf8_lossy(&POST[i.saturating_sub(40)..=i])
+                );
+            }
+        }
+        panic!("PROBE never stale");
+    }
+
     #[test]
     fn e2_shift_probe() {
         let mut term = Terminal::new(20, 5, 1 << 20, Callbacks::default()).unwrap();
