@@ -22,6 +22,8 @@
         "webviews/src/agent-session/acpmux/ComposerBox.tsx",
         "webviews/src/agent-session/acpmux/ComposerFoot.tsx",
         "webviews/src/agent-session/acpmux/ComposerPickers.tsx",
+        "webviews/src/agent-session/acpmux/ComposerPlusMenu.tsx",
+        "webviews/src/agent-session/acpmux/composerPlusRegistry.ts",
         "webviews/src/agent-session/acpmux/composerChrome.tsx",
         "webviews/src/agent-session/acpmux/composerControls.css",
         "webviews/src/agent-session/acpmux/composerFooterShared.css",

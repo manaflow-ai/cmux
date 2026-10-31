@@ -11,32 +11,48 @@ import {
   runComposerPlusAction,
 } from "./composerPlusRegistry";
 
-test("the plus registry exposes the Add and Files sections in command order", () => {
+test("the plus registry puts attach first, then the composer's actions, then the searches", () => {
   const rows = composerPlusRegistry({
     canChooseProject: true,
     commands: [{ name: "goal", description: "Set goal", source: "agent" }],
     planMode: { id: "plan", name: "Plan mode", description: "Think through the work before editing" },
   });
   expect(COMPOSER_PLUS_MOTION).toBe("none");
-  expect(rows.map((row) => row.section)).toEqual(["add", "add", "add", "add", "add", "add", "add", "add", "files"]);
-  expect(rows.slice(0, 6).map((row) => row.name)).toEqual([
+  expect(rows.map((row) => row.section)).toEqual([
+    "attach",
+    "attach",
+    "attach",
+    "add",
+    "add",
+    "add",
+    "add",
+    "add",
+    "files",
+  ]);
+  expect(rows.map((row) => row.name)).toEqual([
     "Attach files or images",
     "Attach Screenshot…",
     "Attach Window…",
-    "Choose project",
     "Plan mode",
     "Goal",
+    "Choose project",
+    "Mention a file or folder",
+    "Skills…",
+    "Search files",
   ]);
-  expect(rows.at(-1)?.name).toBe("Search files");
   expect(rows.every((row) => row.icon && row.action)).toBe(true);
-  expect(rows.filter((row) => row.description).map((row) => row.id)).toEqual(["add.mode.plan", "add.goal"]);
+  expect(rows.filter((row) => row.description).map((row) => row.id)).toEqual([
+    "add.mode.plan",
+    "add.goal",
+    "add.commands",
+  ]);
   const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+  // No header band in the + menu (Leo 2026-10-31: the Search header read as a grey input).
+  expect(css).not.toMatch(/\.acpmux-composer-plus \.acpmux-menu-header\s*\{/);
+  // A bounded panel that scrolls inside, and popupHost.ts keeps it in the page up to that bound.
   expect(css).toMatch(
-    /\.acpmux-composer-plus \.acpmux-menu-header\s*\{[^}]*background-image:linear-gradient\(var\(--surface-popup\),var\(--surface-popup\)\)/,
+    /\.acpmux-composer-plus \.acpmux-menu\s*\{[^}]*--popup-scroll-cap:360px;[^}]*max-height:min\(360px,calc\(100vh - 16px\)\)/,
   );
-  // The + menu is not held to half the window like other menus: in a short pane its Search rows
-  // stay whole (composer-chip-press.test.ts presses every row at 760x600).
-  expect(css).toMatch(/\.acpmux-composer-plus \.acpmux-menu\s*\{[^}]*max-height:min\(520px,calc\(100vh - 16px\)\)/);
 });
 
 test("capture and optional goal rows are omitted when the host lacks those capabilities", () => {
@@ -44,20 +60,21 @@ test("capture and optional goal rows are omitted when the host lacks those capab
   expect(rows.map((row) => row.id)).toEqual(["add.files", "add.mention", "add.commands", "files.search"]);
 });
 
-test("skills and prompts reuse their slash command while agent commands stay in the slash menu", () => {
-  const command = { name: "review", description: "Review the current change", source: "skill" as const };
+test("skills are never + rows: one Skills… row opens the slash list, however many there are", () => {
+  const skills = Array.from({ length: 30 }, (_, index) => ({
+    name: `skill-${index}`,
+    description: `Skill ${index}`,
+    source: "skill" as const,
+  }));
   const rows = composerPlusRegistry({
-    commands: [
-      command,
-      { name: "build", description: "Build the project", source: "agent" },
-      { name: "$draw", description: "Draw a sketch", source: "prompt" },
-    ],
+    commands: [...skills, { name: "$draw", description: "Draw a sketch", source: "prompt" }],
   });
-
-  const skills = rows.filter((row) => row.section === "add" && row.id.startsWith("add.skill."));
-  expect(skills.map((row) => row.name)).toEqual(["/review", "/$draw"]);
-  expect(skills[0]?.action).toEqual({ kind: "slash", command });
-  expect(rows.some((row) => row.name === "/build")).toBe(false);
+  expect(rows.some((row) => row.name.startsWith("/") || row.id.startsWith("add.skill."))).toBe(false);
+  const skillsRow = rows.filter((row) => row.id === "add.commands");
+  expect(skillsRow.map((row) => [row.name, row.description, row.action])).toEqual([
+    ["Skills…", "Search skills and commands", { kind: "command", id: "composer.commands" }],
+  ]);
+  expect(rows).toHaveLength(6);
 });
 
 test("host extensions keep their palette action and deduplicate stable ids", () => {

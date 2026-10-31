@@ -732,7 +732,7 @@ export default agentPaneEntry({
           () => ctx.document.querySelector(".nt-composer .acpmux-newtab-plus .acpmux-picker-button") !== null,
         );
         await ctx.click({ selector: ".acpmux-newtab-plus .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-newtab-plus [data-value="attach"]') !== null);
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-newtab-plus [data-value="add.files"]') !== null);
         const input = ctx.document.querySelector<HTMLInputElement>(".nt-composer .acpmux-attach-input");
         if (!input || !input.multiple) throw new Error("the New Tab attachment chooser is missing or single-file");
         // The ChatGPT-style + searches (Search chats, Search pages); the page has no Search files.

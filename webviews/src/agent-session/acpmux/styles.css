@@ -124,11 +124,18 @@
 .acpmux-menu-end{right:0;transform-origin:var(--transform-origin,bottom right)}
 .acpmux-menu-section+.acpmux-menu-section{margin-top:6px;padding-top:6px;box-shadow:inset 0 .5px 0 var(--acpmux-composer-edge)}
 .acpmux-menu-header{display:flex;align-items:center;min-height:24px;padding:0 8px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-composer-plus .acpmux-menu-header{background-image:linear-gradient(var(--surface-popup),var(--surface-popup))}
-/* The + menu holds Add plus its Search section (files, chats, pages): it takes the room the pane has
-   above or below +, not half the window, so a short pane shows every row whole instead of clipping
-   the last one under a scroll (useUiAnchor still caps it to the room it has). */
-.acpmux-composer-plus .acpmux-menu{max-height:min(520px,calc(100vh - 16px))}
+/* The composer's + menu (ComposerPlusMenu.tsx; Leo 2026-10-31: "our + button is ass" / "inside chat
+   and in the composer it's ass"), shaped as ChatGPT's: a short list in untitled groups split by the
+   menu hairline (below), one width, and a bounded height that scrolls inside (useUiAnchor still caps
+   it to the room the pane has). --popup-scroll-cap is that bound for popupHost.ts, so a list longer
+   than it scrolls here rather than going past the window's edge as a flat native list. It draws
+   outside the composer's glass (Picker overBackdrop), so its own glass frosts the pills behind it. */
+.acpmux-composer-plus .acpmux-menu{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,calc(100vh - 16px))}
+/* A row is one line: the icon, the title, a gap, then the muted description, which alone truncates. */
+.acpmux-composer-plus .acpmux-menu-text{flex-direction:row;align-items:baseline;gap:var(--ds-space-2,8px)}
+.acpmux-composer-plus .acpmux-menu-label{flex:0 1 auto;min-width:0}
+.acpmux-composer-plus .acpmux-menu-description{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-composer-plus .acpmux-menu-item>svg{flex:none}
 .acpmux-menu-item{display:flex;align-items:center;gap:8px;min-height:var(--ui-row-height);padding:5px var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius)}
 .acpmux-project-browse{width:100%;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .ui-menu-check{flex:none;display:inline-flex;align-items:center;justify-content:center;line-height:1}

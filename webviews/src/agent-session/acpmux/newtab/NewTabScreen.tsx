@@ -34,7 +34,7 @@ import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
 import { type NowPlayingCommand, NowPlayingPlayer } from "./NowPlayingPlayer";
-import { ArrowUpIcon, PaperclipIcon, Picker, PlusIcon } from "../ComposerPickers";
+import { ArrowUpIcon } from "../ComposerPickers";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
 import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
@@ -77,7 +77,8 @@ import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
 import { screenSections, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
-import { composerPlusSearchExtensions } from "../composerPlusRegistry";
+import { composerPlusRegistry, composerPlusSearchExtensions } from "../composerPlusRegistry";
+import { ComposerPlusMenu } from "../ComposerPlusMenu";
 import { ChromeArea } from "../../../ui/HideableChrome";
 import { Popover } from "../../../ui/Popover";
 import { PromptFocus } from "../promptFocus";
@@ -1279,37 +1280,21 @@ export function NewTabScreen(props: Props) {
           void attach(files, true);
         }}
       />
-      <Picker
-        label={t("composer.add")}
-        tooltip={t("composer.addTooltip")}
-        className={`acpmux-composer-plus acpmux-newtab-plus${split ? " nt-split-plus" : ""}`}
-        button={<PlusIcon />}
-        align="start"
-        returnFocus={false}
-        sections={[
-          {
-            choices: [{ id: "attach", name: t("composer.attach"), icon: <PaperclipIcon /> }],
-            onPick: (id) => {
-              if (id === "attach") chooser.current?.click();
-            },
-          },
-          // Search chats and Search pages, as the chat composer's + (the page has no folder to
-          // search files in, so it offers no Search files).
-          ...(onPlusCommand
-            ? [
-                {
-                  title: t("sidebar.searchPlaceholder"),
-                  choices: plusSearchRows.map((row) => ({
-                    id: row.id,
-                    name: row.name,
-                    description: row.description,
-                    icon: <Icon name={row.icon} size={18} />,
-                  })),
-                  onPick: runPlusSearch,
-                },
-              ]
-            : []),
-        ]}
+      {/* The chat composer's + (ComposerPlusMenu): Attach files or images, then Search chats and
+          Search pages. The page has no folder to search files in, no capture host, no @ and no
+          slash list behind +, so it offers those rows of the registry only. */}
+      <ComposerPlusMenu
+        className={`acpmux-newtab-plus${split ? " nt-split-plus" : ""}`}
+        entries={composerPlusRegistry({
+          translate: t,
+          canCapture: false,
+          ...(onPlusCommand ? { extensions: plusSearchRows } : {}),
+        }).filter((entry) => entry.id === "add.files" || (entry.section === "files" && entry.id !== "files.search"))}
+        onCommand={(id) => {
+          if (id === "composer.attachFiles") chooser.current?.click();
+        }}
+        onExtension={runPlusSearch}
+        onSlash={() => {}}
       />
     </>
   );
