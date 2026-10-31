@@ -47,6 +47,68 @@ struct FilePreviewTextEditorTextKitTests {
         #expect(textView.layoutManager?.allowsNonContiguousLayout == true)
     }
 
+    /// Editing `.claude/settings.json` in the file editor turned typed `"` into
+    /// `“`/`”` (macOS "Use smart quotes and dashes", on by default), so the saved
+    /// file was invalid JSON and Claude Code crashed on load.
+    @Test("file editor saves typed quotes and dashes verbatim")
+    func editorDisablesAutomaticTextSubstitutions() async throws {
+        let json = #"{"hooks": {"Stop": [{"command": "cmux --notify 'done'"}]}}"#
+        let typedText = Self.typeWithSystemSubstitutionsEnabled(json)
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-settings-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let result = await FilePreviewTextSaver.save(content: typedText, to: fileURL, encoding: .utf8)
+        guard case .saved = result else {
+            Issue.record("Could not save the typed settings fixture")
+            return
+        }
+        let saved = try Data(contentsOf: fileURL)
+        #expect(saved == Data(json.utf8))
+        let decoded = try #require(JSONSerialization.jsonObject(with: saved) as? [String: Any])
+        let hooks = try #require(decoded["hooks"] as? [String: [[String: String]]])
+        #expect(hooks["Stop"]?.first?["command"] == "cmux --notify 'done'")
+    }
+
+    /// Overrides AppKit's defaults only while constructing and typing into the
+    /// editor, without writing preferences or suspending with an override active.
+    private static func typeWithSystemSubstitutionsEnabled(_ text: String) -> String {
+        let substitutionDefaultKeys = [
+            "NSAutomaticQuoteSubstitutionEnabled",
+            "NSAutomaticDashSubstitutionEnabled",
+            "NSAutomaticTextReplacementEnabled",
+            "NSAutomaticSpellingCorrectionEnabled",
+        ]
+        let defaults = UserDefaults.standard
+        let savedDomain = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        defer {
+            defaults.setVolatileDomain(savedDomain, forName: UserDefaults.argumentDomain)
+        }
+        // Simulate a Mac with the system substitution settings turned on.
+        var enabledDomain = savedDomain
+        for key in substitutionDefaultKeys {
+            enabledDomain[key] = true
+        }
+        defaults.setVolatileDomain(enabledDomain, forName: UserDefaults.argumentDomain)
+
+        let textView = SavingTextView.makeFilePreviewTextView()
+
+        #expect(!textView.isAutomaticQuoteSubstitutionEnabled)
+        #expect(!textView.isAutomaticDashSubstitutionEnabled)
+        #expect(!textView.isAutomaticTextReplacementEnabled)
+        #expect(!textView.isAutomaticSpellingCorrectionEnabled)
+        #expect(!textView.isAutomaticDataDetectionEnabled)
+        #expect(!textView.isAutomaticLinkDetectionEnabled)
+        #expect(!textView.smartInsertDeleteEnabled)
+
+        for character in text {
+            textView.insertText(String(character), replacementRange: textView.selectedRange())
+        }
+        textView.checkTextInDocument(nil)
+        #expect(textView.string == text)
+        return textView.string
+    }
+
     @Test("text preview editor handles standard zoom key equivalents")
     func editorHandlesStandardZoomKeyEquivalents() throws {
         try withDefaultShortcutSettings {
