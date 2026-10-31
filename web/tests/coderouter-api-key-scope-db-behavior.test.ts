@@ -124,7 +124,7 @@ dbTest("an organization API key cannot select its creator's or a member's privat
   const proxy = nativeProxy(upstream);
 
   const refused = await proxy(nativeRequest(key));
-  expect(refused.status).toBe(503);
+  expect(refused.status).toBe(429);
   expect(upstream).toEqual([]);
 
   await nativeAccount(ORG, "org-shared", "team", MEMBER);
