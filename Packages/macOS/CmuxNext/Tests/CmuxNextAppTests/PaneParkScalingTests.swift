@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// pane-tab-switch-fast (u2327 "switching tabs in a pane is still very laggy"): a pane kept at most 8
@@ -9,7 +10,7 @@ import Testing
 /// tabs) visits each tab after 8 others, so every switch found its view evicted: it left the window and
 /// came back, the 30-215 ms window move parking exists to avoid. A warm switch must move no view in or
 /// out of the window, whatever the number of tabs in the pane.
-@MainActor @Suite(.serialized) struct PaneParkScalingTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PaneParkScalingTests {
     /// Counts the content's window moves (each one is a re-attach a warm switch must avoid).
     final class WindowMoves: NSView {
         var moves = 0

@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -8,7 +9,7 @@ import Testing
 /// a moment before its Chromium window showed, `setFocused(true)` refused a hidden page, and only a
 /// browser's creation (`attach`) replayed that ask. The page then showed with no focus, and the
 /// focus applier, which had already asked, never asked again.
-@MainActor @Suite(.serialized) struct CEFDeferredFocusTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CEFDeferredFocusTests {
     /// A page with its browser asks for focus before its view is in a window; it gets it once it shows.
     @Test func focusAskedBeforeThePageShowsIsGrantedWhenItShows() throws {
         let (runtime, root) = try FocusSpyShim.runtime()
@@ -19,6 +20,7 @@ import Testing
         #expect(FocusSpyShim.granted.isEmpty, "a page that does not show takes no focus")
 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         #expect(FocusSpyShim.granted == [7])
     }
@@ -30,6 +32,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, _) = try createdTab(runtime, browser: 8)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         tab.setContentVisible(false)
 
@@ -49,6 +52,7 @@ import Testing
         tab.setFocused(true)
         tab.setFocused(false)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         #expect(FocusSpyShim.granted.isEmpty)
     }
@@ -63,6 +67,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, _) = try createdTab(runtime, browser: 10)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         let workspace = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         // Hidden first in AppKit's walk, as Chromium's view was: it asks for focus mid-hide.
         let chromium = HideSpyView(frame: workspace.bounds)
@@ -87,6 +92,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, _) = try createdTab(runtime, browser: 11)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         let workspace = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         try #require(window.contentView).addSubview(workspace)
         workspace.addSubview(tab.contentView)
