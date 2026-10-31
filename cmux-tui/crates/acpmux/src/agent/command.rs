@@ -238,9 +238,11 @@ pub(crate) fn harness_command(
     }
     // A Claude agent's sign-in inputs, for a clear message if it has none.
     match (family == Some("claude"), session) {
-        (true, Some((id, _))) => {
-            crate::claude_auth::remember(id, &command_env_with(&cmd, !remote_environment))
-        }
+        (true, Some((id, _))) => crate::claude_auth::remember(
+            id,
+            &command_env_with(&cmd, !remote_environment),
+            route_unset.is_some(),
+        ),
         (false, Some((id, _))) => crate::claude_auth::forget(id),
         _ => {}
     }
