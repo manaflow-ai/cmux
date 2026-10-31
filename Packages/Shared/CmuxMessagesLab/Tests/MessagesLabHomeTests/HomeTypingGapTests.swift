@@ -37,10 +37,12 @@ import Testing
         #expect(abs(gap - 8) < 0.01, "typing bubble is \(gap) pt under the newest bubble, want 8")
     }
 
-    @Test func theStatusLineStillHeadsTheTypingBubble() throws {
+    /// User 2026-10-30 5:03 PM ("make it just one line with shimmer text"): under the newest bubble the
+    /// status line alone is the running indicator, with no typing bubble under it (HomeNoticeShimmer).
+    @Test func theStatusLineReplacesTheTypingBubble() throws {
         let rows = RowBuilder.rows(Self.state([Self.message("m1", "chief", at: 0)], notice: "Running · 4s"),
                                    messages: [Self.message("m1", "chief", at: 0)], now: Self.t0)
-        let typing = try #require(rows.first { $0.key == "typing" })
-        #expect(typing.gap == 0)
+        #expect(rows.contains { $0.key == "notice" })
+        #expect(!rows.contains { $0.key == "typing" })
     }
 }

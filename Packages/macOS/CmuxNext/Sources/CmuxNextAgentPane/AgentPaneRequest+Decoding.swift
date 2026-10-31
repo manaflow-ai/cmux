@@ -144,6 +144,13 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "tips.state":
+            // `{}` reads the records, `{id, state}` keeps one, `{claim, feature?}` asks to show a tip.
+            if let tips = AgentPaneFeatureTipRequest(params) {
+                self = .featureTips(tips)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.setDisplay":
             // Only the chat's own look keys: the page can never write another setting.
             if let key = params?["key"] as? String, let path = AgentPaneDisplaySetting.writablePath(key) {
