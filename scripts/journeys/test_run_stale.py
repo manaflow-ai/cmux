@@ -10,7 +10,10 @@ reused folder. These cases use a stand-in capture-host and a stand-in for the ss
 - the mini's out folder holds a result.json of another run (no run id, or another run id): "not run: stale or foreign
   result";
 - the driver's own result (this run's id and start time) still counts, and every result.json and results.jsonl row
-  names the run id.
+  names the run id;
+- harness pinning (coordinator 2026-10-31): run.py packs the harness from disk at each lease, so a round run from a
+  checkout with uncommitted harness files, or one that moved to another commit during the run, is "not run" with
+  "harness: unpinned"; each result.json records the harness commit and its uncommitted files.
 """
 import io
 import json
@@ -72,7 +75,10 @@ class Stale(unittest.TestCase):
         self.saved_env = dict(os.environ)
         os.environ.update(CAPTURE_HOST=str(ch), CH_LOG=str(self.tmp / "ch.log"))
         os.environ.pop("CH_LAUNCH_FAILS", None)
-        self.saved = (run.remote, run.job_status)
+        self.saved = (run.remote, run.job_status, getattr(run, "harness_state", None))
+        # The checkout's state at the run's start and at each lease; a clean checkout at one commit unless a test says.
+        self.harness = [{"commit": "c" * 40, "dirty": [], "detached": True}]
+        run.harness_state = lambda: self.harness[0] if len(self.harness) == 1 else self.harness.pop(0)
         # Where a run.py with the open-P0 ledger (the gate branch) appends its rows: never the real ledger.
         self.saved_ledger = getattr(run, "P0_LEDGER", None)
         if self.saved_ledger is not None:
@@ -95,7 +101,9 @@ class Stale(unittest.TestCase):
         run.job_status = lambda job: {"id": job, "state": "done", "ref": "a" * 40, "tag": "t"}
 
     def tearDown(self):
-        run.remote, run.job_status = self.saved
+        run.remote, run.job_status, harness_state = self.saved
+        if harness_state is not None:
+            run.harness_state = harness_state
         if self.saved_ledger is not None:
             run.P0_LEDGER = self.saved_ledger
         os.environ.clear()
@@ -156,6 +164,48 @@ class Stale(unittest.TestCase):
         stamp = json.loads((out / "run.json").read_text())
         self.assertEqual(row["run_id"], stamp["run_id"])
         self.assertIn(stamp["run_id"], self.driver_cmds[-1])
+
+    def own_result(self, cmd):
+        words = cmd.split()
+        return {f"{JOURNEY}/result.json": old_result("pass", started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                                     run_id=words[words.index("--run-id") + 1].strip("'"),
+                                                     run_started_at=words[words.index("--run-started-at") + 1].strip("'"))}
+
+    def play(self, name):
+        self.mini_files = self.own_result
+        out = self.tmp / name
+        code = run.main(["--build", "JOB1", "--journey", JOURNEY, "--out", str(out)])
+        row = json.loads((out / "results.jsonl").read_text().splitlines()[0])
+        return code, row, json.loads((out / JOURNEY / "result.json").read_text())
+
+    def test_uncommitted_harness_files_make_a_pass_not_run(self):
+        for when in ("at the start", "at the lease"):
+            with self.subTest(when):
+                dirty = {"commit": "c" * 40, "dirty": [" M scripts/journeys/ext_fuzz.py"], "detached": False}
+                clean = {"commit": "c" * 40, "dirty": [], "detached": False}
+                self.harness = [dirty, clean] if when == "at the start" else [clean, dirty]
+                code, row, result = self.play("dirty-" + when.replace(" ", "-"))
+                self.assertEqual(row["status"], "not run", row)
+                self.assertTrue(row["reason"].startswith("harness: unpinned"), row["reason"])
+                self.assertIn("ext_fuzz.py", row["reason"])
+                self.assertEqual(code, 75)
+                self.assertEqual(result["harness"]["commit"], "c" * 40)
+                self.assertTrue(result["harness"]["dirty"])
+                self.assertEqual(result["harness"]["status"], "pass")
+
+    def test_a_checkout_that_moved_during_the_run_makes_a_pass_not_run(self):
+        self.harness = [{"commit": "c" * 40, "dirty": [], "detached": False},
+                        {"commit": "d" * 40, "dirty": [], "detached": False}]
+        _, row, result = self.play("moved")
+        self.assertEqual(row["status"], "not run", row)
+        self.assertIn("harness: unpinned", row["reason"])
+        self.assertEqual(result["harness"]["commit"], "d" * 40)
+
+    def test_a_clean_pinned_harness_counts_and_is_recorded(self):
+        code, row, result = self.play("pinned")
+        self.assertEqual((code, row["status"]), (0, "pass"), row)
+        self.assertEqual(result["harness"], {"commit": "c" * 40, "dirty": [], "detached": True, "pinned": True})
+        self.assertEqual(row["harness"]["commit"], "c" * 40)
 
     def test_default_folder_names_the_run_id(self):
         os.environ["CH_LAUNCH_FAILS"] = "1"
