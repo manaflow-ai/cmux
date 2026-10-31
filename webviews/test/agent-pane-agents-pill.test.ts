@@ -177,6 +177,13 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     return page;
   };
   const tray = (page: Page) => page.locator(".acpmux-running-tray");
+  /// A headed tray starts folded to its header (#27908): open it with its chevron.
+  const openTray = async (page: Page) => {
+    const head = tray(page).locator(".acpmux-running-tray__head");
+    await head.waitFor({ timeout: 5_000 });
+    if ((await head.getAttribute("aria-expanded")) !== "true") await head.click();
+    await tray(page).locator(".acpmux-running-tray__list").waitFor({ timeout: 5_000 });
+  };
   const pill = (page: Page) => page.locator(".acpmux-agents-pill");
   const list = (page: Page) => page.getByRole("dialog", { name: "Agents" });
   /// Each agent's dot color in the open list, by name.
@@ -269,6 +276,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
   test("by default the running agents sit in the tray above the composer, not in the transcript", async () => {
     const page = await open(BUSY, "Read app.ts", true);
     await tray(page).waitFor({ timeout: 5_000 });
+    await openTray(page);
     // Reviewer and Tester run; the Linter ended and stays as a finished card under them
     // (49acdd1d589d keeps finished cards mounted in the tray).
     const running = tray(page).locator("li:not([data-finished])");
@@ -301,6 +309,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     // An agent spawned by another sits right under it in the tray.
     const nested = await open(NESTED, "Read app.ts", true);
     await tray(nested).waitFor({ timeout: 5_000 });
+    await openTray(nested);
     expect(await tray(nested).locator(".acpmux-summary-agent__name").allTextContents()).toEqual([
       "Reviewer",
       "Scout",

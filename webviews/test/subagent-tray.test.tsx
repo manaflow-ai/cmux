@@ -122,6 +122,14 @@ async function render(node: ReturnType<typeof createElement>): Promise<{
   };
 }
 
+/// A headed tray starts folded to its header (#27908): opens it with its chevron.
+async function openTray(root: HTMLElement): Promise<HTMLButtonElement> {
+  const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+  if (head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
+  expect(head.getAttribute("aria-expanded")).toBe("true");
+  return head;
+}
+
 describe("the transcript keeps no running card", () => {
   const transcript = (agents: Subagent[]) => [
     row("u1", "user", 0, { text: "Review it" }),
@@ -351,7 +359,7 @@ describe("the tray", () => {
     }
   });
 
-  test("several get a header; past three they start folded", async () => {
+  test("several get a header and start folded to it, few or many", async () => {
     const now = Date.now();
     const few = trayItems(
       [agent("A", { startedAt: now - 5000 }), agent("B", { startedAt: now - 4000 })],
@@ -364,6 +372,9 @@ describe("the tray", () => {
     );
     try {
       const head = shown.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+      expect(head.getAttribute("aria-expanded")).toBe("false");
+      expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(0);
+      await act(async () => head.click());
       expect(head.getAttribute("aria-expanded")).toBe("true");
       expect(head.querySelector('svg[data-icon="agent.session"]')).not.toBeNull();
       expect(head.querySelector('[role="progressbar"]')).toBeNull();
@@ -412,6 +423,7 @@ describe("the tray", () => {
     );
     try {
       const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
+      await openTray(root);
       expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__time")).not.toBeNull();
       expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__status")).not.toBeNull();
       const lines = [...tray.querySelectorAll<HTMLElement>(".acpmux-agent-line")];
@@ -419,6 +431,12 @@ describe("the tray", () => {
       expect(lines.every((line) => line.querySelector(".acpmux-agent-line__time"))).toBe(true);
       expect(lines.every((line) => line.querySelector(".acpmux-agent-line__status"))).toBe(true);
       expect(lines.every((line) => line.querySelector(".acpmux-agent-line__stop-slot"))).toBe(true);
+      // Stop's track, then the chevron's, last in every line's status column.
+      for (const line of lines) {
+        const last = line.querySelector(".acpmux-agent-line__status > :last-child");
+        expect(last?.className).toBe("acpmux-agent-line__chevron");
+        expect(last?.previousElementSibling?.className).toBe("acpmux-agent-line__stop-track");
+      }
       expect(
         lines.find((line) => line.textContent?.includes("Started chat"))?.querySelector(".acpmux-agent-line__time")
           ?.textContent,
@@ -490,6 +508,7 @@ describe("the tray", () => {
       expect(root.querySelector(".acpmux-running-tray__title")?.textContent).toBe(
         "Running in background · 2 subagents · 1 command",
       );
+      await openTray(root);
       const lines = [...root.querySelectorAll<HTMLElement>(".acpmux-agent-line")];
       expect(lines.map((line) => line.querySelector(".acpmux-summary-agent__name")?.textContent)).toEqual([
         "Watcher",
@@ -925,6 +944,7 @@ describe("the tray tells the truth", () => {
       createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
     );
     try {
+      await openTray(root);
       expect(names(liveLines(root))).toEqual(["Start the dev server", "nice bun test"]);
       // The whole command stays one hover away.
       expect(liveLines(root)[0]!.querySelector("button")?.getAttribute("title")).toBe(
@@ -955,6 +975,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     );
     try {
       const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
+      await openTray(root);
       const list = tray.querySelector<HTMLElement>(".acpmux-running-tray__list")!;
       const more = tray.querySelector<HTMLButtonElement>(".acpmux-running-tray__finished")!;
       // The tray is the header, then the fold (trayMotion.tsx) with the list and View all under it:
@@ -1001,6 +1022,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     try {
       const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running");
+      await openTray(root);
       head.focus();
       // Run 1 ends: one runs, one ended. The header stays, the same node, focused and open.
       await show(tray([runs[0]!, { ...runs[1]!, state: "completed", endedAt: now }]));
@@ -1215,6 +1237,8 @@ describe("workflow progress in the default tray and Inspector", () => {
           : createElement(SubagentsSection, { agents: [current, other], waiting, onOpen: () => {} });
       const view = await render(draw(workflow));
       try {
+        // The tray's two lines give it a header, and it starts folded to it (#27908).
+        if (surface === "tray") await openTray(view.root);
         expect(view.root.querySelector(".acpmux-agent-line__progress")).toBeNull();
         const buttons = () => [...view.root.querySelectorAll(".acpmux-agent-line__button")];
         const unrelated = buttons().find((button) => button.textContent?.includes("Unrelated agent"));

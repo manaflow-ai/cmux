@@ -134,6 +134,10 @@ await requireBrowserLane("running-strip.test.ts", async () => {
         );
         await page.waitForSelector(".acpmux-running-tray__head");
         await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finish())));
+        // A headed tray starts folded to its header (#27908): open it, then View all.
+        await page.click(".acpmux-running-tray__head");
+        await page.waitForSelector(".acpmux-running-tray__finished");
+        await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finish())));
         await page.click(".acpmux-running-tray__finished");
         await page.waitForFunction(
           () => document.querySelectorAll(".acpmux-running-tray li[data-finished]").length === 116,
@@ -176,12 +180,16 @@ await requireBrowserLane("running-strip.test.ts", async () => {
   }
 
   test("in a pane under 360px tall View all stays in reach: focus scrolls it into view", async () => {
-    const page = await browser!.newPage({ viewport: { width: 760, height: 300 } });
+    // Reduced motion opens the folded tray at once: a played fold lets go of its clip only in its
+    // finish event, after this test would focus and measure.
+    const page = await browser!.newPage({ viewport: { width: 760, height: 300 }, reducedMotion: "reduce" });
     try {
       const { port } = vite!.httpServer!.address() as { port: number };
       await page.goto(`http://127.0.0.1:${port}/test/browser/running-strip.html`);
       await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
       await page.evaluate(() => (window as unknown as { __showPanel: (h: number) => void }).__showPanel(34));
+      // A headed tray starts folded to its header (#27908): open it first.
+      await page.click(".acpmux-running-tray__head");
       await page.waitForSelector(".acpmux-running-tray__finished");
       await page.evaluate(() => {
         for (const animation of document.getAnimations())

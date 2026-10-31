@@ -186,6 +186,12 @@ export default agentPaneEntry({
       snapshot: snapshot(false),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray"));
+        // A headed tray starts folded to its header (#27908): open it to its lines.
+        const head = ctx.document.querySelector(".acpmux-running-tray__head");
+        if (head && head.getAttribute("aria-expanded") !== "true") {
+          await ctx.click({ selector: ".acpmux-running-tray__head" });
+          await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list .acpmux-agent-line"));
+        }
       },
     },
     docked: {

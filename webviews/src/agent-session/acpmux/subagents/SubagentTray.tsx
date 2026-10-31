@@ -16,8 +16,10 @@
 // and the chats its agent started are all "subagents" (Leo 2026-10-21: "SHOULDN'T THIS SAY
 // SUBAGENTS?"). What ended stays as compact status cards after them, never counted. A command is
 // named by what its call says it does (inspector/processes.ts `commandLabel`), a chat by its title
-// and what its turn does now. Up to three lines show under it; more start folded to the header so
-// the tray never takes the transcript's room, and the chevron opens them. Its
+// and what its turn does now. A headed tray starts folded to its header, however few lines it has,
+// so it never takes the transcript's room (Austin 2026-10-30, #27908: "collapsed by default"); the
+// chevron opens it, and the person's choice holds while the chat shows. The chevron sits in the
+// tray's last column, at its right edge, the column a line's and View all's chevrons end in. Its
 // glass is the user bubble's: the theme's text at a low strength over the backdrop, with the
 // composer's hairline rim.
 //
@@ -70,7 +72,7 @@ import { Tick, useTrayMotion } from "./trayMotion";
 import type { StartedSession } from "../started/startedSessions";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 
-/// Lines the tray shows under its header without a click.
+/// Ended lines the tray shows before View all.
 export const TRAY_OPEN_MAX = 3;
 
 const ROW_ICON = rowIconSize(12);
@@ -131,8 +133,8 @@ export const SubagentTray = memo(function SubagentTray({
   const now = useNow(items.length > 0);
   const trayNode = useRef<HTMLElement | null>(null);
   const [narrow, setNarrow] = useState(false);
-  // The person's choice holds; until then a short list shows and a long one folds.
-  const [opened, setOpened] = useState<boolean>();
+  // The person's choice holds; until then a headed tray is folded to its header.
+  const [opened, setOpened] = useState(false);
   const [showFinished, setShowFinished] = useState(false);
   const [openCommands, setOpenCommands] = useState<ReadonlySet<string>>(() => new Set());
   // Read once per tray: the arm is the gallery's override or a dogfood key, never a per-tick read.
@@ -165,9 +167,9 @@ export const SubagentTray = memo(function SubagentTray({
   // The header stays while the tray has more than one line, running or ended: one of two running
   // ending never takes it (and its collapse) away.
   const headed = items.length + finished.length > 1;
-  const open = !headed || (opened ?? items.length <= TRAY_OPEN_MAX);
+  const open = !headed || opened;
   // The list opens and folds on the shared fold, its height only (no fade in), from the header's
-  // chevron or the list growing past TRAY_OPEN_MAX.
+  // chevron or a second line giving the tray its header.
   // A fold while the page is away (hidden, or in its first frames back) applies at once: the shared
   // page-reveal gate (shared/pageReveal.ts), read only when the fold changes.
   const fold = useFold(open, entranceMayRun, false);
@@ -323,7 +325,6 @@ export const SubagentTray = memo(function SubagentTray({
           <span className="acpmux-running-tray__status">
             <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
           </span>
-          <span className="acpmux-running-tray__stop-slot" aria-hidden="true" />
         </button>
       )}
       {fold.present && (

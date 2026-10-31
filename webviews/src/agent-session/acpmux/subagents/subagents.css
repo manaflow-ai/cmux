@@ -439,8 +439,10 @@ button.cv-subagent > :last-child {
   container-type: inline-size;
   container-name: running-tray;
   --acpmux-tray-time-width: calc(80px * var(--cmux-interface-scale, 1));
-  --acpmux-tray-status-width: 96px;
+  /* The state, Stop's track and the chevron's: 74 + 8 + 24 + 8 + 14. */
+  --acpmux-tray-status-width: 128px;
   --acpmux-tray-stop-width: 24px;
+  --acpmux-tray-chevron-width: 14px;
   box-sizing: border-box;
   padding: 0;
   overflow: hidden;
@@ -528,19 +530,20 @@ button.cv-subagent > :last-child {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.acpmux-running-tray__stop-slot {
-  box-sizing: border-box;
+/* Every trailing chevron (the header's, a line's, View all's) ends at the tray's right edge, inside
+   the row's 8px padding (#27908). A line's Stop sits in its own track just before its chevron. */
+.acpmux-running-tray .acpmux-agent-line__stop-track {
   flex: 0 0 var(--acpmux-tray-stop-width);
-  min-width: var(--acpmux-tray-stop-width);
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
+}
+.acpmux-running-tray :is(.acpmux-agent-line__chevron, .acpmux-agent-line__chevron-track) {
+  flex: 0 0 var(--acpmux-tray-chevron-width);
+  margin-left: 0;
 }
 .acpmux-running-tray .acpmux-agent-line__stop-slot {
   box-sizing: border-box;
   position: absolute;
   top: 0;
-  right: 8px;
+  right: calc(8px + var(--acpmux-tray-chevron-width) + 8px);
   bottom: 0;
   width: var(--acpmux-tray-stop-width);
   min-width: var(--acpmux-tray-stop-width);
@@ -595,9 +598,8 @@ button.cv-subagent > :last-child {
   padding-block: 4px;
 }
 .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
-  /* Reserve the final track while keeping the stop control outside the button. */
+  /* A nested line's indent; its trailing tracks are in its status (Stop's, then the chevron's). */
   padding-left: calc(8px + var(--acpmux-tray-indent, 0px));
-  padding-right: calc(8px + var(--acpmux-tray-stop-width) + 8px);
 }
 .acpmux-agent-line > .acpmux-agent-line__stop-slot > .cv-subagent__stop {
   position: static;
@@ -615,7 +617,8 @@ button.cv-subagent > :last-child {
   .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
     position: relative;
     display: grid;
-    grid-template-columns: var(--acpmux-tray-time-width) minmax(0, 1fr) var(--acpmux-tray-stop-width);
+    /* Stop's track and the chevron's end the status column, so it runs to the right padding. */
+    grid-template-columns: var(--acpmux-tray-time-width) minmax(0, 1fr);
     grid-template-rows: var(--ui-row-height, 28px) var(--ui-row-height, 28px);
     column-gap: 4px;
     row-gap: 0;
@@ -652,12 +655,9 @@ button.cv-subagent > :last-child {
     min-width: 0;
     gap: 4px;
   }
-  .acpmux-running-tray__stop-slot {
-    grid-column: 3;
-    grid-row: 2;
-  }
   .acpmux-running-tray .acpmux-agent-line__stop-slot {
     top: auto;
+    right: calc(8px + var(--acpmux-tray-chevron-width) + 4px);
     bottom: 0;
     height: var(--ui-row-height, 28px);
   }

@@ -156,10 +156,14 @@ export function AgentLine({
           <span className="acpmux-agent-line__status">
             {/* Running turns to Waiting or Done with a tick, never a jump (trayMotion.tsx). */}
             <Tick className="acpmux-summary-meta acpmux-summary-agent__state" text={state} />
-            {chevron && onOpen && (
+            {/* Stop's track (the stop slot lies over it), then the chevron's, last at the line's end. */}
+            <span className="acpmux-agent-line__stop-track" aria-hidden="true" />
+            {chevron && onOpen ? (
               <span className="acpmux-agent-line__chevron" aria-hidden="true">
                 <Icon name="disclosure.collapsed" size={ROW_ICON} row />
               </span>
+            ) : (
+              <span className="acpmux-agent-line__chevron-track" aria-hidden="true" />
             )}
           </span>
         </>

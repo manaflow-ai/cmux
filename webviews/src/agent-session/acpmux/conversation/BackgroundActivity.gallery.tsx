@@ -439,6 +439,13 @@ export default componentEntry<Props>({
     "duration-columns": {
       note: "Production tray with 9s through 12h 59m 59s, nested agents, commands and an empty stop/time slot. The header shows only the longest-running active item's time.",
       props: { surface: "duration-columns", mode: "dark" },
+      // A headed tray starts folded to its header (#27908): open it to its lines.
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        if (ctx.find({ selector: ".acpmux-running-tray__head" }).getAttribute("aria-expanded") !== "true")
+          await ctx.click({ selector: ".acpmux-running-tray__head" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list .acpmux-agent-line"));
+      },
     },
     ...paired(
       "pinned-live-tail",

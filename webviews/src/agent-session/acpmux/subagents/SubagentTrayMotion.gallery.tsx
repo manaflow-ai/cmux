@@ -31,21 +31,29 @@ const script = [
     },
   },
   {
-    name: "a second starts: a header, and its count ticks",
+    name: "a second starts: a header, and the list folds under it",
     run: async (ctx: PlayContext) => {
       await ctx.click(stage("start"));
       await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+      await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-running-tray__fold"));
     },
   },
   {
-    name: "fold the list",
+    name: "open the list",
+    run: async (ctx: PlayContext) => {
+      await ctx.click({ selector: ".acpmux-running-tray__head" });
+      await ctx.waitFor(() => lines(ctx) === 2);
+    },
+  },
+  {
+    name: "fold it again",
     run: async (ctx: PlayContext) => {
       await ctx.click({ selector: ".acpmux-running-tray__head" });
       await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-running-tray__fold"));
     },
   },
   {
-    name: "open it again",
+    name: "open it once more",
     run: async (ctx: PlayContext) => {
       await ctx.click({ selector: ".acpmux-running-tray__head" });
       await ctx.waitFor(() => lines(ctx) === 2);

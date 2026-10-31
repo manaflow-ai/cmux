@@ -250,8 +250,19 @@ const panelScript = [
   { name: "open all and scroll to the end", run: scrollPanel },
 ];
 
-/** Waits for the tray's live `count` lines, and checks no group card is left in the transcript. */
+/** A headed tray starts folded to its header (#27908): opens it with its chevron. */
+const openTray = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+  if (ctx.find({ selector: ".acpmux-running-tray__head" }).getAttribute("aria-expanded") !== "true")
+    await ctx.click({ selector: ".acpmux-running-tray__head" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
+};
+
+/** Waits for the tray's live `count` lines (opening a headed tray first), and checks no group card
+ *  is left in the transcript. */
 const trayLines = (count: number) => async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray"));
+  if (count > 1) await openTray(ctx);
   await ctx.waitFor(
     () =>
       ctx.document.querySelectorAll(".acpmux-running-tray li:not([data-finished]) .acpmux-agent-line").length === count,
@@ -288,7 +299,7 @@ export default agentPaneEntry({
     "panel-two": {
       note: 'Leo\'s panel with two chats running and three ended (2026-10-25: "this section, the whatever background tasks ... it\'s kind of wack"): the header pinned on top, running first, then the latest that ended; a chat\'s raw shell doing line reads "Running sed -i …", never "cd /Users/… && sed -i …".',
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        await openTray(ctx);
         headInView(ctx);
         const details = [...ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-summary-agent__kind")].map(
           (node) => node.textContent ?? "",
@@ -298,9 +309,20 @@ export default agentPaneEntry({
       },
       snapshot: panel(3),
     },
+    "panel-two-at-rest": {
+      note: "The same panel as it first shows (#27908): folded to its header, however few lines it has, its chevron at the tray's right edge, where a line's and View all's chevrons end.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        if (ctx.find({ selector: ".acpmux-running-tray__head" }).getAttribute("aria-expanded") !== "false")
+          throw new Error("a headed tray starts folded");
+        if (ctx.document.querySelector(".acpmux-running-tray__list")) throw new Error("a folded tray draws no lines");
+      },
+      snapshot: panel(3),
+    },
     "panel-one-running": {
       note: "One of the two chats ended: the header and its collapse stay while ended lines show (it used to unmount once fewer than two ran).",
       play: async (ctx) => {
+        await openTray(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line"));
         headInView(ctx);
       },
@@ -323,6 +345,7 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
       play: async (ctx) => {
+        await openTray(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__finished"));
         const shell = ctx.document.querySelector<HTMLElement>(".acpmux-shell")!;
         shell.style.width = "300px";
@@ -436,7 +459,7 @@ export default agentPaneEntry({
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
     "several-running": {
-      note: "Two subagents and a background command: a header with the counts and the time since the first started, a line each (up to three show open). The ended task remains a compact status card.",
+      note: "Two subagents and a background command: a header with the counts and the time since the first started, opened to a line each. The ended task remains a compact status card.",
       play: trayLines(3),
       snapshot: chat(
         [
@@ -489,6 +512,7 @@ export default agentPaneEntry({
     "between-turns": {
       note: "After the turn: a background subagent and two chats the agent started still run. The tray says so above the composer; the transcript ends with the turn's footer.",
       play: async (ctx) => {
+        await openTray(ctx);
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === 3);
         if (ctx.document.querySelector(".cv-bgwork")) throw new Error("no Running in background row in the transcript");
       },
@@ -567,6 +591,7 @@ export default agentPaneEntry({
     "codex-lineage": {
       note: 'A Codex chat\'s subagents as its records say (Leo 2026-10-22: "why is it like... staggered? were they created by another subagent?"): the chat itself started both, so they sit side by side. A child that reports its parent thread never makes the chat a subagent of its own, nested under that child.',
       play: async (ctx) => {
+        await openTray(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line"));
         const names = [...ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-summary-agent__name")];
         if (names.some((name) => /^[0-9a-f]{8}-/.test(name.textContent ?? "")))
@@ -586,7 +611,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         if (ctx.find({ selector: ".acpmux-running-tray__head" }).getAttribute("aria-expanded") !== "false")
-          throw new Error("more than three running lines start folded");
+          throw new Error("a headed tray starts folded");
       },
       snapshot: chat(
         [

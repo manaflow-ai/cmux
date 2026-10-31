@@ -237,6 +237,9 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
     const page = await open(BUSY, 900, true);
     const tray = page.locator(".acpmux-running-tray");
     await tray.waitFor({ timeout: 5_000 });
+    // A headed tray starts folded to its header (#27908): open it with its chevron.
+    await tray.locator(".acpmux-running-tray__head").click();
+    await tray.locator(".acpmux-running-tray__list").waitFor({ timeout: 5_000 });
     // What runs is listed first; the Linter that ended stays as a finished card under it
     // (49acdd1d589d keeps finished cards mounted in the tray).
     const lines = await tray

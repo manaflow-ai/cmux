@@ -79,7 +79,7 @@ const frames = async () => {
 };
 const cancelled = (node: Element) => node.dispatchEvent(new dom.window.Event("animationcancel", { bubbles: true }));
 Object.defineProperty(proto, "clientHeight", { configurable: true, get: () => 300 });
-// A ghost's exit is an 80 ms animation; nothing else animates in this document.
+// A ghost's exit is an 80 ms animation, and the fold animates a folding list (conversation/fold.ts).
 const computed = dom.window.getComputedStyle.bind(dom.window);
 dom.window.getComputedStyle = ((node: Element) =>
   node.classList.contains("acpmux-running-tray--ghost")
@@ -96,7 +96,8 @@ setPaneLanguage("en");
 
 /// Turns Web Animations on (the tray checks `animate` before it moves anything) or off.
 const motion = (on: boolean) => {
-  if (on) proto.animate = () => ({});
+  // The fold (conversation/fold.ts) cancels its running animation when it folds again or unmounts.
+  if (on) proto.animate = () => ({ cancel: () => {} });
   else delete proto.animate;
 };
 
@@ -325,6 +326,8 @@ describe("subagent tray motion edges", () => {
     const shown = { current: "chat-a" as string | undefined };
     const { root } = mount();
     await draw(root, shown, [item("A"), item("B")], false);
+    // A headed tray starts folded to its header (#27908): open it.
+    await act(async () => card()!.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!.click());
     const list = card()!.querySelector<HTMLElement>(".acpmux-running-tray__list")!;
     list.scrollTop = 40;
     await draw(root, shown, [], false);
@@ -339,6 +342,7 @@ describe("subagent tray motion edges", () => {
     const shown = { current: "chat-a" as string | undefined };
     const { root } = mount();
     await draw(root, shown, [item("A"), item("B")], false);
+    await act(async () => card()!.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!.click());
     const fold = card()!.querySelector<HTMLElement>(".acpmux-running-tray__fold")!;
     // Midway through a collapse: useFold clips the fold, and its drawn box is 37px at 40% opacity.
     fold.style.overflow = "hidden";
