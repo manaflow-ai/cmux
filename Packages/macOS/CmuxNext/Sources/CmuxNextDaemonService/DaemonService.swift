@@ -397,9 +397,15 @@ public final class DaemonService {
 
     /// The handshake handed an incompatible owner off to the bundled build
     /// (`DaemonLauncher.handOffIncompatible`); the next connect reaches its successor.
+    /// The handoff can come after the first deadline already showed a failure, so the
+    /// successor gets a fresh `.connecting` window and the old failure is dropped.
     func noteIncompatibleOwnerHandoff() {
         Self.launchMark("daemon_version_handoff")
         logger.info("cmux-tui daemon handoff: the running owner is incompatible; starting the bundled build")
+        if startup != .connected {
+            startup = .connecting
+            lastStartupError = nil
+        }
         armStartupDeadline()
     }
 
