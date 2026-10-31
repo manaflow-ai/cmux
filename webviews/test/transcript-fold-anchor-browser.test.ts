@@ -119,7 +119,8 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       return node.scrollHeight - node.clientHeight - node.scrollTop <= 2;
     });
-  const scrollHeight = (page: Page) => page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollHeight);
+  const scrollHeight = (page: Page) =>
+    page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollHeight);
   /// Marks the line `selector` finds last in the transcript, and returns where it is drawn.
   const probe = (page: Page, selector: string) =>
     page.evaluate((query) => {
