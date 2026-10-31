@@ -34,11 +34,11 @@ class PageCapError(ValueError):
     """The list is longer than the page cap; what was read is not the whole list."""
 
 
-def page_url(endpoint: str, page: int) -> str:
+def page_url(endpoint: str, page: int, per_page: int = PER_PAGE) -> str:
     """The endpoint with its own per_page/page dropped and ours added."""
     path, _, query = endpoint.partition("?")
     kept = [part for part in query.split("&") if part and not re.match(r"(per_page|page)=", part)]
-    return f"{path}?{'&'.join([*kept, f'per_page={PER_PAGE}', f'page={page}'])}"
+    return f"{path}?{'&'.join([*kept, f'per_page={per_page}', f'page={page}'])}"
 
 
 def page_items(page: Any) -> list:
@@ -53,15 +53,18 @@ def page_items(page: Any) -> list:
     raise TypeError(f"a page of a GitHub list is neither a list nor an object with one list field: {str(page)[:200]}")
 
 
-def pages(fetch: Fetch, endpoint: str, max_pages: int = MAX_PAGES) -> list:
-    """Every raw page of the list, fetched one `fetch(url)` call each (fetch returns parsed JSON)."""
+def pages(fetch: Fetch, endpoint: str, max_pages: int = MAX_PAGES, per_page: int = PER_PAGE) -> list:
+    """Every raw page of the list, fetched one `fetch(url)` call each (fetch returns parsed JSON).
+
+    per_page is smaller only for a list whose full pages GitHub can't serve (a run's jobs carry every
+    step; see base_red_excuse.JOBS_PAGE)."""
     out = []
     for number in range(1, max_pages + 1):
-        page = fetch(page_url(endpoint, number))
+        page = fetch(page_url(endpoint, number, per_page))
         out.append(page)
-        if len(page_items(page)) < PER_PAGE:
+        if len(page_items(page)) < per_page:
             return out
-    raise PageCapError(f"{endpoint} has more than {max_pages} pages of {PER_PAGE}; "
+    raise PageCapError(f"{endpoint} has more than {max_pages} pages of {per_page}; "
                        "refusing to read a list cut short as complete")
 
 

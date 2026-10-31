@@ -14,7 +14,7 @@ export class FakeCloudDriver implements CloudProvider {
   constructor(private readonly sql: SqlStore) {
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_snapshot (slug TEXT PRIMARY KEY, id TEXT NOT NULL, source TEXT NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_vm (name TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, tag TEXT NOT NULL, idle INTEGER, state TEXT NOT NULL DEFAULT 'running', cpu INTEGER NOT NULL DEFAULT 2, memory INTEGER NOT NULL DEFAULT 4096, storage INTEGER NOT NULL DEFAULT 16384, snapshot TEXT)`)
-    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, deletes INTEGER NOT NULL DEFAULT 0, fail_list INTEGER NOT NULL DEFAULT 0, pauses INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0, power_then_fail INTEGER NOT NULL DEFAULT 0, resizes INTEGER NOT NULL DEFAULT 0, resize_refuse INTEGER NOT NULL DEFAULT 0, resize_partial INTEGER NOT NULL DEFAULT 0, image_cpu INTEGER NOT NULL DEFAULT 2, image_memory INTEGER NOT NULL DEFAULT 4096, image_storage INTEGER NOT NULL DEFAULT 16384, state_reads INTEGER NOT NULL DEFAULT 0, power_refuse INTEGER NOT NULL DEFAULT 0, power_calls INTEGER NOT NULL DEFAULT 0, snapshot_delete_refuse INTEGER NOT NULL DEFAULT 0)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, deletes INTEGER NOT NULL DEFAULT 0, fail_list INTEGER NOT NULL DEFAULT 0, pauses INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0, power_then_fail INTEGER NOT NULL DEFAULT 0, resizes INTEGER NOT NULL DEFAULT 0, resize_refuse INTEGER NOT NULL DEFAULT 0, resize_partial INTEGER NOT NULL DEFAULT 0, image_cpu INTEGER NOT NULL DEFAULT 2, image_memory INTEGER NOT NULL DEFAULT 4096, image_storage INTEGER NOT NULL DEFAULT 16384, state_reads INTEGER NOT NULL DEFAULT 0, power_refuse INTEGER NOT NULL DEFAULT 0, power_calls INTEGER NOT NULL DEFAULT 0, snapshot_delete_refuse INTEGER NOT NULL DEFAULT 0, snapshot_deletes INTEGER NOT NULL DEFAULT 0)`)
     sql.exec(`INSERT OR IGNORE INTO cloud_fake_ctl (id) VALUES (1)`)
     // Like the production provider: inline rules of a create, deleted with the VM (`rule` is the whole rule, as sent).
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_tls (id TEXT PRIMARY KEY, vm TEXT NOT NULL, domain TEXT NOT NULL, rule TEXT NOT NULL)`)
@@ -23,6 +23,9 @@ export class FakeCloudDriver implements CloudProvider {
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_exec (n INTEGER PRIMARY KEY AUTOINCREMENT, vm TEXT NOT NULL, kind TEXT NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_guest (id INTEGER PRIMARY KEY CHECK (id = 1), build_exit INTEGER NOT NULL DEFAULT 0, log TEXT NOT NULL DEFAULT '')`)
     sql.exec(`INSERT OR IGNORE INTO cloud_fake_guest (id) VALUES (1)`)
+    // Tests of the exec and file routes: the answer every other command gets (none: refused, as before) and each such call.
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_guest_reply (id INTEGER PRIMARY KEY CHECK (id = 1), reply TEXT)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_guest_call (n INTEGER PRIMARY KEY AUTOINCREMENT, vm TEXT NOT NULL, command TEXT NOT NULL, stdin TEXT)`)
     // Client sessions: one row per identity (its one VM and user grant) and how many tokens it minted; never a token.
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_identity (id TEXT PRIMARY KEY, vm TEXT NOT NULL, user TEXT NOT NULL, tokens INTEGER NOT NULL DEFAULT 0, expires_at INTEGER NOT NULL DEFAULT 0)`)
   }
@@ -55,12 +58,17 @@ export class FakeCloudDriver implements CloudProvider {
    * readiness probe passes, a detached build starts, and its poll answers the configured exit code
    * and log. Any other command (the keyed acpmux start) fails as the provider's refusal, as before.
    */
-  async execStdin(id: string, command: string): Promise<GuestExecResult> {
+  async execStdin(id: string, command: string, stdin: Uint8Array | null = null): Promise<GuestExecResult> {
     this.maybeFail()
     const vm = this.sql.exec<{ name: string }>(`SELECT name FROM cloud_fake_vm WHERE id = ?`, id)[0]
     if (!vm) throw new DriverError("cloud.provider.vm_missing", "fake provider: no such VM", true)
     const kind = /bash -c 'true'$/.test(command) ? "probe" : execKind(command)
-    if (kind === "other") throw new DriverError("cloud.provider.refused", "fake provider: no guest exec", true)
+    if (kind === "other") {
+      const scripted = this.sql.exec<{ reply: string | null }>(`SELECT reply FROM cloud_fake_guest_reply WHERE id = 1`)[0]?.reply
+      if (!scripted) throw new DriverError("cloud.provider.refused", "fake provider: no guest exec", true)
+      this.sql.exec(`INSERT INTO cloud_fake_guest_call (vm, command, stdin) VALUES (?, ?, ?)`, vm.name, command, stdin ? new TextDecoder().decode(stdin) : null)
+      return JSON.parse(scripted) as GuestExecResult
+    }
     this.sql.exec(`INSERT INTO cloud_fake_exec (vm, kind) VALUES (?, ?)`, vm.name, kind)
     const g = this.sql.exec<{ build_exit: number; log: string }>(`SELECT build_exit, log FROM cloud_fake_guest WHERE id = 1`)[0]!
     if (kind === "start") return { exitCode: 0, stdout: "started\n", stderr: "" }
@@ -191,6 +199,7 @@ export class FakeCloudDriver implements CloudProvider {
       this.sql.exec(`UPDATE cloud_fake_ctl SET snapshot_delete_refuse = snapshot_delete_refuse - 1 WHERE id = 1`)
       throw new DriverError("cloud.provider.refused", "fake provider: 409 snapshot in use", true)
     }
+    this.sql.exec(`UPDATE cloud_fake_ctl SET snapshot_deletes = snapshot_deletes + 1 WHERE id = 1`)
     this.sql.exec(`DELETE FROM cloud_fake_snapshot WHERE id = ?`, id)
   }
 

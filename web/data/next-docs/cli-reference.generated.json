@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 750,
-    "mcp": 668
+    "verbs": 757,
+    "mcp": 675
   },
   "nouns": [
     {
@@ -89,6 +89,13 @@
           "id": "agent.harness.doctor",
           "mcp": true,
           "mcpTool": "app_agent_check_harness"
+        },
+        {
+          "command": "cmux agent continue-after-error",
+          "title": "Continue After Error",
+          "id": "agentPane.continueAfterError",
+          "mcp": true,
+          "mcpTool": "app_agent_continue_after_error"
         },
         {
           "command": "cmux agent edit-instructions",
@@ -280,6 +287,13 @@
           "mcpTool": "app_agent_stop_computer_use"
         },
         {
+          "command": "cmux agent stop-reading-aloud",
+          "title": "Stop Reading Aloud",
+          "id": "agentPane.stopReadingAloud",
+          "mcp": true,
+          "mcpTool": "app_agent_stop_reading_aloud"
+        },
+        {
           "command": "cmux agent stop-turn",
           "title": "Stop Agent Turn",
           "id": "agentPane.stopTurn",
@@ -301,6 +315,13 @@
           "mcpTool": "app_agent_toggle_display_settings"
         },
         {
+          "command": "cmux agent toggle-files",
+          "title": "Toggle Files Beside Chat",
+          "id": "agentPane.toggleFiles",
+          "mcp": true,
+          "mcpTool": "app_agent_toggle_files"
+        },
+        {
           "command": "cmux agent toggle-minimap",
           "title": "Toggle Thread Minimap",
           "id": "agentPane.toggleMinimap",
@@ -308,11 +329,25 @@
           "mcpTool": "app_agent_toggle_minimap"
         },
         {
+          "command": "cmux agent toggle-preview",
+          "title": "Toggle Preview Beside Chat",
+          "id": "agentPane.togglePreview",
+          "mcp": true,
+          "mcpTool": "app_agent_toggle_preview"
+        },
+        {
           "command": "cmux agent toggle-session-info",
           "title": "Toggle Session Info",
           "id": "agentPane.toggleSessionInfo",
           "mcp": true,
           "mcpTool": "app_agent_toggle_session_info"
+        },
+        {
+          "command": "cmux agent toggle-side-tabs",
+          "title": "Toggle Tabs Beside Chat",
+          "id": "agentPane.toggleSideTabs",
+          "mcp": true,
+          "mcpTool": "app_agent_toggle_side_tabs"
         },
         {
           "command": "cmux agent toggle-ui-pointer",
@@ -1732,6 +1767,13 @@
           "mcpTool": "app_home_channels"
         },
         {
+          "command": "cmux home close-new-message",
+          "title": "Close New Message",
+          "id": "home.closeNewMessage",
+          "mcp": true,
+          "mcpTool": "app_home_close_new_message"
+        },
+        {
           "command": "cmux home delete-chief",
           "title": "Delete Chief…",
           "id": "home.deleteChief",
@@ -1758,6 +1800,13 @@
           "id": "home.invite",
           "mcp": false,
           "mcpTool": null
+        },
+        {
+          "command": "cmux home invite-to-team",
+          "title": "Invite to Team…",
+          "id": "home.inviteToTeam",
+          "mcp": true,
+          "mcpTool": "app_home_invite_to_team"
         },
         {
           "command": "cmux home leave",
@@ -4220,7 +4269,7 @@
         },
         {
           "command": "cmux tab new-mac-screen",
-          "title": "New Mac Screen Tab",
+          "title": "Screen Sharing",
           "id": "macScreen.open",
           "mcp": true,
           "mcpTool": "app_tab_new_mac_screen"

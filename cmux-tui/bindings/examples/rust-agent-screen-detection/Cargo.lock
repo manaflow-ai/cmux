@@ -58,18 +58,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-json"
-version = "0.1.0"
-dependencies = [
- "serde_json",
-]
-
-[[package]]
 name = "cmux-sdk"
 version = "1.0.0"
 dependencies = [
  "base64",
- "cmux-json",
  "getrandom",
  "libc",
  "serde",

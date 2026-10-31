@@ -31,14 +31,13 @@ nonisolated enum TabSettingsSchema {
                 SettingChoice(NewTabTemplate.minimal.rawValue, SettingsText.keyed("settings.choice.newTabTemplateMinimal", "Minimal")),
                 SettingChoice(NewTabTemplate.cards.rawValue, SettingsText.keyed("settings.choice.newTabTemplateCards", "Cards")),
                 SettingChoice(NewTabTemplate.default.rawValue, SettingsText.keyed("settings.choice.newTabTemplateDefault", "Default")),
-                SettingChoice(NewTabTemplate.composer.rawValue, SettingsText.keyed("settings.choice.newTabTemplateComposer", "Composer")),
                 SettingChoice(NewTabTemplate.threads.rawValue, SettingsText.keyed("settings.choice.newTabTemplateThreads", "Threads")),
                 SettingChoice(NewTabTemplate.console.rawValue, SettingsText.keyed("settings.choice.newTabTemplateConsole", "Console")),
                 SettingChoice(NewTabTemplate.classic.rawValue, SettingsText.keyed("settings.choice.newTabTemplateClassic", "Classic")),
                 SettingChoice(NewTabTemplate.terminal.rawValue, SettingsText.keyed("settings.choice.newTabTemplateTerminal", "Terminal")),
             ]),
             default: .string(NewTabTemplate.fallback.rawValue),
-            keywords: ["new tab", "template", "layout", "page", "minimal", "greeting", "terminal", "classic", "composer", "threads", "console", "cards", "search", "ask"]
+            keywords: ["new tab", "template", "layout", "page", "minimal", "greeting", "terminal", "classic", "threads", "console", "cards", "search", "ask"]
         )
     }
 
@@ -67,6 +66,19 @@ nonisolated enum TabSettingsSchema {
             kind: .toggle,
             default: .bool(TerminalFirstSetting.fallback),
             keywords: ["terminal", "classic", "classic mode", "cmux classic", "new tab", "split", "workspace", "window", "cmd-t", "cmd-d", "cmd-n", "new tab page", "gui", "default"]
+        )
+    }
+
+    /// `tabs.nativeNewTabPage`: the native New Tab page, an alternative to the web one (off by default).
+    static func nativeNewTabPage(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(
+            NativeNewTabPageSetting.configPath, section: .general, group: group,
+            title: SettingsText.keyed("settings.tabs.nativeNewTabPage", "Native New Tab Page"),
+            help: SettingsText.keyed("settings.tabs.nativeNewTabPage.help",
+                                     "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now."),
+            kind: .toggle,
+            default: .bool(NativeNewTabPageSetting.fallback),
+            keywords: ["new tab", "native", "swift", "page", "cmd-t", "fast", "web", "alternative", "command palette", "actions"]
         )
     }
 

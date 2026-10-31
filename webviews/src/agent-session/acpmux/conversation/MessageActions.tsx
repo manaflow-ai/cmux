@@ -1,3 +1,4 @@
+import { PullRequestDock } from "../summary/PullRequestDock";
 // The buttons of a message's action row, shared by a prompt's (UserBubble.tsx, PromptActions for
 // the Chief's), another agent's message's (ReceivedActions) and an answer's (TurnRows.tsx TurnFooter), as Claude Code desktop
 // draws them: the message's age ("8 minutes ago"; "Oct 20, 2026, 10:16 PM" above it on hover), a
@@ -10,7 +11,7 @@ import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { useRowMark } from "../threadMinimap/promptMarks";
-import { AlertCircle, Check, DoubleCheck, Pin, Retry, Speaker, Spinner, TurnFork } from "./icons";
+import { AlertCircle, Check, DoubleCheck, Pin, Retry, Speaker, Spinner, StopReading, TurnFork } from "./icons";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
 import { exactTime, relativeTime } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
@@ -191,7 +192,8 @@ export function MessageMore({ rowId }: { rowId: string }) {
   );
 }
 
-/// Reads the message aloud with the system voice; pressed again, stops.
+/// Reads the message aloud with the system voice; pressed again (or Escape), stops. While it reads
+/// it shows a stop glyph and keeps its row shown (conversation.css), so Stop is always in reach.
 export function ReadAloudButton({ id, text }: { id: string; text: string }) {
   const t = useT();
   const language = usePaneLanguage();
@@ -201,13 +203,14 @@ export function ReadAloudButton({ id, text }: { id: string; text: string }) {
   return (
     <button
       type="button"
-      className="cv-iconbtn cv-iconbtn--compact"
+      className="cv-iconbtn cv-iconbtn--compact cv-read-aloud"
       aria-pressed={reading}
       aria-label={label}
       title={label}
+      data-reading={reading || undefined}
       onClick={() => readAloud(id, text, language)}
     >
-      <Speaker size={ROW_ICON} />
+      {reading ? <StopReading size={ROW_ICON} /> : <Speaker size={ROW_ICON} />}
     </button>
   );
 }
@@ -303,17 +306,22 @@ export function SentActions({ text }: { text: string }) {
 }
 
 /// The row at the end of another agent's message line (IncomingMessageCard.tsx IncomingMessageLine):
-/// its age, Copy, Retry and Pin. No read receipt: the message is the agent's to read.
-export function ReceivedActions({ row, text }: { row: AcpmuxRow; text: string }) {
+/// its age, Copy, Retry and Pin, then `more` (a waiting steer's ⋯, QueuedMessageCard.tsx) in the
+/// same group, never a second one beside it. No read receipt: the message is the agent's to read.
+export function ReceivedActions({ row, text, more }: { row: AcpmuxRow; text: string; more?: ReactNode }) {
   return (
-    <span className="cv-received-actions">
-      <MessageFooterRow>
-        <MessageTime at={row.at} className="cv-user__time" />
-        <MessageCopy text={text} />
-        <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
-        <PinButton rowId={row.id} />
-      </MessageFooterRow>
-    </span>
+    <>
+      <span className="cv-received-actions">
+        <MessageFooterRow>
+          <MessageTime at={row.at} className="cv-user__time" />
+          <MessageCopy text={text} />
+          <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
+          <PinButton rowId={row.id} />
+          {more}
+        </MessageFooterRow>
+      </span>
+      <PullRequestDock />
+    </>
   );
 }
 
@@ -332,6 +340,7 @@ export function ReplyActions({ row }: { row: AcpmuxRow }) {
         <MessageMore rowId={row.id} />
       </span>
       <MessageTime at={row.at} className="cv-turn-time" />
+      <PullRequestDock />
     </div>
   );
 }

@@ -1,8 +1,16 @@
 import AppKit
 import CmuxNextDesign
 
-/// The "cmux Updated!" card's slot view: the updated surface, sized to the
-/// page's height, and the card's x. Hidden without a card or a surface.
+/// The "cmux Updated!" card's slot view: the sidebar cards' glass, the updated
+/// surface over it, sized to the page's height, and the card's x. Hidden without
+/// a card or a surface.
+///
+/// The glass is native (``CardSurfaceView``, the Update Ready, Now Playing and
+/// notice cards' own), under the transparent page, which draws only the words
+/// (Leo 2026-10-30: "I don't like the non-glassness"). A web page's CSS glass
+/// sees nothing of the sidebar behind its view, so the page alone could paint
+/// only a flat fill. Under Reduce Transparency the surface is the opaque
+/// elevated fill, as every card's.
 ///
 /// The x is native, over the page's top right, shown while the pointer is on
 /// the card (Lawrence 2026-10-23: "i cant X this out anymore even when hovering
@@ -19,6 +27,8 @@ final class SidebarUpdatedCardHost: NSView {
     var onHeightChange: (() -> Void)?
     /// The card's x (u2441): the slot sends `.dismissUpdated`, as every card's x sends its intent.
     var onDismiss: (() -> Void)?
+    /// The card's glass, under the page.
+    let surface = CardSurfaceView()
     /// The x: shown while the pointer is on the card.
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: "")
     /// The pointer is on the card: its x shows.
@@ -45,6 +55,10 @@ final class SidebarUpdatedCardHost: NSView {
         }
     }
 
+    /// The card's corner: the page's own card radius (`.wn-card`'s 12 px, updateSurfaces.css), so the
+    /// glass keeps the card's shape. Space 5 is 12 pt at the default density.
+    static var cornerRadius: CGFloat { Metrics.space5 }
+
     /// The x's side and its inset from the card's top right (the page's own x stood there).
     static let closeSide: CGFloat = 18
     static let closeInset = NSSize(width: 8, height: 7)
@@ -53,6 +67,7 @@ final class SidebarUpdatedCardHost: NSView {
         super.init(frame: frame)
         isHidden = true
         setAccessibilityElement(false)
+        addSubview(surface)
         closeButton.showsLabelToolTip = false
         closeButton.takesKeyFocus = true
         closeButton.takesFirstClick = true
@@ -103,6 +118,8 @@ final class SidebarUpdatedCardHost: NSView {
 
     override func layout() {
         super.layout()
+        surface.frame = bounds
+        surface.cornerRadius = Self.cornerRadius
         let side = Self.closeSide
         closeButton.frame = NSRect(x: bounds.width - Self.closeInset.width - side, y: Self.closeInset.height,
                                    width: side, height: side).integral

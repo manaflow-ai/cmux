@@ -4,6 +4,7 @@
 // ends it where it is.
 import { bezierAt, type CubicBezier } from "../../../ui/cubicBezier";
 import { HIGHLIGHT_EASING, HIGHLIGHT_MS } from "./model";
+import { railOwnsWheel } from "./railWheel";
 
 const running = new WeakMap<HTMLElement, () => void>();
 
@@ -161,7 +162,8 @@ function runScroll(
 /// far the target sits from where it should land (undefined while it is not mounted), and the scroll
 /// moves by that much, until it holds for three frames or `frames` run out. Any input anywhere in the
 /// page (a wheel, a press, a key: the reader scrolling, Find, Jump to Latest) or another scroll on
-/// `node` ends it.
+/// `node` ends it. A wheel over a rail that scrolls itself is not the reader's (railWheel.ts): the
+/// rail moves, and the landing goes on.
 export function settleScroll(node: HTMLElement, offset: () => number | undefined, frames: number): void {
   stopScroll(node);
   if (typeof requestAnimationFrame !== "function") return;
@@ -171,8 +173,11 @@ export function settleScroll(node: HTMLElement, offset: () => number | undefined
   const page = node.ownerDocument.defaultView ?? window;
   const end = () => {
     cancelAnimationFrame(frame);
-    for (const name of READER_INPUTS) page.removeEventListener(name, end, true);
+    for (const name of READER_INPUTS) page.removeEventListener(name, input, true);
     if (running.get(node) === end) running.delete(node);
+  };
+  const input = (event: Event) => {
+    if (!railOwnsWheel(event)) end();
   };
   const step = () => {
     // A scroller with no layout (hidden, or a DOM without one) has nothing to measure.
@@ -191,7 +196,7 @@ export function settleScroll(node: HTMLElement, offset: () => number | undefined
     else frame = requestAnimationFrame(step);
   };
   // Captured on the window: added during the input that started the jump, it does not see that one.
-  for (const name of READER_INPUTS) page.addEventListener(name, end, { capture: true, passive: true });
+  for (const name of READER_INPUTS) page.addEventListener(name, input, { capture: true, passive: true });
   running.set(node, end);
   frame = requestAnimationFrame(step);
 }
