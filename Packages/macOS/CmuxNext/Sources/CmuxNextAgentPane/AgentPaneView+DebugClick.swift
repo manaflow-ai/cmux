@@ -72,6 +72,13 @@ extension AgentPaneView {
         return PageRegistry.shownChromiumPages(in: window).contains { $0.page === page }
     }
 
+    /// The paint and engine state a scene capture must wait for before drawing the agent pane.
+    public var debugCaptureState: AgentPaneCaptureState {
+        AgentPaneCaptureState(attached: webView.window != nil, loading: webView.isLoading,
+                              chromium: debugShowsChromium, chromiumStarting: debugChromiumStarting,
+                              chromiumShown: debugChromiumPageShown, painted: debugPageHasPainted)
+    }
+
     /// The zoom the chat shows at: view points per page CSS pixel.
     public var debugPageZoom: Double {
         guard let page else { return webView.pageZoom * webView.magnification }
