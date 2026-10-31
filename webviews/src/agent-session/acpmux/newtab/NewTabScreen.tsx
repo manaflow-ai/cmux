@@ -1296,7 +1296,7 @@ export function NewTabScreen(props: Props) {
   // A saved environment owns its draft and the browse failure state. Keep a folder chosen there
   // from replacing the New Tab project until the person saves the environment.
   const browseSavedEnvironment = browseProject
-    ? (request?: BrowseRequest) => browseProject({ ...(request ?? {}), deferPick: true })
+    ? (request?: BrowseRequest) => browseProject({ ...request, deferPick: true })
     : undefined;
   const Chips = props.chips;
   const chooser = useRef<HTMLInputElement>(null);
