@@ -205,6 +205,15 @@ enum Next {
     Shutdown,
 }
 
+/// What became of a data frame [`Outbox::push_data`] was given.
+enum Pushed {
+    Queued,
+    /// The writer is gone.
+    Shutdown,
+    /// Its channel closed while it waited for room.
+    ChannelClosed,
+}
+
 /// One stream's outgoing frames, by priority.
 #[derive(Default)]
 struct Outbox {
@@ -254,8 +263,9 @@ impl Outbox {
     }
 
     /// Queue a channel's data frame, waiting while that channel already
-    /// has [`CHANNEL_QUEUE_BYTES`] queued. `false` once the writer is gone.
-    async fn push_data(&self, class: Class, frame: Frame) -> bool {
+    /// has [`CHANNEL_QUEUE_BYTES`] queued. Gives up once the writer is gone
+    /// or the channel is `closed` (its close wakes the wait).
+    async fn push_data(&self, class: Class, frame: Frame, closed: &AtomicBool) -> Pushed {
         loop {
             let room = self.room.notified();
             tokio::pin!(room);
@@ -263,14 +273,17 @@ impl Outbox {
             {
                 let mut queues = self.lock();
                 if queues.shutdown {
-                    return false;
+                    return Pushed::Shutdown;
+                }
+                if closed.load(Ordering::Acquire) {
+                    return Pushed::ChannelClosed;
                 }
                 let used = queues.bytes.get(&frame.channel).copied().unwrap_or(0);
                 if used == 0 || used + frame.payload.len() <= CHANNEL_QUEUE_BYTES {
                     Self::enqueue(&mut queues, class, frame);
                     drop(queues);
                     self.ready.notify_one();
-                    return true;
+                    return Pushed::Queued;
                 }
             }
             room.await;
@@ -333,6 +346,9 @@ impl Outbox {
 /// Where a channel's inbound events go.
 struct Route {
     tx: mpsc::Sender<ChannelEvent>,
+    /// The channel's sender's closed flag: the peer's close sets it, so a send
+    /// in progress stops instead of streaming into a channel the peer dropped.
+    closed: Arc<AtomicBool>,
 }
 
 struct Inner {
@@ -668,14 +684,15 @@ impl Link {
         let class = Class::from(lane);
         let id = self.inner.next_channel.fetch_add(2, Ordering::Relaxed);
         let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
-        self.inner.lock_channels().insert(id, Route { tx });
+        let closed = Arc::new(AtomicBool::new(false));
+        self.inner.lock_channels().insert(id, Route { tx, closed: Arc::clone(&closed) });
         let payload = serde_json::to_vec(&OpenRequest { service: service.to_owned(), args, lane })
             .expect("open request serializes");
         if let Err(error) = self.inner.push(stream, class, Frame::new(id, FrameType::Open, payload)) {
             self.inner.lock_channels().remove(&id);
             return Err(error);
         }
-        Ok(Channel::new(id, stream, class, Arc::clone(&self.inner), rx))
+        Ok(Channel::new(id, stream, class, Arc::clone(&self.inner), rx, closed))
     }
 
     /// The next channel the peer opened, or `None` once the link is closed.
@@ -865,8 +882,9 @@ async fn read_loop<R>(
                 // priority of the lane the peer asked for.
                 let class = Class::from(request.lane);
                 let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
-                inner.lock_channels().insert(frame.channel, Route { tx });
-                let channel = Channel::new(frame.channel, stream, class, Arc::clone(&inner), rx);
+                let closed = Arc::new(AtomicBool::new(false));
+                inner.lock_channels().insert(frame.channel, Route { tx, closed: Arc::clone(&closed) });
+                let channel = Channel::new(frame.channel, stream, class, Arc::clone(&inner), rx, closed);
                 let accepted = IncomingChannel {
                     service: request.service,
                     args: request.args,
@@ -908,6 +926,12 @@ async fn read_loop<R>(
                     .unwrap_or_else(|_| CloseInfo::new("closed", ""));
                 let route = inner.lock_channels().remove(&frame.channel);
                 if let Some(route) = route {
+                    // The peer is gone from this channel: our sends stop, a
+                    // send waiting for room included, and no close goes back.
+                    route.closed.store(true, Ordering::Release);
+                    for outbox in &inner.outboxes {
+                        outbox.room.notify_waiters();
+                    }
                     let _ = route.tx.send(ChannelEvent::Closed(info)).await;
                 }
             }
@@ -928,7 +952,8 @@ pub struct ChannelSender {
     stream: usize,
     class: Class,
     inner: Arc<Inner>,
-    closed: AtomicBool,
+    /// Set by our close or drop, or by the peer's close (see [`Route`]).
+    closed: Arc<AtomicBool>,
 }
 
 impl ChannelSender {
@@ -956,12 +981,14 @@ impl ChannelSender {
         let mut rest = data;
         while !rest.is_empty() {
             let chunk = rest.split_to(rest.len().min(DATA_CHUNK));
-            if self.inner.closed_reason().is_some()
-                || !self.inner.outboxes[self.stream]
-                    .push_data(self.class, Frame::new(self.id, FrameType::Data, chunk))
-                    .await
-            {
+            if self.inner.closed_reason().is_some() {
                 return Err(self.inner.closed_error());
+            }
+            let frame = Frame::new(self.id, FrameType::Data, chunk);
+            match self.inner.outboxes[self.stream].push_data(self.class, frame, &self.closed).await {
+                Pushed::Queued => {}
+                Pushed::Shutdown => return Err(self.inner.closed_error()),
+                Pushed::ChannelClosed => return Err(LinkError::ChannelClosed),
             }
         }
         Ok(())
@@ -976,6 +1003,8 @@ impl ChannelSender {
         self.inner.lock_channels().remove(&self.id);
         let payload = serde_json::to_vec(&CloseInfo::new(code, reason)).expect("close serializes");
         let _ = self.inner.push(self.stream, self.class, Frame::new(self.id, FrameType::Close, payload));
+        // A send of this channel waiting for room gives up now, not when the link moves again.
+        self.inner.outboxes[self.stream].room.notify_waiters();
     }
 }
 
@@ -1029,9 +1058,10 @@ impl Channel {
         class: Class,
         inner: Arc<Inner>,
         rx: mpsc::Receiver<ChannelEvent>,
+        closed: Arc<AtomicBool>,
     ) -> Self {
         Self {
-            sender: ChannelSender { id, stream, class, inner, closed: AtomicBool::new(false) },
+            sender: ChannelSender { id, stream, class, inner, closed },
             receiver: ChannelReceiver { rx, done: false },
         }
     }
@@ -1102,6 +1132,50 @@ mod tests {
         let mac = server.await.unwrap();
         phone.close("bye");
         assert_eq!(mac.closed().await, "peer closed the link");
+    }
+
+    /// Closing a channel wakes its own send that waits for queue room: a
+    /// cancelled upload over a stalled link must not keep the phone's file open.
+    #[tokio::test]
+    async fn close_wakes_a_send_waiting_for_room() {
+        // The peer never reads, so the channel's queue fills and the send waits.
+        let (a, _stalled) = tokio::io::duplex(64 * 1024);
+        let phone = Link::new(a, Role::Phone, LinkConfig::default(), None);
+        let channel = phone.open("upload", serde_json::json!({})).await.unwrap();
+        let sender = Arc::new(channel.sender);
+        let sending = tokio::spawn({
+            let sender = Arc::clone(&sender);
+            async move { sender.send(Bytes::from(vec![0u8; CHANNEL_QUEUE_BYTES * 8])).await }
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!sending.is_finished(), "the send waits for room");
+
+        sender.close("cancelled", "").await;
+        let sent = tokio::time::timeout(Duration::from_secs(5), sending)
+            .await
+            .expect("the close wakes the waiting send")
+            .unwrap();
+        assert!(matches!(sent, Err(LinkError::ChannelClosed)), "{sent:?}");
+        drop(phone);
+    }
+
+    /// The peer's close stops our sends: a Mac that refuses an upload before
+    /// reading it must not have the phone stream the whole file anyway.
+    #[tokio::test]
+    async fn the_peers_close_stops_our_sends() {
+        let (phone, mac) = pair();
+        let server = tokio::spawn(async move {
+            let incoming = mac.accept().await.expect("incoming");
+            incoming.channel.send(Bytes::from_static(b"refused")).await.unwrap();
+            incoming.channel.close("forbidden", "no").await;
+            mac
+        });
+        let mut channel = phone.open("upload", serde_json::json!({})).await.unwrap();
+        assert!(matches!(channel.recv().await, Some(ChannelEvent::Data(_))));
+        assert!(matches!(channel.recv().await, Some(ChannelEvent::Closed(_))));
+        let sent = channel.send(Bytes::from(vec![0u8; 16])).await;
+        assert!(matches!(sent, Err(LinkError::ChannelClosed)), "{sent:?}");
+        let _mac = server.await.unwrap();
     }
 
     /// A stream that accepts at most `chunk` bytes every `pause`, like a

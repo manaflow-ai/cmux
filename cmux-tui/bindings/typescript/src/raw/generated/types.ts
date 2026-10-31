@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6e6661334b6d20f300c49059740a6892b48e7c6c773fef091543291b5b518022. */
+/* cmux-tui mux protocol 12, IR d8b421f4d16b40c144106ba3d62e1a36f9366e6361adf66a8f40db8a39ee1655. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -220,6 +220,8 @@ export type ColumnPin = {
   "mode": string;
   "role"?: (string) | null;
 };
+
+export type ColumnSide = "left" | "right";
 
 export type ConversationChange = {
   /** kind conversation. */
@@ -1026,6 +1028,12 @@ export type ServerStatsHistogram = {
   "p99": bigint;
 };
 
+export type ServerStatsHookQueue = {
+  "queued_events": bigint;
+  "reset_dropped_events": bigint;
+  "undeliverable_events": bigint;
+};
+
 export type ServerStatsJournalWriter = {
   "batch_size": ServerStatsHistogram;
   "batches": bigint;
@@ -1092,6 +1100,7 @@ export type ServerStatsResourceProjection = {
 
 export type ServerStatsResult = {
   "connections": ServerStatsConnections;
+  "hook_queue"?: ServerStatsHookQueue;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "registry_lock": ServerStatsRegistryLock;
   "resource_projection"?: ServerStatsResourceProjection;

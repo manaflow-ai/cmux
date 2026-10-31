@@ -83,6 +83,10 @@ class ColumnMoveDirection(str, Enum):
     LEFT = 'left'
     RIGHT = 'right'
 
+class ColumnSide(str, Enum):
+    LEFT = 'left'
+    RIGHT = 'right'
+
 class ConversationThreadStatus(str, Enum):
     OPEN = 'open'
     RESOLVED = 'resolved'
@@ -1490,6 +1494,14 @@ class ServerStatsHistogram:
 
 
 @dataclass(frozen=True)
+class ServerStatsHookQueue:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsHookQueue'
+    queued_events: int
+    reset_dropped_events: int
+    undeliverable_events: int
+
+
+@dataclass(frozen=True)
 class ServerStatsJournalWriter:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsJournalWriter'
     batch_size: ServerStatsHistogram
@@ -1573,6 +1585,7 @@ class ServerStatsResult:
     registry_lock: ServerStatsRegistryLock
     schema: int
     uptime_ms: int
+    hook_queue: Union[ServerStatsHookQueue, MissingType] = field(default=MISSING)
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
     write_path: Union[ServerStatsWritePath, MissingType] = field(default=MISSING)
 
@@ -2676,6 +2689,7 @@ class CloudHostReplicaStatusRequest:
 @dataclass(frozen=True)
 class CloudInboxListRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-inbox-list/request'
+    cursor: Union[str, None, MissingType] = field(default=MISSING)
     include_archived: Union[bool, MissingType] = field(default=MISSING)
     limit: Union[int, None, MissingType] = field(default=MISSING)
 
@@ -3068,6 +3082,7 @@ class ConversationRunAppendResult:
 class ConversationRunsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-runs/request'
     conversation: str
+    answers: Union[List[str], None, MissingType] = field(default=MISSING)
     before_started_at: Union[int, None, MissingType] = field(default=MISSING)
     limit: Union[int, None, MissingType] = field(default=MISSING)
     turns: Union[List[str], None, MissingType] = field(default=MISSING)
@@ -3950,6 +3965,7 @@ class NewPaneRightRequest:
     pane_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    side: Union[ColumnSide, None, MissingType] = field(default=MISSING)
     tab_id: Union[str, None, MissingType] = field(default=MISSING)
     url: Union[str, None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
@@ -5988,6 +6004,7 @@ __all__ = [
     'ClientTransport',
     'CloseReason',
     'ColumnMoveDirection',
+    'ColumnSide',
     'ConversationThreadStatus',
     'CursorStyle',
     'DetachReason',
@@ -6130,6 +6147,7 @@ __all__ = [
     'SendExpectAgent',
     'ServerStatsConnections',
     'ServerStatsHistogram',
+    'ServerStatsHookQueue',
     'ServerStatsJournalWriter',
     'ServerStatsLockHolder',
     'ServerStatsLockSite',

@@ -3,7 +3,6 @@
   "agent-pane.chief-dock#toggle-stack": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
   "agent-pane.composer#queued-long": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
   "agent-pane.composer#slash-menu-skills-and-input": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
-  "agent-pane.composer-pickers#permission-menu": "composer pickers. Its play throws on base since health began counting thrown plays (2026-10-28): Permission mode titles are not in menu order: Default | Full access.",
   "agent-pane.diff-panel#review-file": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
   "agent-pane.edited-files#changed-since-turn": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
   "agent-pane.edited-files#undo-pending": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
@@ -13,13 +12,8 @@
   "agent-pane.new-tab#typed-over-note": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
   "agent-pane.new-tab#widgets-off": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
   "agent-pane.subagent-tray#finished-line": "subagent tray. Its play throws on base since health began counting thrown plays (2026-10-28): nothing runs: no tray.",
-  "agent-pane.transcript#codex-turn-command-under-messages": "transcript. Its play throws on base since health began counting thrown plays (2026-10-28): the live line's words do not shimmer.",
-  "agent-pane.transcript#codex-turn-raw-commands": "transcript. Its play throws on base since health began counting thrown plays (2026-10-28): the live line's words do not shimmer.",
   "agent-pane.transcript#codex-turn-run-open": "agent-pane, owned by chief-pet-default-off (its fix PR removes this line). Broken since it was added in #23081 (2026-10-21): play: waitFor did not hold within 5000 ms, 3 of 3 runs on #23400 and #23433.",
   "agent-pane.transcript#fold-holds-clicked-line": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
   "agent-pane.transcript#footer-actions-left": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
-  "agent-pane.transcript#footer-actions-right": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
-  "agent-pane.transcript#thinking": "transcript. Its play throws on base since health began counting thrown plays (2026-10-28): 2 animations loop on the running line.",
-  "agent-pane.transcript#working-tokens": "transcript. Its play throws on base since health began counting thrown plays (2026-10-28): 2 animations loop on the running line.",
-  "agent-pane.transcript#working-tokens-total": "transcript. Its play throws on base since health began counting thrown plays (2026-10-28): 2 animations loop on the running line."
+  "agent-pane.transcript#footer-actions-right": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms."
 }

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextControl
 import CmuxNextDaemon
@@ -267,6 +268,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(services.remoteLocalhost.report())
             },
+            // Every Chromium page's origin, hidden state and renderer client ids (bench_power.py loaded).
+            .mainActor("debug.cef_pages") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(debugCEFPagesReport(services))
+            },
             // Chromium process failures, restart state, crash reports.
             .mainActor("debug.crashes") { [weak services] _ in
                 guard let services else { return .value(.null) }
@@ -283,7 +289,7 @@ final class AppControl {
             },
             .mainActor("debug.window_record") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(DebugWindowRecord.start(call.params, services: services))
+                return .value(services.windowRecord.start(call.params, services: services))
             },
             .async("debug.shortcut_hints") { [weak services] call in
                 await DebugShortcutHintControl().handle(call.params, services: services)
@@ -409,6 +415,18 @@ final class AppControl {
             .async("debug.cef.devtools") { [weak services] call in
                 await DebugExtensions.devTools(call.params, services)
             }.withDeadline(.fixed(.seconds(6))),
+            .async("debug.browser_retirement") { [weak services] _ in
+                guard let services else { return .null }
+                do {
+                    let result = try await BrowserRetirementProbe(engine: services.cache.cef).run { page in
+                        let entry = BrowserEntry(tab: page)
+                        return (entry, entry.chrome)
+                    }
+                    return .object(result.mapValues(JSONValue.bool))
+                } catch {
+                    return .object(["error": .string(String(describing: error))])
+                }
+            }.withDeadline(.fixed(.seconds(30))),
             // React agent pane: synthetic transcript, fling and frame/typing
             // timing through the page's cmuxAcpmuxDebug, WebContent pid.
             .async("debug.agent_pane") { [weak services] call in
@@ -489,6 +507,10 @@ final class AppControl {
             .mainActor("debug.dialog") { [weak services] call in
                 .value(services.map { DebugDialog.run(call.params, $0) } ?? .null)
             },
+            // A dialog's open and close, frame after frame, with its card and scrim progress.
+            .async("debug.dialog_strip") { [weak services] call in
+                await DebugDialog.strip(call.params, services)
+            }.withDeadline(.fixed(.seconds(20))),
             // The Passwords reveal sheet with a fixture secret (no store, no device owner prompt), so a
             // live check proves the sheet stays out of screen capture (cx-bkyn9).
             .mainActor("debug.passwords_reveal") { [weak services] call in
@@ -539,6 +561,16 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugAddDevice.show(call.params, services: services))
             },
+            // Captures of the Machines section's joined rows: fixture machines, no platform or account.
+            .mainActor("debug.joined_machines") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugAddDevice.showJoined(call.params, services: services))
+            },
+            // Captures of This Mac's join consent: a fixture joined status, its switches and the one-time sheet.
+            .mainActor("debug.join_consent") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugJoinConsent.show(call.params, services: services))
+            },
             // Captures of the daemon update: a board state, an ssh machine fixture and its header's tooltip.
             .mainActor("debug.daemon_update") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -548,6 +580,11 @@ final class AppControl {
             .mainActor("debug.cloud_machine_fixture") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugCloudMachineFixture.show(call.params, services: services))
+            },
+            // Captures of the workspace, tab and pane right-click menus and their folders (tour:object-menu-*).
+            .mainActor("debug.object_menu") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugObjectMenu.run(call.params, services: services))
             },
             .mainActor("debug.sidebar_group_drag") { [weak services] call in
                 guard let services else { return .value(.null) }

@@ -95,13 +95,14 @@ fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
 /// opted-in parent lifecycle ends. It removes the socket on the way out.
 /// Every error before readiness exits non-zero through the caller.
 pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
+    let after_action = args.get(1..).unwrap_or_default();
     match args.first().map(String::as_str) {
         Some("hub") => {}
-        Some("dial") => return run_wg_dial(&args[1..]),
+        Some("dial") => return run_wg_dial(after_action),
         Some(action) => return Err(anyhow!(catalog().remote_client.unknown_action("wg", action))),
         None => return Err(anyhow!(catalog().remote_client.wg_hub_help)),
     }
-    let flags = parse_wg_hub_flags(&args[1..])?;
+    let flags = parse_wg_hub_flags(after_action)?;
     // The token is stdin's first line, before a `--config -` config.
     let token = if flags.client_token_stdin {
         Some(read_hub_token_line(&mut io::stdin().lock())?)
@@ -151,7 +152,7 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
         "routes": hub.routes().iter().map(ToString::to_string).collect::<Vec<_>>(),
     });
     if let Some(control) = &control {
-        ready["control"] = serde_json::json!(control.path().display().to_string());
+        ready.set("control", serde_json::json!(control.path().display().to_string()));
     }
     println!("{}", serde_json::to_string(&ready)?);
     let _ = io::stdout().flush();

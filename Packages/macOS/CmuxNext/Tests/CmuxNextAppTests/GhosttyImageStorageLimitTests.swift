@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 import GhosttyNextKit
 import Testing
@@ -23,20 +22,13 @@ struct GhosttyImageStorageLimitTests {
         let file = directory.appendingPathComponent("config")
         try Data(text.utf8).write(to: file)
 
-        let key = GhosttyRuntime.configOverrideKey
-        let previous = ProcessInfo.processInfo.environment[key]
-        setenv(key, file.path, 1)
-        defer {
-            if let previous {
-                setenv(key, previous, 1)
-            } else {
-                unsetenv(key)
-            }
-        }
-
+        // The file goes in as an argument, never through setenv: a write after
+        // ghostty_init frees the environ copy libghostty reads, and
+        // ghostty_config_finalize then crashed this suite (signal 11).
         var diagnostics: [String] = []
         var opacity = 1.0
-        let config = try #require(GhosttyRuntime.loadConfig(diagnostics: &diagnostics, opacity: &opacity))
+        let config = try #require(GhosttyRuntime.loadConfig(diagnostics: &diagnostics, opacity: &opacity,
+                                                            configFile: file.path))
         defer { ghostty_config_free(config) }
         var value: UInt32 = 0
         #expect(GhosttyRuntime.configGet(config, &value, key: "image-storage-limit"))

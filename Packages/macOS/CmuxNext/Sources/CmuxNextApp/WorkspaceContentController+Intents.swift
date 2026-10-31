@@ -1,6 +1,8 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextLayout
 
 // Layout intents -> daemon commands. A divider or column drag is local until
@@ -71,6 +73,8 @@ extension WorkspaceContentController {
             drop(tabID, on: target)
         case .newColumn(let after, _):
             newColumn(after: after, options: SpawnOptions(cwd: panes[after]?.selectedTab?.cwd, workspace: workspace.key))
+        case .newColumnLeft(let pane, _):
+            newColumn(after: pane, left: true, options: SpawnOptions(cwd: panes[pane]?.selectedTab?.cwd, workspace: workspace.key))
         case .split(let pane, let axis):
             guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) else { return }
             let cwd = panes[pane]?.selectedTab?.cwd
@@ -98,13 +102,15 @@ extension WorkspaceContentController {
     /// as Cmd-D's split): a provisional pane in a provisional column at the planned width, with the
     /// width changes it brings, laid out and mounted before the key's frame; the daemon's pane
     /// takes it over under the same public id. Otherwise it waits for the reply.
-    func newColumn(after: LayoutPaneID, options: SpawnOptions) {
+    func newColumn(after: LayoutPaneID, left: Bool = false, options: SpawnOptions) {
         guard let handle = handles.panes[after] else { return }
         let request = layoutModel.prepareNewColumn(nextTo: after)
-        let command = NewColumnCommand(pane: handle, width: request.width, options: options)
+        let command = NewColumnCommand(pane: handle, width: request.width, left: left, options: options)
+        // The action refuses New Column Left first (ColumnHandlers); a script's intent stops here.
+        guard command.isSupported(on: daemon) else { return }
         guard command.isOptimistic(on: daemon) else {
             spawnPane("new-pane-right", then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) { connection in
-                try await connection.newColumn(rightOf: handle, width: request.width, options: options)
+                try await connection.newColumn(beside: handle, left: left, width: request.width, options: options)
             }
             return
         }
@@ -119,7 +125,7 @@ extension WorkspaceContentController {
                 treeWidth = change.width
             }
         }
-        let provisional = ProvisionalPane(columnWidth: request.width, widths: widths, treeWidth: treeWidth)
+        let provisional = ProvisionalPane(columnWidth: request.width, widths: widths, treeWidth: treeWidth, left: left)
         createInKeysTurn("newColumn", provisional: provisional, then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) {
             command.intendNow(on: self.daemon, provisional: provisional)
         }
@@ -144,20 +150,27 @@ extension WorkspaceContentController {
         // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b).
         // After the create before it (a fast second press may target its stand-in).
         let previous = pendingCreate
-        pendingCreate = Task { [services, state] in
+        let work: ActionWork = Task { [services, state] in
             var landed = false
             defer { keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             await previous?.value
+            defer { withExtendedLifetime((services, state)) {} }
             do {
                 _ = try await send()
                 BenchSpans.mark("\(label).reply.optimistic")
                 landed = true
                 then?()
+                return nil
+            } catch is PaneSplitCancelled {
+                return nil // the person closed the new pane first
             } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                return .create(label, error)
             }
-            withExtendedLifetime((services, state)) {}
         }
+        pendingCreate = work
+        // A refusal never vanishes: the stand-in rolls back and the refusal shows where refusals show (rule a).
+        services.registry.trackRollingBack(ActionID(rawValue: label), work)
     }
 
     /// Runs a pane-creating command and focuses the new pane when it lands;
@@ -219,7 +232,7 @@ extension WorkspaceContentController {
     // MARK: Tab drops onto the layout
 
     func drop(_ tabID: LayoutTabID, on target: LayoutDropTarget) {
-        guard let (tab, source) = services.locateTab(tabID.rawValue) else { return }
+        guard let (tab, source) = services.locateTab(tabID.rawValue, onMachine: daemon.machineID) else { return }
         focus.send(.dragEnded(.dropped(tabs: [tab.id], awayFrom: source.id)))
         let restore: @MainActor (Bool) -> Void = { [services] ok in if !ok { services.restoreDetachedTab(tabID.rawValue) } }
         switch target {

@@ -318,7 +318,22 @@ class HealthTests(unittest.TestCase):
         host.failed = {"leo": ["acpmux.service"]}
         host.peers = [{"name": f"p{i}", "connected": False, "downSince": None, "error": "x"} for i in range(9)]
         h = run(host)
-        self.assertEqual([p["check"] for p in h["problems"]], ["acpmux", "dns", "disk"] + ["peer"] * 5)
+        self.assertEqual([p["check"] for p in h["problems"]], ["disk", "acpmux", "dns"] + ["peer"] * 5)
+
+    def test_failed_unit_flood_keeps_critical_disk_and_each_other_check_visible(self):
+        host = FakeHost()
+        host.linger, host.start_ok = ["leo"], False
+        host.failed = {"leo": [f"acpmux-{i}.service" for i in range(12)]}
+        host.free, host.avail = 1 * cmh.GB, 0
+        host.resolving = set()
+        host.peers = [{"name": "cosmic-gray", "connected": False, "downSince": None, "error": HANDSHAKE}]
+        h = run(host)
+        self.assertEqual(len(h["problems"]), cmh.MAX_PROBLEMS)
+        self.assertEqual((h["problems"][0]["check"], h["problems"][0]["severity"]), ("disk", "critical"))
+        self.assertTrue({"acpmux", "dns", "disk", "ram", "peer"}.issubset(
+            {p["check"] for p in h["problems"]}))
+        self.assertEqual(h["problems"][1]["check"], "acpmux", "critical stays first under truncation")
+        self.assertEqual(len(host.failed["leo"]), 12, "the failed units were inspected without a successful heal")
 
     def test_fixed_keeps_24_hours_and_at_most_20(self):
         host = FakeHost()

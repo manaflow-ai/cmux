@@ -32,7 +32,7 @@ final class FeedListControl {
 /// costs placing reused views and nothing else. The SwiftUI rows it replaced
 /// built and measured a full view tree for each row that scrolled in, 14 to
 /// 20 ms of main-thread work each.
-struct FeedCollection: UIViewRepresentable {
+struct FeedCollection: UIViewControllerRepresentable {
     let items: [FeedItem]
     let context: FeedRowContext
     let swipe: FeedSwipeCoordinator
@@ -48,34 +48,42 @@ struct FeedCollection: UIViewRepresentable {
         FeedListController(context: context, swipe: swipe, control: control)
     }
 
-    func makeUIView(context: Context) -> FeedCollectionView {
-        context.coordinator.makeView()
+    func makeUIViewController(context: Context) -> FeedCollectionController {
+        FeedCollectionController(collection: context.coordinator.makeView())
     }
 
-    func updateUIView(_ view: FeedCollectionView, context: Context) {
+    func updateUIViewController(_ controller: FeedCollectionController, context: Context) {
         context.coordinator.update(items: items, header: header, signature: headerSignature, headerContent: headerContent)
     }
 }
 
-/// The Feed's collection view. It is its screen's content scroll view, so
-/// the navigation bar's scroll edge and the tab bar's minimize on scroll follow it.
+/// Owns the content scroll view explicitly. A UIViewRepresentable nested in a
+/// SwiftUI background can find an intermediate hosting controller instead of
+/// the screen, leaving the navigation bar without its scroll edge treatment.
+final class FeedCollectionController: UIViewController {
+    let collection: FeedCollectionView
+
+    init(collection: FeedCollectionView) {
+        self.collection = collection
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func loadView() { view = collection }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        collection.topEdgeEffect.style = .soft
+        setContentScrollView(collection, for: .top)
+        setContentScrollView(collection, for: .bottom)
+    }
+}
+
 final class FeedCollectionView: UICollectionView {
     var onWidthChange: ((CGFloat) -> Void)?
     private var lastWidth: CGFloat = 0
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        guard window != nil else { return }
-        var responder: UIResponder? = self
-        while let next = responder?.next {
-            if let controller = next as? UIViewController {
-                controller.setContentScrollView(self, for: .top)
-                controller.setContentScrollView(self, for: .bottom)
-                break
-            }
-            responder = next
-        }
-    }
 
     override func layoutSubviews() {
         if abs(bounds.width - lastWidth) > 0.5 {
@@ -388,7 +396,9 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         }
         defer { for id in redraw { if let item = items[id] { cell(id)?.redraw(item) } } }
         guard !plan.isEmpty || dataSource.snapshot().numberOfSections == 0 else { return }
-        let anchor = control.atTop ? nil : visibleAnchor()
+        // A jump to the top in flight keeps no anchor: restoring one would set the offset and cut the
+        // jump's animation short wherever it was (the pill then left the person mid-list).
+        let anchor = control.atTop || jumpingToTop ? nil : visibleAnchor()
         let previousOrder = shownOrder
         let previousSet = shownSet
         shownOrder = next.map(\.id)
@@ -426,6 +436,7 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
             dataSource.apply(snapshot, animatingDifferences: false)
             if plan.orderChanged || !plan.reconfigure.isEmpty { listLayout.invalidateLayout() }
             if let anchor { restore(anchor) }
+            continueJumpToTop()
         }
         if let anchor {
             // Only events never shown before count as new (an undone Done or a filter switch does not).
@@ -595,7 +606,7 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         guard let dataSource, let collectionView else { return }
         let present = ids.filter { shownKeys[$0] != nil && items[$0] != nil }
         guard !present.isEmpty else { return }
-        let anchor = control.atTop ? nil : visibleAnchor(excluding: Set(present))
+        let anchor = control.atTop || jumpingToTop ? nil : visibleAnchor(excluding: Set(present))
         for id in present {
             guard let item = items[id] else { continue }
             let key = key(for: item)
@@ -611,6 +622,7 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
             self.listLayout.invalidateLayout()
             collectionView.layoutIfNeeded()
             if let anchor { self.restore(anchor) }
+            self.continueJumpToTop()
         }
         if animated, !UIAccessibility.isReduceMotionEnabled {
             UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseInOut, .allowUserInteraction], animations: apply)
@@ -653,10 +665,31 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
 
     // MARK: Commands
 
+    /// A jump to the top (the "N new" pill) is under way until it lands or the person drags.
+    private var jumpingToTop = false
+
     func scrollToTop(animated: Bool) {
         guard let collectionView else { return }
-        collectionView.setContentOffset(CGPoint(x: 0, y: -collectionView.adjustedContentInset.top), animated: animated)
+        let top = CGPoint(x: 0, y: -collectionView.adjustedContentInset.top)
+        jumpingToTop = animated && abs(collectionView.contentOffset.y - top.y) > 0.25
+        collectionView.setContentOffset(top, animated: jumpingToTop)
+        if !jumpingToTop, collectionView.contentOffset != top { collectionView.contentOffset = top }
         control.newAbove = 0
+    }
+
+    /// A snapshot applied during a jump to the top can move or stop the animated offset: aim at
+    /// the top again so the jump still lands there.
+    private func continueJumpToTop() {
+        guard jumpingToTop, let collectionView else { return }
+        collectionView.setContentOffset(CGPoint(x: 0, y: -collectionView.adjustedContentInset.top), animated: true)
+    }
+
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        guard jumpingToTop else { return }
+        jumpingToTop = false
+        // Land exactly at the top, whatever changed while the list moved.
+        let top = -scrollView.adjustedContentInset.top
+        if abs(scrollView.contentOffset.y - top) > 0.25 { scrollView.contentOffset.y = top }
     }
 
     func scrollTo(id: String, animated: Bool) {
@@ -703,6 +736,8 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        // The person took over: a jump to the top in flight ends where they caught it.
+        jumpingToTop = false
         if swipe.openID != nil { swipe.openID = nil }
         #if DEBUG
         // G-04: a finger-driven scroll is one frame-interval window (CMUX_MOBILE_FRAMELOG=1).

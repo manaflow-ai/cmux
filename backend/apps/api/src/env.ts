@@ -146,6 +146,8 @@ export interface Env {
   readonly CLOUD_PLAN_ENTITLEMENTS?: string
   /** Var: "on" = PlatformMachines (platform-machines.ts) answers bound Workers; anything else refuses every call. Development only today. */
   readonly PLATFORM_MACHINES?: string
+  /** Named AgentGateway binding: on only in development; every MCP write still requires exact approval. */
+  readonly PLATFORM_AGENT_GATEWAY?: string
   /**
    * Secret: link-token signing keys (LINK-TOKEN-FORMAT) as JSON {active: kid, keys: {kid: private Ed25519 JWK}}, at most 2 kids.
    * Per environment; never logged, never in a response, error, event or storage. Without it bind and link_token refuse.
@@ -178,6 +180,9 @@ export interface Env {
   readonly STRIPE_CREDITS_WEBHOOK_SECRET?: string
   /** Credits price = provider cost x this margin (default 1, pass-through; 1..10). */
   readonly CHIEF_CREDITS_MARGIN?: string
+  /** Paid model calls one chief may start per minute / per hour (credits.ts chiefCallCap; defaults 120 / 2400; never off). */
+  readonly CHIEF_MODEL_CALLS_PER_MINUTE?: string
+  readonly CHIEF_MODEL_CALLS_PER_HOUR?: string
   /** The least one model call holds, USD (default 0.01): a zero-priced model still needs a positive balance. */
   readonly CHIEF_CREDITS_MIN_RESERVE_USD?: string
   /** "0" turns the credits gate off on development and staging (default on); production ignores it and always enforces. */
@@ -212,6 +217,8 @@ export interface Env {
   readonly STACK_WEBHOOK_SECRET?: string
   /** Pace of Stack webhook syncs per project, one token per sync (stack-server.ts stackReadPace); namespaces 1201-1203 (cx-f5tk4). */
   readonly STACK_READ_LIMIT?: RateLimit
+  /** The low lane of the Stack read pace (stack-server.ts stackLowReadPace): syncs of never-mirrored teams no person waits on. */
+  readonly STACK_READ_LOW_LIMIT?: RateLimit
   /** Secrets per provider; a provider without its secrets reports `configured: false`. */
   readonly GITHUB_APP_SLUG?: string
   readonly GITHUB_APP_CLIENT_ID?: string
@@ -373,11 +380,13 @@ export interface Env {
   /** Rotation: the previous key and its id; URLs signed with it stay valid until they expire. */
   readonly HOME_ATTACHMENT_KEY_PREVIOUS?: string
   readonly HOME_ATTACHMENT_KEY_PREVIOUS_ID?: string
-  /** Presigned PUTs for 32-100 MB files: R2 S3 endpoint (https://<account>.r2.cloudflarestorage.com), bucket and a bucket-scoped token. Unset = large files refused. */
+  /** Presigned PUTs for large files from clients that do not send parts: R2 S3 endpoint (https://<account>.r2.cloudflarestorage.com), bucket and a bucket-scoped token. Unset = such clients stream through the Worker. */
   readonly HOME_ATTACHMENTS_S3_ENDPOINT?: string
   readonly HOME_ATTACHMENTS_S3_BUCKET?: string
   readonly HOME_ATTACHMENTS_S3_ACCESS_KEY_ID?: string
   readonly HOME_ATTACHMENTS_S3_SECRET_ACCESS_KEY?: string
+  /** The largest request body this Worker's zone accepts, in bytes (decimal digits): 100 MB on Free and Pro (the default), 200 MB on Business, 500 MB on Enterprise. */
+  readonly HOME_ATTACHMENT_WORKER_BODY_BYTES?: string
   /** Burst limit per user on attachment intents and download URL mints. */
   readonly HOME_ATTACHMENT_LIMIT?: RateLimit
   /** "<Apple Team ID>.<iOS bundle id>" whose App Attest keys this deployment accepts (presence keys). */
