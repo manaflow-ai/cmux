@@ -195,7 +195,7 @@ fn the_targets_disk_reading_is_optional_and_in_bytes() {
 
 #[test]
 fn the_tree_size_sums_blobs_and_skips_submodules() {
-    let listing = b"100644 blob aaaa     120\tsrc/a.rs\0100755 blob bbbb       5\tbin/x\0160000 commit cccc       -\tvendor/sub\0";
+    let listing = b"100644 blob aaaa     120\tsrc/a.rs\x00100755 blob bbbb       5\tbin/x\x00160000 commit cccc       -\tvendor/sub\x00";
     assert_eq!(sum_tree_sizes(listing), 125);
     assert_eq!(sum_tree_sizes(b""), 0);
 }
