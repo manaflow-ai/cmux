@@ -7,41 +7,51 @@ import UIKit
 /// every view that draws them. The live transcript decodes in its rows' `.task` and reads the
 /// result here; a tab card's picture is drawn by a synchronous `ImageRenderer`, which never runs a
 /// `.task`, so its key waits for `ready(_:)` and the drawn bubble reads the decoded image here.
+///
+/// The decoded pixels kept are bounded by bytes (least recently used first out, cost = pixel
+/// bytes): a 4:3 image at
+/// its 600 px short side is about 1.9 MB. Readiness only goes forward: a thumbnail once decoded,
+/// or bytes that did not decode, stay ready after an eviction, so an eviction never starts a
+/// decode that evicts another. A picture about to be drawn asks `resident(_:)`, which decodes
+/// an evicted thumbnail again for that picture alone (`AgentCardRasterizer`).
 @MainActor
 @Observable
 final class SentAttachmentThumbnails {
     static let shared = SentAttachmentThumbnails()
 
-    /// Bumps when a thumbnail lands (a card waiting for one is keyed on it).
+    /// Bumps when a thumbnail first becomes ready (decoded, or found undecodable). A second
+    /// decode of an evicted one does not bump it: no card's readiness changed.
     private(set) var revision = 0
-    @ObservationIgnored private var images: [String: UIImage] = [:]
-    /// Oldest first; past `limit` the oldest goes.
+    /// Decoded thumbnails and their pixel bytes, least recently used first.
+    @ObservationIgnored private var images: [String: (image: UIImage, cost: Int)] = [:]
     @ObservationIgnored private var order: [String] = []
     @ObservationIgnored private var decoding: [String: Task<UIImage?, Never>] = [:]
-    /// About 1 MB each at the largest size: a long chat's images and a grid's cards.
-    let limit: Int
-    /// A bound on the decoded pixels kept (tests; not enforced yet).
+    /// Keys decoded at least once, or whose bytes did not decode (`failed`), oldest first and
+    /// bounded (a dropped key is only decoded once more).
+    @ObservationIgnored private var settled: [String: Bool] = [:]
+    @ObservationIgnored private var settledOrder: [String] = []
+    static let settledLimit = 4096
+    /// A bound on the decoded pixels kept.
     let byteLimit: Int
     /// Decodes started (tests).
     @ObservationIgnored private(set) var decodes = 0
+    /// Bytes of the decoded thumbnails kept.
+    @ObservationIgnored private(set) var residentBytes = 0
 
-    init(limit: Int = 96, byteLimit: Int = .max) {
-        self.limit = limit
+    init(byteLimit: Int = 32 << 20) {
         self.byteLimit = byteLimit
     }
 
-    /// Bytes of the decoded thumbnails kept (tests).
-    var residentBytes: Int {
-        images.values.reduce(0) { $0 + Self.cost($1) }
+    private func cached(_ key: String) -> UIImage? {
+        guard let entry = images[key] else { return nil }
+        if order.last != key, let index = order.lastIndex(of: key) {
+            order.remove(at: index)
+            order.append(key)
+        }
+        return entry.image
     }
 
-    /// A decoded image's pixel bytes.
-    nonisolated static func cost(_ image: UIImage) -> Int {
-        guard let cg = image.cgImage else { return Int(image.size.width * image.scale * image.size.height * image.scale) * 4 }
-        return cg.bytesPerRow * cg.height
-    }
-
-    /// The point side a message's thumbnails are drawn at (`SentAttachments`): one image large,
+    /// The point size a message's thumbnails are drawn at (`SentAttachments`): one image large,
     /// several as squares.
     nonisolated static func size(images: Int) -> CGSize {
         images == 1 ? CGSize(width: 200, height: 150) : CGSize(width: 96, height: 96)
@@ -52,20 +62,33 @@ final class SentAttachmentThumbnails {
         max(size.width, size.height) * 3
     }
 
+    /// A decoded image's pixel bytes.
+    nonisolated static func cost(_ image: UIImage) -> Int {
+        guard let cg = image.cgImage else { return Int(image.size.width * image.scale * image.size.height * image.scale) * 4 }
+        return cg.bytesPerRow * cg.height
+    }
+
     private static func key(_ attachment: AgentAttachment, data: Data, side: CGFloat) -> String {
         "\(attachment.id)|\(data.count)|\(Int(side))"
     }
 
-    /// The decoded thumbnail, if it is ready. Not observed: a view that waits for it decodes it.
+    /// The decoded thumbnail, if it is in memory. Not observed: a view that waits for it decodes it.
     func image(_ attachment: AgentAttachment, data: Data, side: CGFloat) -> UIImage? {
-        images[Self.key(attachment, data: data, side: side)]
+        cached(Self.key(attachment, data: data, side: side))
     }
 
-    /// Decodes the thumbnail off the main thread (once per image and size) and keeps it.
+    /// Decodes the thumbnail off the main thread (once per image and size at a time) and keeps it.
     func decode(_ attachment: AgentAttachment, data: Data, side: CGFloat) async -> UIImage? {
-        let key = Self.key(attachment, data: data, side: side)
-        if let image = images[key] { return image }
-        if let running = decoding[key] { return await running.value }
+        await start(Self.key(attachment, data: data, side: side), data: data, side: side)?.value
+    }
+
+    /// The decode of `key`: the one running, or a new one; nil when it is in memory or its bytes
+    /// did not decode (nothing to wait for).
+    @discardableResult
+    private func start(_ key: String, data: Data, side: CGFloat) -> Task<UIImage?, Never>? {
+        if let image = cached(key) { return Task { image } }
+        if settled[key] == false { return nil }
+        if let running = decoding[key] { return running }
         decodes += 1
         let work = Task.detached(priority: .userInitiated) {
             UIImage(data: data).flatMap { $0.preparingThumbnail(of: SentAttachments.fill($0.size, side: side)) ?? $0 }
@@ -76,35 +99,66 @@ final class SentAttachmentThumbnails {
             return image
         }
         decoding[key] = task
-        return await task.value
+        return task
     }
 
     private func landed(_ key: String, _ image: UIImage?) {
         decoding[key] = nil
-        guard let image else { return }
-        images[key] = image
-        order.removeAll { $0 == key }
-        order.append(key)
-        while order.count > limit { images[order.removeFirst()] = nil }
+        if let image, images[key] == nil {
+            let cost = Self.cost(image)
+            images[key] = (image, cost)
+            order.append(key)
+            residentBytes += cost
+            // The least recently used go past the bound (never the one just decoded).
+            while residentBytes > byteLimit, order.count > 1 {
+                let old = order.removeFirst()
+                residentBytes -= images.removeValue(forKey: old)?.cost ?? 0
+            }
+        }
+        guard settled[key] == nil else { return }
+        settled[key] = image != nil
+        settledOrder.append(key)
+        while settledOrder.count > Self.settledLimit { settled[settledOrder.removeFirst()] = nil }
         revision &+= 1
     }
 
-    /// Whether every sent image of `turns` that has its bytes is decoded at the size its bubble
-    /// draws it; starts decoding the ones that are not. Observed: a caller re-reads it when one
-    /// lands. Images without bytes (loaded from the Mac in a `.task`) are not counted here.
-    func ready(_ turns: [AgentTurn]) -> Bool {
-        _ = revision
-        var ready = true
+    /// The sent images of `turns` that have their bytes, at the size their bubbles draw them.
+    private func wanted(_ turns: [AgentTurn]) -> [(key: String, data: Data, side: CGFloat)] {
+        var out: [(String, Data, CGFloat)] = []
         for turn in turns {
             let images = turn.attachments.filter { $0.kind == .image }
             let side = Self.side(Self.size(images: images.count))
             for attachment in images.prefix(3) {
-                guard let data = attachment.data, image(attachment, data: data, side: side) == nil else { continue }
-                ready = false
-                Task { @MainActor [weak self] in _ = await self?.decode(attachment, data: data, side: side) }
+                guard let data = attachment.data else { continue }
+                out.append((Self.key(attachment, data: data, side: side), data, side))
             }
         }
+        return out
+    }
+
+    /// Whether every sent image of `turns` that has its bytes has been decoded at the size its
+    /// bubble draws it (or found undecodable: the bubble draws its placeholder); starts decoding
+    /// the ones never decoded. Observed: a caller re-reads it when one lands. Images without
+    /// bytes (loaded from the Mac in a `.task`) are not counted here.
+    func ready(_ turns: [AgentTurn]) -> Bool {
+        _ = revision
+        var ready = true
+        for (key, data, side) in wanted(turns) where settled[key] == nil {
+            ready = false
+            start(key, data: data, side: side)
+        }
         return ready
+    }
+
+    /// Whether every thumbnail `turns` draws is in memory now (or undecodable), to draw them into
+    /// a picture; starts decoding again the ones evicted since. Not observed.
+    func resident(_ turns: [AgentTurn]) -> Bool {
+        var resident = true
+        for (key, data, side) in wanted(turns) where settled[key] != false && cached(key) == nil {
+            resident = false
+            start(key, data: data, side: side)
+        }
+        return resident
     }
 }
 #endif

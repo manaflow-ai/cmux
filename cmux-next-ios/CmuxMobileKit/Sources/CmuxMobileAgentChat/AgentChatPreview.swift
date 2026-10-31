@@ -29,6 +29,12 @@ public struct AgentChatPreview: View {
         SentAttachmentThumbnails.shared.ready(turns)
     }
 
+    /// Whether those thumbnails are in memory now, to draw the still; decodes again any the
+    /// cache let go since (`SentAttachmentThumbnails.resident`). Not observed.
+    public static func picturesResident(_ turns: [AgentTurn]) -> Bool {
+        SentAttachmentThumbnails.shared.resident(turns)
+    }
+
     public var body: some View {
         // Bottom aligned like the transcript at rest in follow mode: the
         // turns keep their natural height and the overflow clips at the top.
