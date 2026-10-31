@@ -3,7 +3,7 @@
 // (subsessions.ts), from acpmux's session summaries as the pane cuts them (sessionList.ts).
 import { expect, test } from "bun:test";
 import { sessionEntry } from "../sessionList";
-import { SubsessionStore, subsessionInfo, subsessionRows, waitingLine } from "./subsessions";
+import { SubsessionStore, subsessionDisplayName, subsessionInfo, subsessionRows, waitingLine } from "./subsessions";
 import { translate } from "../i18n";
 
 /// A session summary as acpmux sends it, with the fields the sub-session rows read.
@@ -49,6 +49,13 @@ test("a summary's sub-session fields: its parent, short name, lane, queue and wh
   });
   expect(summary("e", { waitingOn: "permission" }).waitingOn).toEqual({ on: "permission" });
   expect(summary("f", { waitingOn: "nothing" }).waitingOn).toBeUndefined();
+});
+
+test("an unnamed sub-session gets a localized display name instead of its opaque id", () => {
+  const t = translate;
+  const session = { name: "optchat-123456789", sessionId: "optchat-123456789" };
+  expect(subsessionDisplayName(t, session)).toBe("Subagent");
+  expect(subsessionDisplayName(t, { ...session, name: "Reviewer" })).toBe("Reviewer");
 });
 
 test("a sub-session's state: working, needs input, failed (or lost) or done, with its unread mark when done", () => {

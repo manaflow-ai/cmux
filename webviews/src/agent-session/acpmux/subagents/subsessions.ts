@@ -46,6 +46,12 @@ export type SubsessionInfo = {
   error?: string;
 };
 
+/// The user-facing name for a session. Keep the raw id in `session.name` for matching and
+/// diagnostics, but never expose an opaque optchat id as the identity in a row.
+export function subsessionDisplayName(t: Translate, session: Pick<SubsessionInfo, "name" | "sessionId">): string {
+  return session.name === session.sessionId ? t("tray.kind.subagent") : session.name;
+}
+
 /// What a sub-session waiting on the person waits for, in one line: a question (and its first
 /// prompt, which the line cuts when there is no room) or a tool's permission. Only the person
 /// answers it, in its chat (person proof): its parent's agent cannot, so the line says where.

@@ -18,6 +18,7 @@ import { retrying, retryLabel, sessionRetry } from "../subagents/retryState";
 import { Spinner } from "../conversation/icons";
 import {
   SUBSESSION_STATE_LABEL,
+  subsessionDisplayName,
   type SubsessionRow,
   type SubsessionState,
   waitingLine,
@@ -256,7 +257,7 @@ function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOp
         <Icon name="agent.session" size={ROW_ICON} row />
       </span>
       <span className="acpmux-summary-text">
-        <span className="acpmux-summary-agent__name">{session.name}</span>
+        <span className="acpmux-summary-agent__name">{subsessionDisplayName(t, session)}</span>
         {line && <span className="acpmux-summary-agent__kind">{line}</span>}
       </span>
       {session.unread && (
