@@ -99,6 +99,7 @@ mod prompt_ledger;
 mod prompt_line;
 mod protected_hold;
 mod queue;
+mod queue_admission;
 mod queue_edit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
 pub use queue::{QueuedPrompt, Withdrawn, supersede::key as supersede_key};
@@ -408,6 +409,10 @@ pub struct PromptOptions {
     /// A person's subagent retry (`subagent_retry_manual.rs`): refused with `retry.busy` where it
     /// would wait (behind a turn, the queue, the turn lock or a run slot), never queued.
     pub no_queue: bool,
+    /// The queue took it already and it goes back in (a Send now or a steer whose turn ended
+    /// first): its room is not checked again (`queue_admission.rs`), so a prompt it accepted is
+    /// never refused for room.
+    pub admitted: bool,
     /// A queued prompt sent now (`queue.rs` `steer_queued`): it steers in even past the running
     /// turn's cap (`turn_cap.rs`).
     pub send_now: bool,

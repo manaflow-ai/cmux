@@ -474,6 +474,7 @@ impl Hub {
             full_access_device: opts.full_access_device.as_deref(),
             replaced: &replaced,
             no_queue: opts.no_queue,
+            admitted: opts.admitted,
         };
         let (turn_id, waiting, mut guard, run) =
             match self.queue_slot(session, slot, &mut accept).await {

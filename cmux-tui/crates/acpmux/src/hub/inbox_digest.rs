@@ -403,6 +403,7 @@ impl Hub {
         let steer = steer && !stop_held;
         let blocks = vec![json!({"type": "text", "text": text})];
         let run = PromptRun {
+            size: super::queue_admission::content_bytes(&blocks, None).into(),
             blocks: blocks.clone(),
             display_parts: None,
             control,

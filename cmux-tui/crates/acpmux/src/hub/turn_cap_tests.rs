@@ -432,6 +432,7 @@ async fn a_digest_steered_past_the_cap_waits_for_the_next_turn() {
     let turn = f.gated_turn("g").await;
     f.age_turn(cap);
     let run = Arc::new(super::queue::PromptRun {
+        size: Default::default(),
         blocks: vec![json!({"type": "text", "text": "[inbox digest] 1 message"})],
         display_parts: None,
         control: Control::default(),
