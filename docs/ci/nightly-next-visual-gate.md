@@ -84,10 +84,12 @@ spell checker's word list differs from Mac to Mac.
 ## How it runs
 
 Four jobs in `.github/workflows/nightly.yml` run beside the signed build.
-They run only for the `nightly-next` track. `publish-nightly` waits for the
-gate's verdict. Usually the signed build and notarization take longer, so the gate adds
-no time. When the gate takes longer (a cold DEV build took 35 min), it delays
-publication by the difference.
+They run only for the `nightly-next` track. In enforce mode, `publish-nightly`
+waits for the gate's verdict, but never more than 10 minutes past the signed
+build being ready. Usually the signed build and notarization take longer, so the
+gate adds no time. When the gate takes longer (a cold DEV build took 35 min), it
+delays publication by the difference, up to that bound. Outside enforce mode,
+publication doesn't wait for the gate at all.
 
 1. `route-visual-gate-nightly` (Linux) resolves the mode and picks the runner.
    - The mode comes from the canary's resolver,
@@ -131,17 +133,27 @@ publication by the difference.
 3. `visual-gate-nightly-verdict` (Linux, `actions: read` only) is what
    `publish-nightly` waits on. GitHub can neither cancel one job nor bound
    its queue time, so this job reads the gate's job in the run attempt
-   (`nightly_next_canary_mode.py await-gate`) once a minute:
-   - Still waiting for a runner after 15 minutes (the queue budget): the
-     verdict is `unavailable`, a warning and the job summary say this
-     nightly publishes unchecked, and publication goes ahead. Nothing is
-     cancelled; the gate still runs if a runner frees up, and its verdict is
-     still recorded.
-   - Started: it waits for the gate to finish, at most its 75-minute
-     timeout. `blocks` is `true` only when the gate's `Hold publication` step
-     succeeded. A held build fails this job too, so "Re-run failed
-     jobs" retries the gate and this job together and the retried verdict
-     decides.
+   (`nightly_next_canary_mode.py await-gate`) once a minute. On a run's
+   first attempt it starts only once the signed build is ready (it needs
+   `verify-final-dmg-nightly`), so the gate has had the whole build to get a
+   runner and finish. Its budgets run from when that check finished, by
+   GitHub's timestamps, so time this job spends waiting for its own Linux
+   runner counts against them, and a hold counts only when the gate itself
+   finished within them:
+   - Outside enforce mode it waits for nothing: no verdict can hold the
+     build, so the job ends at once with the verdict `report`.
+   - Still waiting for a runner 5 minutes after the signed build was ready
+     (the queue budget): the verdict is `unavailable`, a warning and the job
+     summary say this nightly publishes unchecked, and publication goes
+     ahead. Nothing is cancelled; the gate still runs if a runner frees up,
+     and its verdict is still recorded.
+   - Started: it waits for the gate to finish, at most 10 minutes past the
+     signed build (the hold). `blocks` is `true` only when the gate's `Hold
+     publication` step succeeded. A held build fails this job too, so "Re-run
+     failed jobs" retries the gate and this job together and the retried
+     verdict decides. A re-run starts the gate beside this job, so there the
+     gate gets the full 15-minute queue budget and its 75-minute timeout:
+     a re-run never publishes a held build unchecked for want of time.
    - Missing, never finishing, or the API unreadable after 5 tries:
      `unavailable`, and publication goes ahead.
 

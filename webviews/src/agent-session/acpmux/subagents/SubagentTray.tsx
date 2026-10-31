@@ -33,7 +33,7 @@
 //
 // A line is quiet at rest: no fill of its own inside the tray's glass, so the tray is one box, not
 // a box in a box. Hovering a line that opens something fills that whole line, its stop button
-// included, to the tray's own edges (one inset), and shows the hand; a line says its kind first
+// included, to the tray's own edges (one inset), with the arrow; a line says its kind first
 // ("Command", "Subagent") and ends in a chevron. A command's whole shell line is its tooltip; its
 // stop button stops only that command (`_acpmux/process/kill`), which the composer's Stop does not
 // (that cancels the turn, and the command outlives it), so its tooltip says so. (Leo 2026-10-21 on
@@ -290,9 +290,7 @@ export const SubagentTray = memo(function SubagentTray({
         className="acpmux-summary-text"
         text={showFinished ? t("summary.showFewer") : t("summary.viewAll", { n: finished.length })}
       />
-      <span className="acpmux-running-tray__chevron" aria-hidden="true">
-        <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
-      </span>
+      <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
     </button>
   );
   return (
@@ -321,13 +319,10 @@ export const SubagentTray = memo(function SubagentTray({
           <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
             {starts.length > 0 ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
           </span>
-          {/* The header has no Stop: its chevron takes the tray's last trailing column (22 from the
-              right), with no empty Stop slot pushing it in (Leo: "the stupid right indent misalignemnt"). */}
           <span className="acpmux-running-tray__status">
-            <span className="acpmux-running-tray__chevron" aria-hidden="true">
-              <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
-            </span>
+            <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
           </span>
+          <span className="acpmux-running-tray__stop-slot" aria-hidden="true" />
         </button>
       )}
       {fold.present && (
@@ -369,6 +364,7 @@ export const SubagentTray = memo(function SubagentTray({
           title={item.agent.task}
           label={t("subagents.open", { name: item.agent.name })}
           kind={t("tray.kind.subagent")}
+          kindIcon={SUBAGENT_ICON}
           chevron
           trayColumns
           onOpen={() => onOpen(item.agent.id)}
@@ -445,6 +441,7 @@ export const SubagentTray = memo(function SubagentTray({
         detail={liveSession(item.session) ? doingDetail(t, item.session.doing, item.session.doingTool) : undefined}
         title={item.session.doing}
         kind={t("tray.kind.subagent")}
+        kindIcon={SUBAGENT_ICON}
         chevron
         icon="agent.chat"
         status={sessionRetrying ? "running" : SESSION_STATUS[item.session.state]}
@@ -457,6 +454,9 @@ export const SubagentTray = memo(function SubagentTray({
   }
 });
 
+/// A subagent's mark before its name, in place of the word: a branch off this chat, never the
+/// chat bubble a session's own icon is (Leo, 2026-10-28: "Shouldn't the subagent icon be different?").
+const SUBAGENT_ICON = "agent.fork";
 const NO_ITEMS: readonly TrayItem[] = [];
 const NO_ARRIVALS: ReadonlySet<string> = new Set();
 /// The most lines that rise in from one update; a bigger burst is simply there.

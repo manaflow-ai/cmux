@@ -7,7 +7,10 @@
 // radius token. The stack owns the spacing: one token (--acpmux-stack-gap) between parts, no part
 // with an outer margin or bottom padding of its own, and the last part right on the box. In a row of
 // a part, the last trailing mark centres 22px from the part's right edge and a mark before it 42px
-// (the 22/42 grid, design/grid.md 5.5); an empty slot never pushes the last mark in.
+// (the 22/42 grid, design/grid.md 5.5); an empty slot never pushes the last mark in. The running
+// tray's rows are the exception: their trailing track is #28113's settled grid (Leo, 2026-10-29:
+// "There's this right indent for no reason"; design/running-tray.md), whose one chevron x for the
+// header, the lines and View all subagent-tray-columns.test.ts checks, so they are recorded only.
 //
 // Real gallery frames at 1100, 420 and 280px. A part this PR has fixed fails the test on a miss
 // (FIXED); every other part reports its misses as warnings (design/grid.md §7: a surface starts at
@@ -248,7 +251,7 @@ await requireBrowserLane("agent-pane-stack-edges.test.ts", async () => {
         if (Math.abs(part.gap - want) > 0.5) miss(`${part.gap}px under it, not ${want}`);
       }
       for (const { row, marks } of part.trails) {
-        if (marks.length === 0) continue;
+        if (marks.length === 0 || part.name === "acpmux-running-tray") continue;
         if (Math.abs(marks[0]! - 22) > 0.5) miss(`${row}'s last trailing mark ${marks[0]}px from the right, not 22`);
         for (const mark of marks.slice(1))
           if (Math.abs(mark - 42) > 0.5) miss(`${row}'s trailing mark ${mark}px from the right, not on 42`);
@@ -257,7 +260,7 @@ await requireBrowserLane("agent-pane-stack-edges.test.ts", async () => {
     return found;
   }
 
-  test("every part over the composer shares the box's edges and radius, one stack gap, and trails on 22/42", async () => {
+  test("every part over the composer shares the box's edges and radius, one stack gap, and trails on 22/42 (the tray on its own grid)", async () => {
     const failures: string[] = [];
     const warnings: string[] = [];
     for (const width of WIDTHS)

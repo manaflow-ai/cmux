@@ -15,7 +15,7 @@
   letter-spacing: var(--cv-tracking, 0.045px);
   color: var(--cv-text);
   font-variant-numeric: tabular-nums;
-  cursor: pointer;
+  cursor: default;
   user-select: none;
 }
 .cv-subagents:focus-visible {
@@ -122,7 +122,7 @@ button.cv-subagent {
   border-top: none;
   border-bottom: none;
   text-align: start;
-  cursor: pointer;
+  cursor: default;
 }
 button.cv-subagent:hover {
   background: var(--agent-control-hover);
@@ -157,7 +157,7 @@ button.cv-subagent > :last-child {
   border-radius: 6px;
   background: none;
   color: var(--cv-text-muted);
-  cursor: pointer;
+  cursor: default;
 }
 .cv-subagent__stop:hover:not(:disabled) {
   background: var(--agent-control-hover);
@@ -209,7 +209,7 @@ button.cv-subagent > :last-child {
   font-family: var(--cv-font);
   font-size: var(--text-detail);
   color: var(--cv-text-muted);
-  cursor: pointer;
+  cursor: default;
   user-select: none;
   letter-spacing: var(--text-detail--letter-spacing);
 }
@@ -277,7 +277,7 @@ button.cv-subagent > :last-child {
    the column's leading edge. Its list opens upward over the transcript, as a popover does. */
 .acpmux-agents-pill {
   all: unset;
-  cursor: pointer;
+  cursor: default;
   box-sizing: border-box;
   height: 30px;
   padding: 0 12px 0 10px;
@@ -343,7 +343,7 @@ button.cv-subagent > :last-child {
 }
 .acpmux-agents-list__row {
   all: unset;
-  cursor: pointer;
+  cursor: default;
   box-sizing: border-box;
   width: 100%;
   height: 44px;
@@ -431,16 +431,8 @@ button.cv-subagent > :last-child {
   container-type: inline-size;
   container-name: running-tray;
   --acpmux-tray-time-width: calc(80px * var(--cmux-interface-scale, 1));
-  /* The trailing columns end on the stack's grid (design/grid.md 5.5): every row ends 12px in, then
-     one 20px mark box whose centre is 22px from the right (the chevron), and before it a 20px box
-     whose centre is 42px from the right (Stop, or its empty column in a line that has none). The
-     status track holds the state, its 8px gap and those two boxes. The header has no Stop column at
-     all, so nothing empty pushes its chevron in (Leo, 2026-10-30: "the stupid right indent
-     misalignemnt"). */
-  --acpmux-tray-end: var(--ds-space-3, 12px);
-  --acpmux-tray-mark: 20px;
-  --acpmux-tray-status-width: 128px;
-  --acpmux-tray-stop-width: var(--acpmux-tray-mark);
+  --acpmux-tray-status-width: 96px;
+  --acpmux-tray-stop-width: 24px;
   box-sizing: border-box;
   padding: 0;
   overflow: hidden;
@@ -529,36 +521,26 @@ button.cv-subagent > :last-child {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* A line's Stop sits outside its button, over the Stop column: its centre 42px from the right. */
+.acpmux-running-tray__stop-slot {
+  box-sizing: border-box;
+  flex: 0 0 var(--acpmux-tray-stop-width);
+  min-width: var(--acpmux-tray-stop-width);
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+}
 .acpmux-running-tray .acpmux-agent-line__stop-slot {
   box-sizing: border-box;
   position: absolute;
   top: 0;
-  right: calc(var(--acpmux-tray-end) + var(--acpmux-tray-mark));
+  right: 8px;
   bottom: 0;
   width: var(--acpmux-tray-stop-width);
   min-width: var(--acpmux-tray-stop-width);
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
   pointer-events: none;
-}
-/* Every trailing chevron (the header's, a line's, View all's) in its 20px mark box at the row's end,
-   its centre 22px from the right. A line's chevron keeps the Stop column before it, empty or not, so
-   the state ends on one x in every line. */
-.acpmux-running-tray :is(.acpmux-running-tray__chevron, .acpmux-agent-line__chevron) {
-  flex: 0 0 var(--acpmux-tray-mark);
-  display: inline-flex;
-  justify-content: center;
-  margin-left: 0;
-  color: var(--agent-muted);
-}
-.acpmux-running-tray .acpmux-agent-line__chevron {
-  margin-left: var(--acpmux-tray-stop-width);
-}
-.acpmux-running-tray .acpmux-running-tray__head,
-.acpmux-running-tray .acpmux-running-tray__finished {
-  padding-right: var(--acpmux-tray-end);
 }
 .acpmux-running-tray .acpmux-agent-line__stop-slot > button {
   pointer-events: auto;
@@ -606,9 +588,9 @@ button.cv-subagent > :last-child {
   padding-block: 4px;
 }
 .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
-  /* The chevron's mark box ends the row; Stop stays outside the button, over its column. */
+  /* Reserve the final track while keeping the stop control outside the button. */
   padding-left: calc(8px + var(--acpmux-tray-indent, 0px));
-  padding-right: var(--acpmux-tray-end);
+  padding-right: calc(8px + var(--acpmux-tray-stop-width) + 8px);
 }
 .acpmux-agent-line > .acpmux-agent-line__stop-slot > .cv-subagent__stop {
   position: static;
@@ -626,13 +608,12 @@ button.cv-subagent > :last-child {
   .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
     position: relative;
     display: grid;
-    /* The status track holds the Stop column and the chevron's mark box, as on one line. */
-    grid-template-columns: var(--acpmux-tray-time-width) minmax(0, 1fr);
+    grid-template-columns: var(--acpmux-tray-time-width) minmax(0, 1fr) var(--acpmux-tray-stop-width);
     grid-template-rows: var(--ui-row-height, 28px) var(--ui-row-height, 28px);
     column-gap: 4px;
     row-gap: 0;
     height: calc(2 * var(--ui-row-height, 28px));
-    padding: 0 var(--acpmux-tray-end) 0 8px;
+    padding: 0 8px;
   }
   /* Progress can wrap above the controls without sharing their track. */
   .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
@@ -664,6 +645,10 @@ button.cv-subagent > :last-child {
     min-width: 0;
     gap: 4px;
   }
+  .acpmux-running-tray__stop-slot {
+    grid-column: 3;
+    grid-row: 2;
+  }
   .acpmux-running-tray .acpmux-agent-line__stop-slot {
     top: auto;
     bottom: 0;
@@ -684,7 +669,7 @@ button.cv-subagent > :last-child {
   background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
 }
 .acpmux-running-tray :is(.acpmux-agent-line__button, .acpmux-running-tray__head, .acpmux-chat-inspector-stop):enabled {
-  cursor: pointer;
+  cursor: default;
 }
 /* What the line is ("Command", "Subagent"), dim before its name. */
 .acpmux-agent-line__kind {
@@ -763,7 +748,7 @@ button.cv-subagent > :last-child {
   padding: 4px 8px;
   color: var(--agent-muted);
   background: transparent;
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-running-tray__tail button:hover,
 .acpmux-running-tray__tail button:focus-visible {
@@ -845,7 +830,7 @@ button.cv-subagent > :last-child {
   flex: none;
   margin-inline-start: 6px;
   color: var(--agent-accent);
-  cursor: pointer;
+  cursor: default;
   font-size: var(--text-detail);
   line-height: 18px;
 }

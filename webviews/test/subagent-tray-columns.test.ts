@@ -278,11 +278,13 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
               chevron: rect(".acpmux-agent-line__chevron", row),
               hasStop: Boolean(row.querySelector(".acpmux-agent-line__stop-slot > button")),
             })),
+            footer: tray.querySelector(".acpmux-running-tray__finished")
+              ? rect(".acpmux-running-tray__finished > svg", tray)
+              : undefined,
             head: {
               time: rect(".acpmux-running-tray__time", head),
               status: rect(".acpmux-running-tray__status", head),
-              // The header has no Stop and no empty Stop slot: its chevron is the rows' chevron column.
-              chevron: rect(".acpmux-running-tray__chevron", head),
+              chevron: rect(".acpmux-running-tray__status > svg", head),
             },
           };
         });
@@ -294,7 +296,11 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(columns.head.time.right).toBe(first!.time.right);
         expect(columns.head.status.left).toBe(first!.status.left);
         expect(columns.head.status.right).toBe(first!.status.right);
-        expect(columns.head.chevron.left).toBe(first!.chevron.left);
+        // One trailing track (Leo, 2026-10-29: "There's this right indent for no reason."): the
+        // header's, every line's and View all's chevrons end on one x.
+        expect(rest.every((row) => row.chevron.right === first!.chevron.right)).toBe(true);
+        expect(columns.head.chevron.right).toBe(first!.chevron.right);
+        if (columns.footer) expect(columns.footer.right).toBe(first!.chevron.right);
         expect(columns.rows.some((row) => row.hasStop)).toBe(true);
         expect(columns.rows.some((row) => !row.hasStop)).toBe(true);
 
@@ -359,8 +365,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                 return {
                   time: { ...rect(".acpmux-running-tray__time", head), ...textRect(time) },
                   status: rect(".acpmux-running-tray__status", head),
-                  // The header has no Stop and no empty Stop slot: its chevron is the rows' chevron column.
-                  chevron: rect(".acpmux-running-tray__chevron", head),
+                  stop: rect(".acpmux-running-tray__stop-slot", head),
                 };
               })(),
             };
@@ -374,7 +379,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(initial.head.time.right).toBe(initialFirst!.time.right);
         expect(initial.head.status.left).toBe(initialFirst!.status.left);
         expect(initial.head.status.right).toBe(initialFirst!.status.right);
-        expect(initial.head.chevron.left).toBe(initialFirst!.chevron!.left);
+        expect(initial.head.stop.left).toBe(initialFirst!.stop.left);
         expect(initial.rows.some((row) => row.hasStop)).toBe(true);
         expect(initial.rows.some((row) => !row.hasStop)).toBe(true);
         expect(initial.rows.every((row) => row.summary.width >= 60)).toBe(true);
@@ -460,7 +465,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           expect(narrow.head.time.right).toBe(narrowFirst!.time.right);
           expect(narrow.head.status.left).toBe(narrowFirst!.status.left);
           expect(narrow.head.status.right).toBe(narrowFirst!.status.right);
-          expect(narrow.head.chevron.left).toBe(narrowFirst!.chevron!.left);
+          expect(narrow.head.stop.left).toBe(narrowFirst!.stop.left);
           await page.waitForFunction(
             (previous) =>
               [...document.querySelectorAll<HTMLElement>(".acpmux-agent-line__time")].some(

@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-conversation-presence`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-conversation-presence`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `apps-changed` (page relays only), `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -42,6 +42,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `personal-changed` | subscribe | session | protocol 12; capability `profiles-v1` |
 | `bookmarks-changed` | subscribe | `browser_profile_id` | protocol 12; capability `bookmarks-v1` |
 | `history-changed` | subscribe | none | protocol 12; capability `history-v1` |
+| `apps-changed` | apps clients; subscribe (page relays) | `app` | capability `apps-v1`; on subscribe `page-events-v1` |
 | `settings-changed` | subscribe | machine settings | protocol 12; capability `settings-v1` |
 | `keybindings-changed` | subscribe | machine keybindings | protocol 12; capability `keybindings-v1` |
 | `conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
@@ -414,6 +415,24 @@ commits a change. The payload is
 interested frontends refetch `list-bookmarks` for that browser profile. An
 unchanged retry publishes nothing. Bookmarks advance neither
 `personal_revision` nor `workspace_revision`.
+### apps-changed
+
+| Field | Value |
+| --- | --- |
+| event | `apps-changed` |
+| status | implemented |
+| since | capability `apps-v1`; on `subscribe` for page relays, `page-events-v1` |
+
+Published by the app supervisor after a committed install-state change (an
+install, removal, enable, hide, grant, local reload) and when a deployed
+instance changes state. The payload is `{event:"apps-changed",
+revision:uint64, transaction:string, app:string}`. A connection gets it as an
+apps client after its first `apps-*` command. A page relay calls the store
+through the v2 page router, so it is no apps client: it hears this event on
+`subscribe` when its page lists it in page-router.json (the App Store page
+does), and no other `subscribe` stream carries it. Interested frontends
+re-read `cmux.apps.installed.list` or the catalog.
+
 ### history-changed
 
 | Field | Value |

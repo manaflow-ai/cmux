@@ -40,7 +40,7 @@ enum LinkHandlers {
             if case .agent = parsed.link.target, !background, !registry.isCapturingRefusal,
                let notice = RefusalStrings.linkParametersIgnored(parsed.ignoredParameters,
                                                                  used: parsed.link.usedParameters) {
-                services.refusalHUD.show(notice, in: services.windows.active?.window ?? NSApp.keyWindow)
+                services.refusalHUD.show(notice, in: services.windows.active?.window ?? services.keyWindowSource())
             }
         })
         // Every selected row, one link per line, as classic's Copy Workspace Links (#27709).

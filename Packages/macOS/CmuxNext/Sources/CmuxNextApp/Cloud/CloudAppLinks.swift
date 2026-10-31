@@ -115,6 +115,15 @@ enum CloudAppLinks {
     }
 
     /// Logs why a link ended, with the details ``endedMessage(_:)`` leaves out.
+    /// The link went down or was revoked: a machine that ran lost it. Any
+    /// other error (a provider's refusal, a failed check) is not a drop.
+    static func isDrop(_ error: any Error) -> Bool {
+        switch error as? CloudLinkError {
+        case .disconnected?, .revoked?: true
+        default: false
+        }
+    }
+
     static func logEnded(_ error: any Error) {
         logger.info("cloud link ended: \(String(describing: error), privacy: .public)")
     }
