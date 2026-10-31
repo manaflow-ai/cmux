@@ -13,6 +13,7 @@ import { useCallback, useId, type ReactNode } from "react";
 import type { AcpmuxActivity } from "../model";
 import { useFindReveal } from "../conversation/chatFind";
 import { ChevronRight } from "../conversation/icons";
+import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "../conversation/headerToggle";
 import { useTranscriptDisclosure } from "../conversation/transcriptDisclosure";
 import { useT } from "../i18n";
 import { useAnchoredCollapse } from "../conversation/useAnchoredCollapse";
@@ -105,7 +106,17 @@ export function DisclosureRow({
   return (
     <div className={className ? `cv-disclosure ${className}` : "cv-disclosure"} data-open={collapse.open || undefined}>
       {/* The line summarizes indexed content in the panel; it adds no Find occurrences. */}
-      <div className="cv-disclosure__line" data-find-skip ref={onOpen ? collapse.headerRef : undefined}>
+      {/* The whole line toggles for the pointer, edge to edge, all but its own controls (the
+          chat it opens, the sender, the actions): headerToggle.ts. The toggle button is the
+          keyboard and screen reader control. */}
+      {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+      <div
+        className="cv-disclosure__line"
+        data-find-skip
+        {...{ [HEADER_TOGGLE_ATTRIBUTE]: "" }}
+        ref={onOpen ? collapse.headerRef : undefined}
+        onClick={headerToggleClick(collapse.toggle)}
+      >
         {leading}
         {onOpen ? (
           <>

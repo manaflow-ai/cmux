@@ -21,6 +21,29 @@ extension AgentPaneCloudStart {
         progress(step.name, folder: step.folder, machine: step.machine, size: step.size, to: view)
     }
 
+    /// The name a machine made for chats gets, and how a machine is marked as one for chats.
+    public nonisolated static let chatsName = "cloud-chats"
+
+    public nonisolated static func isMarkedForChats(_ name: String) -> Bool {
+        let name = name.lowercased()
+        return name == chatsName || (name.hasPrefix(chatsName + "-") && name.dropFirst(chatsName.count + 1).allSatisfy(\.isNumber))
+    }
+
+    /// A lane-pool VM's name: `fs-lane-N` or `lane-vm-N` (leo-workspace machines/lane-vms.md).
+    public nonisolated static func isLanePool(_ name: String) -> Bool {
+        let name = name.lowercased()
+        for prefix in ["fs-lane-", "lane-vm-"] where name.hasPrefix(prefix) {
+            let number = name.dropFirst(prefix.count)
+            if !number.isEmpty, number.allSatisfy(\.isNumber) { return true }
+        }
+        return false
+    }
+
+    /// The name a new machine for chats gets: ``chatsName``, else `cloud-chats-N`, unique among `taken`.
+    public nonisolated static func newMachineName(taken: some Sequence<String>) -> String {
+        CloudMachine.defaultName(taken: taken, base: chatsName, numbered: { "\(chatsName)-\($0)" })
+    }
+
     /// A machine's size in the card's words: "4 CPU · 16 GB".
     public nonisolated static func sizeText(_ size: CloudMachine.Size?) -> String? {
         guard let cpu = size?.cpu, cpu > 0 else { return nil }

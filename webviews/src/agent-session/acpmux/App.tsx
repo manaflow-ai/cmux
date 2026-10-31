@@ -333,13 +333,13 @@ import {
   atFoldBottom,
   clickFold,
   FOLD_HOLD_MIN_MS,
+  FOLD_SETTLE_MS,
   foldHoldTarget,
   foldHolding,
   foldRoomFor,
   foldToggleAt,
   holdFold,
   keepFold,
-  STACK_FOLD_MS,
   trimmedFoldRoom,
   verticalWheel,
   type FoldAnchor,
@@ -479,8 +479,9 @@ import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabR
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
-import { cloudPageRefusal, cloudStartToasted, oneCloudStart, type CloudStart } from "./cloudRun";
-import { folderRunLocation } from "./runLocationDefault";
+import { cloudPageRefusal, cloudStartFolder, cloudStartToasted, oneCloudStart, type CloudStart } from "./cloudRun";
+import { folderRunLocation, newChatRunLocation } from "./runLocationDefault";
+import { harnessLabel } from "./subagents/agentRuns";
 import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProgress } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
@@ -492,6 +493,9 @@ import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
 import { configureToolRunLook } from "./toolRunLook";
 import { configureSentLook } from "./conversation/SentMessageLine";
 import { configureMessageGroupLook } from "./conversation/messageGroupLook";
+import { configureInboxNoticeLook } from "./conversation/inboxNoticeLook";
+import { InboxNoticeCard } from "./conversation/InboxNoticeCard";
+import { mergeInboxNotices, type InboxMessage } from "./conversation/inboxNotice";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { cloudCredentialRecovery } from "./cloudCredentialRecovery";
 import { handoffTurns } from "./cloudHandoffTurn";
@@ -1160,6 +1164,21 @@ const MessageRow = memo(
     // Its images show with it, and its action row (age, Retry) at the line's end on hover;
     // a steer's read state does not: the message is the agent's to read.
     if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
+    // acpmux's inbox notice: its threads as received lines, never its text for the agent
+    // (conversation/InboxNoticeCard.tsx).
+    if (row.kind === "user" && row.incoming?.kind === "inbox")
+      return (
+        <div className="cv-incoming">
+          <InboxNoticeCard
+            rowId={row.id}
+            notice={row.incoming.notice}
+            messageAt={row.at}
+            onOpen={openSenderChat}
+            readThread={readInboxThread}
+            githubRepository={githubRepository}
+          />
+        </div>
+      );
     if (row.kind === "user" && row.incoming?.kind === "message")
       return (
         <div className="cv-incoming">
@@ -1629,6 +1648,8 @@ const PendingMessagesRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.githubRepository === b.githubRepository,
 );
+/// An inbox notice's thread the person opened (`chat.inbox.thread`): its messages, oldest first.
+const readInboxThread = (threadId: string) => callNative<InboxMessage[]>("chat.inbox.thread", { threadId });
 const LaneNoticeBatchRow = memo(function LaneNoticeBatchRow(props: RowProps) {
   return <LaneNoticeBatch row={props.row} renderMessage={(row) => <MessageRow {...props} row={row} />} />;
 });
@@ -2327,6 +2348,8 @@ function TranscriptContext({
 
 export function VirtualTranscript({
   rows,
+  earlier,
+  loadThrough,
   sessionId,
   onToggleActivity,
   onOpenDiff,
@@ -2360,6 +2383,11 @@ export function VirtualTranscript({
   endReserve = 0,
 }: {
   rows: readonly AcpmuxRow[];
+  /// The chat's prompts older than `rows` (the snapshot's `earlierPrompts`): the thread rail lays
+  /// them out from the first frame, so it never grows or shifts as history pages in.
+  earlier?: readonly AcpmuxRow[];
+  /// Pages history in until the prompt at `seq` is held (a click on an earlier prompt's tick).
+  loadThrough?: (seq: number) => Promise<void>;
   sessionId?: string;
   /// Where the transcript opens instead of the latest message, when that row is loaded.
   openAt?: ScrollAnchor;
@@ -3108,14 +3136,15 @@ export function VirtualTranscript({
   /// The disclosure line the reader just clicked, held where they clicked it while its fold plays
   /// (conversation/foldAnchor.ts).
   const foldAnchor = useRef<FoldAnchor | undefined>(undefined);
-  /// A fold clicked at the end keeps the physical bottom edge fixed while the whole transcript
-  /// stack makes one short compositor move. Its row observer pins the edge between React placement
-  /// passes while the disclosure's own height animation changes the measured row.
+  // A bottom disclosure lays out once, then the whole thread slides to that layout. Its row
+  // marker tells useFold to skip the competing height animation; away from the end nothing changes.
   type BottomStackFold = {
     toggle: HTMLElement;
-    beforeEnd: number;
+    row: HTMLElement;
+    beforeTop: number;
+    delta: number;
+    from: number;
     animation?: Animation;
-    rowObserver?: ResizeObserver;
     cleanupTimer?: ReturnType<typeof setTimeout>;
   };
   const bottomStackFold = useRef<BottomStackFold | undefined>(undefined);
@@ -3123,14 +3152,16 @@ export function VirtualTranscript({
     const stack = bottomStackFold.current;
     if (!stack) return;
     bottomStackFold.current = undefined;
-    if (stack.cleanupTimer !== undefined) clearTimeout(stack.cleanupTimer);
-    stack.rowObserver?.disconnect();
+    foldAnchor.current = undefined;
+    stack.row.removeAttribute("data-bottom-fold");
+    clearTimeout(stack.cleanupTimer);
     if (stack.animation) {
       stack.animation.onfinish = null;
       stack.animation.oncancel = null;
       stack.animation.cancel();
     }
   }, []);
+  useEffect(() => stopBottomStackFold, [stopBottomStackFold]);
   /// The content end a clicked disclosure keeps (foldAnchor.ts `foldRoomFor`): 0, or the view's end
   /// when the line was clicked. Closing a body at the transcript's end leaves that much room under
   /// the rows instead of letting the browser clamp the offset, which brought every row down by what
@@ -3406,11 +3437,27 @@ export function VirtualTranscript({
   const reportedEstimate = useRef<typeof estimated | null>(null);
   // The old scroll state remains in React until the transition layout effect runs. Render the
   // new session from the top once so its first paint cannot reuse the previous chat's mounted rows.
-  const renderScroll = sessionSwitched ? { top: 0, delta: 0 } : scrollRef.current;
-  const renderFollowing = sessionSwitched || following;
+  const unplacedScroll = sessionSwitched ? { top: 0, delta: 0 } : scrollRef.current;
+  const origin = !sessionSwitched && ref.current ? scrollOrigin(ref.current) : 0;
+  // Select the rows at this commit's anchored position before React reconciles them. Correcting
+  // scrollTop only in the placement effect unmounted visible rows and flashed new copies on prepend.
+  // Reader intent is synchronous; React's following state may still lag the wheel by one frame.
+  const projectedTop =
+    !sessionSwitched && !followingRef.current && previousLayout.current && previousLayout.current !== layout
+      ? preserveScrollAnchorTop({
+          oldLayout: previousLayout.current,
+          newLayout: layout,
+          oldRows: previousRows.current,
+          newRows: rows,
+          liveTop: unplacedScroll.top - origin,
+          anchorTop: unplacedScroll.top - origin,
+        })
+      : undefined;
+  const placementDelta = projectedTop === undefined ? 0 : projectedTop - (unplacedScroll.top - origin);
+  const renderScroll = projectedTop === undefined ? unplacedScroll : { ...unplacedScroll, top: projectedTop + origin };
+  const renderFollowing = sessionSwitched || followingRef.current;
   // The content in view starts at the offset less `lift`: rows drawn up by it show content that much
   // further down.
-  const origin = !sessionSwitched && ref.current ? scrollOrigin(ref.current) : 0;
   const shownTop = renderScroll.top - lift - origin;
   const ahead = scrollLeadRanges(
     layout,
@@ -3426,7 +3473,7 @@ export function VirtualTranscript({
   // The rows a viewport either side of where the reader was also mount, in a deferred render
   // between frames: a scroll then finds the rows it brings in already drawn and measured instead
   // of building them in its own frame. A jump past them mounts only what it shows.
-  const warmTop = useDeferredValue(renderScroll.top - origin);
+  const warmTop = useDeferredValue(unplacedScroll.top - origin) + placementDelta;
   const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
   const scrolledRanges = mergeRowRanges(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]);
   // A held row (gutterSelect.ts) is at its index, or as far from the end as it was when older history
@@ -3680,31 +3727,39 @@ export function VirtualTranscript({
       setScrollAt(moved);
     }
     if (bottomStacking && node && stack) {
-      // At the end, the composer is the fixed edge: keep the physical scroll end there while the
-      // disclosure's own height animation reports each new row size. The thread transform starts
-      // at the full measured rise and eases to rest once, so the rows move as one stack.
+      // The body takes its final height before paint. Pin the scroller there, then play the
+      // difference on the compositor. A late measure updates that same effect on its original clock,
+      // never starts another animation or drives a per-frame layout/scroll loop.
       const latest = Math.max(0, layout.totalHeight - height);
       settleFollowBottom(node, latest);
-      const delta = latest - stack.beforeEnd;
+      const delta = layoutScrollTop(node) - stack.beforeTop;
       const host = thread.current;
-      if (!stack.animation && host && Math.abs(delta) > 0.5) {
-        const duration = foldMs(host);
-        if (duration > 0) {
-          const animation = host.animate([{ translate: `0 ${delta}px` }, { translate: "0 0" }], {
-            duration: Math.max(150, Math.min(200, duration)),
-            easing: foldMotion.easing(host),
-          });
-          stack.animation = animation;
-          const finished = () => {
-            if (bottomStackFold.current !== stack) return;
-            if (stack.cleanupTimer !== undefined) clearTimeout(stack.cleanupTimer);
-            stack.rowObserver?.disconnect();
-            bottomStackFold.current = undefined;
-          };
-          animation.onfinish = finished;
-          animation.oncancel = finished;
+      if (host && Math.abs(delta - stack.delta) > 0.5) {
+        if (stack.animation) {
+          const effect = stack.animation.effect as KeyframeEffect;
+          const progress = effect.getComputedTiming().progress;
+          // The new layout moved the thread by -(delta - previousDelta). Add exactly that
+          // displacement to its current transform without restarting the original animation clock.
+          if (typeof progress === "number" && progress < 1) {
+            stack.from += (delta - stack.delta) / (1 - progress);
+            effect.setKeyframes([{ translate: `0 ${stack.from}px` }, { translate: "0 0" }]);
+          }
+        } else {
+          stack.from = delta;
+          const frames = [{ translate: `0 ${delta}px` }, { translate: "0 0" }];
+          const duration = foldMs(host);
+          if (duration > 0) {
+            stack.animation = host.animate(frames, { duration, easing: foldMotion.easing(host) });
+            stack.animation.onfinish = () => {
+              if (bottomStackFold.current === stack) stopBottomStackFold();
+            };
+            stack.animation.oncancel = stack.animation.onfinish;
+          } else stopBottomStackFold();
         }
+        stack.delta = delta;
       }
+      scrollPacer.current?.cancel();
+      setScrollAt(node.scrollTop);
     } else if (folding && node) {
       // What opened pushed the latest row out of view, or what closed left room under it
       // (`foldRoom`): the view is the reader's now, not following, so a reply that streams on
@@ -3819,7 +3874,7 @@ export function VirtualTranscript({
           // Keep React's rendered offset in the same frame as the anchor correction. Otherwise a
           // rounded DOM offset arrives through scroll later and can briefly show Jump to latest.
           scrollPacer.current?.cancel();
-          setScrollAt(node.scrollTop);
+          setScrollAt(node.scrollTop, 0);
         }
       }
     }
@@ -3909,7 +3964,6 @@ export function VirtualTranscript({
     sessionId,
     seekExpired,
     canLoadOlder,
-    dropFoldRoom,
     followResume,
   ]);
   // A toggled "Worked for" plays when its rows are placed again (watchTurnFold, started at the
@@ -3942,19 +3996,20 @@ export function VirtualTranscript({
       const shown = rowsRef.current;
       const host = thread.current;
       settleTurnFold(host, turnFold.current, foldGhosts.current);
-      const fold = node
-        ? startTurnFold(
-            host,
-            id,
-            !(shown.find((row) => row.id === id)?.foldOpen ?? foldInputs.current.expanded.has(id)),
-            {
-              count: shown.length,
-              idAt: (index) => shown[index]?.id,
-              tops: foldInputs.current.layout.tops,
-            },
-            foldInputs.current.sessionId,
-          )
-        : undefined;
+      const fold =
+        node && !bottomStackFold.current
+          ? startTurnFold(
+              host,
+              id,
+              !(shown.find((row) => row.id === id)?.foldOpen ?? foldInputs.current.expanded.has(id)),
+              {
+                count: shown.length,
+                idAt: (index) => shown[index]?.id,
+                tops: foldInputs.current.layout.tops,
+              },
+              foldInputs.current.sessionId,
+            )
+          : undefined;
       turnFold.current = fold;
       // The rows as placed by the latest render, read when a pass runs.
       const read = () => {
@@ -4029,6 +4084,7 @@ export function VirtualTranscript({
     (node: HTMLDivElement) => {
       stopJump();
       stopScroll(node);
+      stopBottomStackFold();
       foldAnchor.current = undefined;
       scrollPacer.current?.cancel();
       const top = node.scrollTop;
@@ -4051,7 +4107,7 @@ export function VirtualTranscript({
         anchorTimer.current = setTimeout(() => reportAnchorRef.current(), SCROLL_ANCHOR_SETTLE_MS);
       }
     },
-    [stopJump],
+    [stopBottomStackFold, stopJump],
   );
   // The current match's reveal window: 0 until it starts, then the window's own number.
   const revealWindow = useRef(0);
@@ -4267,6 +4323,7 @@ export function VirtualTranscript({
     }
     revealing.current = undefined;
     revealWindow.current = 0;
+    stopBottomStackFold();
     foldAnchor.current = undefined;
     dropFoldRoom();
     stopJump();
@@ -4390,6 +4447,8 @@ export function VirtualTranscript({
     // The room the stack grew while scrolled up comes first, out of view, so following again moves
     // nothing and the glide runs to the end above the card instead of snapping there.
     takeRoom();
+    stopBottomStackFold();
+    foldAnchor.current = undefined;
     dropFoldRoom(true);
     clearScrollOrigin(node);
     follow(true);
@@ -4448,13 +4507,13 @@ export function VirtualTranscript({
       revealing.current = undefined;
       revealWindow.current = 0;
       // A sideways wheel (a code block's own scroll) keeps a disclosure's hold; the rest lets go.
-      if (!(event?.type === "wheel" && !verticalWheel(event as WheelEvent))) foldAnchor.current = undefined;
+      if (!(event?.type === "wheel" && !verticalWheel(event as WheelEvent))) {
+        stopBottomStackFold();
+        foldAnchor.current = undefined;
+      }
       if (findFrame.current !== undefined) cancelAnimationFrame(findFrame.current);
       findFrame.current = undefined;
-      if (reader(event)) {
-        stopBottomStackFold();
-        followIntent(false);
-      }
+      if (reader(event)) followIntent(false);
       // Moving toward the latest row while following keeps following through the hold.
       else if (followingRef.current && movingDown(event)) followRequest.current = intent.request();
       if (jumpTarget.current !== undefined) {
@@ -4555,45 +4614,37 @@ export function VirtualTranscript({
       setFoldRoom(end);
     };
     const beginBottomStackFold = (toggle: HTMLElement, line: HTMLElement): boolean => {
-      const closing = toggle.getAttribute("aria-expanded") === "true";
+      // This ask is for tool/work disclosures. Message Show more/less and other controls retain
+      // their established row anchor, including the room they need when closing at the end.
+      if (!toggle.matches(".cv-tool.is-toggle, .cv-worked, .cv-subagents")) {
+        stopBottomStackFold();
+        return false;
+      }
       if (!atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)) {
         stopBottomStackFold();
         return false;
       }
-      // The pinned stack is for tool-call disclosures. Other transcript folds retain their
-      // clicked-line anchor, and Reduce Motion has no compositor stack to pin.
-      if (!toggle.matches(".cv-tool.is-toggle") || foldMs(toggle) <= 0) {
-        if (closing && toggle.matches(".cv-tool.is-toggle")) keepBottomFoldRoom();
-        stopBottomStackFold();
-        return false;
-      }
+      const row = line.closest<HTMLElement>(".acpmux-row");
+      if (!row) return false;
       stopBottomStackFold();
-      // On close, preserve the expanded end as blank room. On open, an already sticky room is
-      // part of the reader's chosen end; only transient, non-bottom room is discarded.
-      if (closing) {
+      followGlide.current?.stop();
+      stopJump();
+      // A closing tool keeps its expanded extent and clicked line rather than sliding down.
+      if (toggle.matches(".cv-tool.is-toggle") && toggle.getAttribute("aria-expanded") === "true") {
         keepBottomFoldRoom();
         return false;
       }
       if (!stickyFoldRoom.current) dropFoldRoom();
-      const stack: BottomStackFold = {
-        toggle,
-        beforeEnd: Math.max(0, node.scrollHeight - node.clientHeight),
-      };
+      const stack: BottomStackFold = { toggle: line, row, beforeTop: layoutScrollTop(node), delta: 0, from: 0 };
       bottomStackFold.current = stack;
-      if (typeof ResizeObserver !== "undefined") {
-        const row = line.closest<HTMLElement>(".acpmux-row") ?? line;
-        stack.rowObserver = new ResizeObserver(() => {
-          if (bottomStackFold.current !== stack) return;
-          const end = Math.max(0, node.scrollHeight - node.clientHeight);
-          if (end - node.scrollTop > 0.5) node.scrollTop = end;
-        });
-        stack.rowObserver.observe(row);
-      }
+      row.setAttribute("data-bottom-fold", "");
+      // The explicit toggle reacquires follow even a few pixels from the end. Streaming never does.
+      followIntent(true);
       stack.cleanupTimer = setTimeout(
         () => {
           if (bottomStackFold.current === stack) stopBottomStackFold();
         },
-        Math.max(FOLD_HOLD_MIN_MS, STACK_FOLD_MS * 3),
+        Math.max(FOLD_HOLD_MIN_MS, foldMs(line) + FOLD_SETTLE_MS),
       );
       return true;
     };
@@ -4627,10 +4678,7 @@ export function VirtualTranscript({
         return;
       event.preventDefault();
       settleFold(header);
-      const sameBottomFold = bottomStackFold.current?.toggle === header;
-      const closing = header.getAttribute("aria-expanded") === "true";
-      const bottom = sameBottomFold ? true : beginBottomStackFold(header, header);
-      if (bottom && closing) keepBottomFoldRoom();
+      const bottom = bottomStackFold.current?.toggle === header ? true : beginBottomStackFold(header, header);
       // The click that asked for it already holds this line at the place it was pressed at: keep it.
       foldAnchor.current = clickFold(header, foldAnchor.current);
       if (!bottom) keepFoldRoom();
@@ -4640,6 +4688,7 @@ export function VirtualTranscript({
       const key = (event as KeyboardEvent).key;
       if (key === "Enter" || key === " ") return;
       if (event.type === "wheel" && !verticalWheel(event as WheelEvent)) return;
+      stopBottomStackFold();
       foldAnchor.current = undefined;
     };
     const releases = ["wheel", "touchstart", "keydown"] as const;
@@ -4682,7 +4731,6 @@ export function VirtualTranscript({
       wheelGlide.current?.remove();
       wheelGlide.current = undefined;
       stopJump();
-      stopBottomStackFold();
       unsubscribeIntent();
       unsubscribeQuiet();
       detachIntent();
@@ -4744,6 +4792,10 @@ export function VirtualTranscript({
   const checkOlder = () => {
     const node = ref.current;
     if (!canLoadOlder || !onLoadOlder || !node || node.clientHeight === 0) {
+      clearTimeout(olderRecheck.current);
+      olderRecheck.current = undefined;
+      olderAsk.current++;
+      olderAsking.current = false;
       olderLoadRequested.current = undefined;
       return;
     }
@@ -4841,6 +4893,8 @@ export function VirtualTranscript({
         {showMinimap && (
           <ThreadMinimap
             rows={rows}
+            earlier={earlier}
+            loadThrough={loadThrough}
             sessionId={sessionId}
             layout={layout}
             scroller={ref}
@@ -5215,7 +5269,7 @@ function AcpmuxPane() {
   // Debug measurement (acpmuxPerf): the pane's own render, before its children.
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
   const t = useT();
-  const { scrollToBottomOnSend } = useComposerSettings();
+  const { scrollToBottomOnSend, newChatsIn } = useComposerSettings();
   const scrollToBottomOnSendRef = useRef(scrollToBottomOnSend);
   scrollToBottomOnSendRef.current = scrollToBottomOnSend;
   /// A new chat's Run as (hq#3367): Persistent is the chat as before; Sandboxed runs the
@@ -6315,11 +6369,14 @@ function AcpmuxPane() {
   // messages (its `joined` names them, chatFind.ts findRowIndex).
   const findRows = useMemo(() => searchablePendingRows(sourceRows, queuedRows), [sourceRows, queuedRows]);
   const lastPending = useRef<AcpmuxRow | undefined>(undefined);
+  // acpmux's inbox notices next to each other draw as one (conversation/inboxNotice.ts): rows with
+  // none in a run come back as they are.
   const transcriptRows = useMemo(() => {
     const steers = childRows ? NO_ROWS : (lastTurns.current?.turns.pending ?? NO_ROWS);
     const group = pendingMessagesRow(steers, queuedRows, lastPending.current);
     lastPending.current = group;
-    const rows = group ? [...turnRowsShown, group] : turnRowsShown;
+    const shown = mergeInboxNotices(turnRowsShown);
+    const rows = group ? [...shown, group] : shown;
     return childRows ? rows : btwNotes.rows(rows, snapshot.sessionId, btwSnapshot);
   }, [childRows, turnRowsShown, queuedRows, btwNotes, btwSnapshot, snapshot.sessionId]);
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
@@ -7408,7 +7465,9 @@ function AcpmuxPane() {
     // Another Return while a start waits starts nothing, and the card keeps that start.
     if (!started) return false;
     cloudStartPending.current = true;
-    setCloudStart(cloudStartBegun(key, text, start.cwd));
+    setCloudStart(
+      cloudStartBegun(key, text, start.cwd, start.harness ? harnessLabel(start.harness) : undefined, start.home),
+    );
     void started.then((answer) => {
       cloudStartPending.current = false;
       setCloudStartsEnded((count) => count + 1);
@@ -8452,12 +8511,27 @@ function AcpmuxPane() {
   /// went to a Cloud machine, else this Mac. Only while Cloud is offered, and only until the person
   /// picks in this pane. Sandboxed, or Cloud the person picked, is never changed; a Cloud default
   /// goes back to this Mac when the folder's history no longer says Cloud or Cloud is not offered.
+  /// Settings' Start New Chats In (`agentPane.newChatsIn`) set to Cloud makes it Cloud whatever the
+  /// folder's history says (newChatRunLocation); This Mac in the composer's picker still wins.
+  /// Never in a tab on another machine (SSH, Cloud): its chat stays on that machine, and the host
+  /// refuses `cloud.startChat` from it.
   const folderRunDefault = useMemo(
     () =>
-      sandboxOffered
-        ? folderRunLocation(composerSnapshot.summary?.cwd ?? newTab?.cwd, snapshot.sessions, snapshot.peerKinds)
+      sandboxOffered && !remoteChat
+        ? newChatRunLocation(
+            newChatsIn,
+            folderRunLocation(composerSnapshot.summary?.cwd ?? newTab?.cwd, snapshot.sessions, snapshot.peerKinds),
+          )
         : undefined,
-    [sandboxOffered, composerSnapshot.summary?.cwd, newTab?.cwd, snapshot.sessions, snapshot.peerKinds],
+    [
+      sandboxOffered,
+      remoteChat,
+      newChatsIn,
+      composerSnapshot.summary?.cwd,
+      newTab?.cwd,
+      snapshot.sessions,
+      snapshot.peerKinds,
+    ],
   );
   /// The chat the folder default last saw (its session, or the New Tab adoption it came with).
   const defaultedChat = useRef<string | undefined>(undefined);
@@ -8769,6 +8843,7 @@ function AcpmuxPane() {
         configureToolRunLook(theme.toolRunLook);
         configureSentLook(theme.sentLook);
         configureMessageGroupLook(theme.messageGroupLook);
+        configureInboxNoticeLook(theme.inboxNoticeLook);
         configureTurnActionsPlacement(theme.turnActionsPlacement);
         configureSubagentTray(theme.subagentTray);
         configureSubagentTrayPlacement(theme.subagentTrayPlacement);
@@ -9857,6 +9932,9 @@ function AcpmuxPane() {
             const [to, id, thread] = [str(sessionId), str(msgId), str(threadId)];
             await client.reply({ sessionId: to, msgId: id, threadId: thread }, String(text ?? ""));
           },
+          // An inbox notice's thread the person opened: its messages, read without marking them
+          // read (conversation/InboxNoticeCard.tsx).
+          "chat.inbox.thread": ({ threadId }) => client.inboxThread(String(threadId ?? "")),
           // Open a started offer or a sub-session: the app shows its tab or opens it beside this
           // chat (AgentPaneOfferOpen); a host without that opens it as a side chat; else here.
           "chat.offer.open": async ({ sessionId, sender }) => {
@@ -11296,6 +11374,13 @@ function AcpmuxPane() {
                                               {(find) => (
                                                 <VirtualTranscript
                                                   rows={transcriptRows}
+                                                  earlier={!childRows ? snapshot.earlierPrompts : undefined}
+                                                  loadThrough={
+                                                    !childRows
+                                                      ? (seq) =>
+                                                          directClient.current?.loadThrough(seq) ?? Promise.resolve()
+                                                      : undefined
+                                                  }
                                                   sourceRows={childRows ? undefined : sourceRows}
                                                   endReserve={previewBeside ? COMPUTER_USE_PREVIEW_RESERVE : 0}
                                                   working={snapshot.isWorking}
@@ -11326,10 +11411,12 @@ function AcpmuxPane() {
                                                         ? undefined
                                                         : snapshot.historyFrom
                                                   }
-                                                  onLoadOlder={() =>
+                                                  onLoadOlder={
                                                     workflowTranscript.rows
-                                                      ? workflowTranscript.loadOlder()
-                                                      : (directClient.current?.loadOlder() ?? Promise.resolve())
+                                                      ? workflowTranscript.loadOlder
+                                                      : !childRows
+                                                        ? () => directClient.current?.loadOlder() ?? Promise.resolve()
+                                                        : undefined
                                                   }
                                                   openAt={
                                                     !childRows &&
@@ -11871,8 +11958,9 @@ function AcpmuxPane() {
               if (authBlock) return false;
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               if (cloudPicked) {
+                // The chat's project, copied to the machine; none: the machine's own folder (cloudStartFolder).
                 const refused = sendToCloud(text, chips?.length ?? 0, {
-                  ...(projectDraft ? { cwd: projectDraft } : {}),
+                  ...cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd),
                   ...heldPick(composerSnapshot),
                 });
                 if (refused) directClient.current?.notice(refused);
@@ -12486,7 +12574,7 @@ function AcpmuxPane() {
                         ) =>
                           sendToCloud(text, attachments.length, {
                             harness,
-                            ...(cwd ? { cwd } : {}),
+                            ...cloudStartFolder(cwd),
                             ...(model ? { model } : {}),
                           }),
                         onSandbox: (harness: string, text: string, attachments: ComposerAttachment[]) => {
