@@ -66,6 +66,13 @@ fn a_copy_is_read_past_what_it_covers_or_replaced_when_too_far_behind_or_of_anot
     assert!(asks[0].params.get("beforeSeq").is_none());
     assert_eq!(asks[1].params["beforeSeq"], json!(NEWEST), "800 behind: the newest page");
 
+    // Review of #28626 at 112a7bf: a copy past the row (a peer back on an older disk with the same
+    // session) is read again from the newest page, which replaces it.
+    let ahead = HashMap::from([("a".to_owned(), (Some(42), 520))]);
+    let (asks, ..) = plan(PEER, &rows[..1], &ahead, &HashMap::new(), (NOW_MS, now));
+    assert_eq!(asks[0].params["beforeSeq"], json!(NEWEST));
+    assert!(asks[0].params.get("afterSeq").is_none());
+
     let recreated = HashMap::from([("a".to_owned(), (Some(41), 499))]);
     let (asks, ..) = plan(PEER, &rows[..1], &recreated, &HashMap::new(), (NOW_MS, now));
     assert_eq!(asks[0].params["beforeSeq"], json!(NEWEST), "a copy of the session before");
@@ -75,7 +82,7 @@ fn a_copy_is_read_past_what_it_covers_or_replaced_when_too_far_behind_or_of_anot
 fn a_chat_read_within_the_interval_waits_for_its_end_and_is_then_read() {
     let now = Instant::now();
     let rows = [row("a", 5, 0), row("b", 5, 1)];
-    let read_at = HashMap::from([((PEER.to_owned(), "a".to_owned()), now)]);
+    let read_at = HashMap::from([((PEER.to_owned(), "a".to_owned()), (42, now))]);
     let (asks, planned, later) = plan(PEER, &rows, &HashMap::new(), &read_at, (NOW_MS, now));
     assert_eq!(muxes(&asks), ["b"]);
     assert!(planned.contains("a"), "still planned, so its read time is kept");
@@ -83,6 +90,10 @@ fn a_chat_read_within_the_interval_waits_for_its_end_and_is_then_read() {
     let (asks, _, later) = plan(PEER, &rows, &HashMap::new(), &read_at, (NOW_MS, now + WARM_EVERY));
     assert_eq!(muxes(&asks), ["a", "b"]);
     assert_eq!(later, None);
+    // Review of #28626 at 112a7bf: a read of the session before a recreation holds none back.
+    let recreated = HashMap::from([((PEER.to_owned(), "a".to_owned()), (41, now))]);
+    let (asks, _, later) = plan(PEER, &rows, &HashMap::new(), &recreated, (NOW_MS, now));
+    assert_eq!((muxes(&asks), later), (vec!["a", "b"], None));
 }
 
 #[test]

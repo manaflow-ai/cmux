@@ -67,8 +67,9 @@ struct State {
     rounds: Vec<tokio::task::AbortHandle>,
     /// The daemon stops: no round starts, and none keeps a page.
     stopped: bool,
-    /// When each chat was last read ahead (only chats of the rounds' plans: pruned each round).
-    read_at: HashMap<Key, Instant>,
+    /// When each chat was last read ahead, and the generation read (only chats of the rounds'
+    /// plans: pruned each round). A session recreated since is not held back by it.
+    read_at: HashMap<Key, (u64, Instant)>,
 }
 
 impl Warm {
@@ -129,7 +130,7 @@ pub(super) fn plan(
     peer: &str,
     rows: &[Value],
     covers: &HashMap<String, (Option<u64>, u64)>,
-    read_at: &HashMap<Key, Instant>,
+    read_at: &HashMap<Key, (u64, Instant)>,
     (now_ms, now): (u64, Instant),
 ) -> (Vec<Ask>, HashSet<String>, Option<Instant>) {
     let u64_of = |row: &Value, k: &str| row.get(k).and_then(Value::as_u64);
@@ -158,10 +159,14 @@ pub(super) fn plan(
         };
         planned.insert(mux.to_owned());
         let through = covers.get(mux).filter(|(g, _)| *g == Some(generation)).map(|(_, to)| *to);
-        if through.is_some_and(|to| to >= last) {
+        // A copy as far as the row: nothing to read. One past it (a peer back on an older disk
+        // with the same session) is read again from the newest page, which replaces it
+        // (`Store::behind`).
+        if through == Some(last) {
             continue;
         }
-        if let Some(at) = read_at.get(&(peer.to_owned(), mux.to_owned()))
+        if let Some((read, at)) = read_at.get(&(peer.to_owned(), mux.to_owned()))
+            && *read == generation
             && *at + WARM_EVERY > now
         {
             later = Some(later.map_or(*at + WARM_EVERY, |l| l.min(*at + WARM_EVERY)));
@@ -171,7 +176,7 @@ pub(super) fn plan(
                                 "kinds": WARM_KINDS});
         // Past what the copy covers, when that joins it within one page; else the newest page,
         // which replaces a copy it does not reach.
-        match through.filter(|to| last - to <= WARM_LIMIT) {
+        match through.filter(|to| *to < last && last - to <= WARM_LIMIT) {
             Some(to) => params["afterSeq"] = json!(to),
             None => params["beforeSeq"] = json!(NEWEST),
         }
@@ -286,7 +291,8 @@ impl Hub {
         };
         for ask in asks {
             // Tried counts as read: a chat the peer refuses waits its interval too.
-            warm.state().read_at.insert((name.to_owned(), ask.mux.clone()), Instant::now());
+            let key = (name.to_owned(), ask.mux.clone());
+            warm.state().read_at.insert(key, (ask.generation, Instant::now()));
             // The link the page is asked on, read before it, as the forward path does.
             let link = peer.link_epoch();
             let read = peer.request_on(method::MUX_EVENTS, ask.params.clone(), Some(link)).await;
