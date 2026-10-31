@@ -2,7 +2,7 @@ name: nightly-next rollback
 
 # The undo button for a bad cmux NEXT nightly (docs/ci/nightly-next-canary.md).
 # It takes the bad build, and every newer one, off the cmux NEXT feed
-# (appcast-arm64.xml), so the feed serves the previous build again: new
+# (appcast-arm64.xml, then appcast-x86_64.xml in rollback-intel), so the feed serves the previous build again: new
 # installs and every Mac below the bad build get that build. Sparkle never
 # offers a lower build, so a Mac already on the bad build keeps it until a
 # newer build is published (revert on feat-cmux-next and let promotion
@@ -272,6 +272,94 @@ jobs:
               echo "pulled.json was NOT written ($OUTCOME): Macs on $RECORD show no pulled-build banner. The feed pull and the fix-forward do not depend on it. Re-run failed jobs: this job reads pulled.json again and writes it."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # Every nightly-next build ships an Apple silicon and an Intel app (nightly.yml
+  # decide), so a pulled build leaves appcast-x86_64.xml too: the Intel feed
+  # drops every item newer than the build appcast-arm64.xml now serves. A job of
+  # its own, so a failure here (red run) never holds the fix-forward; it also
+  # runs when the arm64 feed was already pulled, so a re-run converges.
+  rollback-intel:
+    needs: rollback
+    if: needs.rollback.result == 'success' && needs.rollback.outputs.serving != ''
+    environment: release-next
+    permissions:
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    env:
+      INTEL_APPCAST: appcast-x86_64.xml
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Plan the Intel pull
+        id: plan
+        env:
+          SERVING: ${{ needs.rollback.outputs.serving }}
+        run: |
+          set -euo pipefail
+          mkdir -p rollback
+          curl -fsSL --retry 3 -A "cmux-nightly-next-rollback/1" -H "Cache-Control: no-cache" \
+            -o rollback/live.xml "${NIGHTLY_NEXT_FEED_BASE}/${INTEL_APPCAST}?rollback=${GITHUB_RUN_ID}"
+          summary="$(python3 scripts/ci/nightly_next_feed_rollback.py plan --feed rollback/live.xml \
+            --out "rollback/$INTEL_APPCAST" --above "$SERVING")"
+          echo "$INTEL_APPCAST: $summary"
+          python3 - "$summary" >> "$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          s = json.loads(sys.argv[1])
+          print(f"changed={'true' if s['changed'] else 'false'}")
+          print(f"serving={s['serving']}")
+          print(f"serving_url={s['serving_url']}")
+          print(f"pulled={' '.join(s['pulled'])}")
+          PY
+
+      - name: Check the Intel build it falls back to
+        if: steps.plan.outputs.changed == 'true'
+        env:
+          SERVING_URL: ${{ steps.plan.outputs.serving_url }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/nightly-next-guard.py appcast "rollback/$INTEL_APPCAST"
+          python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "${NIGHTLY_NEXT_R2_PREFIX}${INTEL_APPCAST}"
+          curl -fsSL --retry 3 -o /dev/null -r 0-0 "$SERVING_URL"
+          echo "ok: $SERVING_URL is downloadable"
+
+      - name: Write the pulled Intel feed
+        if: steps.plan.outputs.changed == 'true' && !inputs.dry_run
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          planned="$(shasum -a 256 rollback/live.xml | awk '{print $1}')"
+          status=0
+          python3 scripts/ci/upload-r2-object.py \
+            --file "rollback/$INTEL_APPCAST" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --bucket "$NIGHTLY_NEXT_R2_BUCKET" \
+            --key "${NIGHTLY_NEXT_R2_PREFIX}${INTEL_APPCAST}" \
+            --content-type "application/xml" \
+            --cache-control "no-cache, no-store, must-revalidate" \
+            --replace-sha256 "$planned" --conflict-exit-code 3 || status=$?
+          if [ "$status" = 3 ]; then
+            echo "::error title=nightly-next rollback::$INTEL_APPCAST changed after this run read it; nothing written. Run it again."
+          fi
+          exit "$status"
+
+      - name: Read the Intel feed back
+        if: steps.plan.outputs.changed == 'true' && !inputs.dry_run
+        env:
+          SERVING: ${{ steps.plan.outputs.serving }}
+          PULLED: ${{ steps.plan.outputs.pulled }}
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -A "cmux-nightly-next-rollback/1" -H "Cache-Control: no-cache" \
+            -o rollback/after.xml "${NIGHTLY_NEXT_FEED_BASE}/${INTEL_APPCAST}?after=${GITHUB_RUN_ID}"
+          cmp -s "rollback/$INTEL_APPCAST" rollback/after.xml || { echo "the public Intel feed does not serve the pulled appcast yet" >&2; exit 1; }
+          echo "ok: $INTEL_APPCAST serves build $SERVING (pulled: $PULLED)" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # No secrets and no environment: it reads runs and commits, dispatches the
   # train, or writes one issue.

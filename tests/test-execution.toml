@@ -1451,7 +1451,7 @@ path = "tests/test_nightly_next_source_archive.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_nightly_next_arm64_only.py"
+path = "tests/test_nightly_next_variants.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2255,6 +2255,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_fleet_rule_lints.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runs_on_fallback.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_workflow_file_size.py"
 lane = "linux-guard"
 
 [[test]]

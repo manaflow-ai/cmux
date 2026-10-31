@@ -368,17 +368,18 @@ jobs:
             // A manually dispatched fast build is a branch-dogfood artifact only.
             // It deliberately produces one Apple silicon DMG and never publishes
             // to the shared NIGHTLY release or feed.
-            // nightly-next ships arm64 only (Leo, 2026-10-07): one DMG notarization per
-            // build instead of three, after Apple's queue held all three past the wait in
-            // runs 37648507383 and 37667249069. Its x86_64, universal and legacy feeds keep
-            // their last build, so an Intel Mac is never offered an arm64-only app.
-            const variants = fastBuild || track === 'nightly-next' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
-            // Compile only the slices these variants consume. nightly-next
-            // ships arm64 only; compiling Intel here still paid for a second
-            // whole-module Swift compile and both slices of the Rust helpers.
-            const compileArchs = variants.includes('universal') ? ['arm64', 'x86_64'] : variants;
+            // nightly-next ships a thin arm64 and a thin x86_64 DMG, both required:
+            // every published build has an Apple silicon and an Intel app. It
+            // has no universal DMG, so a build waits on two notarizations, not
+            // three (arm64 alone from 2026-10-07 to 2026-10-21, #18424, after
+            // Apple's queue held all three in runs 37648507383 and 37667249069).
+            // Its universal and legacy feeds keep their last build; installs move
+            // to their architecture's feed at the first update check.
+            const variants = fastBuild ? ['arm64'] : track === 'nightly-next' ? ['arm64', 'x86_64'] : ['arm64', 'x86_64', 'universal'];
+            // Compile only the slices these variants consume.
+            const compileArchs = variants.includes('x86_64') ? ['arm64', 'x86_64'] : variants;
             const feeds = track === 'nightly-next'
-              ? ['appcast-arm64.xml']
+              ? ['appcast-arm64.xml', 'appcast-x86_64.xml']
               : ['appcast-arm64.xml', 'appcast-x86_64.xml', 'appcast-universal.xml', 'appcast.xml'];
             core.setOutput('variants', JSON.stringify(variants));
             core.setOutput('compile_archs', compileArchs.join(' '));
@@ -4105,11 +4106,13 @@ jobs:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, pick-nightly-sign-runner, signer-dmg]
     if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.pick-nightly-sign-runner.result == 'success' && needs.signer-dmg.result != 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'"
     outputs:
-      # nightly-next is arm64 only, so its one matrix leg sets this; publish
-      # waits for a later run when Apple had not accepted the build in time.
-      notary_pending: ${{ steps.notarize-nightly.outputs.submission_pending }}
+      # On nightly-next only the arm64 leg hands a slow notarization to a
+      # later run (the recovery), so only it sets these: an empty value is not
+      # recorded, and the x86_64 leg finishing last cannot clear arm64's.
+      # publish waits for a later run when Apple had not accepted arm64 in time.
+      notary_pending: ${{ (needs.decide.outputs.track != 'nightly-next' || matrix.variant == 'arm64') && steps.notarize-nightly.outputs.submission_pending || '' }}
       # The 6 h stapled-app fallback (notarize-nightly-dmg.sh) shipped the first DMG.
-      stapled_app_fallback_id: ${{ steps.notarize-nightly.outputs.stapled_app_fallback == 'true' && steps.notarize-nightly.outputs.stapled_app_pending_id || '' }}
+      stapled_app_fallback_id: ${{ (needs.decide.outputs.track != 'nightly-next' || matrix.variant == 'arm64') && steps.notarize-nightly.outputs.stapled_app_fallback == 'true' && steps.notarize-nightly.outputs.stapled_app_pending_id || '' }}
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
     # actions:read lets the parallel artifact download resolve the blob URL.
     permissions:
@@ -4566,7 +4569,9 @@ jobs:
         if: needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_CEF_ON_DEMAND == '1'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cef-runtime-pack
+          # One pack per variant: the pack key includes the architecture, and
+          # each leg writes its own cef-runtime.json pin.
+          name: cef-runtime-pack-${{ matrix.variant }}
           overwrite: true
           path: ${{ runner.temp }}/cef-runtime
           if-no-files-found: error
@@ -4650,7 +4655,8 @@ jobs:
         # off the same way (the next run continues the accepted first one).
         timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 205 || 130 }}
         env:
-          CMUX_NOTARY_WAIT_TIMEOUT: ${{ needs.decide.outputs.notary_test == 'true' && '160m' || needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && '20m' || '40m' }}
+          # The x86_64 leg has no hand-off, so it waits as long as main's legs.
+          CMUX_NOTARY_WAIT_TIMEOUT: ${{ needs.decide.outputs.notary_test == 'true' && '160m' || needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && matrix.variant == 'arm64' && '20m' || '40m' }}
           CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE: ${{ runner.temp }}/cmux-computer-use-notarization.state
           CMUX_COMPUTER_USE_NOTARY_WAIT_TIMEOUT: 15m
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
@@ -4664,7 +4670,9 @@ jobs:
           CMUX_STAPLE_APP_IN_DMG: ${{ needs.decide.outputs.notary_test == 'true' && 'false' || 'true' }}
           # Only a build that may publish hands a pending submission to a
           # later run; a notary test waits here and is never continued.
-          CMUX_NOTARY_PENDING_ON_TIMEOUT: ${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && 'true' || 'false' }}
+          # The recovery hand-off is arm64's alone. A later run that publishes a
+          # recovered arm64 build takes this run's verified x86_64 leg with it.
+          CMUX_NOTARY_PENDING_ON_TIMEOUT: ${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && matrix.variant == 'arm64' && 'true' || 'false' }}
           CMUX_CHANNEL: ${{ needs.decide.outputs.sign_channel }}
           # Runtime checks for the stapled app and final DMG run in
           # verify-signed-nightly, a job without secrets.
@@ -4735,7 +4743,7 @@ jobs:
       - name: Prepare pending notarization recovery artifact
         id: prepare-notarization-recovery
         if: >-
-          always() && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' &&
+          always() && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' && matrix.variant == 'arm64' &&
           (steps.notarize-nightly.outputs.submission_pending == 'true' || steps.notarize-nightly.outcome == 'failure') &&
           steps.signed-app-checks.outcome == 'success'
         env:
@@ -5016,7 +5024,11 @@ jobs:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, pick-nightly-sign-runner, signer-dmg]
     # The macOS signer's app only: signer-dmg-image runs these checks on a pool-signed app, on the
     # Mac that builds its DMG (signer-verify-signed.sh), and signer-dmg needs that job.
-    if: "!cancelled() && needs.build-sign-notarize-nightly.result == 'success' && needs.signer-dmg.result != 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
+    # On nightly-next a failed notarize leg can still be recovered by a later
+    # run, which takes this run's verified x86_64: run every leg, and each
+    # fails on its own if its leg uploaded nothing. publish-nightly still
+    # publishes this run's own build only when build-sign-notarize-nightly passed.
+    if: "!cancelled() && (needs.build-sign-notarize-nightly.result == 'success' || needs.decide.outputs.track == 'nightly-next' && needs.build-sign-notarize-nightly.result == 'failure') && needs.signer-dmg.result != 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
     permissions:
       contents: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
@@ -5027,7 +5039,8 @@ jobs:
         variant: ${{ fromJSON(needs.decide.outputs.variants) }}
     env:
       # Set only when the 6 h stapled-app fallback shipped the first DMG.
-      STAPLED_APP_FALLBACK_ID: ${{ needs.build-sign-notarize-nightly.outputs.stapled_app_fallback_id }}
+      # arm64's on nightly-next; its x86_64 leg never takes the fallback.
+      STAPLED_APP_FALLBACK_ID: ${{ (needs.decide.outputs.track != 'nightly-next' || matrix.variant == 'arm64') && needs.build-sign-notarize-nightly.outputs.stapled_app_fallback_id || '' }}
       # An owned Mac has the PR lane's Xcode pin (as DEV's verify); Blacksmith the macOS 26 one.
       CMUX_CI_XCODE_APP: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -5125,6 +5138,21 @@ jobs:
 
 
 
+      # Proof for a later recovery run that this run's signed app passed every
+      # check above: a recovered arm64 build ships only with a verified x86_64.
+      - name: Record the verified variant
+        run: |
+          mkdir -p signed-verified
+          printf '%s\n' "$NIGHTLY_BUILD" > "signed-verified/signed-verified-${NIGHTLY_VARIANT}"
+
+      - name: Upload the verified variant record
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-signed-verified-${{ matrix.variant }}
+          path: signed-verified/signed-verified-${{ matrix.variant }}
+          if-no-files-found: error
+          retention-days: 3
+
   verify-final-dmg-nightly:
     name: Verify final nightly DMG (${{ matrix.variant }})
     # The final-DMG half of verify-signed-nightly, on its own runner so the two
@@ -5134,7 +5162,8 @@ jobs:
     # publishes this run's build only when both jobs passed, and only the DMG
     # bytes this job verified.
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, pick-nightly-sign-runner, signer-dmg]
-    if: "!cancelled() && (needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
+    # Every leg runs on a failed nightly-next notarize, as in verify-signed-nightly.
+    if: "!cancelled() && ((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') || needs.decide.outputs.track == 'nightly-next' && needs.build-sign-notarize-nightly.result == 'failure') && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
     permissions:
       contents: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
@@ -5145,7 +5174,8 @@ jobs:
         variant: ${{ fromJSON(needs.decide.outputs.variants) }}
     env:
       # Set only when the 6 h stapled-app fallback shipped the first DMG.
-      STAPLED_APP_FALLBACK_ID: ${{ needs.build-sign-notarize-nightly.outputs.stapled_app_fallback_id }}
+      # arm64's on nightly-next; its x86_64 leg never takes the fallback.
+      STAPLED_APP_FALLBACK_ID: ${{ (needs.decide.outputs.track != 'nightly-next' || matrix.variant == 'arm64') && needs.build-sign-notarize-nightly.outputs.stapled_app_fallback_id || '' }}
       # An owned Mac has the PR lane's Xcode pin (as DEV's verify); Blacksmith the macOS 26 one.
       CMUX_CI_XCODE_APP: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -5179,19 +5209,20 @@ jobs:
       # The notarize step stapled the final DMG. Verify that exact DMG and
       # record its digest without launching bundle code. A build still in Apple's
       # queue has no final DMG yet: verify-recovered-nightly-next verifies it
-      # when a later run continues it.
+      # when a later run continues it. Only arm64 can be pending on
+      # nightly-next; its x86_64 leg is verified here for that recovery to take.
       # A pool-signed build reads signer-dmg's one-DMG artifact: the variant artifact holds the
       # same DMG twice (the release and the immutable name), and this Mac reads it over the
       # office uplink (199 s for 481 MB in run 40728513403).
       - name: Download final DMG
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true'
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && (matrix.variant != 'arm64' || needs.build-sign-notarize-nightly.outputs.notary_pending != 'true')
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: ${{ needs.signer-dmg.result == 'success' && format('cmux-nightly-next-signer-final-dmg-{0}', needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha) || format('cmux-nightly-variant-{0}', matrix.variant) }}
           path: final-dmg
 
       - name: Verify final DMG artifact
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true'
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && (matrix.variant != 'arm64' || needs.build-sign-notarize-nightly.outputs.notary_pending != 'true')
         env:
           POOL_SIGNED: ${{ needs.signer-dmg.result == 'success' }}
           NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
@@ -5213,7 +5244,7 @@ jobs:
         run: bash .publish-tooling/scripts/ci/nightly-steps/launch-smoke-gate.sh "final-dmg/${CHANNEL_DMG_PREFIX}-arm64.dmg"
 
       - name: Bundle size budget
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && env.TRACK == 'nightly-next' && matrix.variant == 'arm64'
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && (matrix.variant != 'arm64' || needs.build-sign-notarize-nightly.outputs.notary_pending != 'true') && env.TRACK == 'nightly-next' && matrix.variant == 'arm64'
         continue-on-error: true
         timeout-minutes: 5
         env:
@@ -5222,7 +5253,7 @@ jobs:
         run: bash .publish-tooling/scripts/ci/nightly-steps/verify-final-dmg-bundle-size-budget.sh
 
       - name: Upload tested DMG digests
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true'
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && (matrix.variant != 'arm64' || needs.build-sign-notarize-nightly.outputs.notary_pending != 'true')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-tested-${{ matrix.variant }}
@@ -5738,6 +5769,26 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+      # The candidate's own x86_64 leg, checked in the continue step: its run's
+      # verify-final-dmg-nightly verified these exact bytes.
+      - name: Upload the recovered build's Intel variant
+        if: steps.continue.outputs.accepted == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-recovered-variant-x86_64
+          path: recovered-intel/
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload the recovered build's Intel tested digests
+        if: steps.continue.outputs.accepted == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-recovered-tested-x86_64
+          path: recovered-intel-tested/tested-recovered-x86_64.sha256
+          if-no-files-found: error
+          retention-days: 3
+
   # No environment and no secrets: verifies the DMG that
   # recover-nightly-next-notarization continued and stapled with static checks
   # deferred, and records the tested bytes; publish-nightly publishes a
@@ -6245,6 +6296,13 @@ jobs:
           path: tested
           merge-multiple: true
 
+      # Every variant decide lists ships, or nothing does: on nightly-next an
+      # Apple silicon build never publishes without its Intel build.
+      - name: Require every variant
+        env:
+          VARIANTS: ${{ needs.decide.outputs.variants }}
+        run: bash .publish-tooling/scripts/ci/nightly-steps/publish-require-every-variant.sh
+
       - name: Require every DMG to match a tested digest
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-require-tested-digest.sh
 
@@ -6485,7 +6543,8 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: cef-runtime-pack
+          # Each variant's pack lands in cef-runtime/cef-runtime-pack-<variant>/.
+          pattern: cef-runtime-pack-*
           path: cef-runtime
 
       - name: Publish the Chromium runtime pack
@@ -6495,7 +6554,14 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
-        run: bash "$PUBLISH_TOOLING/cmux-next/publish-cef-runtime.sh" cef-runtime
+          VARIANTS: ${{ needs.decide.outputs.variants }}
+        # Every variant's app pins its own architecture's pack: publish each one,
+        # and fail when a variant has none, so no app is offered without its engine.
+        run: |
+          set -euo pipefail
+          for variant in $(jq -r '.[]' <<< "$VARIANTS"); do
+            bash "$PUBLISH_TOOLING/cmux-next/publish-cef-runtime.sh" "cef-runtime/cef-runtime-pack-${variant}"
+          done
 
       - name: Read the live nightly-next feed before the write
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'

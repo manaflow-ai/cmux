@@ -197,6 +197,7 @@
         "Verify version surfaces": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Verify signed diff sidecar protocol contract": {"nightly_only": "verify-diff-sidecar-artifact.sh --require-signed checks the signed Release sidecar's deterministic transport contract without launching app code; ci-macos.yml release-build runs the unsigned static check for pull requests into main"},
         "Verify signed app SSH daemon contract": {"pr": "cmux-next-remote-daemon.yml:release-packaging:Reject broken app bundles and daemon artifacts"},
+        "Record the verified variant": {"plumbing": true},
         "Run bundled Ghostty theme picker helper regression": {"nightly_only": "launches the bundled ghostty helper's theme picker; needs the Release cmux.app that only the nightly builds (xcodebuild Release on a Mac)"},
         "Verify signed app entitlements and the Computer Use helper ticket": {"nightly_only": "reads the Developer ID signature, entitlements and the Computer Use helper's stapled ticket of the signed Release app that only the nightly signs"}},
       "verify-final-dmg-nightly": {
@@ -255,6 +256,7 @@
         "Send this job's gh calls as the release App, github.token as the fallback": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publish jobs send gh calls as the release App first"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Select the build to publish": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next pending notarization continuation"},
+        "Require every variant": {"nightly_only": "scripts/ci/nightly-steps/publish-require-every-variant.sh over this run's signed DMGs; tests/test_nightly_next_variants.py runs it on fixture DMGs"},
         "Require every DMG to match a tested digest": {"nightly_only": "inline shell over the verify jobs' tested/*.sha256 and the signed DMGs; no pull-request dry run yet. Follow-up: tests/test_nightly_tested_dmg_gate.py runs this run block on fixture DMGs"},
         "Recheck the recovered build against both feeds": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly version numbers per track"},
         "Verify SSH daemon assets survived artifact transfer": {"pr": "cmux-next-remote-daemon.yml:release-packaging:Reject broken app bundles and daemon artifacts"},

@@ -1640,9 +1640,9 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_train.py
 
-      - name: Validate the nightly-next arm64-only track
+      - name: Validate the nightly-next arm64 and x86_64 track
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
-        run: python3 tests/test_nightly_next_arm64_only.py
+        run: python3 tests/test_nightly_next_variants.py
 
       - name: Validate the nightly Ghostty CLI helper cache key
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

@@ -663,10 +663,37 @@ class RecheckTests(unittest.TestCase):
         self.assertFalse(lock["cancel-in-progress"])
 
 
-def run_continue_step(notary: str) -> subprocess.CompletedProcess[str]:
+FAKE_RUN_DOWNLOAD = r"""
+dir="${@: -1}"; mkdir -p "$dir"
+name=""; while [ $# -gt 0 ]; do [ "$1" = --name ] && name="$2"; shift; done
+case "$name" in
+  cmux-nightly-variant-x86_64)
+    [ "$FIXTURE_INTEL" = missing ] && exit 1
+    printf intel > "$dir/p-x86_64-49801.dmg"; cp "$dir/p-x86_64-49801.dmg" "$dir/p-x86_64.dmg"
+    printf '<rss/>' > "$dir/appcast-x86_64.xml" ;;
+  cmux-nightly-tested-x86_64)
+    [ "$FIXTURE_INTEL" = untested ] && exit 1
+    sum="$(printf intel | shasum -a 256 | awk '{print $1}')"
+    [ "$FIXTURE_INTEL" = wrong-digest ] && sum="$(printf other | shasum -a 256 | awk '{print $1}')"
+    printf '%s  %s\n' "$sum" p-x86_64-49801.dmg "$sum" p-x86_64.dmg > "$dir/tested-x86_64.sha256" ;;
+  cmux-nightly-signed-verified-x86_64)
+    if [ "$FIXTURE_INTEL" = other-build ]; then echo 49800; else echo 49801; fi > "$dir/signed-verified-x86_64" ;;
+  cmux-nightly-signed-verified-arm64)
+    [ "$FIXTURE_INTEL" = arm64-unverified ] && exit 1
+    echo 49801 > "$dir/signed-verified-arm64" ;;
+  *) cp "$FIXTURE_APP_TAR" "$dir/cmux-nightly-notarization-recovery-app.tar.gz"
+     printf arm > "$dir/next.dmg"; mkdir -p "$dir/remote-daemon-assets"; : > "$dir/remote-daemon-assets/cmuxd-remote-fixture" ;;
+esac
+"""
+
+
+def run_continue_step(notary: str, intel: str = "verified") -> subprocess.CompletedProcess[str]:
     """Run the real continuation step against one candidate, with gh, the
     manifest check, the feed check and notarize-nightly-dmg.sh stubbed. The
-    stub notarizer reports Apple's verdict and exits as `notary` says."""
+    stub notarizer reports Apple's verdict and exits as `notary` says; `intel`
+    sets the candidate run's x86_64 artifacts (verified, missing, untested,
+    wrong-digest, other-build) or drops its arm64 signed-app record
+    (arm64-unverified)."""
     script = step(workflow()["jobs"]["recover-nightly-next-notarization"], "Continue the newest accepted pending notarization")["run"]
     with tempfile.TemporaryDirectory() as temp:
         work = Path(temp)
@@ -678,7 +705,8 @@ def run_continue_step(notary: str) -> subprocess.CompletedProcess[str]:
         bin_dir.mkdir()
         ci.mkdir(parents=True)
         stubs = {
-            bin_dir / "gh": f'dir="${{@: -1}}"; mkdir -p "$dir"; cp {str(app_tar)!r} "$dir/cmux-nightly-notarization-recovery-app.tar.gz"\n',
+            bin_dir / "gh": FAKE_RUN_DOWNLOAD,
+            ci / "nightly-next-guard.py": "exit 0\n",
             ci / "find-nightly-next-recovery.py": (
                 "printf '%s\\n' BUILD=49801 BUILD_SHA=c TIP_SHA=d BEHIND=1 BEHIND_HOURS=2 SUBMISSION_ID=fixture-id "
                 "STATE_NAME=state 'APP_NAME=\"cmux-nightly-notarization-recovery-app/cmux NEXT.app\"' "
@@ -694,6 +722,7 @@ def run_continue_step(notary: str) -> subprocess.CompletedProcess[str]:
                 '  invalid) echo notary_status=Invalid >> "$GITHUB_OUTPUT"; exit 1 ;;\n'
                 '  unreadable) exit 1 ;;\n'
                 'esac\n'
+                'echo notarized >> "$FIXTURE_NOTARIZED"\n'
             ),
         }
         for path, body in stubs.items():
@@ -705,6 +734,10 @@ def run_continue_step(notary: str) -> subprocess.CompletedProcess[str]:
             os.environ,
             PATH=f"{bin_dir}:{os.environ['PATH']}",
             FIXTURE_NOTARY=notary,
+            FIXTURE_INTEL=intel,
+            FIXTURE_APP_TAR=str(app_tar),
+            FIXTURE_NOTARIZED=str(work / "notarized"),
+            CHANNEL_DMG_PREFIX="p",
             CANDIDATES=json.dumps([{"run_id": 498, "artifact": RECOVERY + "aaaaaaa"}]),
             GITHUB_REPOSITORY=REPO,
             GITHUB_OUTPUT=str(work / "output"),
@@ -720,7 +753,30 @@ def run_continue_step(notary: str) -> subprocess.CompletedProcess[str]:
         )
         result = subprocess.run(["bash", "-c", script], cwd=work, env=env, capture_output=True, text=True)
         result.output = (work / "output").read_text()  # type: ignore[attr-defined]
+        result.notarized = (work / "notarized").exists()  # type: ignore[attr-defined]
+        result.intel = sorted(path.name for path in (work / "recovered-intel").iterdir()) if (work / "recovered-intel").is_dir() else []  # type: ignore[attr-defined]
         return result
+
+
+class ContinueIntelTests(unittest.TestCase):
+    """Every nightly-next build ships Apple silicon and Intel together: a
+    recovered arm64 build is continued only with its own run's verified x86_64
+    leg, checked before any notarization step, and travels with it."""
+
+    def test_a_verified_intel_leg_travels_with_the_recovered_build(self):
+        result = run_continue_step("accepted", "verified")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("accepted=true", result.output, result.stdout)
+        self.assertEqual(result.intel, ["appcast-x86_64.xml", "p-x86_64-49801.dmg", "p-x86_64.dmg"])
+
+    def test_a_build_without_a_verified_intel_leg_is_skipped_before_notarizing(self):
+        for intel in ("missing", "untested", "wrong-digest", "other-build", "arm64-unverified"):
+            with self.subTest(intel=intel):
+                result = run_continue_step("accepted", intel)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("has no verified Intel (x86_64) app or arm64 signed app; skipping", result.stdout)
+                self.assertIn("accepted=false", result.output)
+                self.assertFalse(result.notarized, "a skipped candidate must make no notarization step")
 
 
 class ContinueStepTests(unittest.TestCase):
