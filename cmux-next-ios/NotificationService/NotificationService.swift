@@ -17,7 +17,9 @@ final class NotificationService: UNNotificationServiceExtension {
         self.contentHandler = contentHandler
         generic = request.content
         let keys = PushKeys.current()
-        let content = ServicePush().opened(request.content, keys: keys) ?? ServicePush().inert(request.content, trust: keys?.trust()) ?? request.content
+        let service = ServicePush()
+        let content = service.opened(request.content, keys: keys) ?? service.inert(request.content, trust: keys?.trust())
+            ?? service.categorized(request.content) ?? request.content
         contentHandler(content)
         self.contentHandler = nil
     }

@@ -15,6 +15,7 @@ PROTOCOL.md "Push notifications (API 0.13.0)". The trust analysis for PR B is
 | Finished turn | "<Agent> finished", the last line | the last 4 messages up to the reply, "+" (Photos, Files), the system reply field | none: the reply field is at the bottom | the chat |
 | Error | "<Agent> stopped with an error" | same | same | the chat |
 | Chief | "Chief", the reply's first lines | Chief's header (its avatar and name, the Mac), the last 4 messages up to the reply as Messages bubbles, "+" (Photos), the system reply field | none: the reply field is at the bottom | that Chief's conversation |
+| Terminal agent (Claude Code or Codex in a terminal tab, its hook) | as the matching kind: finished turn, permission ("<Agent> needs permission", the tool), a question whose options the Mac could not read ("<Agent> has a question"); an error stays a terminal notification (a failed tool call is not the agent stopping) | the place, no chat history | an approval or a bare question offers "Answer…" (opens the tab). It names no agent chat, so it takes the terminal's category: no Reply, Allow or Deny | the terminal tab |
 | Terminal (OSC 9, 777, 99) | "Terminal · <workspace>", the program's title and body | the program's title and body (the screen stays on the Mac until PR B seals payloads) | none (Reply is PR B, needs device unlock) | the terminal tab |
 
 Thread per session (`thread-id`), the collapse rules from #23803 unchanged.

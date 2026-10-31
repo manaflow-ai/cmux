@@ -226,9 +226,23 @@ public struct PushPayload: Codable, Sendable, Equatable {
         return !q.multiSelect && (1...PushActions.maxOptionButtons).contains(q.options.count)
     }
 
-    /// The category the Worker picks for this payload (PROTOCOL.md).
+    /// A terminal agent's event (Claude Code or Codex in a terminal tab, reported by its
+    /// hook): the tab's notification, no agent chat. Its kind says what happened (finished,
+    /// needs approval, a question whose options the Mac could not read) for Settings →
+    /// Notifications; no Reply, Allow, Deny or answer reaches the agent from here, so it
+    /// takes a terminal's buttons. A terminal question with its options is answered on the
+    /// phone (TerminalFeed) and keeps its own.
+    public var fromTerminalAgent: Bool {
+        guard kind != .terminal, kind != .chief, sessionId == nil, notificationId != nil else { return false }
+        return kind != .question || questions.isEmpty
+    }
+
+    /// The category for this payload (PROTOCOL.md): the Worker's, except that a terminal
+    /// agent's event takes the terminal's, whose buttons it can act on. The service extension
+    /// sets it (`ServicePush`), so a Worker that picks the kind's category changes nothing.
     public var category: PushCategory {
-        switch kind {
+        if fromTerminalAgent { return .terminal }
+        return switch kind {
         case .question: isSingleChoice ? .question : .questionForm
         case .permission: .permission
         case .completed: .completed

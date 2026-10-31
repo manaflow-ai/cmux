@@ -172,6 +172,7 @@ public struct PushActions: Sendable {
             if question.allowsOther { out.append((.answer, title(.answer))) }
             return out
         case .permission:
+            // A terminal agent's approval is answered in its terminal: "Answer…" opens the tab.
             // None listed (a v1 push, or a sealed one the Mac trimmed to fit): the app opens on it.
             guard !payload.options.isEmpty else { return [(.answer, title(.answer))] }
             // As the Feed (`PushPayload.phoneOptions`): Always allow only when the agent offers no
@@ -186,7 +187,8 @@ public struct PushActions: Sendable {
             if options.contains(where: \.isReject) { out.append((.deny, title(.deny))) }
             return out
         case .completed, .failed, .chief:
-            return [(.reply, title(.reply))]
+            // A terminal agent's event names no chat to reply to: a tap opens its tab.
+            return payload.fromTerminalAgent ? [] : [(.reply, title(.reply))]
         case .terminal:
             // Text into the terminal (device unlock), only when its poster takes a reply.
             return payload.replyable && payload.notificationId != nil ? [(.terminalReply, title(.terminalReply))] : []
