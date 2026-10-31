@@ -325,6 +325,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.showSpaces` | boolean | `true` |  | Show Spaces |
 | `sidebar.showProfileControl` | boolean | `true` |  | Show Profile Button |
 | `sidebar.showSearchButton` | boolean | `true` |  | Show Search Button. A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette. |
+| `sidebar.showNewWorkspaceChooser` | boolean | `false` |  | Show New Workspace Menu Button. A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu. |
 | `sidebar.noFade` | boolean | `false` |  | Show Whole Sidebar Without Fade. The sidebar's edges stop fading and the whole list shows. It also hides the bottom profile and search bar. Off, the edges fade and the bar shows. |
 | `sidebar.controlsOnHover` | boolean | `false` |  | Show Sidebar Controls Only on Hover. The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show. |
 | `sidebar.minimal` | boolean | `false` |  | Minimal Mode. Workspace rows show only their icon, name and unread mark, and section titles become thin lines. |

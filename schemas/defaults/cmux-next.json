@@ -675,6 +675,7 @@
     "setting.sidebar.showChats": true,
     "setting.sidebar.showColors": true,
     "setting.sidebar.showLocalMachine": false,
+    "setting.sidebar.showNewWorkspaceChooser": false,
     "setting.sidebar.showProfileControl": true,
     "setting.sidebar.showProjects": true,
     "setting.sidebar.showSearchButton": true,
