@@ -409,9 +409,27 @@ impl TurnInfo {
 
     /// Sets the line its prompt leaves on the summary ([`TurnInfo::shown_as`]).
     pub(super) fn show(&mut self, line: &str) {
-        self.prompt_line = super::short_text(line, 200);
+        self.prompt_line = shown_line(line);
         self.masked_preview = super::session::masked_preview(line, 200);
     }
+}
+
+/// `line` as a turn's summary shows it: folded and cut to 200 characters at a word's end. The
+/// summary's step masks it after (`views.rs` `lane_step`): a cut inside a word could leave a
+/// secret's head the scan no longer knows.
+pub(super) fn shown_line(line: &str) -> String {
+    let mut out = super::short_text(line, 200);
+    if out.ends_with('…') {
+        out.pop();
+        let whole = line.split_whitespace().collect::<Vec<_>>().join(" ");
+        // Cut inside a word: that word goes.
+        if whole.chars().nth(out.chars().count()).is_some_and(|c| !c.is_whitespace()) {
+            let end = out.rfind(' ').unwrap_or(0);
+            out.truncate(end);
+        }
+        out.push('…');
+    }
+    out
 }
 
 impl Hub {

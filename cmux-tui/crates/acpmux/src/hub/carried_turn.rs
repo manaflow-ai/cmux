@@ -111,6 +111,7 @@ impl NextTurn {
             "turnId": t.turn_id,
             "promptId": t.prompt_id,
             "prompt": t.prompt_preview,
+            "promptLine": t.prompt_line,
             "client": t.client,
             "control": control.as_str(),
             "trustGate": self.continues.trust_gate,
@@ -133,8 +134,12 @@ impl NextTurn {
         let control = Control::from_recorded(record.get("control").and_then(Value::as_str));
         let (client, prompt) =
             (text("client").unwrap_or_default(), text("prompt").unwrap_or_default());
-        let next =
+        let mut next =
             TurnInfo::prompted(&client, &prompt, &text("turnId")?, &text("promptId")?, control);
+        // Its line as the turn showed it (`prompt_line.rs`); an older record has none.
+        if let Some(line) = text("promptLine") {
+            next.show(&line);
+        }
         let flag = |k: &str| record.get(k).and_then(Value::as_bool).unwrap_or(false);
         let continues =
             Continues { from: None, trust_gate: flag("trustGate"), reports: flag("reportsOnly") };
@@ -320,6 +325,7 @@ impl Hub {
         }
         let msg = json!({
             "prompt": turn.prompt_preview,
+            "promptLine": turn.prompt_line,
             "client": turn.client,
             "promptId": turn.prompt_id,
             "turnId": turn.turn_id,
@@ -591,6 +597,25 @@ mod tests {
         hub.take_turn(&s, "t-1", Some(two.clone()));
         hub.schedule_auto_resume(&s, "t-1", None);
         assert!(hub.stopped_for_test(&s, &two.turn_id), "the Stop did not hold for the next turn");
+    }
+
+    /// A restart reads a carried turn from its record with the line it showed (`prompt_line.rs`),
+    /// never the envelope of the message it carried; an older record without one, its client's.
+    #[test]
+    fn a_carried_turns_record_keeps_the_line_it_showed() {
+        let envelope = "[cmux agent message] from coord-deputy (acp:abc)\nMessage id: m1\n---\nMerged #1\n--- end of message m1 ---";
+        let mut t = TurnInfo::prompted("cmux", envelope, "t-2", "p-2", Control::Local);
+        t.show("coord-deputy: Merged #1");
+        let next = NextTurn {
+            carried: Carried { seq: 1, prompt_ids: vec!["p-2".into()] },
+            next: t,
+            continues: Continues::default(),
+        };
+        let back = NextTurn::from_record(&next.record(Control::Local)).unwrap();
+        assert_eq!(back.next.prompt_line, "coord-deputy: Merged #1");
+        assert_eq!(back.next.masked_preview, "coord-deputy: Merged #1");
+        let old = json!({"turnId": "t-3", "promptId": "p-3", "prompt": "[coord] Fix it", "client": "acpmux-cli#1", "seq": 2});
+        assert_eq!(NextTurn::from_record(&old).unwrap().next.prompt_line, "coord: Fix it");
     }
 
     /// A carried turn whose steers were all lane reports runs on reports only: it reports

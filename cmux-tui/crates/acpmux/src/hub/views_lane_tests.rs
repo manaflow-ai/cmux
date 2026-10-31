@@ -216,6 +216,19 @@ fn another_agents_message_steps_as_its_sender_and_first_line_never_its_envelope(
     );
     assert!(!t.masked_preview.contains(&token), "{}", t.masked_preview);
     assert!(!step(&t).as_str().unwrap_or_default().contains(&token));
+    // A secret the cleaned line's cut falls inside goes whole, never its head: the step's scan
+    // could not tell a token's head.
+    let words = format!("{}{token} tail", "word ".repeat(36));
+    let envelope = format!(
+        "[cmux agent message] from coord-deputy (acp:abc)\nMessage id: m2\n---\n{words}\n--- end of message m2 ---"
+    );
+    let p = json!({"kind": "agent_message", "from": "acp:abc", "fromName": "coord-deputy", "msgId": "m2"});
+    let t = TurnInfo::prompted("cmux", &envelope, "t6", "p6", Control::Local)
+        .shown_as(&prompt_line(&envelope, "cmux", Some(&p)));
+    assert!(!t.prompt_line.contains("gh"), "{}", t.prompt_line);
+    assert!(t.prompt_line.ends_with("word…"), "{}", t.prompt_line);
+    assert!(!step(&t).as_str().unwrap_or_default().contains("gh"));
+    assert!(!t.masked_preview.contains("ghp_"), "{}", t.masked_preview);
     // The person's own prompt stays as it is.
     let t =
         TurnInfo::prompted("acpmux-cli#7", "Run the guard\n  tests", "t5", "p5", Control::Local);
