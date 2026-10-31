@@ -135,14 +135,18 @@ struct GatherWindowsTests {
         let other = try Self.open(["k1"], services)
         services.windows.claimNew(workspaceID: "k-new-1", window: there.state.id)
         services.windows.claimNew(workspaceID: "k-new-2", window: other.state.id)
+        services.windows.pendingPlacements["k-new-1"] = PendingPlacement(window: there.state.id, slot: nil, byDefault: nil, then: nil)
+        services.windows.pendingPlacements["k-new-2"] = PendingPlacement(window: other.state.id, slot: nil, byDefault: nil, then: nil)
 
         try services.windows.bringSpace(Self.rooms[1], into: here.state)
         #expect(services.windows.registry.value.window(there.state.id) == nil, "the emptied window stayed")
         #expect(services.windows.pendingClaims["k-new-1"] == here.state.id, "the claim still names the closed window")
+        #expect(services.windows.pendingPlacements["k-new-1"]?.window == here.state.id, "the placement still names the closed window")
 
         try services.windows.mergeWindows(into: here.state)
         #expect(services.windows.registry.value.window(other.state.id) == nil)
         #expect(services.windows.pendingClaims["k-new-2"] == here.state.id, "the claim still names the merged window")
+        #expect(services.windows.pendingPlacements["k-new-2"]?.window == here.state.id, "the placement still names the merged window")
     }
 
     /// An incognito space, or an incognito window, takes part in no move (rule 2).
