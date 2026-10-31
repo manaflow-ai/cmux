@@ -146,3 +146,12 @@ extension MacInstallIdentity {
         }
     }
 }
+
+extension CloudAuth {
+    /// The backend team `cmux auth token` mints for (``CloudAccessToken/team(requested:activeStackTeam:managedStackTeam:stackProjectID:)``):
+    /// the asked team, else the active one; a managed device only its managed team.
+    public func accessTokenTeam(requested: String?) throws -> String? {
+        try CloudAccessToken.team(requested: requested, activeStackTeam: activeTeam.id, managedStackTeam: managedTeamID,
+                                  stackProjectID: configuration.stackProjectID)
+    }
+}

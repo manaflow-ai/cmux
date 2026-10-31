@@ -41,10 +41,7 @@ extension AppControl {
             disabledFeatures: { services.registry.disabledFeatures }, isSignedIn: { services.cloud.isSignedIn },
             mint: { asked in
                 do {
-                    // The active team by default; a managed device (RestrictToManagedTeam) only its team.
-                    let (active, managed, project) = await MainActor.run { (auth.activeTeam.id, auth.managedTeamID, auth.configuration.stackProjectID) }
-                    let team = try CloudAccessToken.team(requested: asked, activeStackTeam: active, managedStackTeam: managed, stackProjectID: project)
-                    let token = try await identity.accessToken(team: team)
+                    let token = try await identity.accessToken(team: try await auth.accessTokenTeam(requested: asked))
                     return AuthTokenGrant(accessToken: token.accessToken, team: token.team, user: token.user, expiresAt: token.expiresAt, apiOrigin: origin)
                 } catch let failure as CloudAccessToken.Failure { throw AuthTokenRefusal(code: failure.code, detail: failure.detail) }
             }),
