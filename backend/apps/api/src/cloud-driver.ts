@@ -9,9 +9,16 @@ import type { ClientSessionGrant, CloudProvider, CloudProviderCapabilities, Crea
 import { directCloudProvider } from "./providers/index.ts"
 import { vmApiSettings } from "./cloud-vm-api-config.ts"
 import { VmApiSnapshotOutcome } from "./cloud-vm-api-snapshot.ts"
+import type { CloudNetworkTarget } from "./cloud-vm-api-network.ts"
+import type { CloudVmNetwork } from "@cmux/protocol"
 export type { ClientSessionGrant, CloudProvider, CloudProviderCapabilities, CreateOptions, EdgeTlsRule, GuestExecResult, ListedVm, VmResources, VmTag } from "./providers/contract.ts"
 /** The contract's earlier name (callers and tests still import it). */
-export type RawCloudDriver = CloudProvider
+export type RawCloudDriver = CloudProvider & {
+  /** Native VM API network lifecycle; direct providers leave these absent. */
+  prepareNetwork?: (active?: () => boolean) => Promise<CloudNetworkTarget | undefined>
+  attachNetwork?: (id: string, tag: VmTag, target: CloudNetworkTarget) => Promise<typeof CloudVmNetwork.Type>
+  readNetwork?: (id: string, tag: VmTag, target: typeof CloudVmNetwork.Type) => Promise<typeof CloudVmNetwork.Type>
+}
 
 /**
  * Provider names (the naming decision in plans/cmux-next/team-vm-plan.md): cmuxnp-<env>-<lane>-<rest>; CloudDO's lane is `cld` (tvm = team
@@ -93,6 +100,20 @@ export class GuardedCloudDriver {
     const created = await this.raw.create(name, tag, opts)
     if (created.tag !== null && !ours(created.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
     return { id: created.id }
+  }
+
+  /** Prepare the owner-pinned Native mesh before allocating a VM. */
+  async prepareNetwork(active?: () => boolean): Promise<CloudNetworkTarget | undefined> {
+    return this.raw.prepareNetwork?.(active)
+  }
+
+  /** Attach a provider VM to the previously pinned Native mesh and verify ownership. */
+  async attachNetwork(name: string, tag: VmTag, target: CloudNetworkTarget | undefined): Promise<typeof CloudVmNetwork.Type | undefined> {
+    if (!target || !this.raw.attachNetwork) return undefined
+    this.guard(name)
+    const found = await this.raw.find(name)
+    if (!found || !ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "cannot attach an unconfirmed Cloud VM", true)
+    return this.raw.attachNetwork(found.id, tag, target)
   }
 
   /**
@@ -189,6 +210,14 @@ export class GuardedCloudDriver {
     const found = await this.raw.find(name)
     if (!found || !ours(found.tag, tag)) return null
     return this.raw.resources(found.id)
+  }
+
+  /** Read the VM's confirmed Native network membership without discovery or mutation. */
+  async networkOf(name: string, tag: VmTag, target: typeof CloudVmNetwork.Type): Promise<typeof CloudVmNetwork.Type> {
+    this.guard(name)
+    const found = await this.raw.find(name)
+    if (!found || !ours(found.tag, tag) || !this.raw.readNetwork) throw new DriverError("cloud.provider.unavailable", "the machine network is unavailable", false)
+    return this.raw.readNetwork(found.id, tag, target)
   }
 
   /** The real provider state of our VM under `name`; `gone` when no VM is there (a cheap read for connect_info and link_token). */

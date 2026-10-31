@@ -19,6 +19,7 @@ import { acpmuxKeyedStartOn, acpmuxPersonHoldsOn, type AcpmuxHost, type AcpmuxRe
 import type { MachineExecReply } from "./automation-machine.ts"
 import { ClientIdentityStore, mintClientSessionOn, sweepClientIdentities, type ClientSessionReply } from "./cloud-client-session.ts"
 import { teamPlan } from "./domains/cloud-plan.ts"
+import { CloudNetworkObservation } from "./cloud-network-observation.ts"
 
 /** How often connect_info and link_token may read a machine's real state from the provider. */
 const STATE_CHECK_EVERY_MS = 30_000
@@ -43,6 +44,7 @@ export class CloudDO extends CloudIdle {
       if (principal.kind !== "session" && !principal.grant_classes?.includes("read")) return { ok: false, code: "auth.forbidden", message: "grant does not cover read" }
       if (!this.isBound(entity)) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
       await this.checkRealState(entity, (params ?? {}) as { machine?: string; host?: string })
+      if (!await this.checkNetwork(entity, (params ?? {}) as { machine?: string; host?: string })) return { ok: false, code: "owner.unreachable", message: "the machine network is unavailable" }
       const r = await connectInfo(entity, this.bind(entity).rows, principal, params, () => this.teamConnectServices(entity), () => this.audit)
       return r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r
     }
@@ -155,6 +157,21 @@ export class CloudDO extends CloudIdle {
    * a VM that is gone failed; a failed read keeps the record.
    */
   private readonly stateChecks = new Map<string, number>()
+  private readonly networkObservation = new CloudNetworkObservation(
+    () => Date.now() + this.skewMs,
+    (entity, id) => this.isBound(entity) ? this.bind(entity).rows.get<MachineRow>(TABLE_MACHINE, id)?.row : undefined,
+    async (row) => {
+      const driver = await this.driverFor(row)
+      if (!driver || !row.network) throw new Error("network unavailable")
+      return driver.networkOf(row.provider_name, { team: this.boundEntity() ?? "", machine: row.id }, row.network)
+    },
+    (row, binding, network) => statusApplied(this.submitSystem("cloud.machine.network_observed", { machine: row.id, binding, network }, `network:${crypto.randomUUID()}`).frames)
+  )
+  private async checkNetwork(entity: string, sel: { machine?: string; host?: string }): Promise<boolean> {
+    if (!this.isBound(entity)) return false
+    const row = machineBySelector(this.bind(entity).rows, sel)
+    return !row || await this.networkObservation.check(entity, row)
+  }
   private async checkRealState(entity: string, sel: { machine?: string; host?: string }): Promise<void> {
     const row = sel.machine !== undefined || sel.host !== undefined ? machineBySelector(this.bind(entity).rows, sel) : undefined
     if (row?.status !== "running") return
@@ -202,6 +219,7 @@ export class CloudDO extends CloudIdle {
     if (rows && principal.install && limit && !(await limit.limit({ key: `cloud-link:${principal.install}` })).success) return { ok: false, code: "cloud.rate_limited", message: "too many link tokens; retry in a minute" }
     // After the limiter (review P2-3).
     if (rows && principal.kind === "install") await this.checkRealState(entity, { host: (params as { host?: string } | null)?.host })
+    if (rows && principal.kind === "install" && !await this.checkNetwork(entity, { host: (params as { host?: string } | null)?.host })) return { ok: false, code: "owner.unreachable", message: "the machine network is unavailable" }
     const keys = parseSigningKeys(this.testLinkKeys ?? this.env.CLOUD_LINK_SIGNING_KEYS)
     // Review P3-b: never sign an iss this deployment cannot name.
     const environment = this.envTag()

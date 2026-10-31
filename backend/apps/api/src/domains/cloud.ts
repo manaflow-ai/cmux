@@ -1,5 +1,5 @@
 import type { Domain, Principal, ReduceContext, ReduceResult, RowReader, RowWrite } from "@cmux/ownership"
-import { CloudAbandonedClearParams, CloudDriverResultParams, CloudMachineCreate, CloudMachineDelete, CloudMachineIdlePolicySet, CloudMachineRename, CloudPruneParams, CloudWatchResultParams, planRequiredDetails } from "@cmux/protocol"
+import { CloudAbandonedClearParams, CloudDriverResultParams, CloudMachineCreate, CloudMachineDelete, CloudMachineIdlePolicySet, CloudMachineRename, CloudPruneParams, CloudWatchResultParams, planRequiredDetails, type CloudVmNetwork } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 import { admit, decodeParams, reject, requirePersonalTeamAdmin } from "./common.ts"
 import { grantClasses } from "../home-admit.ts"
@@ -9,6 +9,7 @@ import { applyVmStatus } from "./cloud-vm-status.ts"
 import { powerIntent, powerResult, providerStateResult, resizeIntent } from "./cloud-power.ts"
 import { snapshotCreate, snapshotDelete, snapshotRestore, snapshotResult, type SnapshotRow } from "./cloud-snapshot.ts"
 import { environmentBoot, environmentBuild, environmentBuildResult, environmentDelete, environmentSet } from "./cloud-environment.ts"
+import { applyNetworkObservation } from "./cloud-network.ts"
 import { createConfigProblem, limitDetails, DEFAULT_IDLE_SECONDS, DEFAULT_SIZE, providerName, sizeLocked, teamPlan, type CloudConfig, type CloudMachineView, DEFAULT_MEMORY_MB } from "./cloud-plan.ts"
 
 /**
@@ -73,6 +74,8 @@ export interface MachineRow extends Omit<CloudMachineView, "revision"> {
   /** 5.8: the one-time bind token (sha256 only), set when the provider reported the VM running. */
   readonly bind?: BindState | null
   readonly wg_public_key?: string
+  /** Confirmed Native mesh membership observed from the VM API provider. */
+  readonly network?: typeof CloudVmNetwork.Type
   readonly daemon?: { readonly version: string; readonly capabilities: ReadonlyArray<string> }
   /** The link-token keyset version the VM received at bind. */
   readonly keyset_version?: string
@@ -241,6 +244,8 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
         return environmentBoot(config, state, params, ctx, (p) => create(config, state, p, ctx))
       case "cloud.machine.idle_pause":
         return ctx.principal.kind === "system" ? powerIntent(config, state, "cloud.machine.pause", params, ctx, true, (params as { reason?: "idle" | "no_report" } | null)?.reason ?? "idle") : reject("auth.forbidden", "internal op")
+      case "cloud.machine.network_observed":
+        return applyNetworkObservation(state, params, ctx, next)
       case "cloud.machine.provider_state":
         return ctx.principal.kind === "system" ? providerStateResult(state, params, ctx) : reject("auth.forbidden", "internal op")
       case "cloud.machine.vm_status":
