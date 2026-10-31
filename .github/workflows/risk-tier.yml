@@ -2,8 +2,9 @@ name: risk tier
 
 # Labels each feat-cmux-next pull request risk:low, risk:normal or risk:high from what it changes
 # (docs/ci/risk-tiers.md). Low and normal never wait for a person: the check passes as soon as it
-# has graded them (about a minute, alongside the rest of CI). High stays red until a person has
-# looked: an approving review on the head commit, or risk:human-ok from a maintainer. Any tier is
+# has graded them (about a minute, alongside the rest of CI). High stays red until the head is signed
+# off: an independent review receipt `Review (<reviewer>): SHIP at <full head sha>`, an approving
+# review on the head commit, or risk:human-ok from a maintainer. Any tier is
 # held while it takes back another pull request's change from the last week, until a
 # `Takes back #N: <why>` line owns it. gh-merge-green and next-autoland refuse a red `risk evidence` check.
 #
@@ -95,7 +96,7 @@ jobs:
       # Advisory until ENFORCE_FROM, so high pull requests already in flight can get their sign-off:
       # until then a missing item is a warning and the check passes. gh-merge-green reads this
       # value from the base and, after it, refuses a verdict that finished before it.
-      - name: Hold high until a person looked
+      - name: Hold high until the head is signed off
         if: steps.grade.outputs.ready != 'true'
         env:
           TIER: ${{ steps.grade.outputs.tier }}

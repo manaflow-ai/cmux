@@ -115,6 +115,31 @@ import Testing
         #expect(harness.selects == 0, "a click meant for a close button selected a tab")
     }
 
+    /// Chrome's closing mode: the strip does not reflow under the pointer. After mouse closes every
+    /// tab keeps its width, until the pointer leaves the strip (closing mode's exit); then the tabs
+    /// widen to fill it.
+    @Test func theTabsKeepTheirWidthsUntilThePointerLeaves() async throws {
+        let harness = Harness(count: 6)
+        defer { harness.window.orderOut(nil) }
+        await harness.settle()
+        let widths = Dictionary(uniqueKeysWithValues: TabClosingModeHit.laidOut(harness.strip).map { ($0.id, $0.frame.width) })
+        let point = try harness.closeButton(TabID("tab1"))
+        for _ in 0..<2 {
+            harness.click(point)
+            await harness.settle()
+        }
+        let held = TabClosingModeHit.laidOut(harness.strip)
+        #expect(held.map(\.id.rawValue) == ["tab0", "tab3", "tab4", "tab5"])
+        for tab in held {
+            #expect(abs(tab.frame.width - (widths[tab.id] ?? 0)) < 0.5, "\(tab.id.rawValue) changed width under the pointer")
+        }
+        harness.strip.closingWatch.exit()
+        await harness.settle()
+        for tab in TabClosingModeHit.laidOut(harness.strip) {
+            #expect(tab.frame.width > (widths[tab.id] ?? 0) + 0.5, "\(tab.id.rawValue) did not widen once the pointer left")
+        }
+    }
+
     /// On screen the closed tab shrinks away and the next one slides in under the pointer;
     /// a click before that ends is for the close button arriving there.
     @Test(.enabled("a window with no screen applies its changes at once") { await MainActor.run { !NSScreen.screens.isEmpty } },

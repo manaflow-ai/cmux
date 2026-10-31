@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextTerminal
 
 /// The TextBox composer's actions (inventory row 23) on the targeted or focused terminal: Toggle
 /// TextBox, Focus TextBox (back and forth between the box and the terminal), Cycle TextBox Submit
@@ -40,12 +41,12 @@ enum TextBoxHandlers {
     static func textBox(of entry: TerminalEntry, _ ctx: AppActionContext) -> TextBoxController {
         if let box = entry.textBox { return box }
         let services = ctx.services
-        let box = TextBoxController(session: entry.session, perform: { [weak entry] id in
+        let box = TextBoxController(session: entry.session, perform: { [weak entry] command in
             guard let entry, let pane = pane(showing: entry, services) else { return }
             var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey))
             invocation.keyContext = services.registry.context.subtracting(ActionContext.focusBits)
                 .union([.terminalFocused, .textBoxFocused])
-            _ = services.registry.perform(id, invocation: invocation)
+            _ = services.registry.perform(ActionID(rawValue: command.rawValue), invocation: invocation)
         })
         entry.textBox = box
         return box

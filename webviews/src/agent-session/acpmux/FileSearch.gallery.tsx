@@ -1,6 +1,8 @@
 // l10n-allow-file: gallery fixtures (sample paths and search results), not shipped UI.
 import { useState, type ComponentProps } from "react";
 import { componentEntry } from "../../gallery/format";
+import { assistant, chat, user } from "../../gallery/fixtures/acpmux";
+import { Composer } from "./Composer";
 import type { Play } from "../../gallery/play";
 import { FileSearch } from "./FileSearch";
 import type { FileSearchSource } from "./fileSearchModel";
@@ -46,25 +48,45 @@ const baseProps: Props = {
 
 const field = { selector: 'input[role="combobox"]' };
 
+/// The chat the palette opens over: Search Files sits over the transcript, in the composer's parent.
+const hostChat = chat([
+  user("Where does the composer render its pickers?", 4),
+  assistant("ComposerPickers.tsx draws the model and effort chips; Composer.tsx places them.", 3),
+]);
+const NoChips = () => null;
+
+/// The pane's frame (App.tsx) with the real composer the palette opens from (Composer.tsx portals
+/// FileSearch into the composer's parent), so a closed palette leaves that composer in view.
 function GalleryFileSearch(props: Props) {
   const [open, setOpen] = useState(true);
   const [picked, setPicked] = useState("");
-  if (!open) return <output data-file-search-closed="true" />;
   return (
-    <>
-      <FileSearch
-        {...props}
-        onPick={(path) => {
-          setPicked(path);
-          props.onPick(path);
-        }}
-        onClose={() => {
-          setOpen(false);
-          props.onClose();
-        }}
-      />
-      <output data-file-search-picked={picked || undefined}>{picked}</output>
-    </>
+    <section className="acpmux-shell" aria-label={hostChat.summary?.title}>
+      <div className="acpmux-main">
+        <div className="acpmux-stage">
+          <output data-file-search-picked={picked || undefined} data-file-search-closed={open ? undefined : "true"}>
+            {picked}
+          </output>
+        </div>
+        <div className="acpmux-dock">
+          <Composer snapshot={hostChat} chips={NoChips} onSend={() => true} onStop={() => undefined} />
+          {open && (
+            <FileSearch
+              {...props}
+              onPick={(path) => {
+                setOpen(false);
+                setPicked(path);
+                props.onPick(path);
+              }}
+              onClose={() => {
+                setOpen(false);
+                props.onClose();
+              }}
+            />
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -102,17 +124,19 @@ const noResults: Play = async (ctx) => {
 const closeWithEscape: Play = async (ctx) => {
   await ctx.press("Escape");
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-file-search"));
+  if (!ctx.document.querySelector(".acpmux-composer")) throw new Error("closing file search removed the composer");
 };
 
 export default componentEntry<Props>({
   id: "agent-pane.file-search",
   title: "File search",
   area: "Agent pane",
+  pane: true,
   covers: ["agent-session/acpmux/FileSearch.tsx#FileSearch"],
   load: async () => GalleryFileSearch,
   styles: () => import("./styles.css"),
   widths: { narrow: 360, normal: 520, wide: 760 },
-  height: 300,
+  height: 460,
   anchors: [{ selector: ".acpmux-file-search" }],
   checks: {
     anchorMovePx: {
@@ -171,7 +195,7 @@ export default componentEntry<Props>({
       },
     },
     escape: {
-      note: "Escape closes the palette and leaves dismissal to the host.",
+      note: "Escape closes the palette and leaves dismissal to the host: the chat's composer stays.",
       props: baseProps,
       play: closeWithEscape,
     },

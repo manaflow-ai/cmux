@@ -56,6 +56,7 @@ enum TopPages {
     static func registerProviders(_ services: AppServices) {
         services.pages.register(HistoryTopPage(services: services))
         services.pages.register(BookmarksTopPage(services: services))
+        services.pages.register(StashTopPage(services: services))
     }
 
     /// The bookmarks profile of a Bookmarks top page: the browser profile

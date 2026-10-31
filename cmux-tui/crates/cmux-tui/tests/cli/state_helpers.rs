@@ -17,6 +17,7 @@ pub(super) fn state_cli(
         .args(args)
         .env("LC_ALL", "C")
         .env_remove("CMUX_TUI_TERMINAL_ID")
+        .env_remove("CMUX_AGENT_SESSION")
         .env_remove("CMUX_SOCKET_PATH")
         .env_remove("CMUX_BUNDLE_ID")
         .env_remove("CMUX_TAG");

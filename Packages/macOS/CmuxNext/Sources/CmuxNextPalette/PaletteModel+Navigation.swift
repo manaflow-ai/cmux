@@ -26,6 +26,7 @@ extension PaletteModel {
         if shortcutRecorder != nil { onDropShortcutRecorder?() }
         shortcutRecorder = nil
         hoveredRowID = nil
+        keyboardLeads = false
         pendingClose = false
     }
 
@@ -123,7 +124,7 @@ extension PaletteModel {
             selectedRowID = top.selection
             scrollRequest += 1
         }
-        isLoading = !state.pendingProviders.isEmpty
+        isLoading = !state.pendingProviders.isEmpty || state.answersQuery
         scopeChips = nav.levels.enumerated().dropFirst().map { index, level in
             PaletteScopeChip(levelIndex: index, scope: level.scope, title: chipTitle(scope: level.scope, page: pages[level.id]),
                              symbol: chipSymbol(scope: level.scope, page: pages[level.id]))

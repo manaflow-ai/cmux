@@ -7,7 +7,7 @@ extension DaemonService {
     /// One `close-tabs` command for several surfaces when the daemon has
     /// `batch-close-v1`, else `commands` (one per tab).
     public func closeRuns(surfaces: [SurfaceID], commands: [CloseRun]) -> [CloseRun] {
-        guard surfaces.count > 1, supports(DaemonCapabilities.shared.batchClose) else { return commands }
+        guard surfaces.count > 1, supports(DaemonCapability.batchClose.rawValue) else { return commands }
         let close: DaemonCommandBody = { @Sendable [surfaces] connection in _ = try await connection.closeTabs(surfaces, endTerminals: false) }
         return [("close-tabs", preparingClose(of: surfaces, then: close))]
     }

@@ -49,7 +49,7 @@ fn quote(path: &Path) -> String {
 }
 
 /// One argument, quoted only when a shell would read it differently.
-fn quote_arg(arg: &str) -> String {
+pub(super) fn quote_arg(arg: &str) -> String {
     let plain = !arg.is_empty()
         && arg.chars().all(|c| c.is_ascii_alphanumeric() || "-_./:=@%+,".contains(c));
     if plain { arg.to_owned() } else { quote(Path::new(arg)) }

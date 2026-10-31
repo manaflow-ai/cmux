@@ -490,16 +490,20 @@ fn projects_daemon_keeps_the_last_complete_lists_when_source_cells_exceed_their_
     assert!(find(&complete, "/srv/cx-m0p7-cell/conductor")["sources"]["conductor"].is_object());
     assert!(find(&complete, "/srv/cx-m0p7-cell/zed")["sources"]["zed"].is_object());
 
-    conductor.execute("DELETE FROM repos", []).unwrap();
+    // Each store changes in one transaction: the daemon's source watch may
+    // read between two statements, and an emptied table is a complete, empty
+    // list (the source's projects gone), not the oversized cell under test.
+    conductor.execute_batch("BEGIN IMMEDIATE; DELETE FROM repos;").unwrap();
     conductor
         .execute(
             "INSERT INTO repos VALUES ('large', ?1, '2026-10-20 00:00:00', 0)",
             [format!("/{}", "x".repeat(4096))],
         )
         .unwrap();
+    conductor.execute_batch("COMMIT").unwrap();
     drop(conductor);
 
-    zed.execute("DELETE FROM workspaces", []).unwrap();
+    zed.execute_batch("BEGIN IMMEDIATE; DELETE FROM workspaces;").unwrap();
     let large_cell = format!("/{}", "x".repeat(4 * 1024 * 1024 - 1));
     for id in 1..=9 {
         zed.execute(
@@ -508,6 +512,7 @@ fn projects_daemon_keeps_the_last_complete_lists_when_source_cells_exceed_their_
         )
         .unwrap();
     }
+    zed.execute_batch("COMMIT").unwrap();
     drop(zed);
 
     daemon.mutate("project.sync", json!({"existing": [], "gone": []}), "cells-oversized");

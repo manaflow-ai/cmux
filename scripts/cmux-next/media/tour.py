@@ -2,6 +2,7 @@
 """Run cmux-next UI tours against a built app and capture each step.
 
     tour.py --app "<path>/cmux DEV ci-media.app" --out "$RUNNER_TEMP/media" tours/core.json [...]
+    tour.py --stop "<path>/cmux DEV ci-media.app" [--stop ...]
 
 Each tour launches the app fresh on a private control socket (the knobs
 scripts/smoke-signed-app-cli.sh uses), drives it only through the bundled
@@ -41,6 +42,12 @@ session as the E2E recorder on main does), never the display, so tours on one
 Mac never capture each other. The app is never activated: the tour drives it
 through its socket, so concurrent tours do not trade focus or the key window.
 
+`--stop` ends what a built app left running and exits: its tagged daemon
+through its own socket, then every process whose executable is in the bundle
+(the app, the chief host and its acpmux daemon and router), SIGKILL after
+STOP_GRACE seconds. The tour job runs it whatever happened before, since a
+cancel can land while the app starts and outlive this process's own cleanup.
+
 The manifest records `result` as `pass`, `degraded`, or `failed`. Optional
 failures keep the process exit status green for compatibility, but result in a
 degraded manifest that publishers and reviewers can distinguish from a full
@@ -74,10 +81,19 @@ MIN_OTHER_WINDOW = (40, 24)
 # All of a step's other-window shots share this many seconds.
 OTHER_WINDOWS_BUDGET = 20.0
 TOUR_KEYS = {"title", "steps", "settings"}
+# A directional focus right after a pane close (focus_after_close).
+DIRECTIONAL_FOCUS = {"focusLeft", "focusRight", "focusUp", "focusDown"}
+# Focus moves that open no pane, so they never undo a close (ActionCatalog+Focus.swift).
+FOCUS_MOVES = DIRECTIONAL_FOCUS | {
+    "focusPreviousPane", "focusNextPane", "focusPaneByNumber", "pane.focus", "column.focusLeft",
+    "column.focusRight", "focusHistoryBack", "focusHistoryForward", "focusHistoryLast"}
+PANE_CLOSES = {"closePane", "pane.closeOthers"}
 DEFAULT_WAIT = 1.5
 STEP_TIMEOUT = 20.0
 POSTCONDITION_TIMEOUT = 2.0
 SOCKET_TIMEOUT = 60.0
+# --stop: seconds a bundle's processes get after SIGTERM before SIGKILL.
+STOP_GRACE = 10.0
 FRAME_INTERVAL = 0.5
 # Five minutes of frames; a tour that runs longer keeps its screenshots but its
 # video stops here, so a stuck step cannot fill the runner's disk.
@@ -96,13 +112,21 @@ HELPER_CANDIDATES = (Path.home() / "Applications/CuaSshScreenCapture.app",
 MAX_STEPS = 30
 READ_ONLY_POSTCONDITION_METHODS = {
     "debug.layers", "debug.surfaces", "debug.focus", "debug.window_list", "debug.windows",
-    "debug.pane_chrome", "debug.notifications", "debug.themes",
+    "debug.pane_chrome", "debug.notifications", "debug.themes", "debug.dialog",
 }
+# The tour's shells read these rc files, never the runner account's, whose `%n@%m` prompt names the CI
+# Mac. A DEBUG app launched with CMUX_CAPTURE_SHELL_HOME (as a PR capture slot is) starts its terminals'
+# zsh there (ZDOTDIR; Ghostty's wrapper hands it back before `.zshrc` runs) and names the showcase Mac
+# ("Studio Mac") on its panes and its machine picker, so pr-media's privacy check
+# (scripts/ci/pr_media_privacy.py) passes the tour's shots.
+FIXTURE_ZSHRC = "PROMPT='tour@studio-mac %1~ %# '\nRPROMPT=''\n"
 # Inherited caller context a cmux terminal exports. Left in place, a local run
-# inside cmux would route the tour's commands at the caller's own workspace.
+# inside cmux would route the tour's commands at the caller's own workspace, and
+# any of LaunchIdentity.otherCmuxMarkers makes the app drop the tour's
+# CMUX_NEXT_SOCKET_PATH and CMUX_CAPTURE_SHELL_HOME as another cmux's.
 SCRUBBED_ENV = ("CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID",
                 "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD", "CMUX_TUI_SOCKET", "CMUX_TAG",
-                "CMUX_BUNDLE_ID", "CMUX_SOCKET")
+                "CMUX_BUNDLE_ID", "CMUX_SOCKET", "MUX_AGENT_TOKEN_FILE")
 
 
 class TourError(Exception):
@@ -169,7 +193,42 @@ def load_tour(path: Path) -> dict[str, Any]:
             if (not isinstance(expect.get("fields"), dict) or not expect["fields"]
                     or not all(isinstance(field, str) and field for field in expect["fields"])):
                 raise TourError(f"{where}: `expect.fields` must be a non-empty object of field names")
+    focus_after_close(path, steps)
     return {"name": slug(path.stem), "title": data["title"].strip(), "steps": steps, "settings": data.get("settings")}
+
+
+def _action(step: dict[str, Any]) -> str | None:
+    """The action id a `cmux action run ID ...` step runs, else None."""
+    command = step.get("cmux") or []
+    return command[2] if len(command) >= 3 and command[:2] == ["action", "run"] else None
+
+
+def _keeps_panes(step: dict[str, Any]) -> bool:
+    """A step that opens no pane: a wait, a setting, a tunable, or a focus move."""
+    command, rpc = step.get("cmux"), step.get("rpc")
+    if command is None and rpc is None:
+        return True
+    if rpc is not None:
+        return command is None and rpc["method"] == "debug.tunables"
+    action = _action(step)
+    return command[0] == "settings" or action in FOCUS_MOVES
+
+
+def focus_after_close(path: Path, steps: list[dict[str, Any]]) -> None:
+    """A directional focus is refused when the last step that changed the panes closed one: the close
+    leaves the focus on a neighbour, and when it left one pane the move fails with "no pane left of
+    the focused pane", which fails the whole capture (#27839's main-pane tour)."""
+    for number, step in enumerate(steps, 1):
+        if _action(step) not in DIRECTIONAL_FOCUS:
+            continue
+        for earlier in reversed(steps[:number - 1]):
+            if _action(earlier) in PANE_CLOSES:
+                raise TourError(
+                    f"{path}: step {number} runs {_action(step)} after {_action(earlier)} with no pane opened "
+                    "between: the close already focused a neighbour, and with one pane left the move fails. "
+                    "Drop the step, or focus a pane by number (focusPaneByNumber)")
+            if not _keeps_panes(earlier):
+                break
 
 
 def command_line(argv: list[str]) -> str:
@@ -455,8 +514,13 @@ class App:
     """One launch of the app on a private socket, driven through its bundled CLI."""
 
     def __init__(self, app_path: Path, session: Session, workdir: Path, *, fresh_state: bool = False,
-                 settings: dict[str, Any] | None = None) -> None:
+                 settings: dict[str, Any] | None = None, launch_env: dict[str, str] | None = None,
+                 launch_args: list[str] | None = None) -> None:
         self.app_path = app_path
+        # Extra environment knobs and app arguments for one launch (the nightly
+        # visual gate's states launch with --showcase, for example).
+        self.launch_env = dict(launch_env or {})
+        self.launch_args = list(launch_args or [])
         self.session = session
         self.fresh_state = fresh_state
         self.cli_path = app_path / "Contents/Resources/bin/cmux"
@@ -465,6 +529,7 @@ class App:
         self.executable = app_path / "Contents/MacOS" / info["CFBundleExecutable"]
         self.bundle_tag = clean_tag((info.get("LSEnvironment") or {}).get("CMUX_TAG"))
         # sun_path holds 104 bytes, so the socket lives in a short private directory.
+        self.workdir = workdir
         self.socket_path = session.shareable(workdir) / "s.sock"
         self.log_path = workdir / "app.log"
         # The tour's own settings file; None keeps the session user's.
@@ -510,16 +575,27 @@ class App:
             self.session.run(["rm", "-rf", str(directory)])
             print(f"fresh state: cleared {directory}", flush=True)
 
+    def write_shell_home(self) -> Path:
+        """The tour's own zsh startup folder (FIXTURE_ZSHRC), readable by the session's user."""
+        home = self.session.shareable(self.workdir / "shell-home")
+        rc = home / ".zshrc"
+        rc.write_text(FIXTURE_ZSHRC, encoding="utf-8")
+        rc.chmod(0o644)
+        return home
+
     def launch(self) -> None:
         self.stop_daemon()
         self.clear_leftovers()
         self.clear_state()
         # CMUX_NEXT_NO_ACTIVATE: the app refuses every activation, so tours side by side on one Mac never take
         # focus or the key window from each other; debug.key and the CLI work on a window that is never key.
-        knobs = [f"CMUX_NEXT_SOCKET_PATH={self.socket_path}", "CMUX_NEXT_SOCKET_MODE=allowAll", "CMUX_NEXT_NO_ACTIVATE=1"]
+        knobs = [f"CMUX_NEXT_SOCKET_PATH={self.socket_path}", "CMUX_NEXT_SOCKET_MODE=allowAll", "CMUX_NEXT_NO_ACTIVATE=1",
+                 f"CMUX_CAPTURE_SHELL_HOME={self.write_shell_home()}"]
         if self.settings_path:
             knobs.append(f"CMUX_NEXT_CONFIG_FILE={self.settings_path}")
-        argv = self.session.prefix + ["env", *knobs, str(self.executable), "-ApplePersistenceIgnoreState", "YES"]
+        knobs += [f"{key}={value}" for key, value in sorted(self.launch_env.items())]
+        argv = self.session.prefix + ["env", *knobs, str(self.executable), "-ApplePersistenceIgnoreState", "YES",
+                                      *self.launch_args]
         with self.log_path.open("wb") as log:
             self.process = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT,
                                             env=self.environment(), start_new_session=True)
@@ -695,7 +771,7 @@ def display_capture(app: App, screen: Screen, path: Path) -> str | None:
     if app.session.app_window:
         return "no screen capture route for a display shot"
     display = Screen(app.session, screen.scratch)
-    display.use_display()
+    display.use_display(app.pid())
     display.follow(app.main_window_frame())
     return display.capture(path)
 
@@ -756,6 +832,13 @@ def shoot_other_windows(app: App, main_shot: Path) -> tuple[list[dict[str, Any]]
     return shots, "; ".join(problems)[:500] or None
 
 
+def step_label(result: dict[str, Any]) -> str:
+    """A step's status as reports show it: "unchecked" for an ok step whose shot no `expect` checked."""
+    if result.get("status") == "ok" and result.get("shot") and result.get("checked") is False:
+        return "unchecked"
+    return str(result.get("status", ""))
+
+
 def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: Path) -> dict[str, Any]:
     started = time.monotonic()
     result: dict[str, Any] = {"index": index, "title": step["title"], "status": "ok"}
@@ -796,6 +879,9 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
         "status": postcondition_status,
         "detail": postcondition_detail,
     }
+    # Whether an `expect` read the app's state and matched it. A step without one reports "ok" once
+    # it ran, whatever its shot shows, so its shot is unchecked (see `step_label`).
+    result["checked"] = postcondition_status == "passed"
     if postcondition_status in ("failed", "unavailable"):
         result["status"] = postcondition_status
         result["detail"] = (result.get("detail", "") + " " + postcondition_detail).strip()
@@ -870,7 +956,7 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
             recorder.step = index
             result = run_step(app, screen, step, index, shots)
             manifest["steps"].append(result)
-            print(f"[{tour['name']}] {index:02d} {result['status']:<11} {step['title']}"
+            print(f"[{tour['name']}] {index:02d} {step_label(result):<11} {step['title']}"
                   + (f": {result['detail']}" if result.get("detail") else ""), flush=True)
             if not app.alive():
                 manifest["error"] = "the app exited during the tour: " + app.log_tail()
@@ -899,6 +985,49 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     return manifest
 
 
+def running_from(session: Session, bundle: Path) -> list[int]:
+    """Processes whose executable is in the bundle: the command starts with its path."""
+    found = session.run(["pgrep", "-f", "^" + re.escape(f"{bundle}/Contents/")]).stdout.split()
+    return [int(pid) for pid in found if pid.isdigit()]
+
+
+def stop_apps(bundles: list[Path], session: Session) -> bool:
+    """End what each built app left running; False when something outlived SIGKILL.
+
+    A cancel can land while the app starts: run 39199091515's chief host started
+    a minute after its capture step was cancelled, and with its parent gone it
+    held cmux10s's DerivedData open for days. Only the command's start is
+    matched, so a process that merely names the bundle in its arguments stays.
+    """
+    clean = True
+    for bundle in bundles:
+        if not (bundle / "Contents/Info.plist").is_file():
+            print(f"{bundle}: no app here; nothing to stop", flush=True)
+            continue
+        workdir = Path(tempfile.mkdtemp(prefix="cmux-tour-stop.", dir="/tmp"))
+        try:
+            App(bundle, session, workdir).stop_daemon()
+        except (OSError, ValueError, KeyError) as error:
+            # A half-built bundle (no CLI, a bad Info.plist) still gets its processes ended.
+            print(f"{bundle.name}: could not stop its daemon ({error})", flush=True)
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
+        pattern = "^" + re.escape(f"{bundle}/Contents/")
+        left = running_from(session, bundle)
+        if left:
+            session.run(["pkill", "-f", pattern])
+            deadline = time.monotonic() + STOP_GRACE
+            while (left := running_from(session, bundle)) and time.monotonic() < deadline:
+                time.sleep(0.5)
+        if left:
+            session.run(["pkill", "-9", "-f", pattern])
+            time.sleep(1)
+            left = running_from(session, bundle)
+        print(f"{bundle.name}: " + (f"still running {left}" if left else "nothing left running"), flush=True)
+        clean = clean and not left
+    return clean
+
+
 def terminated(signum: int, frame: Any) -> None:
     raise SystemExit(128 + signum)
 
@@ -921,13 +1050,19 @@ def classify_result(manifest: dict[str, Any]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("tours", nargs="+", type=Path, help="tour JSON files or directories of them")
+    parser.add_argument("tours", nargs="*", type=Path, help="tour JSON files or directories of them")
     parser.add_argument("--app", type=Path, help="the built app bundle")
     parser.add_argument("--out", type=Path, help="where each tour's folder goes")
     parser.add_argument("--check", action="store_true", help="only validate the tour files")
     parser.add_argument("--fresh-state", action="store_true",
                         help="delete the tagged build's saved workspaces before and after each tour")
+    parser.add_argument("--stop", type=Path, action="append", default=[], metavar="APP",
+                        help="end what this built app left running, then exit (repeatable)")
     args = parser.parse_args(argv)
+    if args.stop:
+        return 0 if stop_apps(args.stop, Session()) else 1
+    if not args.tours:
+        parser.error("give tour files, or --stop")
     files: list[Path] = []
     for path in args.tours:
         files.extend(sorted(path.glob("*.json")) if path.is_dir() else [path])

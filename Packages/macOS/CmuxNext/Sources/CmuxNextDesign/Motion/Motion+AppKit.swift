@@ -2,10 +2,17 @@ public import AppKit
 public import QuartzCore
 import SwiftUI
 import CmuxNextWakeups
+public import CmuxNextDesignTokens
 
-/// AppKit entry points. `NSAnimationContext.animate(_:)` with a SwiftUI
-/// animation is retargetable: a new change starts from the view's current
-/// presentation value and keeps its velocity, so nothing jumps or queues.
+/// AppKit entry points. On macOS 15 and later a spring token runs as
+/// `NSAnimationContext.animate(_:)` with a SwiftUI spring, which retargets: a
+/// new change starts from the view's current presentation value and keeps its
+/// velocity, so nothing jumps or queues. On macOS 14 (no SwiftUI-animation
+/// `NSAnimationContext`) the same token runs as a timed curve: a new change
+/// starts from the presentation value but with zero velocity. The timed, exit
+/// and fade helpers drop velocity on every macOS. Pane layout motion does not
+/// use these entry points: it steps its own springs from the display link
+/// (`ScreenContentView+Motion`), which keep value and velocity on every macOS.
 extension Motion {
     /// Whether a change of `view` can animate. A window with no screen (a
     /// display unplugged, a screenless host, an offscreen window) or on a
@@ -116,6 +123,11 @@ extension Motion {
         CATransaction.commit()
     }
 
+    /// Writes the model value with no implicit action. A `set` brackets this and its `add` in one
+    /// outer transaction: on its own each commits to the render server, and with no
+    /// transaction already open (a socket or timer turn) a frame could show the new model value before
+    /// the animation that starts from the old one: a dialog flashed in at full opacity for one frame,
+    /// then faded in from zero (debug.dialog_strip, 1 open in 5).
     static func setModel(_ layer: CALayer, _ keyPath: String, _ value: Any) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -233,6 +245,9 @@ extension MotionGate {
     @discardableResult
     public func set(_ layer: CALayer, _ keyPath: String, to value: Any, spring token: MotionSpring, from: Any? = nil) -> CAAnimation? {
         let start = from ?? presentationValue(layer, keyPath)
+        // One commit for the model value and its animation (see `Motion.setModel`).
+        CATransaction.begin()
+        defer { CATransaction.commit() }
         Motion.setModel(layer, keyPath, value)
         guard animatesMovement, let start else {
             layer.removeAnimation(forKey: keyPath)
@@ -282,6 +297,9 @@ extension MotionGate {
     @discardableResult
     public func set(_ layer: CALayer, _ keyPath: String, to value: Any, fade token: MotionFade, from: Any? = nil) -> CAAnimation? {
         let start = from ?? presentationValue(layer, keyPath)
+        // One commit for the model value and its animation (see `Motion.setModel`).
+        CATransaction.begin()
+        defer { CATransaction.commit() }
         Motion.setModel(layer, keyPath, value)
         let duration = self.duration(token)
         guard duration > 0, let start else {
@@ -304,6 +322,9 @@ extension MotionGate {
     @discardableResult
     func set(_ layer: CALayer, _ keyPath: String, to value: Any, duration: TimeInterval, from: Any? = nil) -> CAAnimation? {
         let start = from ?? presentationValue(layer, keyPath)
+        // One commit for the model value and its animation (see `Motion.setModel`).
+        CATransaction.begin()
+        defer { CATransaction.commit() }
         Motion.setModel(layer, keyPath, value)
         guard duration > 0, let start else {
             layer.removeAnimation(forKey: keyPath)
@@ -373,6 +394,27 @@ extension MotionGate {
         return step
     }
 
+    /// Steps a layer's `contents` through `frames`, each shown for its own `delays` seconds (an
+    /// uploaded GIF's own timing, so no token sets it), looping, or nil when loops are off or there
+    /// is one frame (the layer keeps its first frame). Runs in the render server like `spinAnimation`.
+    public func clipAnimation(_ frames: [CGImage], delays: [TimeInterval]) -> CAAnimation? {
+        let total = delays.reduce(0, +)
+        guard animatesLoops, frames.count >= 2, delays.count == frames.count, total > 0 else { return nil }
+        let clip = CAKeyframeAnimation(keyPath: "contents")
+        clip.values = frames
+        var start: TimeInterval = 0
+        // Discrete: one key time per frame's start, and 1 to close the last frame.
+        clip.keyTimes = delays.map { delay in
+            defer { start += delay }
+            return NSNumber(value: start / total)
+        } + [1]
+        clip.calculationMode = .discrete
+        clip.duration = total
+        clip.repeatCount = .infinity
+        clip.isRemovedOnCompletion = false
+        return clip
+    }
+
     /// Unmeasured progress: a segment (anchored at its left edge) crosses a
     /// track `travel` points wide, entering from its own width left of the
     /// track, once per `sweep` period, or nil when loops are off. The track
@@ -388,6 +430,21 @@ extension MotionGate {
         sweep.timingFunction = CAMediaTimingFunction(controlPoints: 0.45, 0, 0.55, 1)
         sweep.isRemovedOnCompletion = false
         return sweep
+    }
+
+    /// Agent work's breath (1 -> `low` -> 1 over one `breath` period, eased), or nil when loops
+    /// are off. Slower and softer than the waiting pulse, so a list of working rows reads calm.
+    public func breathAnimation(low: Float) -> CAAnimation? {
+        guard let period = period(.breath) else { return nil }
+        let breath = CABasicAnimation(keyPath: "opacity")
+        breath.fromValue = 1
+        breath.toValue = low
+        breath.duration = period / 2
+        breath.autoreverses = true
+        breath.repeatCount = .infinity
+        breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        breath.isRemovedOnCompletion = false
+        return breath
     }
 
     /// An opacity pulse (1 -> `low` -> 1), or nil when loops are off.

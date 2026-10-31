@@ -34,6 +34,7 @@ pub(super) fn fixed_argv(row: &HarnessHealth, cli: &str) -> Option<Vec<String>> 
         // updatable checks the exact package, absolute prefix and fixed
         // install flags, preserving a recorded fork and all argument bytes.
         Channel::Npm => Some(argv),
+        Channel::Bun => Some(argv),
         Channel::Native => {
             let [program, verb] = argv.as_slice() else { return None };
             let path = Path::new(program);
@@ -48,8 +49,7 @@ pub(super) fn fixed_argv(row: &HarnessHealth, cli: &str) -> Option<Vec<String>> 
                 && verb == expected)
                 .then_some(argv)
         }
-        // Old bun/brew argv select whichever global target the current
-        // environment chooses. They need explicit installation binding.
+        // Brew still needs explicit installation binding.
         _ => None,
     }
 }
@@ -58,6 +58,9 @@ impl HealthService {
     /// Reads one snapshot under the cache lock. No filesystem read, first
     /// check, profile lookup, registry fetch, preference write or auto-update.
     pub(crate) fn cached_update_plan(&self, cli: &str) -> Result<Value, RpcError> {
+        if self.fixed() {
+            return Err(refused("harness_update_plan.not_updatable"));
+        }
         let rows = self.rows.lock().unwrap_or_else(PoisonError::into_inner);
         let argv = select_argv(&rows, cli, |row| fixed_argv(row, cli))?;
         Ok(json!({"cached":true,"cli":cli,"argv":argv}))

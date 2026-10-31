@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { toolGroups } from "./toolGroups";
-import { shouldFoldToolRun } from "./TurnRows";
+import { renderToStaticMarkup } from "react-dom/server";
+import { runStretches, ToolRows, shouldFoldToolRun } from "./TurnRows";
 
 const command = (id: string, text: string): AcpmuxActivity => ({
   kind: "tool",
@@ -37,7 +38,7 @@ test("folds a run the Codex-style runs settled, made only of tool groups", () =>
     { kind: "tool", text: "Read config", tool: { id: "read", title: "Read", kind: "read", status: "completed" } },
   ];
   expect(toolGroups(items)).toHaveLength(2);
-  expect(shouldFoldToolRun(row(items), toolGroups(items), items)).toBe(true);
+  expect(shouldFoldToolRun(row(items), toolGroups(items))).toBe(true);
 });
 
 test("keeps each group of an ended turn's run on its own line", () => {
@@ -45,12 +46,71 @@ test("keeps each group of an ended turn's run on its own line", () => {
     command("one", "bun test one"),
     { kind: "tool", text: "Read config", tool: { id: "read", title: "Read", kind: "read", status: "completed" } },
   ];
-  expect(shouldFoldToolRun(row(items, false), toolGroups(items), items)).toBe(false);
+  expect(shouldFoldToolRun(row(items, false), toolGroups(items))).toBe(false);
 });
 
 test("keeps a coordination message visible beside settled tool calls", () => {
   const items = [message("message"), command("command", "bun test")];
   const groups = toolGroups(items);
   expect(groups.some((group) => group.type === "message")).toBe(true);
-  expect(shouldFoldToolRun(row(items), groups, items)).toBe(false);
+  expect(shouldFoldToolRun(row(items), groups)).toBe(false);
+});
+
+test("keeps a sub-session card visible beside settled tool calls", () => {
+  const start: AcpmuxActivity = {
+    kind: "tool",
+    text: "mcp__cmux-subsessions__start_session",
+    tool: {
+      id: "start",
+      title: "mcp__cmux-subsessions__start_session",
+      status: "completed",
+      inputSummary: JSON.stringify({ name: "tests", prompt: "Run the tests" }),
+      output: "Started sub-session tests (sessionId 0199a-child, depth 1).",
+    },
+  };
+  const items = [start, command("command", "bun test")];
+  const groups = toolGroups(items);
+  expect(groups.some((group) => group.type === "subsession")).toBe(true);
+  expect(shouldFoldToolRun(row(items), groups)).toBe(false);
+});
+
+// Consecutive thoughts in one step are one row (Leo 2026-10-20): a call a permission ask holds out
+// of the transcript (permissions/askRows.ts) can leave two thoughts side by side.
+test("merges consecutive thoughts into one item with their texts and summed durations", () => {
+  const first: AcpmuxActivity = { kind: "thought", text: "Read the helper first.", startedAt: 1_000, endedAt: 5_000 };
+  const second: AcpmuxActivity = { kind: "thought", text: "Then check the retry.", startedAt: 9_000, endedAt: 17_000 };
+  const groups = toolGroups([first, second, command("c1", "ls")]);
+  expect(groups).toHaveLength(2);
+  expect(groups[0]).toEqual({
+    type: "item",
+    item: {
+      kind: "thought",
+      text: "Read the helper first.\n\nThen check the retry.",
+      startedAt: 1_000,
+      endedAt: 13_000,
+    },
+  });
+  // A call between two thoughts keeps them apart.
+  expect(toolGroups([first, command("c2", "ls"), second])).toHaveLength(3);
+});
+
+test("grouped starts stay visible before an ordinary tool in a folded run", () => {
+  const starts: AcpmuxActivity[] = ["tests", "docs", "lint"].map((name) => ({
+    kind: "tool",
+    text: "mcp__cmux-subsessions__start_session",
+    tool: {
+      id: `start-${name}`,
+      title: "mcp__cmux-subsessions__start_session",
+      status: "completed",
+      inputSummary: JSON.stringify({ name, prompt: `Run ${name}` }),
+      output: `Started sub-session ${name} (sessionId ${name}-id, depth 1).`,
+    },
+  }));
+  const items = [...starts, command("ordinary", "bun test")];
+  const groups = toolGroups(items);
+  expect(groups[0]?.type).toBe("subsessionGroup");
+  expect(runStretches(row(items), groups)[0]).toMatchObject({ fold: false, groups: [groups[0]] });
+  const html = renderToStaticMarkup(<ToolRows row={row(items)} />);
+  expect(html).toContain("Started 3 sub-sessions: tests, docs, lint");
+  expect(html).toContain('class="cv-disclosure__line"');
 });

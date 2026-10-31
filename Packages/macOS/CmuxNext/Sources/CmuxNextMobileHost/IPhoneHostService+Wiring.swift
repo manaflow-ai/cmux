@@ -2,7 +2,7 @@ public import CmuxNextAgentPane
 public import CmuxNextCloud
 import CmuxNextDaemon
 public import CmuxNextDaemonService
-import CmuxNextMobile
+public import CmuxNextMobile
 public import CmuxNextSettings
 public import Foundation
 
@@ -28,12 +28,14 @@ extension IPhoneHostService {
     ///   - processEnvironment: Read for the Debug-only overrides.
     ///   - acpmuxEnvironment: The app's acpmux, for the phones' approval keys (nil: none).
     ///   - chief: This app's Chief owner (session, and socket once connected), which hostd serves to phones.
+    ///   - surfaceHosts: The app's phone tabs as streamed simulator surfaces (nil: this Mac streams none).
     public func wire(auth: CloudAuth, daemon: DaemonService,
                      acpmuxHost: @escaping @MainActor @Sendable () -> (any AgentPaneHostProviding)?,
                      acpmuxEnvironment: AcpmuxEnvironment? = nil,
                      agentTabHost: @escaping @MainActor () -> String? = { nil },
                      newChatPicks: @escaping @MainActor @Sendable () -> NewChatPicks = { NewChatPicks() },
                      chief: (@MainActor () async -> ChiefPlacement?)? = nil,
+                     surfaceHosts: (any MobileHostSurfaceHosting)? = nil,
                      settings: @escaping @MainActor @Sendable () -> SettingsController?,
                      bundleID: String?, computerName: @escaping @Sendable () async -> String,
                      processEnvironment: [String: String] = ProcessInfo.processInfo.environment) {
@@ -42,9 +44,13 @@ extension IPhoneHostService {
         #if DEBUG
         let override = processEnvironment["CMUX_NEXT_MOBILE_HOST_BIN"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
         let serviceOverride = processEnvironment["CMUX_NEXT_MOBILE_API_URL"].flatMap { $0.isEmpty ? nil : URL(string: $0) }
+        // The name phones list this Mac by (the multimac rig gives two Macs one name: a
+        // name must never make the phone treat them as one).
+        let nameOverride = processEnvironment["CMUX_NEXT_MOBILE_DEVICE_NAME"].flatMap { $0.isEmpty ? nil : $0 }
         #else
         let override: URL? = nil
         let serviceOverride: URL? = nil
+        let nameOverride: String? = nil
         #endif
         let executable = [override, bundled].compactMap { $0 }.first { FileManager.default.isExecutableFile(atPath: $0.path) }
         // Each Worker accepts only its own sign-in project's tokens.
@@ -100,9 +106,10 @@ extension IPhoneHostService {
             },
             agentTabHost: agentTabHost,
             newChatPicks: newChatPicks,
-            computerName: computerName,
+            computerName: { if let nameOverride { return nameOverride } else { return await computerName() } },
             acpmuxEnvironment: acpmuxEnvironment,
             browserHosts: browserHosts,
+            surfaceHosts: surfaceHosts,
             pairingSeed: IPhonePairingSeed.fromEnvironment(processEnvironment),
             chief: chief
         )

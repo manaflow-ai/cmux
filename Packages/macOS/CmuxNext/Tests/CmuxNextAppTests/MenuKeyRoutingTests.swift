@@ -6,6 +6,7 @@ import Foundation
 import GhosttyNextKit
 import Testing
 import CmuxNextFocus
+import CmuxNextFocusUI
 
 /// Which of a terminal's Command chords the main menu takes before Ghostty (hq#2015 C11), through
 /// the real path: the key router decides the key-down (`interceptKeyDown`), then the terminal
@@ -103,21 +104,20 @@ import CmuxNextFocus
         }
     }
 
-    /// The menu bar, the app's terminal hooks and the registry's key-down reading swapped in for
-    /// `body` (no suspension inside), then restored.
+    /// The menu bar and the app's terminal hooks swapped in for `body` (no suspension inside), then
+    /// restored. The registry's key-down reading is the app's own: `press` dispatches through the
+    /// router's dispatch context, as `sendEvent` does.
     private static func withMenu(_ menu: NSMenu, _ harness: Harness, _ body: () throws -> Void) rethrows {
-        let registry = harness.services.registry
-        let previousMenu = NSApp.mainMenu, previousDispatching = registry.isDispatchingKeyDown
+        let previousMenu = NSApp.mainMenu
         let previousClaim = TerminalKeyEquivalent.menuMayClaim, previousAppAction = GhosttyRuntime.shared.appActionHandler
-        let previousOwns = TerminalKeyEquivalent.userKeybindOwns
+        let previousOwns = TerminalKeyEquivalent.userKeybindOwns, previousSend = TerminalKeyEquivalent.sendToProgram
         NSApp.mainMenu = menu
-        registry.isDispatchingKeyDown = { true }
         TerminalHooks(services: harness.services).install()
         defer {
             NSApp.mainMenu = previousMenu
-            registry.isDispatchingKeyDown = previousDispatching
             TerminalKeyEquivalent.menuMayClaim = previousClaim
             TerminalKeyEquivalent.userKeybindOwns = previousOwns
+            TerminalKeyEquivalent.sendToProgram = previousSend
             GhosttyRuntime.shared.appActionHandler = previousAppAction
         }
         try body()
@@ -205,5 +205,73 @@ import CmuxNextFocus
         }
         try? await Task.sleep(for: .milliseconds(200))
         #expect(harness.written.isEmpty, "the terminal got \(harness.written.debugDescription) for a menu chord")
+    }
+
+    /// A TUI that reads the mouse (Claude Code fullscreen, OpenCode) gets Cmd-Z, Cmd-Shift-Z and
+    /// Cmd-A from the PTY owner (`sendToProgram`), not Edit > Undo, Redo and Select All; Cmd-C
+    /// with nothing selected goes the same way. A shell (no mouse reports) keeps the Edit items.
+    @Test func aTUIThatReadsTheMouseGetsItsCommandChords() async throws {
+        let harness = try Self.harness(userConfig: "")
+        defer { harness.close() }
+        let probe = Probe()
+        var sent: [String] = []
+        let previousSend = TerminalKeyEquivalent.sendToProgram
+        defer { TerminalKeyEquivalent.sendToProgram = previousSend }
+        func item(_ title: String, _ action: Selector, _ key: String, _ modifiers: NSEvent.ModifierFlags) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.keyEquivalentModifierMask = modifiers
+            item.target = probe
+            return item
+        }
+        let menu = Self.menuBar([
+            item("Undo", #selector(Probe.undo(_:)), "z", [.command]),
+            item("Redo", #selector(Probe.redo(_:)), "Z", [.command]),
+            item("Select All", #selector(Probe.selectAll(_:)), "a", [.command]),
+        ])
+        func pressAll() throws {
+            try Self.withMenu(menu, harness) { () throws in
+                // After `withMenu` installs the app's hooks: record what reaches the PTY owner.
+                TerminalKeyEquivalent.sendToProgram = { _, chord, _ in sent.append(chord); return true }
+                _ = try Self.press("z", keyCode: 6, in: harness)
+                _ = try Self.press("Z", keyCode: 6, shift: true, in: harness)
+                _ = try Self.press("a", keyCode: 0, in: harness)
+            }
+        }
+
+        try pressAll()
+        #expect(probe.runs == ["undo", "redo", "selectAll"], "a shell lost Edit > Undo, Redo or Select All")
+        #expect(sent.isEmpty, "a shell's Command chords went to the program: \(sent)")
+
+        // SGR mouse reports, as Claude Code's fullscreen mode and OpenCode ask for.
+        harness.io.send(.output(Data("\u{1b}[?1000h\u{1b}[?1006h".utf8)))
+        await Self.wait(within: .seconds(5)) { harness.session.surfaceView.programCapturesMouse }
+        try #require(harness.session.surfaceView.programCapturesMouse, "the program never captured the mouse")
+        probe.runs = []
+        try pressAll()
+        #expect(probe.runs.isEmpty, "Edit took a TUI's chord: \(probe.runs)")
+        #expect(sent == ["super+z", "super+shift+z", "super+a"], "the program got \(sent)")
+
+        sent = []
+        TerminalKeyEquivalent.sendToProgram = { _, chord, _ in sent.append(chord); return true }
+        harness.session.surfaceView.copy(nil)
+        #expect(sent == ["super+c"], "Cmd-C with nothing selected did not go to the program: \(sent)")
+    }
+
+    /// Without a PTY owner (a scripted or local terminal), Cmd-C with nothing selected still
+    /// reaches a Kitty-protocol program through Ghostty's `performable:` copy keybind: CSI 99;9u.
+    @Test func cmdCWithNothingSelectedReachesAKittyProgramThroughGhostty() async throws {
+        let harness = try Self.harness(userConfig: "")
+        defer { harness.close() }
+        let previousSend = TerminalKeyEquivalent.sendToProgram
+        TerminalKeyEquivalent.sendToProgram = nil
+        defer { TerminalKeyEquivalent.sendToProgram = previousSend }
+        // Claude Code's keyboard setup (Kitty flags 5, modifyOtherKeys 2) in the chunk that turns on
+        // mouse reports, so the mode is applied once the surface reads the mouse.
+        harness.io.send(.output(Data("\u{1b}[>5u\u{1b}[>4;2m\u{1b}[?1000h".utf8)))
+        await Self.wait(within: .seconds(5)) { harness.session.surfaceView.programCapturesMouse }
+        try #require(harness.session.surfaceView.programCapturesMouse, "the program never captured the mouse")
+        harness.session.surfaceView.copy(nil)
+        await Self.wait(within: .seconds(5)) { harness.written.contains("\u{1b}[99;9u") }
+        #expect(harness.written.contains("\u{1b}[99;9u"), "the program got \(harness.written.debugDescription)")
     }
 }

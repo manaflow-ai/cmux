@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -22,17 +23,19 @@ final class QuitCoordinator {
     private(set) var failureAlert: QuitFailureAlert?
     /// A quit is in progress (deciding, asking or completing).
     private(set) var isQuitting = false
+    /// Runs once when the next quit is refused (an update's relaunch behind waits on that quit).
+    var onQuitRefused: (() -> Void)?
     /// The last dialog brought the app forward (`debug.quit`).
     private(set) var lastAskActivated = false
     private unowned let services: AppServices
-    /// The quit hook's participants (`QuitUnsavedRegistry.shared` in the app).
-    var unsaved: QuitUnsavedRegistry = .shared
+    /// The quit hook's participants (`AppServices.quitUnsaved`; tests replace it).
+    var unsaved: QuitUnsavedRegistry
     /// The app's main-thread watchdog (AppDelegate): a quit that is ending
     /// stops its debug hang assertion.
     weak var watchdog: MainThreadWatchdog?
     /// Ends the process if the engine stop never returns (cx-ccjnn).
-    let deadline = QuitDeadline()
-    #if DEBUG
+    let deadline = QuitDeadline(reason: "its quit deadline was armed (a keep quit decided, or an End quit's engines began to stop)")
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.quit {wedge_engine_stop: true}`: the next quit's engine stop
     /// blocks the main thread for good, as a wedged CefShutdown did (cx-ccjnn).
     var wedgesEngineStop = false
@@ -41,6 +44,7 @@ final class QuitCoordinator {
 
     init(services: AppServices) {
         self.services = services
+        unsaved = services.quitUnsaved
         QuitDeadline.stepMark = { DebugTimings.markLaunch($0) }
     }
 
@@ -56,10 +60,7 @@ final class QuitCoordinator {
         // From a run-loop callout, not from inside the caller's main-queue
         // job (control socket, palette): terminateLater spins a nested run
         // loop, and the save Task could never get the main queue.
-        RunLoop.main.perform(inModes: [.common]) {
-            SheetDismissal.endAll()
-            NSApp.terminate(nil)
-        }
+        NSApplication.terminateFromRunLoop { SheetDismissal.endAll() }
     }
 
     /// SIGTERM, SIGINT, SIGHUP (`QuitSignal`): Quit, keep sessions, never an alert. Dev
@@ -95,6 +96,7 @@ final class QuitCoordinator {
             guard await resolveUnsaved(origin) else {
                 isQuitting = false
                 sender.reply(toApplicationShouldTerminate: false)
+                quitRefused()
                 return
             }
             let facts = QuitPolicy.needsFacts(origin) && !askedUnsaved ? await QuitFactsReader.read(services) : .none
@@ -102,17 +104,25 @@ final class QuitCoordinator {
             case .quit(let choice):
                 await complete(choice, remember: false, sender)
             case .ask(let prompt):
-                ask(prompt, sender, activate: Self.shouldActivate(origin, isActive: NSApp.isActive,
+                ask(prompt, sender, activate: Self.shouldActivate(origin, isActive: sender.isActive,
                                                                   noActivate: WindowPlacement.noActivate))
             }
         }
         return .terminateLater
     }
 
+    /// The quit was refused: whatever waited on it learns so, once.
+    private func quitRefused() {
+        let refused = onQuitRefused
+        onQuitRefused = nil
+        refused?()
+    }
+
     /// The unsaved step for `origin` (`QuitUnsavedStep.resolve`).
     private func resolveUnsaved(_ origin: QuitOrigin) async -> Bool {
         let window = sheetWindow()
-        return await QuitUnsavedStep.resolve(origin, registry: unsaved, scope: window.map { .window($0) } ?? .app)
+        return await QuitUnsavedStep.resolve(origin, registry: unsaved, scope: window.map { .window($0) } ?? .app,
+                                             writeDrafts: { [drafts = services.recoveryDrafts] in await drafts.writePending() })
     }
 
     /// A quit from the Dock or the app switcher while cmux is inactive is the
@@ -124,7 +134,7 @@ final class QuitCoordinator {
 
     private func ask(_ prompt: QuitPrompt, _ sender: NSApplication, activate: Bool) {
         lastAskActivated = activate
-        if activate { NSApp.activate() }
+        if activate { sender.activate() }
         let sheet = QuitAlert(prompt: prompt) { [weak self] answer in
             guard let self else { return }
             self.sheet = nil
@@ -132,6 +142,7 @@ final class QuitCoordinator {
             case .cancel:
                 self.isQuitting = false
                 sender.reply(toApplicationShouldTerminate: false)
+                self.quitRefused()
             case .quit(let choice, let remember):
                 Task { @MainActor [services] in
                     await self.complete(choice, remember: remember, sender)
@@ -161,6 +172,7 @@ final class QuitCoordinator {
         // can end the process; the write itself runs off the main thread.
         await services.crashRecovery.quitBegan()
         DebugTimings.markLaunch("quit.marked")
+        await services.cloud.prepareForTermination()
         await QuitCompletion.run(choice, remember: remember, QuitSteps(
             remember: { behavior in
                 _ = await QuitDeadline.step("remember", limit: .milliseconds(500)) {
@@ -208,6 +220,11 @@ final class QuitCoordinator {
                 await QuitDeadline.step("sidebar", limit: .milliseconds(500)) {
                     await services.sidebarSnapshots.flush()
                 }
+                // Home's drafts, scroll places and unsent sends (its cache's last batch). A
+                // write past its limit still runs, and the engine stop awaits it again.
+                await QuitDeadline.step("home_cache", limit: .milliseconds(500)) {
+                    await services.home.flushCacheForQuit()
+                }
             },
             endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },
@@ -215,20 +232,29 @@ final class QuitCoordinator {
                 // The Chief home's host ends with the sessions (home-state-ownership.md section 3),
                 // and Home does not start it again.
                 await services.home.brain.stop()
-                await ChiefHostStop.endChiefSessions(home: services.home.chief.home,
-                                                     bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true))
+                let acpmux = QuitAgents.environment(services)
+                // A Chief home whose acpmux is the attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) ends nothing there.
+                if !QuitAgents.isAttached(acpmux, to: services.home.chief.home.acpmuxHome) {
+                    await ChiefHostStop.endChiefSessions(home: services.home.chief.home,
+                                                         bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true))
+                }
                 await services.home.chief.shutdownForEndSessions()
-                return await QuitAgents.end(QuitAgents.environment(services), waitForShutdown: attempts.isRetry())
+                let keep = ChiefHostStop.appAcpmuxEndKeep(chiefUsesAppAcpmux: services.home.chief.home.usesAppAcpmux)
+                return await QuitAgents.end(acpmux, keep: keep, waitForShutdown: attempts.isRetry())
             },
             stopBrowserEngines: { [weak self, deadline = self.deadline] in
                 DebugTimings.markLaunch("quit.saved")
+                // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk
+                // before the engines stop: nothing the user asked for comes after that (QuitSteps).
+                // Nothing is written when nothing changed.
+                await services.home.flushCacheForQuit()
                 // CefShutdown runs on the main thread and can block it for
                 // good: from here the quit ends by a deadline whatever it
                 // does (a keep quit's deadline is armed already and stays),
                 // and a debug build reports that hang, never asserts it.
                 deadline.arm(after: QuitDeadline.engineStopLimit)
                 self?.watchdog?.endHangAssertions()
-                #if DEBUG
+                #if DEBUG || CMUX_BENCH_HOOKS
                 if self?.wedgesEngineStop == true { deadline.wedgeMainThread(self?.watchdog) }
                 #endif
                 // An app quit closes every page without its beforeunload
@@ -256,7 +282,7 @@ final class QuitCoordinator {
 
     /// The active shell window when it can carry a sheet.
     private func sheetWindow() -> NSWindow? {
-        let candidates = [services.windows.active?.window, NSApp.mainWindow] + services.windows.controllers.map(\.window)
+        let candidates = [services.windows.active?.window, NSApp?.mainWindow] + services.windows.controllers.map(\.window)
         return candidates.compactMap { $0 }.first { $0.isVisible && !$0.isMiniaturized && $0.attachedSheet == nil }
     }
 

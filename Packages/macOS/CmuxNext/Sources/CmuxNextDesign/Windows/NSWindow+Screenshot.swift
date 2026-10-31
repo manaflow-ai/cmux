@@ -1,5 +1,6 @@
 public import AppKit
 import ScreenCaptureKit
+public import CmuxNextDesignTokens
 
 /// Screenshots of the app's own windows for `cmux window|pane|tab
 /// screenshot`. Neither path needs the Screen Recording grant, moves focus,
@@ -29,16 +30,24 @@ extension NSWindow {
         guard windowNumber > 0 else { throw WindowScreenshotFailure.notOnScreen }
         guard !isMiniaturized else { throw WindowScreenshotFailure.minimized }
         guard isVisible else { throw WindowScreenshotFailure.notOnScreen }
-        if let image = compositedSnapshot(includeChild: includeChild) {
-            // The window server picks its own resolution (a virtual display
-            // can give a few pixels less than frame x scale); the contract is
-            // the backing scale, so a different size is redrawn to it.
-            let scale = backingScaleFactor
-            let width = Int((frame.width * scale).rounded()), height = Int((frame.height * scale).rounded())
-            if let sized = image.resampled(width: width, height: height) { return sized }
+        // The window server picks its own resolution (a virtual display
+        // can give a few pixels less than frame x scale); the contract is
+        // the backing scale, so a different size is redrawn to it. The
+        // capture, the blank check and the redraw run off the main actor: an
+        // agent's screenshot must not stall the person's typing.
+        let scale = backingScaleFactor
+        let width = Int((frame.width * scale).rounded()), height = Int((frame.height * scale).rounded())
+        if let plan = compositedCapturePlan(includeChild: includeChild), let sized = await Self.captured(plan, width: width, height: height) {
+            return sized
         }
         if #available(macOS 14.4, *), let image = await screenCaptureKitSnapshot() { return image }
         throw WindowScreenshotFailure.blank
+    }
+
+    /// ``capture(_:)`` resampled to `width` x `height`, off the main actor.
+    @concurrent
+    nonisolated static func captured(_ plan: WindowCapturePlan, width: Int, height: Int) async -> CGImage? {
+        capture(plan)?.resampled(width: width, height: height)
     }
 
     /// This window alone through ScreenCaptureKit's current-process content

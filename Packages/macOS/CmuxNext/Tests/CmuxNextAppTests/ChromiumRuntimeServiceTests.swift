@@ -76,7 +76,7 @@ import Testing
 
     @Test func downloadStatesReachTheEngineAndTheInstallSwitchesItToChromium() throws {
         let (service, _) = launch(pin("aaaaaaaaaaaaaaaa"))
-        let engine = CEFEngine(source: service.source)
+        let engine = CEFEngine(source: service.source, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks())
         service.apply(.waitingForNetwork)
         #expect(engine.unavailableReason == .downloading(fraction: nil))
         service.apply(.downloading(received: 25, total: 100))

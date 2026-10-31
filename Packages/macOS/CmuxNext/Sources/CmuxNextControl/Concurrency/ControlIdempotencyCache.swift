@@ -1,7 +1,7 @@
 public import CmuxNextSettings
 import CmuxNextCompat
 
-/// Recent `action.run` results by idempotency key (plans/cmux-next/state-ownership.md 4.4).
+/// Recent `action.run` and `action.batch` results by idempotency key (plans/cmux-next/state-ownership.md 4.4).
 ///
 /// A retry with the key of a finished run gets that run's reply; a retry
 /// while the run is still settling waits for it. A run that never started
@@ -34,8 +34,16 @@ public final class ControlIdempotencyCache: Sendable {
         }
     }
 
+    /// What a key was first used for: a retry must send the same thing.
+    enum Fingerprint: Hashable, Sendable {
+        /// One `action.run` request.
+        case run(ControlActionRequest)
+        /// One `action.batch` request: its ops in order.
+        case batch([ControlActionRequest])
+    }
+
     private struct Entry {
-        var fingerprint: ControlActionRequest
+        var fingerprint: Fingerprint
         var outcome: Outcome?
         var waiters: [CheckedContinuation<Outcome?, Never>] = []
     }
@@ -52,7 +60,7 @@ public final class ControlIdempotencyCache: Sendable {
         self.limit = limit
     }
 
-    func claim(_ key: String, fingerprint: ControlActionRequest) -> Claim {
+    func claim(_ key: String, fingerprint: Fingerprint) -> Claim {
         state.withLock { state in
             if let entry = state.entries[key] {
                 guard entry.fingerprint == fingerprint else { return .conflict }
@@ -107,4 +115,7 @@ public final class ControlIdempotencyCache: Sendable {
     }
 
     var count: Int { state.withLock { $0.entries.count } }
+
+    /// Whether the run under `key` recorded its outcome (a retry then replays it at once).
+    func hasOutcome(_ key: String) -> Bool { state.withLock { $0.entries[key]?.outcome != nil } }
 }

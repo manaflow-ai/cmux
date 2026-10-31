@@ -69,10 +69,10 @@ public struct SavingImportDestination: ImportDestination {
     }
 
     public func commit(_ batch: ImportBatch) async throws {
-        try await sync.save(batch, bookmarks: bookmarks)
+        let saved = try await sync.save(batch, bookmarks: bookmarks)
         if let bookmarks, batch.kinds.contains(.bookmarks) {
             try await bookmarks.replaceImportedBookmarks(batch.bookmarks, source: batch.source)
         }
-        await sync.merge(batch.history, into: batch.source.targetProfileID)
+        await sync.merge(saved.history, into: batch.source.targetProfileID)
     }
 }

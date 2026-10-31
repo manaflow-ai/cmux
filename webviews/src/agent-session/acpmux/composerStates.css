@@ -5,19 +5,20 @@
    nothing of its own (Leo 2026-10-19): no shrink and no dip.
 
    Motion tokens: the native host sends its MotionFade durations with the theme
-   (AgentPaneTheme.motion, after ui.animationSpeed and Reduce Motion), and these defaults are
-   its `fast` values for the dev page and the mock. The focus and fade-out tokens are there for
-   the pane's other stylesheets. Every transition sits under prefers-reduced-motion:
-   no-preference, as the transcript's do. */
+   (AgentPaneTheme.motion, after ui.animationSpeed and Reduce Motion). Without the host (the dev
+   page, the mock) they fall back to the motion scale (--cmux-motion-*, pages/shared/desktop.css;
+   the literal inside each var() is the same step, for a page that loads no desktop.css). The
+   focus and fade-out tokens are there for the pane's other stylesheets. Every transition sits
+   under prefers-reduced-motion: no-preference, as the transcript's do. */
 :root {
-  --agent-motion-hover: 80ms;
-  --agent-motion-focus: 100ms;
-  --agent-motion-in: 120ms;
-  --agent-motion-out: 80ms;
-  /* The native move spring's timed equivalent (MotionSpring.move). */
-  --agent-motion-move: 190ms;
+  --agent-motion-hover: var(--cmux-motion-quick, 80ms);
+  --agent-motion-focus: var(--cmux-motion-quick, 80ms);
+  --agent-motion-in: var(--cmux-motion-micro, 120ms);
+  --agent-motion-out: var(--cmux-motion-quick, 80ms);
+  /* The native move spring's timed equivalent (MotionSpring.move: visibly at rest by 180 ms). */
+  --agent-motion-move: var(--cmux-motion-standard, 180ms);
   /* Core Animation's easeOut, which the native fades use. */
-  --agent-ease-out: cubic-bezier(0, 0, 0.58, 1);
+  --agent-ease-out: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
 }
 
 .acpmux-shell {
@@ -31,32 +32,183 @@
     color-mix(in srgb, var(--agent-text) 7%, var(--cmux-surface-solid, var(--acpmux-base)))
   );
   --acpmux-composer-surface: var(--acpmux-composer-solid);
+  /* The glass's light rim, as iOS 26 draws it (Leo 2026-10-21, "a bit more glass on the input box"):
+     a top-lit line one device pixel (--cmux-hairline) inside the card's edge and a fainter one along
+     its bottom, white mixed by --glass-rim so appearance.borders none clears both. The card's ring
+     (--acpmux-card-ring) stays the edge, so focus still lifts it. Lens and Spectrum take the liquid
+     glass's own specular rim instead (below). */
+  --acpmux-composer-rim:
+    inset 0 var(--cmux-hairline, 0.5px) 0 0 light-dark(
+      color-mix(in srgb, var(--cmux-tone-light, #fff) calc(70% * var(--glass-rim, 1)), transparent),
+      color-mix(in srgb, var(--cmux-tone-light, #fff) calc(22% * var(--glass-rim, 1)), transparent)
+    ),
+    inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 light-dark(
+      color-mix(in srgb, var(--cmux-tone-light, #fff) calc(35% * var(--glass-rim, 1)), transparent),
+      color-mix(in srgb, var(--cmux-tone-light, #fff) calc(8% * var(--glass-rim, 1)), transparent)
+    );
   /* The composer's shadow (cg-design-judge, 10-14): the shared --elevation-1 in a light theme;
      none in a dark one, where a drop shadow on a dark page shows nothing. */
   --acpmux-composer-shadow: var(--elevation-1);
   --acpmux-menu-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
 }
 
-/* Over art or a see-through window (data-cmux-see-through, desktop.ts) the composer is glass, like
-   iOS's (Leo 2026-10-18, replacing the solid surface of 10-14): its surface at 60% so the art shows
-   through the window's tint, and a top-lit rim. The prompt is primary text, which the window's tint
-   floor already keeps at 4.5:1 over the art. Reduce Transparency keeps it solid. */
-:root[data-cmux-see-through] .acpmux-shell {
-  --acpmux-composer-surface: color-mix(in srgb, var(--acpmux-composer-solid) 60%, transparent);
-  --acpmux-composer-rim: inset 0 1px 0 light-dark(
-    color-mix(in srgb, var(--cmux-tone-light) 60%, transparent),
-    color-mix(in srgb, var(--cmux-tone-light) 12%, transparent)
-  );
-}
-/* Under a see-through card nothing may hide beneath it: the tray's tuck would show as a band
-   through the card's top. */
-:root[data-cmux-see-through]:not([data-reduce-transparency])[data-top-strip="tray"] :is(.acpmux-composer, .nt-composer)
-  > :is(.acpmux-composer-strip, .acpmux-composer-queue) {
-  mask: linear-gradient(black calc(100% - var(--acpmux-tray-tuck, 0px)), transparent 0);
+/* Reduce Transparency makes the card opaque, and an opaque card blurs nothing it can show (glass is
+   never opaque, accent-glass-invariants.test.ts). */
+:root[data-reduce-transparency] .acpmux-composer-box {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 @media (prefers-reduced-transparency: reduce) {
-  :root[data-cmux-see-through][data-top-strip="tray"] :is(.acpmux-composer, .nt-composer)
-    > :is(.acpmux-composer-strip, .acpmux-composer-queue) {
+  .acpmux-composer-box {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* Over art or a see-through window (data-cmux-see-through, desktop.ts) the composer is glass, like
+   iOS's (Leo 2026-10-18, replacing the solid surface of 10-14): its surface at 60% so the art shows
+   through the window's tint (the New Tab box's fill; the chat card is clearer still, below), and the
+   light rim above. The prompt is primary text, which the window's tint floor already keeps at 4.5:1
+   over the art. Reduce Transparency keeps it solid. */
+:root[data-cmux-see-through] .acpmux-shell {
+  --acpmux-composer-surface: color-mix(in srgb, var(--acpmux-composer-solid) 60%, transparent);
+}
+/* The card and the queued prompts are the liquid glass (.ui-glass, ui/glass/glass.css;
+   plans/cmux-next/glass-lens-DESIGN.md "Surfaces"), with these tokens set on the composer so the
+   strip, the queue and the card take one material:
+   - an opaque window: the solid composer surface and no blur, as before the glass, for the queued
+     prompts; the card and its strip are glass (below);
+   - over art or a see-through window, Lens and Spectrum: the glass's own tint and frost, the lens's
+     bend at the stack's outer rim, and the glass's specular rim inside the card's ring (the ring
+     stays the edge, so focus still lifts it);
+   - the same under Plain glass: the look from before the lens, the surface at 60% under an 18px
+     blur and the light rim above;
+   - Reduce Transparency: the solid composer surface (--glass-opaque, which glass.css holds). */
+:root:not([data-cmux-see-through]) .acpmux-composer {
+  --glass-tint: var(--acpmux-composer-surface);
+  --glass-backdrop: none;
+}
+:root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-composer {
+  --glass-tint: var(--acpmux-composer-surface);
+  --glass-backdrop: blur(18px) saturate(1.08);
+}
+/* The card and its strip, the input box itself, are more glass than the stack around them (Leo
+   2026-10-21, "a bit more glass on the input box"). Glass is never opaque, and the transcript
+   scrolls under the card (Leo 2026-10-19), so on an opaque window too the card is glass: the
+   composer surface at 70% under a 24px shared surface blur, so a row passing under it frosts while
+   the prompt remains at 4.5:1 or more over the brightest and the darkest page
+   (composer-glass.test.ts). The gallery keeps the previous 78% level and a clearer candidate beside
+   this choice. Over art or a see-through window under Plain glass it is clearer, at 50%.
+   Lens and Spectrum keep the liquid glass's own tint and frost; Reduce Transparency the solid
+   surface (glass.css). The queued prompts keep the stack's tokens above. */
+:root:not([data-cmux-see-through]) .acpmux-composer > :is(.acpmux-composer-box, .acpmux-composer-strip),
+:root:not([data-cmux-see-through]) .nt-composer > .nt-box {
+  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) 70%, transparent);
+  --glass-backdrop: blur(24px) saturate(1.25);
+}
+:root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"])
+  :is(.acpmux-composer > :is(.acpmux-composer-box, .acpmux-composer-strip), .nt-composer > .nt-box) {
+  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) 50%, transparent);
+  --glass-backdrop: var(--surface-blur);
+}
+.acpmux-composer,
+.nt-composer {
+  /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
+  --glass-opaque: var(--acpmux-composer-solid);
+}
+:root[data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]) .acpmux-shell {
+  --acpmux-composer-rim:
+    inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--glass-specular),
+    inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--glass-shade),
+    inset var(--cmux-hairline, 0.5px) 0 0 0 var(--glass-fringe-red),
+    inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 0 var(--glass-fringe-cyan);
+}
+/* The strip has no glass class of its own (ComposerContext also draws the New Tab's plain strip):
+   it takes the same fill and the same frost. */
+.acpmux-composer > .acpmux-composer-strip {
+  background: var(--glass-tint);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-composer > .acpmux-composer-strip {
+    background: var(--acpmux-composer-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+:root[data-reduce-transparency] .acpmux-composer > .acpmux-composer-strip {
+  background: var(--acpmux-composer-solid);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+/* In a see-through Chromium page the strip lays its fill over the theme surface too, as the card
+   does (glass.css, "CHROMIUM OVER THE WINDOW GLASS"): the transcript scrolls under both. */
+@media not (prefers-reduced-transparency: reduce) {
+  @supports not (-webkit-backdrop-filter: none) {
+    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency]):not([data-top-strip="plain"])
+      .acpmux-composer:is([data-composer-look="codex"], :root[data-top-strip] *)
+      > .acpmux-composer-strip {
+      background:
+        linear-gradient(var(--glass-tint), var(--glass-tint)),
+        color-mix(in srgb, var(--glass-surface) var(--glass-underlay), transparent);
+    }
+  }
+}
+/* The lens draws the stack as one glass: a seam between the queue, its fold, the strip and the card
+   bends nothing (--glass-join, ui/glass/lens.ts). By default the queue stands on the strip or the
+   card; under the tray it tucks under the card, which draws its whole rim over it. */
+:root:not([data-top-strip]) .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-box {
+  /* glass-opaque-allow: a keyword (top, bottom, both) the lens reads, not a color */
+  --glass-join: top;
+}
+:root:is(:not([data-top-strip]), [data-top-strip="tray"]) .acpmux-composer > .acpmux-composer-queue {
+  /* glass-opaque-allow: a keyword (top, bottom, both) the lens reads, not a color */
+  --glass-join: bottom;
+}
+:root:is(:not([data-top-strip]), [data-top-strip="tray"]) .acpmux-composer > .acpmux-queue-foldbar {
+  /* glass-opaque-allow: a keyword (top, bottom, both) the lens reads, not a color */
+  --glass-join: both;
+}
+/* The plain top strip draws the strip and the queue as bare text, with no fill: no glass under them
+   either. */
+:root[data-top-strip="plain"] .acpmux-composer > :is(.acpmux-composer-strip, .acpmux-composer-queue, .acpmux-queue-foldbar) {
+  --glass-refraction: 0px;
+  --glass-blur: 0px;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+/* Under a glass card nothing may hide beneath it: the tray's tuck would show as a band through the
+   card's top. Only the part right above the card tucks (the strip, a long queue's fold, or the queue
+   alone): masking a queue over the strip or its fold cut its last row. The chat card is glass on
+   every window; the New Tab box is glass too. */
+:root:not([data-reduce-transparency])[data-top-strip="tray"] .acpmux-composer
+  > :is(.acpmux-composer-strip, .acpmux-composer-queue, .acpmux-queue-foldbar):has(+ .acpmux-composer-box),
+:root[data-cmux-see-through]:not([data-reduce-transparency])[data-top-strip="tray"] .nt-composer
+  > :is(.acpmux-composer-strip, .acpmux-composer-queue, .acpmux-queue-foldbar):has(+ .nt-box) {
+  mask: linear-gradient(black calc(100% - var(--acpmux-tray-tuck, 0px)), transparent 0);
+}
+/* Codex's look tucks New Tab's tray (.nt-above, composerLook.css) under the box the same way, less
+   the composer's gap (--nt-composer-gap, newtab/screen.css): over the desktop it showed through the
+   box's glass as a band across the field's top (Leo 2026-10-23, cx-ncc.113.116). The tray now ends
+   at the box's top edge; the box stays glass. */
+:root:not([data-reduce-transparency]) .nt-composer[data-composer-look="codex"]
+  > .nt-above:has(+ .nt-box) {
+  mask: linear-gradient(
+    black calc(100% - var(--acpmux-tray-tuck, 0px) + var(--nt-composer-gap, 0px)),
+    transparent 0
+  );
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-top-strip="tray"] :is(.acpmux-composer, .nt-composer)
+    > :is(.acpmux-composer-strip, .acpmux-composer-queue, .acpmux-queue-foldbar) {
+    mask: none;
+  }
+  /* The Codex tray's mask above, at its own specificity (a plainer selector loses to it). The app
+     also says Reduce Transparency with data-reduce-transparency, which that rule leaves out; WebKit
+     has no prefers-reduced-transparency, so the mask is never scoped to its no-preference. */
+  :root:not([data-reduce-transparency]) .nt-composer[data-composer-look="codex"]
+    > .nt-above:has(+ .nt-box) {
     mask: none;
   }
 }
@@ -68,17 +220,18 @@
 :root[data-reduce-transparency][data-cmux-see-through] .acpmux-shell {
   --acpmux-composer-surface: var(--acpmux-composer-solid);
 }
-/* The rim is a layer of its own only on glass: an opaque card keeps its one ring and one shadow. */
+/* The rim is a layer of its own only on glass: Reduce Transparency keeps the one opaque ring and
+   shadow, while both composer cards use the shared glass material on every window. */
 @media not (prefers-reduced-transparency: reduce) {
-  :root[data-cmux-see-through]:not([data-reduce-transparency])
-    :is(.acpmux-composer-box, .acpmux-composer-box:has(:focus-visible), .nt-box) {
+  :root:not([data-reduce-transparency]) :is(.acpmux-composer-box, .acpmux-composer-box:has(:focus-visible)),
+  :root[data-cmux-see-through]:not([data-reduce-transparency]) .nt-box {
     box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-rim), var(--acpmux-composer-shadow, var(--elevation-1));
   }
-  /* Under the default strip, a strip or a queue, the ring goes round strip and card as one on the
-     card's ::before layer (composerLocation.css), so the card adds only the rim and the shadow.
-     (0,7,0) here outranks the rule above whatever the stylesheet order. */
-  :root[data-cmux-see-through]:not([data-reduce-transparency]):not([data-top-strip])
-    .acpmux-composer:has(> .acpmux-composer-strip, > .acpmux-composer-queue) > .acpmux-composer-box {
+  /* Under a queue the ring goes on the card's ::before layer (composerLocation.css), so the card
+     adds only the rim and the shadow. (0,6,0) here outranks the rule above whatever the stylesheet
+     order. */
+  :root:not([data-reduce-transparency]):not([data-top-strip])
+    .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-box {
     box-shadow: var(--acpmux-composer-rim), var(--acpmux-composer-shadow, var(--elevation-1));
   }
 }
@@ -121,7 +274,8 @@
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
   white-space: nowrap;
-  cursor: pointer;
+  cursor: default;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-steer:hover {
   background: var(--acpmux-composer-hover);
@@ -132,41 +286,31 @@
   outline-offset: 2px;
 }
 
-/* Send is the one filled control, in the theme's own ink as Claude Code's (Leo 2026-10-19: no
-   system or iMessage blue anywhere): the text color's disc with the composer's surface for its
-   arrow (styles.css --acpmux-send-fill); Stop is the same disc (composerLocation.css). Each steps toward the
-   base on hover and further on press. */
-.acpmux-send.acpmux-send-ready:hover {
-  background: color-mix(in srgb, var(--acpmux-send-fill) 88%, var(--acpmux-base));
+/* Send, Stop and ↵ are plain glyphs, as the mic is (Leo 2026-10-21: "no solid discs"; Claude Code
+   desktop's): at rest the glyph alone (styles.css), hovered or keyboard-focused the mic's soft pill,
+   and a press adds nothing (Leo 2026-10-19: no mousedown feedback). Hover only under a fine pointer,
+   so a tap never leaves a wash behind. */
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-send:not(:disabled):hover {
+    background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
+  }
 }
-.acpmux-send.acpmux-send-ready:active {
-  background: color-mix(in srgb, var(--acpmux-send-fill) 76%, var(--acpmux-base));
+.acpmux-send:focus-visible {
+  /* Its own wash marks keyboard focus: the pane's focus pill (shared/styles.css) stays off it, so
+     focus paints the hover pill alone, not a second wash over it. */
+  --acpmux-focus-pill: transparent;
+  background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
 }
-.acpmux-composer-bar .acpmux-send.acpmux-cancel:hover {
-  background: color-mix(in srgb, var(--agent-text) 88%, var(--acpmux-base));
-}
-.acpmux-composer-bar .acpmux-send.acpmux-cancel:active {
-  background: color-mix(in srgb, var(--agent-text) 76%, var(--acpmux-base));
-}
-/* The first Esc of the double press (escapeStop.ts): Stop's disc widens into a pill that names the
-   key, "Esc", until a second Esc stops the turn or anything else puts Stop back. */
+/* The first Esc of the double press (escapeStop.ts): Stop keeps its glyph and footprint and takes the
+   theme's accent until a second Esc stops the turn or anything else puts Stop back; its name and the
+   prompt's placeholder say "Press Esc again to stop". */
 .acpmux-composer-bar .acpmux-send.acpmux-cancel[data-escape-armed] {
-  width: auto;
-  min-width: 28px;
-  padding: 0 9px;
-  border-radius: 14px;
-}
-.acpmux-escape-key {
-  font-size: var(--text-detail);
-  font-weight: 600;
-  line-height: 1;
-  white-space: nowrap;
+  color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
 }
 
-/* Send off (the folder's trust question is open, useFolderTrustAsk.ts): the empty draft's off disc
-   (styles.css, --acpmux-send-off-*), one disabled look, with no step on hover. */
+/* Send off (the folder's trust question is open, useFolderTrustAsk.ts): the empty draft's dimmed
+   glyph (styles.css, --acpmux-send-off-fg), one disabled look, with no pill on hover. */
 button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
-  background: var(--acpmux-send-off-bg);
   color: var(--acpmux-send-off-fg);
   cursor: default;
 }
@@ -198,13 +342,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   background: var(--acpmux-menu-press);
 }
 
-/* The picker and slash menus fade in on the appear token; ui.animationSpeed off makes it 0ms. */
-@keyframes acpmux-menu-in {
-  from {
-    opacity: 0;
-  }
-}
-/* Hover and press colors ease, and the picker and slash menus fade in; with Reduce Motion they apply at once. */
+/* Hover and press colors ease; with Reduce Motion they apply at once. The picker, model and slash
+   menus open in one frame, as every popup does (ui/popupSurface.css). */
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-picker-button,
   :where(button).acpmux-plan,
@@ -233,17 +372,27 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   .acpmux-home-row {
     transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
   }
-  .acpmux-menu,
-  .acpmux-slash-menu {
-    animation: acpmux-menu-in var(--agent-motion-in) var(--agent-ease-out);
-  }
 }
 
 /* Shell mode (`!` first, Composer.tsx): the prompt becomes a plain monospace field behind a `!`
    glyph in the theme's magenta (ANSI 5), and the box takes a quiet edge of it. Same padding and
-   line height as the markdown prompt, so entering or leaving moves nothing. */
+   line height as the markdown prompt, so entering or leaving moves nothing.
+   The glyph stands on the column the caret had and the command's first line is the prompt's line,
+   so one set of insets draws both: these are the markdown prompt's own (markdownField.css), and a
+   look that gives the prompt other ones re-points these (composerLocation.css) instead of writing
+   the padding again. They follow the chrome scale, as the prompt's do; literal px here left the
+   glyph and the shell caret where scale 1 put them, so entering shell mode moved the line (2.75 px
+   down and 1.75 px left at the 1.25 chrome size). */
 .acpmux-composer {
   --acpmux-shell-accent: var(--agent-ansi-5, #d670d6);
+  --acpmux-shell-inset-top: calc(15px * var(--cmux-interface-scale, 1));
+  --acpmux-shell-inset-right: calc(16px * var(--cmux-interface-scale, 1));
+  --acpmux-shell-inset-bottom: calc(8px * var(--cmux-interface-scale, 1));
+  --acpmux-shell-inset-left: calc(16px * var(--cmux-interface-scale, 1));
+  /* The glyph's own column: it takes the first character cell of the field's monospace font, the
+     command starts in the second. In `ch` of that font, not px, so a larger Chat Display size moves
+     the command out of the glyph's way instead of printing over it. */
+  --acpmux-shell-glyph-column: 2ch;
 }
 .acpmux-composer-prompt.is-hidden {
   display: none;
@@ -253,9 +402,9 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 }
 .acpmux-shell-glyph {
   position: absolute;
-  left: 16px;
-  top: 15px;
-  font: 600 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
+  left: var(--acpmux-shell-inset-left);
+  top: var(--acpmux-shell-inset-top);
+  font: var(--weight-emphasis) var(--text-content)/var(--text-content--line-height) ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--acpmux-shell-accent);
   pointer-events: none;
 }
@@ -263,17 +412,21 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   display: block;
   box-sizing: border-box;
   width: 100%;
-  min-height: 45px;
-  max-height: calc(22px * 8 + 23px);
+  /* One line in those insets, and eight at most: the markdown prompt's own height and cap. */
+  min-height: calc(var(--text-content--line-height) + var(--acpmux-shell-inset-top) + var(--acpmux-shell-inset-bottom));
+  max-height: calc(
+    var(--text-content--line-height) * 8 + var(--acpmux-shell-inset-top) + var(--acpmux-shell-inset-bottom)
+  );
   margin: 0;
-  padding: 15px 16px 8px 32px;
+  padding: var(--acpmux-shell-inset-top) var(--acpmux-shell-inset-right) var(--acpmux-shell-inset-bottom)
+    calc(var(--acpmux-shell-inset-left) + var(--acpmux-shell-glyph-column, 2ch));
   border: 0;
   outline: 0;
   background: transparent;
   resize: none;
   overflow-y: auto;
   overscroll-behavior: contain;
-  font: 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: var(--text-content)/var(--text-content--line-height) ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--agent-text);
   caret-color: var(--acpmux-shell-accent); /* caret-color: the shell mode's accent marks the mode */
 }
@@ -282,20 +435,43 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   opacity: 1;
 }
 /* The card's rim is --acpmux-card-ring (styles.css draws it; under a location strip
-   composerLocation.css draws it around the strip's seam). Focus draws no ring (Leo 2026-10-19: the
-   focus ring flashed): a focused composer, the chat's and the New Tab's, its strip and its queue
-   keep the resting one-device-pixel rim in the resting tone (--acpmux-composer-edge-focus is the
-   resting edge), and over art the glass card's top-lit rim stays as it rests. The caret alone shows
-   focus. The prompt itself draws no ring (desktop.css, cx-ncc.57). */
+   composerLocation.css draws it around the strip's seam). Focus is the same hairline a step
+   brighter (Leo 2026-10-21: "a subtle hairline border that brightens slightly on focus"; before it
+   the ring flashed, 10-19, and then drew nothing): a focused composer, the chat's and the New
+   Tab's, its strip and its queue keep the one-device-pixel rim and take
+   --acpmux-composer-edge-focus, 28% text where the resting edge is 18%. No ring, no glow, no wider
+   line, nothing moves. Over art the glass card's top-lit rim stays as it rests. The prompt itself
+   draws no ring (desktop.css, cx-ncc.57). A page that is not the key one rests (below). */
 .acpmux-composer,
-.nt-composer {
+.nt-composer,
+.nt-box {
+  --acpmux-composer-edge-focus: color-mix(in srgb, var(--agent-text) 28%, var(--agent-page-bg, var(--acpmux-base)));
+}
+/* Under Increase Contrast the resting edge is already the full text color, so 28% would dim it on
+   focus: keep the resting edge there (the shared ring below marks a focused box). */
+@media (prefers-contrast: more) {
+  .acpmux-composer,
+  .nt-composer,
+  .nt-box {
+    --acpmux-composer-edge-focus: var(--acpmux-composer-edge);
+  }
+}
+:root[data-page-inactive] :is(.acpmux-composer, .nt-composer, .nt-box) {
   --acpmux-composer-edge-focus: var(--acpmux-composer-edge);
 }
-:root[data-borders="none"] :is(.acpmux-composer, .nt-composer) {
+:root[data-borders="none"] :is(.acpmux-composer, .nt-composer, .nt-box) {
   --acpmux-composer-edge-focus: transparent;
 }
-.acpmux-composer-box:has(:focus-visible) {
+.acpmux-composer-box:has(:focus-visible),
+.nt-box:has(:focus-visible) {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
+}
+/* The New Tab box is shared glass (#24593), whose own rim ignores --acpmux-card-ring. Its edge is
+   the card ring, as the chat card's is, so focus lifts it a step, Increase Contrast widens it and
+   appearance.borders none clears it. Over art or a see-through window the rule below adds the
+   glass's light rim. */
+.nt-box.ui-glass {
+  box-shadow: var(--acpmux-card-ring), var(--glass-elevation);
 }
 /* Under a top strip variant the strip draws its own rim in --acpmux-strip-edge (composerLocation.css);
    by default the card's rim goes round the strip and takes the focused tone itself (below). */
@@ -308,11 +484,6 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-composer > .acpmux-composer-strip:focus-within,
 .nt-composer .acpmux-composer-strip:focus-within {
   --acpmux-strip-edge: var(--acpmux-composer-edge-focus);
-}
-/* By default the card's one rim goes round the strip too (composerLocation.css), so a focused
-   location control lifts that rim, as the prompt and chips do. */
-.acpmux-composer:not([data-shell]):has(> .acpmux-composer-strip :focus-visible) > .acpmux-composer-box {
-  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
 }
 /* Queued prompts stack on the card's top edge (or the strip's) as part of the same outline, so their
    sides take the focused tone too (styles.css draws them in --acpmux-composer-edge). */
@@ -330,8 +501,10 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
    its hover wash (the row's own, --acpmux-row-hover in composerLocation.css, never the heavier pane
    wash) and the ring sits on the wash's edge: one outline on a visible control, as Send's ring
    circles its own disc. Press still takes the row's press step (composerLocation.css loads after this
-   file). Increase Contrast keeps the shared offset ring. */
+   file). Increase Contrast keeps the shared offset ring. Elsewhere the pane draws no ring at all
+   (shared/styles.css): the wash alone marks the chip, so the pane's own focus pill stays off it. */
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button:focus-visible {
+  --acpmux-focus-pill: transparent;
   background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
   outline-offset: 0;
 }
@@ -369,7 +542,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 }
 
 /* Queued prompts (ComposerQueue.tsx): the row's menu host stays out of the row's layout; a row
-   focused from the keyboard shows its ring and its actions; an edit takes the text's place. */
+   focused from the keyboard takes the hover wash and shows its actions; an edit takes the text's
+   place. */
 .acpmux-queued-menu {
   display: contents;
 }
@@ -383,43 +557,60 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-queued:focus-visible .acpmux-queued-actions {
   opacity: 1;
 }
+/* The edit field draws no ring of its own (Leo, 2026-10-21: no thick focus ring): its hairline edge
+   brightens to the composer's focused edge, as the card's does, and the caret shows focus. */
 .acpmux-queued-edit {
-  grid-column: 2 / -1;
+  grid-column: 1 / -1;
   min-width: 0;
-  max-height: 88px;
+  max-height: calc(var(--text-content--line-height) * 4);
   /* Its text stays where the row's text was. */
   margin: 2px 0 2px -6px;
   padding: 2px 6px;
   resize: none;
-  line-height: 18px;
   border: 0;
   border-radius: 6px;
-  outline: 1.5px solid var(--agent-text);
-  outline-offset: -1px;
+  /* The composer's focused hairline, never a ring (Leo 2026-10-21: the white rounded ring). */
+  outline: none;
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
   background: var(--acpmux-base);
   color: var(--agent-text);
-  font: inherit;
+  font-family: inherit;
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height);
+}
+.acpmux-queued-edit:focus {
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
 }
 
-/* What the strip holds: "Queued" over prompts that wait for the turn to end, "Steering" on a
-   prompt sent now that stops the turn and runs next, above them (ComposerQueue.tsx). Every row
-   takes the queue's three columns (its mark, its text, its actions), so all the prompts' text
-   starts at one edge whichever kinds the queue holds; "Steering" leads its prompt's text. */
-.acpmux-queue-header {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 2px 12px 0;
-  color: var(--acpmux-composer-dim);
+/* The row's actions, as ChatGPT and Codex show them (ComposerQueue.tsx): Steer is its ↪ glyph and its
+   word, then the trash can and ⋯, plain glyphs with the soft pill on hover only (styles.css
+   .acpmux-queued-action). The ⋯ menu wears the composer menus' look (modelPicker.css). */
+.acpmux-queued-action.acpmux-queued-steer {
+  width: auto;
+  gap: 4px;
+  padding: 0 6px 0 4px;
+  font: inherit;
   font-size: var(--text-detail);
+  line-height: 18px;
+  white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
+.acpmux-queued-more .ui-menu-shortcut {
+  margin-inline-start: auto;
+  padding-inline-start: 20px;
+}
+
+/* What the strip holds: the prompts that wait for the turn to end, one muted line each with no
+   header and no number (Leo, 2026-10-21), and above them a prompt sent now that stops the turn and
+   runs next, its text led by "Steering" (ComposerQueue.tsx). Every row takes the queue's two columns
+   (its text, its actions), so all the prompts' text starts at one edge. */
 .acpmux-queued-kind {
   flex: none;
   color: var(--acpmux-composer-dim);
   font-size: var(--text-detail);
   font-weight: 600;
   line-height: 18px;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-queued-kind[data-kind="steer"] {
   /* Inline before the prompt at its smaller size: top-aligned, so the line stays 18px. */
@@ -427,11 +618,19 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   margin-right: 6px;
   color: var(--agent-accent);
 }
-.acpmux-queued-mark[data-kind="steer"] {
-  display: inline-flex;
-  align-items: center;
-  height: 18px;
-  color: var(--agent-accent);
+/* Another agent's message: its received line (conversation.css .cv-received) across the row,
+   its actions at the line's end. The line is 26px tall: it takes the row's padding, so the row
+   stays about as tall as one of the person's. */
+.acpmux-queued .cv-received {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin: -3px 0;
+}
+.acpmux-queued .cv-received__line {
+  padding-right: 0;
+}
+.acpmux-queued .cv-received__line > .acpmux-queued-actions {
+  margin: 0 0 0 auto;
 }
 
 /* A long queue's fold (ComposerQueue.tsx): one quiet line under the list, outside its scrolling,
@@ -447,16 +646,51 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-composer-queue {
   grid-auto-rows: max-content;
 }
+/* fitList writes the queue's whole-row max-height as prompts arrive or the fold toggles. Let the
+   stack take that structural space on the same move token as transcript folds, so the composer and
+   the transcript do not jump a row in one frame. Reduce Motion and the host's zero-duration policy
+   still apply it at once. */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-composer-queue[data-fit-ready] {
+    transition: max-height var(--agent-motion-move) var(--agent-ease-out);
+  }
+}
 /* The fold's line continues the list's tray and side edges, down to the strip. */
 .acpmux-queue-foldbar {
   display: flex;
   min-width: 0;
-  padding: 0 8px 2px 34px;
+  padding: 0 6px 2px 12px;
   box-sizing: border-box;
-  background: var(--acpmux-composer-tray);
+  --acpmux-queue-fill: color-mix(in srgb, var(--acpmux-composer-tray) var(--acpmux-queue-glass, 100%), transparent);
+  background: var(--acpmux-queue-fill);
   box-shadow:
     inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge),
     inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge);
+}
+/* Over art or a see-through window the queued prompts' band and its fold are glass, as the card is
+   (Leo 2026-10-20: "we want the glass, a lot of glass"): every fill they take (here and in each
+   top-strip layout, focused or not) is --acpmux-queue-fill, so band and card read as one surface, not
+   an opaque two-tone (layout pass, 2026-10-20). In every glass mode that is the card's own glass
+   (.ui-glass, ComposerQueue.tsx): its tint and its blur, which the band inherits from the composer.
+   Under Plain glass the band used to be the tray tone at 60% with no blur; the tray is the text at 9%
+   over a page that is transparent here, so the art showed through almost untouched and the "Queued"
+   label and the prompts were hard to read (Leo 2026-10-21: "this is also maybe a little too...
+   glassy?"; queued-glass.test.ts). It is still glass, never opaque. Reduce Transparency makes it
+   the card's solid fill (--glass-opaque, the composer's solid surface): the tray is mixed over the
+   page, which is transparent over art, so without this the band stayed a 9% film under an opaque
+   card. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-cmux-see-through]:not([data-reduce-transparency]) .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
+    --acpmux-queue-fill: var(--glass-tint);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
+    --acpmux-queue-fill: var(--glass-opaque);
+  }
+}
+:root[data-reduce-transparency] .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
+  --acpmux-queue-fill: var(--glass-opaque);
 }
 .acpmux-queue-fold {
   height: 24px;
@@ -468,13 +702,95 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   color: var(--acpmux-composer-dim);
   font: inherit;
   font-size: var(--text-detail);
-  cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-queue-fold:hover {
   background: var(--agent-control-hover);
   color: var(--agent-text);
 }
+/* Focus is the hover's soft pill, as on the rows' actions (styles.css .acpmux-queued-action). */
 .acpmux-queue-fold:focus-visible {
-  outline: 1.5px solid var(--agent-text);
+  outline: none;
+  background: var(--agent-control-hover);
+  color: var(--agent-text);
+}
+@media (prefers-contrast: more) {
+  .acpmux-queue-fold:focus-visible {
+    outline: var(--cmux-focus-ring-width, 2px) solid var(--cmux-focus-ring-color, var(--agent-text));
+    outline-offset: -1px;
+  }
+}
+
+/* A queued prompt's images (QueuedImages.tsx): small thumbnails under its text, in the text's
+   column, each opening the image viewer. While the prompt is edited each shows its remove
+   control. No motion: they show and go at once. */
+.acpmux-queued-images {
+  grid-column: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 0 2px;
+}
+.acpmux-queued-image-slot {
+  position: relative;
+  flex: none;
+}
+.acpmux-queued-image {
+  display: block;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  cursor: zoom-in;
+}
+.acpmux-queued-image:disabled {
+  cursor: default;
+}
+.acpmux-queued-image img {
+  display: block;
+  width: auto;
+  min-width: 28px;
+  max-width: 72px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 6px;
+  /* The edge draws over the image, so a screenshot as dark or light as the tray still ends. */
+  outline: 1px solid color-mix(in srgb, var(--agent-text) 30%, transparent);
   outline-offset: -1px;
+}
+.acpmux-queued-image-empty {
+  display: block;
+  width: 36px;
+  height: 36px;
+}
+.acpmux-queued-image:not(:disabled):hover img {
+  outline-color: color-mix(in srgb, var(--agent-text) 60%, transparent);
+}
+.acpmux-queued-image:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
+.acpmux-queued-image-remove {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: var(--acpmux-composer-bg);
+  box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
+  color: var(--agent-text);
+}
+.acpmux-queued-image-remove:hover {
+  background: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-bg));
+}
+.acpmux-queued-image-remove:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
 }

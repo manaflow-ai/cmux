@@ -10,9 +10,11 @@ public import WebKit
 /// a click or a key into the page, and the focus model's moves, still give it the keyboard.
 extension AgentPaneView {
     /// Whether the window refuses to make `responder` first responder. `pane` names the pane that
-    /// shows a view (nil when none does).
+    /// shows a view (nil when none does). `focusedPane` is read only for a page's own ask: the pane
+    /// focus is on once the focus model's queued changes land, since the ask's report is reduced
+    /// after them (a link's tab whose focus was still queued lost to the page it was clicked in).
     public static func refusesSelfFocus(_ responder: NSResponder?, inInputEvent: Bool, focusModelApplies: Bool,
-                                        focusedPane: String?, pane: (NSView) -> String?) -> Bool {
+                                        focusedPane: () -> String?, pane: (NSView) -> String?) -> Bool {
         guard !inInputEvent, !focusModelApplies, let webView = responder as? WKWebView, showsPage(webView) else {
             return false
         }
@@ -20,7 +22,7 @@ extension AgentPaneView {
         // focused pane's shown tab counts as that pane's content, so the focus model saw no change and
         // typing went into the hidden page (its composer mounting as a New Tab ask turned into the chat).
         if webView.isHiddenOrHasHiddenAncestor { return true }
-        guard let focusedPane, let shown = pane(webView) else { return false }
+        guard let focusedPane = focusedPane(), let shown = pane(webView) else { return false }
         return shown != focusedPane
     }
 

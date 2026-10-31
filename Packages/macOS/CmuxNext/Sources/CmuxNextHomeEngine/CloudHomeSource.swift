@@ -1,7 +1,7 @@
 public import CmuxHomeCore
 public import CmuxNextDaemon
 import CmuxNextWakeups
-import Foundation
+public import Foundation
 import CmuxNextCompat
 
 /// The shared Home core's `HomeSource` over the cloud owners, reached only
@@ -27,7 +27,8 @@ public nonisolated final class CloudHomeSource: HomeSource {
     /// only so the `CloudHomeSource+*.swift` extensions reach it.
     let state = Mutex(CloudHomeState())
     static let eventBuffer = 1024
-    static let inboxLimit = CloudInboxListRequest.maxLimit
+    /// Pages of 200 one inbox read follows at most (`allPages`).
+    static let inboxPages = 50
     static let hydrationWidth = 4
     /// How long an edit made outside a transcript keeps its conversation
     /// subscribed for its echo after its op answered (or was refused and
@@ -37,10 +38,20 @@ public nonisolated final class CloudHomeSource: HomeSource {
     let me: Participant
     /// Paces the edit echo deadline (tests pass a manual clock).
     let clock: any Clock<Duration>
+    /// Fetched attachment variants, one file per hash and variant (the same
+    /// cache as the local owner's: a hash names the same bytes on both).
+    let attachmentCache: URL
+    /// Most bytes `attachmentCache` keeps; least recently used files go first.
+    let attachmentCacheLimit: Int
 
-    public init(me: Participant, clock: any Clock<Duration> = ContinuousClock()) {
+    /// `attachmentCache`: where fetched variants land (tests pass a temporary directory).
+    public init(me: Participant, clock: any Clock<Duration> = ContinuousClock(),
+                attachmentCache: URL = DaemonHomeSource.defaultAttachmentCache,
+                attachmentCacheLimit: Int = DaemonHomeSource.defaultAttachmentCacheLimit) {
         self.me = me
         self.clock = clock
+        self.attachmentCache = attachmentCache
+        self.attachmentCacheLimit = attachmentCacheLimit
     }
 
     // MARK: Fed by HomeService

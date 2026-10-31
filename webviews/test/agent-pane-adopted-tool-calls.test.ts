@@ -148,14 +148,17 @@ await requireBrowserLane("agent-pane-adopted-tool-calls.test.ts", async () => {
     await worked.click();
     expect(await worked.getAttribute("aria-expanded")).toBe("true");
 
-    // The settled run's line, then its groups, as a live turn's run settles.
-    await page.getByRole("button", { name: "Edited files, ran commands" }).click();
-    const commands = page.locator("button.cv-tool", { hasText: "Ran 3 commands" });
-    const edits = page.locator("button.cv-tool", { hasText: "Edited 2 files" });
+    // The default Codex-style run summarizes the replay's commands and edits together. Open it
+    // before inspecting the same command and edit groups it holds.
+    const run = page.locator("button.cv-tool", { hasText: "Ran 3 commands, edited 2 files" });
+    await run.waitFor();
+    expect(await run.getAttribute("aria-expanded")).toBe("false");
+    await run.click();
+    const commands = page.locator(".cv-tool-run button.cv-tool", { hasText: "Ran 3 commands" });
+    const edits = page.locator(".cv-tool-run button.cv-tool", { hasText: "Edited 2 files" });
     await commands.waitFor();
     await expect(edits.textContent()).resolves.toBe("Edited 2 files+4-1");
 
-    await commands.click();
     const lines = await page.locator(".cv-command__line").allTextContents();
     expect(lines).toEqual(["git status --short", "grep -n '^version' Cargo.toml", "sed -n 1,8p CHANGELOG.md"]);
     // The answer stays outside the fold, after the work.
@@ -166,7 +169,12 @@ await requireBrowserLane("agent-pane-adopted-tool-calls.test.ts", async () => {
   test("a patch whose files only its input names counts each file, not one", async () => {
     const page = await open(PATCH_CHAT);
     await page.locator("button.cv-worked").click();
-    await page.getByRole("button", { name: "Edited files, ran commands" }).waitFor();
+    await page.locator("button.cv-tool", { hasText: "Ran 3 commands, edited 2 files" }).click();
+    await page.locator(".cv-tool-run button.cv-tool", { hasText: "Ran 3 commands" }).waitFor();
+    // With no diff the edit keeps its own row; it names both files' count, not the first file. Its
+    // label, not the whole row: the row also holds the call's check and time, shown on hover.
+    const edit = page.locator(".cv-tool .cv-tool__text", { hasText: /^Edit \d+ files$/ });
+    await expect(edit.textContent()).resolves.toBe("Edit 2 files");
     await page.close();
   });
 });

@@ -103,7 +103,7 @@ Host-initiated page ops (`PageRouter.callPage`), one per page: `cmux.markdown.se
 - a280 (Markdown tables): a selection inside a table maps to the table block's lines.
 - a304 (Send to Chief on selected text, landed 351e456c46e): its `PageSelectionRows` set a second
   `contextMenuEditor` on file pages, which replaced the table menu (Reset Column Widths was gone).
-  Its two rows (Send to Chief, Send to…) are now rows of the one `ViewerSelectionMenu`, and
+  Its two rows (Send to Chief, Send To…) are now rows of the one `ViewerSelectionMenu`, and
   `PageSelectionRows` is removed.
 - Design mode (c47142a56ca): quotes reuse its card paths (above); there is no second card type.
 

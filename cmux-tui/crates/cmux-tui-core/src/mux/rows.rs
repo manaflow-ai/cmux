@@ -107,16 +107,19 @@ pub(super) fn row_height_field(fields: &Map<String, Value>) -> anyhow::Result<Op
 
 /// Validates `row_height` on a `pane.split` intent: a downward split only,
 /// never combined with a ratio or a viewport width.
-/// `workspace.layout.apply` replaces a screen's layout from a document that
-/// has no rows yet, so a screen with rows refuses it and changes nothing
-/// (plans/cmux-next/rows.md, decision 5).
+/// `workspace.layout.apply` with a split-tree document (no viewport columns)
+/// cannot carry rows, so a screen with rows refuses it and changes nothing
+/// (plans/cmux-next/rows.md, decision 5). A columns document carries them.
 pub(super) fn refuse_layout_replace(screen: &Screen) -> anyhow::Result<()> {
     if screen.layout_columns.iter().all(|column| column.rows.is_empty()) {
         return Ok(());
     }
     Err(ResourceError::operation_failed(
         "workspace.layout.apply",
-        format!("{ROWS_LAYOUT_REPLACE_UNSUPPORTED}: layout documents do not carry rows yet"),
+        format!(
+            "{ROWS_LAYOUT_REPLACE_UNSUPPORTED}: a split-tree layout document cannot carry rows; \
+             apply a columns document (screen.layout.export)"
+        ),
         serde_json::json!({"reason_code": ROWS_LAYOUT_REPLACE_UNSUPPORTED}),
     )
     .into())

@@ -162,7 +162,7 @@ test("back on a chat, a revealed reply's backlog draws at once with no entrance"
     queue = new Map();
     await act(async () => {
       for (const tick of run.values()) tick(clock);
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await new Promise((resolve) => dom.window.requestAnimationFrame(resolve));
     });
   };
   const root = createRoot(dom.window.document.getElementById("root")!);
@@ -203,7 +203,11 @@ test("back on a chat, a code block that closed while it was hidden does not cros
       away: () => render("Here:\n\n```js\nconst a = 1;\n```\n\nDone."),
     });
     // The handoff waits up to a second for the highlighted lines, then hands over.
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 1_200)));
+    const handoff = dom.window.document.querySelector(".cv-code-handoff")!;
+    const deadline = performance.now() + 3_000;
+    while (handoff.classList.contains("is-plain") && performance.now() < deadline)
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(handoff.classList.contains("is-plain")).toBe(false);
     expect(seen.entrances).toEqual([]);
     expect(page.entrances()).toEqual([]);
     expect(dom.window.document.querySelector(".cv-code-handoff.is-fading")).toBeNull();
@@ -245,7 +249,7 @@ test("back on a chat, a revealed reply's backlog is in the first frame back", as
     } finally {
       scope.IS_REACT_ACT_ENVIRONMENT = true;
     }
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   } finally {
     revealFrames.request = request;
     revealFrames.cancel = cancel;

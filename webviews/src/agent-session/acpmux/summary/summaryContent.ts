@@ -12,7 +12,7 @@ function rowShowsInSummary(row: AcpmuxRow): boolean {
     row.items?.some((item) => {
       const tool = item.tool;
       if (!tool) return false;
-      if (tool.diffs?.length || tool.kind === "fetch" || tool.kind === "think") return true;
+      if (tool.diffs?.length || tool.kind === "fetch" || tool.kind === "think" || tool.background) return true;
       // Wakeups and cron jobs arrive as kind "other", named by their title (the summary's
       // scheduled() list reads them the same way).
       if (/^(?:ScheduleWakeup|CronCreate)\b/.test(tool.title) && tool.status !== "failed") return true;

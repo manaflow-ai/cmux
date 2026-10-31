@@ -3,6 +3,8 @@
 //! Unix sockets and WebSockets both call this module. The operation catalog is
 //! embedded as the one validation source so transport handlers cannot drift.
 
+use cmux_json::JsonSet as _;
+
 mod auxiliary;
 mod browser_engine;
 mod close_value;
@@ -34,7 +36,7 @@ use serde_json::{Map, Value, json};
 
 use crate::resource::{
     NotificationPublicId, RequestEnvelope, RequestId, ResourceError, ResourceOperation,
-    ResponseEnvelope, Selector, TerminalPublicId, WireDecimal,
+    ResponseEnvelope, Selector, TerminalPublicId, WireDecimal, WorkspacePublicId,
 };
 use crate::resource_api::{ResourceMachineRequest, operation_failed, public_session_snapshot};
 use crate::workspace_registry::{ResourceEffectOutcome, ResourceEffectPreparation};
@@ -188,7 +190,7 @@ pub(crate) fn malformed_resource_response(message: &str, error: ResourceError) -
     let mut response = serde_json::to_value(ResponseEnvelope::failure(id, error))
         .expect("resource failure envelopes are serializable");
     if let Some(numeric_id) = numeric_id {
-        response["id"] = numeric_id;
+        response.set("id", numeric_id);
     }
     response
 }
@@ -497,6 +499,13 @@ fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
     {
         return Err(ResourceError::not_found("terminal", terminal_id.as_str()));
     }
+    let workspace_id = notification_workspace(mux, &request.fields)?;
+    if terminal_id.is_some() && workspace_id.is_some() {
+        return Err(validation_error(
+            "give terminal_id or workspace_id, not both: a terminal's notification already belongs to its workspace",
+            json!({}),
+        ));
+    }
     let notification_id = NotificationPublicId::random()?;
     let created_at_ms: u64 = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -523,6 +532,7 @@ fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
         "body": required_string(&request.fields, "body")?,
         "level": required_string(&request.fields, "level")?,
         "terminal_id": terminal_id,
+        "workspace_id": workspace_id,
         "created_at_ms": created_at_ms,
         "source": crate::NotificationSource::Cli.as_str(),
         "desktop": request.fields.get("desktop").and_then(Value::as_bool).unwrap_or(true),
@@ -594,8 +604,28 @@ fn execute_notification_effect(
         })?;
     let surface =
         terminal_id.as_ref().and_then(|terminal_id| mux.resource_surface_for_terminal(terminal_id));
-    if let Some(terminal_id) = terminal_id.as_ref().filter(|_| surface.is_none()) {
-        let error = ResourceError::not_found("terminal", terminal_id.as_str());
+    let workspace_id = intent
+        .get("workspace_id")
+        .filter(|value| !value.is_null())
+        .map(|value| serde_json::from_value::<WorkspacePublicId>(value.clone()))
+        .transpose()
+        .map_err(|error| {
+            ResourceError::operation_failed(
+                "notification.create",
+                "stored notification intent has an invalid workspace identity",
+                json!({"error":error.to_string()}),
+            )
+        })?;
+    let missing = match (&terminal_id, &workspace_id) {
+        (Some(terminal_id), _) if surface.is_none() => {
+            Some(ResourceError::not_found("terminal", terminal_id.as_str()))
+        }
+        (_, Some(workspace_id)) if !workspace_exists(mux, workspace_id) => {
+            Some(ResourceError::not_found("workspace", workspace_id.as_str()))
+        }
+        _ => None,
+    };
+    if let Some(error) = missing {
         let outcome = ResourceEffectOutcome::Failure(error.clone());
         if mux
             .commit_resource_effect(
@@ -668,6 +698,7 @@ fn execute_notification_effect(
         level,
         surface,
         terminal_id.clone(),
+        workspace_id.clone(),
         created_at_ms,
         source,
         desktop,
@@ -680,6 +711,7 @@ fn execute_notification_effect(
         body: body.to_string(),
         level,
         terminal_id,
+        workspace_id,
         created_at_ms,
         source,
         surface,
@@ -757,9 +789,18 @@ fn clear_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
             )
         })
         .transpose()?;
+    let workspace_id = notification_workspace(mux, &request.fields)?;
+    let scope = match (&terminal_id, &workspace_id) {
+        (Some(_), Some(_)) => {
+            return Err(validation_error("give terminal_id or workspace_id, not both", json!({})));
+        }
+        (Some(terminal), None) => crate::mux::NotificationClearScope::Terminal(terminal),
+        (None, Some(workspace)) => crate::mux::NotificationClearScope::Workspace(workspace),
+        (None, None) => crate::mux::NotificationClearScope::Session,
+    };
     let mutation = request.mutation().map_err(resource_operation_error)?;
     let commit = mux
-        .clear_notifications(&mutation, expected_revision(&request.fields)?, terminal_id.as_ref())
+        .clear_notifications_in(&mutation, expected_revision(&request.fields)?, scope)
         .map_err(|error| {
             // Revision conflicts keep their typed error; anything else is an
             // internal failure whose raw cause stays in the daemon log.
@@ -778,6 +819,31 @@ fn clear_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
             )
         })?;
     mutation_result(mux, commit.result, commit.revision, commit.replayed)
+}
+
+/// The `workspace_id` field of a notification create or clear: a workspace of
+/// this session, else `selector.not_found`.
+fn notification_workspace(
+    mux: &Mux,
+    fields: &Map<String, Value>,
+) -> Result<Option<WorkspacePublicId>, ResourceError> {
+    let Some(value) = fields.get("workspace_id") else { return Ok(None) };
+    let workspace = WorkspacePublicId::parse(
+        value
+            .as_str()
+            .ok_or_else(|| validation_error("workspace_id must be a string", json!({})))?
+            .to_string(),
+    )?;
+    if !workspace_exists(mux, &workspace) {
+        return Err(ResourceError::not_found("workspace", workspace.as_str()));
+    }
+    Ok(Some(workspace))
+}
+
+fn workspace_exists(mux: &Mux, workspace: &WorkspacePublicId) -> bool {
+    mux.with_state(|state| {
+        state.workspaces.iter().any(|candidate| candidate.public_id == *workspace)
+    })
 }
 
 fn indeterminate_error(idempotency_key: &str, operation: &str) -> ResourceError {
@@ -912,6 +978,10 @@ pub(super) fn validation_error(message: &str, details: Value) -> ResourceError {
 mod browser_engine_tests;
 #[cfg(test)]
 mod closed_content_tests;
+#[cfg(test)]
+mod create_argv_tests;
+#[cfg(test)]
+mod frontend_browser_effect_tests;
 #[cfg(test)]
 mod partial_create_tests;
 #[cfg(test)]

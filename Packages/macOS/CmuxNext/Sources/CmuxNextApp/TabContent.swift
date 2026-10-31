@@ -67,7 +67,7 @@ enum TabContent {
         switch self {
         case .terminal(let entry): entry.session.surfaceView
         case .browser(let entry): entry.tab.contentView
-        case .agent(let view): view.webView
+        case .agent(let view): view.focusTarget
         case .page(let view): view.focusTarget
         case .placeholder(let view): view
         case .notice(let view): view
@@ -137,12 +137,17 @@ final class TerminalEntry {
     }
 }
 
-/// A live WebKit page with its chrome.
+/// A live browser page with its chrome.
 final class BrowserEntry {
     let tab: any BrowserTab
     let chrome: BrowserChromeView
     /// Owns the chrome's (weak) Extensions menu handler.
     var extensionMenuHandler: (any ExtensionMenuHandling)?
+
+    // No isolated-deinit hop inside an action's task-local scope (cx-t7hu).
+    nonisolated deinit {
+        BrowserPageRetirement(tab: tab, chrome: chrome).retire()
+    }
 
     init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), history: (any BrowserHistoryStore)? = nil) {
         self.tab = tab
@@ -153,7 +158,6 @@ final class BrowserEntry {
     }
 
     func close() {
-        tab.close()
-        chrome.removeFromSuperview()
+        BrowserPageRetirement(tab: tab, chrome: chrome).retire()
     }
 }

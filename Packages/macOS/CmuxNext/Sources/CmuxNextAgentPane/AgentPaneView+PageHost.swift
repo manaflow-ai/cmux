@@ -1,17 +1,23 @@
-import AppKit
+public import AppKit
 import CmuxNextPages
 
 /// The agent pane on the shared page host (react-pages.md, agent pane move P2): the bundled page at
 /// `cmux-page://cmux.agent/` in a ``PageWebView``, its calls answered by ``AgentPageProvider`` and
 /// the host's pushes sent as ``AgentPageEvent``s. The `agent.pageHost` tunable turns it on.
 extension AgentPaneView {
+    /// Runs once the chat has painted (``AgentPaneModel/whenPainted(_:)``), the gate the page is
+    /// revealed on; the document's own first frame comes earlier and draws an empty chat.
+    package func whenPagePainted(_ body: @escaping () -> Void) {
+        model.whenPainted(body)
+    }
+
     /// Wires `page` to this view: navigation, crashes, and the state a new page subscriber gets.
     func attachPage(_ page: PageWebView) {
         page.autoresizingMask = [.width, .height]
         page.onOpenExternal = { [weak self, weak page] url in
             guard let self else { return }
-            let other = LinkRouter.isOtherTarget(page?.externalLinkModifiers ?? [])
-            _ = AgentPaneNavigation.openOutside(url, gestures: self.model.transport.gestures) { self.openURL($0, other) }
+            let modifiers = page?.externalLinkModifiers ?? []
+            _ = AgentPaneNavigation.openOutside(url, gestures: self.model.transport.gestures) { self.openURL($0, modifiers) }
         }
         page.onNavigate = { [weak self] navigation in
             guard let self else { return .cancel }
@@ -22,6 +28,9 @@ extension AgentPaneView {
             case .cancel: return .cancel
             }
         }
+        // A reload builds the chat again without what its page held (an open menu, the caret, an
+        // IME composition, unsent chips): a crash shows the notice, and Reload is the person's.
+        page.reloadsAfterCrash = false
         page.onCrash = { [weak self] _, reloading in self?.pageCrashed(reloading: reloading) }
         pageEvents?.replay = { [weak self] in
             // A new subscriber is a page that loaded again: its registry renderers are gone.
@@ -33,5 +42,29 @@ extension AgentPaneView {
             return events
         }
         addSubview(page)
+    }
+
+    /// The view that takes the keyboard when the chat is focused: Chromium's view when the page
+    /// shows in Chromium (the `agent.chromium` spike), else the WebKit view.
+    public var focusTarget: NSView { page?.focusView ?? webView }
+
+    /// The engine the chat shows in, for `debug.agent_pane engine`: `cef`, `webkit:<reason>` on the
+    /// page host (``PageWebKitReason``), or `webkit:own-host` on the pane's own WebKit host.
+    public var engineName: String {
+        guard let decision = page?.engineDecision else { return "webkit:own-host" }
+        return decision.engine == .cef ? "cef" : "webkit:\(decision.webKitReason?.rawValue ?? "none")"
+    }
+
+    /// Gives the chat the keyboard unless ``focusTarget`` already has it.
+    public func focusChat() {
+        guard let window, window.firstResponder !== focusTarget else { return }
+        if let page { page.focusPage() } else { window.makeFirstResponder(webView) }
+    }
+
+    /// Runs `body` as an async function body in the chat's page, in whichever engine shows it
+    /// (``PageWebView/callPageScript(_:arguments:)``).
+    public func callPageScript(_ body: String, arguments: [String: Any] = [:]) async throws -> Any? {
+        if let page { return try await page.callPageScript(body, arguments: arguments) }
+        return try await webView.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page)
     }
 }

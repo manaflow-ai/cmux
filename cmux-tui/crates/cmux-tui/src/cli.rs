@@ -9,24 +9,44 @@ mod action_hint;
 mod agent_input_hint;
 mod agent_message;
 #[cfg(unix)]
+mod agent_view;
+#[cfg(unix)]
 mod agents;
 #[cfg(unix)]
 mod agents_doctor;
 #[cfg(unix)]
 mod app;
 #[cfg(unix)]
+mod app_browser_route;
+#[cfg(unix)]
 mod app_focus;
 #[cfg(unix)]
+mod apps_list;
+#[cfg(unix)]
 mod apps_run;
+#[cfg(unix)]
+mod automation;
+mod beside;
+#[cfg(unix)]
+mod billing;
 mod capability_cache;
 #[cfg(unix)]
 mod chief;
 mod chief_target;
+#[cfg(unix)]
+mod cloud_client_session;
+mod cloud_help;
+#[cfg(unix)]
+mod cloud_machines;
+#[cfg(unix)]
+mod cloud_secret;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
 mod codex_app_server;
 mod command;
+#[cfg(unix)]
+mod dev;
 mod docs;
 mod extra_help;
 mod federation;
@@ -35,8 +55,14 @@ mod fix_command;
 mod frontend_browser;
 #[cfg(unix)]
 mod host_mount;
+mod internal;
 mod launch_credential;
 mod lifecycle;
+// Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
+#[cfg(unix)]
+mod sandbox_run;
+#[cfg(unix)]
+mod vm;
 #[cfg(unix)]
 pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 #[cfg(unix)]
@@ -49,6 +75,14 @@ pub(crate) use host_mount::early_unix_scope;
 pub(crate) fn remote_host_requested(raw_args: &[String]) -> bool {
     Surface::current() == Surface::Cmux && crate::remote_host::handles(raw_args)
 }
+#[cfg(unix)]
+mod machine_doctor;
+#[cfg(unix)]
+mod machine_join;
+#[cfg(unix)]
+pub(crate) use machine_join::{
+    device_credential as joined_machine_credential, rows_for_devices as joined_machine_rows,
+};
 mod machine_server;
 #[cfg(test)]
 use machine_server::ServerRoute;
@@ -61,12 +95,17 @@ mod scope_help;
 mod screen_help;
 #[cfg(unix)]
 mod script;
+#[cfg(unix)]
+mod setup;
 mod shorthand;
 #[cfg(unix)]
 mod skew;
 #[cfg(unix)]
 mod status;
 mod surface;
+mod tab_capabilities;
+#[cfg(unix)]
+mod terminal_talk;
 mod topology_help;
 mod wire;
 use surface::MACHINE_CATALOG_HELP;
@@ -92,6 +131,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "terminal",
     "browser",
     "notification",
+    "attention",
     "agent",
     "room",
     "closed",
@@ -101,6 +141,8 @@ const PUBLIC_SCOPES: &[&str] = &[
     "pairing",
     "projection",
     "provider",
+    "settings",
+    "config",
     "raw",
 ];
 
@@ -174,10 +216,56 @@ pub(super) fn is_remote_invocation(args: &[String]) -> bool {
                 index += 1;
             }
             value if value.starts_with('-') => return false,
+            "remote" => return remote_family_word(args.get(index + 1..).unwrap_or_default()),
             value => return REMOTE_COMMANDS.contains(&value),
         }
     }
     false
+}
+
+/// Whether the words after `remote` keep argv in the remote command family:
+/// none, a flag, `help`, one of its actions, or any word asked for `--help`
+/// (the remote family's help lists its actions). Any other word is an app
+/// action's CLI name (`remote new-group`, `remote reconnect`), which the app
+/// action fallback runs; a word no app action has is refused as an unknown
+/// remote action there (see ``unknown_remote_action``).
+fn remote_family_word(rest: &[String]) -> bool {
+    rest.first().is_none_or(|word| {
+        word.starts_with('-')
+            || word == "help"
+            || remote_action_command(word).is_some()
+            || rest
+                .iter()
+                .take_while(|arg| *arg != "--")
+                .any(|arg| matches!(arg.as_str(), "-h" | "--help"))
+    })
+}
+
+/// The remote family's refusal of `remote <word>` when `<word>` is neither a
+/// remote action nor an app action's CLI name, in place of the mux grammar's
+/// unknown-scope error for `remote`.
+#[cfg(unix)]
+fn unknown_remote_action(args: &[String]) -> Option<i32> {
+    let (global, command_args) = parse_action_globals(args).ok()?;
+    if command_args.first().map(String::as_str) != Some("remote") {
+        return None;
+    }
+    let action = command_args.get(1).filter(|word| !word.starts_with('-'))?;
+    let message = crate::localization::catalog().remote_client.unknown_action("remote", action);
+    let message = match global.output {
+        OutputMode::Quiet | OutputMode::Human => format!("cmux: {message}"),
+        OutputMode::Json | OutputMode::JsonLines => message,
+    };
+    Some(wire::print_local_error(
+        &serde_json::json!({
+            "code":"usage.invalid",
+            "message":message,
+            "details":{},
+            "retryable":false,
+        }),
+        global.output,
+        1,
+    ))
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -235,6 +323,48 @@ pub(super) fn canonical_scope(value: &str) -> &str {
     shorthand::scope(value)
 }
 
+/// Whether the removed `route` resource scope is the command after global
+/// options have been stripped. This keeps the early refusal ahead of the
+/// generic app-action fallback even for invocations such as
+/// `cmux --json route list`.
+pub(crate) fn removed_route_requested(args: &[String]) -> bool {
+    // This mode consumes an arbitrary argv payload through `--` and never
+    // enters the CLI dispatcher, so a literal `route` belongs to the provider
+    // command rather than the removed cmux resource scope.
+    if let Some(provider_index) = args.iter().position(|arg| arg == "--machine-provider-command")
+        && args
+            .iter()
+            .position(|arg| arg == "route")
+            .is_none_or(|route_index| provider_index < route_index)
+    {
+        return false;
+    }
+    scan_globals(args, MachineFlag::Global)
+        .map(|(_, command)| {
+            let mut words = command.iter().take_while(|word| *word != "--").peekable();
+            let mut command_words = Vec::new();
+            while let Some(word) = words.next() {
+                if startup_value_option(word) {
+                    let _ = words.next();
+                } else if !word.starts_with('-') {
+                    command_words.push(word.as_str());
+                }
+            }
+            matches!(
+                command_words.as_slice(),
+                ["route", ..] | ["help", "route", ..] | ["acp", "route", ..]
+            )
+        })
+        .unwrap_or(false)
+}
+
+/// Startup options that take a value: the one list in main.rs
+/// (`STARTUP_VALUE_OPTIONS`), so a new option is skipped here too, plus the
+/// provider command, whose payload this scanner must not read as words.
+fn startup_value_option(value: &str) -> bool {
+    value == "--machine-provider-command" || crate::STARTUP_VALUE_OPTIONS.contains(&value)
+}
+
 /// Rewrites a pre-D1 `cmux server <lifecycle verb>` to `cmux daemon <verb>`
 /// (with the deprecation hint), so `main` routes `server start` to the
 /// headless startup like `daemon start`. No-op elsewhere.
@@ -242,6 +372,46 @@ pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
     if let Some(rewritten) = machine_server::deprecated_lifecycle(args, Surface::current()) {
         *args = rewritten;
     }
+}
+
+/// Scopes that print their own help (`cmux agents --help`) but route before
+/// the parser whose `help <scope>` knows only its own scopes, so `cmux help
+/// agents` answered "unknown resource scope".
+pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
+    "agents", "chats", "harness", "remote", "script", "host", "github", "avatar", "chief", "setup",
+    "device",
+];
+
+/// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
+/// --help`; `cmux device help`, the one spelling `device` answers) for a
+/// scope in [`OWN_HELP_SCOPES`] the parser's help does not take. Global
+/// options change no help text and are dropped wherever they stood, so the
+/// scope is the first word every early dispatch reads (`raw_args.first()`
+/// for `chats` and `harness`). No-op elsewhere.
+pub(crate) fn rewrite_help_word(args: &mut Vec<String>) {
+    rewrite_help_word_on(args, Surface::current());
+}
+
+fn rewrite_help_word_on(args: &mut Vec<String>, surface: Surface) {
+    let Ok((_, command_args)) = parse_globals(args) else {
+        return;
+    };
+    let [help, scope] = command_args.as_slice() else {
+        return;
+    };
+    if help != "help" || !OWN_HELP_SCOPES.contains(&scope.as_str()) || surface.accepts(scope) {
+        return;
+    }
+    let own_help = if scope == "device" { "help" } else { "--help" };
+    *args = vec![scope.clone(), own_help.to_string()];
+}
+
+/// The acpmux argv of `cmux acp …` (the words after `acp`) and of its
+/// `harness`/`chats` aliases (the whole command line, alias first).
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(crate) fn acp_scope_args(raw_args: &[String]) -> Vec<std::ffi::OsString> {
+    let skip = usize::from(raw_args.first().is_some_and(|head| head == "acp"));
+    raw_args.iter().skip(skip).map(std::ffi::OsString::from).collect()
 }
 
 /// The agent-caller refusal of a plan that writes a Chief by the raw or
@@ -267,6 +437,10 @@ fn chief_write_refusal(_plan: &CommandPlan) -> Option<serde_json::Value> {
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
     let surface = Surface::current();
+    #[cfg(unix)]
+    if let Some(code) = dev::run_if_requested(args, surface) {
+        return code;
+    }
     let lifecycle_args;
     let args = match machine_server::run_if_requested(args, surface) {
         Some(machine_server::Mount::Exit(code)) => return code,
@@ -276,14 +450,35 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `machine list --cloud-token-file F`: the flags are for its joined rows, not the daemon.
+    #[cfg(unix)]
+    let list_args;
+    #[cfg(unix)]
+    let args = match machine_join::take_list_auth(args) {
+        Some(rest) => {
+            list_args = rest;
+            list_args.as_slice()
+        }
+        None => args,
+    };
     #[cfg(unix)]
     if let Some(code) = mcp::run_if_requested(args)
         .or_else(|| agents::run_if_requested(args))
         .or_else(|| chief::run_if_requested(args))
         .or_else(|| chief::run_avatar_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
+        .or_else(|| automation::run_if_requested(args))
+        .or_else(|| billing::run_if_requested(args))
+        .or_else(|| sandbox_run::run_if_requested(args))
+        .or_else(|| vm::run_if_requested(args))
+        .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| cloud_client_session::run_if_requested(args))
+        .or_else(|| machine_join::run_if_requested(args))
+        .or_else(|| machine_doctor::run_if_requested(args))
+        .or_else(|| apps_list::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
+        .or_else(|| setup::run_if_requested(args))
         .or_else(|| status::run_args(args))
     {
         return code;
@@ -335,6 +530,10 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             if let Some(code) = run_app_action_fallback(args) {
                 return code;
             }
+            #[cfg(unix)]
+            if let Some(code) = unknown_remote_action(args) {
+                return code;
+            }
             // A command this build does not know may be one the daemon's
             // build knows: run that daemon's CLI (cli/skew.rs).
             #[cfg(unix)]
@@ -374,6 +573,12 @@ fn run_app_scope(args: &[String]) -> Option<i32> {
     if has_help_option(&command_args) || command_args.first().is_some_and(|word| word == "help") {
         return extra_help::print(&command_args);
     }
+    // Settings CRUD belongs to the daemon's v2 owner. Keep the app parser for
+    // local-only helpers (`list`, `schema`, `validate`) until those have daemon
+    // equivalents on this surface.
+    if daemon_settings_scope(&command_args) {
+        return None;
+    }
     match app::parse(&command_args) {
         Ok(Some(_)) if global.all_sessions => Some(app::failure(
             "usage.invalid",
@@ -396,11 +601,41 @@ fn run_app_scope(args: &[String]) -> Option<i32> {
     }
 }
 
+#[cfg(unix)]
+fn daemon_settings_scope(command_args: &[String]) -> bool {
+    // Help belongs to the app's documented settings scope even when it is
+    // attached to a daemon-owned CRUD verb.
+    if has_help_option(command_args) || command_args.first().is_some_and(|word| word == "help") {
+        return false;
+    }
+    if !matches!(command_args.first().map(String::as_str), Some("settings" | "config")) {
+        return false;
+    }
+    match command_args.get(1).map(String::as_str) {
+        // `get` without a path is the legacy app snapshot; keep it until the
+        // daemon gains an equivalent empty-target read.
+        Some("get") if command_args.len() == 2 => false,
+        // Person-only settings still need the app's native confirmation
+        // sheet. The daemon CLI deliberately has no fake approval path. Only
+        // options before `--` are flags; after it, every argument is literal.
+        Some("set" | "reset" | "unset")
+            if command_args.iter().take_while(|arg| *arg != "--").any(|arg| arg == "--confirm") =>
+        {
+            false
+        }
+        Some("get" | "set" | "reset" | "unset") => true,
+        _ => false,
+    }
+}
+
 /// Runs `<noun> <verb…> [--flags]` as the app action with that CLI name when
 /// the app marks one for the CLI. `None` when it does not, or no app answers.
 #[cfg(unix)]
 fn run_app_action_fallback(args: &[String]) -> Option<i32> {
-    let (global, command_args) = parse_globals(args).ok()?;
+    let (global, command_args) = parse_action_globals(args).ok()?;
+    if let Some((name, action_args)) = agent_view::action(&command_args) {
+        return app::run_cli_action(&global, &name, &action_args);
+    }
     let words = command_args.iter().take_while(|arg| !arg.starts_with('-')).count();
     if words < 2 {
         return None;
@@ -520,11 +755,9 @@ fn parse_command(
 }
 
 fn unknown_scope(scope: &str, surface: Surface) -> UsageError {
-    UsageError::new(
-        crate::localization::catalog()
-            .local_server
-            .unknown_scope(scope, suggestion(scope, surface.scopes())),
-    )
+    let suggestion = internal::classic_verbs::resource_command(scope)
+        .or_else(|| suggestion(scope, surface.scopes()));
+    UsageError::new(crate::localization::catalog().local_server.unknown_scope(scope, suggestion))
 }
 
 /// A `cmux-tui` scope named through `cmux`, which refuses it by name
@@ -548,6 +781,38 @@ pub(super) fn suggestion<'a>(value: &str, candidates: &'a [&str]) -> Option<&'a 
 }
 
 fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageError, OutputMode)> {
+    scan_globals(args, MachineFlag::Global)
+}
+
+/// Who owns a `--machine` that follows the command's first word.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MachineFlag {
+    /// The global option anywhere before `--` (the mux grammar's routing:
+    /// `cmux workspace list --machine m` lists on machine `m`).
+    Global,
+    /// The command's own argument once a command word came: an app action
+    /// run by its CLI name (`cmux workspace new-on-machine --machine m`)
+    /// gets it as its `machine` argument. Before the first command word it
+    /// is still the global option.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    Command,
+}
+
+/// [`parse_globals`] for an app action run by its CLI name: a `--machine`
+/// after the action's words is the action's own argument
+/// (`workspace.newOnMachine`'s `machine`), which the global option
+/// swallowed, so the app answered "requires --machine".
+#[cfg(unix)]
+fn parse_action_globals(
+    args: &[String],
+) -> Result<(GlobalArgs, Vec<String>), (UsageError, OutputMode)> {
+    scan_globals(args, MachineFlag::Command)
+}
+
+fn scan_globals(
+    args: &[String],
+    machine_flag: MachineFlag,
+) -> Result<(GlobalArgs, Vec<String>), (UsageError, OutputMode)> {
     let mut global = GlobalArgs::default();
     let mut command = Vec::new();
     let mut index = 0;
@@ -575,6 +840,20 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
             })
         {
             command.push(value.clone());
+            index += 1;
+            continue;
+        }
+        if machine_flag == MachineFlag::Command
+            && !command.is_empty()
+            && (value == "--machine" || value.starts_with("--machine="))
+        {
+            command.push(value.clone());
+            if value == "--machine"
+                && let Some(next) = args.get(index + 1)
+            {
+                command.push(next.clone());
+                index += 1;
+            }
             index += 1;
             continue;
         }
@@ -749,7 +1028,15 @@ fn print_scope_help(scope: Option<&str>, surface: Surface) {
     let text = match (scope, surface) {
         (Some("machine"), Surface::Cmux) => Cow::Borrowed(MACHINE_CATALOG_HELP),
         (Some(scope), _) => scope_help(scope),
-        (None, Surface::Cmux) => Cow::Borrowed(catalog.local_server.cmux_root_help),
+        (None, Surface::Cmux) => {
+            let root = catalog.local_server.cmux_root_help;
+            let cloud = if root.contains("SCOPES") {
+                "  cloud         Run Cloud machine actions (`cmux cloud --help`)\n"
+            } else {
+                "  cloud         Cloud マシンのアクション (`cmux cloud --help`)\n"
+            };
+            Cow::Owned(root.replacen("  room", &format!("{cloud}  room"), 1))
+        }
         (None, Surface::CmuxTui) => Cow::Owned(root_help(&catalog.local_server)),
     };
     let mut stdout = io::stdout().lock();
@@ -789,7 +1076,13 @@ fn scope_help_for(
         }
         "browser" => Cow::Borrowed(scope_help::BROWSER_HELP),
         "notification" => Cow::Borrowed(scope_help::NOTIFICATION_HELP),
+        "attention" => Cow::Borrowed(scope_help::ATTENTION_HELP),
         "agent" => Cow::Borrowed(AGENT_HELP),
+        "agent open" => Cow::Borrowed(crate::localization::catalog().app_control.agent_open_usage),
+        "agent open-tab" => {
+            Cow::Borrowed(crate::localization::catalog().app_control.agent_open_tab_usage)
+        }
+        "cloud" => Cow::Owned(cloud_help::overview(catalog.is_japanese())),
         "room" => Cow::Borrowed(scope_help::ROOM_HELP),
         "closed" => Cow::Borrowed(scope_help::CLOSED_HELP),
         "git" => Cow::Borrowed(scope_help::GIT_HELP),
@@ -812,6 +1105,7 @@ USAGE
   cmux attach [START OPTIONS]
   cmux relay [ROUTING OPTIONS]
   cmux wg hub --config <wg-quick file> --socket <unix socket>
+  cmux wg dial --hub <unix socket> <host> <port>
 ";
 
 const ROOT_HELP_PROCESS_SUFFIX: &str = "\
@@ -852,11 +1146,13 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   terminal      Read, write, and attach to terminals
   browser       Navigate and attach to browsers
   notification  List and create notifications
+  attention     Mark the tab where the person must act (no focus change)
   agent         List and report agent state
   room          Organize workspaces into rooms
   closed        List and reopen closed tabs, screens, workspaces
   git           Read a repository's status and changes; capture checkpoints
   status        Show loading indicators for scripts and agents
+  setup         Set up cmux from an agent: list tasks, trust, machines, harnesses (JSON)
   sidebar       Manage sidebar views and local plugins
   pairing       Resolve pairing requests
   projection    Read and update frontend projections
@@ -938,6 +1234,8 @@ USAGE
 
 const AGENT_HELP: &str = "\
 USAGE
+  cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--focus]
+  cmux agent open-tab <session id> [--target PANE_OR_TAB] [--host HOST] [--focus]
   cmux agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
   cmux agent message --reply-to <message-id> [--from <name>] [--] <text...|->
   cmux agent message release <message-id> --recipient <agent> --approve|--decline

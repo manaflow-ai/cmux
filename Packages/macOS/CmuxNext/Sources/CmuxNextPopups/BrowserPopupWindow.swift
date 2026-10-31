@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextBrowser
 import CmuxNextCompat
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// The window of one popup page (`window.open` with window features: OAuth
 /// sign-in, payment, an extension's popup window), built like Chrome's
@@ -57,7 +57,7 @@ public final class BrowserPopupWindow: NSWindow {
     private var observation: Task<Void, Never>?
     private let separator = NSBox()
     private var toolbarHeightConstraint: NSLayoutConstraint?
-    private var fullscreenObservers: [any NSObjectProtocol] = []
+    private var fullscreenObservers: [MainActorObservation] = []
 
     /// A popup window showing `page`.
     ///
@@ -69,8 +69,10 @@ public final class BrowserPopupWindow: NSWindow {
     ///   - readOnlyAddress: True for a system sign-in window, whose address
     ///     can be selected and copied but not edited (navigating away would
     ///     lose the sign-in).
+    ///   - activeLook: The app's ``ActiveLookScope``: the backdrop glass keeps
+    ///     its key look while the popup is not key (nil follows the key state).
     public init(page: any BrowserTab, frame: CGRect, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(),
-                readOnlyAddress: Bool = false) {
+                readOnlyAddress: Bool = false, activeLook: ActiveLookScope?) {
         self.page = page
         locationBar = OmnibarToolbarView(suggestionEngine: suggestionEngine)
         locationBar.addressBar.isReadOnly = readOnlyAddress
@@ -88,7 +90,7 @@ public final class BrowserPopupWindow: NSWindow {
         animationBehavior = Motion.panes.animatesMovement ? .documentWindow : .none
         // Kind `.browserPopup`: the three traffic lights and the one surface
         // background; the opener's scope is adopted when it opens.
-        install(kind: .browserPopup, content: makeContent(), scope: .app)
+        install(kind: .browserPopup, content: makeContent(), scope: .app, activeLook: activeLook)
         title = Self.title(for: page.state)
         observeTitle()
         observeFullscreen()
@@ -175,9 +177,8 @@ public final class BrowserPopupWindow: NSWindow {
     private func observeFullscreen() {
         let center = NotificationCenter.default
         for (name, isFull) in [(NSWindow.didEnterFullScreenNotification, true), (NSWindow.didExitFullScreenNotification, false)] {
-            fullscreenObservers.append(center.addObserver(forName: name, object: self, queue: .main) { [weak self] _ in
-                // main-proof: observer on queue: .main
-                MainActor.assumeIsolated { self?.showToolbar(!isFull) }
+            fullscreenObservers.append(MainActorObservation(name, object: self, center: center) { [weak self] in
+                self?.showToolbar(!isFull)
             })
         }
     }
@@ -213,8 +214,7 @@ public final class BrowserPopupWindow: NSWindow {
     override public func close() {
         observation?.cancel()
         observation = nil
-        for observer in fullscreenObservers { NotificationCenter.default.removeObserver(observer) }
-        fullscreenObservers = []
+        fullscreenObservers.removeAll()
         omnibar.stop()
         let closed = onClose
         onClose = nil

@@ -14,10 +14,7 @@ public struct AgentPaneFind {
     /// keyboard, so the bar's field takes it; a socket or CLI run leaves focus alone.
     public func run(_ command: String, takeFocus: Bool) {
         guard Self.commands.contains(command) else { return }
-        let webView = pane.webView
-        if takeFocus, command != "hideFind", webView.window?.firstResponder !== webView {
-            webView.window?.makeFirstResponder(webView)
-        }
+        if takeFocus, command != "hideFind" { pane.focusChat() }
         pane.deliver([.command(command)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"\(command)\");"])
     }
 }

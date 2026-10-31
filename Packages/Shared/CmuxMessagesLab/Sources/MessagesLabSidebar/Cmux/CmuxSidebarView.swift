@@ -154,6 +154,29 @@ public final class CmuxSidebarView: NSView {
 
     let controller = SidebarController()
     private let link = SidebarLink()
+    /// The hover x of the ``closableID`` row (CmuxSidebarRowClose.swift).
+    private(set) lazy var rowClose = CmuxSidebarRowClose(list: self)
+
+    /// The row that shows an x at its trailing edge while the pointer is over it, as Messages'
+    /// New Message row does; nil (the default) shows it on no row. The avatar-only list and a
+    /// pinned tile never show it.
+    public var closableID: String? {
+        get { rowClose.rowID }
+        set { rowClose.rowID = newValue }
+    }
+    /// The ``closableID`` row's x was clicked (its id). The host removes the row.
+    public var onClose: (String) -> Void {
+        get { rowClose.onClose }
+        set { rowClose.onClose = newValue }
+    }
+    /// The x's tooltip and accessibility label ("Close New Message").
+    public var closeTitle: String {
+        get { rowClose.button.toolTip ?? "" }
+        set {
+            rowClose.button.toolTip = newValue
+            rowClose.button.setAccessibilityLabel(newValue)
+        }
+    }
     /// The list's scroll view, for the host's scroller style (cmux's scrollers are thin overlays).
     public var scrollView: NSScrollView { controller.scrollView }
     public private(set) var entries: [CmuxSidebarEntry] = []
@@ -175,6 +198,13 @@ public final class CmuxSidebarView: NSView {
         // Reduce Motion changes (the system setting or the host's pin) still or restart the typing
         // bubbles already pulsing (CmuxSidebarView+Motion.swift).
         motionObservers = observeReduceMotion()
+        _ = rowClose
+    }
+
+    public override func layout() {
+        super.layout()
+        // A width change can make the list avatar-only (no x) or move the row's trailing edge.
+        rowClose.refresh()
     }
 
     /// The Reduce Motion observers (weak: a closed view's turn is a no-op).
@@ -211,6 +241,8 @@ public final class CmuxSidebarView: NSView {
     /// The compact (avatar-only) list's width and the width the list is designed for.
     public var minimumWidth: CGFloat { controller.minimumWidth }
     public var preferredWidth: CGFloat { controller.preferredWidth ?? 320 }
+    /// Below this width the list shows avatars only (no names, previews or section headers).
+    public static var compactBelow: CGFloat { SidebarMetrics.compactBelow }
     public var selectedID: String? { controller.selectedID }
 
     /// Shows `entries` (newest first, pinned included) with `pinned` in tile order.
@@ -224,6 +256,7 @@ public final class CmuxSidebarView: NSView {
         if !Self.animatesMovement { SidebarMotion.enabled = false }
         defer { SidebarMotion.enabled = listMotion }
         controller.reloadData()
+        rowClose.refresh()
     }
 
     /// The search field's text.

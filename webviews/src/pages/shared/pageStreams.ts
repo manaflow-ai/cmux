@@ -33,9 +33,14 @@ export type PageCommandName =
   | "zoomOut"
   | "zoomReset"
   | "editorAction"
+  // A Find result opened in an editor tab that already shows its file (`text` "line:column").
+  | "reveal"
   // The markdown page's table column widths (pages/markdown/tables.ts).
   | "resetTableWidths"
   | "resetContextTableWidths"
+  // The markdown page's Reload (Cmd-R, the omnibar) and a path typed in its omnibar (`text`).
+  | "reload"
+  | "open"
   // The markdown page's viewer comments changed: `text` is the new list (pages/markdown/comments.ts).
   | "comments";
 

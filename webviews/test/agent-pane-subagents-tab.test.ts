@@ -4,6 +4,9 @@
 // chat's subagents under "Active · N" and "Done · N" with the transcript's own subagent row
 // (subagents/SubagentGroup.tsx SubagentListRow); a row shows that subagent, and the tab's close
 // button goes back to the summary.
+// A running subagent's Stop goes by the chat's summary (`backgroundsWork`: acpmux runs it as Claude
+// Code, which stops its own agents), not the harness's name: the model router's `cmux` chat has it,
+// an ACP agent a user's config named `claude-acp` has none.
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -26,6 +29,8 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
   const webviews = path.resolve(import.meta.dir, "..");
 
   const CHAT = "0190a000-0000-7000-8000-0000000000e3";
+  const ROUTER = "0190a000-0000-7000-8000-0000000000e4";
+  const CLAUDE_ACP = "0190a000-0000-7000-8000-0000000000e5";
   const START = Date.UTC(2026, 9, 14, 9, 0, 0);
   const steps: [dir: string, kind: string, msg: Record<string, unknown>][] = [
     ["mux", "user_message", { text: "Tidy the release notes" }],
@@ -82,35 +87,48 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     ],
     ["mux", "turn_result", { status: "completed" }],
   ];
-  const events = steps.map(([dir, kind, msg], index) => ({
-    sessionId: CHAT,
-    seq: index + 1,
-    at: START + index * 1000,
-    dir,
-    kind,
-    msg,
-  }));
-  const session = {
-    sessionId: CHAT,
+  const eventsOf = (sessionId: string) =>
+    steps.map(([dir, kind, msg], index) => ({
+      sessionId,
+      seq: index + 1,
+      at: START + index * 1000,
+      dir,
+      kind,
+      msg,
+    }));
+  /// Each chat's harness and whether acpmux runs it as Claude Code (`backgroundsWork`).
+  const chats: Record<string, { harness: string; claudeCode: boolean }> = {
+    [CHAT]: { harness: "claude", claudeCode: true },
+    // The model router's profile: Claude Code under acpmux, named `cmux`.
+    [ROUTER]: { harness: "cmux", claudeCode: true },
+    // A user's config named an ACP agent after Claude: acpmux cannot stop its subagents.
+    [CLAUDE_ACP]: { harness: "claude-acp", claudeCode: false },
+  };
+  const sessionOf = (sessionId: string) => ({
+    sessionId,
     cwd: "/home/dev/notes",
     title: "Release notes",
-    harness: "claude",
-    family: "claude",
+    harness: chats[sessionId]!.harness,
+    family: chats[sessionId]!.harness,
+    backgroundsWork: chats[sessionId]!.claudeCode,
     status: "idle",
     turnCount: 1,
     updatedAt: START,
-  };
+  });
 
-  function answer(method: string): unknown {
+  function answer(method: string, params: Record<string, unknown> | undefined): unknown {
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
-        return { sessions: [session] };
-      case "_acpmux/attach":
-        return { session, lastSeq: events.length, events };
+        return { sessions: Object.keys(chats).map(sessionOf) };
+      case "_acpmux/attach": {
+        const id = String(params?.sessionId);
+        const events = eventsOf(id);
+        return { session: sessionOf(id), lastSeq: events.length, events };
+      }
       case "_acpmux/events":
-        return { events: [], hasMore: false, lastSeq: events.length };
+        return { events: [], hasMore: false, lastSeq: steps.length };
       default:
         return null;
     }
@@ -119,10 +137,10 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
-  const url = () => {
+  const url = (session = CHAT) => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
-    return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${CHAT}`;
+    return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${session}`;
   };
   beforeAll(async () => {
     daemon = Bun.serve({
@@ -133,9 +151,9 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
       },
       websocket: {
         message(ws, raw) {
-          const message = JSON.parse(String(raw)) as { id?: number; method: string };
+          const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
           if (message.id !== undefined)
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
+            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }));
         },
       },
     });
@@ -170,8 +188,8 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
 
   // 1600px leaves the default chat width room for the inline summary column (summary/cardState.ts);
   // narrower, the card is a popover behind the header's summary button.
-  const open = async (page: Page) => {
-    await page.goto(url());
+  const open = async (page: Page, session = CHAT) => {
+    await page.goto(url(session));
     await page.getByText("The notes are tidy.").waitFor();
   };
   const panel = (page: Page) => page.getByRole("complementary", { name: "Chat summary" });
@@ -191,8 +209,9 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     expect(await tab("Summary").getAttribute("aria-pressed")).toBe("false");
     // The tabs take the head's row: its counts (the tab lists them) leave room for them.
     expect(await panel(page).locator(".acpmux-summary-card__counts").count()).toBe(0);
-    // Its own list in the card's place: no summary sections under it.
-    expect(await panel(page).getByRole("region", { name: "Outputs" }).count()).toBe(0);
+    // Its own list in the card's place: no summary sections under it (the summary's Subagents
+    // section is the one this chat has; an empty section is not drawn).
+    expect(await panel(page).getByRole("region", { name: "Subagents", exact: true }).count()).toBe(0);
     const active = panel(page).getByRole("region", { name: "Active · 1" });
     const done = panel(page).getByRole("region", { name: "Done · 2" });
     await active.waitFor({ timeout: 5_000 });
@@ -210,7 +229,7 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     await page.getByText("Subagent of").waitFor({ timeout: 5_000 });
     // The tab's close button goes back to the summary.
     await panel(page).getByRole("button", { name: "Close Subagents" }).click();
-    await panel(page).getByRole("region", { name: "Outputs" }).waitFor({ timeout: 5_000 });
+    await panel(page).getByRole("region", { name: "Subagents", exact: true }).waitFor({ timeout: 5_000 });
     expect(await tabs.count()).toBe(0);
     await context.close();
   });
@@ -224,7 +243,7 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     const tab = (name: string) =>
       panel(page).locator(".acpmux-summary-tabs").getByRole("button", { name, exact: true });
     await tab("Summary").click();
-    await panel(page).getByRole("region", { name: "Outputs" }).waitFor({ timeout: 5_000 });
+    await panel(page).getByRole("region", { name: "Subagents", exact: true }).waitFor({ timeout: 5_000 });
     expect(await tab("Summary").getAttribute("aria-pressed")).toBe("true");
     await tab("Subagents").click();
     await panel(page).getByRole("region", { name: "Active · 1" }).waitFor({ timeout: 5_000 });
@@ -245,6 +264,22 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     expect(await done.getByRole("button", { name: /^Stop / }).count()).toBe(0);
     await context.close();
   });
+
+  for (const [name, session, stops] of [
+    ["the model router's chat, Claude Code named `cmux`, has", ROUTER, true],
+    ["an ACP agent named claude-acp has no", CLAUDE_ACP, false],
+  ] as const) {
+    test(`${name} stop button on a running subagent`, async () => {
+      const context = await browser!.newContext({ viewport: { width: 1600, height: 800 } });
+      const page = await context.newPage();
+      await open(page, session);
+      await panel(page).getByRole("button", { name: "Subagents · 1 running" }).click();
+      const active = panel(page).getByRole("region", { name: "Active · 1" });
+      await active.getByRole("button", { name: "Open Explore docs" }).waitFor({ timeout: 5_000 });
+      expect(await active.getByRole("button", { name: "Stop Explore docs" }).count()).toBe(stops ? 1 : 0);
+      await context.close();
+    });
+  }
 
   // Narrow: the card is a popover behind the header's summary button.
   const openPopoverTab = async (page: Page) => {
@@ -279,7 +314,7 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     expect(await panel(page).getByRole("region", { name: "Active · 1" }).count()).toBe(0);
     // The Summary tab shows the summary, not a folded header.
     await tab("Summary").click();
-    await panel(page).getByRole("region", { name: "Outputs" }).waitFor({ timeout: 5_000 });
+    await panel(page).getByRole("region", { name: "Subagents", exact: true }).waitFor({ timeout: 5_000 });
     expect(await tab("Summary").getAttribute("aria-pressed")).toBe("true");
     // Folded again, the Subagents tab shows its list.
     await panel(page).getByRole("button", { name: "Collapse summary" }).click();

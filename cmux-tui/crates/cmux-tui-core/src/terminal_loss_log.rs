@@ -80,13 +80,17 @@ pub(crate) fn loss_line(
     }))
 }
 
-/// A host loss read from its host's breadcrumbs (signals, last panic) and
-/// not yet logged. The owner reads it before it commits the exit, so the
-/// exit and its cause become visible together, and logs it after the commit.
+/// A host loss read from its host's breadcrumbs (signals, last panic). The
+/// owner reads it and appends its line to the loss log before it commits the
+/// exit, so the exit and its cause become visible together and the cause is
+/// already durable then: an owner stopped right after the exit is visible
+/// still names it on the dead tab after its restart. The breadcrumbs are
+/// removed after the commit ([`HostLoss::record`]).
 pub(crate) struct HostLoss {
     record_path: PathBuf,
     terminal_id: String,
     line: Option<serde_json::Value>,
+    logged: bool,
 }
 
 impl HostLoss {
@@ -106,6 +110,22 @@ impl HostLoss {
             record_path: record_path.to_path_buf(),
             terminal_id: terminal_id.to_string(),
             line: loss_line(record_path, terminal_id, incarnation, end, at_ms),
+            logged: false,
+        }
+    }
+
+    /// Appends the loss to the session's loss log, once. Best effort: a
+    /// failure never affects the exit commit.
+    pub(crate) fn log(&mut self) {
+        if std::mem::replace(&mut self.logged, true) {
+            return;
+        }
+        let Some(line) = &self.line else { return };
+        eprintln!("cmux-tui: terminal {} lost its host: {}", self.terminal_id, line["cause"]);
+        if let Some(log) =
+            self.record_path.parent().and_then(Path::parent).map(|dir| dir.join(LOSS_LOG_FILE))
+        {
+            append_rotating(&log, line);
         }
     }
 
@@ -114,19 +134,13 @@ impl HostLoss {
         self.line.as_ref()?.get("summary").filter(|summary| !summary.is_null())
     }
 
-    /// Appends the loss to the session's loss log and removes the host's
+    /// Logs the loss if [`HostLoss::log`] did not, and removes the host's
     /// breadcrumbs (also for an end that is not a loss), so a later
     /// incarnation never inherits them. Best effort: a failure never affects
     /// the exit commit.
-    pub(crate) fn record(self) {
+    pub(crate) fn record(mut self) {
+        self.log();
         remove_signals(&self.record_path);
-        let Some(line) = self.line else { return };
-        eprintln!("cmux-tui: terminal {} lost its host: {}", self.terminal_id, line["cause"]);
-        if let Some(log) =
-            self.record_path.parent().and_then(Path::parent).map(|dir| dir.join(LOSS_LOG_FILE))
-        {
-            append_rotating(&log, &line);
-        }
     }
 }
 
@@ -302,7 +316,11 @@ fn append_rotating(log: &Path, line: &serde_json::Value) {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
+    // One write per line: `writeln!` on a `File` writes each formatted piece
+    // separately, so a process that exits mid-line leaves a cut line.
+    let mut bytes = line.to_string().into_bytes();
+    bytes.push(b'\n');
     if let Ok(mut file) = options.open(log) {
-        let _ = writeln!(file, "{line}");
+        let _ = file.write_all(&bytes);
     }
 }

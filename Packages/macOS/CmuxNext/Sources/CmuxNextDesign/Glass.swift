@@ -28,26 +28,33 @@ public struct Glass {
     }()
 
     /// A floating panel over content that carries text (palette, dialogs,
-    /// hover cards, find and prompt bars, page info, popovers) and hosts
-    /// `content` edge to edge: Liquid Glass tinted with the theme, with its
-    /// own refracting rim, like iOS's menus and folders (Leo, 2026-10-18,
-    /// replacing the solid surface of 2026-10-12), under the ``CardMaterial``
-    /// (theme tone): the popup surface, mostly opaque, and a visible rim, so
-    /// the text reads over any backdrop (Lawrence, 2026-10-20); the frosted
-    /// vibrancy material before macOS 26 under the same card fill, and the
-    /// solid popup surface under Reduce Transparency. It follows the theme
-    /// live. Use this for every overlay; it takes clicks unless `interactive`
-    /// is false. `tone` `.neutral` draws the shared neutral glass with its rim
+    /// hover cards, find and prompt bars, page info, popovers, menus) and
+    /// hosts `content` edge to edge: Liquid Glass tinted with the theme, with
+    /// its own refracting rim, like iOS's menus and folders (Leo, 2026-10-18,
+    /// replacing the solid surface of 2026-10-12); the frosted vibrancy
+    /// material before macOS 26, and the solid popup surface only under
+    /// Reduce Transparency. It follows the theme live. Use this for every
+    /// overlay; it takes clicks unless `interactive` is false. `tone`
+    /// `.neutral` draws the shared neutral glass with its rim
     /// (``FloatingGlassStyle``: dialogs, prompts, toasts) instead of the theme
-    /// tint and card fill.
+    /// tint.
+    ///
+    /// Glass, never a solid card (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE
+    /// GLASS, SO JUST USE GLASS."): `cardFill` defaults to false. True lays the
+    /// mostly opaque ``CardMaterial`` fill on the glass (ccde782cb51, 2026-10-20),
+    /// which no overlay uses now; `check-overlay-glass.py` refuses a new one
+    /// without a `glass-opaque-allow:` reason, and `FloatingSurfacesStayGlassTests`
+    /// fails when an overlay paints denser than the shared glass.
     public static func makeOverlayPanel(
         content: NSView? = nil,
         cornerRadius: CGFloat = Metrics.panelCornerRadius,
         interactive: Bool = true,
-        tone: OverlayTone = .theme
+        tone: OverlayTone = .theme,
+        cardFill: Bool = false,
+        activeLook: ActiveLookScope? = nil
     ) -> OverlaySurfaceView {
         let surface = OverlaySurfaceView(interactive: interactive, cornerRadius: cornerRadius,
-                                         card: tone.style == nil, tone: tone)
+                                         card: tone.style == nil && cardFill, tone: tone, activeLook: activeLook)
         surface.translatesAutoresizingMaskIntoConstraints = false
         if let content {
             content.translatesAutoresizingMaskIntoConstraints = true
@@ -66,9 +73,10 @@ public struct Glass {
         content: NSView? = nil,
         style: Style = .regular,
         cornerRadius: CGFloat = Metrics.panelCornerRadius,
-        interactive: Bool = false
+        interactive: Bool = false,
+        activeLook: ActiveLookScope? = nil
     ) -> GlassPanelView {
-        let glass = GlassPanelView(style: style, cornerRadius: cornerRadius, interactive: interactive)
+        let glass = GlassPanelView(style: style, cornerRadius: cornerRadius, interactive: interactive, activeLook: activeLook)
         glass.translatesAutoresizingMaskIntoConstraints = false
         glass.tintColor = Palette.glassTint
         glass.contentView = content

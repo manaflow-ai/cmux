@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextWakeups
 
 /// One durable, bounded error log for the app: every warning, error, fault and crash from
 /// the app's own log, its pages' consoles, acpmux, the Chief and crash reports, deduplicated
@@ -17,14 +18,13 @@ public actor ErrorJournal {
     /// The folder of the segment files and harvest cursors.
     public nonisolated let directory: URL
     private let limits: ErrorJournalLimits
-    private let clock: any Clock<Duration>
     private let now: @Sendable () -> Date
     private let normalizer: ErrorNormalizer
     private let redactor: ErrorRedactor
     private var store: ErrorSegmentStore
     private var table: [String: ErrorEntry]
     private var dirty: Set<String> = []
-    private var flushTask: Task<Void, Never>?
+    private let flushTimer: DemandTimer
     private var newFingerprints: [String: (minute: Int64, count: Int)] = [:]
     private var lastWriteError: String?
 
@@ -38,7 +38,7 @@ public actor ErrorJournal {
                 clock: any Clock<Duration> = ContinuousClock(), now: @escaping @Sendable () -> Date = { Date() }) {
         self.directory = directory
         self.limits = limits
-        self.clock = clock
+        flushTimer = DemandTimer(owner: "error-journal.flush", clock: clock)
         self.now = now
         let normalizer = ErrorNormalizer(maxBytes: limits.maxMessageBytes)
         let redactor = ErrorRedactor()
@@ -110,8 +110,7 @@ public actor ErrorJournal {
 
     /// Writes every pending change now.
     public func flush() {
-        flushTask?.cancel()
-        flushTask = nil
+        flushTimer.cancel()
         guard !dirty.isEmpty else { return }
         let changed = dirty.compactMap { table[$0] }.sorted { $0.lastMs < $1.lastMs }
         dirty.removeAll()
@@ -263,21 +262,11 @@ public actor ErrorJournal {
             flush()
             return
         }
-        guard flushTask == nil, !dirty.isEmpty else { return }
-        let delay = Duration.milliseconds(Int64(limits.flushDelaySeconds * 1000))
-        let clock = clock
-        // Bounded, cancellable batching delay (CLAUDE.md Clock.sleep carve-out); flush() cancels it.
-        flushTask = Task { [weak self] in
-            // concurrency-allow: async batching delay in this actor's task, never the main thread; flush() cancels it
-            // wakeup-allow: one-shot flush deadline after a write, cancelled when a batch flushes first
-            guard (try? await clock.sleep(for: delay)) != nil else { return }
-            await self?.flushFromTimer()
+        guard !dirty.isEmpty else { return }
+        // A batching deadline that new records do not push back; flush() cancels it.
+        flushTimer.scheduleIfIdle(after: .milliseconds(Int64(limits.flushDelaySeconds * 1000))) { [weak self] in
+            await self?.flush()
         }
-    }
-
-    private func flushFromTimer() {
-        flushTask = nil
-        flush()
     }
 
     // MARK: - Cursors

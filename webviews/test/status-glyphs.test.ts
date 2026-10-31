@@ -5,8 +5,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("status-glyphs.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -30,7 +30,7 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
   const CODEX_WAITING = 1;
   const CODEX_DONE = 3;
   const url = (variant: string, scheme: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=ui.status-glyphs&variant=${variant}&colorScheme=${scheme}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("ui.status-glyphs", { variant, colorScheme: scheme })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -40,8 +40,8 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, "ui.status-glyphs", { browser });
   });
 
   afterAll(async () => {

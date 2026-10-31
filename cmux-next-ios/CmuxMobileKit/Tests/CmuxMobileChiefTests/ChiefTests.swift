@@ -3,6 +3,7 @@ import CmuxMobileAgentChat
 import CmuxMobileModel
 import CmuxMobileTransport
 import Foundation
+import Observation
 import Testing
 @testable import CmuxMobileChief
 
@@ -39,6 +40,18 @@ import Testing
             #expect(wire.wireKind(reaction)["tapback"] as? String == name)
         }
         #expect(wire.reaction(kind: ["emoji": "🔥"]) == .emoji("🔥"))
+    }
+
+    /// The owner writes milliseconds; Rust timestamps may carry micro- or
+    /// nanoseconds, or none.
+    @Test func datesParseAtEveryPrecision() throws {
+        let base = try #require(wire.date("2026-10-12T09:41:07Z"))
+        for text in ["2026-10-12T09:41:07.123Z", "2026-10-12T09:41:07.123456Z", "2026-10-12T09:41:07.123456789Z"] {
+            let date = try #require(wire.date(text), "\(text)")
+            #expect(abs(date.timeIntervalSince(base) - 0.123) < 0.001, "\(text)")
+        }
+        #expect(wire.date("2026-10-12T11:41:07.5+02:00").map { $0.timeIntervalSince(base) } == 0.5)
+        #expect(wire.date("not a date") == nil)
     }
 
     @Test func messageMapsPartsReceiptsAndReactions() throws {
@@ -135,6 +148,17 @@ final class FakeDaemon: @unchecked Sendable {
             queued.append(line(["event": "conversation-changed", "conversation": "conv_chief", "rev": rev,
                                 "transaction": NSNull(), "change": ["kind": "message", "message": posted]]))
             queuedUntil = command
+        }
+    }
+
+    /// Chief retracts message `id`: a `message-updated` event after the next reply.
+    func queueRetraction(of id: String) {
+        lock.withLock {
+            guard let index = messages.firstIndex(where: { $0["id"] as? String == id }) else { return }
+            messages[index]["retracted_at"] = "2026-10-12T09:45:00.000Z"
+            rev += 1
+            queued.append(line(["event": "conversation-changed", "conversation": "conv_chief", "rev": rev,
+                                "transaction": NSNull(), "change": ["kind": "message-updated", "message": messages[index]]]))
         }
     }
 
@@ -291,7 +315,11 @@ final class FakeDaemon: @unchecked Sendable {
         let sent = try await backend.send(ConversationOutgoingDraft(clientMessageID: "c-1", text: "run the tests", replyToID: nil, attachmentIDs: []))
         #expect(sent.seq == 1)
         #expect(sent.clientMessageID == "c-1")
-        #expect(sent.delivery == .delivered)
+        // Chief's read cursor follows the reply at once and can be applied first: read then.
+        switch sent.delivery {
+        case .delivered, .read: break
+        default: Issue.record("expected delivered or read, got \(sent.delivery)")
+        }
 
         var sawTyping = false
         var sawRead = false
@@ -331,18 +359,66 @@ func within<T: Sendable>(_ limit: Duration, _ work: @escaping @Sendable () async
     }
 }
 
-/// Waits on the main actor until `condition` holds; past `limit` it records
-/// an issue and throws instead of spinning forever.
-@MainActor func waitUntil(_ what: String, within limit: Duration = .seconds(20),
+/// Waits on the main actor until `condition` holds; past the watchdog, or when the
+/// test is cancelled, it records an issue and throws instead of spinning forever.
+@MainActor func waitUntil(_ what: String, within watchdog: Duration = waitWatchdog,
                           sourceLocation: SourceLocation = #_sourceLocation,
                           _ condition: @MainActor () -> Bool) async throws {
-    let deadline = ContinuousClock.now.advanced(by: limit)
-    while !condition() {
-        if ContinuousClock.now >= deadline {
-            Issue.record("timed out waiting for \(what)", sourceLocation: sourceLocation)
-            throw CancellationError()
+    guard await eventually(watchdog: watchdog, condition) else {
+        Issue.record("timed out waiting for \(what)", sourceLocation: sourceLocation)
+        throw CancellationError()
+    }
+}
+
+/// How long a wait may take before it gives up: a watchdog against a hang, not a
+/// time the work is expected to take. In the full target a synchronous UIKit suite
+/// held the main thread 11.6 s on a cold simulator, and work waited on here (main-actor
+/// tasks) waits behind such a hold however fast it is, so a short limit failed tests
+/// that had nothing wrong with them.
+let waitWatchdog: Duration = .seconds(60)
+
+/// Whether `condition` came to hold before `watchdog` passed or the task was cancelled.
+/// It waits on the condition's own state rather than on time: it wakes when observable
+/// state the condition read changes (Observation), and checks again every `tick` for
+/// state that isn't observable, such as a test double's log of requests.
+@MainActor func eventually(watchdog: Duration = waitWatchdog, tick: Duration = .milliseconds(20),
+                           _ condition: @MainActor () -> Bool) async -> Bool {
+    let deadline = ContinuousClock.now.advanced(by: watchdog)
+    while true {
+        let wake = Wake()
+        let met = withObservationTracking { condition() } onChange: {
+            Task { @MainActor in wake.fire() }
         }
-        await Task.yield()
+        if met { return true }
+        if Task.isCancelled || ContinuousClock.now >= deadline { return false }
+        // Never past the deadline, however long the tick.
+        let nap = min(tick, deadline - ContinuousClock.now)
+        let ticker = Task { @MainActor in
+            try? await Task.sleep(for: nap)
+            wake.fire()
+        }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { wake.wait($0) }
+        } onCancel: {
+            Task { @MainActor in wake.fire() }
+        }
+        ticker.cancel()
+    }
+}
+
+/// One wake-up of ``eventually``: the first of a change, a tick or a cancel resumes it.
+@MainActor private final class Wake {
+    private var fired = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func wait(_ continuation: CheckedContinuation<Void, Never>) {
+        if fired { continuation.resume() } else { self.continuation = continuation }
+    }
+
+    func fire() {
+        fired = true
+        continuation?.resume()
+        continuation = nil
     }
 }
 
@@ -438,6 +514,17 @@ func within<T: Sendable>(_ limit: Duration, _ work: @escaping @Sendable () async
         #expect(preferences.muted("conv_chief"))
         await backend.markRead(upToSeq: 3)
         #expect(!daemon.ops.contains { $0["kind"] as? String == "read_cursor.set" })
+        // QA 2026-10-27: a new backend (the link came back) still knows the
+        // position read here; it was in memory only, so unread came back.
+        let again = ChiefDaemonBackend(client: DaemonClient(channel: try await MockMacLink { _, request in daemon.respond(request) }
+            .openChannel(service: "chief", args: [:])), preferences: preferences)
+        var reconnected = again.events().makeAsyncIterator()
+        var readAfterReconnect: Int?
+        while readAfterReconnect == nil, let event = await reconnected.next() {
+            if case .readState(let state) = event { readAfterReconnect = state.lastReadSeq }
+        }
+        #expect(readAfterReconnect == 3)
+        again.close()
         // Back on: the position read here goes to the Mac.
         _ = try await backend.updateListState(ConversationListStateChange(sendReadReceipts: true))
         #expect(daemon.ops.contains { $0["kind"] as? String == "read_cursor.set" && $0["seq"] as? Int == 3 })
@@ -466,7 +553,7 @@ func within<T: Sendable>(_ limit: Duration, _ work: @escaping @Sendable () async
         let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox)
         session.send(ConversationComposeMessage(text: "run the tests"))
         #expect(session.outbox.count == 1)
-        #expect(outbox.load().map(\.text) == ["run the tests"])
+        #expect(outbox.load().map(\.message.text) == ["run the tests"])
         // A relaunch keeps it.
         #expect(ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox).outbox.count == 1)
         session.use(ChiefMockBackend(sleep: { _ in }))
@@ -577,7 +664,7 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
 #if os(iOS)
 @Suite @MainActor struct ChiefDirectoryTests {
     func directory() -> ChiefDirectory {
-        let chief = ChiefDirectory.recipients(store: AppStore(teams: [], activeTeamID: "", workspaces: [], feed: []), identity: .standard)
+        let chief = ChiefDirectory.recipients(store: AppStore(teams: [], activeTeamID: "", workspaces: [], feed: []), identity: .standard, place: .mac)
         let agent = ChiefRecipient(
             contact: ConversationContact(id: "tab:t1", name: "Claude · cmux", initials: "CL", colorHex: "#636366",
                                          handles: [ConversationContactHandle(value: "cmux", label: "Claude", service: .iMessage)]),
@@ -602,6 +689,99 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
         let both = try await directory.createConversation([.participant("agent_mux"), .participant("tab:t1")])
         #expect(both.info.id == ChiefDirectory.chiefContactID)
         await #expect(throws: ConversationBackendError.self) { try await directory.createConversation([.handle("nobody")]) }
+    }
+}
+/// New Message (or Forward) addressed to one agent sends the whole message as
+/// that agent's prompt: its text and every image, bytes and order kept. Images
+/// were dropped (an image-only message sent nothing).
+@Suite @MainActor struct ChiefComposeAgentRouteTests {
+    final class Recorder: AgentSessionSource {
+        let summary: AgentSessionSummary
+        var sent: [AgentClientIntent] = []
+        init(summary: AgentSessionSummary) { self.summary = summary }
+        func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { _ in } }
+        func send(_ intent: AgentClientIntent) { sent.append(intent) }
+    }
+
+    static let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, 1])
+    static let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10, 0x4A, 0x46, 0x49, 0x46, 0, 1, 2])
+
+    /// Routes `message` to a one-agent conversation; returns the prompts the agent's source got.
+    func route(_ message: ConversationComposeMessage) -> [(text: String, attachments: [AgentAttachment])] {
+        let suffix = UUID().uuidString
+        let tabID = "t-\(suffix)", workspaceID = "ws-\(suffix)", macID = "m-\(suffix)"
+        let tab = WorkspaceTab(id: tabID, kind: .agent, title: "Claude", harness: "claude")
+        let workspace = Workspace(id: workspaceID, macID: macID, title: "cmux", directory: "~", tabs: [tab], lastActivityAt: Date())
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [workspace], feed: [])
+        let agents = AgentSessionDirectory.shared
+        let previous = agents.makeSource
+        var recorder: Recorder?
+        agents.makeSource = { summary in
+            let made = Recorder(summary: summary)
+            recorder = made
+            return made
+        }
+        defer {
+            agents.makeSource = previous
+            agents.invalidate(id: tabID, macID: macID)
+        }
+        let agent = ChiefRecipient(
+            contact: ConversationContact(id: "tab:\(tabID)", name: "Claude · cmux", initials: "CL", colorHex: "#636366", handles: []),
+            route: .agent(AgentChatDestination(workspaceID: workspaceID, tabID: tabID))
+        )
+        let directory = ChiefDirectory(recipients: [agent])
+        var opened: [HomeConversationRoute] = []
+        let composer = ChiefComposer(store: store) { opened.append($0) }
+        let creation = ConversationCreation(
+            info: ConversationInfo(id: "tab:\(tabID)", title: "Claude · cmux", kind: .direct,
+                                   participants: [ConversationParticipant(id: "tab:\(tabID)", name: "Claude · cmux", initials: "CL", colorHex: "#636366", isMe: false)]),
+            created: false, service: .iMessage
+        )
+        composer.route(creation, message: message, directory: directory)
+        #expect(opened == [.agent(AgentChatDestination(workspaceID: workspaceID, tabID: tabID))])
+        return (recorder?.sent ?? []).compactMap { intent in
+            guard case let .prompt(text, attachments, _, _, _) = intent else { return nil }
+            return (text, attachments)
+        }
+    }
+
+    @Test func textAndImagesReachTheAgentInOrder() throws {
+        let prompts = route(ConversationComposeMessage(text: "look at these", images: [
+            ConversationComposeImage(data: Self.png, width: 1, height: 1, mimeType: "image/png"),
+            ConversationComposeImage(data: Self.jpeg, width: 2, height: 2, mimeType: "image/jpeg"),
+        ]))
+        let prompt = try #require(prompts.first)
+        #expect(prompts.count == 1)
+        #expect(prompt.text == "look at these")
+        #expect(prompt.attachments.map(\.kind) == [.image, .image])
+        #expect(prompt.attachments.map(\.data) == [Self.png, Self.jpeg])
+        #expect(prompt.attachments.map(\.imageMIMEType) == ["image/png", "image/jpeg"])
+        try #require(prompt.attachments.count == 2)
+        #expect(prompt.attachments[0].name.hasSuffix(".png"))
+        #expect(prompt.attachments[1].name.hasSuffix(".jpg"))
+        #expect(Set(prompt.attachments.map(\.id)).count == 2)
+    }
+
+    @Test func anImageOnlyMessageStillSends() throws {
+        let prompts = route(ConversationComposeMessage(text: "", images: [
+            ConversationComposeImage(data: Self.png, width: 1, height: 1, mimeType: "image/png"),
+        ]))
+        let prompt = try #require(prompts.first)
+        #expect(prompts.count == 1)
+        #expect(prompt.text == "")
+        #expect(prompt.attachments.map(\.data) == [Self.png])
+    }
+
+    @Test func aTextOnlyMessageSendsNoAttachments() throws {
+        let prompts = route(ConversationComposeMessage(text: "run the tests"))
+        let prompt = try #require(prompts.first)
+        #expect(prompts.count == 1)
+        #expect(prompt.text == "run the tests")
+        #expect(prompt.attachments.isEmpty)
+    }
+
+    @Test func anEmptyMessageSendsNothing() {
+        #expect(route(ConversationComposeMessage(text: "  ")).isEmpty)
     }
 }
 #endif

@@ -51,6 +51,32 @@ nonisolated enum Strings {
     static var extensionContextInstalledByAdmin: String { String(localized: "browser.extensions.context.installedByAdmin", defaultValue: "Installed by Your Administrator", bundle: .module) }
     static var extensionContextManageExtension: String { String(localized: "browser.extensions.context.manageExtension", defaultValue: "Manage Extension", bundle: .module) }
     static var extensionContextViewWebPermissions: String { String(localized: "browser.extensions.context.viewWebPermissions", defaultValue: "View Web Permissions", bundle: .module) }
+    static var extensionMenuMoreTooltip: String { String(localized: "browser.extensions.menu.moreTooltip", defaultValue: "More options", bundle: .module) }
+    static var extensionMenuSidePanelTooltip: String { String(localized: "browser.extensions.menu.sidePanelTooltip", defaultValue: "Open side panel", bundle: .module) }
+    static var extensionMenuSidePanelAccessible: String { String(localized: "browser.extensions.menu.sidePanelAccessible", defaultValue: "Open side panel of %@", bundle: .module) }
+    static var extensionMenuGetExtensions: String { String(localized: "browser.extensions.menu.getExtensions", defaultValue: "Get Extensions", bundle: .module) }
+    static var extensionMenuEmptyDetail: String { String(localized: "browser.extensions.menu.emptyDetail", defaultValue: "Add extensions from the Chrome Web Store.", bundle: .module) }
+
+    /// The title of a section of the Extensions bubble (Chrome's site-access sections).
+    static func extensionSection(_ group: ExtensionSiteAccess.Group) -> String {
+        switch group {
+        case .canSeeAndChange: String(localized: "browser.extensions.menu.section.canSeeAndChange", defaultValue: "Can see and change this site", bundle: .module)
+        case .whenClicked: String(localized: "browser.extensions.menu.section.whenClicked", defaultValue: "Allowed only when clicked", bundle: .module)
+        case .noAccess: String(localized: "browser.extensions.menu.section.noAccess", defaultValue: "No access needed", bundle: .module)
+        }
+    }
+
+    /// The line under an extension's name: what it can see and change (Edge's wording); empty
+    /// when its manifest was not read.
+    static func extensionAccess(_ access: ExtensionSiteAccess) -> String {
+        switch access {
+        case .allSites: String(localized: "browser.extensions.menu.access.allSites", defaultValue: "Allowed on all sites", bundle: .module)
+        case .thisSite: String(localized: "browser.extensions.menu.access.thisSite", defaultValue: "Allowed on this site", bundle: .module)
+        case .whenClicked: String(localized: "browser.extensions.menu.access.whenClicked", defaultValue: "Allowed when clicked", bundle: .module)
+        case .none: String(localized: "browser.extensions.menu.access.none", defaultValue: "No site access", bundle: .module)
+        case .unknown: ""
+        }
+    }
 
     // Address bar
     static func searchWith(engine: String) -> String {

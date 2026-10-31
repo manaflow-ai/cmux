@@ -81,13 +81,11 @@ final class LocationTrailService {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
         reports.finish()
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            observation?.cancel()
-            scopeObservation?.cancel()
-        }
+        observation?.cancel()
+        scopeObservation?.cancel()
     }
 
     private var scopeObservation: Task<Void, Never>?
@@ -236,6 +234,11 @@ final class LocationTrailService {
     /// page's own entry menu is the list there.
     func list(_ direction: LocationTrailDirection) -> [LocationTrailListItem] {
         trail.list(direction, scope: scope, isAvailable: isAvailable)
+    }
+
+    /// The headed right-click / long-press list under the Debug Settings layout (history.md 4.2c).
+    func menuSections(_ direction: LocationTrailDirection, layout: LocationTrailMenuLayout) -> [LocationTrailMenuSection] {
+        trail.menuSections(direction, scope: scope, layout: layout, isAvailable: isAvailable)
     }
 
     /// Goes to a listed entry (`history.goTo`). False when the index is gone or not focusable.

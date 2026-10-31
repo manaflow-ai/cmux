@@ -39,12 +39,18 @@ impl Hub {
     /// saved mode is not replayed. Only here: a request that finds the agent
     /// running (or re-adopts its host) spawns nothing, so it changes neither
     /// the record nor the saved mode, which stays what that agent runs.
-    pub(in crate::hub) fn fresh_agent(&self, s: &Session, digest: Option<String>) {
+    /// Whether `spawn` asks OpenCode to ask is recorded too (`opencode_ask.rs`).
+    pub(in crate::hub) fn fresh_agent(&self, s: &Session, spawn: &crate::hub::spawn::Spawn) {
+        let digest = spawn.preset_digest.clone();
+        // A new agent reports its own mode: cmux's mark waits for the replay to set it.
+        let replay_mark = s.meta.lock().unwrap_or_else(|e| e.into_inner()).mode_set_by_cmux.take();
         {
             let mut a = s.applied.lock().unwrap_or_else(|e| e.into_inner());
             *a = crate::hub::session::Applied {
                 preset_resolved: a.preset_resolved.take(),
                 preset_spawned: digest.clone(),
+                opencode_asks: spawn.env.contains_key(crate::opencode_ask::MARKER),
+                replay_mark,
                 ..Default::default()
             };
         }

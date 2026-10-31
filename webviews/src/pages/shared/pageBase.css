@@ -33,7 +33,9 @@ body {
   margin: 0;
   background: transparent;
   color: var(--page-text);
-  font: 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font: 13px var(--font-ui);
+  /* The UI font's tracking at the body step (type-scale.json); each step sets its own. */
+  letter-spacing: var(--text-body--letter-spacing);
   -webkit-font-smoothing: antialiased;
   user-select: none;
 }
@@ -67,7 +69,6 @@ input {
   background: transparent;
   padding: 3px 10px;
   border-radius: 5px;
-  cursor: default;
 }
 
 .page-menu-item.active:not([data-disabled]):not([aria-disabled="true"]),

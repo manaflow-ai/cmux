@@ -67,6 +67,9 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
     /// progress and result): it takes the bottom-left slot from the Now
     /// Playing and "cmux Updated!" cards, so the answer is never behind them.
     public var userAsked: Bool
+    /// Something waits on the person's answer (``SidebarAsks``): the card
+    /// takes the slot from every other card, the staged update card too.
+    public var awaitsAnswer = false
 
     public init(id: String, symbol: String? = nil, eyebrow: String? = nil, title: String, detail: String? = nil,
                 lines: [String] = [], progress: Progress? = nil, actions: [Action] = [], shortcut: String? = nil, dismissLabel: String? = nil,

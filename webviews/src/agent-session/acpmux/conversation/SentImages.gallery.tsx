@@ -2,15 +2,22 @@
 // The images a sent prompt carries, above its bubble (UserBubble.tsx SentImages): each a rounded
 // thumbnail cropped to fill a fixed height, its slot held while acpmux reads it, named on hover by
 // its file name or, for a pasted screenshot, its size; one that cannot be drawn says so.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { PromptImage } from "../model";
+import { primeSentImages } from "./imageEntries";
 import { ImageViewerContext } from "./imageViewerContext";
 import { TurnActionsContext } from "./turnActions";
 import { SentImages } from "./UserBubble";
 
 type Shot = { width: number; height: number; hue: number };
-type Props = { images: (PromptImage & { shot?: Shot; broken?: boolean })[]; pending?: boolean };
+type Props = {
+  images: (PromptImage & { shot?: Shot; broken?: boolean })[];
+  pending?: boolean;
+  /// The pane's own paste: acpmux's echo names each image (by the SHA-256 of its bytes) before
+  /// the pane has primed it, and acpmux's read never answers; the pane's priming draws it.
+  primedLate?: boolean;
+};
 
 /// A screenshot-like image `shot.width`×`shot.height`: a title bar, a sidebar and lines of text.
 function paint({ width, height, hue }: Shot): string {
@@ -29,7 +36,49 @@ function paint({ width, height, hue }: Shot): string {
   return canvas.toDataURL("image/png");
 }
 
-function GallerySentImages({ images, pending = false }: Props) {
+/// The id acpmux names a data URL's image by: the SHA-256 of its bytes.
+async function acpmuxId(src: string): Promise<string> {
+  const bytes = Uint8Array.from(atob(src.slice(src.indexOf(",") + 1)), (char) => char.charCodeAt(0));
+  const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return Array.from(hash, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/// Sent images named by acpmux before the pane primed them: the slots wait on a read that never
+/// answers until the pane's priming lands a moment later.
+function GalleryPrimedLate({ images }: Props) {
+  const [named, setNamed] = useState<Props["images"]>();
+  useEffect(() => {
+    let live = true;
+    const painted = images.map((image) => ({ image, src: paint(image.shot!) }));
+    void Promise.all(painted.map(async ({ image, src }) => ({ ...image, id: await acpmuxId(src) }))).then((ids) => {
+      if (!live) return;
+      setNamed(ids);
+      setTimeout(() => {
+        void primeSentImages(
+          painted.map(({ image, src }) => ({
+            id: `paste-${image.id}`,
+            kind: "image" as const,
+            name: image.name ?? "image.png",
+            mimeType: "image/png",
+            size: src.length,
+            data: src.slice(src.indexOf(",") + 1),
+          })),
+        );
+      }, 300);
+    });
+    return () => {
+      live = false;
+    };
+  }, [images]);
+  return named ? <GallerySentImages images={named} pending /> : null;
+}
+
+function GallerySentImages({ images, pending = false, primedLate = false }: Props) {
+  if (primedLate) return <GalleryPrimedLate images={images} />;
+  return <GalleryShownImages images={images} pending={pending} />;
+}
+
+function GalleryShownImages({ images, pending = false }: Props) {
   const [actions] = useState(() => {
     const urls = new Map(
       images.map((image) => [image.id, image.broken ? "data:image/png;base64,AAAA" : image.shot && paint(image.shot)]),
@@ -43,7 +92,7 @@ function GallerySentImages({ images, pending = false }: Props) {
       <TurnActionsContext.Provider value={actions}>
         <div className="cv-user" style={{ padding: 16 }}>
           <SentImages images={images} />
-          <div className="cv-user__bubble">Why does the sidebar overlap the toolbar here?</div>
+          <div className="ui-glass cv-user__bubble">Why does the sidebar overlap the toolbar here?</div>
         </div>
       </TurnActionsContext.Provider>
     </ImageViewerContext.Provider>
@@ -88,8 +137,25 @@ export default componentEntry<Props>({
       props: { images: [pasted[0]!, { id: "x", mimeType: "image/png", name: "image.png", broken: true }] },
     },
     loading: {
-      note: "While acpmux reads the images, each slot holds its thumbnail's height.",
-      props: { images: pasted, pending: true },
+      note: "While acpmux reads the images, each slot holds its thumbnail's height (square: no size known yet).",
+      // Ids of their own: the pane keeps a read image by id (imageEntries.ts) for every frame.
+      props: { images: pasted.map((image) => ({ ...image, id: `loading-${image.id}` })), pending: true },
+    },
+    "pasted-echo-first": {
+      note: "A pasted screenshot whose echo names it before the pane primed it, while acpmux's read of a long chat is slow: it draws once the pane's priming lands, never an empty box.",
+      props: { images: [pasted[0]!], primedLate: true },
+    },
+    "loading-sized": {
+      note: "Images whose record names their size: each slot is reserved at its own shape before acpmux reads it, so nothing snaps when it loads.",
+      props: {
+        images: pasted.map((image) => ({
+          ...image,
+          id: `sized-${image.id}`,
+          width: image.shot!.width,
+          height: image.shot!.height,
+        })),
+        pending: true,
+      },
     },
   },
 });

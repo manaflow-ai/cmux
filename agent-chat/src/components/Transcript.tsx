@@ -10,7 +10,9 @@ import { useActivityStartedAt, useTicker } from "../hooks/useTicker";
 import { useVirtualTurns } from "../hooks/useVirtualTurns";
 import { Check, Chevron, CopyIcon, EllipsisIcon, PinwheelSpinner } from "./icons";
 import { HintTooltip } from "./Tooltips";
-import { activityRowLabel, compactTurnGroups, groupTurns, summarizeTurnActivity, type TurnGroup } from "../turns";
+import { activityRowHoverTitle, activityRowLabel, compactTurnGroups, groupTurns, summarizeTurnActivity, type TurnGroup } from "../turns";
+import { agentMessageFoldedByDefault } from "./agentMessageFormat";
+import { toolDetailHoverTitle } from "../toolDetail";
 
 export type ToolBlockVariant = "card" | "inline" | "rail" | "oneliner" | "terminal";
 export const TOOL_BLOCK_VARIANT: ToolBlockVariant = "inline";
@@ -167,10 +169,10 @@ export function ToolBlock({ b, variant = TOOL_BLOCK_VARIANT, defaultOpen = false
     ? <PinwheelSpinner size={12} />
     : <span className={"tool-dot " + (b.status === "fail" ? "fail" : "ok")} />;
   const label = variant === "oneliner"
-    ? <>{mark}<span className="name">{b.name}</span>{b.detail ? <span className="detail">({b.detail})</span> : null}<span className="tool-time tabular-nums"> · 1.2s</span></>
+    ? <>{mark}<span className="name">{b.name}</span>{b.detail ? <span className="detail" title={toolDetailHoverTitle(b.detail)}>({b.detail})</span> : null}<span className="tool-time tabular-nums"> · 1.2s</span></>
     : variant === "terminal"
-      ? <>{mark}<span className="tool-dollar">$</span><span className="name">{b.name}</span>{b.detail ? <span className="detail">{b.detail}</span> : null}</>
-      : <>{mark}<span className="name">{b.name}</span><span className="detail">{b.detail}</span></>;
+      ? <>{mark}<span className="tool-dollar">$</span><span className="name">{b.name}</span>{b.detail ? <span className="detail" title={toolDetailHoverTitle(b.detail)}>{b.detail}</span> : null}</>
+      : <>{mark}<span className="name">{b.name}</span><span className="detail" title={toolDetailHoverTitle(b.detail)}>{b.detail}</span></>;
   return (
     <div className={`tool tool-${variant} tool-status-${b.status}`}>
       <details open>
@@ -671,11 +673,39 @@ export function agentMessageLabel(from: string, languages?: readonly string[]): 
 }
 
 /** A cmux agent message the agent received, shown with its sender. */
-export function AgentMessageRow({ message }: { message: { from: string; body: string } }) {
+export function AgentMessageRow({
+  message,
+  expanded: controlledExpanded,
+  onExpandedChange,
+}: {
+  message: { id?: string; from: string; body: string };
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
+}) {
+  const foldByDefault = agentMessageFoldedByDefault(message.body);
+  const [localExpanded, setLocalExpanded] = useState(false);
+  const expanded = controlledExpanded ?? localExpanded;
+  const collapsed = foldByDefault && !expanded;
+  const setExpanded = (next: boolean) => {
+    onExpandedChange?.(next);
+    if (controlledExpanded === undefined) setLocalExpanded(next);
+  };
   return (
-    <div className="msg agent-message">
-      <div className="agent-message-from">{agentMessageLabel(message.from)}</div>
-      <div className="body selectable">{message.body}</div>
+    <div className="msg agent-message" data-folded={collapsed ? "true" : undefined}>
+      <div className="agent-message-from" role="heading" aria-level={4}>{agentMessageLabel(message.from)}</div>
+      <DisclosureMotion open={!collapsed} className="agent-message-disclosure">
+        {() => <div className="body selectable"><ChatMarkdown text={message.body} /></div>}
+      </DisclosureMotion>
+      {foldByDefault ? (
+        <button
+          type="button"
+          className="agent-message-toggle"
+          aria-expanded={!collapsed}
+          onClick={() => setExpanded(!expanded)}
+        >
+          {collapsed ? agentChatText("agentMessageShowMore") : agentChatText("agentMessageShowLess")}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -715,12 +745,14 @@ function PlanBlock({ entries }: { entries: Extract<Block, { kind: "plan" }>['ent
 
 function ActivityDisclosureRow({
   label,
+  title,
   open,
   canExpand,
   onToggle,
   className,
 }: {
   label: string;
+  title?: string;
   open: boolean;
   canExpand: boolean;
   onToggle: () => void;
@@ -738,7 +770,7 @@ function ActivityDisclosureRow({
 
   if (!canExpand) {
     return (
-      <div className={className} style={activityLeafRowStyle}>
+      <div className={className} style={activityLeafRowStyle} title={title}>
         {content}
       </div>
     );
@@ -750,6 +782,7 @@ function ActivityDisclosureRow({
       className={className}
       style={activityButtonRowStyle}
       aria-expanded={open}
+      title={title}
       onBlur={() => setFocused(false)}
       onFocus={() => setFocused(true)}
       onMouseEnter={() => setHovered(true)}
@@ -846,6 +879,7 @@ function TurnActivity({
                     <div className="turn-activity-item" key={key}>
                       <ActivityDisclosureRow
                         label={activityRowLabel(block)}
+                        title={activityRowHoverTitle(block)}
                         open={open}
                         canExpand={canExpand}
                         className={"turn-activity-row" + (open ? " open" : "")}
@@ -886,6 +920,8 @@ function TurnGroupView({
   setExpandedTurns,
   expandedItems,
   setExpandedItems,
+  expandedMessages,
+  setExpandedMessages,
 }: {
   group: TurnGroup;
   status?: string;
@@ -902,12 +938,21 @@ function TurnGroupView({
   setExpandedTurns: (next: Record<string, boolean>) => void;
   expandedItems: Record<string, boolean>;
   setExpandedItems: (next: Record<string, boolean>) => void;
+  expandedMessages: Record<string, boolean>;
+  setExpandedMessages: (next: Record<string, boolean>) => void;
 }) {
   const live = status === "running" && !group.done;
   return (
     <div className="turn-group">
       {group.user ? <div className="msg user"><div className="body selectable">{group.user.text}</div></div> : null}
-      {group.messages?.map((message) => <AgentMessageRow key={message.id} message={message} />)}
+      {group.messages?.map((message) => (
+        <AgentMessageRow
+          key={message.id}
+          message={message}
+          expanded={Boolean(expandedMessages[message.id])}
+          onExpandedChange={(open) => setExpandedMessages({ ...expandedMessages, [message.id]: open })}
+        />
+      ))}
       {live
         ? group.activity.map((block, i) => (
           block.kind === "thinking" || block.kind === "assistant"
@@ -987,11 +1032,13 @@ export function Blocks({
   const virtual = useVirtualTurns(displayGroups.length, virtualized);
   const [expandedTurns, setExpandedTurns] = useState<Record<string, boolean>>(() => initialExpandedTurns);
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>(() => initialExpandedItems);
+  const [expandedMessages, setExpandedMessages] = useState<Record<string, boolean>>({});
   useEffect(() => {
     if (blocks.length !== 0) return;
     setHistoryExpanded(false);
     setExpandedTurns({});
     setExpandedItems({});
+    setExpandedMessages({});
   }, [blocks.length]);
   const start = virtualized ? virtual.range.start : 0;
   const end = virtualized ? virtual.range.end : displayGroups.length - 1;
@@ -1023,6 +1070,8 @@ export function Blocks({
               setExpandedTurns={setExpandedTurns}
               expandedItems={expandedItems}
               setExpandedItems={setExpandedItems}
+              expandedMessages={expandedMessages}
+              setExpandedMessages={setExpandedMessages}
             />
           </div>
         );

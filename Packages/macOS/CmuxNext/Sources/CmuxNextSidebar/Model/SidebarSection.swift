@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A top-level sidebar section: the pinned area or one machine.
 public nonisolated enum SectionID: Hashable, Sendable {
@@ -57,14 +57,22 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
         /// The machine answers, but its cmux-tui did not start (or the
         /// remote command failed); the detail carries its error.
         case failed
+        /// A Cloud machine that ran lost its link or had it revoked; a
+        /// click connects it again. The detail carries why.
+        case disconnected
+        /// A Cloud machine its owner (or a caller) paused; resumes on attach.
+        case paused
+        /// A Cloud machine the idle auto-pause parked; resumes on attach.
+        case pausedIdle
 
         /// The machine cannot connect until the person acts (sign-in,
-        /// network, install or update). In one list its workspaces' second
-        /// line names the status (cx-mdo0); no header or status row shows.
+        /// network, install or update). In one list its workspaces' rows say
+        /// the status to VoiceOver and an expanded row's meta line names it
+        /// (cx-mdo0); no header or status row shows.
         public var needsAttention: Bool {
             switch self {
-            case .authFailed, .unreachable, .installRequired, .updateRequired, .failed: true
-            case .connected, .connecting, .reconnecting, .offline, .updateAvailable, .installing: false
+            case .authFailed, .unreachable, .installRequired, .updateRequired, .failed, .disconnected: true
+            case .connected, .connecting, .reconnecting, .offline, .updateAvailable, .installing, .paused, .pausedIdle: false
             }
         }
     }
@@ -78,15 +86,65 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
     /// The machine's own icon (`session-icon-v1`, from the home session
     /// registry), drawn in place of its kind's symbol; nil draws the symbol.
     public var icon: WorkspaceIcon?
+    /// A Cloud machine's rate, running time and the account's machine cap,
+    /// shown in the header's tooltip (`Cost.lines`); nil for machines
+    /// that bill nothing.
+    public var cost: Cost?
 
     public init(id: MachineID, name: String, kind: Kind, status: Status = .connected, detail: String? = nil,
-                icon: WorkspaceIcon? = nil) {
+                icon: WorkspaceIcon? = nil, cost: Cost? = nil) {
         self.id = id
         self.name = name
         self.kind = kind
         self.status = status
         self.detail = detail
         self.icon = icon
+        self.cost = cost
+    }
+
+    /// What a Cloud machine costs, from server facts only: the rate of its
+    /// size and when it last started. The estimate is rate x time running.
+    public nonisolated struct Cost: Hashable, Sendable {
+        /// The account's machine cap, from the plan (never from the machine list).
+        public nonisolated enum Cap: Hashable, Sendable {
+            /// The plan has no cap (the server's `null`).
+            case uncapped(running: Int)
+            case capped(running: Int, max: Int)
+            /// The plan's cap is zero: no machine may run.
+            case closed
+
+            /// The cap the server's `maxActiveVms` names: nil is no cap, zero is closed.
+            public init(maxActiveVms: Int?, running: Int) {
+                switch maxActiveVms {
+                case nil: self = .uncapped(running: running)
+                case let max? where max <= 0: self = .closed
+                case let max?: self = .capped(running: running, max: max)
+                }
+            }
+        }
+
+        /// US dollars per running hour; nil when the server has no rate for the size.
+        public var hourlyRateUsd: Double?
+        /// When the machine last started; nil while it is paused.
+        public var runningSince: Date?
+        public var cap: Cap?
+
+        public init(hourlyRateUsd: Double?, runningSince: Date?, cap: Cap?) {
+            self.hourlyRateUsd = hourlyRateUsd
+            self.runningSince = runningSince
+            self.cap = cap
+        }
+
+        /// Seconds running at `now`; nil while paused.
+        public func runningSeconds(now: Date) -> TimeInterval? {
+            runningSince.map { max(0, now.timeIntervalSince($0)) }
+        }
+
+        /// What this run has cost so far at `now`: nil while paused or without a rate.
+        public func estimatedCostUsd(now: Date) -> Double? {
+            guard let rate = hourlyRateUsd, let seconds = runningSeconds(now: now) else { return nil }
+            return rate * seconds / 3600
+        }
     }
 
     /// A connected machine whose link redials reads as reconnecting

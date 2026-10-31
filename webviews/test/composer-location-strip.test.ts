@@ -1,18 +1,19 @@
+// cmux-web-test-timeout: 240
 // The composer's location strip (hq#1957 composer location strip). Leo: the folder and host row
 // ("Choose folder ⌄ · cosmic-gray ⌄") sat inside the card as a second row under the controls,
-// wasting space. It is now a tab on the card's top edge in the chat composer, and text a few px
-// over the card in the New Tab's (#21133):
-//   - the strip's bottom edge is the card's top edge (New Tab: a few px above it), and it stays
-//     within the card's sides;
+// wasting space. It is now text a few px over the card, in the chat composer as in the New Tab's
+// (#21133; Leo 2026-10-25, Cmd-I's new chat "a different style from everything else"):
+//   - the strip stands a few px above the card's top edge, and it stays within the card's sides;
 //   - the card holds one controls row and no location row;
 //   - the strip is as tall with no project, with one and while the host loads;
 //   - only a new chat has the strip, before its first send: a started chat's card stands alone,
 //     with nothing drawn and no gap above it, and its queued prompts sit on the card;
 //   - while the session has not reported effort and access, no skeleton or placeholder draws, and
-//     the controls keep their places when the values arrive;
+//     the controls keep their places when the values arrive (the effort is the model button's own
+//     label since Leo 2026-10-20, not a chip of its own);
 //   - the folder popover filters with its search field and tells duplicate names apart;
-//   - the strip and the card read as one surface: no hairline draws across the seam where the
-//     strip stands on the card (Leo: the card's top hairline showed under the strip).
+//   - the folder popover folds a repository's worktrees under one row (Austin 2026-10-20: each cmux
+//     worktree listed as a project of its own), opened by → or the count and found by branch;
 //   - design panel (compact composer): the strip's first and last marks line up with the prompt's
 //     edges, with no gap where it stands inside the card's corner; no "·" floats between folder
 //     and computer; in a narrow pane the folder cuts in the middle ("atl…web"), the computer shows
@@ -22,7 +23,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
-import { PNG } from "pngjs";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -41,8 +42,18 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
+  // Each page loads its entry file alone (`entryPath`, src/gallery/registry.ts). Without it every
+  // page loaded all ~150 gallery entries (about 2,300 modules) and the warm-up transformed them all
+  // first: beside the other dev server files on a CI runner the file was killed at its 120 s limit
+  // after eight of its cases (job 119080446280), with nothing stuck.
+  const ENTRY_PATHS: Record<string, string> = {
+    "agent-pane.composer-strip": "src/agent-session/acpmux/composerStrip.gallery.ts",
+    "agent-pane.composer-context": "src/agent-session/acpmux/ComposerContext.gallery.tsx",
+    "agent-pane.project-chooser": "src/agent-session/acpmux/ProjectChooser.gallery.tsx",
+    "agent-pane.new-tab": "src/agent-session/acpmux/newtab/NewTabScreen.gallery.ts",
+  };
   const stageURL = (entry: string, variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&entryPath=${ENTRY_PATHS[entry]}&variant=${variant}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -51,7 +62,17 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
+    // The entry files and the hosts they mount (the strip and the New Tab in frame/agentPane.ts,
+    // which imports acpmux/main; the folder popover in frame/component.tsx), not the frame: its
+    // registry names every entry. Module URLs carry the config's base, /gallery/; a path outside it
+    // is a 404 that warms nothing, so that fails here.
+    for (const file of [
+      ...Object.values(ENTRY_PATHS),
+      "src/gallery/frame/agentPane.ts",
+      "src/gallery/frame/component.tsx",
+    ])
+      if ((await warmViteServer(vite, `/gallery/${file}`)) === 0)
+        throw new Error(`warmViteServer: ${file} imports nothing; is it served?`);
     browser = await chromium.launch({ headless: true });
     // Warm the stage once: the first load can run Vite's dependency optimizer and reload mid-compile.
     const warm = await browser.newPage({ viewport: { width: 720, height: 400 } });
@@ -71,8 +92,14 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await vite?.close();
   });
 
-  const open = async (entry: string, variant: string, width: number, init?: () => void): Promise<Page> => {
-    const page = await browser!.newPage({ viewport: { width, height: 560 } });
+  const open = async (
+    entry: string,
+    variant: string,
+    width: number,
+    init?: () => void,
+    height = 560,
+  ): Promise<Page> => {
+    const page = await browser!.newPage({ viewport: { width, height } });
     if (init) await page.addInitScript(init);
     await page.goto(stageURL(entry, variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
@@ -111,9 +138,15 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       variant: "no-project",
       card: ".acpmux-composer-box",
     },
-    // The strip heads the New Tab card in the top-of-page templates (Threads here); Cards draws it
-    // under its pill field and Default's stage layout in the footer under the box.
-    { name: "the New Tab composer", entry: "agent-pane.new-tab", variant: "template-threads", card: ".nt-box" },
+    // The strip heads the New Tab card in the Default template with Claude's quiet row: Cards draws it
+    // under its pill field, and since #24519 (2026-10-27, one quiet row) every other template with
+    // Claude's plain footer draws it in the quiet row under the box (NewTabScreen.tsx locationInFooter).
+    {
+      name: "the New Tab composer",
+      entry: "agent-pane.new-tab",
+      variant: "layout-claude-chips-below",
+      card: ".nt-box",
+    },
   ];
   for (const surface of surfaces)
     for (const width of [420, 720])
@@ -125,12 +158,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
         expect(measured.strip).not.toBeNull();
         expect(measured.stripFolder).toBe(true);
         const { strip, card } = measured as { strip: Rect; card: Rect };
-        // The New Tab's strip is text a few px over its card (Cursor's home, #21133); the chat's
-        // stands on the card's top edge.
-        if (surface.card === ".nt-box") {
-          expect(card.top - strip.bottom).toBeGreaterThanOrEqual(2);
-          expect(card.top - strip.bottom).toBeLessThanOrEqual(8);
-        } else expect(Math.abs(strip.bottom - card.top)).toBeLessThanOrEqual(1);
+        // The strip is text a few px over its card (Cursor's home, #21133), the chat's as the New Tab's.
+        expect(card.top - strip.bottom).toBeGreaterThanOrEqual(2);
+        expect(card.top - strip.bottom).toBeLessThanOrEqual(8);
         expect(strip.left).toBeGreaterThanOrEqual(card.left - 0.5);
         expect(strip.right).toBeLessThanOrEqual(card.right + 0.5);
         expect(measured.controlRows).toBe(1);
@@ -199,7 +229,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
           ).length,
           plus: left(".acpmux-composer-plus"),
           model: left(".acpmux-model"),
-          effort: left(".acpmux-effort"),
+          effort: left(".acpmux-model .acpmux-model-detail"),
           access: left(".acpmux-access"),
           // Claude desktop's box: no Send until there is a draft (Leo 2026-10-20); the mic is the
           // trailing control of this empty new chat.
@@ -273,55 +303,183 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await page.close();
   });
 
-  // The seam: one column through the strip's empty fill and down into the card, at 2x. A line across
-  // the seam is a row far from its neighbors' tone; the strip's and the card's fills are the same.
-  // The New Tab has no seam: its strip is text over the card, which keeps its whole rim (#21133).
-  for (const surface of [
-    { name: "the chat composer", entry: "agent-pane.composer-strip", variant: "project", card: ".acpmux-composer-box" },
-  ])
-    test(`${surface.name}: no hairline across the seam under the strip`, async () => {
-      const page = await browser!.newPage({ viewport: { width: 720, height: 560 }, deviceScaleFactor: 2 });
-      await page.goto(stageURL(surface.entry, surface.variant));
-      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-      await page.evaluate(async () => {
-        await document.fonts.ready;
-        (document.activeElement as HTMLElement | null)?.blur();
-      });
-      const probe = await page.evaluate((card) => {
-        const strip = document.querySelector(".acpmux-composer-strip")!.getBoundingClientRect();
-        const box = document.querySelector(card)!.getBoundingClientRect();
-        // A column where the strip shows only its own fill (no control over it).
-        for (let x = strip.left + 24; x < strip.right - 24; x += 2) {
-          const hit = document.elementFromPoint(x, strip.top + strip.height / 2);
-          if (hit?.closest(".acpmux-composer-strip") && !hit.closest("button, a, span, svg, input, [role]"))
-            return { x, seam: box.top };
-        }
-        return null;
-      }, surface.card);
-      expect(probe).not.toBeNull();
-      const png = PNG.sync.read(
-        await page.screenshot({ clip: { x: probe!.x, y: probe!.seam - 4, width: 1, height: 8 } }),
-      );
-      await page.close();
-      const tones: number[] = [];
-      for (let y = 0; y < png.height; y++) {
-        const at = (png.width * y + Math.floor(png.width / 2)) * 4;
-        tones.push(0.2126 * png.data[at]! + 0.7152 * png.data[at + 1]! + 0.0722 * png.data[at + 2]!);
-      }
-      const sorted = [...tones].sort((a, b) => a - b);
-      const median = sorted[Math.floor(sorted.length / 2)]!;
-      const worst = Math.max(...tones.map((tone) => Math.abs(tone - median)));
-      expect({ worst: Math.round(worst), tones: tones.map(Math.round) }).toEqual({
-        worst: Math.min(Math.round(worst), 5),
-        tones: tones.map(Math.round),
-      });
+  test("pinned actions leave a short pane repository list visible and keyboard-expandable", async () => {
+    const page = await open("agent-pane.composer-context", "lane-checkouts", 720, undefined, 180);
+    const menu = page.locator(".acpmux-folder-popover");
+    const rect = await menu.boundingBox();
+    expect(rect).not.toBeNull();
+    expect(rect!.y + rect!.height).toBeLessThanOrEqual(180);
+    const project = page.locator(".acpmux-location-row[data-expanded]").first();
+    const viewport = page.locator(".ui-combobox-viewport");
+    const projectRect = await project.boundingBox();
+    const viewportRect = await viewport.boundingBox();
+    expect(projectRect).not.toBeNull();
+    expect(viewportRect).not.toBeNull();
+    expect(viewportRect!.height).toBeGreaterThanOrEqual(projectRect!.height);
+    expect(projectRect!.y).toBeGreaterThanOrEqual(viewportRect!.y);
+    expect(projectRect!.y + projectRect!.height).toBeLessThanOrEqual(viewportRect!.y + viewportRect!.height);
+    expect(viewportRect!.y + viewportRect!.height).toBeLessThanOrEqual(rect!.y + rect!.height);
+    const search = page.getByRole("combobox", { name: "Search projects" });
+    await search.press("ArrowDown");
+    await search.press("ArrowDown");
+    await search.press("ArrowRight");
+    await page.waitForFunction(() => document.querySelector(".acpmux-location-row[data-worktree]"), undefined, {
+      timeout: 5000,
     });
+    await page.close();
+  });
+
+  for (const variant of ["folder-short-note", "folder-short-note-de", "folder-short-note-fr"]) {
+    test(`${variant} leaves a visible project row in a short pane`, async () => {
+      const page = await open("agent-pane.composer-context", variant, 720, undefined, 180);
+      const popup = page.locator(".acpmux-folder-popover");
+      const viewport = page.locator(".ui-combobox-viewport");
+      const note = page.locator(".acpmux-location-note");
+      const project = page.locator(".acpmux-location-row").first();
+      const [popupRect, viewportRect, noteRect, projectRect] = await Promise.all([
+        popup.boundingBox(),
+        viewport.boundingBox(),
+        note.boundingBox(),
+        project.boundingBox(),
+      ]);
+      expect(popupRect).not.toBeNull();
+      expect(viewportRect).not.toBeNull();
+      expect(noteRect).not.toBeNull();
+      expect(projectRect).not.toBeNull();
+      expect(noteRect!.height).toBeLessThanOrEqual(16);
+      const noteVisibility = await note.evaluate((element) => {
+        const style = getComputedStyle(element);
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const text = range.getBoundingClientRect();
+        const box = element.getBoundingClientRect();
+        return {
+          lineHeight: parseFloat(style.lineHeight),
+          paddingTop: parseFloat(style.paddingTop),
+          paddingBottom: parseFloat(style.paddingBottom),
+          borderTop: parseFloat(style.borderTopWidth),
+          textTop: text.top,
+          textBottom: text.bottom,
+          boxTop: box.top,
+          boxBottom: box.bottom,
+        };
+      });
+      expect(noteVisibility.paddingTop + noteVisibility.paddingBottom + noteVisibility.borderTop).toBe(0);
+      expect(noteVisibility.textTop).toBeGreaterThanOrEqual(noteVisibility.boxTop - 1);
+      expect(noteVisibility.textBottom).toBeLessThanOrEqual(noteVisibility.boxBottom + 1);
+      expect(noteRect!.height).toBeGreaterThanOrEqual(noteVisibility.lineHeight);
+      expect(projectRect!.y).toBeGreaterThanOrEqual(viewportRect!.y);
+      expect(projectRect!.y + projectRect!.height).toBeLessThanOrEqual(viewportRect!.y + viewportRect!.height);
+      expect(viewportRect!.y + viewportRect!.height).toBeLessThanOrEqual(popupRect!.y + popupRect!.height);
+      await page.close();
+    });
+  }
+
+  test("a normal pane scrolls the last long-list project fully inside the popup", async () => {
+    const page = await open("agent-pane.composer-context", "folder-long-list", 720);
+    const popup = page.locator(".acpmux-folder-popover");
+    const viewport = page.locator(".ui-combobox-viewport");
+    await viewport.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    const last = page.locator(".acpmux-location-row").last();
+    const [popupRect, viewportRect, lastRect] = await Promise.all([
+      popup.boundingBox(),
+      viewport.boundingBox(),
+      last.boundingBox(),
+    ]);
+    expect(popupRect).not.toBeNull();
+    expect(viewportRect).not.toBeNull();
+    expect(lastRect).not.toBeNull();
+    expect(viewportRect!.y + viewportRect!.height).toBeLessThanOrEqual(popupRect!.y + popupRect!.height);
+    expect(lastRect!.y).toBeGreaterThanOrEqual(viewportRect!.y);
+    expect(lastRect!.y + lastRect!.height).toBeLessThanOrEqual(viewportRect!.y + viewportRect!.height);
+    await page.close();
+  });
+
+  test("the folder popover folds worktrees under their repository and opens them by arrow or count", async () => {
+    const page = await open("agent-pane.composer-context", "repo-worktrees", 720);
+    const rows = () =>
+      page
+        .locator('.acpmux-location-menu [role="option"] .acpmux-location-row')
+        .evaluateAll((all) =>
+          all.map(
+            (row) =>
+              (row.hasAttribute("data-worktree") ? "  " : "") +
+              (row.querySelector(".acpmux-menu-text")?.textContent ?? "").replace(/\s+/g, " ").trim(),
+          ),
+        );
+    // One cmux row, named by the current worktree's branch; its five folders are one project.
+    expect(await rows()).toEqual(["cmux · issue-22273-runaway-children", "atlas-web", "relay", "notes"]);
+    expect(await page.locator(".acpmux-location-worktrees").first().textContent()).toBe("4");
+    // The strip names the repository, not the worktree's folder.
+    expect(await page.getByRole("button", { name: "Folder", exact: true }).textContent()).toContain("cmux");
+    // → opens the highlighted repository's other worktrees, newest first; ← closes them.
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowRight");
+    await page.waitForFunction(() => document.querySelector(".acpmux-location-row[data-worktree]"));
+    expect(await rows()).toEqual([
+      "cmux · issue-22273-runaway-children",
+      "  feat-cmux-next-unread-ring-classic",
+      "  feat-cmux-next",
+      "  agent-caller-scoped-current-selector",
+      "  agent-21352-sidebar-drag",
+      "atlas-web",
+      "relay",
+      "notes",
+    ]);
+    await page.keyboard.press("ArrowLeft");
+    await page.waitForFunction(() => !document.querySelector(".acpmux-location-row[data-worktree]"));
+    // The count opens them too, and a press on it never picks the row.
+    await page.locator(".acpmux-location-worktrees").first().click();
+    await page.waitForFunction(() => document.querySelector(".acpmux-location-row[data-worktree]"));
+    expect(await page.locator(".acpmux-location-menu").count()).toBe(1);
+    // A branch search lists the worktree it names under its repository; the repository's name, once.
+    await page.getByRole("combobox", { name: "Search projects" }).fill("unread");
+    await page.waitForFunction(
+      () => document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 2,
+    );
+    expect(await rows()).toEqual(["cmux · issue-22273-runaway-children", "  feat-cmux-next-unread-ring-classic"]);
+    await page.getByRole("combobox", { name: "Search projects" }).fill("cmux");
+    await page.waitForFunction(
+      () => document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 1,
+    );
+    await page.close();
+  });
+
+  test("an older host's worktrees still fold under their repository by path", async () => {
+    const page = await open("agent-pane.composer-context", "repo-worktrees-guessed", 720);
+    const names = await page
+      .locator('.acpmux-location-menu [role="option"] .acpmux-location-row')
+      .evaluateAll((all) => all.map((row) => (row.querySelector(".acpmux-menu-label")?.textContent ?? "").trim()));
+    expect(names).toEqual(["cmux", "atlas-web", "relay", "notes"]);
+    await page.close();
+  });
+
   /** Runs in the page: the strip's controls against the prompt's edges. */
   function measureMarks() {
     const rect = (element: Element | null | undefined) => {
       if (!element) return null;
       const { left, right, top, bottom, width } = element.getBoundingClientRect();
       return { left, right, top, bottom, width };
+    };
+    // A stroke icon's drawn ink, left to right in page px: its shapes' boxes widened by half their
+    // stroke, mapped through the icon's viewBox. The ink lies a different way inside each icon's box
+    // (the mic's ~2.7 px, the chevron's ~3.5 px), so the marks are compared ink to ink.
+    const ink = (element: Element | null | undefined) => {
+      const svg = element instanceof SVGSVGElement ? element : element?.querySelector("svg");
+      const shapes = [
+        ...(svg?.querySelectorAll<SVGGraphicsElement>("path, line, circle, rect, polyline, polygon") ?? []),
+      ];
+      const edges = shapes.flatMap((shape) => {
+        const box = shape.getBBox();
+        const matrix = shape.getScreenCTM();
+        if (!matrix) return [];
+        const style = getComputedStyle(shape);
+        const half = style.stroke === "none" ? 0 : parseFloat(style.strokeWidth) / 2;
+        return [matrix.a * (box.x - half) + matrix.e, matrix.a * (box.x + box.width + half) + matrix.e];
+      });
+      return edges.length ? { left: Math.min(...edges), right: Math.max(...edges) } : null;
     };
     const strip = document.querySelector(".acpmux-composer-strip")!;
     const pickers = [...strip.querySelectorAll<HTMLElement>(".acpmux-location-picker")];
@@ -335,15 +493,15 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
         document.querySelector(".acpmux-composer-box .acpmux-input, .acpmux-composer-box [contenteditable]"),
       ),
       // The Claude desktop box (composerLocation.css): + and the trailing actions sit beside the
-      // prompt, so the box's columns are the + glyph's 16 px box and the last action's glyph: the
-      // mic in this empty new chat (no Send until there is a draft, Leo 2026-10-20), Send with one.
-      plusGlyph: rect(document.querySelector(".acpmux-composer-inner .acpmux-composer-plus .acpmux-icon")),
-      trailGlyph: rect(
+      // prompt, so the box's columns are the + glyph and the last action's glyph: the mic in this
+      // empty new chat (no Send until there is a draft, Leo 2026-10-20), Send with one.
+      plusInk: ink(document.querySelector(".acpmux-composer-inner .acpmux-composer-plus .acpmux-icon")),
+      trailInk: ink(
         [...document.querySelectorAll(".acpmux-composer-inner .acpmux-composer-actions .acpmux-icon")].at(-1),
       ),
       strip: rect(strip),
-      folderIcon: rect(pickers[0]?.querySelector(".acpmux-location-icon")),
-      branchChevron: rect(branch.querySelector(".ui-ghost-icon:last-child")),
+      folderInk: ink(pickers[0]?.querySelector(".acpmux-location-icon")),
+      branchChevronInk: ink(branch.querySelector(".ui-ghost-icon:last-child")),
       text: strip.textContent ?? "",
       head: head ? { clipped: head.scrollWidth > head.clientWidth + 0.5, text: head.textContent } : null,
       tail: rect(strip.querySelector(".acpmux-location-tail")),
@@ -378,15 +536,19 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       const marks = await page.evaluate(measureMarks);
       await page.close();
       const prompt = marks.prompt!;
-      const folderIcon = marks.folderIcon!;
-      const branchChevron = marks.branchChevron!;
-      // The marks sit over the box's content edges: the prompt's, or + and the last action's
-      // (the mic at rest) where they stand beside it. A 14 px stroke icon's ink starts ~1.5 px inside its box; the chevron's
-      // ink ends 4 px inside.
-      const lead = marks.plusGlyph?.left ?? prompt.left;
-      const trail = marks.trailGlyph?.right ?? prompt.right;
-      expect(Math.abs(folderIcon.left + 1.5 - lead)).toBeLessThanOrEqual(2);
-      expect(Math.abs(branchChevron.right - 4 - trail)).toBeLessThanOrEqual(2);
+      const folderInk = marks.folderInk!;
+      const chevronInk = marks.branchChevronInk!;
+      // The marks sit over the box's content edges: the prompt's, or the ink of + and of the last
+      // action (the mic at rest) where they stand beside it. Both offsets in one check, so a failure
+      // names both. The folder's ink starts 2.0 px before the +'s (CI, 2026-10-21): within half a
+      // pixel more of that, the strip still reads as lined up.
+      const lead = marks.plusInk?.left ?? prompt.left;
+      const trail = marks.trailInk?.right ?? prompt.right;
+      const offsets = { lead: folderInk.left - lead, trail: chevronInk.right - trail };
+      expect(
+        Math.max(Math.abs(offsets.lead), Math.abs(offsets.trail)),
+        `the folder's ink is ${offsets.lead.toFixed(2)} px from the leading mark's, the branch chevron's ${offsets.trail.toFixed(2)} px from the last action's`,
+      ).toBeLessThanOrEqual(2.5);
       expect(marks.text).not.toContain("·");
       // At or under 460 px the computer is its icon (the strip's first step).
       expect(marks.computerLabelShown).toBe(width > 460);
@@ -428,7 +590,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       const strip = marks.strip!;
       const tail = marks.tail!;
       // The head takes the ellipsis ("atl…"); the last word stays whole and inside the strip.
-      expect(marks.head).toEqual({ clipped: cut, text: "atlas-" });
+      // The fixture's folder (composerStrip.gallery.ts mid-folder) is sized to the strip's step: the
+      // strip became chips over the card (#25304), so "atlas-web-checkout" now sits on it.
+      expect(marks.head).toEqual({ clipped: cut, text: "atlas-web-" });
       expect(marks.tailText).toBe("checkout");
       expect(tail.width).toBeGreaterThan(0);
       expect(tail.right).toBeLessThanOrEqual(strip.right);
@@ -457,11 +621,13 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     expect(marks.branchClipped).toBe(false);
   });
 
-  // Focus draws no ring (Leo 2026-10-19): a focused footer control leaves the strip's rim at rest.
-  test("focusing a footer control changes neither the strip rim nor its geometry", async () => {
+  // Focus draws no ring (Leo 2026-10-19): a focused strip control keeps the strip's geometry, and its
+  // edge takes the composer's focused tone, as the card's does (#21241; #23745: a step brighter).
+  test("focusing a strip control steps the strip's edge tone and keeps its geometry", async () => {
     const page = await open("agent-pane.composer-strip", "project", 420);
+    await installPaintedFrames(page);
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-    await page.waitForTimeout(20);
+    await page.evaluate(() => window.cmuxPaintFrame());
     const before = await page.evaluate(() => {
       const strip = document.querySelector<HTMLElement>(".acpmux-composer-strip")!;
       const rect = strip.getBoundingClientRect();
@@ -471,6 +637,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       };
     });
     await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-composer-strip button")!.focus());
+    await page.evaluate(() => window.cmuxPaintFrame());
     const after = await page.evaluate(() => {
       const strip = document.querySelector<HTMLElement>(".acpmux-composer-strip")!;
       const rect = strip.getBoundingClientRect();
@@ -479,39 +646,158 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
         rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
       };
     });
+    const focusEdge = await page.evaluate(() =>
+      getComputedStyle(document.querySelector<HTMLElement>(".acpmux-composer")!)
+        .getPropertyValue("--acpmux-composer-edge-focus")
+        .trim(),
+    );
     await page.close();
-    expect(after.edge).toBe(before.edge);
+    expect(after.edge.replace(/\s+/g, "")).toBe(focusEdge.replace(/\s+/g, ""));
+    expect(after.edge).not.toBe(before.edge);
     expect(after.rect).toEqual(before.rect);
   });
-
-  // Inside the card's corner: one column just inside the strip's side, from the strip down into the
-  // card. The card's corner has dropped there, and a gap would show the page between the two.
-  test("the chat composer: no gap where the strip stands inside the card's corner", async () => {
-    const page = await browser!.newPage({ viewport: { width: 420, height: 560 }, deviceScaleFactor: 2 });
-    await page.goto(stageURL("agent-pane.composer-strip", "project"));
-    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-    await page.evaluate(async () => {
-      await document.fonts.ready;
-      (document.activeElement as HTMLElement | null)?.blur();
+  test("long environment menu scrolls to its last machine", async () => {
+    const page = await open("agent-pane.composer-context", "environment-picker-fleet", 720);
+    const list = page.locator(".acpmux-env-popover .acpmux-location-folders");
+    const before = await list.evaluate((node) => ({ height: node.clientHeight, total: node.scrollHeight }));
+    expect(before.total).toBeGreaterThan(before.height);
+    await list.hover();
+    await page.mouse.wheel(0, 3000);
+    await page.waitForFunction(() => {
+      const list = document.querySelector<HTMLElement>(".acpmux-env-popover .acpmux-location-folders");
+      return list != null && list.scrollTop > 0;
     });
-    const at = await page.evaluate(() => {
-      const strip = document.querySelector(".acpmux-composer-strip")!.getBoundingClientRect();
-      const card = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
-      return { x: strip.left + 1, seam: card.top, inside: strip.left - card.left };
-    });
-    // The strip stands inside the corner's 18 px radius (that is what lines its marks up).
-    expect(at.inside).toBeLessThan(18);
-    const png = PNG.sync.read(await page.screenshot({ clip: { x: at.x, y: at.seam - 4, width: 1, height: 8 } }));
+    expect(await list.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+    const last = list.locator("[role=option]").last();
+    expect(await last.isVisible()).toBe(true);
+    expect(
+      await last.evaluate((node) => {
+        const list = node.closest(".acpmux-location-folders")!.getBoundingClientRect();
+        const row = node.getBoundingClientRect();
+        return row.bottom <= list.bottom && row.top >= list.top;
+      }),
+    ).toBe(true);
     await page.close();
-    const tones: number[] = [];
-    for (let y = 0; y < png.height; y++) {
-      const offset = (png.width * y + png.width - 1) * 4;
-      tones.push(0.2126 * png.data[offset]! + 0.7152 * png.data[offset + 1]! + 0.0722 * png.data[offset + 2]!);
+  });
+
+  for (const [entry, variant] of [
+    ["agent-pane.composer-context", "folder-pinned-search"],
+    ["agent-pane.project-chooser", "open-current"],
+  ]) {
+    for (const query of ["relay", "/Users/you/src/relay"]) {
+      test(`${entry} highlights ${query} as the active project before Enter`, async () => {
+        const page = await open(entry, variant, 720);
+        const field = page.getByRole("combobox", { name: "Search projects" });
+        await field.fill(query);
+        await page.waitForFunction(() => document.querySelector("[data-highlighted]"));
+        const activeId = await field.getAttribute("aria-activedescendant");
+        const highlighted = page.locator("[data-highlighted]");
+        expect(activeId).toBeTruthy();
+        expect(await highlighted.getAttribute("id")).toBe(activeId);
+        expect(await highlighted.textContent()).toContain("relay");
+        expect(await highlighted.locator(".acpmux-location-action").count()).toBe(0);
+        await field.press("Enter");
+        expect(await page.evaluate(() => document.documentElement.dataset.galleryProjectPicked)).toBe(
+          "/Users/you/src/relay",
+        );
+        expect(await page.evaluate(() => document.documentElement.dataset.galleryProjectAction)).toBeUndefined();
+        await page.close();
+      });
     }
-    const worst = Math.max(...tones.map((tone) => Math.abs(tone - tones[0]!)));
-    expect({ worst: Math.round(worst), tones: tones.map(Math.round) }).toEqual({
-      worst: Math.min(Math.round(worst), 5),
-      tones: tones.map(Math.round),
+  }
+  for (const [entry, variant] of [
+    ["agent-pane.composer-context", "folder-pinned-search"],
+    ["agent-pane.project-chooser", "open-current"],
+  ]) {
+    test(`${entry} keeps pinned actions deliberately reachable by keyboard`, async () => {
+      const page = await open(entry, variant, 720);
+      const field = page.getByRole("combobox", { name: "Search projects" });
+      await field.fill("relay");
+      await page.waitForFunction(() => document.querySelector("[data-highlighted]")?.textContent?.includes("relay"));
+      await field.press("ArrowDown");
+      const activeId = await field.getAttribute("aria-activedescendant");
+      const highlighted = page.locator("[data-highlighted]");
+      expect(await highlighted.getAttribute("id")).toBe(activeId);
+      expect(await highlighted.textContent()).toContain("Do not work in a project");
+      await field.press("Enter");
+      expect(await page.evaluate(() => document.documentElement.dataset.galleryProjectAction)).toBe("none");
+      expect(await page.evaluate(() => document.documentElement.dataset.galleryProjectPicked)).toBeUndefined();
+      await page.close();
     });
+  }
+  test("a long project list without actions wheels to its last folder", async () => {
+    const page = await open("agent-pane.project-chooser", "long-no-actions", 720);
+    const list = page.locator(".acpmux-project-menu .acpmux-project-folders");
+    expect(await list.locator("[role=option]").count()).toBe(40);
+    expect(await page.locator(".acpmux-project-menu .ui-combobox-pinned").count()).toBe(0);
+    expect(await list.evaluate((node) => node.scrollHeight)).toBeGreaterThan(
+      await list.evaluate((node) => node.clientHeight),
+    );
+    await list.hover();
+    await page.mouse.wheel(0, 3000);
+    await page.waitForFunction(
+      () => {
+        const list = document.querySelector<HTMLElement>(".acpmux-project-menu .acpmux-project-folders");
+        return list != null && list.scrollTop > 0;
+      },
+      null,
+      { timeout: 1500 },
+    );
+    const last = list.locator("[role=option]").last();
+    expect(
+      await last.evaluate((node) => {
+        const row = node.getBoundingClientRect();
+        const viewport = node.closest(".acpmux-project-folders")!.getBoundingClientRect();
+        return row.top >= viewport.top && row.bottom <= viewport.bottom;
+      }),
+    ).toBe(true);
+    await list.evaluate((node) => {
+      node.scrollTop = 0;
+    });
+    await page.getByRole("combobox", { name: "Search projects" }).focus();
+    for (let index = 0; index < 40; index++) await page.keyboard.press("ArrowDown");
+    expect(await last.getAttribute("data-highlighted")).not.toBeNull();
+    expect(
+      await last.evaluate((node) => {
+        const row = node.getBoundingClientRect();
+        const viewport = node.closest(".acpmux-project-folders")!.getBoundingClientRect();
+        return row.top >= viewport.top && row.bottom <= viewport.bottom;
+      }),
+    ).toBe(true);
+    await page.close();
+  });
+
+  test("Escape from a pinned project action closes and restores trigger focus", async () => {
+    const page = await open("agent-pane.composer-context", "folder-long-list", 720);
+    const popup = page.locator(".acpmux-folder-popover");
+    const option = popup.locator(".ui-combobox-pinned [role=option]").first();
+    expect(await option.count()).toBe(1);
+    await popup.locator('input[role="combobox"]').press("Escape");
+    await popup.waitFor({ state: "detached" });
+    expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("Folder");
+    await page.close();
+  });
+
+  test("project actions stay pinned while the inside thumb scrolls without dismissing", async () => {
+    const page = await open("agent-pane.composer-context", "folder-long-list", 720);
+    const popup = page.locator(".acpmux-folder-popover");
+    const actions = popup.locator(".ui-combobox-pinned");
+    const action = actions.locator("[role=option]").first();
+    expect(await action.count()).toBe(1);
+    expect(await action.evaluate((node) => getComputedStyle(node).borderTopWidth)).toBe("0px");
+    const thumb = popup.locator(".cmux-scrollbar-thumb").first();
+    await thumb.waitFor({ state: "visible" });
+    const before = await actions.boundingBox();
+    const bounds = await popup.boundingBox();
+    const grip = await thumb.boundingBox();
+    expect(grip!.x + grip!.width).toBeLessThanOrEqual(bounds!.x + bounds!.width);
+    await page.mouse.move(grip!.x + grip!.width / 2, grip!.y + grip!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(grip!.x + grip!.width / 2, grip!.y + grip!.height / 2 + 80, { steps: 5 });
+    await page.mouse.up();
+    expect(await popup.count()).toBe(1);
+    expect(await actions.boundingBox()).toEqual(before);
+    expect(await popup.locator(".ui-combobox-viewport").evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+    await page.close();
   });
 });

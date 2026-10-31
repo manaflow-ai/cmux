@@ -1,14 +1,13 @@
 // The model menu on a New Tab page stays inside what the page shows (cx-m6jn0; dogfood run 4, a
 // 1100x720 window: the menu opened below the chip at the window's height while the New Tab
 // scroller cut it off above the template pager, so its last rows and More models were out of
-// reach). A menu sized to its scroller lists the rest by scrolling inside it.
+// reach). Since Leo 2026-10-20 the model button opens its compact menu (models, Effort, More models,
+// Account, Fast mode) in every composer, New Tab's included; that menu shows whole inside the page.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
-import { MODEL_PICKER_MIN_HEIGHT } from "../src/agent-session/acpmux/modelPickerLayout";
-import { UI_ANCHOR_GAP } from "../src/ui/anchor";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -46,7 +45,7 @@ await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
     await vite?.close();
   });
 
-  test("the New Tab model menu keeps its floor inside the page's scroller, above the pager", async () => {
+  test("the New Tab model menu shows whole inside the page's scroller, above the pager", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 560 } });
     await page.goto(`http://127.0.0.1:${port}/test/browser/new-tab-picker.html`);
@@ -54,23 +53,20 @@ await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
     const chip = page.locator(".acpmux-model-name").first();
     await chip.waitFor();
     await chip.click();
-    const menu = page.locator(".acpmux-mp[role=dialog]");
+    const menu = page.locator(".acpmux-quick-menu");
     await menu.waitFor();
     await page.waitForFunction(() => {
-      const node = document.querySelector<HTMLElement>(".acpmux-mp[role=dialog]");
+      const node = document.querySelector<HTMLElement>(".acpmux-quick-menu");
       return !!node && getComputedStyle(node).visibility === "visible";
     });
     const geometry = await page.evaluate(() => {
-      const menu = document.querySelector(".acpmux-mp[role=dialog]")!.getBoundingClientRect();
+      const menu = document.querySelector(".acpmux-quick-menu")!.getBoundingClientRect();
       const screenNode = document.querySelector<HTMLElement>(".nt-screen")!;
       const screen = screenNode.getBoundingClientRect();
-      const chip = document.querySelector(".acpmux-model-name")!.getBoundingClientRect();
       return {
         menuTop: menu.top,
         menuBottom: menu.bottom,
         menuHeight: menu.height,
-        chipTop: chip.top,
-        chipBottom: chip.bottom,
         screenTop: screen.top,
         screenBottom: screen.bottom,
         // How far the page's scroller can still scroll down.
@@ -78,30 +74,19 @@ await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
       };
     });
     console.log("new-tab-picker-clip geometry", JSON.stringify(geometry));
-    const { menuTop, menuBottom, menuHeight, chipTop, chipBottom, screenTop, screenBottom, scrollable } = geometry;
-    // Never collapsed: the picker keeps its 220 px floor (Lawrence, d9ce210e).
-    expect(menuHeight).toBeGreaterThanOrEqual(219);
+    const { menuTop, menuBottom, menuHeight, screenTop, screenBottom, scrollable } = geometry;
+    // Never collapsed: it lists its rows.
+    expect(menuHeight).toBeGreaterThan(60);
     // Never off the top of the page, where nothing scrolls to it.
     expect(menuTop).toBeGreaterThanOrEqual(screenTop);
-    // The room the anchor measures: past the 6 px gap and the 8 px margin.
-    const room = (space: number) => space - UI_ANCHOR_GAP - 8;
-    if (
-      room(chipTop - screenTop) >= MODEL_PICKER_MIN_HEIGHT ||
-      room(screenBottom - chipBottom) >= MODEL_PICKER_MIN_HEIGHT
-    ) {
-      // A side has room for the floor: the menu opens there, inside the page (Leo).
-      expect(menuBottom).toBeLessThanOrEqual(screenBottom);
-    } else {
-      // Neither side has it: the menu opens below the chip and the page scrolls to its end.
-      expect(menuTop).toBeGreaterThanOrEqual(chipBottom);
-      expect(scrollable).toBeGreaterThanOrEqual(Math.floor(menuBottom - screenBottom));
-    }
+    // Inside the page, or the page scrolls to its end.
+    if (menuBottom > screenBottom) expect(scrollable).toBeGreaterThanOrEqual(Math.floor(menuBottom - screenBottom));
     // The menu shows whole: no ancestor clips it (cx-qe8fn). A clipping card (.nt-box with
     // overflow: hidden, before 4b35f13b) cut it at the card's top or bottom edge in the app, and
-    // scrolled the card's own rows to its search field. Hit-test both edges, with the page scrolled
+    // scrolled the card's own rows. Hit-test both edges, with the page scrolled
     // to the menu.
     const painted = await page.evaluate(() => {
-      const node = document.querySelector<HTMLElement>(".acpmux-mp[role=dialog]")!;
+      const node = document.querySelector<HTMLElement>(".acpmux-quick-menu")!;
       node.scrollIntoView({ block: "nearest" });
       const rect = node.getBoundingClientRect();
       const x = rect.left + rect.width / 2;

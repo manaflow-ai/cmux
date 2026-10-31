@@ -66,7 +66,12 @@ impl Hub {
             plan.started = true;
             (plan.end_agents, plan.keep.clone())
         };
+        // The log retention worker sees the shutdown begun and ends (`retention.rs`).
+        self.retention_wake.notify_one();
         let sessions = self.sessions();
+        // Startup may have been cancelled before adoption reached these hosts. Keep their
+        // state and router on an ordinary restart, even when no child link exists yet.
+        let live = tokio::task::spawn_blocking(Self::read_live_host_sessions).await.ok().flatten();
         let mut children = Vec::new();
         let mut hosted = Vec::new();
         // Sessions whose agent host must end without its link: no child
@@ -89,6 +94,10 @@ impl Hub {
                 }
                 continue;
             };
+            if !ends && slot.is_none() && live.as_ref().is_none_or(|live| live.contains(&s.id)) {
+                unreached += 1;
+                continue;
+            }
             let is_hosted = slot.as_ref().is_some_and(|c| c.host_record().is_some());
             // An agent under a host keeps running, with its turn and its
             // permission prompts, for the next daemon to adopt.
@@ -124,6 +133,9 @@ impl Hub {
         if tokio::time::timeout(SHUTDOWN_GRACE + LOCK * 2, fallback).await.is_err() {
             tracing::warn!("agent hosts did not end within {SHUTDOWN_GRACE:?}");
         }
+        for s in &sessions {
+            let _ = self.store_deferred(s);
+        }
         self.flush();
         hosted.len() + unreached
     }
@@ -148,12 +160,18 @@ impl Hub {
         if let Err(e) = self.store.flush() {
             tracing::warn!("store flush failed: {e}");
         }
+        // What peers' sessions streamed in the last seconds (`peer_snapshot.rs`): the shutdown's
+        // is its last step, after the teardown, and a shutdown past its budget calls it too.
+        self.peer_snapshots.flush_now();
     }
 }
 
+/// The refusal of a spawn once the shutdown has begun (`recovery.rs` types it).
+pub const SHUTTING_DOWN: &str = "acpmux is shutting down; no agent starts now";
+
 /// The refusal of a spawn once the shutdown has begun.
 pub(crate) fn shutting_down_error() -> RpcError {
-    RpcError::internal("acpmux is shutting down; no agent starts now")
+    RpcError::internal(SHUTTING_DOWN)
 }
 
 /// How long agents get between SIGTERM and SIGKILL when the daemon stops.

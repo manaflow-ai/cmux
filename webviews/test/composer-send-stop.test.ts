@@ -5,8 +5,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-send-stop.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -24,7 +24,7 @@ await requireBrowserLane("composer-send-stop.test.ts", async () => {
   let browser: Browser | undefined;
 
   const stageURL = () =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.composer&variant=working-stop`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.composer", { variant: "working-stop" })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -33,25 +33,13 @@ await requireBrowserLane("composer-send-stop.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     // One throwaway load of the same stage first. Cold, beside the parallel test batch, compiling
-    // the stage (every gallery entry file, then the dependency optimizer, which reloads the page
+    // the stage (its entry's gallery file, then the dependency optimizer, which reloads the page
     // when it finishes mid-load) took longer than the checked page's wait. This load waits it out
     // and loads every module the stage uses, its lazy imports included; the checked page below
     // then measures the play alone.
-    const warm = await browser.newPage({ viewport: { width: 760, height: 560 } });
-    await warm.goto(stageURL());
-    for (;;) {
-      try {
-        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-        break;
-      } catch (error) {
-        // An optimizer reload destroys the page's context; wait for the reloaded stage.
-        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-      }
-    }
-    await warm.close();
+    await warmGalleryFrame(vite, "agent-pane.composer", { browser, params: { variant: "working-stop" } });
   });
   afterAll(async () => {
     await browser?.close();

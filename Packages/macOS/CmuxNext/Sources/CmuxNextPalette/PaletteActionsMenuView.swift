@@ -128,9 +128,12 @@ final class PaletteMenuRow: NSView {
     private let label = PaletteText.label(Typography.body)
     private let keys = PaletteKeycapsView()
     private let isSelected: Bool
+    /// Whether the row's label is the quiet (destructive) tone; its icon takes the same ink.
+    private let isQuiet: Bool
 
     init(command: PaletteCommand, keycaps: [String]?, isSelected: Bool) {
         self.isSelected = isSelected
+        isQuiet = command.isDestructive
         super.init(frame: .zero)
         icon.image = PaletteText.symbol(command.symbol ?? "command", size: Metrics.smallIconSize)
         label.stringValue = command.title
@@ -183,7 +186,9 @@ final class PaletteMenuRow: NSView {
     }
 
     private func applyColors() {
-        performWithTheme { icon.contentTintColor = Palette.textSecondary }
+        // The icon takes its label's ink, as a native menu row's does (user 2026-10-21: menu
+        // icons "should be whiter").
+        performWithTheme { icon.contentTintColor = isQuiet ? Palette.textSecondary : Palette.textPrimary }
     }
 
     override func layout() {

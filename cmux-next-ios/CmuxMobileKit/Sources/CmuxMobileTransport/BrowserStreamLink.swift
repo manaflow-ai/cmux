@@ -105,8 +105,22 @@ public protocol BrowserStreamOpening: Sendable {
     /// The shown workspace has browser tabs: open the WebRTC media session
     /// beside a WireGuard link ahead of the first one (no-op otherwise).
     func warmMedia()
+    /// Opens a Mac phone tab's simulator (`surface` service, `tab`: `s<surface>`):
+    /// the same stream as a browser tab's, from the simulator's framebuffer.
+    func openSurface(tab: String, sink: any BrowserStreamSink) async throws -> any BrowserStreamConnection
+    /// Opens one connection to `port` on the Mac's loopback (`localhost` service,
+    /// PROTOCOL.md): a native browser tab's request to `localhost:<port>`.
+    func openLocalhost(port: UInt16) async throws -> any LinkChannel
 }
 
 extension BrowserStreamOpening {
     public func warmMedia() {}
+
+    public func openSurface(tab: String, sink: any BrowserStreamSink) async throws -> any BrowserStreamConnection {
+        throw LinkError(code: "no_surface_host", message: "This Mac does not stream simulators")
+    }
+
+    public func openLocalhost(port: UInt16) async throws -> any LinkChannel {
+        throw LinkError(code: "unknown_service", message: "This Mac does not forward localhost")
+    }
 }

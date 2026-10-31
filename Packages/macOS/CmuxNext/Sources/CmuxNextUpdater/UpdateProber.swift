@@ -11,12 +11,27 @@ nonisolated public protocol AppcastFetching: Sendable {
 nonisolated public struct URLSessionAppcastFetcher: AppcastFetching {
     private let session: URLSession
 
-    public init(deadline: TimeInterval = 15) {
+    private nonisolated final class RedirectRejectingDelegate: NSObject, URLSessionTaskDelegate, Sendable {
+        func urlSession(_ session: URLSession, task: URLSessionTask,
+                        willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest,
+                        completionHandler: @escaping (URLRequest?) -> Void) {
+            completionHandler(nil)
+        }
+    }
+
+    public init(deadline: TimeInterval = 15, followsRedirects: Bool = true) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = deadline
         configuration.timeoutIntervalForResource = deadline
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        session = URLSession(configuration: configuration)
+        self.init(configuration: configuration, followsRedirects: followsRedirects)
+    }
+
+    /// Tests exercise redirects through URLSession with a deterministic protocol.
+    init(configuration: URLSessionConfiguration, followsRedirects: Bool) {
+        session = URLSession(configuration: configuration,
+                             delegate: followsRedirects ? nil : RedirectRejectingDelegate(), delegateQueue: nil)
     }
 
     public func fetch(_ url: URL) async throws -> Data {
@@ -38,6 +53,15 @@ nonisolated public struct UpdateProber: Sendable {
     public init(fetcher: any AppcastFetching = URLSessionAppcastFetcher(), architecture: UpdateHostArchitecture = .current) {
         self.fetcher = fetcher
         self.architecture = architecture
+    }
+
+    /// Off the main actor: the feed's items an updater allowing `allowedChannels` sees, in feed
+    /// order (a ring switch looks for the ring's builds this Mac kept, ``RingReturn``).
+    @concurrent
+    public func offered(_ identity: UpdateBuildIdentity, allowedChannels: Set<String>) async throws -> [AppcastItem] {
+        let feed = identity.feed(architecture: architecture)
+        guard let url = URL(string: feed.url) else { throw AppcastParseError(message: "invalid feed URL \(feed.url)") }
+        return try AppcastParser.parse(try await fetcher.fetch(url)).filter { $0.isOffered(allowing: allowedChannels) }
     }
 
     /// Off the main actor: network and XML parsing. Items whose `sparkle:channel` is not in

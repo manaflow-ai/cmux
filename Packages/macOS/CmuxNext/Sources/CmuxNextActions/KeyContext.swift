@@ -74,6 +74,12 @@ public nonisolated struct KeyContext: Hashable, Sendable {
     /// A list-like control has the keyboard: a combobox, listbox, menu or
     /// picker in a page, the sidebar list or its search field (R85).
     public static let listFocus = "listFocus"
+    /// The sidebar list has the keyboard with two or more rows selected: Cmd-W closes them
+    /// (Chrome's Cmd-W on several selected tabs).
+    public static let sidebarMultiSelection = "sidebar.multiSelection"
+    /// Workspaces as tabs is on (`sidebar.workspacesAsTabs`, a Debug tunable): Cmd-Shift-[ / ]
+    /// step workspaces instead of a pane's tabs (`KeyBindingDefaults.workspacesAsTabs`).
+    public static let workspacesAsTabs = "sidebar.workspacesAsTabs"
     /// The focused React page's id (`cmux.markdown`, `cmux.keybindings`).
     public static let pageID = "pageId"
     /// The top page the window shows (`home`), which fills the content area
@@ -118,12 +124,14 @@ extension ActionContext {
         (.omnibarFocused, "omnibarFocused"), (.codeEditorFocused, "codeEditorFocused"),
         (.homeChannelsEnabled, "homeChannelsEnabled"), (.webViewFocused, "webViewFocused"),
         (.markdownReadOnlyFocused, "markdownReadOnlyFocused"), (.markdownEditorFocused, "markdownEditorFocused"),
+        (.sideSessions, "sideSessions"),
     ]
 
     /// The bits a window's focus decides; the rest are app-wide facts.
     public nonisolated static let focusBits: ActionContext = [
         .terminalFocused, .browserFocused, .agentPaneFocused, .omnibarFocused, .diffViewerFocused, .codeEditorFocused,
-        .markdownFocused, .markdownReadOnlyFocused, .markdownEditorFocused, .textBoxFocused,
+        .markdownFocused, .markdownReadOnlyFocused, .markdownEditorFocused, .textBoxFocused, .simulatorFocused,
+        .fileExplorerFocused,
     ]
 
     /// Whether two focus keys never hold together: one surface has the keyboard (a terminal, a

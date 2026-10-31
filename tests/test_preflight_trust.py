@@ -39,13 +39,21 @@ class PreflightTrustTests(unittest.TestCase):
         self.git("init", "--quiet", "--bare", str(self.remote))
         self.git("remote", "add", "origin", str(self.remote))
         # Copy installed behavior, including the vulnerable hook when running
-        # this regression against the before-fix source tree.
+        # this regression against the before-fix source tree. Everything the
+        # installer installs must be here, or it exits before wiring any hook.
         for relative in (
             "scripts/git-hooks",
             "scripts/install-git-hooks.sh",
+            "scripts/web_lint_prepush.py",
+            "scripts/cmux-next/prepush-gate.py",
+            "scripts/cmux-next/push_range.py",
+            "scripts/cmux-next/git_batch.py",
             "scripts/ci/base_merge_warning.py",
+            "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
+            "scripts/merge-baseline.py",
+            "scripts/merge-daemon-capabilities.py",
             "scripts/ci/merge_main_resolver.py",
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
@@ -63,14 +71,20 @@ class PreflightTrustTests(unittest.TestCase):
             hook.chmod(0o755)
         (self.repo / ".gitignore").write_text(".local/\n")
         self.commit("base")
+        # The base is on origin, as in a real clone: the pre-push gate judges only a push's own commits
+        # (push_range.py) and refuses a push that shares no history with any origin ref.
+        self.git("push", "--quiet", "--no-verify", "origin", "main")
+        self.git("fetch", "--quiet", "origin")
         subprocess.run(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo,
                        env=self.env, check=True, capture_output=True)
 
     def test_hook_installation_has_no_candidate_code_runner(self):
-        """The installed hook set must never execute code from a pushed tree."""
-        self.assertFalse((SOURCE / "scripts/git-hooks/pre-push").exists())
+        """The installed hook set must never execute code from a pushed tree.
+
+        The pre-push hook (web lint, cmux-next checks) is a reviewed copy outside the
+        checkout, and it runs only the helpers installed beside it, never code the push
+        changes. (The web lint still runs the checkout's unchanged `check` script.)"""
         self.assertFalse((SOURCE / "scripts/verify-push.py").exists())
-        self.assertFalse((self.repo / "scripts/git-hooks/pre-push").exists())
         common = Path(self.git("rev-parse", "--git-common-dir").stdout.strip())
         if not common.is_absolute():
             common = self.repo / common
@@ -79,7 +93,14 @@ class PreflightTrustTests(unittest.TestCase):
             Path(self.git("config", "--get", "core.hooksPath").stdout.strip()).resolve(),
             installed_hooks.resolve(),
         )
-        self.assertFalse((installed_hooks / "pre-push").exists())
+        hook = installed_hooks / "pre-push"
+        self.assertEqual(hook.read_bytes(), (SOURCE / "scripts/git-hooks/pre-push").read_bytes())
+        text = hook.read_text()
+        for helper in ("web_lint_prepush.py", "cmux_next_prepush_gate.py", "base_merge_warning.py"):
+            self.assertIn(f'"$HOOK_DIR/{helper}"', text)
+            self.assertTrue((installed_hooks / helper).is_file(), helper)
+        self.assertNotIn("$REPO_ROOT/scripts", text)
+        self.assertNotIn("verify-local.py", text)
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,

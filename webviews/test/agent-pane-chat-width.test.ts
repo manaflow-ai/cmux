@@ -11,8 +11,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 type Measured = {
   pane: number;
@@ -86,7 +86,7 @@ await requireBrowserLane("agent-pane-chat-width.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const url = (variant: string, width: number) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.chat-width&variant=${variant}&width=${width}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.chat-width", { variant, width })}`;
 
   const open = async (variant: string, width: number): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width, height: 900 } });
@@ -112,8 +112,8 @@ await requireBrowserLane("agent-pane-chat-width.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, "agent-pane.chat-width", { browser });
   });
   afterAll(async () => {
     await browser?.close();

@@ -14,9 +14,21 @@ extension ChatsFeed {
         let turns = AgentTurnStateFeed.shared ?? AgentTurnStateFeed(socketPath: environment.socketPath)
         AgentTurnStateFeed.shared = turns
         AgentTurnStateFeed.drained = { DebugTimings.turnStatesApplied(lines: $0, $1) }
-        turns.start(localHost: (try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:)))
+        // A deleted chat's uploads go with it; any past their age at launch (``AgentChatUploads``).
+        AgentTurnStateFeed.purged = { AgentChatUploads.removeInBackground(session: $0) }
+        // An acpmux peer that connects later in the launch gets the app's build too.
+        AgentTurnStateFeed.peerSessionChanged = { _ = AcpmuxPeerReconnects.shared.note(peer: $0, stale: $1) }
+        AgentChatUploads.sweepInBackground()
+        let localHost = (try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:))
+        turns.start(localHost: localHost)
         startChiefTurnStates(tag: services.environment.tag)
-        return ChatsFeed(socketPath: environment.socketPath)
+        SidebarSessionTreeFeed.shared.start(workspaces: { services.machines.allWorkspaces.map { $0.0 } }, localHost: localHost)
+        let feed = ChatsFeed(socketPath: environment.socketPath, drained: { DebugTimings.chatsFeedApplied(lines: $0, $1) })
+        // The session tree's chat history: two windows acpmux keeps (never the whole index); rows
+        // open through the shared Open Chat path.
+        SidebarChatHistoryFeed.shared.start(workspaces: { services.machines.allWorkspaces.map { $0.0 } }, localHost: localHost,
+                                            open: { [weak services] key in services?.chatsOpener.open(key) }, windows: feed.windows)
+        return feed
     }
 
     /// The Chief home's acpmux watch (2026-10-20: every Chief subagent tab read "Agent"): the

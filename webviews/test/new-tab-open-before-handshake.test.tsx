@@ -8,6 +8,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
+import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -74,7 +75,10 @@ afterAll(() => {
 
 const noop = () => {};
 
-async function renderPage(onSubmit: (kind: "terminal" | "browser" | "agent", text: string, cwd?: string) => unknown) {
+async function renderPage(
+  onSubmit: (kind: "terminal" | "browser" | "agent", text: string, cwd?: string) => unknown,
+  initialKind: "terminal" | "browser" | "agent" = "terminal",
+) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabPage } = await import("../src/agent-session/acpmux/NewTabPage");
   const root: Root = createRoot(host);
@@ -82,7 +86,7 @@ async function renderPage(onSubmit: (kind: "terminal" | "browser" | "agent", tex
     root.render(
       <NewTabPage
         snapshot={noChat()}
-        initialKind="terminal"
+        initialKind={initialKind}
         cwd="/Users/you/src/app"
         onSubmit={onSubmit as never}
         onOpenSession={noop}
@@ -107,6 +111,20 @@ async function renderPage(onSubmit: (kind: "terminal" | "browser" | "agent", tex
   };
   return { root, field, type, submit };
 }
+
+test("the classic New Tab agent field follows the opt-in spell checking setting", async () => {
+  const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
+  setComposerSettings({ spellChecking: false });
+  const { root, field } = await renderPage(noop, "agent");
+  try {
+    expect(field.getAttribute("spellcheck")).toBe("false");
+    await act(async () => setComposerSettings({ spellChecking: true }));
+    expect(field.getAttribute("spellcheck")).toBe("true");
+  } finally {
+    await act(async () => setComposerSettings({ spellChecking: false }));
+    await act(async () => root.unmount());
+  }
+});
 
 test("a terminal from the New Tab page opens before the handshake, and a refusal says so", async () => {
   const { newTabPageSubmit } = await import("../src/agent-session/acpmux/newtab/pageSubmit");
@@ -160,4 +178,29 @@ test("a chat from the New Tab page still waits for the handshake", async () => {
   // A browser tab opens at once too.
   await onSubmit("browser", "example.com");
   expect(calls).toEqual(["chat:fix the test", "tab.open"]);
+});
+
+test("a classic New Tab image reaches the first chat prompt", async () => {
+  const { newTabPageSubmit } = await import("../src/agent-session/acpmux/newtab/pageSubmit");
+  const image: ComposerAttachment = {
+    id: "image-1",
+    kind: "image",
+    name: "Screenshot.png",
+    mimeType: "image/png",
+    size: 4,
+    data: "iVBO",
+  };
+  let received: unknown[] | undefined;
+  const waiting: (() => void)[] = [];
+  const onSubmit = newTabPageSubmit({
+    callNative: async () => undefined,
+    whenHandshaken: (run) => void waiting.push(run),
+    startChat: (...args) => {
+      received = args;
+    },
+  });
+  expect(onSubmit("agent", "what is this", "/Users/you/src/app", [image])).toBeUndefined();
+  expect(received).toBeUndefined();
+  waiting.forEach((run) => run());
+  expect(received).toEqual(["what is this", "/Users/you/src/app", [image]]);
 });

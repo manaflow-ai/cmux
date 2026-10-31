@@ -35,6 +35,14 @@ nonisolated enum MarkdownPageActionCatalog: ActionCatalogGroup {
                 category: .browser, symbol: "chevron.forward", surfaces: [.palette, .keyboard],
                 requires: [.markdownFocused], targets: [.pane], cliName: "browser markdown-forward"
             ),
+            // Reload on a Markdown tab, as on a browser page: the file again from disk, same scroll.
+            ActionDescriptor(
+                id: "markdownReload",
+                title: String(localized: "action.markdownReload", defaultValue: "Markdown: Reload", bundle: .module),
+                keywords: ["markdown", "reload", "refresh", "disk"], defaultShortcut: Shortcut("r", modifiers: [.command]),
+                category: .browser, symbol: "arrow.clockwise", surfaces: [.palette, .keyboard],
+                requires: [.markdownFocused], targets: [.pane], cliName: "browser markdown-reload"
+            ),
             // Column widths a resize saved with the file (MARKDOWN-TABLE-WIDTHS-DESIGN.md); the
             // table's right-click menu resets one table, this every table of the file.
             ActionDescriptor(

@@ -3,7 +3,17 @@
 // what was chosen, or that nothing was. The inverse of model.ts `reply`, per harness: Claude Code's
 // answers come keyed by question text, one comma-separated string per question; Codex's by
 // question id, `{answers: [label]}`; an ACP ask's answer is the permission option chosen.
-import type { AgentQuestion, Answer, Item, Selection } from "./model";
+import { plainText } from "./inlineText";
+import {
+  questionSummary,
+  type AgentQuestion,
+  type Answer,
+  type CancelReason,
+  type Item,
+  type Respondent,
+  type Selection,
+  type State,
+} from "./model";
 
 /// The transcript row of a decided question; it draws under a finished turn's fold line, not in it
 /// (conversation/turns.ts `staysOut`).
@@ -90,8 +100,50 @@ export function answerFromOutcome(question: AgentQuestion, outcome: Json): Answe
   return { selections };
 }
 
-/// `question` as its decision left it: answered with what was chosen, else cancelled.
-export function decidedQuestion(question: AgentQuestion, outcome: Json): AgentQuestion {
-  const answer = answerFromOutcome(question, outcome);
-  return { ...question, state: answer ? { kind: "answered", answer } : { kind: "cancelled" } };
+/// Who answered, from the record's `answeredBy`: a session above this one names itself
+/// (`{session, name}`, acpmux `hub/subsession_answer.rs`). The person's app answering for another
+/// of their devices (`{device, feedItem}`, `AcpmuxPermissionFeedBridge.swift`, acpmux
+/// `hub/person.rs` `answered_by`) is a remote answer: its `device` is an install id, not a name, so
+/// none is shown. A person's answer here names no one.
+function respondentOf(answeredBy: Json): Respondent | undefined {
+  if (!isObject(answeredBy)) return undefined;
+  if (typeof answeredBy.session === "string") {
+    const name = typeof answeredBy.name === "string" && answeredBy.name ? answeredBy.name : answeredBy.session;
+    return { displayName: name, isRemote: false, isSession: true };
+  }
+  if (typeof answeredBy.device === "string" && answeredBy.device) return { isRemote: true };
+  return undefined;
 }
+
+/// Why an unanswered ask ended (`CancelReason`): its reject option chosen is a Skip; a bare cancel on
+/// an ask that has a reject option is acpmux's own (a stopped turn), since Skip would have sent that
+/// option. Without a reject option a Skip is a bare cancel too, so nothing is said.
+function cancelReason(question: AgentQuestion, outcome: Json): CancelReason | undefined {
+  if (!isObject(outcome)) return undefined;
+  const reject = question.source.rejectOption;
+  if (reject === undefined) return undefined;
+  if (outcome.outcome === "selected" && outcome.optionId === reject) return "skipped";
+  if (outcome.outcome === "cancelled") return "stopped";
+  return undefined;
+}
+
+/// `question` as its decision left it: answered with what was chosen (and by whom, when a session
+/// above this one answered), else cancelled.
+export function decidedQuestion(question: AgentQuestion, outcome: Json, answeredBy?: Json): AgentQuestion {
+  const answer = answerFromOutcome(question, outcome);
+  const respondent = respondentOf(answeredBy);
+  const answered = answer && respondent ? { ...answer, respondent } : answer;
+  const reason = answered ? undefined : cancelReason(question, outcome);
+  const state: State = answered
+    ? { kind: "answered", answer: answered }
+    : reason
+      ? { kind: "cancelled", reason }
+      : { kind: "cancelled" };
+  return { ...question, state };
+}
+
+/// The arguments of the line an unanswered ask leaves (`cancelledKey`): the question without its
+/// inline marks, the same in the card and in what Copy reads.
+export const cancelledArgs = (question: AgentQuestion): { prompt: string } => ({
+  prompt: plainText(questionSummary(question)),
+});

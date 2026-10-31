@@ -6,7 +6,7 @@
 // shows the bubble (URL, Open, Copy, Edit, Remove), hovering shows nothing, Edit changes the text
 // and the URL, Remove keeps the text, Cmd-K inserts and edits, a URL pasted over a selection links
 // it, a typed bare URL links itself, and every edit writes the markdown spelling the file used.
-import { afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { afterEach, beforeAll, describe, expect, jest, test } from "bun:test";
 import { TextSelection } from "@milkdown/kit/prose/state";
 import { JSDOM } from "jsdom";
 import type { MarkdownEditor as Editor } from "../src/pages/markdown/editor";
@@ -142,9 +142,17 @@ describe("markdown link bubble", () => {
     const md = await setup("Read [the docs](https://docs.cmux.dev/start) first.\n");
     md.caret("first", 2);
     const anchor = md.editor.editorView()!.dom.querySelector("a[href]")!;
-    anchor.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    anchor.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 900));
+    // Past any hover delay, on a clock the test moves.
+    jest.useFakeTimers();
+    try {
+      anchor.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      anchor.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      jest.advanceTimersByTime(900);
+    } finally {
+      jest.useRealTimers();
+    }
+    // A bubble opened from a promise or a later task would show by now.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(md.bubble()).toBe(null);
   });
 

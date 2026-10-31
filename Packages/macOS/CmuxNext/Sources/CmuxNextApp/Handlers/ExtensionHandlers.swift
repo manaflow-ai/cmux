@@ -127,9 +127,24 @@ enum ExtensionHandlers {
         guard store.loadUnpacked(at: expanded) else { throw ActionFailure(message: ExtensionStrings.refused) }
     }
 
-    /// Opens `url` in a new Chromium tab of the focused pane.
+    /// Opens `url` in a new Chromium tab of the focused pane, in the browser
+    /// profile it is for (``extensionPageProfile(_:_:)``): extensions are per
+    /// profile, as in Chrome.
     private static func openChromium(_ url: URL, _ context: AppActionContext, _ invocation: ActionInvocation) throws {
-        guard let pane = context.scope(invocation).pane else { throw ActionFailure(message: ExtensionStrings.needsPane) }
-        pane.newBrowserTab(url: url, engine: BrowserEngineTag.cef.rawValue)
+        let scope = context.scope(invocation)
+        guard let pane = scope.pane else { throw ActionFailure(message: ExtensionStrings.needsPane) }
+        let profile = try extensionPageProfile(scope, context)
+        pane.newBrowserTab(url: url, engine: BrowserEngineTag.cef.rawValue, profile: profile)
+    }
+
+    /// The profile whose extensions page or Web Store opens: the profile the
+    /// invocation names (the profile menu's row, the palette's pick), else the
+    /// profile of the browser tab that asked, else nil (the workspace's).
+    /// Before this, both pages always opened in the workspace's profile, so
+    /// a second profile could not reach its own extensions (2026-10-21).
+    static func extensionPageProfile(_ scope: ActionScope, _ context: AppActionContext) throws -> String? {
+        if let record = try context.explicitBrowserProfile(scope.invocation) { return record.id }
+        guard let (pane, id) = scope.tab, let tab = pane.tab(id), tab.kind == .browser else { return nil }
+        return context.services.browserProfiles.profileID(ofTab: tab)
     }
 }

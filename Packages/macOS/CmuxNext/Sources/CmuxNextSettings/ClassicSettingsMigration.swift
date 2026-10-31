@@ -32,6 +32,8 @@ enum ClassicSettingRename {
         Entry(classic: ["paneBorderColor"], next: ["layout", "paneBorderColor"], transform: identity),
         Entry(classic: ["activePaneBorderColor"], next: ["focusRing", "color"], transform: identity),
         Entry(classic: ["notifications", "paneFlashColor"], next: ["notifications", "attention", "color"], transform: identity),
+        Entry(classic: ["notifications", "paneFlash"], next: ["notifications", "attention", "flash"], transform: identity),
+        Entry(classic: ["notifications", "paneFlashOnTyping"], next: ["notifications", "attention", "flashOnTyping"], transform: identity),
         // Classic's ring off kept the flash; next's style "none" would drop both.
         Entry(classic: ["notifications", "unreadPaneRing"], next: ["notifications", "attention", "persist"],
               transform: map(["false": .bool(false)])),

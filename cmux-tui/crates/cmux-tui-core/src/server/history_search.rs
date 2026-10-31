@@ -61,7 +61,12 @@ fn parse_kind(kind: &str) -> anyhow::Result<SearchKind> {
 /// One hit on the wire. `highlights` are UTF-16 offset ranges into
 /// `snippet`, as the app's and the TypeScript SDK's strings index.
 fn hit_json(hit: &SearchHit) -> Value {
-    let utf16 = |byte: usize| hit.snippet[..byte].encode_utf16().count();
+    let utf16 = |byte: usize| {
+        hit.snippet.get(..byte).map_or_else(
+            || hit.snippet.encode_utf16().count(),
+            |prefix| prefix.encode_utf16().count(),
+        )
+    };
     let highlights: Vec<Value> = hit
         .highlights
         .iter()

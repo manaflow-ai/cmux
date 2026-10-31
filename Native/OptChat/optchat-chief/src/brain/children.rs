@@ -98,6 +98,35 @@ impl Brain {
                 } else if self.is_child(&session) {
                     let text = permission_text(&session.name, &request);
                     self.queue(text, Source::Note);
+                    // A child has no tab in the person's app, so nobody
+                    // can allow it: denied once overdue, unless the Chief
+                    // answers or steers it first.
+                    self.watch_unanswered(
+                        crate::approval::Pending {
+                            session_id: session.session_id.clone(),
+                            permission_id,
+                            tool: crate::approval::tool_name(&request),
+                            request,
+                            child: Some(session.name.clone()),
+                        },
+                        "a child agent has no approval button in the app",
+                    );
+                } else if self.is_own_turn_session(&session) {
+                    // A turn session of this Chief that is not the running
+                    // turn (a kept, adopted or ended one): nobody sees its
+                    // request, so it is refused at once.
+                    let pending = crate::approval::Pending {
+                        session_id: session.session_id.clone(),
+                        permission_id,
+                        tool: crate::approval::tool_name(&request),
+                        request,
+                        child: None,
+                    };
+                    (self.log)(&format!(
+                        "turn session {} that no turn runs on asked for {}: refusing it",
+                        pending.session_id, pending.tool
+                    ));
+                    self.refuse_by(&pending, "no approver");
                 }
             }
         }
@@ -141,6 +170,16 @@ impl Brain {
         ));
     }
 
+    /// A turn session of this Chief (`cmux.chief=<id>`, role `turn`).
+    fn is_own_turn_session(&self, session: &SessionSummary) -> bool {
+        session.tags.get(crate::acpmux::CHIEF_TAG) == Some(&self.settings.chief_id)
+            && session
+                .tags
+                .get(crate::acpmux::CHIEF_ROLE_TAG)
+                .map(String::as_str)
+                == Some("turn")
+    }
+
     /// One of the Chief's `chief agents` children; a subagent (section 9,
     /// `optchat.subagent`) is not: its spawn reports for it.
     fn is_child(&self, session: &SessionSummary) -> bool {
@@ -149,6 +188,10 @@ impl Brain {
     }
 
     fn on_session(&mut self, session: SessionSummary) {
+        if session.pending_permissions == 0 {
+            // Answered (by the person's app, or a deny): nothing to watch.
+            self.forget_unanswered_of(&session.session_id);
+        }
         // An adopted turn the Chief waits for has ended: fold it, then the
         // turns that waited start (the resume first).
         if self.orphan_wait.is_some()
@@ -308,8 +351,8 @@ impl Brain {
             .collect();
         for s in asking {
             let text = format!(
-                "[{}] has {} pending permission request(s). See `chief agents list`; answer with `chief agents allow {} [OPTION_ID]` or `chief agents deny {}`.",
-                s.name, s.pending_permissions, s.name, s.name
+                "[{}] has {} pending permission request(s). Nobody can allow them (only the person's cmux app allows, and it has no tab there): deny with `chief agents deny {}`, or tell it what to do instead.",
+                s.name, s.pending_permissions, s.name
             );
             self.queue(text, Source::Note);
         }
@@ -494,6 +537,7 @@ pub(super) fn permission_text(name: &str, request: &Value) -> String {
         options.join(", ")
     };
     format!(
-        "[{name}] asks permission: {title}{input}\nOptions: {options}\nAnswer with `chief agents allow {name} OPTION_ID` or `chief agents deny {name}`."
+        "[{name}] asks permission: {title}{input}\nOptions: {options}\nNobody can allow it: only the person's cmux app allows, and {name} has no tab there. Deny it with `chief agents deny {name}`, or tell it what to do instead; the host denies it after {} s.",
+        crate::approval::PERMISSION_WAIT.as_secs()
     )
 }

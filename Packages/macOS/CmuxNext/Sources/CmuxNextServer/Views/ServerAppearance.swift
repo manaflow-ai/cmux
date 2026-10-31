@@ -34,6 +34,23 @@ struct ServerColors: Equatable {
     }
 }
 
+extension ServerColors {
+    /// The theme's colors now; call it inside the host view's `performWithTheme`.
+    static func resolved() -> ServerColors {
+        ServerColors(
+            primary: color(Palette.textPrimary), secondary: color(Palette.textSecondary),
+            tertiary: color(Palette.textTertiary), hover: color(Palette.hoverFill),
+            selection: color(Palette.selectionFill), separator: color(Palette.separator),
+            warning: color(Palette.attention), critical: color(Palette.danger),
+            ok: color(Palette.success), onPrimary: color(Palette.textOnPrimary))
+    }
+
+    /// A static color: dynamic ones would re-resolve outside the host view's theme scope.
+    private static func color(_ color: NSColor) -> Color {
+        Color(nsColor: color.usingColorSpace(.sRGB) ?? color)
+    }
+}
+
 @Observable
 final class ServerAppearance {
     var colors = ServerColors()

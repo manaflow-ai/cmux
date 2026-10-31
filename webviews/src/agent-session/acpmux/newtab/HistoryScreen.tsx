@@ -4,20 +4,25 @@
 // same Open Chat path. Here its rows also select (Cmd/Ctrl-click, Shift-click), and Enter or the
 // row menu's Bring into Active Sessions opens each picked chat in the current space.
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
+import { useNoEntryMotion } from "./noEntryMotion";
 import { useNt } from "./strings";
 
 export function HistoryScreen({
   load,
   onOpen,
   onOpenInTerminal,
+  onViewOnly,
   now,
 }: {
   load: LoadChatsPage;
   onOpen(key: string): void;
   onOpenInTerminal?(key: string): void;
+  onViewOnly?(key: string): void;
   now?: number;
 }) {
   const nt = useNt();
+  // A New Tab page too: what it shows or opens appears at once (noEntryMotion.ts).
+  useNoEntryMotion();
   return (
     <div className="nt-history">
       <h1 className="nt-history-title">{nt("history")}</h1>
@@ -27,6 +32,7 @@ export function HistoryScreen({
         // Each chat opens through Open Chat, as a click does: in a new workspace of this space.
         onBring={(keys) => keys.forEach(onOpen)}
         {...(onOpenInTerminal ? { onOpenInTerminal } : {})}
+        {...(onViewOnly ? { onViewOnly } : {})}
         {...(now !== undefined ? { now } : {})}
       />
     </div>

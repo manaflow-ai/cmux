@@ -13,9 +13,10 @@ import Security
 ///
 /// Only the enclave's encrypted key blobs are stored (Keychain, this device
 /// only); a private key never leaves the enclave. The simulator has no
-/// enclave, so DEBUG builds there use software keys and ask for Face ID with
-/// an explicit `LAContext` check (`xcrun simctl` can match it). Release builds
-/// without an enclave have no keys: the phone stays deny-only and unpaired.
+/// enclave, so simulator builds (any configuration) and DEBUG builds use software
+/// keys and ask for Face ID with an explicit `LAContext` check (`xcrun simctl` can
+/// match it). Device builds of Release, Production and TestFlight without an enclave
+/// have no keys: the phone stays deny-only and unpaired.
 public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable after init except the lock-guarded cache
     public enum Failure: Error, Equatable {
         case unavailable
@@ -71,7 +72,7 @@ public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable af
         self.init(userID: userID, service: service, store: store, enclave: Self.hasEnclave)
     }
 
-    /// `enclave` false: software keys (DEBUG only; tests on a Mac with an enclave).
+    /// `enclave` false: software keys (DEBUG or simulator builds only; tests on a Mac with an enclave).
     init(userID: String?, service: String, store: any DeviceSecretStore, enclave: Bool) {
         self.service = service
         self.userID = userID
@@ -182,9 +183,10 @@ public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable af
             try write(account, made.dataRepresentation)
             return .enclave(made)
         }
-        #if DEBUG
-        // DEBUG ONLY (the simulator has no Secure Enclave): a software key in the
-        // Keychain; `authorizeApproval` still asks for Face ID first.
+        #if DEBUG || targetEnvironment(simulator)
+        // DEBUG builds and simulator builds only (the simulator has no Secure Enclave, and a
+        // simulator binary never runs on an iPhone): a software key in the Keychain;
+        // `authorizeApproval` still asks for Face ID first. A device Release build has none.
         if let raw = try read(account) {
             if let key = try? P256.Signing.PrivateKey(rawRepresentation: raw) { return .software(key) }
             discard(account)

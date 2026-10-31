@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { groups, initialActivityState, reduceActivity } from "./model";
 import { native } from "./native";
+import "../ui/ui.css";
 import "./styles.css";
 import { ActivityView } from "./view";
 
@@ -12,11 +13,9 @@ function App() {
   const [error, setError] = useState<string>();
   useEffect(() => {
     native.onState((raw) => setState((current) => reduceActivity(current, { type: "snapshot", state: raw })));
-    native.onEvent((event) => setState((current) => reduceActivity(current, { type: "agentEvent", event })));
     native.request("ready").catch((e) => setError(String(e)));
     return () => {
       delete (window as any).cmuxActivityReceive;
-      delete (window as any).cmuxActivityReceiveEvent;
     };
   }, []);
   const followIDs =
@@ -36,12 +35,11 @@ function App() {
     setState((s) => reduceActivity(s, action));
     if (action.type === "select") void native.request("select", { id: action.id }).catch(() => undefined);
     if (action.type === "scrub") void native.request("scrub", { seq: action.seq ?? null }).catch(() => undefined);
+    // A frame opened from the timeline or grid: its session and that frame, in one request.
+    if (action.type === "open")
+      void native.request("open", { id: action.id, seq: action.seq ?? null }).catch(() => undefined);
     if (action.type === "filter") void native.request("filter", { value: action.value }).catch(() => undefined);
     if (action.type === "layout") void native.request("layout", { value: action.value }).catch(() => undefined);
-    if (action.type === "jump")
-      void native
-        .request("jump", { id: action.id, workspaceId: action.workspaceId ?? undefined })
-        .catch(() => undefined);
   };
   return <ActivityView state={state} dispatch={dispatch} error={error} />;
 }

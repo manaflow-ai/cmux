@@ -11,8 +11,9 @@ extension BrowserChromeView {
         addSubview(accessoryBar)
         let height = accessoryBar.heightAnchor.constraint(equalToConstant: 0)
         height.identifier = Self.heightIdentifier
+        toolbarEdge.top.append(accessoryBar.topAnchor.constraint(equalTo: separator.bottomAnchor))
+        toolbarEdge.bottom.append(accessoryBar.bottomAnchor.constraint(equalTo: separator.topAnchor))
         NSLayoutConstraint.activate([
-            accessoryBar.topAnchor.constraint(equalTo: separator.bottomAnchor),
             accessoryBar.leadingAnchor.constraint(equalTo: leadingAnchor),
             accessoryBar.trailingAnchor.constraint(equalTo: trailingAnchor),
             height,

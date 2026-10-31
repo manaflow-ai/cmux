@@ -150,6 +150,20 @@ enabled = false
 /// hooks, plugins, skills or apps) and no native subagents: the Chief's
 /// subagents are `chief spawn` sessions. The session directory's AGENTS.md
 /// (the Chief's instructions) stays.
+///
+/// No approval config for the Chief's own tools: codex has one per MCP tool
+/// (`[mcp_servers.<server>.tools.<tool>] approval_mode = "approve"`, or the
+/// server's `default_tools_approval_mode`), but acpmux gives a codex turn no
+/// `optchat` MCP server, so its Chief tools are `chief <verb>` shell
+/// commands (`prompt::Tools::Cli`), which no per-tool setting covers. In a
+/// turn another person started (policy `ask`) each of them is a shell
+/// permission request, which the host refuses at once (acpmux takes an
+/// allow only from the person's app; `brain/approvals.rs`): the turn
+/// answers with its final text, and a model that runs a refused command
+/// again and again is stopped. An owner's turn under the default policy
+/// (approve-all) runs codex with full access and asks nothing. Serving
+/// `optchat` to codex as an MCP server with
+/// `default_tools_approval_mode = "approve"` would lift this.
 pub fn codex_turn_config(user: Option<&str>) -> Result<String, String> {
     let mut out = toml::Table::new();
     if let Some(text) = user {
@@ -198,7 +212,16 @@ pub fn prepare_turn_codex_home(paths: &Paths, user_home: &Path) -> Result<(), St
         Err(e) if e.kind() == io::ErrorKind::NotFound => None,
         Err(e) => return Err(format!("reading {}: {e}", user_home.display())),
     };
-    let config = codex_turn_config(user.as_deref())?;
+    let mut config: toml::Table = codex_turn_config(user.as_deref())?
+        .parse()
+        .map_err(|e| format!("the codex turn's config: {e}"))?;
+    // The MCP servers of the Chief's tool packs that are on (toolpacks.rs).
+    let servers = crate::toolpacks::codex_servers(&crate::toolpacks::load(&paths.home), &paths.bin);
+    if !servers.is_empty() {
+        config.insert("mcp_servers".into(), servers.into());
+    }
+    let config =
+        toml::to_string(&config).map_err(|e| format!("writing the codex turn's config: {e}"))?;
     let dir = &paths.turn_codex;
     private_dir(dir)
         .and_then(|()| {

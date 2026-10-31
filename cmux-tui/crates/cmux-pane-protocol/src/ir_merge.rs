@@ -141,35 +141,35 @@ pub fn portable_pattern(pattern: &str) -> Result<(), String> {
     let bytes = pattern.as_bytes();
     let mut index = 0;
     let mut in_class = false;
-    while index < bytes.len() {
-        match bytes[index] {
+    while let Some(&byte) = bytes.get(index) {
+        match byte {
             b'\\' => {
-                match bytes.get(index + 1) {
+                match bytes.get(index.saturating_add(1)) {
                     Some(b'1'..=b'9') => return Err("backreferences are not portable".into()),
                     Some(b'k') => return Err("named backreferences are not portable".into()),
                     _ => {}
                 }
-                index += 2;
+                index = index.saturating_add(2);
                 continue;
             }
             b'[' => in_class = true,
             b']' => in_class = false,
-            b'(' if !in_class && bytes.get(index + 1) == Some(&b'?') => {
-                let rest = &pattern[index + 2..];
-                if rest.starts_with('=')
-                    || rest.starts_with('!')
-                    || rest.starts_with("<=")
-                    || rest.starts_with("<!")
+            b'(' if !in_class && bytes.get(index.saturating_add(1)) == Some(&b'?') => {
+                let rest = bytes.get(index.saturating_add(2)..).unwrap_or_default();
+                if rest.starts_with(b"=")
+                    || rest.starts_with(b"!")
+                    || rest.starts_with(b"<=")
+                    || rest.starts_with(b"<!")
                 {
                     return Err("lookaround is not portable".into());
                 }
-                if rest.starts_with('<') || rest.starts_with('P') || rest.starts_with('\'') {
+                if rest.starts_with(b"<") || rest.starts_with(b"P") || rest.starts_with(b"'") {
                     return Err("named groups are not portable".into());
                 }
             }
             _ => {}
         }
-        index += 1;
+        index = index.saturating_add(1);
     }
     Ok(())
 }

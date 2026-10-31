@@ -39,9 +39,14 @@ public nonisolated final class QuitDeadline: Sendable {
 
     private let armed = Atomic<Bool>(false)
     private let end: @Sendable () -> Void
+    private let reason: String
 
-    /// `end` runs on the deadline thread; the default ends the process.
-    public init(end: (@Sendable () -> Void)? = nil) {
+    /// - Parameters:
+    ///   - reason: What the limit counts from, for the fault log line ("quit still running N s after
+    ///     <reason>"); the default is the engine stop's.
+    ///   - end: Runs on the deadline thread; the default ends the process.
+    public init(reason: String = "the engines began to stop", end: (@Sendable () -> Void)? = nil) {
+        self.reason = reason
         self.end = end ?? { _exit(0) }
     }
 
@@ -49,6 +54,7 @@ public nonisolated final class QuitDeadline: Sendable {
     public func arm(after limit: Duration) {
         guard armed.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else { return }
         let end = end
+        let reason = reason
         let seconds = Double(limit.components.seconds) + Double(limit.components.attoseconds) / 1e18
         let thread = Thread {
             // concurrency-allow: the dedicated quit-deadline thread waits out the limit; never the main thread.
@@ -56,7 +62,7 @@ public nonisolated final class QuitDeadline: Sendable {
             // concurrency-allow: same dedicated thread; nothing signals it, so this is the deadline.
             _ = never.wait(timeout: .now() + seconds)
             Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
-                .fault("quit still running \(seconds, privacy: .public) s after its deadline was armed; ending the process")
+                .fault("quit still running \(seconds, privacy: .public) s after \(reason, privacy: .public); ending the process")
             end()
         }
         thread.name = "cmux-next quit deadline"
@@ -65,7 +71,7 @@ public nonisolated final class QuitDeadline: Sendable {
     }
 }
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 extension QuitDeadline {
     /// A debug seam for the quit's last step: blocks the main thread for
     /// good, as CefShutdown did on a capture mini, so a journey can prove
