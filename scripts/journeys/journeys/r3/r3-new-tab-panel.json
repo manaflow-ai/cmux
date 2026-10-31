@@ -83,7 +83,8 @@
   },
   {
    "do": "r3_long_line",
-   "tag": "r3tow${nonce}"
+   "tag": "r3tow${nonce}",
+   "after": "r3to\\-${nonce} \\d+ \\d+"
   },
   {
    "do": "expect",
@@ -127,7 +128,8 @@
   },
   {
    "do": "r3_long_line",
-   "tag": "r3tsw${nonce}"
+   "tag": "r3tsw${nonce}",
+   "after": "r3ts\\-${nonce} \\d+ \\d+"
   },
   {
    "do": "expect",
@@ -176,7 +178,8 @@
   },
   {
    "do": "r3_long_line",
-   "tag": "r3tcw${nonce}"
+   "tag": "r3tcw${nonce}",
+   "after": "r3tc\\-${nonce} \\d+ \\d+"
   },
   {
    "do": "expect",

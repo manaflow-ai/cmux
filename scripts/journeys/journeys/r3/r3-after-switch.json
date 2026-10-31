@@ -162,7 +162,8 @@
   },
   {
    "do": "r3_long_line",
-   "tag": "r3fgw${nonce}"
+   "tag": "r3fgw${nonce}",
+   "after": "r3fg\\-${nonce} \\d+ \\d+"
   },
   {
    "do": "expect",
@@ -222,7 +223,8 @@
   },
   {
    "do": "r3_long_line",
-   "tag": "r3fcw${nonce}"
+   "tag": "r3fcw${nonce}",
+   "after": "r3fc\\-${nonce} \\d+ \\d+"
   },
   {
    "do": "expect",
@@ -330,7 +332,8 @@
   },
   {
    "do": "r3_long_line",
-   "tag": "r3fsw${nonce}"
+   "tag": "r3fsw${nonce}",
+   "after": "r3fs\\-${nonce} \\d+ \\d+"
   },
   {
    "do": "expect",

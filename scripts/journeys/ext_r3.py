@@ -14,13 +14,14 @@ Condition (inside `expect.all`):
               fails; a size that is wrong for good fails with every size in the detail.
 
 Steps:
-  r3_long_line {tag, timeout?}   ext_smoke's smoke_long_line (a line 15 cells longer than any grid,
+  r3_long_line {tag, after?, timeout?} ext_smoke's smoke_long_line (a line 15 cells longer than any grid,
                                  fitted grid or view width now, or any remembered grid),
                                  but it waits for either neutral prompt (`J>` after neutral_prompt, `$` of the
                                  capture home) before its keys
 Other steps come from ext_window (window_drag, divider_drag, remember, use_pane), ext_smoke (smoke_adopt_line)
 and the driver (key, type, new_terminal).
 """
+import re
 import time
 D = None
 
@@ -39,14 +40,20 @@ def step_r3_long_line(j, step):
     import ext_smoke
     t0, last = D.now(), None
     timeout = float(step.get("timeout", 15))
+    # `after`: a regex a whole screen line above the prompt must match first (the line the step before
+    # printed, such as `echo TAG $(stty size)`'s output). Without it the old bare prompt, still the last line
+    # before the shell echoes the typed command, ends the wait, and the long line is typed into the command
+    # before its output comes: the output then starts mid-line and pty_size cannot read it (a false red).
+    after = re.compile(j.sub(step["after"])) if step.get("after") else None
     while D.now() - t0 < timeout:
         lines = [l for l in ext_smoke._lines(j.app.screen(j.need_term())["text"]) if l]
         last = lines[-1] if lines else None
-        if last in ("$", D.PROMPT.strip()):
+        if last in ("$", D.PROMPT.strip()) and (after is None or any(after.fullmatch(l.strip()) for l in lines[:-1])):
             break
         time.sleep(0.1)
     else:
-        raise D.StepError(f"r3_long_line: the prompt did not come back within {timeout} s (last line {last!r})")
+        raise D.StepError(f"r3_long_line: the prompt did not come back within {timeout} s"
+                          f"{' after a line matching ' + repr(step['after']) if after else ''} (last line {last!r})")
     waited = round(D.now() - t0, 2)
     # smoke_long_line waits for `$` only: the prompt is back now, so its own wait ends at once for `$`; for `J>`
     # it is skipped (timeout 0 would raise), so build the same line here.

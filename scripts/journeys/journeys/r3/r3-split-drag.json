@@ -84,7 +84,8 @@
   },
   {
    "do": "r3_long_line",
-   "tag": "r3spw${nonce}"
+   "tag": "r3spw${nonce}",
+   "after": "r3sp\\-${nonce} \\d+ \\d+"
   },
   {
    "do": "expect",
@@ -144,7 +145,8 @@
   },
   {
    "do": "r3_long_line",
-   "tag": "r3drw${nonce}"
+   "tag": "r3drw${nonce}",
+   "after": "r3dr\\-${nonce} \\d+ \\d+"
   },
   {
    "do": "expect",
@@ -191,7 +193,8 @@
   },
   {
    "do": "r3_long_line",
-   "tag": "r3dlw${nonce}"
+   "tag": "r3dlw${nonce}",
+   "after": "r3dl\\-${nonce} \\d+ \\d+"
   },
   {
    "do": "expect",
@@ -246,7 +249,8 @@
   },
   {
    "do": "r3_long_line",
-   "tag": "r3clw${nonce}"
+   "tag": "r3clw${nonce}",
+   "after": "r3cl\\-${nonce} \\d+ \\d+"
   },
   {
    "do": "expect",

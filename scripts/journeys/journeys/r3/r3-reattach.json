@@ -73,7 +73,8 @@
   },
   {
    "do": "r3_long_line",
-   "tag": "r3gsw${nonce}"
+   "tag": "r3gsw${nonce}",
+   "after": "r3gs\\-${nonce} \\d+ \\d+"
   },
   {
    "do": "expect",
@@ -163,7 +164,8 @@
   },
   {
    "do": "r3_long_line",
-   "tag": "r3ggw${nonce}"
+   "tag": "r3ggw${nonce}",
+   "after": "r3gg\\-${nonce} \\d+ \\d+"
   },
   {
    "do": "expect",
