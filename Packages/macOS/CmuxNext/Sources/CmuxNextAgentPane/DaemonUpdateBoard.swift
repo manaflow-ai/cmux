@@ -10,12 +10,10 @@ public import Observation
 /// toast that stays until closed (``noticeToast(_:details:)``): the machines' names in plain words,
 /// each reason (the CLI's raw text) in its tooltip and behind Details (Settings > Updates). Closed,
 /// it stays closed for that build, also across launches. A machine that cannot update in place or
-/// is offline never has a toast.
+/// is offline never has a toast. The app has one (``DaemonUpdates/board``, made once by
+/// `AppServices`): the policy writes it, the sidebar of every window and Settings read it.
 @MainActor @Observable
 public final class DaemonUpdateBoard {
-    // lint:allow one board per app process: the policy writes it, the sidebar of every window reads it
-    public static let shared = DaemonUpdateBoard(closedNoticeFile: DaemonUpdatePolicy.defaultDirectory.appendingPathComponent("notice-closed"))
-
     /// The latest event per target id.
     public private(set) var targets: [String: DaemonUpdateEvent] = [:]
     /// Machines whose Update the person clicked (``update(_:retry:)``), until their update ends.
@@ -70,8 +68,8 @@ public final class DaemonUpdateBoard {
     @ObservationIgnored public var openDetails: (@MainActor () -> Void)?
 
     /// Where the build whose notice the person closed is kept, so it stays closed after a relaunch;
-    /// nil keeps it in memory only. Only ``shared`` keeps the app's file: a board a test makes
-    /// never reads or writes it.
+    /// nil keeps it in memory only. Only the app's (``DaemonUpdates/board``) keeps the app's file: a
+    /// board a test makes never reads or writes it.
     let closedNoticeFile: URL?
     @ObservationIgnored private var closedBuild: String?
     /// The read of ``closedNoticeFile`` (off the main actor); until it ends, failures are kept but

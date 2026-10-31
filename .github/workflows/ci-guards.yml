@@ -1013,6 +1013,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runs_cancel_superseded.py
 
+      - name: Validate label events skip CI for labels it does not read
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_label_events_skip_full_ci.py
+
       - name: Validate required checks have no paths filters
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_have_no_path_filters.py

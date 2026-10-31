@@ -183,11 +183,18 @@ const entranceCalls = (source: string) => source.match(/\bdata-enter\b["']?\s*[=
 /// webviews/src fails until it is listed here, so a popup cannot fade in from script, however its
 /// keyframes are built.
 const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
-  "src/agent-session/acpmux/App.tsx": { count: 1, what: "a cold-opened chat's transcript fades in" },
+  "src/agent-session/acpmux/App.tsx": {
+    count: 2,
+    what: "a cold-opened chat's transcript fades in; a bottom tool fold moves the transcript as one stack",
+  },
   "src/agent-session/acpmux/changes/treeMotionDom.ts": { count: 4, what: "the changes tree's rows move and tint" },
   "src/agent-session/acpmux/changes/treeTitles.ts": { count: 2, what: "a long tree title's marquee" },
   "src/agent-session/acpmux/conversation/PromptText.tsx": { count: 3, what: "a prompt bubble resizes" },
   "src/agent-session/acpmux/conversation/fold.ts": { count: 3, what: "a transcript block folds" },
+  "src/agent-session/acpmux/conversation/followGlide.ts": {
+    count: 1,
+    what: "a followed reply eases into each new line",
+  },
   "src/agent-session/acpmux/conversation/turnFold.ts": { count: 1, what: "a turn folds" },
   "src/agent-session/acpmux/inspector/InspectorGroup.tsx": { count: 1, what: "Session Info sections slide" },
   "src/agent-session/acpmux/newtab/listMotion.ts": { count: 1, what: "New Tab rows move to their new place" },

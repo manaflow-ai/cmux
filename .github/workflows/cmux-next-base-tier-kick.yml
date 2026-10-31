@@ -9,6 +9,9 @@ name: cmux NEXT base tier kick
 # (scripts/ci/cmux_next_base_tier.py). That tip contains every landing before it, so each landing gets
 # a base tier run within 15 minutes. The Release compiles (nightly-next's input), the DEV landing
 # compile, the fast tier and every nightly, DEV or promote build still run on each push, untouched.
+# Once the tip has a base tier run, the kick cancels older base tier runs none of whose Mac jobs has
+# started: the tip's run covers their landings (on 2026-10-31 82% of base tier Mac minutes started
+# after a newer base tier run was dispatched). Nothing else is ever cancelled.
 # vars.CMUX_NEXT_BASE_TIER_COALESCE = '0' turns this off and puts the tier back on every push.
 on:
   push:
@@ -17,7 +20,7 @@ on:
 permissions: {}
 
 # One kick at a time: the running one waits once for the window to open and dispatches; a newer
-# push's kick replaces a pending one, which never started. It cancels nothing that started.
+# push's kick replaces a pending one, which never started. It cancels no Mac job that started.
 concurrency:
   group: cmux-next-base-tier-kick
   cancel-in-progress: false
