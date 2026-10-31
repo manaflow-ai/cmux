@@ -57,6 +57,9 @@ enum CmuxAppLinks {
         return true
     }
 
+    /// The action a settings link runs (red step: none yet).
+    static func settingsAction(for url: URL, linkScheme: String) -> ActionID? { nil }
+
     /// The link `url` opens in this app, in the `cmux` scheme or `linkScheme` (this build's): a
     /// workspace, pane, tab, chat session or outside agent session; a Chief subagent's chat only for this app's own
     /// Chief home (`chiefHost`, `chief:<home id>`) and on this machine. Nil for anything else (an
