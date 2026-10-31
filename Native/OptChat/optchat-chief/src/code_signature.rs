@@ -16,7 +16,10 @@
 //! - the kernel's cdhash is the SHA-256 of the signature's CodeDirectory, so
 //!   the blob below is the one the kernel enforces;
 //! - the CMS signature over that CodeDirectory verifies, and its certificate
-//!   chain ends at Apple Root CA (`anchor apple generic`);
+//!   chain ends at Apple Root CA (`anchor apple generic`), as of now or, for a
+//!   certificate that has expired since, as of the signature's own time (its
+//!   secure timestamp, else its signing time; never a time after now), as
+//!   Security's code signing checks code;
 //! - the signing certificate's OU, the CodeDirectory's team ID and its
 //!   identifier are the team ID and identifier of the acpmux this host runs
 //!   ([`of_file`], itself Apple-anchored).
@@ -230,6 +233,13 @@ mod macos {
         fn CMSDecoderSetDetachedContent(d: CFTypeRef, content: CFTypeRef) -> OSStatus;
         fn CMSDecoderFinalizeMessage(d: CFTypeRef) -> OSStatus;
         fn CMSDecoderGetNumSigners(d: CFTypeRef, out: *mut usize) -> OSStatus;
+        fn CMSDecoderCopySignerSigningTime(d: CFTypeRef, index: usize, out: *mut f64) -> OSStatus;
+        fn CMSDecoderCopySignerTimestampWithPolicy(
+            d: CFTypeRef,
+            policy: CFTypeRef,
+            index: usize,
+            out: *mut f64,
+        ) -> OSStatus;
         fn CMSDecoderCopySignerStatus(
             d: CFTypeRef,
             index: usize,
@@ -408,6 +418,20 @@ mod macos {
         }
     }
 
+    /// The CMS signer's own time (Core Foundation absolute time): its secure
+    /// timestamp when it has one that verifies, else its signed signing time.
+    fn signer_time(decoder: CFTypeRef) -> Option<f64> {
+        let mut at = 0f64;
+        // SAFETY: decoder is live; a null policy is the default time-stamping policy; at is a valid out-pointer.
+        if unsafe { CMSDecoderCopySignerTimestampWithPolicy(decoder, std::ptr::null(), 0, &mut at) }
+            == 0
+        {
+            return Some(at);
+        }
+        // SAFETY: decoder is live; at is a valid out-pointer.
+        (unsafe { CMSDecoderCopySignerSigningTime(decoder, 0, &mut at) } == 0).then_some(at)
+    }
+
     /// Whether `trust`'s chain verifies as of `at` (Core Foundation absolute
     /// time); the error names the trust failure.
     fn chain_verifies(trust: CFTypeRef, at: f64) -> Result<(), String> {
@@ -505,7 +529,18 @@ mod macos {
                 "its CMS signature does not verify (signer status {status})"
             ));
         }
-        chain_verifies(trust.0, absolute_time(now))?;
+        let now = absolute_time(now);
+        if let Err(at_now) = chain_verifies(trust.0, now) {
+            // As Security's code signing does: a chain that no longer verifies
+            // (an expired certificate) is checked again as of the signature's
+            // own time, its secure timestamp (a time-stamping authority's
+            // signed time), else the signing time the signer signed. A time
+            // after `now` is never used, and no time at all keeps the refusal.
+            let signed_at = signer_time(decoder.0)
+                .filter(|at| *at <= now)
+                .ok_or(at_now)?;
+            chain_verifies(trust.0, signed_at)?;
+        }
         // SAFETY: trust is live.
         let chain = Cf::new(
             unsafe { SecTrustCopyCertificateChain(trust.0) },
