@@ -21,15 +21,20 @@ use std::sync::atomic::Ordering;
 const REBUILDS: usize = 1;
 
 tokio::task_local! {
-    /// The request's id, and whether its reply was sent here: then whether it went whole.
-    static REPLY: RefCell<(Value, Option<bool>)>;
+    /// The request's id and method, and whether its reply was sent here: then whether it went
+    /// whole.
+    static REPLY: RefCell<(Value, String, Option<bool>)>;
 }
 
-/// Runs request `id`, whose list reply may be sent here: then the option is set, true if the
-/// reply went whole (not as its too-large error).
-pub(super) async fn scope<F: Future>(id: Value, request: F) -> (F::Output, Option<bool>) {
-    let run = async move { (request.await, REPLY.with(|r| r.borrow().1)) };
-    REPLY.scope(RefCell::new((id, None)), run).await
+/// Runs request `id` (of `method`), whose list reply may be sent here: then the option is set,
+/// true if the reply went whole (not as its too-large error).
+pub(super) async fn scope<F: Future>(
+    id: Value,
+    method: String,
+    request: F,
+) -> (F::Output, Option<bool>) {
+    let run = async move { (request.await, REPLY.with(|r| r.borrow().2)) };
+    REPLY.scope(RefCell::new((id, method, None)), run).await
 }
 
 /// List filters absent, null or empty: the whole list.
@@ -65,11 +70,14 @@ async fn reply(
             }
         };
         let text = make(&list)?;
-        let Ok(id) = REPLY.try_with(|r| r.borrow().0.clone()) else {
+        let Ok((id, method)) = REPLY.try_with(|r| {
+            let r = r.borrow();
+            (r.0.clone(), r.1.clone())
+        }) else {
             return Ok(serde_json::from_str(&text).unwrap_or(Value::Null));
         };
-        if let Some(whole) = conn.send_serialized(&id, &text, seen, reads == REBUILDS) {
-            REPLY.with(|r| r.borrow_mut().1 = Some(whole));
+        if let Some(whole) = conn.send_serialized(&id, &method, &text, seen, reads == REBUILDS) {
+            REPLY.with(|r| r.borrow_mut().2 = Some(whole));
             break;
         }
     }

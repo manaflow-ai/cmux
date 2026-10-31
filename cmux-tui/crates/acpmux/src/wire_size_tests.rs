@@ -107,8 +107,7 @@ fn bounded_line_counts_in_the_daemon_wide_watch() {
     let (near, over) = (count("nearCap"), count("tooLarge"));
     let big = json!({"text": "x".repeat(MAX_MESSAGE_BYTES)});
     assert!(Message::notification("_acpmux/size_watch_test", big.clone()).bounded_line().is_err());
-    let reply =
-        Message::ok(json!(3), big).bounded_line_replying(Some("_acpmux/sessions")).unwrap();
+    let reply = Message::ok(json!(3), big).bounded_line_replying(Some("_acpmux/sessions")).unwrap();
     assert!(reply.contains("message.too_large"), "{reply}");
     assert!(count("tooLarge") >= over + 2);
     let near_line = json!({"text": "x".repeat(pct(80))});
