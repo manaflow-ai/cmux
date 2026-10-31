@@ -128,8 +128,8 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
       const box = line.getBoundingClientRect();
       return { top: box.top, x: box.left + 24, y: box.top + box.height / 2 };
     }, selector);
-  /// Clicks the marked line, then follows it every painted frame for `ms`: how far it ever moved, and
-  /// whether a fold was playing at some frame.
+  /// Clicks the marked line, then follows it every painted frame for `ms`: how far it ever moved,
+  /// whether a fold was playing, and whether the end stayed pinned to the composer.
   const clickAndWatch = async (page: Page, ms = 450, at?: { x: number; y: number }) => {
     const point = await page.evaluate(() => {
       const box = document.querySelector<HTMLElement>("[data-probe]")!.getBoundingClientRect();
@@ -137,14 +137,37 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     });
     const watching = page.evaluate(
       ({ duration, from }) =>
-        new Promise<{ moved: number; folded: boolean; stacked: number }>((resolve) => {
+        new Promise<{
+          moved: number;
+          folded: boolean;
+          stacked: number;
+          bottomDrift: number;
+          threadAnimations: number;
+          threadDuration: number | null;
+        }>((resolve) => {
           const start = performance.now();
           let moved = 0;
           let folded = false;
           let stacked = 0;
+          let bottomDrift = 0;
+          const threadAnimations = new Set<Animation>();
+          let threadDuration: number | null = null;
           window.cmuxAfterPaint(() => {
             const line = document.querySelector<HTMLElement>("[data-probe]");
             if (line) moved = Math.max(moved, Math.abs(line.getBoundingClientRect().top - from));
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+            if (scroller)
+              bottomDrift = Math.max(
+                bottomDrift,
+                Math.abs(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop),
+              );
+            const thread = document.querySelector<HTMLElement>(".acpmux-thread");
+            for (const animation of thread?.getAnimations() ?? []) {
+              if (animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity) continue;
+              threadAnimations.add(animation);
+              const duration = animation.effect?.getTiming().duration;
+              threadDuration = typeof duration === "number" ? duration : null;
+            }
             for (const fold of document.querySelectorAll(".cv-fold"))
               if (fold.getAnimations().length > 0) folded = true;
             const each = new Map<unknown, number>();
@@ -155,7 +178,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
               }
             stacked = Math.max(stacked, ...each.values(), 0);
             if (performance.now() - start < duration) return;
-            resolve({ moved, folded, stacked });
+            resolve({ moved, folded, stacked, bottomDrift, threadAnimations: threadAnimations.size, threadDuration });
             return false;
           });
         }),
@@ -176,7 +199,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     return page;
   };
 
-  test("a tool call opened while the reply is followed stays on its pixel, and the reply streaming on leaves it there", async () => {
+  test("a tool call opened at the end pins the bottom and moves the transcript as one stack", async () => {
     const page = await open("no-preference");
     await show(page, [...done, ...live(1)]);
     await settle(page);
@@ -186,21 +209,27 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     const opened = await clickAndWatch(page);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
     expect(opened.folded).toBe(true);
-    expect(opened.moved).toBeLessThanOrEqual(1);
-    // The output opened below the line, out past the view's end: the view stopped following.
-    expect(await atLatest(page)).toBe(false);
+    expect(opened.bottomDrift).toBeLessThanOrEqual(2);
+    expect(opened.threadAnimations).toBe(1);
+    expect(opened.threadDuration).toBeGreaterThanOrEqual(150);
+    expect(opened.threadDuration).toBeLessThanOrEqual(200);
+    expect(await atLatest(page)).toBe(true);
 
-    // The reply streams on; the reader's place holds.
+    // The reply streams on; the bottom edge remains pinned.
     for (let version = 2; version < 6; version += 1) {
       await show(page, [...done, ...live(version)]);
       await settle(page);
+      expect(await atLatest(page)).toBe(true);
     }
-    expect(Math.abs((await probedTop(page)) - opened.top)).toBeLessThanOrEqual(1);
 
-    // Closed again, away from the end, it stays where it is too.
+    // Closing at the end gets the same one-shot stack motion.
     const closed = await clickAndWatch(page);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("false");
-    expect(closed.moved).toBeLessThanOrEqual(1);
+    expect(closed.bottomDrift).toBeLessThanOrEqual(2);
+    expect(closed.threadAnimations).toBe(1);
+    expect(closed.threadDuration).toBeGreaterThanOrEqual(150);
+    expect(closed.threadDuration).toBeLessThanOrEqual(200);
+    expect(await atLatest(page)).toBe(true);
     await page.close();
   });
 

@@ -115,7 +115,7 @@ import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
 import { animateScroll, stopScroll } from "./threadMinimap/scrollMotion";
 import { JUMP_CURVE, jumpDuration } from "./threadMinimap/model";
-import { cssTimeMs } from "./conversation/fold";
+import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
@@ -330,13 +330,16 @@ import { setReadAloudState, stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight } from "./conversation/fold";
 import {
   ANCHORED_COLLAPSE_EVENT,
+  atFoldBottom,
   clickFold,
+  FOLD_HOLD_MIN_MS,
   foldHoldTarget,
   foldHolding,
   foldRoomFor,
   foldToggleAt,
   holdFold,
   keepFold,
+  STACK_FOLD_MS,
   trimmedFoldRoom,
   verticalWheel,
   type FoldAnchor,
@@ -3105,6 +3108,29 @@ export function VirtualTranscript({
   /// The disclosure line the reader just clicked, held where they clicked it while its fold plays
   /// (conversation/foldAnchor.ts).
   const foldAnchor = useRef<FoldAnchor | undefined>(undefined);
+  /// A fold clicked at the end keeps the physical bottom edge fixed while the whole transcript
+  /// stack makes one short compositor move. Its row observer pins the edge between React placement
+  /// passes while the disclosure's own height animation changes the measured row.
+  type BottomStackFold = {
+    toggle: HTMLElement;
+    beforeEnd: number;
+    animation?: Animation;
+    rowObserver?: ResizeObserver;
+    cleanupTimer?: ReturnType<typeof setTimeout>;
+  };
+  const bottomStackFold = useRef<BottomStackFold | undefined>(undefined);
+  const stopBottomStackFold = useCallback(() => {
+    const stack = bottomStackFold.current;
+    if (!stack) return;
+    bottomStackFold.current = undefined;
+    if (stack.cleanupTimer !== undefined) clearTimeout(stack.cleanupTimer);
+    stack.rowObserver?.disconnect();
+    if (stack.animation) {
+      stack.animation.onfinish = null;
+      stack.animation.oncancel = null;
+      stack.animation.cancel();
+    }
+  }, []);
   /// The content end a clicked disclosure keeps (foldAnchor.ts `foldRoomFor`): 0, or the view's end
   /// when the line was clicked. Closing a body at the transcript's end leaves that much room under
   /// the rows instead of letting the browser clamp the offset, which brought every row down by what
@@ -3600,6 +3626,7 @@ export function VirtualTranscript({
       seenAnchor.current = undefined;
       scrollPacer.current?.cancel();
       stopJump();
+      stopBottomStackFold();
       setScrollAt(0, 0);
       follow(true);
     }
@@ -3622,16 +3649,44 @@ export function VirtualTranscript({
     }
     // A disclosure the reader clicked stays where they clicked it while what it opens lays out: this
     // pass neither follows the latest row nor keeps the top row, it puts the clicked line back.
+    const stack = bottomStackFold.current;
+    const bottomStacking = Boolean(old && node && stack && foldAnchor.current?.toggle === stack.toggle);
     const heldFrom = node?.scrollTop ?? 0;
-    const folding = Boolean(old && node && foldAnchor.current && keepFold(foldAnchor.current, node));
-    if (!folding) foldAnchor.current = undefined;
+    const folding = Boolean(!bottomStacking && old && node && foldAnchor.current && keepFold(foldAnchor.current, node));
+    if (!folding && !bottomStacking) foldAnchor.current = undefined;
     if (folding && node && Math.abs(node.scrollTop - heldFrom) >= 0.5) {
       // The rows mounted for this frame read the held offset too, before its scroll event comes.
       const moved = node.scrollTop;
       scrollPacer.current?.cancel();
       setScrollAt(moved);
     }
-    if (folding && node) {
+    if (bottomStacking && node && stack) {
+      // At the end, the composer is the fixed edge: keep the physical scroll end there while the
+      // disclosure's own height animation reports each new row size. The thread transform starts
+      // at the full measured rise and eases to rest once, so the rows move as one stack.
+      const latest = Math.max(0, layout.totalHeight - height);
+      settleFollowBottom(node, latest);
+      const delta = latest - stack.beforeEnd;
+      const host = thread.current;
+      if (!stack.animation && host && Math.abs(delta) > 0.5) {
+        const duration = foldMs(host);
+        if (duration > 0) {
+          const animation = host.animate([{ translate: `0 ${delta}px` }, { translate: "0 0" }], {
+            duration: Math.max(150, Math.min(200, duration)),
+            easing: foldMotion.easing(host),
+          });
+          stack.animation = animation;
+          const finished = () => {
+            if (bottomStackFold.current !== stack) return;
+            if (stack.cleanupTimer !== undefined) clearTimeout(stack.cleanupTimer);
+            stack.rowObserver?.disconnect();
+            bottomStackFold.current = undefined;
+          };
+          animation.onfinish = finished;
+          animation.oncancel = finished;
+        }
+      }
+    } else if (folding && node) {
       // What opened pushed the latest row out of view, or what closed left room under it
       // (`foldRoom`): the view is the reader's now, not following, so a reply that streams on
       // grows below the view instead of being followed past blank room.
@@ -3718,6 +3773,7 @@ export function VirtualTranscript({
         followGlide.current?.fit(room);
         if (
           !jumping &&
+          !bottomStacking &&
           !resizing &&
           rose > 0.5 &&
           rows.length === oldRows.length &&
@@ -4375,7 +4431,10 @@ export function VirtualTranscript({
       if (!(event?.type === "wheel" && !verticalWheel(event as WheelEvent))) foldAnchor.current = undefined;
       if (findFrame.current !== undefined) cancelAnimationFrame(findFrame.current);
       findFrame.current = undefined;
-      if (reader(event)) followIntent(false);
+      if (reader(event)) {
+        stopBottomStackFold();
+        followIntent(false);
+      }
       // Moving toward the latest row while following keeps following through the hold.
       else if (followingRef.current && movingDown(event)) followRequest.current = intent.request();
       if (jumpTarget.current !== undefined) {
@@ -4467,15 +4526,45 @@ export function VirtualTranscript({
       foldRoomRef.current = end;
       setFoldRoom(end);
     };
+    const beginBottomStackFold = (toggle: HTMLElement, line: HTMLElement): boolean => {
+      if (!atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)) {
+        stopBottomStackFold();
+        return false;
+      }
+      stopBottomStackFold();
+      dropFoldRoom();
+      const stack: BottomStackFold = {
+        toggle,
+        beforeEnd: Math.max(0, node.scrollHeight - node.clientHeight),
+      };
+      bottomStackFold.current = stack;
+      if (typeof ResizeObserver !== "undefined") {
+        const row = line.closest<HTMLElement>(".acpmux-row") ?? line;
+        stack.rowObserver = new ResizeObserver(() => {
+          if (bottomStackFold.current !== stack) return;
+          const end = Math.max(0, node.scrollHeight - node.clientHeight);
+          if (end - node.scrollTop > 0.5) node.scrollTop = end;
+        });
+        stack.rowObserver.observe(row);
+      }
+      stack.cleanupTimer = setTimeout(
+        () => {
+          if (bottomStackFold.current === stack) stopBottomStackFold();
+        },
+        Math.max(FOLD_HOLD_MIN_MS, STACK_FOLD_MS * 3),
+      );
+      return true;
+    };
     const holdClicked = (event: MouseEvent) => {
       const toggle = node ? foldToggleAt(event.target, node) : undefined;
       if (!toggle) return;
       const line = foldHoldTarget(toggle, node ?? undefined);
       settleFold(line);
+      const bottom = beginBottomStackFold(toggle, line);
       // A keyboard click (detail 0) had no press: an older, abandoned one is not its place.
       foldAnchor.current = clickFold(line, event.detail > 0 ? pressed : undefined);
       pressed = undefined;
-      keepFoldRoom();
+      if (!bottom) keepFoldRoom();
     };
     // The press notes where the line was: if streaming moves it before the click lands, the click's
     // hold puts it back where the reader pressed it. It holds nothing itself, so the press never moves
@@ -4496,9 +4585,10 @@ export function VirtualTranscript({
         return;
       event.preventDefault();
       settleFold(header);
+      const bottom = bottomStackFold.current?.toggle === header ? true : beginBottomStackFold(header, header);
       // The click that asked for it already holds this line at the place it was pressed at: keep it.
       foldAnchor.current = clickFold(header, foldAnchor.current);
-      keepFoldRoom();
+      if (!bottom) keepFoldRoom();
     };
     // The reader scrolling lets go of it.
     const release = (event: Event) => {
@@ -4566,7 +4656,7 @@ export function VirtualTranscript({
       gutterRelease.current = undefined;
       gutter?.remove();
     };
-  }, [stopJump]);
+  }, [stopBottomStackFold, stopJump]);
   // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt
   // to its footer. Marked on the mounted rows, so a hover renders nothing.
   // The last ended turn's prompt offers Retry under its bubble (UserBubble.tsx); turns.ts names

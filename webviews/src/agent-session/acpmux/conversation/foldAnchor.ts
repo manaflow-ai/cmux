@@ -46,6 +46,16 @@ export const FOLD_SETTLE_MS = 150; // motion-allow: a hold timer after the fold,
 /// scroll lets go of it sooner.
 export const FOLD_HOLD_MIN_MS = 400; // motion-allow: a hold timer, not an animation
 
+/// A disclosure at the end of the transcript uses the same short move as the fold itself. The
+/// stack is translated as one piece while its new height settles, so the composer edge remains the
+/// reader's fixed reference instead of making each row appear to jump independently.
+export const STACK_FOLD_MS = 180; // motion-allow: the one bottom-stack transform
+
+/// Whether the physical scroller is at (or within the normal follow deadband of) its end.
+export function atFoldBottom(scrollTop: number, clientHeight: number, scrollHeight: number, deadband: number): boolean {
+  return scrollHeight - clientHeight - scrollTop <= deadband;
+}
+
 export type FoldAnchor = {
   toggle: HTMLElement;
   /// Where the line was drawn when clicked (its viewport top).
