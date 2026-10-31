@@ -333,6 +333,37 @@ fn a_committed_child_start_holds_a_later_stop_before_its_own_projection() {
     assert_eq!(mux.resource_notifications(16).len(), 1, "a retry still posts once");
 }
 
+#[test]
+fn a_committed_stop_preserves_background_children_for_the_next_turn() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal = surface.terminal_public_id().cloned().unwrap();
+    let ingress = |event: &str| {
+        crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal.to_string()),
+            serde_json::json!({"session_id": "session", "agent_id": "child"}),
+        )
+        .unwrap()
+    };
+    for event in ["SessionStart", "UserPromptSubmit", "SubagentStart"] {
+        mux.append_journal_ingress(&ingress(event), "test", event).unwrap();
+    }
+    let stop = ingress("Stop");
+    let validated = mux.journal_kernel.validate_ingress(&stop).unwrap();
+    mux.workspace_registry
+        .lock()
+        .unwrap()
+        .append_journal_ingress(&stop, &validated, "test", "first-stop")
+        .unwrap();
+    mux.append_journal_ingress(&ingress("UserPromptSubmit"), "test", "second-prompt").unwrap();
+    mux.append_journal_ingress(&ingress("Stop"), "test", "second-stop").unwrap();
+    assert!(mux.resource_notifications(16).is_empty(), "the background child still runs");
+    mux.append_journal_ingress(&ingress("SubagentStop"), "test", "child-stop").unwrap();
+    assert_eq!(mux.resource_notifications(16).len(), 1, "only the latest turn finishes");
+}
+
 fn assert_held_agent_finish_retries(release_event: &str) {
     let root = std::env::temp_dir()
         .join(format!("cmux-held-finish-retry-{}", WorkspacePublicId::random().unwrap()));
