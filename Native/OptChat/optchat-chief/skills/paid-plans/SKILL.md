@@ -28,17 +28,19 @@ Do not start a checkout the task does not need, and never twice for one ask.
 
 | Plan | Price | What it adds |
 | --- | --- | --- |
+| `plus` | $15/mo | 1 Cloud VM, up to 8 vCPU / 16 GB, no hour cap; paid model router |
 | `pro` | $50/mo | 5 Cloud VMs at once, up to 8 vCPU / 16 GB; paid model router; Chief credits |
-| `max` | $200/mo | 20 Cloud VMs at once, up to 32 vCPU / 64 GB; more included usage |
+| `max` | $200/mo | 5 Cloud VMs at once, up to 32 vCPU / 64 GB; more included usage |
 | `team` | $60/seat/mo | Pro for every member of a team; needs `--team ID` of a team the user administers |
 
 Pick the cheapest plan that unblocks the task: the plan a refusal names
-(`details.plan`, or `(plan: …)` in its message), else `pro`; `team` only when
+(`details.plan`, or `(plan: …)` in its message), else `pro` (`plus` only when
+the user asks for the cheapest plan with one machine); `team` only when
 the user works in a shared team.
 
 ## How
 
-1. Run `cmux billing checkout --plan <pro|max|team> [--team ID] --json`.
+1. Run `cmux billing checkout --plan <plus|pro|max|team> [--team ID] --json`.
    The app asks cmux.com for a Stripe Checkout page bound to the user's
    account and opens it: a cmux browser tab when the cmux browser is signed
    in to Stripe Link (one-click pay), else the default browser. The result

@@ -40,7 +40,8 @@ cmux-panic-log.workspace = true
 clap = { version = "4.5", features = ["derive"] }
 crossterm = { version = "0.29", features = ["event-stream"] }
 dirs = "6"
-# Read the containing app identity for DEV helper discovery.
+# Read the containing app identity for DEV helper discovery and the DEV orphan exit
+# (src/daemon/dev_orphan.rs).
 plist = "1.10"
 futures = "0.3"
 futures-util = "0.3"
