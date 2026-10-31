@@ -98,6 +98,32 @@ struct CmuxToastDetailsTests {
         }
     }
 
+    /// A window that shrinks after Details showed caps the detail again and asks the center to
+    /// size the toast, so the row with Details and close stays on screen.
+    @Test func aShorterWindowCapsTheShownDetailAgain() throws {
+        let long = (1...200).map { "line \($0): ssh build-box: install exited 1" }.joined(separator: "\n")
+        let view = CmuxToastView(toast: CmuxToast(id: "daemon-update.failures", message: "Couldn't update lab-mini",
+                                                  detail: long, action: .details("Details"), duration: CmuxToast.untilClosed))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 1000), styleMask: [.titled, .resizable],
+                              backing: .buffered, defer: true)
+        defer { window.closeWithOverlayHost() }
+        window.contentView?.addSubview(view)
+        var resized = 0
+        view.onResize = { resized += 1 }
+        view.setShowsDetails(true)
+        view.layoutSubtreeIfNeeded()
+        let scroll = try #require(view.detailScroll)
+        #expect(abs(scroll.frame.height - 240) < 0.5, "\(scroll.frame.height)")
+        resized = 0
+        window.setContentSize(NSSize(width: 800, height: 300))
+        view.layoutSubtreeIfNeeded()
+        let cap = CmuxToastView.detailCap(windowHeight: window.contentLayoutRect.height)
+        #expect(cap < 240)
+        #expect(scroll.frame.height <= cap + 0.5, "the detail kept its old cap: \(scroll.frame.height) > \(cap)")
+        #expect(resized == 1, "the center was not asked to size the toast again")
+        view.removeFromSuperview()
+    }
+
     /// The cap is 240 pt, or 40% of a shorter window's height.
     @Test func theDetailCapFollowsTheWindow() {
         #expect(CmuxToastView.detailCap(windowHeight: nil) == 240)
