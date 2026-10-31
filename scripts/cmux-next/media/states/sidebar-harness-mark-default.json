@@ -1,0 +1,11 @@
+{
+  "title": "Sidebar harness marks: fixture Chief subagents and harness workspaces, light and dark",
+  "steps": [
+    {"title": "Place the Chief in the sidebar", "cmux": ["action", "run", "sidebar.item.add", "--item", "chief"], "wait": 1.5, "shot": false},
+    {"title": "Seed the fixture agent sessions", "rpc": {"method": "debug.sidebar_agent_fixture", "params": {}}, "wait": 1},
+    {"title": "Light", "rpc": {"method": "debug.appearance", "params": {"mode": "light"}}, "wait": 1.5},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 1.5},
+    {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 1, "shot": false},
+    {"title": "Clear", "rpc": {"method": "debug.sidebar_agent_fixture", "params": {"clear": true}}, "wait": 0.5, "shot": false}
+  ]
+}
