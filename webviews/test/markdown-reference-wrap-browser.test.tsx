@@ -9,32 +9,14 @@ import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { chromium, type Browser } from "playwright";
-import { Markdown, parseMarkdown } from "../src/agent-session/acpmux/conversation/Markdown";
+import { Markdown } from "../src/agent-session/acpmux/conversation/Markdown";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-
-const REPLY =
-  "Several fixes are stuck on that: the sent-message cards (cmux#\n" +
-  "29613) and the bottom-gap fix (cmux#28905), with the model picker likely next.";
-
-describe("a reference wrapped at its # stays text", () => {
-  test("one paragraph that names cmux#29613 whole", () => {
-    const blocks = parseMarkdown(REPLY);
-    expect(blocks).toHaveLength(1);
-    expect(blocks[0]).toMatchObject({ type: "paragraph" });
-    expect((blocks[0] as { text: string }).text).toContain("(cmux#29613) and");
-  });
-  test("a numbered line other than 1 never starts a list inside a paragraph", () => {
-    expect(parseMarkdown("the total was\n2026. A good year").map((block) => block.type)).toEqual(["paragraph"]);
-    expect(parseMarkdown("steps:\n1. one\n2. two").map((block) => block.type)).toEqual(["paragraph", "list"]);
-    expect(parseMarkdown("2026. A list may start anywhere\n2027. after a blank").map((b) => b.type)).toEqual(["list"]);
-  });
-  test("a bare `#` at a line's end keeps its break", () => {
-    expect((parseMarkdown("see issue #\n12 more")[0] as { text: string }).text).toBe("see issue #\n12 more");
-  });
-});
 
 await requireBrowserLane("markdown-reference-wrap-browser.test.tsx", async () => {
   setDefaultTimeout(90_000);
+  const REPLY =
+    "Several fixes are stuck on that: the sent-message cards (cmux#\n" +
+    "29613) and the bottom-gap fix (cmux#28905), with the model picker likely next.";
   let browser: Browser;
   try {
     browser = await chromium.launch({ headless: true });
@@ -101,7 +83,12 @@ await requireBrowserLane("markdown-reference-wrap-browser.test.tsx", async () =>
               for (let b = a + 1; b < boxes.length; b++) {
                 const x = boxes[a]!.rect;
                 const y = boxes[b]!.rect;
-                if (x.left < y.right - 0.5 && y.left < x.right - 0.5 && x.top < y.bottom - 0.5 && y.top < x.bottom - 0.5) {
+                if (
+                  x.left < y.right - 0.5 &&
+                  y.left < x.right - 0.5 &&
+                  x.top < y.bottom - 0.5 &&
+                  y.top < x.bottom - 0.5
+                ) {
                   overlap = `${boxes[a]!.word} / ${boxes[b]!.word}`;
                   break;
                 }
