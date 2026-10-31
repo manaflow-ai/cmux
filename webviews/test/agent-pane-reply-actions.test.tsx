@@ -78,8 +78,9 @@ test("a reply followed by a steer keeps its row in the opened Worked for; the tu
   expect(marked(rows)).toEqual({ a1: true, a2: false });
   const footer = rows.find((one) => one.kind === "turnSummary")!;
   expect(footer.answerId).toBe("a2");
-  // Closed, only the answer is drawn.
-  expect(marked(turnView(source, new Set(), { now: 10_000 }))).toEqual({ a2: false });
+  // Closed, the reply before the steer ends a sub-turn and stays drawn with its row beside the answer
+  // (Leo, 2026-10-31: an interim message between steers is never folded).
+  expect(marked(turnView(source, new Set(), { now: 10_000 }))).toEqual({ a1: true, a2: false });
 });
 
 test("a short note between steps folded under an opened Worked for stays without a row", () => {
@@ -88,6 +89,8 @@ test("a short note between steps folded under an opened Worked for stays without
       row("u1", "user", 0, { text: "Report the merge." }),
       reply("n1", 1_000, "Checking the review."),
       row("t1", "activity", 2_000, { items: [send], toolCount: 1 }),
+      // The last reply before the steer ends a sub-turn and keeps its row; the note before it does not.
+      reply("e1", 2_500, BEFORE_STEER),
       row("s1", "user", 3_000, { text: "Also tell Lawrence.", steer: "landed" }),
       reply("a2", 4_000, ANSWER),
       row("f1", "turnSummary", 5_000, { durationMs: 5_000, toolCount: 1, status: "completed" }),
@@ -95,7 +98,7 @@ test("a short note between steps folded under an opened Worked for stays without
     new Set([`${WORKED}-u1`]),
     { now: 10_000 },
   );
-  expect(marked(rows)).toEqual({ n1: false, a2: false });
+  expect(marked(rows)).toEqual({ n1: false, e1: true, a2: false });
 });
 
 test("a reply followed by another agent's message keeps its row", () => {

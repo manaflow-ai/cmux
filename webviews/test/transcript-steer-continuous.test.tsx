@@ -9,7 +9,8 @@
 // - The cancel the steer caused is not drawn as "You stopped after", and the prompt carries no
 //   mark of its own (no "Steered": #22773 removes those marks); it is accepted and drawn inline.
 // - A Send now that ends the turn with `end_turn` (acpmux #22808, Claude) goes on the same way.
-// - Once the turn ends, its connected steer chain folds into one Worked-for disclosure.
+// - Once the turn ends, its connected steer chain folds its work into one Worked-for disclosure;
+//   the steers and each reply that ended a stretch before a steer stay in sight beside it.
 //   Expanding it keeps every call, reply, and steer in its recorded order.
 // - A real Stop still reads "You stopped after", also when a prompt is sent now after it.
 // - Everything else that finds a turn by its prompt walks past a steer too (review of #22691): the
@@ -183,8 +184,9 @@ test("once the chain ends, all its work folds under one stable disclosure", asyn
   expect(worked.some((row) => row.status === "cancelled")).toBe(false);
   expect(worked.map((row) => row.durationMs)).toEqual([80_000]);
   expect(workedLabel(translate, worked[0]!)).toBe(translate("turn.worked", { time: "1m 20s" }));
-  expect(view.some((row) => row.id === steerRow.id)).toBe(false);
-  expect(view.some((row) => row.text === "The retry races the session refresh.")).toBe(false);
+  // The steer and the reply that ended the stretch before it stay drawn beside the closed fold.
+  expect(view.some((row) => row.id === steerRow.id)).toBe(true);
+  expect(view.some((row) => row.text === "The retry races the session refresh.")).toBe(true);
   expect(view.indexOf(worked[0]!)).toBeLessThan(view.findIndex((row) => row.text === "Both paths are fixed."));
   expect(view.filter((row) => row.kind === "turnSummary")).toHaveLength(1);
   // Nothing is dropped: open, the fold holds every tool call and steer in recorded order.
@@ -622,7 +624,9 @@ test("a Claude turn steered twice keeps every call under one completed-turn fold
   const now = { now: START + 200_000 };
   const view = turnView(rows, new Set(), now);
   const ids = view.map((each) => each.id);
-  expect(ids).toEqual(["u", `${WORKED}-u`, "r2", "sum"]);
+  // The person's steers and the reply that ended the stretch before a steer stay in sight
+  // (subTurnEnds); only the commands fold.
+  expect(ids).toEqual(["u", `${WORKED}-u`, "s1", "r1", "s2", "r2", "sum"]);
   expect(view.filter((each) => each.kind === WORKED).map((each) => each.durationMs)).toEqual([90_000]);
   const open = turnView(rows, new Set([`${WORKED}-u`]), now);
   expect(open.map((each) => each.id)).toEqual([

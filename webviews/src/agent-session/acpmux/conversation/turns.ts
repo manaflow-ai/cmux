@@ -489,7 +489,8 @@ const isReply = (row: AcpmuxRow) => isAnswer(row) && (row.text ?? "").trim().len
 /// The finished turn's one disclosure, its final answer, and work recorded after that answer.
 export type FoldSegment = { anchor: AcpmuxRow; rows: AcpmuxRow[]; takeaway?: AcpmuxRow; after?: AcpmuxRow[] };
 
-/// Once the turn finishes, all intermediate dialogue and received reports fold together. The
+/// Once the turn finishes, its work, chatter and received reports fold together; the person's
+/// steers and each sub-turn's last reply (subTurnEnds) stay drawn beside the closed fold. The
 /// original prompt remains its stable anchor even if the answer or a steer's row changes.
 export function foldSegments(opener: AcpmuxRow, rows: readonly AcpmuxRow[]): FoldSegment[] {
   const drawn = rows.filter((row) => row.kind !== "typing");
@@ -504,6 +505,29 @@ export function foldSegments(opener: AcpmuxRow, rows: readonly AcpmuxRow[]): Fol
 }
 
 const isUnsent = (row: AcpmuxRow) => Boolean(row.pending || row.failed);
+
+/// A prompt the person sent into the running turn (a steer), as opposed to a report another agent
+/// sent in, which folds like work.
+const isOwnSteer = (row: AcpmuxRow) => row.kind === "user" && !row.incoming;
+
+/// The end of each sub-turn of a steered turn: the agent's last reply before each steer the person
+/// sent into it, wherever the steer landed. Like the turn's final answer it is a message to the
+/// person, never chatter, so no fold ever hides it (Leo, 2026-10-31: "THE FACT THAT YOUR INTERIM
+/// MESSAGE YOU SENT BETWEEN STEERS GOT COLLAPSED IS FUCKIGN SHIT"; "i think the delineation is
+/// between end-of-turn-that-had-a-steer-between vs otherwise that's how we can tell"). Read from
+/// the event order alone, never the text: other replies inside the turn are chatter and fold.
+export function subTurnEnds(body: readonly AcpmuxRow[]): Set<AcpmuxRow> {
+  const ends = new Set<AcpmuxRow>();
+  let reply: AcpmuxRow | undefined;
+  for (const row of body) {
+    if (isReply(row)) reply = row;
+    else if (isOwnSteer(row)) {
+      if (reply) ends.add(reply);
+      reply = undefined;
+    }
+  }
+  return ends;
+}
 
 /// The ids of a finished turn's replies to the person, which keep their action row inside its open
 /// fold (model.ts hasReplyActions): each takeaway, and the last words before each steer or received
@@ -559,6 +583,10 @@ function shapeTurn(
   const version = summary.version * VERSION_SPAN + (answer?.version ?? 0);
   const edits: AcpmuxRow[] = [];
   const replies = repliesIn(body);
+  // What a closed fold never hides: the person's own steers, and the reply that ended each stretch
+  // before one (subTurnEnds), each in its place beside the steer it came before.
+  const ends = subTurnEnds(body);
+  const stays = (row: AcpmuxRow) => isOwnSteer(row) || ends.has(row);
   let folded = false;
   // A completed turn gets one fold, including steers received inside that connected turn. The
   // row boundary above is still opensTurn/continuesTurn: an unrelated incoming prompt starts a
@@ -603,13 +631,13 @@ function shapeTurn(
       // summary lines of the work around them (TurnRows.tsx `runStretches`).
       if (open)
         shaped.push(
-          ...(liveRuns ? mergeShortNotes(work) : work).flatMap(withoutDrafts).map((row) => ({
+          ...(liveRuns ? mergeShortNotes(work, ends) : work).flatMap(withoutDrafts).map((row) => ({
             ...endedPlan(row),
             id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
             settled: true,
             // A finished turn's earlier replies fold here too; each keeps its action row, while a
             // short note stays quiet (Leo, 2026-10-29: replies keep their action row).
-            ...(replies.has(row.id) && { foldedReply: true }),
+            ...((replies.has(row.id) || ends.has(row)) && { foldedReply: true }),
             // A folded run draws otherwise, so its version moves (memos compare versions).
             ...(liveRuns && row.kind === "activity" && { foldRun: true, version: row.version * RUN_STATES + 3 }),
           })),
@@ -617,8 +645,15 @@ function shapeTurn(
     }
     // Context and actionable rows stay available beside the fold. Render cards keep their
     // source order among them, before or after the answer exactly where the call happened.
+    // Closed, the person's steers and each sub-turn's last reply stay drawn in order between them.
     const outside = (rows: readonly AcpmuxRow[]) =>
-      rows.flatMap((row) => (out(row) ? [endedPlan(row)] : dialogue ? [row] : renderRows([row], version)));
+      rows.flatMap((row) =>
+        out(row)
+          ? [endedPlan(row)]
+          : dialogue || (!open && stays(row))
+            ? [row]
+            : renderRows([row], version),
+      );
     shaped.push(...outside(before));
     if (said) shaped.push(said);
     shaped.push(...outside(after));
@@ -832,7 +867,8 @@ function liveTurn(
   // The Codex-style live line names the call in flight; a command still running in an earlier run
   // (a parallel `cp` while the agent messages others) leaves its run for the line too.
   const named = lineBelow && liveRuns && last ? lineCall(drawn, last) : undefined;
-  const rows = liveRuns ? codexRuns(mergeShortNotes(drawn), named?.tool.id) : drawn;
+  // A reply before a steer is a message to the person and stays its own row (subTurnEnds).
+  const rows = liveRuns ? codexRuns(mergeShortNotes(drawn, subTurnEnds(drawn)), named?.tool.id) : drawn;
   // The status ticks on this computer's clock, from the prompt moved onto it.
   const at = user.at + clockOffset;
   if (lineBelow && liveRuns) return codexLiveTurn(user, drawn, rows, last, named, at, clockOffset, sessionStatus);
@@ -1206,12 +1242,13 @@ const isRun = (row: AcpmuxRow | undefined) => row?.kind === "activity" && !isEdi
 /// one stretch of work (Leo 2026-10-20: "it can consolidate a ton of these tool calls"): they draw
 /// as one run, the note folded in among its calls as a quiet line (`note` item, TurnRows.tsx). The
 /// merged row keeps the first run's id; its version moves with each part's.
-export function mergeShortNotes(rows: readonly AcpmuxRow[]): AcpmuxRow[] {
+/// A reply in `keep` (a sub-turn's last reply, subTurnEnds) is a message to the person and never merges.
+export function mergeShortNotes(rows: readonly AcpmuxRow[], keep?: ReadonlySet<AcpmuxRow>): AcpmuxRow[] {
   const out: AcpmuxRow[] = [];
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index]!;
     const previous = out.at(-1);
-    if (isRun(previous) && isShortNote(row) && isRun(rows[index + 1])) {
+    if (isRun(previous) && isShortNote(row) && !keep?.has(row) && isRun(rows[index + 1])) {
       const next = rows[index + 1]!;
       out[out.length - 1] = {
         ...previous!,
