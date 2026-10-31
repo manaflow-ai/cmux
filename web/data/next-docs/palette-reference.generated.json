@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1227,
+    "entries": 1229,
     "shortcuts": 189
   },
   "sections": [
@@ -68,6 +68,12 @@
           "title": "Close All Windows",
           "shortcut": null,
           "command": "cmux app close-all-windows"
+        },
+        {
+          "id": "home.closeNewMessage",
+          "title": "Close New Message",
+          "shortcut": null,
+          "command": "cmux home close-new-message"
         },
         {
           "id": "window.closeOthers",
@@ -1988,6 +1994,12 @@
           "title": "Open Find as Pane",
           "shortcut": null,
           "command": "cmux pane open-find-as"
+        },
+        {
+          "id": "file.openRecoveredDraft",
+          "title": "Open Recovered Draft…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "palette.openVaultPane",
@@ -6748,6 +6760,12 @@
           "command": null
         },
         {
+          "id": "settings.customizeMenus",
+          "title": "Customize Right-Click Menus…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "appearance.uiScale.decrease",
           "title": "Decrease Interface Scale",
           "shortcut": "⌃⇧⌘-",
@@ -6866,12 +6884,6 @@
           "title": "Installed Apps",
           "shortcut": null,
           "command": null
-        },
-        {
-          "id": "team.invite",
-          "title": "Invite to Team…",
-          "shortcut": null,
-          "command": "cmux team invite"
         },
         {
           "id": "help.discord",

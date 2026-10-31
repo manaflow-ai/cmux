@@ -244,6 +244,10 @@ pub struct PtyTerminalRuntime {
     /// The daemon is intentionally dropping its compatibility proxy while
     /// leaving the terminal host alive for a later daemon to adopt.
     pub(super) owner_detaching: AtomicBool,
+    /// The user asked to recover a terminal whose host link failed
+    /// (`restart-tab` on a `failed` tab): its host was ended, so the
+    /// reconnect loop stops its wait and retries at once.
+    pub(super) recover_requested: AtomicBool,
     /// The host socket ended without a sequenced Exit. Closing this proxy
     /// must retain the host record so a fresh snapshot can recover it.
     pub(super) host_connection_state: AtomicU8,

@@ -50,6 +50,8 @@ SHOT_PATH = re.compile(r"shots/[0-9]{2}-[a-z0-9-]{1,40}(?:-failed)?(?:--w[0-9]{1
 MAX_WINDOW_SHOTS = 20
 WINDOW_KIND = re.compile(r"[A-Za-z0-9._-]{1,40}")
 STATUS_TEXT = {"ok": "ok", "failed": "**failed**", "unavailable": "unavailable"}
+# An ok step whose shot no `expect` checked (tour.py's `checked`): it ran, but nothing read the screen.
+UNCHECKED_TEXT = "ok, unchecked (no expect)"
 
 
 def load_pr_media() -> Any:
@@ -106,6 +108,8 @@ def clean_step(step: dict[str, Any]) -> dict[str, Any]:
         "detail": str(step.get("detail") or "")[:500],
         "command": str(step.get("command") or "")[:500],
         "shot": step["shot"] if isinstance(step.get("shot"), str) else "",
+        # False when no `expect` checked the step; absent in manifests from before tour.py wrote it.
+        **({"checked": step["checked"]} if isinstance(step.get("checked"), bool) else {}),
         # The step's other windows (floating panels, popovers, sheets), each a shot tour.py wrote.
         "windows": [
             {"shot": window["shot"], "kind": window["kind"] if WINDOW_KIND.fullmatch(str(window.get("kind"))) else "window"}
@@ -152,8 +156,13 @@ def make_video(directory: Path, manifest: dict[str, Any], into: Path, pr_media: 
     return mp4, None
 
 
+def unchecked(step: dict[str, Any]) -> bool:
+    """An ok step with a shot that no `expect` checked."""
+    return step.get("status") == "ok" and bool(step.get("shot")) and step.get("checked") is False
+
+
 def step_row(step: dict[str, Any]) -> str:
-    status = STATUS_TEXT.get(step.get("status", ""), "")
+    status = UNCHECKED_TEXT if unchecked(step) else STATUS_TEXT.get(step.get("status", ""), "")
     detail = f": {cell(step['detail'])}" if step.get("detail") else ""
     # A code span cannot hold its own backticks, and inside one nothing else is Markdown.
     one_line = re.sub(r"[\r\n]+", " ", str(step.get("command") or "")).replace("`", "'")
@@ -186,8 +195,9 @@ def step_images(step: dict[str, Any], urls: dict[str, str]) -> str:
 
 def tour_section(manifest: dict[str, Any], urls: dict[str, str]) -> str:
     steps = manifest.get("steps") or []
-    counts = {status: sum(1 for step in steps if step.get("status") == status)
+    counts = {status: sum(1 for step in steps if step.get("status") == status and not unchecked(step))
               for status in ("ok", "failed", "unavailable")}
+    counts["unchecked"] = sum(1 for step in steps if unchecked(step))
     summary = ", ".join(f"{count} {status}" for status, count in counts.items() if count)
     verdict = manifest.get("result")
     verdict_label = {

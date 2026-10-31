@@ -1767,6 +1767,13 @@
           "mcpTool": "app_home_channels"
         },
         {
+          "command": "cmux home close-new-message",
+          "title": "Close New Message",
+          "id": "home.closeNewMessage",
+          "mcp": true,
+          "mcpTool": "app_home_close_new_message"
+        },
+        {
           "command": "cmux home delete-chief",
           "title": "Delete Chief…",
           "id": "home.deleteChief",
@@ -4577,18 +4584,6 @@
           "id": "tasks.show",
           "mcp": true,
           "mcpTool": "app_task_open"
-        }
-      ]
-    },
-    {
-      "noun": "team",
-      "verbs": [
-        {
-          "command": "cmux team invite",
-          "title": "Invite to Team…",
-          "id": "team.invite",
-          "mcp": true,
-          "mcpTool": "app_team_invite"
         }
       ]
     },
