@@ -1,5 +1,25 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-30: a group's rail keeps its gap and spans its members; a lone warning triangle sits on the status column.
+  Lawrence (NIGHTLY "Sleep alarm" group): "alignment here is bad": the rail sat flush against "New Workspace"'s fill
+  and began part way down it. `SidebarStyle.groupEdgePadding` was `horizontalInset - groupBarWidth`, which ate the
+  rail's `Metrics.space1` gap; it is now `horizontalInset - groupRailReach` (2 pt compact, 4 pt comfortable), so the
+  header bar and the rail share one left edge and the members keep their x. The rail's 6 pt cut under the header is
+  capped at the gap to the row under it (about 2.5 pt), so the rail starts at the first member's top. Lawrence msg
+  18582: "triangle not aligned, not sure if triangle is even centered": a usage-warning triangle on a row with no
+  spinner ended at the row's inset in an `indicatorSize` box; it is now that row's column mark, in the spinner's
+  `statusGlyphSize` box and center (beside a spinner it keeps its place left of it, in the same box). Headers, member
+  x, the name's column, widths and every other row are unchanged. Regression: `SidebarGroupRowAlignmentTests`;
+  shots: `AASidebarRowAlignmentGalleryTests`.
+
+- 2026-10-31: the Tidy Up card no longer pops up on its own. Lawrence (msgs 18515, 18517, a shot of "1 workspaces
+  look idle"): "should have option to turn on auto-archive, think of how to make ui as minimal as possible" and "this
+  thing annoying pls fix faster". `workspaces.autoArchive.style` now defaults to `manual` (nothing in the background;
+  Archive Idle Workspaces in the sidebar menu and palette still archives). With `suggest` the card is one line,
+  "Archive 2 idle workspaces?" (singular for one), the names, **Archive** and **Always Archive** (writes `quiet`);
+  no "Tidy Up" heading, no paragraph; the x is Not Now. Settings > General > Auto-Archive is the one setting.
+  Regression: `AutoArchiveCoordinatorTests.theDefaultStyleNeverPopsACardOrArchivesOnItsOwn`,
+  `theCardIsOneQuestionWithArchiveAndAlwaysArchive`.
 - 2026-10-31: record the terminal cwd-title change in b648fd2d603 (#28059).
   The reported defect was: "Two terminal tabs in one workspace are both titled
   \"Terminal\" / \"~\"." Non-home cwd-derived titles remain visible in sidebar
