@@ -245,6 +245,11 @@ mod inbound;
 mod logged_bodies;
 pub use logged_bodies::leave_out_bodies;
 mod outbound;
+// A tool result's images as ACP image blocks (`result_images.rs`).
+mod result_images;
+pub(crate) use result_images::result_images;
+#[cfg(test)]
+mod result_images_tests;
 #[cfg(test)]
 mod steer_now_tests;
 // Other sessions' messages steered into one step go in as one line (`steer_batch.rs`).
