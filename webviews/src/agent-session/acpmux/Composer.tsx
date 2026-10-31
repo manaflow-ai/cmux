@@ -1105,6 +1105,9 @@ export function Composer({
     return send(false, steersAlways);
   };
   const send = (force: boolean, steer = false): boolean => {
+    // A send waiting for its images' originals is this one's to replace: whatever this one does
+    // (it goes, waits again, runs a command or stops), the earlier one never goes on its own.
+    holdForOriginals(false, () => undefined);
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
     if (!remote.canSend) return false;
     // The folder's trust question is open: the prompt stays where it is.
@@ -1188,7 +1191,6 @@ export function Composer({
           const asTaken = (value: string) => withoutInlineTokens(value, (id) => dropped.has(id));
           const written = asTaken(field.current?.value() ?? "");
           holdForAttachments.cancel();
-          holdForOriginals(false, () => undefined);
           // Accepted commands consume staged files before their async work starts. A pending read
           // must not leak into the next prompt while the command waits.
           for (const item of pending) cancel(item.id);
@@ -1216,7 +1218,6 @@ export function Composer({
       if (owned) {
         // Accepted commands consume staged files, including reads still pending when /import opened.
         holdForAttachments.cancel();
-        holdForOriginals(false, () => undefined);
         for (const item of pending) cancel(item.id);
         // By id: a chip patched after it went (its original's path arriving) is still the one sent.
         const went = new Set(attachments.map((attachment) => attachment.id));

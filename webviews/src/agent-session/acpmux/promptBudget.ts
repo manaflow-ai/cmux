@@ -61,8 +61,14 @@ export function fitPromptBudget(
   const linked = new Map<string, ComposerAttachment>();
   for (const image of previews) {
     if (total <= budget) break;
-    linked.set(image.id, originalLink(image));
-    total -= image.data!.length + image.mimeType.length + jsonBytes(image.name) + BLOCK_OVERHEAD;
+    if (linked.has(image.id)) continue;
+    // Its copies in the draft (attachments.ts `inlineCopyId`) share its original, and go with it: the
+    // sent bubble would hide a link whose path a kept preview names as its own original.
+    for (const copy of previews) {
+      if (copy.originalPath !== image.originalPath || linked.has(copy.id)) continue;
+      linked.set(copy.id, originalLink(copy));
+      total -= copy.data!.length + copy.mimeType.length + jsonBytes(copy.name) + BLOCK_OVERHEAD;
+    }
   }
   return attachments.map((chip) => linked.get(chip.id) ?? chip);
 }
