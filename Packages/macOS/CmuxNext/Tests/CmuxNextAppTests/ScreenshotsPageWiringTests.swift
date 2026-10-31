@@ -160,18 +160,9 @@ private nonisolated struct NoWatch: FolderWatching {
         script.viaControlSocket = true
         let first = await run(script)
         #expect(first["opened"] == .string("background"))
-        let pane = try #require(controller.workspaceContent?.focusedPane)
-        let selected = pane.stripModel.selectedID?.rawValue
-        let tabs = pane.pane.tabs.filter { ScreenshotsPageAddress.matches($0.url.flatMap(URL.init(string:))) }
-        #expect(tabs.count <= 1)
-        if let tab = tabs.first { #expect(selected != tab.id, "a scripted open selected the tab") }
-        // A tab already open and unlocked: the script is told it is there, not that it needs a click.
-        if let tab = tabs.first {
-            services.screenshotsPage.gate.unlock(tab.id)
-            let again = await run(script)
-            #expect(again["opened"] == .string("existing"), "\(again)")
-            #expect(again["listing"] == .bool(true))
-        }
+        #expect(first["listing"] == .bool(false))
+        // The answer for a tab already open is ScreenshotsOpen.result (ScreenshotsOpenDecisionTests): this window's
+        // tab arrives from the daemon, which this test has none of.
     }
 
     @Test func screenshotsOpenWithNoWindowRefuses() {

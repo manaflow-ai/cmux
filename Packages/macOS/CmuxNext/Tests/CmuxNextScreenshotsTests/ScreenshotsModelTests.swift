@@ -239,6 +239,14 @@ private final class RecordingWatcher: FolderWatching {
         let script = ScreenshotsOpen(personsRun: false)
         #expect(!script.selects)
         #expect(script.note?.isEmpty == false)
+        // What a script hears: a new tab opened behind, or the tab already there, listing or waiting for the click.
+        #expect(person.result(existing: false, listing: false) == nil)
+        let opened = script.result(existing: false, listing: false)
+        #expect(opened?.opened == "background" && opened?.listing == false && opened?.note != nil)
+        let listing = script.result(existing: true, listing: true)
+        #expect(listing?.opened == "existing" && listing?.listing == true && listing?.note == nil)
+        let waiting = script.result(existing: true, listing: false)
+        #expect(waiting?.opened == "existing" && waiting?.listing == false && waiting?.note != nil)
     }
 }
 
