@@ -64,6 +64,7 @@ test("subagent, messaging, and inbox activity use the shared row and agent tag",
   expect(source("../subagents/DisclosureRow.tsx")).toContain('"data-find-skip": ""');
   expect(source("../subagents/DisclosureRow.tsx")).toContain("headerRef={onOpen ? collapse.headerRef : undefined}");
   expect(source("./AgentMessageRow.tsx")).toContain("AgentTag");
+  expect(source("./AgentTag.tsx")).toContain('data-interactive=""');
   expect(source("./TranscriptActivityRow.tsx")).toContain(
     "<AgentTag name={name}",
   );

@@ -23,6 +23,7 @@ export function AgentTag({
         className={classes}
         title={title}
         aria-label={ariaLabel}
+        data-interactive=""
         onClick={onClick}
       >
         {name}
