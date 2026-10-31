@@ -81,6 +81,19 @@ import Testing
     }
 
     /// A group holding a subgroup keeps its header: the subgroup hangs under it.
+    /// Review on #27875 at 638b2953: a filter that shows only the same-named member of a two-member group leaves that
+    /// group with its header, since the group holds two. One row there would carry the group's drag, and a drag of the
+    /// matching workspace would move the hidden member too.
+    @Test func aFilterShowingOneOfTwoMembersKeepsTheHeader() throws {
+        let group = SidebarGroup(id: GroupID("g-release"), name: "Release", workspaces: [ws("w-release", "Release"), ws("w-notes", "Notes")])
+        var options = SidebarLayoutOptions()
+        options.filterMatches = [WorkspaceID("w-release")]
+        let layout = layout([.group(group)], options: options)
+        #expect(layout.row(for: .workspace(WorkspaceID("w-notes"))) == nil, "the filter hides the other member")
+        #expect(layout.row(for: .group(GroupID("g-release"))) != nil, "a filtered group of two keeps its header")
+        #expect(layout.row(for: .workspace(WorkspaceID("w-release")))?.standsForGroup == false, "the matching workspace stays a workspace row")
+    }
+
     @Test func aGroupWithSubgroupsKeepsItsHeader() {
         let parent = SidebarGroup(id: GroupID("g-coord"), name: "release-coord", workspaces: [ws("w-coord", "release-coord")])
         var child = SidebarGroup(id: GroupID("g-sub"), name: "Sub", workspaces: [ws("w-sub", "sub")])
