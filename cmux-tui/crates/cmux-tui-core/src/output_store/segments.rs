@@ -5,7 +5,9 @@
 //! `start offset (u64 LE) | compressed length (u32 LE) | raw length (u32 LE)
 //! | gzip`. The writer appends one frame per terminal per flush (every few
 //! seconds and at quit, never an fsync per write) and starts a new file past
-//! [`SEGMENT_FILE_BYTES`]. A frame cut by a crash is ignored when read.
+//! [`SEGMENT_FILE_BYTES`]. A frame cut by a crash is ignored when read. A
+//! newest file that cannot be checked is left as it is; when it holds the
+//! new file's name, the new one is `<key>-<first offset>-<n>.seg`.
 //!
 //! A flush whose terminal content did not change since the previous stored
 //! frame (the same digest the snapshot writer uses: a cursor redraw or a
@@ -82,25 +84,58 @@ fn terminal_directory(directory: &Path, terminal_id: &TerminalPublicId) -> PathB
     directory.join(terminal_id.as_str())
 }
 
+/// A segment file name: `<key>-<first offset>.seg`, or
+/// `<key>-<first offset>-<n>.seg` for the n-th file started at the same
+/// offset beside one that could not be used. Returns (key, first offset, n).
+fn parse_file_name(path: &Path) -> Option<(&str, u64, u32)> {
+    if path.extension()? != SUFFIX {
+        return None;
+    }
+    let (key, rest) = path.file_stem()?.to_str()?.split_once('-')?;
+    let (start, n) = match rest.split_once('-') {
+        Some((start, n)) => (start, n.parse::<u32>().ok()?),
+        None => (rest, 0),
+    };
+    Some((key, start.parse::<u64>().ok()?, n))
+}
+
 /// The segment files of one generation, oldest first: (first offset, path).
 fn generation_files(terminal_directory: &Path, generation: &str) -> Vec<(u64, PathBuf)> {
-    let keys = [generation_key(generation), legacy_generation_key(generation)];
+    let keys = keys_of(generation);
     let Ok(entries) = fs::read_dir(terminal_directory) else { return Vec::new() };
     let mut files = entries
         .flatten()
         .filter_map(|entry| {
             let path = entry.path();
-            let stem = path.file_stem()?.to_str()?.to_owned();
-            if path.extension()? != SUFFIX {
-                return None;
-            }
-            let (file_key, start) = stem.split_once('-')?;
+            let (file_key, start, n) = parse_file_name(&path)?;
             keys.iter().any(|key| key == file_key).then_some(())?;
-            Some((start.parse::<u64>().ok()?, path))
+            Some(((start, n), path))
         })
         .collect::<Vec<_>>();
     files.sort();
-    files
+    files.into_iter().map(|((start, _), path)| (start, path)).collect()
+}
+
+/// Files a frame may be started in beside unusable ones at its offset.
+const MAX_SIBLING_FILES: u32 = 64;
+
+/// A name for a new file whose first frame starts at `start` that no entry
+/// of the folder has (an unusable file may hold the plain name).
+fn new_file_path(terminal_directory: &Path, generation: &str, start: u64) -> Option<PathBuf> {
+    let key = generation_key(generation);
+    (0..MAX_SIBLING_FILES)
+        .map(|n| {
+            let name = if n == 0 {
+                format!("{key}-{start:020}.{SUFFIX}")
+            } else {
+                format!("{key}-{start:020}-{n}.{SUFFIX}")
+            };
+            terminal_directory.join(name)
+        })
+        .find(|path| {
+            fs::symlink_metadata(path)
+                .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+        })
 }
 
 /// Append the pending bytes of each log as one frame (content-changed logs
@@ -203,8 +238,6 @@ fn append_frame(
     // not leave at its current length (an earlier run, a crash) is checked
     // once: a cut frame at its end is cut off, so the frames written after
     // it stay readable.
-    let new_file =
-        || terminal_directory.join(format!("{}-{start:020}.{SUFFIX}", generation_key(generation)));
     let newest = generation_files(terminal_directory, generation).pop();
     // A file that cannot be checked (a stat, open or read error) is left as
     // it is, and the frame goes to a new file.
@@ -227,7 +260,8 @@ fn append_frame(
             }
             path
         }
-        None => new_file(),
+        None => new_file_path(terminal_directory, generation, start)
+            .ok_or_else(|| anyhow::anyhow!("no free segment file name at offset {start}"))?,
     };
     let mut frame = Vec::with_capacity(FRAME_HEADER_BYTES + compressed.len());
     frame.extend_from_slice(&start.to_le_bytes());
@@ -313,8 +347,12 @@ pub(super) fn read_after(
     let mut open: Vec<Option<fs::File>> = files.iter().map(|_| None).collect();
     let mut broken: Vec<Option<usize>> = vec![None; files.len()];
     let mut window: Option<OutputWindow> = None;
+    // The end of the stored bytes no frame could give (a body that does not
+    // decode, and the frames after it in its file).
+    let mut lost = 0_u64;
     for (header, index, place) in headers {
         if broken.get(index).copied().flatten().is_some_and(|at| place >= at) {
+            lost = lost.max(header.end);
             continue;
         }
         if let Some(window) = window.as_mut() {
@@ -338,6 +376,7 @@ pub(super) fn read_after(
             if let Some(at) = broken.get_mut(index) {
                 *at = Some(place);
             }
+            lost = lost.max(header.end);
             continue;
         };
         let start = header.start;
@@ -362,6 +401,13 @@ pub(super) fn read_after(
             window.truncated = true;
             break;
         }
+    }
+    // Stored bytes after the window that no other file gave: the read is
+    // not complete (a later read may find them once rewritten, or not).
+    if let Some(window) = window.as_mut()
+        && lost > window.next_offset
+    {
+        window.truncated = true;
     }
     window
 }
@@ -453,17 +499,9 @@ pub(super) fn all_stream_ends(
         // headers only): the file that starts last need not end last.
         let mut key_ends = std::collections::HashMap::<String, u64>::new();
         for file in files.flatten().map(|file| file.path()) {
-            let Some((key, start)) = file
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .filter(|_| file.extension().is_some_and(|extension| extension == SUFFIX))
-                .and_then(|stem| stem.split_once('-'))
-                .and_then(|(key, start)| Some((key.to_owned(), start.parse::<u64>().ok()?)))
-            else {
-                continue;
-            };
+            let Some((key, start, _)) = parse_file_name(&file) else { continue };
             let end = frame_extent(&file, start).map_or(start, |(_, end)| end);
-            let known = key_ends.entry(key).or_insert(end);
+            let known = key_ends.entry(key.to_owned()).or_insert(end);
             *known = (*known).max(end);
         }
         for (key, end) in key_ends {
@@ -473,7 +511,6 @@ pub(super) fn all_stream_ends(
     ends
 }
 
-/// The generation key of segment file names.
 /// Every key a generation's files may be named with (current, legacy).
 pub(super) fn keys_of(generation: &str) -> [String; 2] {
     [generation_key(generation), legacy_generation_key(generation)]
