@@ -414,7 +414,6 @@ test("a closed agent chat uses the semantic agent glyph and preserves its title"
   expect(container.querySelector(".nt-row-title")?.textContent).toBe("Pinned chat");
 });
 
-
 test("cancelling a New Tab project confirmation allows another chat attempt with its original draft", async () => {
   const asks: unknown[][] = [];
   await act(async () => {
