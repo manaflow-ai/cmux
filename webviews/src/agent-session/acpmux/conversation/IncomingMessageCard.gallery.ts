@@ -53,7 +53,7 @@ const openLaneDetails: Play = async (ctx) => {
   ctx.document.querySelector<HTMLButtonElement>(RECEIVED_LINE)?.click();
   await ctx.waitFor(() => ctx.document.querySelector(".cv-received__details .cv-received__more"));
   ctx.document.querySelector<HTMLButtonElement>(".cv-received__details .cv-received__more")?.click();
-  await ctx.waitFor(() => ctx.document.querySelector("[data-lane-report-details]") !== null);
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-received__details pre") !== null);
 };
 
 // A lane's report as Leo got it (2026-10-21): signed with its name, a pull request written two
