@@ -137,6 +137,13 @@ test("the four row kinds share one grammar: icon first, one chevron, no status i
     // The trailing column, when a row has one, is the row's own child, after its sentence.
     const trail = row.querySelector(".cv-tool__trail");
     if (trail) expect({ kind, parent: trail.parentElement === row }).toEqual({ kind, parent: true });
+    // Base's inline caret (#28018): the chevron follows the label, and the status is drawn after it.
+    // A tool row draws its trail last (`order: 4`, pinned below); a message line in DOM order.
+    if (trail) {
+      const drawnLast = row.matches(".cv-tool:not(.cv-agentmsg__line)");
+      const after = Boolean(chevrons[0]!.compareDocumentPosition(trail) & Node.DOCUMENT_POSITION_FOLLOWING);
+      expect({ kind, chevronFirst: drawnLast || after }).toEqual({ kind, chevronFirst: true });
+    }
   }
 });
 
