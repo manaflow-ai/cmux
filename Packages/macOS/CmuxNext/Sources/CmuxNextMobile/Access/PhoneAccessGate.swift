@@ -9,8 +9,10 @@ public final class PhoneAccessGate: Sendable {
     private struct Admission: Sendable {
         var decide: (@Sendable (MobileHostPairRequest) async -> Bool)?
         var recheck: (@Sendable (MobileHostPairRequest) -> Bool)?
+        var cancel: (@Sendable () async -> Void)?
     }
     private let admission = Mutex(Admission())
+    private let serving = Mutex(false)
     private let startsSessions: Mutex<Bool>
 
     public init(allowsStartingSessions: Bool = true) {
@@ -19,8 +21,23 @@ public final class PhoneAccessGate: Sendable {
 
     /// Unwired and signed-out listeners fail closed.
     public func setAdmission(decide: @escaping @Sendable (MobileHostPairRequest) async -> Bool,
-                             recheck: @escaping @Sendable (MobileHostPairRequest) -> Bool) {
-        admission.withLock { $0 = Admission(decide: decide, recheck: recheck) }
+                             recheck: @escaping @Sendable (MobileHostPairRequest) -> Bool,
+                             cancel: (@Sendable () async -> Void)? = nil) {
+        admission.withLock { $0 = Admission(decide: decide, recheck: recheck, cancel: cancel) }
+    }
+
+    /// Phone Access is on and signed in. Off, admission asks and saves nothing, and
+    /// turning it off closes the questions still open.
+    public var isServing: Bool { serving.withLock { $0 } }
+
+    public func setServing(_ on: Bool) {
+        let wasServing = serving.withLock { serving in
+            defer { serving = on }
+            return serving
+        }
+        guard wasServing, !on, let cancel = admission.withLock({ $0.cancel }) else { return }
+        // task-owner: one hop that closes this Mac's open admission questions; ends at once
+        Task { await cancel() }
     }
     public func admits(_ phone: MobileHostPairRequest) async -> Bool {
         guard let decide = admission.withLock({ $0.decide }) else { return false }

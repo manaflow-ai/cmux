@@ -89,6 +89,7 @@ public final class MobileHostService {
 
     private func servingChanged() {
         KeepAwakeService.shared.setPhoneServing(isServing)
+        access.setServing(isServing)
     }
 
     /// Starts (or restarts for a new account) the phone listener. The Mac's

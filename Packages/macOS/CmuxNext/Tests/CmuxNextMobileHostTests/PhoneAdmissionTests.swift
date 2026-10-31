@@ -269,6 +269,7 @@ import Testing
 
         let host = IPhoneHostService(pairedStore: store)
         let gate = PhoneAccessGate()
+        gate.setServing(true)
         host.followPhoneAccess(gate, disconnect: { _ in })
         let admission = try #require(host.phoneAdmission)
         let dialogHost = CmuxDialogHeadlessHost()
@@ -297,6 +298,59 @@ import Testing
         #expect(await !pending.value)
         #expect(!store.trusts(Self.phone))
         #expect(!store.trusts(rekeyed))
+    }
+
+    @Test func turningPhoneAccessOffClosesTheQuestionAndRejectsLateAllow() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = await Self.store(at: directory)
+        let host = IPhoneHostService(pairedStore: store)
+        let gate = PhoneAccessGate()
+        gate.setServing(true)
+        host.followPhoneAccess(gate, disconnect: { _ in })
+        let admission = try #require(host.phoneAdmission)
+        let center = CmuxDialogCenter(host: CmuxDialogHeadlessHost())
+        let opened = AsyncStream<CmuxDialogCenter.Record>.makeStream()
+        let observer = center.observe { event in
+            if case .opened(let record) = event { opened.continuation.yield(record) }
+        }
+        admission.ask = { phone, account in
+            await PhoneAdmission.askOnThisMac(phone, user: account, timeout: .seconds(120),
+                                              center: center, keyWindow: { nil })
+        }
+        admission.dismissAsk = { _, _ in center.dismissAll() }
+        defer {
+            center.dismissAll()
+            center.stopObserving(observer)
+            opened.continuation.finish()
+        }
+        // task-owner: Phone Access is turned off before the late Allow press below
+        let pending = Task { await gate.admits(Self.phone) }
+        var events = opened.stream.makeAsyncIterator()
+        let record = try #require(await events.next())
+        gate.setServing(false)
+        #expect(await !pending.value)
+        #expect(center.records.isEmpty)
+        #expect(!center.press(record.id, button: "allow"))
+        #expect(!store.trusts(Self.phone))
+        // Off, a new connection is refused without a question.
+        #expect(await !gate.admits(Self.phone))
+        #expect(center.records.isEmpty)
+    }
+
+    @Test func anAllowAfterPhoneAccessStopsIsNotSaved() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = await Self.store(at: directory)
+        let admission = PhoneAdmission(phones: store, disconnect: { _ in })
+        var serving = true
+        admission.serving = { serving }
+        admission.ask = { _, _ in
+            serving = false
+            return .allow
+        }
+        #expect(await !admission.decide(Self.phone))
+        #expect(!store.trusts(Self.phone))
     }
 
     @Test func localRowsRemainRemovableWhenIPhoneHostIsOff() async throws {

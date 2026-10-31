@@ -58,6 +58,8 @@ final class PhoneAdmission {
     var announce: @MainActor (MobileHostPairRequest) -> Void = { _ in }
     var quiet: @MainActor () -> Void = {}
     var now: () -> ContinuousClock.Instant = { .now }
+    /// Phone Access is on and signed in; off, no question is asked or saved.
+    var serving: () -> Bool = { true }
 
     init(phones: MobileHostPairedStore, disconnect: @escaping @Sendable (String) async -> Void) {
         self.phones = phones
@@ -89,7 +91,7 @@ final class PhoneAdmission {
     }
 
     func decide(_ phone: MobileHostPairRequest) async -> Bool {
-        guard phone.transport == .iroh, let user = phones.current?.userID else { return false }
+        guard phone.transport == .iroh, serving(), let user = phones.current?.userID else { return false }
         let selectedAccountGeneration = phones.generation
         let selectedAdmissionGeneration = admissionGeneration(phone.phoneDeviceID)
         if phones.trusts(phone) { return true }
@@ -108,7 +110,7 @@ final class PhoneAdmission {
             let id = UUID()
             let task = Task { [self, waiter] in
                 let answer = await waiter.wait { await self.ask(phone, account) }
-                guard !Task.isCancelled, admissionGeneration(phone.phoneDeviceID) == selectedAdmissionGeneration,
+                guard !Task.isCancelled, serving(), admissionGeneration(phone.phoneDeviceID) == selectedAdmissionGeneration,
                       phones.generation == selectedAccountGeneration, phones.current?.userID == user else { return false }
                 switch answer {
                 case .unavailable: return false
@@ -147,6 +149,19 @@ final class PhoneAdmission {
         question.cancel()
         question.task.cancel()
         if questions.isEmpty { quiet() }
+    }
+
+    /// Phone Access was turned off or signed out: every open question resolves as
+    /// unavailable, and a late Allow cannot pass its phone's new token.
+    func cancelAll() {
+        guard !questions.isEmpty else { return }
+        for (phoneDeviceID, question) in questions {
+            admissionGenerations[phoneDeviceID, default: 0] &+= 1
+            question.cancel()
+            question.task.cancel()
+        }
+        questions = [:]
+        quiet()
     }
 
     static func spec(_ phone: MobileHostPairRequest, user: String) -> CmuxDialogSpec {
@@ -207,8 +222,10 @@ extension IPhoneHostService {
         admission.accountName = { [weak self] in self?.account?.email ?? self?.account?.userID ?? "" }
         admission.announce = { [weak self] request in self?.announcePhoneAccess(request) }
         admission.quiet = { [weak self] in self?.quietAttention() }
+        admission.serving = { gate.isServing }
         phoneAdmission = admission
-        gate.setAdmission(decide: { await admission.decide($0) }, recheck: { [pairedStore] in pairedStore.trusts($0) })
+        gate.setAdmission(decide: { await admission.decide($0) }, recheck: { [pairedStore] in pairedStore.trusts($0) },
+                          cancel: { await admission.cancelAll() })
     }
 
     func announcePhoneAccess(_ request: MobileHostPairRequest) {
