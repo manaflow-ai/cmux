@@ -171,10 +171,10 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/NewTabScreen.tsx#NewTabScreen",
     "agent-session/acpmux/inspector/ChatInspector.tsx#ChatInspector",
     "agent-session/acpmux/inspector/ChatInspector.tsx#InspectorPanel",
-    "agent-session/acpmux/QuickModelMenu.tsx",
-    "agent-session/acpmux/ComposerPickers.tsx",
+    "agent-session/acpmux/QuickModelMenu.tsx#QuickModelMenu",
+    "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
-    "agent-session/acpmux/EnvironmentPicker.tsx",
+    "agent-session/acpmux/EnvironmentPicker.tsx#EnvironmentPicker",
   ],
   checks: {
     layoutShiftMax: {
