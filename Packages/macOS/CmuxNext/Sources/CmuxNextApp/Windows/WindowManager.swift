@@ -41,7 +41,22 @@ final class WindowManager {
     private var loadObservation: Task<Void, Never>?
     var membershipObservation: Task<Void, Never>?
     /// Records connected sessions in the home session (rooms, data-model.md 1.1).
-    private(set) lazy var sessionRegistrar = SessionRegistrar(machines: services.machines)
+    /// A refused record shows once as a toast on the front window (the machine is not saved for restore).
+    private(set) lazy var sessionRegistrar = SessionRegistrar(machines: services.machines, notice: { [weak self] session, message in
+        guard let window = self?.active?.window ?? NSApp.mainWindow else { return false }
+        // Until closed or taken back: it is the person's only sign that this machine will not be restored.
+        let older = self?.notSavedToasts[session]
+        let handle = CmuxToastCenter.shared.show(CmuxToast(id: "session-registration.not-saved.\(session)", message: message,
+                                                           duration: CmuxToast.untilClosed), in: window)
+        self?.notSavedToasts[session] = handle
+        // A toast with the same id replaces the older one only in the same window.
+        if older !== handle { older?.dismiss() }
+        return true
+    }, withdraw: { [weak self] session in
+        self?.notSavedToasts.removeValue(forKey: session)?.dismiss()
+    })
+    /// The "not saved for restore" toast shown for each session, so it can be taken back.
+    private var notSavedToasts: [String: CmuxToastHandle] = [:]
     /// New workspaces a window asked for before the daemon reported them:
     /// reconcile places each in that window (opening it when it is not
     /// registered yet) and selects it.
@@ -57,6 +72,8 @@ final class WindowManager {
     var pendingPlacements: [String: PendingPlacement] = [:]
     /// Registration order survives a daemon snapshot that reports several creates together.
     var pendingPlacementOrder: [String] = []
+    /// Retries the placements whose wait for the window's current row ran out (`applyPendingPlacements`).
+    let anchorRetry = DemandTimer(owner: "WindowManager.anchorRetry")
     /// Windows none of whose workspaces a machine reports yet (just created,
     /// or saved with workspaces that are gone or on a Cloud machine still
     /// connecting): kept off screen until their content is installed, so no
@@ -157,6 +174,8 @@ final class WindowManager {
 
     func didActivate(_ controller: WindowController) {
         lastActive = controller
+        // A "not saved for restore" notice that came while no window could show it shows now.
+        sessionRegistrar.showPendingNotices()
         if keepsOrder { return }
         registry.apply { $0.activate(controller.state.id); return WindowRegistry.Changes() }
     }

@@ -200,6 +200,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// Each pending chip's file, for Retry; a chip cancelled by its × is gone from here, so what its
   /// read makes later is dropped.
   const sources = useRef(new Map<string, PendingSource>());
+  /// The host-made chips (attachLater) whose `make` has not answered yet, each with what stops it
+  /// on the host, if anything does.
+  const making = useRef(new Map<string, (() => void) | undefined>());
   /// The staged chips now, for an upload to see that its chip was removed (its x, or a send).
   const stagedNow = useRef<readonly ComposerAttachment[]>([]);
   stagedNow.current = attachments;
@@ -344,17 +347,19 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// chip, or undefined (or throws) and the tile fails with `failure` and Retry, which runs `make`
   /// again. A send keeps waiting through a failure (`bound`): it goes with the chip once Retry makes
   /// it, or without it once its × drops it. Its × runs `stop` (the host stops sending) and drops
-  /// whatever `make` answers later.
+  /// whatever `make` answers later, as does the composer going away while `make` still runs.
   const [attachLater] = useState(
     () => (name: string, make: () => Promise<ComposerAttachment | undefined>, failure: string, stop?: () => void) => {
       const batch = { scope: live.current.options.scope, bound: true };
       const chip: PendingAttachment = { id: crypto.randomUUID(), name, image: false, scope: batch.scope, bound: true };
       sources.current.set(chip.id, { make, name, failure, stop });
+      making.current.set(chip.id, stop);
       batches.current.add(batch);
       flushSync(() => setPending((chips) => [...chips, chip]));
       void make()
         .catch(() => undefined)
         .then((attachment) => {
+          making.current.delete(chip.id);
           batches.current.delete(batch);
           if (!sources.current.has(chip.id)) return;
           if (!attachment) {
@@ -373,11 +378,24 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         });
     },
   );
+  // The composer goes away: a host-made chip still being made has nowhere to land, so it stops,
+  // and whatever its `make` answers later is dropped (its source goes too).
+  useEffect(
+    () => () => {
+      for (const [id, stop] of making.current) {
+        sources.current.delete(id);
+        stop?.();
+      }
+      making.current.clear();
+    },
+    [],
+  );
   /// A pending chip's ×: it goes, and whatever its read makes later is dropped; a chip the host
   /// is making (attachLater) is stopped there too.
   const [cancel] = useState(() => (id: string) => {
     const source = sources.current.get(id);
     if (source && "make" in source) source.stop?.();
+    making.current.delete(id);
     sources.current.delete(id);
     setPending((chips) => chips.filter((chip) => chip.id !== id));
   });
