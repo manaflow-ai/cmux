@@ -5,8 +5,6 @@ use super::*;
 use cmux_json::JsonSet as _;
 use std::sync::Mutex;
 
-/// True when `id` is a single plain path component, so it can name a
-/// directory under the sessions root (no separator, `.`, `..` or root).
 static HARNESS_STATE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Durable markers are made, rolled back and swept under one lock (`HARNESS_STATE_LOCK`), so a
@@ -15,7 +13,7 @@ pub(super) fn harness_state_lock() -> std::sync::MutexGuard<'static, ()> {
     HARNESS_STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-pub(super) use super::atomic_json::write_json_atomic;
+pub(super) use super::atomic_json::{is_plain_id, write_json_atomic};
 
 /// Whether the durable marker at `marker` stands for the chat `outer_id`.
 fn marker_names(marker: &Path, outer_id: &str) -> bool {
@@ -23,14 +21,6 @@ fn marker_names(marker: &Path, outer_id: &str) -> bool {
         .ok()
         .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
         .is_some_and(|v| v.get("outerId").and_then(Value::as_str) == Some(outer_id))
-}
-
-pub(super) fn is_plain_id(id: &str) -> bool {
-    let mut parts = Path::new(id).components();
-    matches!(
-        (parts.next(), parts.next()),
-        (Some(std::path::Component::Normal(c)), None) if c.to_str() == Some(id)
-    )
 }
 
 /// Releases an import's claim on its session id however the import ends.
@@ -49,6 +39,11 @@ impl Hub {
     // ------------------------------------------------------------- export
 
     pub fn export(&self, session: &Arc<Session>, dest: &Path) -> Result<PathBuf> {
+        // What the log holds back goes in first (`store/deferred.rs`).
+        anyhow::ensure!(
+            self.store_deferred(session),
+            "could not store the chat's newest tool output"
+        );
         let meta = session.meta();
         let dir = dest.join(&meta.id);
         std::fs::create_dir_all(dir.join("events"))?;
@@ -173,8 +168,11 @@ impl Hub {
             }
             ImportReservation { hub: self, id: meta.id.clone() }
         };
+        // A name the import or move gives is someone's (`acpmux ls` lists it); without one the
+        // chat keeps its bundle's name and whether that name was given.
         if let Some(n) = name {
             meta.name = n;
+            meta.name_given = true;
         } else if self.sessions.lock().unwrap().values().any(|s| s.meta().name == meta.name) {
             meta.name = self.unique_name(&meta.name);
         }
@@ -245,9 +243,14 @@ impl Hub {
         session.meta.lock().unwrap().last_seq = last;
         if live {
             self.restore_queue(&session);
-            // Its log holds the source's move (`transfer_out`), not one of this daemon's.
-            *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            // The source's subagent retries stayed there: their prompts do not wait here.
+            self.drop_unsent_subagent_retries(&session);
         }
+        // Published frozen: it is not this daemon's chat until its own receipt is logged (a
+        // failed one removes it), so no prompt starts before that. Its log's `transfer_out` is
+        // the source's move, not one of this daemon's.
+        *session.moving.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some(transfer_out::IMPORTING.to_owned());
         // The source's subagent retries stayed there (`subagent_retry.rs`).
         self.settle_subagent_retries(&session);
         self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
@@ -269,6 +272,8 @@ impl Hub {
             let _ = self.kill(&session, true).await;
             return Err(RpcError::internal("import: could not durably record imported"));
         }
+        // Its queued prompts run now (`end_move` follows its policy, then wakes the queue).
+        self.end_move(&session);
         self.save_meta(&session);
         if !defer_finalize && let Err(error) = self.finalize_harness_state(&session.meta()) {
             self.recover_staged_replacements();
@@ -785,6 +790,10 @@ impl Hub {
         Ok(last)
     }
 }
+
+#[cfg(test)]
+#[path = "import_publish_tests.rs"]
+mod import_publish_tests;
 
 #[cfg(test)]
 mod tests {
