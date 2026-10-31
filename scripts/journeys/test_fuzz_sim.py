@@ -366,7 +366,10 @@ class Sim(unittest.TestCase):
     def test_split_type_red_is_counted_on_either_path(self):
         seq = [{"a": "new_terminal", "t": "slow"}, {"a": "split_type", "t": "slow"}]
         report, error = run(bugs={"split_keys_to_last"}, seq=seq, shrink=False, actions="layout")
-        self.assertEqual(report["split_type"]["red"], 1)
+        self.assertEqual(report["split_type"]["red"], 1)  # a keys red
+        report, error = run(bugs={"second_split_lost"}, seq=seq, shrink=False, actions="layout")
+        self.assertEqual(report["failure"]["oracle"], "create")
+        self.assertEqual((report["split_type"]["played"], report["split_type"]["red"]), (1, 1))  # a create red
         self.assertEqual(report["split_type"]["pass_hold"] + report["split_type"]["pass_not_judged"], 0)
 
     def test_both_lines_in_the_second_pane_is_a_keys_red(self):
