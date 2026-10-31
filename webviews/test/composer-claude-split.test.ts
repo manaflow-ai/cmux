@@ -247,8 +247,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
           await page.close();
           expect(at.mic, "the mic shows").not.toBeNull();
           expect(at.mic!.width, "the mic at full size").toBeGreaterThanOrEqual(20);
-          if (stage.sendAtRest)
-            expect(at.send!.left, "Send after the mic").toBeGreaterThanOrEqual(at.mic!.right - 0.5);
+          if (stage.sendAtRest) expect(at.send!.left, "Send after the mic").toBeGreaterThanOrEqual(at.mic!.right - 0.5);
           else expect(at.send!.right, "Send before the mic").toBeLessThanOrEqual(at.mic!.left + 0.5);
           expect(at.send!.left, "Send inside the box").toBeGreaterThanOrEqual(at.box.left);
           expect(at.mic!.right, "the mic inside the box").toBeLessThanOrEqual(at.box.right);
