@@ -31,6 +31,17 @@ for (const scheme of ["dark", "light"] as const)
       const page = await browser.newPage({ viewport: { width: 640, height: 900 }, deviceScaleFactor: 2, colorScheme: scheme });
       const { port } = vite.httpServer!.address() as { port: number };
       await page.goto(`http://127.0.0.1:${port}/test/browser/model-menu-fit.html`);
+      // The native app injects --cmux-* from the theme; a synthetic light palette stands in for it.
+      await page.evaluate((light) => {
+        const root = document.documentElement;
+        root.dataset.theme = light ? "light" : "dark";
+        root.style.colorScheme = light ? "light" : "dark";
+        const vars = light
+          ? { "--cmux-text": "#1d1d1f", "--cmux-elevated-background": "#ffffff", "--cmux-app-window": "#f2f2f4" }
+          : { "--cmux-text": "#ececec", "--cmux-elevated-background": "#1e1e1e", "--cmux-app-window": "#080808" };
+        for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
+        document.body.style.background = light ? "#e9e9ec" : "#161618";
+      }, scheme === "light");
       await page.click(".acpmux-picker-button");
       await page.waitForSelector(".acpmux-quick-menu .acpmux-quick-rail-tab");
       if (tab !== "Claude Code") await page.click(`.acpmux-quick-rail-tab[aria-label="${tab}"]`);
