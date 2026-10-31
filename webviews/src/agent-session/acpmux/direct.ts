@@ -2622,7 +2622,7 @@ export class AcpmuxDirectClient {
     // A frame that is not a JSON object is dropped like one that is not JSON (`null` would throw at `in`).
     const message = parseJsonObjectFrame(raw) as Reply | Notification | null;
     if (!message) return;
-    if ("id" in message && typeof message.id === "number") {
+    if ("id" in message && (typeof message.id === "number" || typeof message.id === "string")) {
       const request = this.pending.get(message.id);
       if (!request) return;
       this.pending.delete(message.id);
