@@ -572,6 +572,8 @@ fn a_refused_pause_is_tried_again() {
     );
     h.brain.set_sub_starter(Some(sp.queue_starter()));
     h.brain.set_cloud_vms(Some(vms), Duration::ZERO);
+    h.brain
+        .set_cloud_pause_backoff(vec![Duration::from_millis(50)]);
     set_cloud(&mut h, &sp, "cloud1");
     let a = sp.clone();
     run(&mut h, move || a.spawn(vec!["one".into()], None)).unwrap();
@@ -595,6 +597,151 @@ fn a_refused_pause_is_tried_again() {
         2,
         "{:?}",
         busy.calls.lock().unwrap()
+    );
+}
+
+/// A pause the pool tool keeps failing backs off (here 300 ms, 600 ms, then
+/// every 900 ms; 5 s, 30 s, 2 min, 10 min on a host) and is logged once,
+/// not once per tick; the first pause that works again ends it, and is
+/// logged once too. The pool tool is a real program named by vm-cmd
+/// (`CommandVms`), as on a host. 2026-10-30: `chief-sub-a524` failed every
+/// 5 s for hours and host.log got a line each time.
+#[cfg(unix)]
+#[test]
+fn a_failing_pause_backs_off_and_is_logged_once_per_change() {
+    use optchat_chief::brain::Input;
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(home.join(".config/cloud-subagents")).unwrap();
+    let calls = dir.path().join("calls");
+    let ok = dir.path().join("ok");
+    let tool = dir.path().join("vm-tool.sh");
+    std::fs::write(
+        &tool,
+        format!(
+            "#!/bin/sh\necho \"$1 $2\" >> {calls}\n[ \"$1\" = pause ] || exit 0\n[ -e {ok} ] && exit 0\necho \"[cloud-subagents] busy: cannot read acpmux on $2; not paused\" >&2\nexit 3\n",
+            calls = calls.display(),
+            ok = ok.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(
+        home.join(".config/cloud-subagents/vm-cmd"),
+        format!("{}\n", tool.display()),
+    )
+    .unwrap();
+    let lines = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let sink = lines.clone();
+    let log: optchat_chief::brain::Log =
+        Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_owned()));
+    let hdir = tempfile::tempdir().unwrap();
+    let settings = settings(hdir.path());
+    let owner = Arc::new(std::sync::Mutex::new(Owner {
+        summary: Some(summary()),
+        ..Owner::default()
+    }));
+    let mut h = Harness::configured(hdir, default_script(), owner, settings, log);
+    h.agents.hold(true);
+    let vms: Arc<dyn optchat_chief::cloud_vms::CloudVms> =
+        Arc::new(optchat_chief::cloud_vms::CommandVms::in_home(&home));
+    let sp = Arc::new(
+        Arc::try_unwrap(spawner(&h, None))
+            .ok()
+            .unwrap()
+            .with_cloud_text("T".into())
+            .with_cloud_vms(Some(vms.clone())),
+    );
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    h.brain.set_cloud_vms(Some(vms), Duration::ZERO);
+    h.brain.set_cloud_pause_backoff(vec![
+        Duration::from_millis(300),
+        Duration::from_millis(600),
+        Duration::from_millis(900),
+    ]);
+    set_cloud(&mut h, &sp, "cloud1");
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["one".into()], None)).unwrap();
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    let pause_calls = || {
+        std::fs::read_to_string(&calls)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| *l == "pause cloud1")
+            .count()
+    };
+    let with = |text: &str| {
+        lines
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|l| l.contains(text))
+            .count()
+    };
+    // Ticks every 20 ms for 1.6 s: tries at about 0, 0.3 and 0.9 s (then
+    // 1.8 s), never one per tick.
+    let mut ticks = 0;
+    let until = Instant::now() + Duration::from_millis(1600);
+    while Instant::now() < until {
+        while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+        h.brain.step(Input::CloudTick);
+        ticks += 1;
+    }
+    let tried = pause_calls();
+    assert!(
+        (2..=4).contains(&tried),
+        "{tried} pauses in {ticks} ticks: {:?}",
+        lines.lock().unwrap()
+    );
+    assert_eq!(
+        with("cloud: pause cloud1 failed"),
+        1,
+        "one line for one error: {:?}",
+        lines.lock().unwrap()
+    );
+    assert!(
+        lines.lock().unwrap().iter().any(|l| l.contains(
+            "cannot read acpmux on cloud1; not paused; next try in 300 ms, then less often up to every 900 ms"
+        )),
+        "{:?}",
+        lines.lock().unwrap()
+    );
+
+    // The VM can pause again: the next try (within the 900 ms wait) works,
+    // is logged once, and no pause runs after it.
+    std::fs::write(&ok, "").unwrap();
+    let until = Instant::now() + Duration::from_secs(5);
+    while with("cloud: pause cloud1 works again") == 0 && Instant::now() < until {
+        while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+        h.brain.step(Input::CloudTick);
+    }
+    assert_eq!(
+        with("cloud: pause cloud1 works again"),
+        1,
+        "{:?}",
+        lines.lock().unwrap()
+    );
+    let after = pause_calls();
+    for _ in 0..20 {
+        while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+        h.brain.step(Input::CloudTick);
+    }
+    assert_eq!(pause_calls(), after, "paused: no more tries");
+    assert_eq!(
+        with("cloud: pause cloud1 failed"),
+        1,
+        "{:?}",
+        lines.lock().unwrap()
     );
 }
 

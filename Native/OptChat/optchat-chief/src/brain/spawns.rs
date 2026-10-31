@@ -50,6 +50,34 @@ fn report_requires_approval(policy: Option<&str>) -> bool {
     policy == Some(crate::approval::ASK)
 }
 
+/// The waits before each new try of a VM pause that failed, the last one
+/// repeated. 2026-10-30: the pool tool refused `chief-sub-a524` for hours
+/// (its old acpmux had no `process list`), and the host tried and logged it
+/// every 5 s tick.
+pub(crate) const PAUSE_BACKOFF: [std::time::Duration; 4] = [
+    std::time::Duration::from_secs(5),
+    std::time::Duration::from_secs(30),
+    std::time::Duration::from_secs(120),
+    std::time::Duration::from_secs(600),
+];
+
+/// A peer whose last pause failed: how many in a row, when the next try may
+/// run (ms), and the error last logged (a new one is logged, a repeat not).
+#[derive(Debug, Default)]
+pub(crate) struct PauseRetry {
+    failures: u32,
+    next_ms: u64,
+    error: String,
+}
+
+fn span(d: std::time::Duration) -> String {
+    match d.as_millis() {
+        ms if ms < 1000 => format!("{ms} ms"),
+        ms if ms < 120_000 => format!("{} s", ms / 1000),
+        ms => format!("{} min", ms / 60_000),
+    }
+}
+
 /// A subagent run shorter than this, that left nothing to land, is a short
 /// task: its workspace closes when it finishes (`mark_workspace`). Oct 20-27
 /// on Lawrence's Chief: 42% of runs were under 30 minutes, the median 48.
@@ -132,9 +160,18 @@ impl Brain {
         for peer in peers {
             if self.live_on(&peer) > 0 {
                 self.cloud_idle_since.remove(&peer);
+                self.cloud_pause_retry.remove(&peer);
                 continue;
             }
             if self.cloud_paused.contains(&peer) {
+                continue;
+            }
+            // A failed pause waits out its backoff (PAUSE_BACKOFF).
+            if self
+                .cloud_pause_retry
+                .get(&peer)
+                .is_some_and(|r| now < r.next_ms)
+            {
                 continue;
             }
             // A subagent's own VM pauses as soon as its run ends (its final
@@ -151,7 +188,9 @@ impl Brain {
             }
             self.cloud_paused.insert(peer.clone());
             self.cloud_idle_since.remove(&peer);
-            if own {
+            if self.cloud_pause_retry.contains_key(&peer) {
+                // A retry: its failure was logged once, the outcome is too.
+            } else if own {
                 (self.log)(&format!("cloud: pausing {peer} (its subagent's run ended)"));
             } else {
                 (self.log)(&format!(
@@ -168,13 +207,16 @@ impl Brain {
                 .spawn(move || {
                     let began = std::time::Instant::now();
                     match vms.pause(&peer) {
-                        Ok(()) => log(&format!(
-                            "cloud: paused {peer} in {} ms",
-                            began.elapsed().as_millis()
-                        )),
-                        Err(e) => {
-                            log(&format!("cloud: pause {peer}: {e}"));
-                            let _ = tx.send(super::Input::CloudPauseFailed { peer });
+                        Ok(()) => {
+                            log(&format!(
+                                "cloud: paused {peer} in {} ms",
+                                began.elapsed().as_millis()
+                            ));
+                            let _ = tx.send(super::Input::CloudPaused { peer });
+                        }
+                        // The brain logs it, once per new error.
+                        Err(error) => {
+                            let _ = tx.send(super::Input::CloudPauseFailed { peer, error });
                         }
                     }
                 });
@@ -348,6 +390,7 @@ impl Brain {
         self.cloud_reaping.remove(peer);
         self.cloud_paused.remove(peer);
         self.cloud_idle_since.remove(peer);
+        self.cloud_pause_retry.remove(peer);
         for sub in self
             .state
             .spawns
@@ -472,10 +515,38 @@ impl Brain {
     }
 
     /// The pool tool refused or failed to pause `peer`: it is not paused,
-    /// and its idle time starts again.
-    pub(super) fn cloud_pause_failed(&mut self, peer: &str) {
+    /// its idle time starts again, and the next try waits the next step of
+    /// `cloud_pause_backoff` (5 s, 30 s, 2 min, then every 10 min). The
+    /// error is logged when it differs from the one logged before, so a VM
+    /// that stays busy or broken gives one line, not one per tick.
+    pub(super) fn cloud_pause_failed(&mut self, peer: &str, error: &str) {
         self.cloud_paused.remove(peer);
         self.cloud_idle_since.remove(peer);
+        let backoff = &self.cloud_pause_backoff;
+        let retry = self.cloud_pause_retry.entry(peer.to_owned()).or_default();
+        retry.failures += 1;
+        let step = (retry.failures as usize - 1).min(backoff.len() - 1);
+        let wait = backoff[step];
+        retry.next_ms = now_ms().saturating_add(wait.as_millis() as u64);
+        if retry.error != error {
+            retry.error = error.to_owned();
+            (self.log)(&format!(
+                "cloud: pause {peer} failed ({} in a row): {error}; next try in {}, then less often up to every {}; the same error is not logged again",
+                retry.failures,
+                span(wait),
+                span(backoff[backoff.len() - 1]),
+            ));
+        }
+    }
+
+    /// The pool tool paused `peer`: a failure streak there ends.
+    pub(super) fn cloud_pause_ok(&mut self, peer: &str) {
+        if let Some(retry) = self.cloud_pause_retry.remove(peer) {
+            (self.log)(&format!(
+                "cloud: pause {peer} works again after {} failed tries",
+                retry.failures
+            ));
+        }
     }
 
     /// The host stops: each cloud VM with no live subagent pauses now, on
