@@ -17,13 +17,16 @@ describe("team membership authority", () => {
 
   it("writes a fresh authority row for each reducer role transition", () => {
     const user = "user_aaaaaaaaaaaaaaaaaaaa"
-    let member: any
-    const rows = { get: (table: string, key: string) => table === "member" && member ? { row: member } : undefined } as any
-    const run = (role: "owner" | "member", tx: string) => reduceMemberProvision({ team: { id: "team_aaaaaaaaaaaaaaaaaaaa", kind: "stack", display_name: "Team" }, member_count: member ? 1 : 0, seat_count: member ? 1 : 0, owner_count: role === "owner" ? 1 : 0 } as any, { user, role, source: "stack", display_name: "Alice" }, { principal: { kind: "system", identity: "system:team" }, rows, tx, now: 1 } as any)
-    const first = run("owner", "A".repeat(22)); member = { user, role: "owner", display_name: "Alice" }
-    const second = run("member", "B".repeat(22)); member = { user, role: "member", display_name: "Alice" }
-    const third = run("owner", "C".repeat(22))
-    const authority = (r: any) => r.writes.find((w: any) => w.table === "member_authority" && w.key === user).row.incarnation
-    expect(new Set([authority(first), authority(second), authority(third)]).size).toBe(3)
+    const persisted = new Map<string, any>()
+    const rows = { get: (table: string, key: string) => { const row = persisted.get(`${table}:${key}`); return row === undefined ? undefined : { row } } } as any
+    const apply = (r: any) => { for (const w of r.writes ?? []) persisted.set(`${w.table}:${w.key}`, w.op === "delete" ? undefined : w.row) }
+    let state: any = { team: { id: "team_aaaaaaaaaaaaaaaaaaaa", kind: "stack", display_name: "Team" }, member_count: 0, seat_count: 0, owner_count: 0 }
+    const run = (role: "owner" | "member", tx: string) => { const r = reduceMemberProvision(state, { user, role, source: "stack", display_name: "Alice" }, { principal: { kind: "system", identity: "system:team" }, rows, tx, now: 1 } as any); if (r.ok) { state = r.state; apply(r) }; return r }
+    run("owner", "A".repeat(22)); const first = persisted.get(`member_authority:${user}`).incarnation
+    run("member", "B".repeat(22)); const second = persisted.get(`member_authority:${user}`).incarnation
+    run("owner", "C".repeat(22)); const third = persisted.get(`member_authority:${user}`).incarnation
+    expect(persisted.get("member_authority:@generation").generation).toBe("3")
+    expect(new Set([first, second, third]).size).toBe(3)
+    expect(teamAuthorityVersion(state.team.id, user, "owner", "stack", 0, rows)).not.toBe(teamAuthorityVersion(state.team.id, user, "member", "stack", 0, rows))
   })
 })
