@@ -1,0 +1,75 @@
+import AppKit
+@testable import CmuxNextDesign
+import Testing
+
+/// The bookmark edit bubble (a ``NativePopupHost`` panel) holds a Folder picker whose menu is
+/// AppKit's, a window of its own. Opening it took the keys from the bubble, and the host read
+/// that key loss as a dismiss: a click on the picker closed the bubble. A menu opened from inside
+/// a popup is part of it: a click, Escape or a pick closes only the menu, and the popup stays.
+@MainActor @Suite(.serialized) struct NativePopupHostChildMenuTests {
+    /// The bubble's shape: a visible window, and over it a keyed popup panel whose card holds the
+    /// Folder picker (a `ThemedPopUpButton`, as `ThemedPicker` makes).
+    private static func bubble() throws -> (NSWindow, NativePopupHost, ThemedPopUpButton) {
+        let window = NSWindow(contentRect: NSRect(x: 240, y: 240, width: 400, height: 300), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.orderFrontRegardless()
+        try #require(window.screen != nil)
+        let panel = NativePopupPanel(identifier: "cmux.tests.popup-child-menu")
+        let picker = ThemedPopUpButton(frame: NSRect(x: 0, y: 0, width: 160, height: 24), pullsDown: false)
+        for title in ["Bookmarks Bar", "    Work", "Other Bookmarks"] {
+            picker.menu?.addItem(withTitle: title, action: nil, keyEquivalent: "")
+        }
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 80))
+        content.addSubview(picker)
+        panel.adoptPopupStyle(card: Glass.makeOverlayPanel(content: content, cornerRadius: PopupStyle.standard.cornerRadius))
+        let host = NativePopupHost(panel: panel)
+        let anchor = CGRect(x: window.frame.midX, y: window.frame.maxY - 60, width: 20, height: 20)
+        try #require(host.show(size: CGSize(width: 220, height: 80), anchor: anchor, in: window) != nil)
+        return (window, host, picker)
+    }
+
+    private static func close(_ window: NSWindow, _ host: NativePopupHost) {
+        host.closePanel()
+        window.close()
+    }
+
+    /// Fails before the fix: the picker's menu took the keys and the bubble closed under it.
+    @Test func thePickersMenuTakingTheKeysLeavesTheBubbleOpen() throws {
+        let (window, host, picker) = try Self.bubble()
+        defer { Self.close(window, host) }
+        var dismissed = 0
+        host.onDismiss = { dismissed += 1 }
+        let menu = try #require(picker.menu)
+
+        NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
+        // The menu's window becomes key: the popup panel resigns.
+        host.panel.resignKey()
+        #expect(host.isShown, "opening the Folder picker closed the bubble")
+        #expect(dismissed == 0)
+
+        // A pick (or a click elsewhere, or Escape) ends the menu; the bubble stays.
+        picker.selectItem(at: 1)
+        NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
+        #expect(host.isShown, "closing the Folder picker's menu closed the bubble")
+        #expect(dismissed == 0)
+    }
+
+    /// Passes before and after: with no menu of its own open, the bubble losing the keys (another
+    /// window or a menu that is not the bubble's took them) still closes it.
+    @Test func losingTheKeysToSomethingElseStillClosesTheBubble() throws {
+        let (window, host, _) = try Self.bubble()
+        defer { Self.close(window, host) }
+        var dismissed = 0
+        host.onDismiss = { dismissed += 1 }
+        let elsewhere = NSMenu(title: "Elsewhere")
+        elsewhere.addItem(withTitle: "Item", action: nil, keyEquivalent: "")
+
+        NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: elsewhere)
+        host.panel.resignKey()
+        NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: elsewhere)
+
+        #expect(!host.isShown)
+        #expect(dismissed == 1)
+    }
+}
