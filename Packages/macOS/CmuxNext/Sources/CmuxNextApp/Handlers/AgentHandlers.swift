@@ -479,10 +479,14 @@ enum AgentHandlers {
         guard let target = AgentPaneFileTarget(rawValue: place) else { throw ActionFailure(message: MiscHandlerStrings.invalidPlace(place)) }
         // A path named in a Cloud pane belongs to that machine, including an absolute path
         // that also exists here. Refuse local editor apps before resolving anything on this Mac.
-        guard let pane = context.paneController(invocation) else { return }
+        // The editor needs no pane: with no window open (`cmux file open --where editor`), and no
+        // pane named, the file is this Mac's and opens in its editor.
+        let paneless = target == .editor && !context.namesPane(invocation) && context.services.windows.active?.focusedPane == nil
+        let pane = paneless ? nil : context.paneController(invocation)
+        guard paneless || pane != nil else { return }
         // Open as Text applies on the file's machine, including Cloud Markdown.
         let asText = invocation["asText"]?.boolValue ?? (invocation["asText"]?.stringValue == "true")
-        if !pane.daemon.isLocal {
+        if let pane, !pane.daemon.isLocal {
             guard path.hasPrefix("/"), !path.contains("\u{0}") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
             let url = URL(fileURLWithPath: path)
             guard target == .tab else { throw ActionFailure(message: FilePageStrings.remotePreview(url.lastPathComponent)) }
@@ -493,7 +497,7 @@ enum AgentHandlers {
         }
         // A tab is the file pages (diff-host S6, S7) or, for HTML and SVG, a browser tab that
         // renders the page (u18051); Open as Text and Edit Source show its source.
-        if target == .tab {
+        if target == .tab, let pane {
             guard path.hasPrefix("/") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
             guard let url = AgentPaneFileOpen.resolve(path) else { throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path)) }
             // `cmux open` run from an agent chat: a quote from the file's viewer goes back to that chat.
