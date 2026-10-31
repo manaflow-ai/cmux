@@ -45,8 +45,13 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if first != "automation" && first != "automations" {
         return None;
     }
+    // `automation show-page` is the app's `automations.show` (it opens the Automations page): the
+    // app action fallback runs it.
+    if rest.first().is_some_and(|verb| verb == "show-page") {
+        return None;
+    }
     let output = global.output;
-    Some(match dispatch(rest, output) {
+    Some(match dispatch(rest, &global) {
         Ok(code) => code,
         Err(Failure::Usage(message)) => {
             super::app::failure("usage.invalid", &format!("cmux: {message}"), output, 2)
@@ -147,7 +152,35 @@ const SPEC_VALUED: &[&str] = &[
 ];
 const SPEC_FLAGS: &[&str] = &["hourly", "manual", "paused"];
 
-fn dispatch(args: &[String], output: OutputMode) -> Outcome {
+/// `--target local|cloud` anywhere in the words; `true` for cloud, and the words without it.
+fn take_target(args: &[String]) -> Result<(bool, Vec<String>), Failure> {
+    let mut out = Vec::with_capacity(args.len());
+    let mut target = None;
+    let mut words = args.iter();
+    while let Some(arg) = words.next() {
+        if let Some(v) = arg.strip_prefix("--target=") {
+            target = Some(v.to_string());
+        } else if arg == "--target" {
+            target = Some(words.next().cloned().ok_or_else(|| {
+                Failure::Usage(messages().missing_value.replace("{flag}", "target"))
+            })?);
+        } else {
+            out.push(arg.clone());
+        }
+    }
+    match target.as_deref() {
+        None | Some("local" | "this-mac") => Ok((false, out)),
+        Some("cloud") => Ok((true, out)),
+        Some(other) => usage(messages().bad_target.replace("{value}", other)),
+    }
+}
+
+fn dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
+    let output = global.output;
+    let (cloud, args) = take_target(args)?;
+    if cloud {
+        return cloud_dispatch(&args, global);
+    }
     let Some((verb, rest)) = args.split_first() else {
         print!("{}", messages().usage);
         return Ok(0);
@@ -857,6 +890,324 @@ fn uninstall(output: OutputMode) -> Outcome {
     Ok(0)
 }
 
+// ------------------------------------------------------------- cmux Cloud (--target cloud)
+
+use super::automation_cloud::{self as cloud, Answer, CloudSchedule};
+
+/// The Cloud schedule of `a`: cron presets in an IANA zone (default this
+/// Mac's), `--webhook`, or `--manual`. Intervals and one-shots run on this Mac only.
+fn cloud_schedule(a: &Args) -> Result<Option<CloudSchedule>, Failure> {
+    let tz = a.value("tz").map(str::to_string).unwrap_or_else(cloud::local_zone_name);
+    let cron = |expr: String| -> Result<Option<CloudSchedule>, Failure> {
+        cmux_automations::CronExpr::parse(&expr).map_err(Failure::Usage)?;
+        Ok(Some(CloudSchedule::Cron { expr, tz: tz.clone() }))
+    };
+    for local_only in ["every", "at", "in"] {
+        if a.value(local_only).is_some() {
+            return usage(messages().cloud_local_only.replace("{flag}", local_only));
+        }
+    }
+    let chosen =
+        ["daily", "weekdays", "weekly", "cron"].iter().filter(|f| a.value(f).is_some()).count()
+            + ["hourly", "manual", "webhook"].iter().filter(|f| a.flag(f)).count();
+    if chosen > 1 {
+        return usage(messages().one_schedule.replace("{flags}", "…"));
+    }
+    if a.flag("manual") {
+        return Ok(Some(CloudSchedule::Manual));
+    }
+    if a.flag("webhook") {
+        return Ok(Some(CloudSchedule::Webhook));
+    }
+    if a.flag("hourly") {
+        return cron("0 * * * *".into());
+    }
+    if let Some(v) = a.value("daily") {
+        let (h, m) = parse_clock(v)?;
+        return cron(format!("{m} {h} * * *"));
+    }
+    if let Some(v) = a.value("weekdays") {
+        let (h, m) = parse_clock(v)?;
+        return cron(format!("{m} {h} * * 1-5"));
+    }
+    if let Some(v) = a.value("weekly") {
+        let (day, clock) = v
+            .split_once([' ', '@'])
+            .ok_or_else(|| Failure::Usage(messages().bad_weekly.replace("{value}", v)))?;
+        let (h, m) = parse_clock(clock)?;
+        return cron(format!("{m} {h} * * {}", parse_weekday(day)?));
+    }
+    if let Some(v) = a.value("cron") {
+        return cron(v.to_string());
+    }
+    Ok(None)
+}
+
+/// Prints a Cloud answer; refusals go through `print_refusal`.
+fn cloud_out(
+    answer: Result<Answer, Value>,
+    output: OutputMode,
+    human: impl FnOnce(&Value),
+) -> Outcome {
+    match answer {
+        Ok(Answer::Value(v)) => {
+            if output == OutputMode::Json {
+                print_json(&v);
+            } else if output != OutputMode::Quiet {
+                human(&v);
+            }
+            Ok(0)
+        }
+        Ok(Answer::Refused(error)) => Ok(cloud::print_refusal(&error, output)),
+        Err(error) => Ok(super::wire::print_local_error(&error, output, 3)),
+    }
+}
+
+fn cloud_row(v: &Value) -> String {
+    let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("-").to_string();
+    let schedule = v
+        .get("triggers")
+        .and_then(Value::as_array)
+        .and_then(|t| {
+            t.iter().find_map(|t| {
+                let spec = t.get("spec").unwrap_or(t);
+                match spec.get("type").and_then(Value::as_str) {
+                    Some("cron") => Some(format!(
+                        "cron {} ({})",
+                        spec.get("expr").and_then(Value::as_str).unwrap_or(""),
+                        spec.get("tz").and_then(Value::as_str).unwrap_or("")
+                    )),
+                    Some("webhook") => Some("webhook".to_string()),
+                    _ => None,
+                }
+            })
+        })
+        .unwrap_or_else(|| messages().manual_only.to_string());
+    let status = if v.get("enabled").and_then(Value::as_bool) == Some(true) {
+        messages().active
+    } else {
+        messages().paused
+    };
+    let next = v
+        .get("next_run_at")
+        .and_then(Value::as_i64)
+        .map(|ms| when(ms / 1000))
+        .unwrap_or_else(|| "-".into());
+    format!(
+        "{}  {:<28} {:<10} {:<34} {} {}",
+        s("id"),
+        s("name"),
+        status,
+        schedule,
+        messages().next_label,
+        next
+    )
+}
+
+/// The Cloud automation `word` names: an `auto_` id, or a name from `automation.list`.
+fn cloud_find(global: &super::GlobalArgs, word: &str) -> Result<Result<String, Outcome>, Failure> {
+    if word.starts_with("auto_") && word.len() == 25 {
+        return Ok(Ok(word.to_string()));
+    }
+    match cloud::call(global, "automation.list", json!({"limit": 100}), None) {
+        Ok(Answer::Value(v)) => {
+            let found = v
+                .get("automations")
+                .and_then(Value::as_array)
+                .and_then(|all| {
+                    all.iter().find(|a| {
+                        a.get("name")
+                            .and_then(Value::as_str)
+                            .is_some_and(|n| n.eq_ignore_ascii_case(word))
+                    })
+                })
+                .and_then(|a| a.get("id").and_then(Value::as_str))
+                .map(str::to_string);
+            match found {
+                Some(id) => Ok(Ok(id)),
+                None => Err(Failure::Store(StoreError::NotFound(word.into()))),
+            }
+        }
+        other => Ok(Err(cloud_out(other, global.output, |_| {}))),
+    }
+}
+
+fn cloud_dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
+    let output = global.output;
+    let Some((verb, rest)) = args.split_first() else {
+        print!("{}", messages().usage);
+        return Ok(0);
+    };
+    let mut valued = SPEC_VALUED.to_vec();
+    valued.extend(["limit", "key"]);
+    let mut flags = SPEC_FLAGS.to_vec();
+    flags.push("webhook");
+    let a = Args::parse(rest, &valued, &flags)?;
+    let target = |a: &Args| -> Result<Result<String, Outcome>, Failure> {
+        cloud_find(global, a.one_word("AUTOMATION")?)
+    };
+    match verb.as_str() {
+        "create" | "new" | "add" => {
+            let name = a
+                .value("name")
+                .map(str::to_string)
+                .or_else(|| a.words.first().cloned())
+                .ok_or_else(|| Failure::Usage(messages().missing_word.replace("{what}", "NAME")))?;
+            if a.value("command").is_some() {
+                return usage(messages().cloud_no_command);
+            }
+            let prompt =
+                a.value("prompt").ok_or_else(|| Failure::Usage(messages().need_body.into()))?;
+            let schedule = cloud_schedule(&a)?
+                .ok_or_else(|| Failure::Usage(messages().need_schedule.into()))?;
+            let chief = match cloud::call(global, "chief.list", json!({}), None) {
+                Ok(Answer::Value(v)) => cloud::default_chief(&v)
+                    .ok_or_else(|| Failure::Usage(messages().cloud_no_chief.into()))?,
+                other => return cloud_out(other, output, |_| {}),
+            };
+            let params = cloud::create_params(&name, prompt, &schedule, &chief, a.flag("paused"));
+            cloud_out(
+                cloud::call(
+                    global,
+                    "automation.create",
+                    params,
+                    Some(cloud::key(global, "create")),
+                ),
+                output,
+                |v| {
+                    println!(
+                        "{}",
+                        messages()
+                            .cloud_created
+                            .replace("{name}", &name)
+                            .replace("{id}", v.get("id").and_then(Value::as_str).unwrap_or("?"))
+                    );
+                    println!("{}", cloud_row(v));
+                },
+            )
+        }
+        "list" | "ls" => cloud_out(
+            cloud::call(global, "automation.list", json!({"limit": 100}), None),
+            output,
+            |v| {
+                let all =
+                    v.get("automations").and_then(Value::as_array).cloned().unwrap_or_default();
+                if all.is_empty() {
+                    println!("{}", messages().none_yet);
+                }
+                for x in &all {
+                    println!("{}", cloud_row(x));
+                }
+            },
+        ),
+        "show" | "get" => match target(&a)? {
+            Ok(id) => cloud_out(
+                cloud::call(global, "automation.get", json!({"automation": id}), None),
+                output,
+                |v| println!("{}", cloud_row(v.get("automation").unwrap_or(v))),
+            ),
+            Err(done) => done,
+        },
+        "run" => match target(&a)? {
+            Ok(id) => cloud_out(
+                cloud::call(
+                    global,
+                    "automation.run",
+                    json!({"automation": id}),
+                    Some(
+                        a.value("key")
+                            .map(str::to_string)
+                            .unwrap_or_else(|| cloud::key(global, "run")),
+                    ),
+                ),
+                output,
+                |v| {
+                    let run = v
+                        .get("id")
+                        .or_else(|| v.get("run").and_then(|r| r.get("id")))
+                        .and_then(Value::as_str)
+                        .unwrap_or("?");
+                    println!("{}", messages().cloud_run_started.replace("{run}", run));
+                },
+            ),
+            Err(done) => done,
+        },
+        "pause" | "resume" => match target(&a)? {
+            Ok(id) => {
+                let enabled = verb == "resume";
+                cloud_out(
+                    cloud::call(
+                        global,
+                        "automation.update",
+                        json!({"automation": id, "enabled": enabled}),
+                        Some(cloud::key(global, verb)),
+                    ),
+                    output,
+                    |v| {
+                        let name = v.get("name").and_then(Value::as_str).unwrap_or(&id);
+                        println!(
+                            "{}",
+                            (if enabled { messages().resumed } else { messages().paused_done })
+                                .replace("{name}", name)
+                        );
+                    },
+                )
+            }
+            Err(done) => done,
+        },
+        "history" | "runs" => match target(&a)? {
+            Ok(id) => cloud_out(
+                cloud::call(
+                    global,
+                    "automation.runs.list",
+                    json!({"automation": id, "limit": 50}),
+                    None,
+                ),
+                output,
+                |v| {
+                    let runs = v.get("runs").and_then(Value::as_array).cloned().unwrap_or_default();
+                    if runs.is_empty() {
+                        println!("{}", messages().no_runs);
+                    }
+                    for r in &runs {
+                        let s =
+                            |k: &str| r.get(k).and_then(Value::as_str).unwrap_or("-").to_string();
+                        let at = r
+                            .get("created_at")
+                            .and_then(Value::as_i64)
+                            .map(|ms| when(ms / 1000))
+                            .unwrap_or_default();
+                        let reason = r
+                            .get("error")
+                            .and_then(|e| e.get("code"))
+                            .and_then(Value::as_str)
+                            .map(|c| format!(" ({c})"))
+                            .unwrap_or_default();
+                        println!("{}  {at}  {}{reason}", s("id"), s("state"));
+                    }
+                },
+            ),
+            Err(done) => done,
+        },
+        "delete" | "rm" => match target(&a)? {
+            Ok(id) => cloud_out(
+                cloud::call(
+                    global,
+                    "automation.delete",
+                    json!({"automation": id}),
+                    Some(cloud::key(global, "delete")),
+                ),
+                output,
+                |_| {
+                    println!("{}", messages().deleted_cloud.replace("{id}", &id));
+                },
+            ),
+            Err(done) => done,
+        },
+        other => usage(messages().cloud_unknown_verb.replace("{verb}", other)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -924,5 +1275,20 @@ mod tests {
         assert_eq!(parse_duration("45m").ok(), Some(2_700));
         assert_eq!(parse_duration("1d").ok(), Some(86_400));
         assert!(parse_duration("soon").is_err());
+    }
+
+    #[test]
+    fn target_is_taken_out_of_the_words_in_both_forms() {
+        let words = |w: &[&str]| w.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let taken = |w: &[&str]| take_target(&words(w)).ok();
+        assert_eq!(taken(&["list"]), Some((false, words(&["list"]))));
+        assert_eq!(
+            taken(&["list", "--target", "cloud", "--json"]),
+            Some((true, words(&["list", "--json"])))
+        );
+        assert_eq!(taken(&["--target=cloud", "list"]), Some((true, words(&["list"]))));
+        assert_eq!(taken(&["list", "--target", "this-mac"]), Some((false, words(&["list"]))));
+        assert!(matches!(take_target(&words(&["list", "--target"])), Err(Failure::Usage(_))));
+        assert!(matches!(take_target(&words(&["--target", "mars"])), Err(Failure::Usage(_))));
     }
 }

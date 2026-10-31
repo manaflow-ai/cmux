@@ -131,8 +131,35 @@ struct RemoteVNCReconnectTests {
             return ConnectedRFBTransport()
         }
         defer { session.close() }
-        session.scheduleAutomaticRetryForTesting(after: .milliseconds(50))
-        #expect(session.hasPendingRetryForTesting)
+        session.scheduleAutomaticRetryForTesting(after: .seconds(30))
+        let staleRetry = try #require(session.pendingRetryForTesting)
+
+        let statuses = session.source.statusUpdates()
+        session.reconnect(in: nil)
+        #expect(!session.hasPendingRetryForTesting)
+        for await status in statuses {
+            if status.state == .streaming { break }
+            if case .ended = status.state { break }
+        }
+        try #require(session.source.status.state == .streaming)
+        let connectedClient = try #require(session.source.client)
+        // The RFB handshake succeeded. A stale retry must not replace this connection.
+        #expect(attempts.value == 1)
+        // The cancelled retry ends without connecting again; awaiting it replaces a sleep past its deadline.
+        await staleRetry.value
+        #expect(attempts.value == 1)
+        #expect(session.source.client === connectedClient)
+        #expect(session.source.status.state == .streaming)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func queuedLossAfterManualReconnectSchedulesNoRetry() async throws {
+        let record = try #require(RemoteViewTabRecord(host: "vm-test", target: .virtual, mode: .view, cloudDesktop: true))
+        let attempts = AttemptCounter()
+        let session = RemoteVNCSession(cloudRecord: record) {
+            attempts.increment()
+            return ConnectedRFBTransport()
+        }
+        defer { session.close() }
 
         let statuses = session.source.statusUpdates()
         session.reconnect(in: nil)
@@ -142,13 +169,48 @@ struct RemoteVNCReconnectTests {
         }
         try #require(session.source.status.state == .streaming)
         let connectedClient = try #require(session.source.client)
-        // The RFB handshake succeeded. A stale retry must not replace this connection.
-        #expect(attempts.value == 1)
-        try await Task.sleep(for: .milliseconds(100))
+        // A loss from the old session, queued on the main actor before the manual reconnect,
+        // lands now. It must not schedule a retry that would replace the healthy connection.
+        session.deliverQueuedLossForTesting()
+        #expect(!session.hasPendingRetryForTesting)
         #expect(attempts.value == 1)
         #expect(session.source.client === connectedClient)
-        #expect(session.source.status.state == .streaming)
     }
+
+    @Test(.timeLimit(.minutes(1))) func queuedLossAfterStopSchedulesNoRetry() async throws {
+        let record = try #require(RemoteViewTabRecord(host: "vm-test", target: .virtual, mode: .view, cloudDesktop: true))
+        let transports = TransportBox()
+        let session = RemoteVNCSession(cloudRecord: record) {
+            let transport = ConnectedRFBTransport()
+            transports.add(transport)
+            return transport
+        }
+        defer { session.close() }
+
+        let statuses = session.source.statusUpdates()
+        session.reconnect(in: nil)
+        for await status in statuses {
+            if status.state == .streaming { transports.closeAll() }
+            if case .ended = status.state { break }
+        }
+        guard case .ended(.connectionLost) = session.source.status.state else {
+            Issue.record("expected a lost connection, got \(session.source.status.state)")
+            return
+        }
+        // Stop (a hidden tab) lands before the loss queued on the main actor. The loss must not
+        // schedule a retry that reconnects the stopped tab.
+        session.stop()
+        session.deliverQueuedLossForTesting()
+        #expect(!session.hasPendingRetryForTesting)
+    }
+}
+
+private nonisolated final class TransportBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var transports: [ConnectedRFBTransport] = []
+
+    func add(_ transport: ConnectedRFBTransport) { lock.withLock { transports.append(transport) } }
+    func closeAll() { lock.withLock { transports }.forEach { $0.close() } }
 }
 
 private nonisolated final class ConnectedRFBTransport: RFBTransport {

@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextComputerUse
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHistory
 import CmuxNextHomeEngine
@@ -59,7 +60,9 @@ enum AgentHandlers {
             return .done
         })
         for (id, destination) in forkActions {
-            registry.bindEffect(id, requires: nil, effect: { invocation in
+            // A new row needs rows on and `rows-v1`, as New Row does: disabled with that reason.
+            let gatesOnRows = destination == .row
+            registry.bindEffect(id, requires: nil, unavailable: { gatesOnRows ? ColumnHandlers.newRowUnavailableReason(context) : nil }, effect: { invocation in
                 try fork(destination, offerDestinations: id == "palette.forkAgentConversation", invocation: invocation, context: context)
                 return .done
             })
@@ -260,6 +263,7 @@ enum AgentHandlers {
             })
         }
         TerminalChatHandler.bind(into: registry, context: context)
+        AgentShareActions(host: context.services).bind(into: registry)
         AgentTeamsLaunch.bind(into: registry, context: context)
         let services = context.services
         let helper = ComputerUseHelperDaemon.shared
@@ -351,13 +355,8 @@ enum AgentHandlers {
     }
 
     /// Fork Conversation's actions, in the palette step's order (the default destination first).
-    static let forkActions: [(ActionID, AgentForkDestination)] = [
-        ("palette.forkAgentConversation", .default),
-        ("palette.forkAgentConversationRight", .right), ("palette.forkAgentConversationLeft", .left),
-        ("palette.forkAgentConversationTop", .up), ("palette.forkAgentConversationBottom", .down),
-        ("palette.forkAgentConversationNewTab", .tab), ("palette.forkAgentConversationNewWorkspace", .workspace),
-        ("palette.forkAgentConversationNewWindow", .window),
-    ]
+    static let forkActions: [(ActionID, AgentForkDestination)] = [("palette.forkAgentConversation", .default)]
+        + AgentForkDestination.allCases.map { ($0.actionID, $0) }
 
     /// The destination fork action `id` opens at, or nil for another action.
     static func destination(of id: ActionID) -> AgentForkDestination? {
@@ -397,6 +396,8 @@ enum AgentHandlers {
         let handle = pane.pane.handle
         let options = SpawnOptions(cwd: tab.cwd, workspace: context.services.workspaceKey(of: pane.pane))
         let cwd = tab.cwd
+        // A new row is as tall as the agent's row (New Row's G3 rule).
+        let rowHeight = pane.workspace?.layoutModel.newRowHeight(below: pane.layoutPaneID) ?? 1000
         let logger = context.daemon.logger
         let refusals = context.services.refusalHUD
         let windows = context.services.windows
@@ -422,17 +423,18 @@ enum AgentHandlers {
                 }
                 let surface: SurfaceID?
                 var workspace: WorkspaceKey?
-                switch destination {
-                case .right, .left:
-                    surface = try await connection.split(handle, direction: .right, options: options).surface
+                switch TerminalForkPlacement(destination) {
+                case let .split(down, swap):
+                    surface = try await connection.split(handle, direction: down ? .down : .right, options: options).surface
                     // A split always opens right/below; swap to put the fork first.
-                    if destination == .left { try await connection.swapPane(handle, with: .direction(.right)) }
-                case .down, .up:
-                    surface = try await connection.split(handle, direction: .down, options: options).surface
-                    if destination == .up { try await connection.swapPane(handle, with: .direction(.down)) }
+                    if swap { try await connection.swapPane(handle, with: .direction(down ? .down : .right)) }
+                case let .column(left):
+                    surface = try await connection.newColumn(beside: handle, left: left, options: options).surface
+                case .row:
+                    surface = try await RowCommands(connection).newRow(below: handle, height: rowHeight, options: options).surface
                 case .tab:
                     surface = try await connection.newTab(in: handle, options: options).surface
-                case .workspace, .window:
+                case .workspace:
                     workspace = key
                     surface = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: repair) { created in
                         try await WorkspaceCreation.firstTerminal(in: created, cwd: options.cwd, on: connection).surface
@@ -478,7 +480,9 @@ enum AgentHandlers {
             if let session = invocation.callerAgentSession, let chat = context.services.agentTabs.tab(showing: session) {
                 context.services.chatQuoteOpeners.noteOpened(url, byAgentTab: chat)
             }
-            if let reason = context.services.viewers.openFile(url, in: pane, userChose: invocation.origin == .user) { throw ActionFailure(message: reason) }
+            // `asText` (`cmux open --as-text`, MCP, u18462): HTML, SVG or Markdown opens as its source, as Open as Text does.
+            let asText = invocation["asText"]?.boolValue ?? (invocation["asText"]?.stringValue == "true")
+            if let reason = context.services.viewers.openFile(url, in: pane, userChose: invocation.origin == .user, asText: asText) { throw ActionFailure(message: reason) }
             return
         }
         let opening: AgentPaneFileOpening

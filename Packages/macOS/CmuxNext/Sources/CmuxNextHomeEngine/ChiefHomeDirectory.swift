@@ -76,9 +76,8 @@ public actor ChiefHomeDirectory {
         guard let own = await ownAcpmux(of: host) else { return nil }
         let home = own.home, owner = own.owner
         guard let owned = try? await work.run(.userVisible, mayBlock: .files, { Self.owned(home: home, owner: owner) }) else { return nil }
-        let tag = "optchat-chief:" + host.dropFirst(ChiefHome.tabHostPrefix.count)
         return AcpmuxChiefSessionRouter(local: fallback, chief: owned ? own.attaching : own.starting, chiefEnvironment: own.environment,
-                                        sessionsHome: own.sessionsHome, parentTag: tag)
+                                        sessionsHome: own.sessionsHome)
     }
 
     /// Whether the acpmux of Chief home `host` (`chief:<home id>`) keeps session `session` on disk: a

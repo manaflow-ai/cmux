@@ -8,6 +8,9 @@
 //! frame time, and builds the due frames in turn (PL-daemon, the daemon's
 //! threads per terminal). The thread sleeps on a condition variable while no
 //! request is pending (no timer at idle).
+//!
+//! Output's scroll position changes publish here too, once per frame
+//! ([`FrameRequests::defer_scroll`]), not once per output chunk (perf100).
 
 use std::collections::HashMap;
 use std::sync::{Condvar, OnceLock};
@@ -19,8 +22,18 @@ const RENDER_FRAME_CADENCE: Duration = Duration::from_millis(8);
 
 /// A terminal's handle on the shared producer: requests a frame, and
 /// removes the terminal when dropped.
+///
+/// It also holds the terminal's scroll position change that output caused
+/// and no `scroll-changed` event has published yet. Output moves the scroll
+/// offset on almost every chunk (93k events/s while one terminal floods,
+/// perf100 tui lane), so output only records the newest position here and
+/// the producer publishes it once per frame. Every other scroll change (a
+/// viewport scroll, a resize, a clear, a replay) publishes at once and drops
+/// a recorded one, under the same lock, so an older position can never be
+/// published after a newer one.
 pub(crate) struct FrameRequests {
     key: u64,
+    scroll: Mutex<Option<(u64, bool)>>,
 }
 
 impl FrameRequests {
@@ -29,7 +42,7 @@ impl FrameRequests {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let key = NEXT.fetch_add(1, Ordering::Relaxed);
         scheduler().state.lock().recover_poison().entries.insert(key, Entry::default());
-        Self { key }
+        Self { key, scroll: Mutex::new(None) }
     }
 
     /// Ask for a frame of at least `generation`.
@@ -41,6 +54,35 @@ impl FrameRequests {
             drop(state);
             scheduler.changed.notify_one();
         }
+    }
+}
+
+impl FrameRequests {
+    /// Output moved the scroll position: publish it with the next frame.
+    pub(super) fn defer_scroll(&self, offset: u64, at_bottom: bool) {
+        *self.scroll.lock().recover_poison() = Some((offset, at_bottom));
+    }
+
+    /// Publish a recorded output scroll change, if any; whether one was.
+    pub(super) fn flush_scroll(&self, mux: &Mux, surface: SurfaceId) -> bool {
+        let mut pending = self.scroll.lock().recover_poison();
+        let Some((offset, at_bottom)) = pending.take() else { return false };
+        mux.emit_terminal_scroll(surface, offset, at_bottom);
+        true
+    }
+
+    /// A scroll change that is not output's: publish it now, replacing a
+    /// recorded one.
+    pub(super) fn publish_scroll_now(
+        &self,
+        mux: &Mux,
+        surface: SurfaceId,
+        offset: u64,
+        at_bottom: bool,
+    ) {
+        let mut pending = self.scroll.lock().recover_poison();
+        *pending = None;
+        mux.emit_terminal_scroll(surface, offset, at_bottom);
     }
 }
 
@@ -130,7 +172,8 @@ fn run() {
     }
 }
 
-/// Build one terminal's frame; true when a frame (or a colors flush) went out.
+/// Build one terminal's frame and publish output's scroll position; true
+/// when a frame, a colors flush or a scroll position went out.
 fn produce(surface: &Weak<Surface>, requested: u64) -> bool {
     let Some(surface) = surface.upgrade() else { return false };
     let Some(pty) = surface.as_pty() else { return false };
@@ -146,5 +189,13 @@ fn produce(surface: &Weak<Surface>, requested: u64) -> bool {
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let _ = pty.flush_attach_colors_locked(&term, defaults);
     }
-    pty.build_producer_frame(term, generation).unwrap_or(false) || colors_pending
+    let built = pty.build_producer_frame(term, generation).unwrap_or(false);
+    // A published scroll position paces the terminal like a frame does: with
+    // no render viewer no frame is built, and output would otherwise publish
+    // a position per chunk.
+    let scrolled = pty
+        .mux
+        .upgrade()
+        .is_some_and(|mux| pty.frame_requests.flush_scroll(&mux, pty.event_surface_id));
+    built || colors_pending || scrolled
 }
