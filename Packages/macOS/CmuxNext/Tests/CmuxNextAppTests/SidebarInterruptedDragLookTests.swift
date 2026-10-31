@@ -59,22 +59,21 @@ struct SidebarInterruptedDragLookTests {
         h.expectEveryRowAtRest(drags ? "a drag after Escape" : "a press after Escape")
     }
 
-    /// The release went to another row of this window (the source left under the pointer): after its dispatch the
-    /// held drag has lost its release, and it ends as a cancel.
+    /// The release went to a view of this window outside the list (the source left under the pointer, the list
+    /// reloaded under the drag): after its dispatch the held drag has lost its release, and it ends as a cancel.
     @Test func aReleaseThatNeverReachesTheDragEndsIt() async throws {
         defer { Motion.reduceMotionOverride = nil }
         let h = Harness()
         defer { h.close() }
         let pin = try press(h, drags: true)
-        let other = try h.item(Harness.pins[2].id)
         let release = try h.event(.leftMouseUp, on: pin, down: 40)
         _ = h.list.pointerEventSeen(.leftMouseUp, in: h.window, at: h.window.convertPoint(toScreen: release.locationInWindow))
-        other.mouseUp(with: release)
+        try #require(h.window.contentView).mouseUp(with: release)
         // The release's dispatch is over: the list's check after it runs on the next main-queue turns.
         for _ in 0..<4 { await Task.yield() }
         h.finishFlights()
         #expect(h.drops.isEmpty, "a lost release sent a move")
-        h.expectEveryRowAtRest("a drag whose release went to another row")
+        h.expectEveryRowAtRest("a drag whose release never reached it")
     }
 
     /// The release went to another app's window (outside this one): the drag ends after that dispatch.
