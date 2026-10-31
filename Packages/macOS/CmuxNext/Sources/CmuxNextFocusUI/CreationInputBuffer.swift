@@ -6,13 +6,9 @@ public final class CreationInputBuffer {
     /// A ticket names its buffer too: a buffer flushed early never takes a later buffer's ticket of the same number.
     public struct Ticket: Hashable { fileprivate let id: Int; fileprivate let owner: ObjectIdentifier }
 
-    /// The held keys in typing order, each with the creation it was typed for (its lane): the creation whose tab the
-    /// focus named when the key was typed (the pane the person saw get the focus), nil for none. A key goes only to
-    /// its own creation's terminal, never to another creation's (P0 1193: after Cmd-D, keys, Cmd-D, keys, the first
-    /// new terminal ran the second one's keys while the second's focus was on its way).
+    /// The held keys in typing order, each with the creation it was typed for: the newest one
+    /// pending when it was typed (the pane the person saw get the focus), nil for none.
     private var events: [(event: NSEvent, creation: Int?)] = []
-    /// Each creation's provisional tab, kept after its reply: the terminal its lane goes to.
-    private var laneTabs: [Int: String] = [:]
     private var pending: [Int: UInt64] = [:]
     private var awaited: Set<UInt64> = []
     /// Pending creations whose new terminal's view takes keys before the reply, by its tab id.
@@ -43,7 +39,7 @@ public final class CreationInputBuffer {
         nextID += 1
         pending[nextID] = generation
         if let earlyTab { earlyTabs[nextID] = earlyTab }
-        if let tab { tabs[nextID] = tab; laneTabs[nextID] = tab }
+        if let tab { tabs[nextID] = tab }
         return Ticket(id: nextID, owner: ObjectIdentifier(self))
     }
 
@@ -58,7 +54,6 @@ public final class CreationInputBuffer {
             tabs[id] = nil
             earlyTabs[id] = nil
             pending[id] = nil
-            laneTabs[id] = nil
         }
         events.removeAll { $0.creation.map(ids.contains) ?? false }
         if pending.isEmpty, awaited.isEmpty { events.removeAll() }
@@ -68,15 +63,8 @@ public final class CreationInputBuffer {
     /// Whether a creation of this hold still waits for its reply and shows `tab`.
     public func isCreating(tab: String) -> Bool { tabs.contains { $0.value == tab && pending[$0.key] != nil } }
 
-    /// The pending creation whose new terminal view, tab `tab`, takes its own keys before the reply (its early view).
-    public func earlyLane(tab: String) -> Int? { earlyTabs.filter { $0.value == tab }.map(\.key).max() }
-
-    /// The lane of a key typed while the focus names (or is on its way to) tab `focusedTab`: the newest creation of
-    /// this hold that shows that tab, nil when the focus names none of them (a key typed after the person moved on).
-    public func lane(focusedTab: String?) -> Int? {
-        guard let focusedTab else { return nil }
-        return laneTabs.filter { $0.value == focusedTab }.map(\.key).max()
-    }
+    /// Whether a pending creation's new terminal view, tab `tab`, takes keys now.
+    public func takesKeysEarly(tab: String) -> Bool { earlyTabs.values.contains(tab) }
 
     /// `awaitsFocus`: the creation asked for focus under its generation; the keys wait until that
     /// expectation landed or was replaced. A failed creation asked for nothing.
@@ -91,46 +79,19 @@ public final class CreationInputBuffer {
 
     public func awaits(_ generation: UInt64) -> Bool { awaited.contains(generation) }
 
-    /// Holds `event`, typed while the focus named `focusedTab` (``lane(focusedTab:)``).
-    public func capture(_ event: NSEvent, focusedTab: String?) { events.append((event, lane(focusedTab: focusedTab))) }
+    /// Holds `event`, typed for the newest pending creation.
+    public func capture(_ event: NSEvent) { events.append((event, pending.keys.max())) }
 
     /// Holds `earlier` (keys taken and not run yet, typed after the key that started the newest
-    /// creation) before the keys held now, typed for that creation.
+    /// pending creation) before the keys held now, typed for that creation.
     public func prepend(_ earlier: ArraySlice<NSEvent>) {
-        let creation = nextID > 0 ? nextID : nil
+        let creation = pending.keys.max()
         events.insert(contentsOf: earlier.map { ($0, creation) }, at: 0)
     }
 
     public func take() -> [NSEvent] {
         defer { events.removeAll() }
         return events.map(\.event)
-    }
-
-    /// Takes the keys of lane `lane` only, in typing order (its early view has the keyboard); the others keep waiting.
-    public func take(lane: Int) -> [NSEvent] {
-        defer { events.removeAll { $0.creation == lane } }
-        return events.filter { $0.creation == lane }.map(\.event)
-    }
-
-    /// Ends the hold. A key of a lane whose terminal is not the focused tab `focused` goes to that terminal only, by
-    /// `typer(tab)` (that terminal's own key encoder, nil when no view of it exists any more: its keys go with it, as a
-    /// closed creation's do), never to the focused one: a held Ctrl-C must not reach another terminal's process. A
-    /// Command chord is an app action, not terminal input: it runs again as typed, as before. Returns the keys to run
-    /// again as typed, in typing order (the focused lane's, keys of no lane, Command chords), and how many keys were
-    /// dropped because their terminal is gone.
-    public func take(focused: String?, typer: (String) -> (@MainActor (NSEvent) -> Void)?) -> (replay: [NSEvent], dropped: Int) {
-        var replay: [NSEvent] = [], dropped = 0
-        var typers: [String: (@MainActor (NSEvent) -> Void)?] = [:]
-        for (event, lane) in events {
-            guard let lane, let tab = laneTabs[lane], tab != focused, !event.modifierFlags.contains(.command) else {
-                replay.append(event)
-                continue
-            }
-            if typers[tab] == nil { typers[tab] = .some(typer(tab)) }
-            if let typeKey = typers[tab] ?? nil { typeKey(event) } else { dropped += 1 }
-        }
-        events.removeAll()
-        return (replay, dropped)
     }
 
     /// Calls `expired` after `limit` unless a creation of this hold still waits for its reply then
