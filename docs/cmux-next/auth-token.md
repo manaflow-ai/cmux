@@ -32,7 +32,7 @@ Nothing else leaves the app: no password, no Stack session, no refresh token.
 
 | Option | Meaning |
 | --- | --- |
-| `--team TEAM` | The team, as its id (`team_` and 20 hex digits). Default: the team the app is using now. |
+| `--team TEAM` | The team, as its id (`team_` and 20 hex digits). Default: the team the app is using now (Settings > Accounts), or your personal team when none is chosen. |
 | `--json` | Print one JSON object instead of the bare token (fields below). |
 
 `--json` prints:
@@ -59,6 +59,7 @@ to stderr, or a JSON error with `--json`, and exits non-zero.
 | 3 | `app.unreachable` | Open the cmux app. The command talks to it over its control socket. |
 | 5 | `method_not_found` | Update the cmux app. |
 | 1 | `feature.disabled` | Your organization turned cmux Cloud off. |
+| 1 | `managed` | Your organization limits cmux on this Mac to its managed team. Ask for that team only. |
 | 1 | `forbidden` | The API refused that team. Check that your account belongs to it. |
 | 1 | `client_too_old` | The team needs a newer cmux. Update it. |
 | 1 | `unavailable` | The cmux API didn't answer. Try again. |

@@ -22,7 +22,7 @@ public struct AuthTokenGrant: Sendable, Equatable {
 }
 
 /// Why the mint gave no token: `code` is the socket error's code (`not_signed_in`, `no_team`,
-/// `invalid_params`, `forbidden`, `client_too_old`, `unavailable`, `bad_reply`) and `detail`
+/// `invalid_params`, `forbidden`, `managed`, `client_too_old`, `unavailable`, `bad_reply`) and `detail`
 /// the owner's refusal code or the minimum app version.
 public struct AuthTokenRefusal: Error, Sendable, Equatable {
     public var code: String
@@ -101,6 +101,8 @@ extension ControlMethod {
             ControlStrings.format("control.authToken.refused", "cmux Cloud refused a token for team %@. Check that your account belongs to it.", team ?? "-")
         case "client_too_old":
             ControlStrings.text("control.authToken.clientTooOld", "This team needs a newer cmux. Install the newest cmux, then run cmux auth token again.")
+        case "managed":
+            ControlStrings.text("control.authToken.managed", "Your organization limits cmux on this Mac to its managed team, so a token for another team isn't available.")
         case "unavailable":
             ControlStrings.text("control.authToken.unreachable", "cmux Cloud didn't answer. Try again in a moment.")
         default:

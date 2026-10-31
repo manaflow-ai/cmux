@@ -1,5 +1,6 @@
 import CmuxInstallAuthCore
 @testable import CmuxNextCloud
+import CmuxNextHomeEngine
 import Foundation
 import Testing
 
@@ -83,5 +84,30 @@ import Testing
         #expect(CloudAccessToken.isTeam(team))
         #expect(!CloudAccessToken.isTeam("team_" + String(repeating: "A", count: 20)))
         #expect(!CloudAccessToken.isTeam("personal"))
+    }
+
+    @Test func theDefaultIsTheActiveTeamAndAManagedDeviceMintsOnlyForItsTeam() throws {
+        let project = "proj_1", stackTeam = "6F1C2D9E-0000-4000-8000-000000000001", other = "6f1c2d9e-0000-4000-8000-000000000002"
+        let backend = CloudAccessToken.backendTeamID(stackProjectID: project, stackTeamID: stackTeam)
+        // The same id the Worker and Home use for that team.
+        #expect(backend == CloudIdentity.workerTeamID(stackProjectID: project, stackTeamID: stackTeam))
+        #expect(CloudAccessToken.isTeam(backend))
+        // Unmanaged: the asked team, else the active team, else the install's own (personal) team.
+        #expect(try CloudAccessToken.team(requested: team, activeStackTeam: stackTeam, managedStackTeam: nil, stackProjectID: project) == team)
+        #expect(try CloudAccessToken.team(requested: nil, activeStackTeam: stackTeam, managedStackTeam: nil, stackProjectID: project) == backend)
+        #expect(try CloudAccessToken.team(requested: nil, activeStackTeam: nil, managedStackTeam: nil, stackProjectID: project) == nil)
+        // Managed (RestrictToManagedTeam): only its team, only while it is the active one, never personal.
+        #expect(try CloudAccessToken.team(requested: nil, activeStackTeam: stackTeam, managedStackTeam: stackTeam, stackProjectID: project) == backend)
+        #expect(try CloudAccessToken.team(requested: backend, activeStackTeam: stackTeam, managedStackTeam: stackTeam, stackProjectID: project) == backend)
+        #expect(throws: CloudAccessToken.Failure.managed) {
+            try CloudAccessToken.team(requested: team, activeStackTeam: stackTeam, managedStackTeam: stackTeam, stackProjectID: project)
+        }
+        #expect(throws: CloudAccessToken.Failure.managed) {
+            try CloudAccessToken.team(requested: nil, activeStackTeam: nil, managedStackTeam: stackTeam, stackProjectID: project)
+        }
+        #expect(throws: CloudAccessToken.Failure.managed) {
+            try CloudAccessToken.team(requested: nil, activeStackTeam: other, managedStackTeam: stackTeam, stackProjectID: project)
+        }
+        #expect(CloudAccessToken.Failure.managed.code == "managed")
     }
 }

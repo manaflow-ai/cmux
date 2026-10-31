@@ -15219,6 +15219,138 @@
           }
         }
       }
+    },
+    "control.authToken.managed": {
+      "comment": "auth.token refusal (cmux auth token): the device is restricted to its organization's managed team.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your organization limits cmux on this Mac to its managed team, so a token for another team isn't available."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deine Organisation beschränkt cmux auf diesem Mac auf ihr verwaltetes Team, daher gibt es kein Token für ein anderes Team."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Votre organisation limite cmux sur ce Mac à son équipe gérée : aucun jeton n’est disponible pour une autre équipe."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تقصر مؤسستك cmux على هذا الـ Mac على فريقها المُدار، لذا لا يتوفر رمز لفريق آخر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tu organización limita cmux en este Mac a su equipo administrado, así que no hay token para otro equipo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的組織將此 Mac 上的 cmux 限制為其受管理團隊，因此無法取得其他團隊的權杖。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的组织将此 Mac 上的 cmux 限制为其受管理团队，因此无法获取其他团队的令牌。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "조직에서 이 Mac의 cmux를 관리 팀으로 제한하므로 다른 팀의 토큰은 받을 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "組織がこの Mac の cmux を管理対象のチームに限定しているため、ほかのチームのトークンは取得できません。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tvoja organizacija ograničava cmux na ovom Macu na svoj upravljani tim, pa token za drugi tim nije dostupan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Din organisation begrænser cmux på denne Mac til sit administrerede team, så et token til et andet team er ikke tilgængeligt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La tua organizzazione limita cmux su questo Mac al suo team gestito, quindi un token per un altro team non è disponibile."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្ថាប័នរបស់អ្នកកំណត់ cmux លើ Mac នេះត្រឹមក្រុមដែលខ្លួនគ្រប់គ្រង ដូច្នេះមិនមានថូខឹនសម្រាប់ក្រុមផ្សេងទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Organisasjonen din begrenser cmux på denne Macen til sitt administrerte team, så et token for et annet team er ikke tilgjengelig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Twoja organizacja ogranicza cmux na tym Macu do swojego zarządzanego zespołu, więc token dla innego zespołu nie jest dostępny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sua organização limita o cmux neste Mac à equipe gerenciada dela, então não há token para outra equipe."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваша организация ограничивает cmux на этом Mac своей управляемой командой, поэтому токен для другой команды недоступен."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "องค์กรของคุณจำกัด cmux บน Mac เครื่องนี้ไว้ที่ทีมที่จัดการ จึงไม่มีโทเค็นสำหรับทีมอื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kuruluşunuz bu Mac'teki cmux'ı yönetilen ekibiyle sınırlıyor; bu yüzden başka bir ekip için belirteç alınamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваша організація обмежує cmux на цьому Mac своєю керованою командою, тож токен для іншої команди недоступний."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tổ chức của bạn giới hạn cmux trên máy Mac này trong nhóm được quản lý, nên không có token cho nhóm khác."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

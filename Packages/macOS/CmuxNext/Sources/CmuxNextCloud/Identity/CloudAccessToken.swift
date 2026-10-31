@@ -1,4 +1,5 @@
 import CmuxInstallAuthCore
+import CryptoKit
 public import Foundation
 
 /// A short-lived cmux access token for one team, for a person or agent outside
@@ -30,6 +31,9 @@ public struct CloudAccessToken: Sendable, Equatable {
         case unreachable
         /// The owner answered something this client will not use.
         case badReply
+        /// The device is restricted to a managed team (`RestrictToManagedTeam`) and the ask
+        /// names another team, or the managed team is not the active one.
+        case managed
 
         /// The stable code a caller branches on (the `auth.token` socket error's code).
         public var code: String {
@@ -41,6 +45,7 @@ public struct CloudAccessToken: Sendable, Equatable {
             case .clientTooOld: "client_too_old"
             case .unreachable: "unavailable"
             case .badReply: "bad_reply"
+            case .managed: "managed"
             }
         }
 
@@ -67,6 +72,28 @@ public struct CloudAccessToken: Sendable, Equatable {
     /// A backend team id: `team_` and 20 lowercase hex digits (the owner's form).
     public static func isTeam(_ value: String) -> Bool {
         value.utf8.count == 25 && value.hasPrefix("team_") && value.dropFirst(5).allSatisfy { "0123456789abcdef".contains($0) }
+    }
+
+    /// The backend team to mint for, from the app's team state (Stack ids): the asked team, else
+    /// the active team, else nil (the install's own, personal team). A device restricted to a
+    /// managed team mints only for that team, and only while it is the active one, as every other
+    /// Cloud call on it (ActiveTeam.refusal(requesting:)).
+    public static func team(requested: String?, activeStackTeam: String?, managedStackTeam: String?,
+                            stackProjectID: String) throws -> String? {
+        let backend = { backendTeamID(stackProjectID: stackProjectID, stackTeamID: $0) }
+        if let managed = managedStackTeam {
+            guard activeStackTeam == managed else { throw Failure.managed }
+            let only = backend(managed)
+            if let requested, requested != only { throw Failure.managed }
+            return only
+        }
+        return requested ?? activeStackTeam.map(backend)
+    }
+
+    /// The backend's id for a Stack team (the API's `stackTeamIdFor`; CloudIdentity.workerTeamID).
+    public static func backendTeamID(stackProjectID: String, stackTeamID: String) -> String {
+        let digest = SHA256.hash(data: Data("stack-team:\(stackProjectID):\(stackTeamID.lowercased())".utf8))
+        return "team_" + digest.map { String(format: "%02x", $0) }.joined().prefix(20)
     }
 
     /// The failure an install mint threw, as one of ours.

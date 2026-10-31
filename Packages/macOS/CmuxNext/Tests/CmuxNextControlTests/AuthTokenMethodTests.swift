@@ -42,7 +42,7 @@ import Testing
     }
 
     @Test func refusalsKeepTheirCodeAndNameTheTeam() {
-        for code in ["not_signed_in", "no_team", "invalid_params", "forbidden", "client_too_old", "unavailable"] {
+        for code in ["not_signed_in", "no_team", "invalid_params", "forbidden", "managed", "client_too_old", "unavailable"] {
             let error = ControlMethod.authTokenError(AuthTokenRefusal(code: code), team: team)
             #expect(error.code == code)
             #expect(!error.message.isEmpty)

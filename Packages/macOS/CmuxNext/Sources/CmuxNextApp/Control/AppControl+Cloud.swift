@@ -36,11 +36,14 @@ extension AppControl {
         registerRunMethods(services)
         registerVMAgentKeyMethods(services)
         // `cmux auth token` (cmux-platform#111): the method lives in CmuxNextControl, the mint in CmuxNextCloud.
-        let identity = services.cloud.installIdentity, origin = services.cloud.configuration.ownerAPIBaseURL()
+        let identity = services.cloud.installIdentity, origin = services.cloud.configuration.ownerAPIBaseURL(), auth = services.cloud.auth
         service?.router.register([.authToken(
             disabledFeatures: { services.registry.disabledFeatures }, isSignedIn: { services.cloud.isSignedIn },
-            mint: { team in
+            mint: { asked in
                 do {
+                    // The active team by default; a managed device (RestrictToManagedTeam) only its team.
+                    let (active, managed, project) = await MainActor.run { (auth.activeTeam.id, auth.managedTeamID, auth.configuration.stackProjectID) }
+                    let team = try CloudAccessToken.team(requested: asked, activeStackTeam: active, managedStackTeam: managed, stackProjectID: project)
                     let token = try await identity.accessToken(team: team)
                     return AuthTokenGrant(accessToken: token.accessToken, team: token.team, user: token.user, expiresAt: token.expiresAt, apiOrigin: origin)
                 } catch let failure as CloudAccessToken.Failure { throw AuthTokenRefusal(code: failure.code, detail: failure.detail) }
