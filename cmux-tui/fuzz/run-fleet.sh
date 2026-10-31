@@ -204,11 +204,19 @@ case "$mode" in
     set +e
     # The workspace lockfile, read only (--locked): the TSan build changes no
     # dependency. Its own target dir so the stable build cache stays untouched.
+    # The browser_host_command tests build cmux-browser-host with a nested
+    # `cargo build` that inherits RUSTFLAGS but not -Zbuild-std/--target (an ABI
+    # mismatch, job f2f8e573): build it here the same way and hand it over.
+    CARGO_TARGET_DIR="$cache/tsan-target" RUSTFLAGS="-Zsanitizer=thread -Cforce-frame-pointers=yes" \
+      cargo build --locked -Zbuild-std --target "$target_triple" -p cmux-browser-host --bin cmux-browser-host 2>&1 | tail -3
+    export CMUX_BROWSER_HOST_BIN="$cache/tsan-target/$target_triple/debug/cmux-browser-host"
+    [[ -x "$CMUX_BROWSER_HOST_BIN" ]] || die_noverdict "the TSan cmux-browser-host build failed"
+    : > "$cache/tsan.log"
     for f in "${filters[@]}"; do
       echo "=== tsan cmux-tui-core $f"
       CARGO_TARGET_DIR="$cache/tsan-target" RUSTFLAGS="-Zsanitizer=thread -Cforce-frame-pointers=yes" \
         cargo test --locked -Zbuild-std --target "$target_triple" -p cmux-tui-core --lib -- "$f" --test-threads 8 2>&1 | \
-        tee -a "$cache/tsan.log" | grep -E "WARNING: ThreadSanitizer|SUMMARY: ThreadSanitizer|test result|panicked|^error" | tail -60
+        tee -a "$cache/tsan.log" | grep -E -A4 "WARNING: ThreadSanitizer|SUMMARY: ThreadSanitizer|test result|panicked at|^error" | tail -200
     done
     set -e
     grep -A30 "WARNING: ThreadSanitizer" "$cache/tsan.log" | head -600
