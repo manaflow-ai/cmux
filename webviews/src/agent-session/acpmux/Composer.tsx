@@ -322,6 +322,8 @@ type Props = {
   /// A new chat's machine was picked where no folder of it is known: the chat starts there.
   onComputer?(computer: string): void;
   projectChoices?: Project[];
+  /// A chat on another machine: that machine's own folders (`project.list`), for its folder menu.
+  machineFolders?: Project[];
   onBrowseProject?(): void;
   /// New Worktree: a new chat on this Mac starts in a worktree of its folder (cx-lyqio.2).
   onNewWorktree?(cwd: string): void;
@@ -419,6 +421,7 @@ export function Composer({
   onProject,
   onComputer,
   projectChoices,
+  machineFolders,
   onBrowseProject,
   onNewWorktree,
   onBrowseFolder,
@@ -1734,6 +1737,7 @@ export function Composer({
   const context = locationVisible ? (
     <ComposerContext
       projectChoices={projectChoices}
+      machineFolders={machineFolders}
       onBrowseProject={onBrowseProject}
       onNewWorktree={onNewWorktree}
       onBrowseFolder={onBrowseFolder}
