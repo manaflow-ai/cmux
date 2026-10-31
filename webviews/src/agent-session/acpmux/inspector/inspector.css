@@ -614,10 +614,34 @@ button.acpmux-chat-inspector-port:hover,
   align-items: center;
   gap: 8px;
 }
+/* Remote Control draws as a switch, as Claude desktop's Session Info and our Settings switches do,
+   never a bare checkbox: a 36x20 track (the control-height scale) with a 16px knob, filled when on.
+   The knob is a gradient on the input itself: no extra markup, and it changes in one frame. */
 .acpmux-chat-inspector-switch__input {
   flex: none;
   margin: 0 0 0 auto;
-  accent-color: var(--agent-accent);
+  appearance: none;
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at center, #fff 7.5px, transparent 8px) no-repeat 0 / 20px 20px,
+    color-mix(in srgb, var(--agent-text) 22%, transparent);
+  cursor: default;
+}
+.acpmux-chat-inspector-switch__input:checked {
+  /* As Settings' switch (`ds-switch`): the text color's track and the surface's knob, so the knob
+     shows in every theme (an accent track hid a white knob where the accent is white). */
+  background:
+    radial-gradient(circle at center, var(--cmux-elevated-background, #fff) 7.5px, transparent 8px) no-repeat 16px /
+      20px 20px,
+    var(--agent-text);
+}
+[dir="rtl"] .acpmux-chat-inspector-switch__input {
+  background-position-x: 16px, 0;
+}
+[dir="rtl"] .acpmux-chat-inspector-switch__input:checked {
+  background-position-x: 0, 0;
 }
 .acpmux-chat-inspector-icon-button {
   flex: none;
