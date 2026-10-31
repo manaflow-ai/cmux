@@ -456,6 +456,9 @@ def _live(switch: Any, env: Mapping[str, str]) -> tuple[dict[str, str | None], s
             print(f"::warning title=Runner pools::could not read {', '.join(names)} ({error}); not moving them")
             return {}, None, False
     else:
+        # A step that does not hand them in has not read them: unset is not the same as unknown.
+        if any(name not in env for name in names):
+            return {}, None, False
         got = {name: env.get(name) for name in names}
     record = got.pop(OVERFLOW_RECORD)
     return got, record, True

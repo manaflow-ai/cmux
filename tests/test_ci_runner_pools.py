@@ -330,6 +330,23 @@ class Main(unittest.TestCase):
             for name in (*runner_pools.MIRRORS, runner_pools.OVERFLOW_RECORD):
                 self.assertEqual(step["env"].get(name), "${{ vars.%s }}" % name)
 
+    def test_no_switch_token_and_a_correct_linux_runner_is_not_a_failure(self) -> None:
+        # Review of #28864: with no token and the variables not handed in, the mirror is unknown, not unset.
+        value, _ = runner_pools.reconcile({}, runner_pools.load_pools(), dead_now=(), served_now=(), now=NOW)
+        env = {"RUNNER_POOLS": runner_pools.render(value)}
+        self.assertEqual(runner_pools.main([], env, api=self.Api(None), switch=None, now=NOW), 0)
+        env.update(LINUX_RUNNER=value["linux"], CI_CLOUD_OVERFLOW_SAVED="")
+        self.assertEqual(runner_pools.main([], env, api=self.Api(None), switch=None, now=NOW), 0)
+
+    def test_the_overflow_watch_hands_in_what_the_mirror_reads(self) -> None:
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
+        steps = [step for job in workflow["jobs"].values() for step in job.get("steps", [])
+                 if str(step.get("run", "")).strip() == "python3 scripts/ci/runner_pools.py"]
+        self.assertTrue(steps)
+        for step in steps:
+            for name in (*runner_pools.MIRRORS, runner_pools.OVERFLOW_RECORD):
+                self.assertEqual(step["env"].get(name), "${{ vars.%s }}" % name)
+
     def test_nothing_changed_writes_nothing(self) -> None:
         switch = self.Switch({"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"})
         env = {"RUNNER_POOLS": ""}
