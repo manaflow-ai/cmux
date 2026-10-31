@@ -19,7 +19,7 @@ extension SidebarStyle {
     }
 
     /// The column slot's leading edge in a row of `rowWidth`: every other trailing control (a
-    /// disclosure, a count, the keycap, the hover close and more) ends left of it.
+    /// count, the keycap, the hover close and more) ends left of it.
     static func trailingColumnStart(rowWidth: CGFloat) -> CGFloat {
         trailingColumnCenterX(rowWidth: rowWidth) - trailingSlotSide / 2
     }
@@ -30,8 +30,8 @@ extension SidebarStyle {
     }
 
     /// The step between neighbouring trailing slots' centers: a control and the controls' gap. Slot 0 is the column;
-    /// slot 1 (a row's disclosure, a header's more) and slot 2 (a hovered row's more, a header's +) step left by
-    /// this one pitch, so ⋮ ⌄ ✕ on a hovered row and + ⋮ ⌄ on a group header fall on the same lines (Leo 2026-10-29:
+    /// slot 1 (a hovered row's more, a header's more) and slot 2 (a header's +) step left by
+    /// this one pitch, so ⋮ ✕ on a hovered row and + ⋮ ⌄ on a group header fall on the same lines (Leo 2026-10-29:
     /// "I SAID THE SHIT WAS MISALIGNED LAST FUCCKING NIGHT"; a hovered row stepped 22 pt then 20 pt).
     static var trailingSlotPitch: CGFloat { controlSize + Metrics.space1 }
 
