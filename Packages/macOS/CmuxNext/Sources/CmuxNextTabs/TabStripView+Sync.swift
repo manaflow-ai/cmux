@@ -21,11 +21,33 @@ extension TabStripView {
             return
         }
         let input = ModelSnapshot(model)
-        if hasSynced, window != nil, let last = lastSyncedInput, isAtRest {
+        if hasSynced, window != nil, let last = lastSyncedInput {
+            // An echo changes nothing, also mid-gesture (a drag's own sync already showed it).
             if input == last { return }
-            if input.differsOnlyInSelection(from: last) { return syncSelection(input) }
+            // A title, icon, status or spinner: those cells redraw, at rest or mid-gesture; nothing lays out.
+            if input.differsOnlyInTabContent(from: last) { return syncContent(input, from: last) }
+            if isAtRest, input.differsOnlyInSelection(from: last) { return syncSelection(input) }
         }
         sync(fromModel: true)
+    }
+
+    /// Only what tabs draw changed (``ModelSnapshot/differsOnlyInTabContent(from:)``): each changed tab's cell
+    /// updates, laid out in its own frame; no other cell, frame, line or mask is touched, at any tab count.
+    /// The strip's own order and group overrides (a drag, a drop settling) stay as they are.
+    private func syncContent(_ input: ModelSnapshot, from last: ModelSnapshot) {
+        lastSyncedInput = input
+        var shown: [TabID: Int]?
+        for (item, old) in zip(input.tabs, last.tabs) where item != old {
+            let places = shown ?? Dictionary(displayed.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+            shown = places
+            // A tab the strip does not show (torn out, under a multi-tab drag) gets its item at its next full sync.
+            guard let index = places[item.id] else { continue }
+            var shownItem = item
+            shownItem.groupID = displayed[index].groupID
+            displayed[index] = shownItem
+            cells[item.id]?.update(item: shownItem)
+        }
+        refreshHoverCard()
     }
 
     /// No gesture, drop, close or override in flight: `displayed` is the model's order.
@@ -56,6 +78,7 @@ extension TabStripView {
     }
 
     public func sync(fromModel: Bool, animating: Bool = true) {
+        rowPasses.syncs &+= 1
         // Only a model sync runs the order bookkeeping below: an internal sync leaves the echo to run it.
         if fromModel { lastSyncedInput = ModelSnapshot(model) }
         let modelOrdered = model.orderedTabs
@@ -140,8 +163,14 @@ extension TabStripView {
             } else if let from = handed[item.id], let place = placed[from], let shown = cells[from] {
                 _ = makeCell(item, animated: false)
                 placed[item.id] = place
-                // It shows where that cell shows now; `relayout` moves it on from there.
-                cells[item.id]?.frame = (shown.layer.presentation() ?? shown.layer).frame
+                // It shows where that cell shows now; `relayout` moves it on from there. In the same layer
+                // it takes the shown frame as is: through the clip it would carry a reveal's remaining scroll.
+                let showing = (shown.layer.presentation() ?? shown.layer).frame
+                if let cell = cells[item.id], cell.layer.superlayer === shown.layer.superlayer {
+                    cell.setFrame(showing, laysOut: true)
+                } else {
+                    cells[item.id]?.frame = shownFrame(shown.layer)
+                }
                 removeTab(from)
             } else {
                 added.insert(makeCell(item, animated: cellsAnimate))
@@ -194,6 +223,7 @@ extension TabStripView {
         cell.isWindowMain = windowMain.isMain
         cell.isWindowVisible = windowVisibility.isVisible
         cell.isStripShown = isShownInWindow
+        cell.clipLayer = tabsClip.layer
         let id = item.id
         cell.accessibility.setAccessibilityParent(self)
         cell.accessibility.onPress = { [weak self] in self?.model.send(.select(id)) }

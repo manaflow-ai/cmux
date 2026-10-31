@@ -5,13 +5,14 @@ import QuartzCore
 
 /// What a hover card shows.
 enum TabHoverCardContent: Equatable {
-    case tab(TabItem)
+    /// A tab and its hover facts as the card shows them (`TabStripModel.hoverFacts`).
+    case tab(TabItem, facts: TabHoverFacts)
     /// A group chip: the group and its member titles in order.
     case group(TabGroupItem, memberTitles: [String])
 
     var id: TabID {
         switch self {
-        case .tab(let item): item.id
+        case .tab(let item, _): item.id
         case .group(let group, _): .groupChip(group.id)
         }
     }
@@ -109,7 +110,7 @@ final class TabHoverCardController: HoverCardSource {
 
     /// This strip's tab or chip whose card shows now.
     var shownID: TabID? {
-        guard let id = coordinator.machine.shownTarget?.id, let tab = tabID(id), content(for: tab) != nil else { return nil }
+        guard let id = coordinator.machine.shownTarget?.id, let tab = tabID(id), hasContent(for: tab) else { return nil }
         return tab
     }
     var isVisible: Bool { shownID != nil }
@@ -119,9 +120,18 @@ final class TabHoverCardController: HoverCardSource {
     var hoverCardWindow: NSWindow? { strip?.window }
 
     func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
-        guard let strip, let window = strip.window,
-              let target = self.target(at: strip.convert(window.convertPoint(fromScreen: screenPoint), from: nil))
-        else { return nil }
+        guard let strip, let window = strip.window else { return nil }
+        return hit(for: target(at: strip.convert(window.convertPoint(fromScreen: screenPoint), from: nil)))
+    }
+
+    /// The hit for the chip or tab the strip's own hover found at `point` (strip coordinates), which the strip
+    /// reports with its pointer event so the coordinator hit-tests nothing again.
+    func hit(at point: CGPoint, chip: TabGroupID?, tab: TabID?) -> HoverCardHit? {
+        hit(for: target(at: point, chip: chip, tab: tab))
+    }
+
+    private func hit(for target: (id: TabID, width: CGFloat, anchor: CGRect)?) -> HoverCardHit? {
+        guard let target, let window = strip?.window else { return nil }
         return HoverCardHit(
             target: HoverTarget(id: Self.targetID(target.id), window: window.windowNumber,
                                 delay: target.id.isGroupChip ? DesignSettings.shared.groupHoverCard.delay : delay, leave: leave),

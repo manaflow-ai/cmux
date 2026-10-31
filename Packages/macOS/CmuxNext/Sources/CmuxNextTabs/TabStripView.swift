@@ -85,9 +85,11 @@ public final class TabStripView: NSView {
     var glassView: GlassPanelView?
     let contentView = FlippedView()
     let tabsClip = FlippedView()
-    /// Holds the unpinned tabs, group chips and bands in `tabsClip`'s coordinates (its bounds origin is its
-    /// frame origin) and clips them to after the fixed pinned band, so a tab scrolled under the pinned tabs
-    /// never draws over them (`TabScrollMapping`, cx-kp9b4). Pinned tabs sit in `tabsClip` itself.
+    /// Holds the unpinned tabs, group chips and bands in content coordinates and clips them to after the fixed
+    /// pinned band, so a tab scrolled under the pinned tabs never draws over them (`TabScrollMapping`,
+    /// cx-kp9b4). Its bounds' x is the band plus the scroll offset, so a scroll writes that and no tab's frame
+    /// (`applyScrollBounds`). Pinned tabs in the fixed band sit in `tabsClip` itself; with no fixed band they
+    /// scroll in here too.
     let scrollingLayer = CALayer()
     private(set) lazy var edgeFade = TabEdgeFade(strip: self)
     let newTabButton = NewTabButtonView()
@@ -144,6 +146,10 @@ public final class TabStripView: NSView {
     }()
     /// Tabs whose occlusion mask follows the moves in flight, and when that path ends (`updateOcclusion`).
     var occlusionEnds: [TabID: CFTimeInterval] = [:]
+    /// The selected tab's frame (its layer's) when the masks were last cut (`occlusionAfterFrames`).
+    var occlusionCover: CGRect?
+    /// The last tab's or chip's trailing edge in content coordinates at the last frame pass: where the + follows.
+    var lastTrailing: CGFloat = 0
     var closingModeWidth: CGFloat?
     var closingHit = TabClosingModeHit()
     /// Closing mode's exit: the pointer leaving the strip's extended area (`TabClosingModeWatch`).
@@ -155,6 +161,16 @@ public final class TabStripView: NSView {
     var lastSyncedInput: ModelSnapshot?
     var lastStyle: TabStripStyle?
     var lastViewportWidth: CGFloat = -1
+    /// `tabsClip`'s frame at the last layout: a layout that changes neither it nor the viewport places nothing.
+    var lastClipFrame: CGRect?
+    /// Cuts the strip to ``shownWidth`` while its pane springs (`applyShownWidth`); nil while all of it shows.
+    var shownWidthMask: CALayer?
+    /// The part of the strip that shows, from its leading edge, while its pane springs to a new width: the pane
+    /// lays the strip out once at its width at rest (a split, a close, a zoom) and cuts it to the pane's width on
+    /// each frame here, so no frame of the spring lays a tab out. Nil (the default): all of it shows.
+    public var shownWidth: CGFloat? {
+        didSet { if shownWidth != oldValue { applyShownWidth() } }
+    }
     /// Drag autoscroll steps on the window's one `MotionClock`; nothing else in the strip does.
     weak var motionClock: MotionClock?
     var observationTask: Task<Void, Never>?
@@ -234,7 +250,7 @@ public final class TabStripView: NSView {
         tabsClip.wantsLayer = true
         tabsClip.layer?.masksToBounds = true
         scrollingLayer.masksToBounds = true
-        scrollingLayer.actions = ["bounds": NSNull(), "position": NSNull(), "sublayers": NSNull()]
+        scrollingLayer.actions = ["bounds": NSNull(), "position": NSNull(), "sublayers": NSNull(), "bounds.origin": NSNull()]
         tabsClip.layer?.addSublayer(scrollingLayer)
         contentView.addSubview(tabsClip)
         contentView.addSubview(newTabButton)
@@ -306,7 +322,8 @@ public final class TabStripView: NSView {
     // Every event is handled here, never by a tab subview.
     public override func hitTest(_ point: NSPoint) -> NSView? {
         let local = superview.map { convert(point, from: $0) } ?? point
-        return bounds.contains(local) ? self : nil
+        // While its pane springs, the part past ``shownWidth`` is cut away: it takes no click.
+        return bounds.contains(local) && local.x < (shownWidth ?? .infinity) ? self : nil
     }
 
     /// VoiceOver on the strip itself reveals the plus (`noteAccessibilityFocus`).
@@ -476,14 +493,19 @@ public final class TabStripView: NSView {
         let padding = metrics.stripHorizontalPadding
         windowControlsInset = computeWindowControlsInset()
         let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (model.showsNewTabButton ? newTabControlsWidth : 0))
-        tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
+        let clip = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
+        tabsClip.frame = clip
+        applyShownWidth()
         if viewport != lastViewportWidth {
             // Tabs resize with the window instantly; a close in flight keeps its spring (cx-y2uf5); a narrower strip (a split) keeps the selected tab in view.
             relayout(animated: !dying.isEmpty && !Motion.isLiveResizing(window) && !reduceMotion, keepsSelectedInView: viewport < lastViewportWidth)
             lastViewportWidth = viewport
-        } else {
+        } else if clip != lastClipFrame {
+            // The same width at another height or leading inset: the tabs' y and the +'s x move.
             applyFrames()
         }
+        // A layout that changed neither (a pane frame set to what it was, each frame of a spring) places nothing.
+        lastClipFrame = clip
     }
 
     public override func updateTrackingAreas() {

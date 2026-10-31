@@ -92,6 +92,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
         isSuspended = workspace?.drawsNothing == true // a pane made in a parked workspace starts suspended
         view = PaneContentView(stripModel: stripModel)
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
+        // A tab's card reads its facts from its record when it shows; they are no part of the strip's items.
+        stripModel.hoverFacts = { [weak self] id in
+            self?.pane.tabs.first { $0.id == id.rawValue }.map { TabItemMapping.shared.hoverFacts($0) } ?? TabHoverFacts()
+        }
         view.stripView.previewProvider = services.previews
         view.stripView.resourceSource = services.resources
         // The + stays a plain default-tab action, with hold/right-click for the type menu.

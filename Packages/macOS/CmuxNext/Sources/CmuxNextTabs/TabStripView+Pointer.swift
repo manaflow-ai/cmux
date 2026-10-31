@@ -76,8 +76,12 @@ extension TabStripView {
         setAudioHovered(id.flatMap { isInAudioButton($0, point) ? $0 : nil })
         newTabButton.isHovered = !dragging && isInNewTabButton(point)
 
-        // The coordinator hit-tests the pointer itself (`TabHoverCardController.target`).
-        if moved, let window { hoverCards.pointerMoved(to: window.convertPoint(toScreen: convert(point, to: nil))) }
+        // A pointer event: the strip's own hit goes with it, from its window (the one under the pointer), so the
+        // coordinator asks the window server nothing and hit-tests no source again (`pointerMoved(to:from:hit:)`).
+        if moved, let window {
+            hoverCards.pointerMoved(to: window.convertPoint(toScreen: convert(point, to: nil)), from: hoverCard,
+                                    hit: hoverCard.hit(at: point, chip: chip, tab: id))
+        }
     }
 
     /// The speaker under the pointer: its fill, and a tooltip naming what a click does.
@@ -311,7 +315,8 @@ extension TabStripView {
         settleScroll()
         scrollOffset = TabScrollMath.clamp(scrollOffset - delta, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
         hoverCards.dismiss(.action)
-        applyFrames()
+        // Only the scrolling layer's bounds move: no tab is placed again.
+        scrollChanged()
     }
 
     /// Mouse-up after a press on +. Returns whether the press was on +.

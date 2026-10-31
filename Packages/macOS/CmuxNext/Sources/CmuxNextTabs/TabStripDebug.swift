@@ -29,9 +29,9 @@ public struct TabStripDebug {
         // What shows on this frame: the presentation layer, with every Core Animation move in flight.
         var pills = -Double.infinity
         let tabs: [Any] = strip.cells.map { id, cell in
-            let shown = cell.layer.presentation() ?? cell.layer
-            pills = max(pills, Double(strip.tabsClip.convert(CGPoint(x: shown.frame.maxX, y: 0), to: nil).x))
-            return [id.rawValue, Double(shown.frame.minX), Double(shown.frame.width), Double(shown.opacity)] as [Any]
+            let shown = strip.shownFrame(cell.layer), opacity = (cell.layer.presentation() ?? cell.layer).opacity
+            pills = max(pills, Double(strip.tabsClip.convert(CGPoint(x: shown.maxX, y: 0), to: nil).x))
+            return [id.rawValue, Double(shown.minX), Double(shown.width), Double(opacity)] as [Any]
         }
         var sample: [String: [Any]] = ["tabs": tabs, "strip": [Double(strip.bounds.width)]]
         // Shown strips only: a hidden workspace's panes stay in the window.

@@ -60,7 +60,7 @@ struct SharedIndicatorSurfacesTests {
     func theTabHoverCardShowsItsIndicator(busy: Bool) throws {
         let tab = try #require(try store(busy: busy).workspaces.first?.screens.first?.panes.first?.tabs.first)
         let card = TabHoverCardView()
-        card.configure(.tab(TabItemMapping.shared.item(tab, fallbackTitle: "zsh")))
+        card.configure(.tab(TabItemMapping.shared.item(tab, fallbackTitle: "zsh"), facts: TabItemMapping.shared.hoverFacts(tab)))
         #expect(shown(card) == (busy ? .working(progress: nil) : nil))
     }
 
@@ -82,7 +82,7 @@ struct SharedIndicatorSurfacesTests {
             DesignSettings.shared.statusBehavior.inferCommandBusy = infer
             DesignSettings.shared.statusBehavior.inferCommandBusyAfter = after
             let card = TabHoverCardView()
-            card.configure(.tab(TabItemMapping.shared.item(tab, fallbackTitle: "zsh")))
+            card.configure(.tab(TabItemMapping.shared.item(tab, fallbackTitle: "zsh"), facts: TabItemMapping.shared.hoverFacts(tab)))
             return self.shown(card)
         }
 

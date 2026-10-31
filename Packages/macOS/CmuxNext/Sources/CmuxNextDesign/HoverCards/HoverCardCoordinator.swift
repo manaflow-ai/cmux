@@ -49,6 +49,8 @@ public final class HoverCardCoordinator {
     var topWindowCache: (point: CGPoint, at: CFTimeInterval, number: Int)?
     /// One frame at 120 Hz: how long a cached top window holds.
     static let topWindowLifetime: CFTimeInterval = 1.0 / 120
+    /// A source's own pointer event while ``pointerMoved(to:from:hit:)`` handles it: its window and its hit.
+    var reportedPointer: ReportedPointer?
     /// Machine events delivered (debug report).
     public private(set) var eventCount = 0
 
@@ -469,9 +471,16 @@ public final class HoverCardCoordinator {
         guard appIsActive(), hoverCardsEnabled() else { return nil }
         let point = currentPointer()
         let top = topWindowNumber(at: point)
+        // The source that reported the move hit-tested it already: its hit stands, and on none of its
+        // targets it is not asked again.
+        let reported = reportedPointer.flatMap { $0.point == point && $0.window == top ? $0 : nil }
+        if let reported, let hit = reported.hit {
+            owners[hit.target.id] = reported.source
+            return hit
+        }
         for entry in sources.values {
-            guard let source = entry.source, let window = source.hoverCardWindow, window.windowNumber == top,
-                  let hit = source.hoverCardHit(at: point) else { continue }
+            guard let source = entry.source, source !== reported?.source.source, let window = source.hoverCardWindow,
+                  window.windowNumber == top, let hit = source.hoverCardHit(at: point) else { continue }
             owners[hit.target.id] = entry
             return hit
         }

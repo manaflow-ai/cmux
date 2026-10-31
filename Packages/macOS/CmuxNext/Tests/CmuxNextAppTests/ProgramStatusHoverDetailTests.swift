@@ -21,7 +21,7 @@ struct ProgramStatusHoverDetailTests {
         store.session.apply(item, in: store)
         let tab = try #require(store.workspaces.first?.screens.first?.panes.first?.tabs.first)
         let card = TabHoverCardView()
-        card.configure(.tab(TabItemMapping.shared.item(tab, fallbackTitle: "zsh")))
+        card.configure(.tab(TabItemMapping.shared.item(tab, fallbackTitle: "zsh"), facts: TabItemMapping.shared.hoverFacts(tab)))
         return card.detailText
     }
 

@@ -8,6 +8,14 @@ import os
 /// AppKit calls accessibility on the main thread, but `NSAccessibilityElement`
 /// is not main-actor isolated, so the callbacks check the thread and then
 /// enter the main actor with `assumeIsolated`.
+extension NSAccessibilityElement {
+    /// Sets the frame in the parent's space only when it changed: a frame pass or a scroll that leaves a tab
+    /// where it was sets nothing.
+    func updateFrameInParentSpace(_ frame: CGRect) {
+        if accessibilityFrameInParentSpace() != frame { setAccessibilityFrameInParentSpace(frame) }
+    }
+}
+
 nonisolated final class TabAccessibilityElement: NSAccessibilityElement, @unchecked Sendable {
     nonisolated(unsafe) var onPress: (@MainActor () -> Void)?
     nonisolated(unsafe) var onClose: (@MainActor () -> Void)?

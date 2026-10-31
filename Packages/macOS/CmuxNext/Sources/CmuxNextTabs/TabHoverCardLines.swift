@@ -19,25 +19,24 @@ struct TabHoverCardLines: Equatable {
 
     /// `report` is the tab's latest sample, or for a hibernated page the last one before it
     /// hibernated.
-    static func make(_ item: TabItem, report: ResourceReport?, now: Date) -> Self {
-        let facts = item.hover
+    static func make(_ item: TabItem, facts: TabHoverFacts, report: ResourceReport?, now: Date) -> Self {
         // A folder the title already names (a shell at `~` titled `~`) is said once.
         let folder = item.subtitle == item.title ? nil : item.subtitle
         let where_ = facts.kind == .browser ? item.subtitle.flatMap(host) : [folder, facts.branch].compactMap(\.self).nilIfEmpty
         let badges = [item.profileBadge.map { Strings.browserProfile($0.name) }, item.machineBadgeHelp,
                       item.themeBadge.map { Strings.axTheme($0.name) }, where_]
         return TabHoverCardLines(
-            title: title(item),
+            title: title(item, facts: facts),
             place: badges.compactMap(\.self).nilIfEmpty,
-            status: status(facts, now: now) ?? exitStatus(item) ?? output(facts, now: now),
+            status: status(facts, now: now) ?? exitStatus(item, facts: facts) ?? output(facts, now: now),
             detail: item.statusDetail.flatMap { $0.isEmpty ? nil : $0 },
-            memory: memory(item, report: report)
+            memory: memory(item, facts: facts, report: report)
         )
     }
 
     /// The tab's title; a blank page's address is no title (Leo 2026-10-19: "about:blank").
-    static func title(_ item: TabItem) -> String {
-        if item.title.isEmpty || (item.hover.kind == .browser && isBlank(item.title)) { return Strings.untitled }
+    static func title(_ item: TabItem, facts: TabHoverFacts) -> String {
+        if item.title.isEmpty || (facts.kind == .browser && isBlank(item.title)) { return Strings.untitled }
         return item.title
     }
 
@@ -45,8 +44,8 @@ struct TabHoverCardLines: Equatable {
     static func isBlank(_ address: String) -> Bool { address.lowercased().hasPrefix("about:") }
 
     /// The color of what the tab is doing (its status row's dot), nil when it reports nothing.
-    static func tone(_ item: TabItem) -> HoverCardTone? {
-        switch item.hover.activity {
+    static func tone(_ item: TabItem, facts: TabHoverFacts) -> HoverCardTone? {
+        switch facts.activity {
         case .working?, .running?: return .working
         case .needsInput?: return .attention
         case .failed?: return .danger
@@ -57,7 +56,7 @@ struct TabHoverCardLines: Equatable {
         case .failure: return .danger
         case .success: return .success
         case .needsInput: return .attention
-        case .none: return item.hover.lastOutput == nil ? nil : .secondary
+        case .none: return facts.lastOutput == nil ? nil : .secondary
         }
     }
 
@@ -91,8 +90,8 @@ struct TabHoverCardLines: Equatable {
     }
 
     /// A terminal whose last command ended: "Done" or "Failed" (its exit status), nil otherwise.
-    static func exitStatus(_ item: TabItem) -> String? {
-        guard item.hover.kind == .terminal else { return nil }
+    static func exitStatus(_ item: TabItem, facts: TabHoverFacts) -> String? {
+        guard facts.kind == .terminal else { return nil }
         switch item.status {
         case .success: return Strings.axSuccess
         case .failure: return Strings.axFailure
@@ -104,13 +103,13 @@ struct TabHoverCardLines: Equatable {
     /// what it was using when a measured sample from before is known; a dash until the first
     /// sample; nil when the tab's numbers cannot be had (a remote chat, a page whose renderer
     /// was not matched or is shared with another tab, a terminal its daemon did not report).
-    static func memory(_ item: TabItem, report: ResourceReport?) -> String? {
+    static func memory(_ item: TabItem, facts: TabHoverFacts, report: ResourceReport?) -> String? {
         let tab = report?.tabs.first { $0.id == item.id.rawValue }
         if item.isDormant {
             guard let tab, measured(tab), tab.usage.memoryBytes > 0 else { return Strings.hoverHibernated }
             return Strings.hoverHibernatedWasUsing(ResourceFormat.memory(tab.usage.memoryBytes))
         }
-        guard let tab else { return item.hover.kind == .other ? nil : Strings.hoverMemory("–") }
+        guard let tab else { return facts.kind == .other ? nil : Strings.hoverMemory("–") }
         // Nothing measured: no row, never "Zero KB" or the app-side terminal estimate alone.
         guard measured(tab) else { return nil }
         let memory = ResourceFormat.memory(tab.usage.memoryBytes)

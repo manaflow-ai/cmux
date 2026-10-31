@@ -324,6 +324,9 @@ public final class PaneToolbarView: NSView {
     /// `HoverRevealProbe`). Reads the pointer once, so a bar that moves under a still pointer is
     /// right before the next move.
     public func refreshCorner() {
+        // On a layout spring the bar moves on every frame: its area stays until the spring lands, when the pane
+        // calls this again (`PaneMotionSettling`), so no frame removes and adds a tracking area.
+        if isOnEnclosingLayoutSpring { return }
         let rect = stripFrame?().map { $0.union(frame) } ?? frame
         // Any control that shows (Search Tabs with a chat selected has no "…") brightens on hover.
         let live = superview != nil && window != nil && (hasMore || !buttons.isEmpty || !nativeButtons.isEmpty) && !isHiddenOrHasHiddenAncestor

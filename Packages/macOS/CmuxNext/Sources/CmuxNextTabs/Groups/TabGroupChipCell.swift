@@ -81,13 +81,21 @@ final class TabGroupChipCell {
     /// Takes its duration from the `Motion.transaction` it runs in.
     private static let fade = Motion.fadeAction
 
+    /// The strip's tab clip (`TabStripView.tabsClip`'s layer): ``frame`` is in its coordinates.
+    weak var clipLayer: CALayer?
+
+    /// The chip's frame in the strip's clip at the scroll's target; its layer sits in content coordinates in
+    /// the scrolling layer (``setLayerFrame(_:)``).
     var frame: CGRect {
-        get { layer.frame }
-        set {
-            let resized = layer.frame.size != newValue.size
-            layer.frame = newValue
-            if resized { layoutLayers() }
-        }
+        guard let clipLayer, let parent = layer.superlayer, parent !== clipLayer else { return layer.frame }
+        return parent.convert(layer.frame, to: clipLayer)
+    }
+
+    /// Sets the layer's frame, in the scrolling layer's content coordinates.
+    func setLayerFrame(_ frame: CGRect) {
+        let resized = layer.frame.size != frame.size
+        layer.frame = frame
+        if resized { layoutLayers() }
     }
 
     func update(group: TabGroupItem, memberCount: Int) {

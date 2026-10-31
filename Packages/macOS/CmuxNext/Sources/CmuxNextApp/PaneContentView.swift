@@ -168,8 +168,13 @@ final class PaneContentView: NSView, PaneContentChrome {
         let tools = toolbarWidth(shown: shown), room = bounds.width - tools, row = onTop && !isBandActive && !hidesStrip && hostsContent && shown > 0 ? content as? PaneTabRowSharing : nil
         let rowContent = row?.fitsTabRow(room: room) == true ? row : nil, rowTools = rowContent?.tabRowWidth(room: room) ?? 0 // a chat's tools in the row when they fit (PaneTabRowSharing)
         if !isBandActive {
-            stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools - rowTools, height: shown)
+            let stripWidth = bounds.width - tools - rowTools
+            stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: stripLayoutWidth(shown: stripWidth), height: shown)
+            stripView.shownWidth = enclosingRestSizeChange == nil ? nil : stripWidth
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
+        } else {
+            // A band's constraints size the strip: no spring cut stays from before it pinned.
+            stripView.shownWidth = nil
         }
         let hostFrame = isBandActive || rowTools > 0 ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
         reportHeaderIfChanged()
@@ -288,8 +293,9 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     func paneFrameInWindowDidChange() {
         stripView.updateWindowControlsAvoidance()
-        // The pane moved under a possibly still pointer (column scroll, split resize).
-        stripView.paneMovedInWindow()
+        // The pane moved under a possibly still pointer (column scroll, split resize); on a layout spring it moves on
+        // every frame, and the strip's hover follows once it lands (`paneMotionDidSettle`).
+        if !isOnEnclosingLayoutSpring { stripView.paneMovedInWindow() }
     }
 
     private func reportHeaderIfChanged() {

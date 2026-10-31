@@ -133,7 +133,7 @@ public final class SavedGroupsBarView: NSView {
             guard let chip = chips[id] else { continue }
             chip.scale = scale
             let width = chip.slotWidth
-            chip.frame = CGRect(x: x, y: 0, width: width, height: bounds.height)
+            chip.setLayerFrame(CGRect(x: x, y: 0, width: width, height: bounds.height))
             x += width + Metrics.space1
         }
         contentWidth = order.isEmpty ? 0 : x - Metrics.space1 + metrics.stripHorizontalPadding
