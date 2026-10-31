@@ -165,11 +165,19 @@ extension WindowManager {
     }
 
     /// A workspace being created in a source window the move closed (claimed, not reported yet)
-    /// lands in `target` instead: reconcile would otherwise reopen the closed window for it.
+    /// lands in `target` instead: reconcile would otherwise reopen the closed window for it, and
+    /// its sidebar placement (`pendingPlacements`) would be dropped with the closed window.
     private func retargetClaims(from sources: Set<String>, to target: String) {
         let value = registry.value
-        for (workspace, window) in pendingClaims where sources.contains(window) && value.window(window)?.isOpen != true {
+        let closed = sources.filter { value.window($0)?.isOpen != true }
+        guard !closed.isEmpty else { return }
+        for (workspace, window) in pendingClaims where closed.contains(window) {
             pendingClaims[workspace] = target
+        }
+        for (workspace, placement) in pendingPlacements where placement.window.map(closed.contains) == true {
+            pendingPlacements[workspace]?.window = target
+        }
+        for window in closed {
             pendingFrames[window] = nil
             behindWindows.remove(window)
         }
