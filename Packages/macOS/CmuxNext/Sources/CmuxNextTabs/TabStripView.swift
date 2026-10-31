@@ -210,6 +210,8 @@ public final class TabStripView: NSView {
     var pendingDrop: (id: TabID, x: CGFloat, width: CGFloat)?
     /// Group the phantom gap belongs to (a dropped tab would join it).
     var dropPlaceholderGroup: TabGroupID?
+    /// The phantom's work, counted (TabStripView+Phantom).
+    public internal(set) var phantomWork = TabPhantomWork()
     static let placeholderID = TabID("__cmux.tabs.drop-placeholder__")
     // MARK: - Init
 

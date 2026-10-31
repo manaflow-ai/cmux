@@ -9,21 +9,26 @@ extension ScreenContentView {
     /// room check): panes, docks and column gaps hold near their lines with
     /// `dropZoneHysteresis`. Docks and gaps shrink for entry from the split
     /// zone that faces them; dock, gap and pane priority stays the same.
-    /// `edgesArmed` false: a pane edge (a new split) joins the pane instead, until the drag has
-    /// held that edge (`LayoutRootView.updateTabDrag`'s dwell); `hit` stays the edge.
-    /// `joinsFrom`: a terminal tab's source pane (`DropZoneGeometry.joiningSharedEdge`).
+    /// `holdsEdge`: asked with a pane edge (a new split) that has a target; true joins the pane
+    /// instead (`held`), until the drag has held that edge (`LayoutRootView.updateTabDrag`'s
+    /// dwell); `hit` stays the edge. `joinsFrom`: a terminal tab's source pane
+    /// (`DropZoneGeometry.joiningSharedEdge`). `lookups` keeps the room checks and previews of
+    /// this drag, so a move computes each zone's at most once.
     func dropTarget(at localPoint: NSPoint, removing: PaneID? = nil, joinsFrom: PaneID? = nil, previous: DropTarget? = nil,
-                    edgesArmed: Bool = true)
-        -> (target: DropTarget, hit: DropTarget, highlight: CGRect, region: CGRect, companions: [CGRect])? {
+                    lookups: TabDropLookups? = nil, holdsEdge: (DropTarget) -> Bool = { _ in false })
+        -> (target: DropTarget, hit: DropTarget, highlight: CGRect, region: CGRect, companions: [CGRect], held: Bool)? {
+        lookups?.targets += 1
+        lookups?.validate(self)
         // The top band starts below the tab bar of the pane under the pointer.
         let (topInset, bottomInset) = dockInsets(at: localPoint)
         if context.model.acceptsEdgeDockDrops,
            let dock = DropZoneGeometry.dockTarget(atView: localPoint, screen: screenID, geometry: geometry, style: context.style,
                                                   topInset: topInset, bottomInset: bottomInset, previous: previous),
            let rect = DropZoneGeometry.highlightRectInView(for: dock, offset: scroll.value, geometry: geometry, style: context.style) {
-            return (dock, dock, rect, rect, [])
+            return (dock, dock, rect, rect, [], false)
         }
         let (headers, footers) = paneChromeBands()
+        lookups?.frameMaps += 2
         guard var zoneHit = DropZoneGeometry.target(atView: localPoint, offset: scroll.value, screen: screenID, geometry: geometry,
                                                     headers: headers, footers: footers, style: context.style,
                                                     previous: previous) else { return nil }
@@ -34,19 +39,28 @@ extension ScreenContentView {
             guard dock.takesTabs else { return nil }
             zoneHit = .pane(pane, .center)
         }
-        let hit = DropZoneGeometry.joiningSharedEdge(zoneHit, from: joinsFrom, frames: navigationFrames)
-        let target: DropTarget
-        if !edgesArmed, case let .pane(pane, zone) = hit, zone != .center {
-            target = .pane(pane, .center)
-        } else {
-            target = roomAdjusted(hit, removing: removing)
+        // Only a terminal tab's drag reads the neighbors' frames.
+        let hit = joinsFrom == nil ? zoneHit : DropZoneGeometry.joiningSharedEdge(zoneHit, from: joinsFrom, frames: lookups?.navigationFrames(self) ?? navigationFrames)
+        let room = lookups?.room(self, hit, removing) ?? roomAdjusted(hit, removing: removing, lookups: nil)
+        guard let armed = resolvedDrop(room, removing: removing, headers: headers, footers: footers, lookups: lookups) else { return nil }
+        if case let .pane(pane, zone) = hit, zone != .center, holdsEdge(hit),
+           let held = resolvedDrop(.pane(pane, .center), removing: removing, headers: headers, footers: footers, lookups: lookups) {
+            return (.pane(pane, .center), hit, held.highlight, held.region, held.companions, true)
         }
+        return (room, hit, armed.highlight, armed.region, armed.companions, false)
+    }
+
+    /// `target`'s highlight, region and the panes its split moves (view coordinates); nil when it shows nothing.
+    private func resolvedDrop(_ target: DropTarget, removing: PaneID?, headers: [PaneID: CGFloat], footers: [PaneID: CGFloat],
+                              lookups: TabDropLookups?) -> (highlight: CGRect, region: CGRect, companions: [CGRect])? {
         guard var rect = DropZoneGeometry.highlightRectInView(for: target, offset: scroll.value, geometry: geometry,
                                                               style: context.style) else { return nil }
         var companions: [CGRect] = []
         // An edge shows the layout the drop makes (DESIGN.md (c)1): the new pane filled, and every pane the
         // split resizes or moves outlined at its final frame.
-        if case let .pane(pane, zone) = target, zone != .center, let preview = finalLayoutPreview(splitting: pane, zone: zone, removing: removing) {
+        if case let .pane(pane, zone) = target, zone != .center,
+           let preview = lookups.map({ $0.preview(self, pane, zone, removing) })
+               ?? finalLayoutPreview(splitting: pane, zone: zone, removing: removing, lookups: nil) {
             rect = preview.newPane
             companions = preview.resized
         } else if case let .pane(pane, zone) = target, let body = paneBody(pane, headers: headers, footers: footers) {
@@ -56,7 +70,7 @@ extension ScreenContentView {
         if case let .pane(pane, _) = target, !geometry.scrolls(pane: pane) {} else { rect = rect.intersection(uncoveredRect) }
         guard !rect.isNull else { return nil }
         let region = DropZoneGeometry.regionRectInView(for: target, offset: scroll.value, geometry: geometry, style: context.style) ?? rect
-        return (target, hit, rect, region, companions)
+        return (rect, region, companions)
     }
 
     /// `pane`'s body in view coordinates: its content rect below its tab bar (and above a bottom
@@ -86,7 +100,8 @@ extension ScreenContentView {
     /// The new pane's rect and the final rects of the panes a split of `pane` at `zone` resizes or
     /// moves (view coordinates, inset 2 pt so neighbors read apart); nil when the layout cannot be
     /// predicted here, and the caller falls back to the half.
-    private func finalLayoutPreview(splitting pane: PaneID, zone: PaneDropZone, removing: PaneID?) -> (newPane: CGRect, resized: [CGRect])? {
+    func finalLayoutPreview(splitting pane: PaneID, zone: PaneDropZone, removing: PaneID?,
+                                    lookups: TabDropLookups?) -> (newPane: CGRect, resized: [CGRect])? {
         // The drop sends this prediction's ratios once its move landed (`LayoutModel.dropSizingChanges`,
         // TabMoves.toNewSplit), so the preview shows exactly the layout that lands.
         guard let predicted = DropPreviewLayout(splitting: pane, zone: zone, in: layout, removing: removing,
@@ -96,6 +111,7 @@ extension ScreenContentView {
             return nil
         }
         let style = context.style
+        lookups?.geometryComputes += 1
         let after = ScreenGeometry.compute(predicted.layout, viewport: bounds.size, style: style, scale: window?.backingScaleFactor ?? 2)
         let offset = scroll.value
         func shown(_ cell: CGRect, _ pane: PaneID, in geometry: ScreenGeometry) -> CGRect {
@@ -127,8 +143,9 @@ extension ScreenContentView {
 
     /// An edge drop that cannot split for lack of room becomes a new column
     /// beside the pane's column (columns screen, side edge) or joins the pane.
-    private func roomAdjusted(_ target: DropTarget, removing: PaneID?) -> DropTarget {
+    func roomAdjusted(_ target: DropTarget, removing: PaneID?, lookups: TabDropLookups?) -> DropTarget {
         guard case let .pane(pane, zone) = target, let axis = zone.splitAxis else { return target }
+        if !isCanvas, case .columns = layout { lookups?.geometryComputes += 1 }
         switch splitPlacement(splitting: pane, axis: axis, removing: removing == pane ? nil : removing) {
         case .split:
             return target
