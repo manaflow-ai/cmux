@@ -183,7 +183,8 @@ describe("the transcript keeps no running card", () => {
     );
     try {
       const lines = [...root.querySelectorAll<HTMLButtonElement>(".cv-subagent-done")];
-      expect(lines.map((line) => [line.dataset.state, line.textContent])).toEqual([
+      // The duration is the row's trailing column; the line's button still reads it whole.
+      expect(lines.map((line) => [line.dataset.state, line.getAttribute("aria-label")])).toEqual([
         ["failed", "Subagent failed: Tester · 30s"],
         ["completed", "Subagent finished: Reviewer · 1m 20s"],
       ]);
@@ -220,7 +221,7 @@ describe("a stopped subagent's line says why, and offers Restart", () => {
     );
     try {
       const lines = [...root.querySelectorAll<HTMLButtonElement>(".cv-subagent-done")];
-      expect(lines.map((line) => line.textContent)).toEqual([
+      expect(lines.map((line) => line.getAttribute("aria-label"))).toEqual([
         "Subagent stopped: Linter · 30s",
         "Subagent stopped: Reviewer · stopped by you · 30s",
         "Subagent stopped: Tester · interrupted by Send now · 30s",
@@ -1188,7 +1189,7 @@ describe("a failed sub-session's line", () => {
       ),
     );
     try {
-      expect(root.querySelector(".cv-subagent-done")?.textContent).toBe(
+      expect(root.querySelector(".cv-subagent-done")?.getAttribute("aria-label")).toBe(
         "Subagent failed: Overview · 30s · model overloaded",
       );
     } finally {

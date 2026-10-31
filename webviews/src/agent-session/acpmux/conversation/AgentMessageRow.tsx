@@ -1,7 +1,8 @@
 // A message between this agent and another one, in either direction, as one collapsed line drawn
 // as a tool row is (Claude Code desktop's message rows): the row's icon, the sentence with the
 // other agent's name as a chip ("Sent to <release-rings-32>", "Received message from <Grid fix>"),
-// then the message's first line, muted and cut with an ellipsis, and the chevron. The whole line
+// then the message's first line, muted and cut with an ellipsis, then the trailing column: the
+// status, then the chevron, on the tool rows' grid (`.cv-tool`), so it lines up with theirs. The whole line
 // opens the message under it: its full text in a compact glass card, selectable, then what the
 // caller adds under the card (a delivery line, Details, a reply editor). MessageCard.tsx draws an
 // outgoing message with it; IncomingMessageCard.tsx's line is the incoming one. The caller owns
@@ -62,9 +63,9 @@ export function AgentMessageRow({
   label: string;
   open: boolean;
   onToggle(): void;
-  /// At the line's right edge (a finished send's check), as a tool row's meta.
+  /// The trailing column's status (Sent, Queued, Delivered), before the chevron, as a tool row's meta.
   meta?: ReactNode;
-  /// The line's end, after the meta and outside the toggle: Reply, the message's hover row.
+  /// The hover row (Copy, Reply), outside the toggle, at the sentence column's end.
   actions?: ReactNode;
   failed?: boolean;
   /// A send still going out: the row reads as a running tool row.
@@ -85,54 +86,64 @@ export function AgentMessageRow({
       data-open={open || undefined}
       {...attributes}
     >
+      {/* The tool rows' one grammar (design/chat-transcript.md, "One row grammar"): the icon, the
+          sentence (verb, the recipient chip, the muted first line) cut with one ellipsis, then the
+          trailing column, status then the chevron, so the chevron sits on the same line whether or
+          not the row has a status. */}
       <div className={`cv-tool cv-agentmsg__line${live ? " is-live" : " is-strong"}`}>
         <span className="cv-tool__icon cv-agentmsg__icon">{icon}</span>
-        {/* The words toggle too, for the pointer; the toggle button is the control, and its label
-            reads the line. */}
-        {before.trim() && (
-          <span className="cv-agentmsg__words" data-interactive="" aria-hidden onClick={onToggle}>
-            {before.trim()}
-          </span>
-        )}
-        {onOpenName ? (
+        <span className="cv-agentmsg__sentence">
+          {/* The words toggle too, for the pointer; the toggle button is the control, and its label
+              reads the line. */}
+          {before.trim() && (
+            <span className="cv-agentmsg__words" data-interactive="" aria-hidden onClick={onToggle}>
+              {before.trim()}
+            </span>
+          )}
+          {onOpenName ? (
+            <button
+              type="button"
+              className="cv-agentmsg__name cv-recipient"
+              aria-label={openNameLabel}
+              title={nameTitle}
+              onClick={onOpenName}
+            >
+              {name}
+            </button>
+          ) : (
+            <span
+              className="cv-agentmsg__name cv-recipient is-plain"
+              data-interactive=""
+              aria-hidden
+              title={nameTitle}
+              onClick={onToggle}
+            >
+              {name}
+            </span>
+          )}
+          {after.trim() && (
+            <span className="cv-agentmsg__words" data-interactive="" aria-hidden onClick={onToggle}>
+              {after.trim()}
+            </span>
+          )}
           <button
             type="button"
-            className="cv-agentmsg__name"
-            aria-label={openNameLabel}
-            title={nameTitle}
-            onClick={onOpenName}
-          >
-            {name}
-          </button>
-        ) : (
-          <span
-            className="cv-agentmsg__name is-plain"
-            data-interactive=""
-            aria-hidden
-            title={nameTitle}
+            className="cv-agentmsg__toggle"
+            aria-expanded={open}
+            aria-controls={open ? bodyId : undefined}
+            aria-label={label}
             onClick={onToggle}
           >
-            {name}
-          </span>
-        )}
-        {after.trim() && (
-          <span className="cv-agentmsg__words" data-interactive="" aria-hidden onClick={onToggle}>
-            {after.trim()}
-          </span>
-        )}
-        <button
-          type="button"
-          className="cv-agentmsg__toggle"
-          aria-expanded={open}
-          aria-controls={open ? bodyId : undefined}
-          aria-label={label}
-          onClick={onToggle}
-        >
-          <span className="cv-agentmsg__preview">{open ? "" : preview}</span>
-          <ChevronRight size={14} strokeWidth={1.2} className={`cv-tool__chevron cv-rotor${open ? " is-open" : ""}`} />
-        </button>
-        {meta}
-        {actions}
+            {/* Open, the message is under the line: its first line here would say it twice. */}
+            <span className="cv-agentmsg__preview">{open ? "" : preview}</span>
+          </button>
+          {/* The hover row stays in the sentence column: the trailing column holds only status. */}
+          {actions}
+        </span>
+        {meta && <span className="cv-tool__trail">{meta}</span>}
+        <span className="cv-tool__chevron cv-agentmsg__chevron" data-interactive="" aria-hidden onClick={onToggle}>
+          <ChevronRight size={14} strokeWidth={1.2} className={`cv-rotor${open ? " is-open" : ""}`} />
+        </span>
       </div>
       {open && (
         <div id={bodyId} className="cv-agentmsg__card selectable">

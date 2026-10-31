@@ -2546,6 +2546,16 @@ pre.cv-math-source {
   grid-column: 3;
   margin-left: 0;
 }
+/* The row grammar's trailing column (design/chat-transcript.md "One row grammar"): status, then
+   duration, in column 3, before the chevron's column 4, so every row's chevron and status line up
+   whether or not a row has them. */
+.cv-tool__trail {
+  grid-column: 3;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: inherit;
+}
 .cv-command__bg-state {
   display: flex;
 }

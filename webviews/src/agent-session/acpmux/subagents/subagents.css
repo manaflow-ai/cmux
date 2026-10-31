@@ -777,21 +777,37 @@ button.cv-subagent > :last-child {
 }
 /* The line and, on hover or focus, its Restart (SubagentDoneLine.tsx), the hover row's compact
    button (conversation/MessageActions.tsx): hidden, it keeps its room, so pointing moves nothing. */
-.cv-subagent-done-row {
+/* The row keeps the tool rows' gap and trailing column (conversation.css `.cv-tool`): the line's
+   button as wide as its words, its hover buttons after it, then the duration pushed to the
+   trailing column and the chevron in the disclosure slot, on the same x as every tool row's. */
+.cv-tool.cv-subagent-done-row {
   display: flex;
-  align-items: center;
   min-width: 0;
 }
 .cv-subagent-done-row > .cv-subagent-done {
+  grid-template-columns: var(--cv-glyph-slot) minmax(0, 1fr);
   width: auto;
   min-width: 0;
   flex: 0 1 auto;
+}
+.cv-subagent-done-row > .cv-subagent-done__trail {
+  flex: none;
+  margin-inline-start: auto;
+}
+.cv-subagent-done-row > .cv-tool__chevron {
+  flex: none;
+  pointer-events: none;
+}
+.cv-subagent-done-row > .cv-tool__chevron.is-idle {
+  visibility: hidden;
+}
+.cv-subagent-done-row[data-state="failed"] .cv-subagent-done__time {
+  color: var(--agent-status-failure);
 }
 .cv-subagent-done__actions {
   display: inline-flex;
   align-items: center;
   flex: none;
-  margin-inline-start: 4px;
   opacity: 0;
 }
 /* They fade as a message's hover row does (conversation.css --cv-actions-*, #23769). */
