@@ -18,14 +18,13 @@ function App() {
       delete (window as any).cmuxActivityReceive;
     };
   }, []);
+  const projectedGroups = groups(state);
   const followIDs =
     state.layout === "split"
       ? state.selectedSessionID
         ? [state.selectedSessionID]
         : []
-      : groups(state)
-          .flatMap((group) => group.sessions)
-          .map((session) => session.id);
+      : projectedGroups.flatMap((group) => group.sessions).map((session) => session.id);
   const followKey = followIDs.join(",");
   useEffect(() => {
     const ids = followKey ? followKey.split(",") : [];
@@ -41,7 +40,7 @@ function App() {
     if (action.type === "filter") void native.request("filter", { value: action.value }).catch(() => undefined);
     if (action.type === "layout") void native.request("layout", { value: action.value }).catch(() => undefined);
   };
-  return <ActivityView state={state} dispatch={dispatch} error={error} />;
+  return <ActivityView state={state} dispatch={dispatch} error={error} groups={projectedGroups} />;
 }
 
 (document.documentElement as HTMLElement).dataset.cmuxWebviewKind = "agent-activity";

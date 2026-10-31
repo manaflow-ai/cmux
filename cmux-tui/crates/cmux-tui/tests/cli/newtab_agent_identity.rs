@@ -40,6 +40,21 @@ fn find_tab<'a>(value: &'a Value, tab: &str) -> Option<&'a Value> {
     }
 }
 
+fn has_session(value: &Value) -> bool {
+    if let Some(agent) = value.get("agent_session").filter(|agent| agent["session"] == SESSION) {
+        assert_eq!(value["kind"], "conversation", "closed chat is not canonical: {value}");
+        assert_eq!(agent["harness"], "codex", "{agent}");
+        assert!(agent.get("host").is_none(), "closed history leaked agent host: {agent}");
+        assert!(agent.get("host_name").is_none(), "closed history leaked agent host name: {agent}");
+        return true;
+    }
+    match value {
+        Value::Object(fields) => fields.values().any(has_session),
+        Value::Array(items) => items.iter().any(has_session),
+        _ => false,
+    }
+}
+
 #[test]
 fn newtab_agent_identity_cli_preserves_bound_session() {
     let server = HeadlessServer::start("newtab-cli-identity");
@@ -49,6 +64,23 @@ fn newtab_agent_identity_cli_preserves_bound_session() {
         assert_success(&output);
         assert_agent_tab(&json_output(&output), &tab);
     }
+    assert_success(&json_cli(&server, &["tab", &tab, "close"]));
+    let closed = json_cli(&server, &["closed", "list"]);
+    assert_success(&closed);
+    let history = json_output(&closed);
+    assert!(has_session(&history), "closed chat lost its agent session: {history}");
+    let closed_id = history
+        .as_array()
+        .and_then(|items| items.first())
+        .and_then(|item| item["id"].as_str())
+        .expect("closed chat history id")
+        .to_owned();
+    let reopened = json_cli(&server, &["closed", &closed_id, "reopen"]);
+    assert_success(&reopened);
+    assert_eq!(json_output(&reopened)["value"]["tab_ids"][0], tab, "{reopened:?}");
+    let reopened_tab = json_cli(&server, &["tab", &tab, "get"]);
+    assert_success(&reopened_tab);
+    assert_agent_tab(&json_output(&reopened_tab), &tab);
 }
 
 #[test]
@@ -75,13 +107,17 @@ fn newtab_agent_identity_mcp_preserves_bound_session_before_prefix_lookup() {
         json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
         json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
             "name":"tab_get","arguments":{"tab":&tab[..12]}}}),
+        json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{
+            "name":"tab_close","arguments":{"tab":tab}}}),
+        json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{
+            "name":"closed_list","arguments":{}}}),
     ] {
         writeln!(input, "{message}").unwrap();
     }
     drop(input);
     let output = child.wait_with_output().unwrap();
     assert_success(&output);
-    let response = String::from_utf8(output.stdout)
+    let response = String::from_utf8(output.stdout.clone())
         .unwrap()
         .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
@@ -89,4 +125,12 @@ fn newtab_agent_identity_mcp_preserves_bound_session_before_prefix_lookup() {
         .expect("tools/call response");
     assert_eq!(response["result"]["isError"], false, "{response}");
     assert_agent_tab(&response["result"]["structuredContent"], &tab);
+    let closed = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find(|message| message["id"] == 4)
+        .expect("closed_list response");
+    assert_eq!(closed["result"]["isError"], false, "{closed}");
+    assert!(has_session(&closed["result"]["structuredContent"]), "{closed}");
 }

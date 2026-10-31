@@ -206,7 +206,7 @@ impl Hub {
             {
                 let delay = staggered(delay, &session.id);
                 let recovered = RetrySummary {
-                    attempt: (done + 1) as u64,
+                    attempt: done.saturating_add(1) as u64,
                     of: delays.len() as u64,
                     reason,
                     next_at: last.at.saturating_add(delay),
@@ -304,7 +304,8 @@ impl Hub {
                 trust_gate: trust_gate || control == Control::Web,
                 error: &error,
             };
-            hub.auto_resume(&session, cut, retry.attempt as usize).await;
+            hub.auto_resume(&session, cut, usize::try_from(retry.attempt).unwrap_or(usize::MAX))
+                .await;
         });
     }
 }
@@ -735,6 +736,57 @@ mod tests {
             Some("auto_resume.superseded")
         );
         assert!(session.turn().is_none());
+    }
+
+    #[test]
+    fn finish_auto_resume_and_replacement_share_the_lock_order() {
+        let (hub, session) = idle_chat();
+        let (finish_done_tx, finish_done_rx) = std::sync::mpsc::channel();
+        let (seal_handle_tx, seal_handle_rx) = std::sync::mpsc::channel();
+        let (sealed_before_append_tx, sealed_before_append_rx) = std::sync::mpsc::channel();
+        let finish_hub = hub.clone();
+        let finish_session = session.clone();
+        let finish = std::thread::spawn(move || {
+            let seal_hub = finish_hub.clone();
+            let seal_session = finish_session.clone();
+            super::set_after_finish_replaced_check(Box::new(move || {
+                let (seal_done_tx, seal_done_rx) = std::sync::mpsc::channel();
+                let seal = std::thread::spawn(move || {
+                    seal_hub.seal_retry_replacement(&seal_session);
+                    let _ = seal_done_tx.send(());
+                });
+                seal_handle_tx.send(seal).unwrap();
+                // An append-only fence can complete here, between the replaced check and
+                // the stale terminal append. The ordered fence must wait for finish.
+                sealed_before_append_tx
+                    .send(seal_done_rx.recv_timeout(std::time::Duration::from_millis(100)).is_ok())
+                    .unwrap();
+            }));
+            finish_hub.finish_auto_resume(
+                &finish_session,
+                &CutTurn {
+                    from: None,
+                    prompt_id: "finish-prompt",
+                    turn_id: "finish-turn",
+                    control: Control::Local,
+                    trust_gate: false,
+                    error: "stream disconnected",
+                },
+                1,
+                &[],
+                Err(RpcError::invalid_params("folder disappeared")),
+                false,
+            );
+            finish_done_tx.send(()).unwrap();
+        });
+        let seal = seal_handle_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert!(!sealed_before_append_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap());
+        finish_done_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("replacement must not block terminal retry admission");
+        finish.join().unwrap();
+        seal.join().unwrap();
+        assert!(session.replaced.load(std::sync::atomic::Ordering::SeqCst));
     }
 
     #[tokio::test]

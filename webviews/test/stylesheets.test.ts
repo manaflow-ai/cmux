@@ -36,3 +36,33 @@ test("every stylesheet closes the rules it opens", () => {
   });
   expect(broken).toEqual([]);
 });
+
+/** The `:has(...)` arguments in a stylesheet's selectors, comments dropped, with their lines. */
+function hasArguments(css: string): Array<{ line: number; argument: string }> {
+  const code = css.replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\n]/g, " "));
+  const found: Array<{ line: number; argument: string }> = [];
+  for (let at = code.indexOf(":has("); at >= 0; at = code.indexOf(":has(", at + 1)) {
+    let depth = 0;
+    let end = at + 4;
+    for (; end < code.length; end += 1) {
+      if (code[end] === "(") depth += 1;
+      else if (code[end] === ")" && (depth -= 1) === 0) break;
+    }
+    found.push({ line: code.slice(0, at).split("\n").length, argument: code.slice(at + 5, end) });
+  }
+  return found;
+}
+
+// Leo, 2026-10-31: "the left scroll rail still lags when i hover over a lot of it it needs to be
+// faster". A `[style...]` test inside `:has()` makes Chromium restyle the whole page on every inline
+// style write anywhere in it: the running tray's `:has(> ...:not([style*="overflow"]) ...)` cost each
+// tick a pointer crossed on the session rail about 16 ms of style work (test/latency/rail-sweep.ts).
+// Mark the state with a data attribute instead (conversation/fold.ts `data-fold-clip`).
+test("no :has() selector reads the style attribute", () => {
+  const found = stylesheets(root).flatMap((path) =>
+    hasArguments(readFileSync(path, "utf8"))
+      .filter(({ argument }) => /\[\s*style\b/.test(argument))
+      .map(({ line }) => `${relative(root, path)}:${line}`),
+  );
+  expect(found).toEqual([]);
+});

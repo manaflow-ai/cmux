@@ -233,6 +233,9 @@ extension LiveCoordinator {
             }
             return
         }
+        #if DEBUG
+        UploadProbe.start(on: link, macName: session.name)  // the pair-e2e rig's upload leg; inert without its launch argument
+        #endif
         // The workspaces deadline waited while the Mac asked its person: start it again.
         if store.macData[macID]?.source != .live { armWorkspacesDeadline(session, link) }
         // Terminal tabs attach lazily (`terminalSession(tabID:)`), each on its

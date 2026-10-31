@@ -30,7 +30,9 @@ public final class MainThreadWatchdog: Sendable {
         /// reports it (``MainThreadWatchdog/onHang``) WHILE it runs, since a
         /// hang that never ends is never recorded as a stall. Default 2 s.
         public var hangThreshold: Duration
-        /// At most one hang report per this interval (default 5 min).
+        /// At most one hang report per this interval. Default zero: every hang is
+        /// reported (2026-10-30: at 5 min, three hangs in 30 s reached Sentry as
+        /// one); the app's sink budgets a flood (`MainThreadHangReporter`).
         public var hangReportInterval: Duration
         /// Debug builds: a hang still running this long fails an assertion
         /// (default 10 s; nil in release builds), if the main thread used
@@ -61,7 +63,7 @@ public final class MainThreadWatchdog: Sendable {
 
         public init(threshold: Duration = Configuration.environmentThreshold, capacity: Int = 128, sampleStacks: Bool = true,
                     logStalls: Bool = ControlService.isDebugBuild, hangThreshold: Duration = .seconds(2),
-                    hangReportInterval: Duration = .seconds(300),
+                    hangReportInterval: Duration = .zero,
                     hangAssertThreshold: Duration? = Configuration.defaultHangAssertThreshold) {
             self.threshold = threshold
             self.capacity = capacity
@@ -104,7 +106,10 @@ public final class MainThreadWatchdog: Sendable {
     private let stallSink = Mutex<(@Sendable (HangRecord) -> Void)?>(nil)
     let episodeSink = Mutex<HangEpisodeRecorder?>(nil) // ``episodes``
     /// Finished stalls of a hang's length by beat, the newest few, until their file takes one (+Episodes).
-    let hangEnds = Mutex<[(beat: UInt64, nanos: UInt64)]>([])
+    let hangEnds = Mutex<[(beat: UInt64, nanos: UInt64, cpuNanos: UInt64)]>([])
+    /// The process's fault counters when the watchdog first sampled the stall of `beat`: the
+    /// base of its hang file's page-ins (+Episodes). Watchdog thread only (uncontended).
+    let stallEvents = Mutex<(beat: UInt64, counts: TaskEventCounts?)?>(nil)
     private let hangNanos: UInt64
     let hangIntervalNanos: UInt64
     private let hangAssertNanos: UInt64?
@@ -345,7 +350,7 @@ public final class MainThreadWatchdog: Sendable {
             // No symbolication here (main thread); `debug.hangs` resolves the stack.
             logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms (hang \(record.sequence), \(addresses.count) frames; see debug.hangs)")
         }
-        if nanos >= hangNanos { hangEnds.withLock { $0.append((beat, nanos)); if $0.count > 4 { $0.removeFirst() } } }
+        if nanos >= hangNanos { hangEnds.withLock { $0.append((beat, nanos, cpuNanos)); if $0.count > 4 { $0.removeFirst() } } }
         stallSink.withLock { $0 }?(record)
     }
 
@@ -377,6 +382,8 @@ public final class MainThreadWatchdog: Sendable {
             // The heartbeat is old enough that the main thread may be stalling.
             if beat == beatSequence.load(ordering: .acquiring), !mainAsleep.load(ordering: .acquiring), beat != sampledBeat {
                 sampledBeat = beat
+                // One syscall per sampled stall: the base of a hang's page-in count.
+                stallEvents.withLock { $0 = (beat, TaskEventCounts.current()) }
                 if let sampler {
                     let board = boardSink.withLock { $0 }
                     // Raw addresses only: symbolicating here can outlast a short stall.
@@ -448,7 +455,7 @@ public final class MainThreadWatchdog: Sendable {
 
     /// Main-thread CPU used since heartbeat `beat` began the stall (its
     /// `beatCPUNanos` stamp); nil when the reading failed or `beat` ended.
-    private func mainThreadCPU(sinceBeat beat: UInt64) -> UInt64? {
+    func mainThreadCPU(sinceBeat beat: UInt64) -> UInt64? {
         let start = beatCPUNanos.load(ordering: .acquiring)
         guard beatSequence.load(ordering: .acquiring) == beat, let now = busy.mainThreadCPUNanos() else { return nil }
         return now > start ? now - start : 0

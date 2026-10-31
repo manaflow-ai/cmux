@@ -26,13 +26,13 @@ extension AppActionContext {
             guard Self.showsNotice(quiet: quiet, hasCaller: registry.refusalHasCaller) else { return }
             // Keyed by the key event that ran the refused action, so the burst bench matches it to its press.
             services.burstTrace.mark(.refusal, input: registry.dispatchingInputEvent()?.timestamp)
-            services.refusalHUD.show(reason, in: services.windows.active?.window ?? NSApp.keyWindow)
+            services.refusalHUD.show(reason, in: services.windows.active?.window ?? services.keyWindowSource())
         }
         // An action's local change was rolled back because the daemon refused it: say so where
         // refusals show, so the change does not just vanish.
         registry.remoteFailureObserver = { action, notice in
             Self.logger.notice("action \(action.rawValue, privacy: .public) rolled back: \(notice, privacy: .public)")
-            services.refusalHUD.show(notice, in: services.windows.active?.window ?? NSApp.keyWindow)
+            services.refusalHUD.show(notice, in: services.windows.active?.window ?? services.keyWindowSource())
         }
     }
 
@@ -88,7 +88,7 @@ extension AppActionContext {
             registry.track(task)
         } else {
             // task-owner: a run nobody awaits; the refusal shows when the work ends.
-            Task { @MainActor [weak registry] in if let failure = await task.value { registry?.refuse(failure.message) } }
+            Task { @MainActor [weak registry] in if let failure = await task.value, !failure.shown { registry?.refuse(failure.message) } }
         }
     }
 

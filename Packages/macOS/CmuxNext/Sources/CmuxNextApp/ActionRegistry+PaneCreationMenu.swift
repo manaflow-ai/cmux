@@ -5,7 +5,8 @@ import CmuxNextDesign
 extension ActionRegistry {
     /// Pane creation and the full command catalog share the visible + menu.
     func makePaneCreationMenu(target: ActionTargetRef) -> NSMenu {
-        let entries = ContextMenuCatalog.shared.entries(for: .newTab) + [.separator, .action("commandPalette")]
+        // The person's arrangement of the New Tab Button menu (Settings > Menus), then All commands….
+        let entries = contextMenuEntries(for: .newTab) + [.separator, .action("commandPalette")]
         let menu = makeContextMenu(for: .newTab, target: target, entries: entries)
         if let commands = menu.items.last, Self.menuRun(of: commands)?.id == "commandPalette",
            let symbol = descriptor(for: "commandPalette")?.symbol {

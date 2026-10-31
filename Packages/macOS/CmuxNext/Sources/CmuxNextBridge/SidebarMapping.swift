@@ -8,6 +8,20 @@ import Foundation
 /// may interleave with `personal-mixed-order-v1`).
 public struct SidebarMapping {
     public static let shared = Self()
+    /// This Mac's home folder as a native string, read once: `NSHomeDirectory()` hands back a bridged
+    /// NSString, and comparing or appending to it on every call copied it through `getBytes` (a 2.7 s
+    /// NIGHTLY hang in a row flush, 2026-10-29).
+    private let home: String
+    /// `home` followed by "/".
+    private let homeFolderPrefix: String
+
+    /// A mapping that shortens `home` (this Mac's home folder by default) to `~`.
+    init(home: String = NSHomeDirectory()) {
+        var native = home
+        native.makeContiguousUTF8()
+        self.home = native
+        homeFolderPrefix = native + "/"
+    }
     /// The workspace kind of the home workspace (`workspace-kind-v1`).
     public static let homeKind = "home"
 
@@ -127,7 +141,7 @@ public struct SidebarMapping {
         let indicator = statuses.workspace
         // The focused tab; the row is named for its chat while it is an idle shell (`labelTab`).
         let focused = frontTab(workspace, selectedTab: selectedTab), front = labelTab(focused, tabs, newTabPages: newTabPages)
-        // The workspace's folder (Group by Folder's bucket): a tab row repeats it nowhere.
+        // The workspace's folder (Group by Folder's bucket).
         let rowFolder = focused?.cwd ?? tabs.lazy.compactMap(\.cwd).first
         let folder = folderTab(tabs, label: front)
         // The row's face (name, icon, kind) is one tab's: the label tab, or the work a page beside
@@ -179,12 +193,13 @@ public struct SidebarMapping {
             progress: progress(workspace, tabs: tabs),
             tabs: zip(tabs, statuses.tabs).map { tab, state in
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
-                let title = tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle)
-                var listed = SidebarTab(id: TabID(tab.id), title: title,
-                                        kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
-                                        brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon)
-                if !isNewTabPage { Self.describe(&listed, tab, in: workspace, state: state, rowFolder: rowFolder, shorten: shorten) }
-                return listed
+                let title = Self.shortenedPath(tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle), of: tab, shorten: shorten)
+                // The hover card's tab rows show each tab's own folder and status; a New Tab page shows neither.
+                return SidebarTab(id: TabID(tab.id), title: title,
+                                  kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
+                                  brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon,
+                                  folder: isNewTabPage ? nil : tab.cwd.flatMap { $0.isEmpty ? nil : shorten($0) },
+                                  state: isNewTabPage ? .idle : state)
             },
             muted: muted,
             // The store refuses every close of its home workspace (`home_not_closable`); a
@@ -441,6 +456,22 @@ public struct SidebarMapping {
         return kinds.first ?? .terminal
     }
 
+    /// A terminal tab titled by its own folder (an untitled shell shows its folder, `TabItemMapping.title`, and some
+    /// shells title it so) reads as its prompt writes it: this Mac's home and another computer's home both as `~`.
+    /// A title naming another path (a program's), a name the person gave the tab and an agent's tab stay as they are.
+    /// Another computer's folder never matched this Mac's home, so a Cloud shell's tab read `/home/cmux` (Leo
+    /// 2026-10-29: "why is there all this weird stuff at the bottom of the sidebar").
+    static func shortenedPath(_ title: String, of tab: TabModel, shorten: (String) -> String) -> String {
+        // A terminal running an agent (`tab.agent`, its hooks' report) is the agent's tab, not a shell's.
+        guard tab.agentSession == nil, tab.agent == nil, tab.kind == .pty || tab.kind == .remoteTerminal, tab.name?.isEmpty ?? true,
+              let cwd = tab.cwd, Self.trimmingSlash(title) == Self.trimmingSlash(cwd) else { return title }
+        return shorten(Self.trimmingSlash(cwd))
+    }
+
+    private static func trimmingSlash(_ path: String) -> String {
+        path.count > 1 && path.hasSuffix("/") ? String(path.dropLast()) : path
+    }
+
     /// A folder of another computer (SSH, Cloud) as its shell prompt writes it: its account's
     /// home (`/Users/<name>` or `/home/<name>`) as `~`. The app does not know that machine's home
     /// otherwise, and this Mac's home says nothing about it (cx-gaq9).
@@ -452,9 +483,8 @@ public struct SidebarMapping {
     }
 
     func abbreviate(_ path: String) -> String {
-        let home = NSHomeDirectory()
         if path == home { return "~" }
-        if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
+        if path.hasPrefix(homeFolderPrefix) { return "~" + path.dropFirst(home.count) }
         return path
     }
 
