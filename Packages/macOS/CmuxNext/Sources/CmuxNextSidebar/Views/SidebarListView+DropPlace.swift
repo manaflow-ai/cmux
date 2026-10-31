@@ -68,4 +68,19 @@ extension SidebarListViewComponents {
             }
         }
     }
+
+    /// The base y whose hit puts a block drag's items back at their own place in `source`'s section, or nil when no
+    /// probe at the edges of their vacated slot does (a section that refuses them, a slot gone from the base).
+    func originHit(_ geometry: SidebarDragGeometry, source: (section: String, item: LayoutItemID), items: [String], x: CGFloat) -> CGFloat? {
+        guard let all = blocks?.sections[source.section]?.items.map(\.id.rawValue), let first = items.first,
+              let start = all.firstIndex(of: first), let row = displayed.row(for: .block(source.section)),
+              let frame = drag?.restFrame else { return nil }
+        // The slot's top edge is where the next item starts in the base; just above it is the previous item's lower half.
+        for y in [frame.minY - 0.5, frame.minY + 0.5] where y >= row.y {
+            guard let hit = geometry.hit(CGPoint(x: x, y: y)), let target = hit.target, hit.slot.section == source.section,
+                  blockIndex(target, section: source.section, moving: items) == start else { continue }
+            return y
+        }
+        return nil
+    }
 }
