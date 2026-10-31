@@ -100,6 +100,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/gh_budget_wait.sh
             scripts/ci/nightly_next_cancelled_tip.sh
+            scripts/ci/nightly_compile_red.py
             scripts/ci/nightly_next_feed_watch.py
             scripts/ci/nightly_next_rolling.py
             scripts/ci/nightly_next_stuck_run.py
