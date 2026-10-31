@@ -4430,6 +4430,7 @@
     "tunable-source.CmuxNextDesign/NSImage+MenuSymbol.swift:menuSymbol": "d46cf604a6a897852ab910abd88971a01760197e025be1e9017575d36d4fce69",
     "tunable-source.CmuxNextDesign/NSImage+MenuSymbol.swift:menuSymbolConfiguration": "f5d78a94ab8d5e00b558cf6315c0851d35cdda46d1bee17c3af84df2e153f7c0",
     "tunable-source.CmuxNextDesign/Overlay/ChildWindowPolicy.swift:violations": "f42e744d33f7ba567bf9ae2c121b8d48763d8815916101f04b686adb629ace45",
+    "tunable-source.CmuxNextDesign/Overlay/NativePopupModel+Validation.swift:validate": "6cea5fdaa8716888357b54dafacbeb3e03147a5de41fc7be0c44a999426e98d0",
     "tunable-source.CmuxNextDesign/Overlay/WebPopupHost.swift:number": "e49facbffdfb79a115ddb7bef4dc02e9dd91bc7cd6b17adc2d6ad884f00d710c",
     "tunable-source.CmuxNextDesign/Overlay/WindowOverlayHost+Mouse.swift:frontPageWindow": "5c8b43b2fa3f760b6ec67988305b61c27e5feaa243eb7053f55f0e80149bf489",
     "tunable-source.CmuxNextDesign/Overlay/WindowOverlayHost.swift:app": "efc8b6ab406bedbec5199c0453d8712e151081b8209ba6e8c5a2a309f5f43177",

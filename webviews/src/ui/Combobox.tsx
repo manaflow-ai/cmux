@@ -8,6 +8,9 @@ import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { cx } from "./cx";
 import { ScrollArea } from "./ScrollArea";
+import { useNativePopup, type NativePopupDescription } from "./nativePopup";
+import type { NativePopupEvent } from "./generated/popupProtocol";
+import { popupAction } from "./popupDescriptors";
 
 type BaseUIKeyEvent = KeyboardEvent<HTMLInputElement> & { preventBaseUIHandler?: () => void };
 
@@ -59,6 +62,13 @@ export interface ComboboxProps {
    * ("keyboard") or the pointer ("pointer") moved it, so a caller can treat a passing pointer as
    * less deliberate than a key press. */
   onHighlight?(value: string | undefined, by: "keyboard" | "pointer" | "none"): void;
+  /** Declarative native rows. When the host is available the web list is not mounted. */
+  native?: {
+    model: NativePopupDescription;
+    anchor?: () => HTMLElement | null;
+    onEvent?(event: NativePopupEvent): void;
+    onDismiss?(): void;
+  };
 }
 
 export function Combobox({
@@ -86,6 +96,7 @@ export function Combobox({
   isItemCurrent,
   completionText,
   onHighlight,
+  native,
 }: ComboboxProps) {
   const container = usePortalContainer();
   // A popup list with no room above or below its field: past the window's edge (popupHost.ts).
@@ -93,6 +104,41 @@ export function Combobox({
   const host = usePopupHost();
   const [field, setField] = useState<HTMLInputElement | null>(null);
   const [popup, setPopup] = useState<HTMLElement | null>(null);
+  const [nativeSessionOpen, setNativeSessionOpen] = useState(true);
+  const nativePopup = useNativePopup({
+    open:
+      native !== undefined &&
+      nativeSessionOpen &&
+      (inline || suggestions.length > 0) &&
+      (native.anchor !== undefined || field !== null),
+    model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
+    anchor: native?.anchor ?? (() => field),
+    onEvent: (event) => {
+      native?.onEvent?.(event);
+      const action = native && popupAction(native.model, event.id);
+      const suggestion = action ? (action.value ?? event.id) : undefined;
+      if (event.type === "pick" && action && !action.keepOpen) setNativeSessionOpen(false);
+      const query = native?.model.search;
+      if (
+        (event.type === "search" || event.type === "change") &&
+        query &&
+        !query.disabled &&
+        event.id === query.id &&
+        event.value !== undefined
+      )
+        changeQuery(event.value);
+      else if (suggestion !== undefined && suggestions.includes(suggestion) && !isItemDisabled?.(suggestion)) {
+        if (event.type === "pick") {
+          onSubmit(suggestion);
+        } else if (event.type === "highlight") onHighlight?.(suggestion, "pointer");
+      } else if (event.type === "highlight" && event.id === undefined) onHighlight?.(undefined, "pointer");
+    },
+    onDismiss: () => {
+      setNativeSessionOpen(false);
+      native?.onDismiss?.();
+      onCancel();
+    },
+  });
   const attachField = useCallback(
     (node: HTMLInputElement | null) => {
       if (typeof inputRef === "function") inputRef(node);
@@ -156,6 +202,12 @@ export function Combobox({
   const held = keep && tallest > 0;
   const hasPinned = Boolean(pinnedSuggestions?.length);
   const deliberatelyHighlighted = useRef(false);
+  const changeQuery = (next: string) => {
+    if (native) setNativeSessionOpen(true);
+    if (completionRef.current?.text !== next) completionRef.current = undefined;
+    deliberatelyHighlighted.current = false;
+    update(next);
+  };
   const availableSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
   // Base UI highlights item zero for an empty query too. Put destinations first in its collection
   // while the pinned actions remain visually fixed above the scrolling results.
@@ -173,6 +225,13 @@ export function Combobox({
     onQuery(next);
   };
   const onKeyDown = (event: BaseUIKeyEvent) => {
+    if (
+      native &&
+      (event.key === "ArrowDown" ||
+        event.key === "ArrowUp" ||
+        (event.ctrlKey && (event.key === "n" || event.key === "p")))
+    )
+      setNativeSessionOpen(true);
     onCommand?.(event);
     if (event.defaultPrevented) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -296,17 +355,14 @@ export function Combobox({
       ))}
     </Autocomplete.List>
   );
+  const nativeOnly = nativePopup.available && native !== undefined;
   const root = (
     <Autocomplete.Root
       items={enabledSuggestions as string[]}
       filter={null}
       value={value}
-      onValueChange={(next) => {
-        if (completionRef.current?.text !== next) completionRef.current = undefined;
-        deliberatelyHighlighted.current = false;
-        update(next);
-      }}
-      open={inline || enabledSuggestions.length > 0}
+      onValueChange={changeQuery}
+      open={(!nativeOnly || nativeSessionOpen) && (inline || enabledSuggestions.length > 0)}
       inline={inline}
       autoHighlight={autoHighlight}
       onItemHighlighted={(item, details) => {
@@ -321,6 +377,9 @@ export function Combobox({
         aria-label={label}
         placeholder={placeholder}
         spellCheck={false}
+        onPointerDown={() => {
+          if (native) setNativeSessionOpen(true);
+        }}
         onKeyDown={onKeyDown}
         // A press on a suggestion keeps focus in the field (Base UI items are not focusable).
         onBlur={(event) => {
@@ -328,17 +387,18 @@ export function Combobox({
             onCancel();
         }}
       />
-      {inline ? (
-        list
-      ) : (
-        <Autocomplete.Portal container={container}>
-          <Autocomplete.Positioner className="ui-positioner" sideOffset={2} align="start">
-            <Autocomplete.Popup ref={host ? setPopup : undefined} className="ui-popup ui-glass ui-combobox-popup">
-              {list}
-            </Autocomplete.Popup>
-          </Autocomplete.Positioner>
-        </Autocomplete.Portal>
-      )}
+      {!nativeOnly &&
+        (inline ? (
+          list
+        ) : (
+          <Autocomplete.Portal container={container}>
+            <Autocomplete.Positioner className="ui-positioner" sideOffset={2} align="start">
+              <Autocomplete.Popup ref={host ? setPopup : undefined} className="ui-popup ui-glass ui-combobox-popup">
+                {list}
+              </Autocomplete.Popup>
+            </Autocomplete.Positioner>
+          </Autocomplete.Portal>
+        ))}
     </Autocomplete.Root>
   );
   return rootClassName ? <div className={rootClassName}>{root}</div> : root;

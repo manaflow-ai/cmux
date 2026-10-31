@@ -30,6 +30,14 @@ import { relevantModelSections } from "./relevantModels";
 import { QuickModelMenu, type QuickFamily, type QuickModel } from "./QuickModelMenu";
 import type { PickerProfile } from "./pickerProfiles";
 import { useUiAnchor } from "../../ui/anchor";
+import { usePopupHost } from "../../ui/UiProvider";
+import {
+  useNativePopup,
+  type NativePopupDescription,
+  type NativePopupEvent,
+  type NativePopupRow,
+  shortcutRowId,
+} from "../../ui/nativePopup";
 import { graphemePrefix } from "../../ui/initials";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
@@ -450,6 +458,9 @@ function StarGlyph({ filled, size }: { filled: boolean; size: number }) {
 /// The real search field receives focus immediately, and the selected harness's fixed model order
 /// keeps keyboard muscle memory intact between openings.
 export function ModelPicker(props: ModelPickerProps) {
+  // The native host draws the picker; when it could not show it (no window), the web picker does.
+  const [nativeFailed, setNativeFailed] = useState(false);
+  const nativeHost = usePopupHost()?.native !== undefined && !nativeFailed;
   const {
     catalog,
     harness,
@@ -761,7 +772,7 @@ export function ModelPicker(props: ModelPickerProps) {
       setActive(0);
     }
   };
-  useEscapeCloses(open, close);
+  useEscapeCloses(open && !nativeHost, close);
 
   useLayoutEffect(() => {
     // The anchor's first render is hidden while it measures. Browsers cannot focus search
@@ -777,7 +788,7 @@ export function ModelPicker(props: ModelPickerProps) {
     menu.current?.ownerDocument.getElementById(activeRowId)?.scrollIntoView?.({ block: "nearest" });
   }, [open, activeRowId]);
   useEffect(() => {
-    if (!open) return;
+    if (!open || nativeHost) return;
     const away = (event: PointerEvent) => {
       if (!root.current?.contains(event.target as Node)) close(false);
     };
@@ -790,7 +801,7 @@ export function ModelPicker(props: ModelPickerProps) {
       document.removeEventListener("pointerdown", away, true);
       window.removeEventListener("blur", blur);
     };
-  }, [close, open]);
+  }, [close, open, nativeHost]);
   useEffect(
     () =>
       registerPicker(modelText, () =>
@@ -1228,6 +1239,238 @@ export function ModelPicker(props: ModelPickerProps) {
       )}
     </>
   );
+  const nativeRows: NativePopupRow[] = [];
+  const nativeIds = useRef(new Map<string, string>());
+  const nativeModelId = (model: ModelChoice) => {
+    return nativeId(JSON.stringify([owners.get(model)?.id, model.id]));
+  };
+  const nativeId = (key: string) => {
+    let id = nativeIds.current.get(key);
+    if (!id) {
+      id = `model-${nativeIds.current.size}`;
+      nativeIds.current.set(key, id);
+    }
+    return id;
+  };
+  // This folder's harness profiles, as the web picker lists them above the models.
+  // A closed picker describes no rows: its catalog stays unread until the first click.
+  if (open && !searching && !starredView && folderProfiles.length > 0) {
+    nativeRows.push({ kind: "section", id: "folder-profiles", label: t("picker.thisFolder") });
+    for (const entry of folderProfiles) {
+      const note = folderNote(entry);
+      nativeRows.push({
+        kind: "action",
+        id: nativeId(`folder:${entry.id}`),
+        label: entry.name,
+        checked: selectedHarness === entry.id,
+        keepOpen: true,
+        ...(note ? { value: note } : {}),
+      });
+    }
+    nativeRows.push({ kind: "separator", id: "folder-profiles-end", label: "" });
+  }
+  if (!open) {
+    // Nothing to describe while closed.
+  } else if (selected && !searching && !starredView && loginFor(selected) !== undefined) {
+    // The same conditions as the web list: the selected harness's own Log In, never over a search.
+    nativeRows.push({
+      kind: "text",
+      id: "signed-out",
+      label: t("harness.signedOut", { agent: selected.name }),
+      disabled: true,
+    });
+    if (loginFor(selected) && onLogIn) nativeRows.push({ kind: "action", id: "login", label: t("harness.logIn") });
+  } else if (selectedOther && selected && blockedProfile(selected)) {
+    nativeRows.push({
+      kind: "text",
+      id: "blocked",
+      label:
+        selected.folder?.state === "needs-trust"
+          ? t("picker.trustFirst")
+          : (selected.folder?.diagnostic ?? unavailableText),
+      disabled: true,
+    });
+  } else if (selectedOther && selected?.folder?.state === "needs-enable") {
+    nativeRows.push({ kind: "action", id: "enable", label: t("harness.enable") });
+  } else if (selectedOther && selected?.folder && visible.length === 0 && !query) {
+    nativeRows.push({ kind: "action", id: "new-chat", label: t("picker.newChat") });
+  } else if (visible.length === 0) {
+    nativeRows.push({
+      kind: "text",
+      id: "empty",
+      label:
+        starredView && !query
+          ? t("picker.starredEmpty")
+          : !query && selected && selected.models.length === 0
+            ? t("picker.noModels")
+            : noMatchesText,
+      disabled: true,
+    });
+  } else {
+    for (const [index, model] of visible.entries()) {
+      const owner = owners.get(model);
+      nativeRows.push({
+        kind: "action",
+        id: nativeModelId(model),
+        label: model.name,
+        ...(searching && (parsed.effort || parsed.fast)
+          ? {
+              value: [modelEffort(model, parsed.effort), parsed.fast ? fastText : undefined]
+                .filter(Boolean)
+                .join(" · "),
+            }
+          : {}),
+        ...(model.unavailable
+          ? { disabled: true, disabledReason: unavailableText }
+          : model.defaultChoice
+            ? { disabled: true }
+            : {}),
+        checked: model.id === props.model && owner?.ids.includes(harness ?? ""),
+        shortcut: !searching && index < 9 ? String(index + 1) : undefined,
+        actions: [
+          {
+            id: `favorite:${nativeModelId(model)}`,
+            label: favorites.has(model.id) ? t("picker.unstar") : t("picker.star"),
+            keepOpen: true,
+          },
+        ],
+      });
+    }
+  }
+  if (open && olderCount > 0 && !(selectedOther && selected?.folder && visible.length === 0))
+    nativeRows.push({
+      kind: "action",
+      id: "more-models",
+      label: t("picker.moreModels"),
+      value: String(olderCount),
+      keepOpen: true,
+    });
+  if (onAddAgent) nativeRows.push({ kind: "action", id: "add-harness", label: addHarnessText });
+  const nativeRail: NativePopupRow[] | undefined = harnessFixed
+    ? undefined
+    : [
+        {
+          kind: "action",
+          id: nativeId(`harness:${STARRED}`),
+          label: starredText,
+          checked: starredView,
+          keepOpen: true,
+        },
+        ...railHarnesses.map((entry) => ({
+          kind: "action" as const,
+          id: nativeId(`harness:${entry.id}`),
+          label: entry.name,
+          ...(entry.mark ? { icon: entry.mark } : {}),
+          checked: entry.id === selectedHarness,
+          keepOpen: true,
+          disabled: !entry.pickable || blockedProfile(entry),
+        })),
+      ];
+  if (sessionAuthText) {
+    nativeRows.push({ kind: "text", id: "auth-status", label: sessionAuthText });
+    if (canSessionLogin(props.sessionAuth) && props.onSessionLogin)
+      nativeRows.push({ kind: "action", id: "auth-login", label: t("harness.logIn") });
+    if (props.onSessionAuthRefresh)
+      nativeRows.push({ kind: "action", id: "auth-refresh", label: t("harnesses.checkAgain") });
+  }
+  const footer: NativePopupRow[] = [];
+  if (catalogRefresh)
+    footer.push({
+      kind: "action",
+      id: "refresh-catalog",
+      label: t("picker.refreshCatalog"),
+      description: refreshTitle,
+      disabled: refreshStatus === "fetching",
+      keepOpen: true,
+    });
+  if (update)
+    footer.push(
+      { kind: "action", id: "update", label: t("harness.update"), description: updateText },
+      { kind: "action", id: "skip-update", label: t("harness.skipVersion"), keepOpen: true },
+    );
+  if (fastMode)
+    footer.push({
+      kind: "toggle",
+      id: "fast",
+      label: fastMode.name,
+      checked: fastModeIsOn(fastMode),
+      keepOpen: true,
+    });
+  const nativeModel: NativePopupDescription = {
+    side: newTab ? "bottom" : "top",
+    align: "start",
+    width: 310,
+    title: modelText,
+    rows: nativeRows,
+    ...(nativeRail ? { rail: nativeRail, railWidth: 44 } : {}),
+    search: { id: "query", value: query, placeholder: searchText },
+    ...(footer.length ? { footer } : {}),
+  };
+  const onNativeEvent = (event: NativePopupEvent) => {
+    const id = event.id ?? "";
+    if (event.type === "search" && id === "query") {
+      // A digit typed into the empty field picks that numbered row, as in the web picker.
+      const numbered = shortcutRowId(nativeRows, query, event.value);
+      const pick = numbered && visible.find((candidate) => nativeModelId(candidate) === numbered);
+      if (pick) {
+        if (!pick.unavailable) selectModel(pick);
+        return;
+      }
+      setQuery(event.value ?? "");
+      setActive(0);
+      return;
+    }
+    if (event.type !== "pick" && event.type !== "change") return;
+    const model = visible.find((candidate) => nativeModelId(candidate) === id);
+    const railEntry = railHarnesses.find((entry) => nativeId(`harness:${entry.id}`) === id);
+    const folderEntry = folderProfiles.find((entry) => nativeId(`folder:${entry.id}`) === id);
+    if (model) {
+      if (!model.unavailable) selectModel(model);
+    } else if (id.startsWith("favorite:")) {
+      const model = visible.find((candidate) => `favorite:${nativeModelId(candidate)}` === id);
+      if (model) toggleFavorite(model.id);
+    } else if (folderEntry) {
+      setSelectedHarness(folderEntry.id);
+      setOlderOpen(false);
+      setActive(0);
+    }
+    // A rail click leaves a search for that tab, as the web rail does.
+    else if (id === nativeId(`harness:${STARRED}`)) showTab(STARRED, -1, true);
+    else if (railEntry && railEntry.pickable && !blockedProfile(railEntry))
+      showTab(railEntry.id, railHarnesses.indexOf(railEntry), true);
+    else if (id === "more-models") {
+      setOlderOpen((value) => !value);
+    } else if (id === "add-harness") addHarness();
+    else if (id === "login" && selected) {
+      onLogIn?.(selected.acpmuxHarness ?? selected.id, loginFor(selected)!);
+      close();
+    } else if (id === "enable" && selected) enableProfile(selected);
+    else if (id === "new-chat" && selected) {
+      onHarness?.(selected.id);
+      close();
+    } else if (id === "update") {
+      update?.update();
+      close();
+    } else if (id === "skip-update") update?.skip();
+    else if (id === "refresh-catalog") refreshCatalog();
+    else if (id === "auth-login") {
+      props.onSessionLogin?.();
+      close();
+    } else if (id === "auth-refresh") {
+      props.onSessionAuthRefresh?.();
+      close();
+    } else if (id === "fast") fastMode?.onPick(nextFastModeValue(fastMode, fastMode.lastOnValue, fastMode.values));
+  };
+  const { available: nativeAvailable } = useNativePopup({
+    open,
+    model: nativeModel,
+    anchor: () => trigger.current,
+    onEvent: onNativeEvent,
+    onDismiss: () => close(false),
+    onUnavailable: () => setNativeFailed(true),
+  });
+  // Each opening tries the native host again.
+  if (!open && nativeFailed) setNativeFailed(false);
   return (
     <span
       ref={root}
@@ -1366,7 +1609,7 @@ export function ModelPicker(props: ModelPickerProps) {
           </PickerButton>
         </>
       )}
-      {open && (
+      {open && !nativeAvailable && (
         <PickerDialog
           ref={menu}
           id={menuId}

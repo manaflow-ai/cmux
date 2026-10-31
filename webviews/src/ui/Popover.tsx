@@ -4,6 +4,9 @@ import type { ReactNode } from "react";
 import { Popover as BasePopover } from "@base-ui/react/popover";
 import { useOverlayPosition, usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
+import { useNativePopup, type NativePopupDescription } from "./nativePopup";
+import type { NativePopupEvent } from "./generated/popupProtocol";
+import { popupAction } from "./popupDescriptors";
 import { UI_ANCHOR_GAP } from "./anchor";
 import { popupCollision, type UiPopupFlip } from "./openSide";
 
@@ -64,6 +67,13 @@ export interface PopoverProps {
   initialFocus?: React.RefObject<HTMLElement | null> | boolean;
   /** Where focus goes on close (default: back to where it was). */
   finalFocus?: React.RefObject<HTMLElement | null> | boolean;
+  /** Declarative native content. When the host is available, children are not mounted as rows. */
+  native?: {
+    model: NativePopupDescription;
+    anchor: () => HTMLElement | null;
+    onEvent?(event: NativePopupEvent): void;
+    onDismiss?(): void;
+  };
   children: ReactNode;
 }
 
@@ -77,10 +87,28 @@ export function Popover({
   flip = true,
   initialFocus,
   finalFocus,
+  native,
   children,
 }: PopoverProps) {
   const container = usePortalContainer();
   const positionMethod = useOverlayPosition();
+  const nativePopup = useNativePopup({
+    open: open === true && native !== undefined,
+    model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
+    anchor: native?.anchor ?? (() => null),
+    onEvent: (event) => {
+      const action = event.type === "pick" && native ? popupAction(native.model, event.id) : undefined;
+      native?.onEvent?.(event);
+      if (action && !action.keepOpen) onOpenChange(false, { escape: false });
+    },
+    onDismiss: (reason) => {
+      native?.onDismiss?.();
+      onOpenChange(false, { escape: reason === "escape" });
+    },
+  });
+  // The popover owns no trigger (its anchor is the caller's), so a native one draws nothing here;
+  // an opening the host refused to show turns `available` false and the web popover draws it.
+  if (nativePopup.available && native !== undefined) return null;
   return (
     <BasePopover.Root
       open={open}

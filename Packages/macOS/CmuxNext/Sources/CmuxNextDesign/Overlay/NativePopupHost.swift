@@ -22,6 +22,9 @@ public final class NativePopupHost {
     public var keepsOpen: (NSEvent) -> Bool = { _ in false }
     /// The popup closed by a dismiss rule; ``hide()`` does not call it.
     public var onDismiss: (() -> Void)?
+    private(set) var dismissalReason = "outside"
+    /// A nested popup temporarily owns the keys; ancestor panels remain open.
+    var keepsOpenOnKeyLoss: () -> Bool = { false }
     /// The control the popup opened from (screen), which it grows from and shrinks toward.
     public private(set) var anchor: CGRect = .zero
     /// Fading out after a hide: gone for the owner and for tests.
@@ -36,6 +39,7 @@ public final class NativePopupHost {
         if let keyed = panel as? NativePopupPanel {
             keyed.onLostKeys = { [weak self, weak keyed] elsewhere in
                 guard let self, let keyed else { return }
+                if keepsOpenOnKeyLoss() { return }
                 // A press on the control that toggles the popup makes its window key first; the
                 // control closes the popup itself, so that key loss is not a dismiss.
                 let press = NSApp.currentEvent.flatMap { [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains($0.type) ? $0 : nil }
@@ -125,8 +129,9 @@ public final class NativePopupHost {
     }
 
     /// Closes the popup by a dismiss rule: ``hide()``, then ``onDismiss``.
-    public func dismiss() {
+    public func dismiss(reason: String = "outside") {
         guard isShown else { return unwatch() }
+        dismissalReason = reason
         hide()
         onDismiss?()
     }
@@ -152,7 +157,10 @@ public final class NativePopupHost {
         // Escape in the popup closes it (a text field in it would otherwise take it as cancel).
         let escape = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
             guard let self, event.window === self.panel, event.keyCode == 53, self.isShown else { return event }
-            self.dismiss()
+            // The input method owns Escape while cancelling marked text. Closing the popup
+            // here would discard the composition before the editor sees the key.
+            if let editor = self.panel.firstResponder as? NSTextView, editor.hasMarkedText() { return event }
+            self.dismiss(reason: "escape")
             return nil
         }
         monitors = [clicks, escape].compactMap { $0 }
