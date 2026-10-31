@@ -11,8 +11,11 @@ import type { CredentialVaultRun } from "../store";
 import { locale, t } from "../strings";
 import { Switch } from "../editors/ToggleEditor";
 
-function when(ms: number): string {
-  return new Intl.DateTimeFormat(locale(), { dateStyle: "medium", timeStyle: "short" }).format(new Date(ms));
+function when(ms: number): string | null {
+  const date = new Date(ms);
+  // The metadata cache accepts Int64 timestamps, whose range exceeds JavaScript's Date.
+  if (!Number.isFinite(date.getTime())) return null;
+  return new Intl.DateTimeFormat(locale(), { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
 /** Keep a status on one short line; its full text remains available on hover and to assistive technology. */
@@ -43,15 +46,11 @@ export function withAgents(scope: CredentialVaultConsumer[], agents: boolean): C
 
 /** Its last use and how often, or that nothing used it yet; then its note. */
 function useText(secret: CredentialVaultSecret): string {
+  const lastUsed = secret.last_used_ms === null ? null : when(secret.last_used_ms);
   const used =
-    secret.last_used_ms === null
+    lastUsed === null
       ? t("settingsWindow.credentialVault.neverUsed")
-      : t(
-          "settingsWindow.credentialVault.lastUsed",
-          when(secret.last_used_ms),
-          secret.last_used_by ?? "",
-          String(secret.uses),
-        );
+      : t("settingsWindow.credentialVault.lastUsed", lastUsed, secret.last_used_by ?? "", String(secret.uses));
   return secret.note ? `${used} · ${secret.note}` : used;
 }
 
