@@ -116,7 +116,7 @@ nonisolated extension ActionSurfaceCatalog {
         "cloudTunnelAttach", "cloudTunnelDetach", "cloudTunnelRotateKey", "cloudNetworkList",
         "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete", "cloudNewTerminal", "cloudRenameMachine", "cloudKillMachine", "cloudResizeMachine",
         "cloudDiagnostics", "cloudPauseMachine", "cloudResumeMachine", "cloudSetIdlePause", "cloudSetNetworkAccess", "cloudOpenDesktop", "cloudDomainList", "cloudPublicationList", "cloudProvisionAPI", "cloudAPIKeyList", "cloudAPIKeyRevoke", "cloudListMachines", "palette.cloud.deleteSnapshot", "palette.auth.signIn", "palette.auth.signOut", "accounts.show", "palette.mobileConnect", "accounts.refresh",
-        "accounts.reauthenticate", "accounts.connect", "accounts.remove", "remote.connect", "remote.newGroup", "remote.removeGroup", "machine.reconnect", "remote.newWorkspace",
+        "accounts.reauthenticate", "accounts.connect", "accounts.remove", "accounts.githubConnect", "remote.connect", "remote.newGroup", "remote.removeGroup", "machine.reconnect", "remote.newWorkspace",
         "remote.openTerminalHere", "remote.openRemote", "remote.reconnect", "remote.disconnect", "remote.install", "remote.forget",
         "device.add", "machine.add", "machine.doctor",
         "reloadConfiguration", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal", "palette.toggleSetting",
@@ -339,7 +339,7 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         .credentials: [
             "palette.auth.signIn", "palette.auth.signOut", "accounts.reauthenticate", "accounts.connect",
-            "accounts.remove",
+            "accounts.remove", "accounts.githubConnect",
         ],
         .endsApp: [
             "quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything",

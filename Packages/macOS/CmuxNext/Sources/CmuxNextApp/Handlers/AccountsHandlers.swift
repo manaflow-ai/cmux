@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAccounts
 import CmuxNextCodeRouter
 import CmuxNextSettings
 import Foundation
@@ -12,6 +13,10 @@ enum AccountsHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         registry.bind("accounts.show", run: { _ in try services.settingsWindow.show(section: .accounts) })
+        registry.bindEffect("accounts.githubConnect", requires: nil, effect: { _ in
+            try services.settingsWindow.show(section: .accounts)
+            return .applied(result: { await githubConnectResult(services.accounts.github) })
+        })
         registry.bind("accounts.refresh", run: { _ in services.accounts.model.refresh() })
         registry.bind("accounts.reauthenticate", run: { invocation in
             let provider = try provider(invocation)
@@ -45,6 +50,14 @@ enum AccountsHandlers {
                 return await model.performRemove(account).map { ActionWorkFailure($0) }
             })
         })
+    }
+
+    static func githubConnectResult(_ github: GitHubConnections) async -> Result<[String: ActionResultValue], ActionWorkFailure> {
+        await github.connect()
+        let state = github.pageState
+        let detail = state["detail"]?.stringValue ?? ""
+        if github.error { return .failure(ActionWorkFailure(detail)) }
+        return .success(["status": .string(state["outcome"]?.stringValue ?? "needs-action"), "detail": .string(detail)])
     }
 
     private static func provider(_ invocation: ActionInvocation) throws -> AIProvider {

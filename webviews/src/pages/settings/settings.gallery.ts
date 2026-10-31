@@ -1281,6 +1281,83 @@ const resetAnchors = Object.values(RESET_SAMPLES).flatMap((key) => [
   { selector: `${row(key)} + [data-row-key] .row-title` },
 ]);
 
+const githubConnection = {
+  title: "GitHub",
+  detail: "Connected",
+  busy: false,
+  connect: "Connect GitHub",
+  disconnect: "Disconnect",
+  confirm: "Disconnect GitHub? Agents will lose access through this connection.",
+  cancel: "Cancel",
+  refresh: "Refresh",
+  canConnect: false,
+  connections: [
+    {
+      id: "sample-github",
+      canDisconnect: true,
+      account: "sample-team",
+      status: "Connected",
+      permissions: ["contents:write", "pull_requests:write"],
+    },
+  ],
+};
+for (const treatment of ["balanced", "compact", "inline"]) {
+  variants[`github-connect-${treatment}`] = variant("accounts", {
+    accounts: accounts({}, { github: githubConnection }),
+    note: `GitHub App connection: ${treatment} treatment. Balanced uses the existing Accounts spacing.`,
+    play: async (ctx) => {
+      await ctx.waitFor(() => ctx.document.querySelector('[data-card="github-connection"]'));
+      const card = ctx.document.querySelector<HTMLElement>('[data-card="github-connection"]')!;
+      card.scrollIntoView({ block: "center" });
+      if (treatment !== "balanced") {
+        const style = ctx.document.createElement("style");
+        style.textContent =
+          treatment === "compact"
+            ? '[data-card="github-connection"] .row { padding-block: 4px; } [data-card="github-connection"] .accounts-body { margin-top: 4px; }'
+            : '[data-card="github-connection"] .row { display: flex; align-items: center; gap: 16px; } [data-card="github-connection"] .accounts-body { margin: 0; padding: 0; }';
+        card.append(style);
+      }
+    },
+  });
+}
+variants["github-connect-comparison"] = variant("accounts", {
+  accounts: accounts({}, { github: githubConnection }),
+});
+variants["github-connect-empty"] = variant("accounts", {
+  accounts: accounts(
+    {},
+    {
+      github: {
+        ...githubConnection,
+        connections: [],
+        canConnect: true,
+        detail: "Connect the cmux GitHub App. Choose repositories and review permissions in GitHub.",
+      },
+    },
+  ),
+});
+variants["github-connect-pending"] = variant("accounts", {
+  accounts: accounts(
+    {},
+    {
+      github: {
+        ...githubConnection,
+        connections: [],
+        canConnect: true,
+        detail: "Finish connecting in your browser, then refresh.",
+      },
+    },
+  ),
+});
+variants["github-connect-confirm"] = variant("accounts", {
+  accounts: accounts({}, { github: githubConnection }),
+  play: async (ctx) => {
+    await ctx.waitFor(() => ctx.document.querySelector('[data-github-action="disconnect"]'));
+    await ctx.click({ selector: '[data-github-action="disconnect"]' });
+    await ctx.waitFor(() => ctx.document.querySelector('[data-card="github-connection"] output'));
+  },
+});
+
 export default settingsPageEntry({
   id: "pages.settings",
   anchors: [{ selector: "[data-settings-search]" }, { selector: '[data-section-link="general"]' }, ...resetAnchors],

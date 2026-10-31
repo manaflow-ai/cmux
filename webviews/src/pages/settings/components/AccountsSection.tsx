@@ -9,6 +9,7 @@ import { Select } from "../editors/Select";
 import type { AccountsButton, AccountsCmux, AccountsRow, AccountsTeams } from "../ops";
 import { t } from "../strings";
 import { TeamsGroup } from "./AccountsTeams";
+import { GitHubAccountsCard } from "./GitHubAccountsCard";
 
 export function AccountsSection() {
   const store = useStore();
@@ -69,6 +70,7 @@ function AccountsBody() {
       </section>
       {accounts.teams && <ActiveTeam teams={accounts.teams} />}
       {accounts.teamList && <TeamsGroup list={accounts.teamList} />}
+      <GitHubAccountsCard />
       {accounts.groups.map((group) => (
         <section className="group" key={group.id} data-accounts-group={group.id}>
           <h3 className="group-title">{group.title}</h3>
