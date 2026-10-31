@@ -839,3 +839,41 @@ test("an inbox notice that names no thread draws nothing", () => {
   });
   expect(incoming).toEqual({ kind: "hidden" });
 });
+
+test("hub lane reports retain their sender, report identity and structured details", () => {
+  const text = "[review-7] SHIP at 123456789abc · no findings · turn 1, idle";
+  const details = { sessionId: "lane-7", commits: ["123456789abc"] };
+  expect(
+    incomingPrompt(text, {
+      _meta: { provenance: { kind: "lane_report", from: "lane-7", fromName: "review-7", details } },
+    }),
+  ).toEqual({
+    kind: "message",
+    message: {
+      name: "review-7",
+      sessionId: "lane-7",
+      report: true,
+      details,
+      text: "SHIP at 123456789abc · no findings · turn 1, idle",
+      raw: text,
+    },
+  });
+});
+
+test("hub inbox notices keep thread identity and participants without inventing a sender session", () => {
+  const text = "[inbox] New messages from other agents in 1 thread.";
+  const incoming = incomingPrompt(text, {
+    _meta: {
+      provenance: {
+        kind: "inbox_notice",
+        threads: [{ threadId: "from:review/pr:7", from: ["review", "builder"] }, null],
+      },
+    },
+  });
+  expect(incoming?.kind).toBe("inbox");
+  if (incoming?.kind !== "inbox") return;
+  expect(incoming.notice.threads).toHaveLength(1);
+  expect(incoming.notice.threads[0]).toMatchObject({ threadId: "from:review/pr:7", from: ["review", "builder"] });
+  expect(incoming.notice.threads[0]?.fromSession).toBeUndefined();
+  expect(incomingPrompt(text, { client: "app" })).toBeUndefined();
+});

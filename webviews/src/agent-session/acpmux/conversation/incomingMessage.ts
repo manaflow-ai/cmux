@@ -64,6 +64,10 @@ export type IncomingMessage = {
   text: string;
   /// The prompt as the agent got it.
   raw: string;
+  /// Hub-authored lane report metadata, retained for its collapsed presentation.
+  report?: boolean;
+  details?: unknown;
+  noticeThreads?: readonly { id: string; sender: string }[];
 };
 
 /// What the pane knows that tells an agent's addressed message (`sender -> receiver: …`) from the
@@ -277,7 +281,8 @@ export function incomingPrompt(
   const fromSession =
     provenance?.kind === "subsession_message" ||
     provenance?.kind === "session_message" ||
-    provenance?.kind === "task_result";
+    provenance?.kind === "task_result" ||
+    provenance?.kind === "lane_report";
   if (fromSession && typeof provenance.from === "string" && provenance.from) {
     // A Chief's turn: the Chief, whose turn session is its own and is no chat to open.
     const chief = chiefOf(provenance);
@@ -296,6 +301,7 @@ export function incomingPrompt(
       kind: "message",
       message: {
         name: signed?.name ?? name,
+        ...(provenance.kind === "lane_report" ? { report: true, details: provenance.details } : {}),
         ...(sessionId && { sessionId }),
         ...(chief && { chief }),
         ...(relation && { relation }),
