@@ -35,10 +35,7 @@ final class CreationInputCoordinator {
     func lastHoldEnd(in window: NSWindow?) -> CreationHoldEnd? { window.flatMap { holdEnds.last[$0.windowNumber] } }
 
     /// Whether `window`'s keys wait in a creation hold now (tests: a key typed meanwhile is replayed later).
-    func isHolding(in window: NSWindow?) -> Bool {
-        guard let window else { return false }
-        return buffers[window.windowNumber] != nil
-    }
+    func isHolding(in window: NSWindow?) -> Bool { window.map { buffers[$0.windowNumber] != nil } ?? false }
 
     init(router: KeyRouter) { self.router = router }
 
@@ -103,6 +100,32 @@ final class CreationInputCoordinator {
             guard let self, buffers[number] === buffer else { return }
             if let window { flush(in: window, force: true, end: .limitReached) } else { buffers[number] = nil }
         }
+    }
+
+    /// A person's close of `tabs` waits for an answer (the close warning's read): when it takes the focused terminal, keys typed meanwhile are the close's (P0 close-then-type).
+    func beginClose(of tabs: [String], in window: NSWindow?) -> CreationInputBuffer.Ticket? {
+        guard let window, ActionRunScope.viewChangeAllowed(), let focused = router?.focus(for: window).0?.focus.state.terminalTab, tabs.contains(focused) else { return nil }
+        return buffer(in: window).openClose(closing: focused)
+    }
+
+    /// The close asks the person: its keys wait for the answer outside the hold (the question takes its own keys).
+    func parkClose(_ ticket: CreationInputBuffer.Ticket?, in window: NSWindow?) -> CreationInputBuffer.ParkedClose? {
+        guard let ticket, let window, let parked = buffers[window.windowNumber]?.parkClose(ticket) else { return nil }
+        scheduleFlush(in: window)
+        return parked
+    }
+
+    /// The close ran: its keys (`parked` first) go to the terminal focused now, once it has the keyboard. The person
+    /// cancelled it (`stays`): its parked keys go to the terminal that stays now, by that terminal, wherever the focus is.
+    func endClose(_ ticket: CreationInputBuffer.Ticket?, parked: CreationInputBuffer.ParkedClose? = nil, stays: Bool = false, in window: NSWindow?) {
+        if stays, let window, let parked, !parked.events.isEmpty {
+            let lane = CreationInputBuffer.HeldLane(tab: parked.closing, machine: router?.focus(for: window).0?.content?.daemon.machineID)
+            _ = runAgain(CreationInputBuffer.heldKeys(parked.events, for: lane), from: buffers[window.windowNumber] ?? CreationInputBuffer(began: ContinuousClock.now), in: window)
+            return
+        }
+        guard let window, let controller = router?.focus(for: window).0, let ticket = ticket ?? parked.flatMap({ $0.events.isEmpty ? nil : buffer(in: window).openClose(closing: $0.closing) }) else { return }
+        buffers[window.windowNumber]?.settleClose(ticket, parked: parked, keysTo: controller.focus.state.terminalTab, machine: controller.content?.daemon.machineID)
+        resolve(ticket, landed: true, in: window)
     }
 
     /// Whether `event`'s binding in `controller`'s focus is a close action (Close Tab, Cmd-W).

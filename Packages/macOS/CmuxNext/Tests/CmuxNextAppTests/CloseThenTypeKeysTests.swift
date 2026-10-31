@@ -132,6 +132,16 @@ struct CloseThenTypeKeysTests {
     /// person cancels. The right terminal stays, and the keys typed meanwhile are its keys: never the left terminal's,
     /// never dropped.
     @Test func keysTypedWhileTheCloseWarningIsCancelledGoToTheTerminalThatStays() async throws {
+        try await Self.cancelledClose(focusElsewhereFirst: false)
+    }
+
+    /// The same, but the person clicks into the left pane while the warning shows, then cancels: the keys typed for the
+    /// right terminal still go to it (by that terminal), never to the pane that has the focus now.
+    @Test func keysOfACancelledCloseGoToTheTerminalThatStaysWhenTheFocusMovedAway() async throws {
+        try await Self.cancelledClose(focusElsewhereFirst: true)
+    }
+
+    private static func cancelledClose(focusElsewhereFirst: Bool) async throws {
         try await Self.withTwoTerminals { p in
             try Self.type("cat\r", in: p)
             var running: String?
@@ -150,6 +160,7 @@ struct CloseThenTypeKeysTests {
 
             try await PinnedPageTests.until({ warning() != nil }, report: { "the close warning never showed" })
             let shown = try #require(warning())
+            if focusElsewhereFirst { PaneHandlers.focus(p.left.pane.layoutPaneID, in: p.content) }
             #expect(dialogs.press(shown.id, button: "cancel"))
             try await PinnedPageTests.until({ !TabCloseGuard.asking.contains(p.right.tab) }, report: { "the close still asks" })
 
@@ -166,7 +177,7 @@ struct CloseThenTypeKeysTests {
                     "the keys typed while the warning asked did not reach the terminal that stays: \(right.suffix(400))")
             #expect(!left.contains("zq\(nonce)"), "keys typed for the terminal that stays went to the left terminal: \(left.suffix(400))")
             #expect(p.services.daemon.store.tab(surface: p.right.surface) != nil, "Cancel closed the right terminal")
-            #expect(p.content.focus.state.resolved == .terminal(pane: p.right.pane.paneKey, tab: p.right.tab))
+            if !focusElsewhereFirst { #expect(p.content.focus.state.resolved == .terminal(pane: p.right.pane.paneKey, tab: p.right.tab)) }
         }
     }
 }
