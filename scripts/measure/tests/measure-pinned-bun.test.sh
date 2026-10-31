@@ -22,6 +22,16 @@ for script in "$dir"/*.sh; do
   elif (( private < home_bun || private > build )); then
     echo "FAIL: $name runs private-bun.sh at line $private, not between the ~/.bun/bin prepend (line $home_bun) and the build (line $build)"
     fail=1
+  else
+    # the private bun dir goes on PATH, and the web builders cd into webviews/ first, so it must be absolute:
+    # "$out" from mktemp -d, or a path from "$PWD" or "$root" (perf-bench.sh's ".build/perf-bench" was relative)
+    temp=$(sed -n "${private}p" "$script" | sed -n 's/.*RUNNER_TEMP="\([^"]*\)".*/\1/p')
+    out_line=$(grep -n -E '^[^#]*out="\$\(mktemp -d' "$script" | head -n 1 | cut -d: -f1 || true)
+    case "$temp" in
+      '$PWD/'*|'$root/'*|'$ROOT/'*) ;;
+      '$out') [[ -n "$out_line" ]] || { echo "FAIL: $name: RUNNER_TEMP=\$out, but \$out is not from mktemp -d"; fail=1; } ;;
+      *) echo "FAIL: $name: RUNNER_TEMP=\"$temp\" at line $private is not an absolute path (\$out from mktemp -d, \$PWD/..., \$root/...)"; fail=1 ;;
+    esac
   fi
 done
 [[ $fail -eq 0 ]] && echo "measure-pinned-bun tests: ok"
