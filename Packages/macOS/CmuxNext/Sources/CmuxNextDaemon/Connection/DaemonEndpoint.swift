@@ -307,6 +307,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// On a Cloud VM, `vm_kind: "owner"` starts any agent: the person's own disposable VM is the boundary.
     case agentSessionStartOwnerCloud = "agent-session-start-owner-cloud-v1"
     case agentSessionTrustVMKind = "agent-session-trust-vm-kind-v1"
+    /// `agent-session-folders`: that machine's work folder (`$HOME/work`) and its folders, so a
+    /// chat there with no folder starts in the work folder and Choose folder lists that machine's.
+    case agentSessionFolders = "agent-session-folders-v1"
     /// `agent-session-children`: an attached chat's daemon lists the chats its session started on
     /// that machine and streams their changes, and a listed child opens in a tab of that machine
     /// (a Cloud VM chat's sub-sessions on the Mac). Without it the chat shows no children.
@@ -516,7 +519,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionObserve, .agentSessionStart, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionStartOwnerCloud,
-             .agentSessionTrustVMKind, .agentSessionChildren, .agentSessionPresence, .pageTabs, .pageTabRoute, .appScreens,
+             .agentSessionTrustVMKind, .agentSessionFolders, .agentSessionChildren, .agentSessionPresence, .pageTabs, .pageTabRoute,
+             .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,
