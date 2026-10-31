@@ -169,8 +169,9 @@ def http_api(method: str, path: str, payload: dict | None = None, *,
     within QUOTA_WAIT_MAX seconds, when it is waited out once."""
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
     token = os.environ.get("GH_TOKEN") or os.environ["GITHUB_TOKEN"]
-    waited_reset = False
-    for attempt in range(len(RETRY_WAITS) + 1):
+    waited_reset, attempt = False, -1
+    while True:
+        attempt += 1  # the one wait for a reset does not count as a retry
         request = urllib.request.Request(api + path, method=method,
                                          data=None if payload is None else json.dumps(payload).encode(),
                                          headers={"Authorization": f"Bearer {token}",
@@ -194,6 +195,7 @@ def http_api(method: str, path: str, payload: dict | None = None, *,
                 print(f"{method} {path}: HTTP {error.code}: the API quota resets in {reset:.0f}s; waiting once",
                       file=sys.stderr)
                 sleep(reset + 1)
+                attempt -= 1
                 continue
             if not (limited or (error.code >= 500 and method != "POST")) or attempt == len(RETRY_WAITS):
                 raise RuntimeError(f"{method} {path}: HTTP {error.code}: {said}") from error
@@ -224,7 +226,7 @@ def graphql(query: str, variables: dict, *, opener=urllib.request.urlopen) -> di
     """One GitHub GraphQL query with GH_TOKEN (or GITHUB_TOKEN); its `data`. Raises RuntimeError on any error, a
     rate limit included: the caller falls back to REST."""
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
-    url = os.environ.get("GITHUB_GRAPHQL_URL") or (api[:-3] + "/api/graphql" if api.endswith("/api/v3") else
+    url = os.environ.get("GITHUB_GRAPHQL_URL") or (api[:-len("/v3")] + "/graphql" if api.endswith("/api/v3") else
                                                     api + "/graphql")
     token = os.environ.get("GH_TOKEN") or os.environ["GITHUB_TOKEN"]
     request = urllib.request.Request(url, method="POST", data=json.dumps({"query": query, "variables": variables}).encode(),

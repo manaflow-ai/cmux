@@ -409,6 +409,43 @@ class QuotaTests(unittest.TestCase):
         self.assertIsInstance(result, pr_status.QuotaSpent)
         self.assertEqual(sleeps, [31.0])
 
+    def test_a_reset_wait_after_the_last_retry_never_reads_as_success(self):
+        secondary = (403, '{"message":"You have exceeded a secondary rate limit"}', "12", "4000")
+        answers = [secondary] * len(pr_status.RETRY_WAITS) + [(403, self.SPENT, "0", "1030"), secondary]
+        result, sleeps, sent = self.call(answers)
+        self.assertIsInstance(result, RuntimeError)
+        self.assertNotIsInstance(result, pr_status.QuotaSpent)
+        self.assertEqual(len(sent), len(pr_status.RETRY_WAITS) + 2)
+        self.assertEqual(sleeps, list(pr_status.RETRY_WAITS) + [31.0])
+
+    def test_the_graphql_endpoint_follows_the_rest_one(self):
+        seen = []
+
+        class Response(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def opener(request, timeout):
+            seen.append(request.full_url)
+            return Response(b'{"data": {"rateLimit": {}}}')
+        saved = {k: os.environ.get(k) for k in ("GITHUB_API_URL", "GITHUB_GRAPHQL_URL")}
+        try:
+            os.environ.pop("GITHUB_GRAPHQL_URL", None)
+            for api, want in (("https://ghe.example/api/v3", "https://ghe.example/api/graphql"),
+                              ("https://api.github.com", "https://api.github.com/graphql")):
+                os.environ["GITHUB_API_URL"] = api
+                pr_status.graphql("query{rateLimit{used}}", {}, opener=opener)
+                self.assertEqual(seen.pop(), want)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
     def test_a_secondary_limit_still_backs_off(self):
         secondary = (403, '{"message":"You have exceeded a secondary rate limit"}', "12", "4000")
         result, sleeps, _ = self.call([secondary, (200, "{}", None, None)])
