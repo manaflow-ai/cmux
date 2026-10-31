@@ -313,3 +313,34 @@ test("(e) an edit queued while disconnected survives switching away and back bef
   expect(acpmux.held.get("load-e")).toBe("buy bread");
   expect(acpmux.writes.some((write) => write.text.includes("buy milk\n\nbuy bread"))).toBe(false);
 });
+
+test("(f) an edit still on its way to acpmux survives leaving and coming back before its answer", async () => {
+  // cmux#28204 review: the drain took a write off the queue before acpmux answered it, so leaving
+  // forgot the read and the remount's read merged acpmux's older draft into the replacement.
+  const acpmux = daemon({ "load-f": "buy milk" });
+  await acpmux.connect();
+  await render("load-f");
+  await until(() => prompt() === "buy milk", "the saved draft");
+  // acpmux holds each write until the test answers it.
+  const answers: (() => void)[] = [];
+  const write = page().cmuxAcpmuxActions!["chat.writeDraft"]!;
+  page().cmuxAcpmuxActions!["chat.writeDraft"] = (params) =>
+    new Promise((done) => answers.push(() => void write(params).then(done)));
+  await act(async () => markdownField()!.type("buy bread"));
+  await until(() => answers.length > 0, "the replacement's write to go out");
+  // The composer goes and comes back while that write is out: the read still answers "buy milk".
+  act(() => root?.unmount());
+  root = undefined;
+  await render("load-f");
+  await settle();
+  await settle();
+  expect(prompt()).toBe("buy bread");
+  // acpmux answers: it holds the replacement, and nothing merged the old draft into it.
+  for (const answer of answers.splice(0)) await act(async () => answer());
+  await settle();
+  for (const answer of answers.splice(0)) await act(async () => answer());
+  await settle();
+  expect(prompt()).toBe("buy bread");
+  expect(acpmux.held.get("load-f")).toBe("buy bread");
+  expect(acpmux.writes.some((entry) => entry.text.includes("buy milk\n\nbuy bread"))).toBe(false);
+});

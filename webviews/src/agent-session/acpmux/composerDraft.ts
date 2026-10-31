@@ -85,6 +85,10 @@ let draftDrain: Promise<void> | undefined;
 // the map holds at most one entry per open composer.
 const lastQueuedDraft = new Map<string, string>();
 const pendingDraftWrites = new Map<string, { sessionId: string; text: string; sequence: number }>();
+// The write sent to acpmux and not yet answered, by session: until acpmux says it holds it, its text
+// is newer than any draft a read returns, so a remount's read never merges the older draft into it.
+// An entry goes when its answer comes (or it fails and goes back in `pendingDraftWrites`).
+const sentDraftWrites = new Map<string, number>();
 // WEB-SWAP: a web update's reload waits until acpmux holds every draft (pages/shared/webSwap.ts):
 // a reload before a clear lands would bring the old draft back from acpmux. A write that failed or
 // timed out stays queued, and each ask retries it, so the hold ends once acpmux answers again. A
@@ -124,6 +128,8 @@ function writeTimedOut(action: DraftAction, sessionId: string, sequence: number,
     if (pendingDraftWrites.get(sessionId)?.sequence === sequence) pendingDraftWrites.delete(sessionId);
     answered();
   }, answered);
+  // Its retry is queued (`pendingDraftWrites`), which keeps the text authoritative meanwhile.
+  if (sentDraftWrites.get(sessionId) === sequence) sentDraftWrites.delete(sessionId);
 }
 
 /** `write`, or a rejection once it has gone unanswered for `draftWriteLimits.timeoutMs`. */
@@ -196,12 +202,15 @@ async function flushDraftWrites(): Promise<void> {
       if (!next) break;
       const [sessionId, write] = next;
       pendingDraftWrites.delete(sessionId);
+      sentDraftWrites.set(sessionId, write.sequence);
       let sent: Promise<unknown> | undefined;
       try {
         sent = action({ sessionId: write.sessionId, text: write.text });
         // A write that never answers would keep this drain, and the web-swap hold, forever.
         await answeredInTime(sent);
+        if (sentDraftWrites.get(sessionId) === write.sequence) sentDraftWrites.delete(sessionId);
       } catch (error) {
+        if (sentDraftWrites.get(sessionId) === write.sequence) sentDraftWrites.delete(sessionId);
         if (error === WRITE_TIMED_OUT && sent) writeTimedOut(action, sessionId, write.sequence, sent);
         // A disconnect can invalidate the action while it is in flight, or it never answers. Keep
         // the newest value for the next try, while preserving a later keystroke already in the queue.
@@ -248,9 +257,10 @@ export function forgetQueuedDraft(sessionId: string | undefined): void {
   if (sessionId) lastQueuedDraft.delete(sessionId);
 }
 
-/** Returns whether a queued write already owns the session's newest value. */
+/** Returns whether a write this page made owns the session's newest value: one queued, or one sent
+ * that acpmux has not answered yet. Either is newer than the draft a read returns meanwhile. */
 export function hasPendingDraftWrite(sessionId: string | undefined): boolean {
-  return Boolean(sessionId && pendingDraftWrites.has(sessionId));
+  return Boolean(sessionId && (pendingDraftWrites.has(sessionId) || sentDraftWrites.has(sessionId)));
 }
 
 /// Reads the last unsent prompt from the page's synchronous remount cache.
@@ -312,10 +322,10 @@ export function markDraftRead(sessionId: string | undefined): void {
 }
 
 /** A composer left a session; a later visit must merge that session's durable draft again. A
- * session with a write still queued keeps its mark: that write was built on the read, and a later
+ * session with a write still queued or unanswered keeps its mark: that write was built on the read, and a later
  * visit must not merge acpmux's older draft into it. */
 export function forgetDraftRead(sessionId: string | undefined): void {
-  if (!sessionId?.trim() || pendingDraftWrites.has(sessionId)) return;
+  if (!sessionId?.trim() || hasPendingDraftWrite(sessionId)) return;
   readDrafts.delete(sessionId);
 }
 
