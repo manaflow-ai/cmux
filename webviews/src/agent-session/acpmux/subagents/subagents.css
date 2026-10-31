@@ -626,12 +626,13 @@ button.cv-subagent > :last-child {
     top: 7px;
     left: calc(8px + var(--acpmux-tray-indent, 0px));
   }
-  /* The title starts past the 14px icon and the row's icon gap, as on one line. */
+  /* The title starts past the 14px icon and the row's icon gap, as on one line (the button's 8px
+     padding is the icon's own left). */
   .acpmux-running-tray__head > .acpmux-summary-text,
   .acpmux-running-tray .acpmux-agent-line__button > .acpmux-summary-text {
     grid-column: 1 / -1;
     grid-row: 1;
-    margin-left: calc(8px + 14px + var(--acpmux-line-icon-gap) + var(--acpmux-tray-indent, 0px));
+    margin-left: calc(14px + var(--acpmux-line-icon-gap) + var(--acpmux-tray-indent, 0px));
   }
   .acpmux-running-tray__time,
   .acpmux-running-tray .acpmux-agent-line__time {
