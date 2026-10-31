@@ -8,6 +8,7 @@ struct CloudMachineUnnamedWorkspaceTests {
     @Test(arguments: [
         (CloudMachine.Status.running, nil as CloudMachine.PauseReason?, true),
         (.provisioning, nil, true),
+        (.starting, nil, false),
         (.paused, .idle, true),
         (.paused, .user, false),
         (.paused, nil, false),
@@ -18,5 +19,12 @@ struct CloudMachineUnnamedWorkspaceTests {
     func picksOnlyAMachineThatRunsOrResumesFromIdle(status: CloudMachine.Status, reason: CloudMachine.PauseReason?, takes: Bool) {
         let machine = CloudMachine(id: "vm-1", status: status, pauseReason: reason)
         #expect(machine.takesUnnamedWorkspaces == takes)
+    }
+
+    @Test(arguments: [CloudMachine.Status.pausing, .starting, .deleting])
+    func aPendingMutationNeverBecomesAnUnnamedTarget(change: CloudMachine.Status) {
+        var machine = CloudMachine(id: "vm-1", status: .running)
+        machine.pendingChange = change
+        #expect(!machine.takesUnnamedWorkspaces)
     }
 }

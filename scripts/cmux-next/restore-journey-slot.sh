@@ -48,6 +48,14 @@ mkdir -p "$out"
 stage=/Users/Shared/cmux-capture/restore-journey/$job
 run=$stage/run-$(date +%H%M%S)
 
+# RJ_DRIVER: another driver in this checkout that takes restore-journey.py's slot arguments (--max-seconds,
+# --socket, --out, --fake-agent, --src), such as scripts/fuzz/restore/restore_fuzz.py; RJ_DRIVER_FILES: files it
+# needs beside it (space-separated, in this checkout).
+driver=${RJ_DRIVER:-$here/restore-journey.py}
+root=$(cd "$here/../.." && pwd -P)
+for f in "$driver" ${RJ_DRIVER_FILES:-}; do  # checked before the lease, so a typo costs no lease
+  case "$(cd "$(dirname "$f")" && pwd -P)/" in "$root"/*) [ -f "$f" ] || { echo "no file $f" >&2; exit 2; } ;; *) echo "RJ_DRIVER files must be in this checkout: $f" >&2; exit 2 ;; esac
+done
 # Room for the exclusive drain: acquire's deadline bounds it (120 s by default; a step on the mini may run 5).
 export CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS="${CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS:-600}"
 capture-host acquire --slot --exclusive >"$out/lease.txt" 2>"$out/lease.err" &
@@ -111,7 +119,7 @@ if [ -n "$update_job" ]; then
   update_args="--update-to $(printf '%q' "$update_app")"
   echo "update: $commit -> $update_commit ($update_app)"
 fi
-scp -q "$here/restore-journey.py" "$here/build_names.py" "$here/rj_rows.py" "$here/rj_update.py" "$here/rj_fake_cli_agent.py" "$here/../../cmux-tui/crates/acpmux/tests/fake_agent.py" "$host:$run/"
+scp -q "$driver" ${RJ_DRIVER_FILES:-} "$here/restore-journey.py" "$here/build_names.py" "$here/rj_rows.py" "$here/rj_update.py" "$here/rj_fake_cli_agent.py" "$here/../../cmux-tui/crates/acpmux/tests/fake_agent.py" "$host:$run/"
 app=$(ssh -o BatchMode=yes "$host" "ls -d '$stage'/*.app | head -1")
 name=$(basename "$app" .app)
 build_tag=${name#cmux DEV }
@@ -143,7 +151,7 @@ set +e
 # Bounded by the lease (10 minutes from acquire, less a margin to quit): the journey must not outlive the slot.
 left=$((600 - ($(date +%s) - acquired) - 40))
 [ "$left" -gt 120 ] || { echo "only ${left}s left on the lease; not starting the journey" >&2; exit 1; }
-ssh -o BatchMode=yes "$host" "cd '$run' && python3 restore-journey.py --max-seconds $left --socket '$sock' --out '$run/out' \
+ssh -o BatchMode=yes "$host" "cd '$run' && python3 $(printf '%q' "$(basename "$driver")") --max-seconds $left --socket '$sock' --out '$run/out' \
   --fake-agent '$run/fake_agent.py' --src '$app' $update_args $args" 2>&1 | tee "$out/journey.txt"
 status=${PIPESTATUS[0]}
 set -e
