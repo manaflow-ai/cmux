@@ -15,6 +15,7 @@ import {
   type DroppedKind,
   type LinkItem,
 } from "./attachments";
+import { awaitsOriginals } from "./promptBudget";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import { opensProcessTerminal } from "./processTerminal";
@@ -637,6 +638,7 @@ export function Composer({
     retry,
     revive,
     originalFailures,
+    originalUploads,
     attachError,
     setAttachError,
     drop,
@@ -683,6 +685,12 @@ export function Composer({
     );
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
   const holdForAttachments = useSendWhenAttached(loading + videoReading, sessionId, unsettled + videoReading);
+  /// A prompt too large for one acpmux message waits for its images' originals still uploading,
+  /// then goes with them as links (promptBudget.ts); the person's x on one lets it go without it.
+  const holdForOriginals = useSendWhenAttached(
+    attachments.filter((attachment) => originalUploads.has(attachment.id)).length,
+    sessionId,
+  );
   // The box makes a huge paste a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
   const box = useRef<ComposerBoxHandle>(null);
   // A paste anywhere in the pane outside a text field goes into the prompt, after what is already
@@ -1179,6 +1187,7 @@ export function Composer({
           const asTaken = (value: string) => withoutInlineTokens(value, (id) => dropped.has(id));
           const written = asTaken(field.current?.value() ?? "");
           holdForAttachments.cancel();
+          holdForOriginals.cancel();
           // Accepted commands consume staged files before their async work starts. A pending read
           // must not leak into the next prompt while the command waits.
           for (const item of pending) cancel(item.id);
@@ -1206,6 +1215,7 @@ export function Composer({
       if (owned) {
         // Accepted commands consume staged files, including reads still pending when /import opened.
         holdForAttachments.cancel();
+        holdForOriginals.cancel();
         for (const item of pending) cancel(item.id);
         // By id: a chip patched after it went (its original's path arriving) is still the one sent.
         const went = new Set(attachments.map((attachment) => attachment.id));
@@ -1220,6 +1230,12 @@ export function Composer({
     }
     // A file pasted or dropped a moment ago is still being read: the prompt waits for its chip.
     if (holdForAttachments(() => submitNow.current(force, steer))) return false;
+    // Too large for one message until the originals still uploading are saved: it waits for them.
+    if (
+      awaitsOriginals(prompt, placed.attachments, (id) => originalUploads.has(id)) &&
+      holdForOriginals(() => submitNow.current(force, steer))
+    )
+      return false;
     if (command?.kind === "cliOnly") {
       setAttachError(t(command.key, { command: command.name }));
       return false;

@@ -36,6 +36,7 @@ import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { hasInlineMarks, promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
 import { carryInline, inlinePrompt, recordedPromptParts, restoreInline, stripFileDisplay } from "./inlinePrompt";
+import { fitPromptBudget } from "./promptBudget";
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
@@ -5989,9 +5990,12 @@ export class AcpmuxDirectClient {
       attachments.filter((attachment) => !sendAttachments.includes(attachment)).map((attachment) => attachment.id),
     );
     const options = { dropped: (id: string) => dropped.has(id) };
-    const blocks = promptBlocks(input, sendAttachments, options);
-    const inline = inlinePrompt(input, sendAttachments);
-    const fileDisplay = inline?.display ?? stripFileDisplay(blocks, sendAttachments);
+    // The prompt is one acpmux message: past its budget, the largest image previews go as the links
+    // to their saved originals (promptBudget.ts). The bubble and a Retry keep the chips as sent.
+    const carried = fitPromptBudget(input, sendAttachments, options);
+    const blocks = promptBlocks(input, carried, options);
+    const inline = inlinePrompt(input, carried);
+    const fileDisplay = inline?.display ?? stripFileDisplay(blocks, carried);
     const { text, pasted } = inline
       ? blocks.reduce(
           (shown, block) => {
@@ -6004,7 +6008,7 @@ export class AcpmuxDirectClient {
           },
           { text: "", pasted: [] as { start: number; end: number }[] },
         )
-      : shownPrompt(promptText(input, sendAttachments, options), sendAttachments);
+      : shownPrompt(promptText(input, carried, options), carried);
     const rowId = `local-${promptId}`;
     const at = Date.now();
     this.optimisticPromptRows.set(promptId, rowId);
@@ -6037,7 +6041,7 @@ export class AcpmuxDirectClient {
     if (waits) {
       this.queue = [
         ...this.queue.filter((entry) => entry.id !== promptId),
-        queuedEntry(promptId, text, false, true, attachedImages(attachments), undefined, undefined, inline?.parts),
+        queuedEntry(promptId, text, false, true, attachedImages(carried), undefined, undefined, inline?.parts),
       ];
       // A Retry behind the turn waits in the queue: its failed bubble goes.
       this.rows.delete(rowId);
@@ -6052,7 +6056,7 @@ export class AcpmuxDirectClient {
         text,
         ...(pasted.length ? { pasted } : {}),
         ...(inline ? { inlineParts: inline.parts } : {}),
-        ...(attachments.length ? { images: attachedImages(attachments), retryAttachments: attachments } : {}),
+        ...(attachments.length ? { images: attachedImages(carried), retryAttachments: attachments } : {}),
         pending: true,
         delivery,
       });

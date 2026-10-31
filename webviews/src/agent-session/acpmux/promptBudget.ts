@@ -19,7 +19,8 @@ export function inlineBytes(blocks: readonly PromptBlock[]): number {
     total += BLOCK_OVERHEAD;
     if (block.type === "text") total += jsonBytes(block.text);
     else if (block.type === "resource_link") total += jsonBytes(block.uri) + jsonBytes(block.name);
-    else total += block.data.length + block.mimeType.length + ("name" in block && block.name ? jsonBytes(block.name) : 0);
+    else
+      total += block.data.length + block.mimeType.length + ("name" in block && block.name ? jsonBytes(block.name) : 0);
   }
   return total;
 }
@@ -41,23 +42,62 @@ function jsonBytes(text: string): number {
   return bytes;
 }
 
+/// `attachments` with the largest image previews going as the links to their originals, largest
+/// first, until the prompt's blocks fit `budget`. Only an image whose original is saved on the
+/// chat's machine (`originalPath`) goes so: its preview is a copy, and the link to its original
+/// already goes beside it. The person's draft and chips stay as they are; this is only what the
+/// prompt carries. The same array when it already fits.
 export function fitPromptBudget(
-  _input: string,
+  input: string,
   attachments: ComposerAttachment[],
-  _options: InlineReadOptions = {},
-  _budget = PROMPT_INLINE_BUDGET,
+  options: InlineReadOptions = {},
+  budget = PROMPT_INLINE_BUDGET,
 ): ComposerAttachment[] {
-  return attachments;
+  let total = inlineBytes(promptBlocks(input, attachments, options));
+  if (total <= budget) return attachments;
+  const previews = attachments
+    .filter((chip) => chip.kind === "image" && chip.data && chip.originalPath)
+    .sort((a, b) => b.data!.length - a.data!.length);
+  const linked = new Map<string, ComposerAttachment>();
+  for (const image of previews) {
+    if (total <= budget) break;
+    linked.set(image.id, originalLink(image));
+    total -= image.data!.length + image.mimeType.length + jsonBytes(image.name) + BLOCK_OVERHEAD;
+  }
+  return attachments.map((chip) => linked.get(chip.id) ?? chip);
 }
 
+/// Whether a send must wait for originals still uploading (`uploading`, by chip id) before it goes:
+/// the prompt is over `budget` even with every saved original linked, and an image still uploading
+/// its original would let it fit. Never for a prompt that fits: it goes at once, its originals
+/// staying for the next prompt.
 export function awaitsOriginals(
-  _input: string,
-  _attachments: readonly ComposerAttachment[],
-  _uploading: (id: string) => boolean,
-  _options: InlineReadOptions = {},
-  _budget = PROMPT_INLINE_BUDGET,
+  input: string,
+  attachments: readonly ComposerAttachment[],
+  uploading: (id: string) => boolean,
+  options: InlineReadOptions = {},
+  budget = PROMPT_INLINE_BUDGET,
 ): boolean {
-  return false;
+  if (!attachments.some((chip) => chip.kind === "image" && chip.data && !chip.originalPath && uploading(chip.id)))
+    return false;
+  const fitted = fitPromptBudget(input, [...attachments], options, budget);
+  return inlineBytes(promptBlocks(input, fitted, options)) > budget;
 }
 
-void promptBlocks;
+/// An image as the link to its original on the chat's machine, in its place: its id stays, so it
+/// sits where the composer put it, and the agent reads the file there. No type or size: the chip's
+/// are its preview's, not the original's, and the prompt's note would name them (`promptText`).
+function originalLink(image: ComposerAttachment): ComposerAttachment {
+  const path = image.originalPath!;
+  const name = image.originalName || path.slice(path.lastIndexOf("/") + 1) || image.name;
+  return {
+    id: image.id,
+    kind: "link",
+    ...(image.inline ? { inline: true } : {}),
+    name,
+    mimeType: "",
+    size: 0,
+    path,
+    saved: true,
+  };
+}

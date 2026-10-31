@@ -13,7 +13,9 @@ const screenshot = (index: number, bytes = 1.5 * MIB, original = true): Composer
   mimeType: "image/png",
   size: bytes,
   data: preview(bytes),
-  ...(original ? { originalPath: `/Users/me/.cmux/uploads/Screenshot ${index}.png`, originalName: `Screenshot ${index}.png` } : {}),
+  ...(original
+    ? { originalPath: `/Users/me/.cmux/uploads/Screenshot ${index}.png`, originalName: `Screenshot ${index}.png` }
+    : {}),
 });
 
 // Leo, 2026-10-31: "this is completely hardlocked bc of message size" ("message too large to send:
