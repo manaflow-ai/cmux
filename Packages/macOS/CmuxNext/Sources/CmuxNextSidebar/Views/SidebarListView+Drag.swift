@@ -9,11 +9,23 @@ extension SidebarListViewComponents {
         hoverCards.dismiss(.click)
         abandonSettle()
         endLanding()
-        guard displayed.row(for: press.key) != nil else { return }
+        guard let pressed = displayed.row(for: press.key) else { return }
         let payload: DragPayload
         var hidden: Set<SidebarRowKey>
         let origin: DropTarget?
-        switch press.key {
+        // A group's one row (`SidebarLayout+SoleMember`) is in its header's place and drags as its header did: the
+        // whole group moves. A multi-selection holding it still drags its workspaces.
+        var key = press.key
+        if let header = pressed.standingHeader, case let .workspace(id) = press.key,
+           !(model.selection.contains(id) && model.selection.count > 1 && press.switchedOnPress == nil) {
+            if let before = press.switchedOnPress {
+                if let shown = before.shown, shown != model.activeWorkspaceID { model.click(shown) }
+                model.selection = before.selection
+                if !patchSelection(from: .workspace(id), oldSelection: [id]) { reload(animated: false) }
+            }
+            key = header.key
+        }
+        switch key {
         case let .workspace(id):
             guard !model.isPlaceholder(id) else { return }
             let ids = model.selection.contains(id) && press.switchedOnPress == nil ? model.orderedSelection : [id]
@@ -50,14 +62,14 @@ extension SidebarListViewComponents {
         }
         hidden.formUnion(Self.tabKeys(of: hidden, in: model))
         // A group lifts as one block: its header and the member rows under it (cx-bp40).
-        let rows = SidebarListLift.rows(self, for: press.key, hidden: hidden)
+        let rows = SidebarListLift.rows(self, for: key, hidden: hidden)
         guard let rowFrame = SidebarListLift.blockFrame(self, rows), let content = SidebarListLift.content(self, rows, in: rowFrame) else { return }
         let count: Int
         if case let .workspaces(ids) = payload { count = ids.count } else { count = 1 }
         let lift = SidebarReorderLift.lift(content, count: count, frame: rowFrame, in: self)
         let drag = Drag(
             payload: payload,
-            grabbedKey: press.key,
+            grabbedKey: key,
             hiddenKeys: hidden,
             grabOffsetY: press.point.y - rowFrame.minY,
             gapHeight: rowFrame.height,
