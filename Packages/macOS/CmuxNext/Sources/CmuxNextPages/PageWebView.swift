@@ -603,9 +603,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// The page theme from this view's scope and ``themeSurface``: the surface's override (from
     /// `backgrounds`, the app's) replaces the page background; nil keeps the scope's own.
+    /// Built in this view's scope (`performWithTheme`): whether the window is see-through here
+    /// comes from that scope's picture and tint, not the app's. Built outside it, a workspace's
+    /// picture over an opaque theme painted the page solid, a black chat over the wallpaper (#28867).
     func currentTheme(backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> WebTheme {
-        WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
-                 surface: themeSurface ?? .internalPage, backgrounds: backgrounds)
+        performWithTheme {
+            WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+                     surface: themeSurface ?? .internalPage, backgrounds: backgrounds)
+        }
     }
 
     // MARK: WKNavigationDelegate
