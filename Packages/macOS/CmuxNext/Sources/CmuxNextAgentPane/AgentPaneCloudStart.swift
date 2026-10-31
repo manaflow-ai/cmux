@@ -105,8 +105,9 @@ struct AgentPaneHandOff {
             // What is copied is the Git working copy that holds the folder: it must be in scope too,
             // so a grant of /repo/project never uploads /repo, its siblings and its history.
             let root = await Task.detached(priority: .userInitiated) { AgentPaneCloudStart.uploadRoot(of: folder) }.value
-            guard root == folder || (await Self.folderInScope(root, transport: model.transport)) == root else {
-                return AgentPaneModel.transportFailure(.pathOutsideRoots)
+            if root != folder {
+                let checked = await Self.folderInScope(root, transport: model.transport)
+                guard checked == root else { return AgentPaneModel.transportFailure(.pathOutsideRoots) }
             }
             start.cwd = folder
             start.uploadRoot = root

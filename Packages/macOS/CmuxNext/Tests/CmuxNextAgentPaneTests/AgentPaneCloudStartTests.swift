@@ -183,7 +183,8 @@ struct AgentPaneCloudStartTests {
         #expect(started["ok"] as? Bool == true)
         #expect(starts.seen.first?.cwd == Self.canonical(folder))
         #expect(starts.seen.first?.uploadRoot == Self.canonical(repo))
-        #expect(AgentPaneCloudStart.uploadRoot(of: try #require(Self.canonical(folder))) == Self.canonical(repo))
+        let canonicalFolder = try #require(Self.canonical(folder))
+        #expect(AgentPaneCloudStart.uploadRoot(of: canonicalFolder) == Self.canonical(repo))
     }
 
     /// The create's key is the send's: a retry after a lost create answer gets the same machine.
