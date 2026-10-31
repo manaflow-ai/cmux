@@ -42,11 +42,14 @@ await requireBrowserLane("computer-picker-onboarding.test.ts", async () => {
           const computer = page.locator('.acpmux-location-picker[data-kind="computer"] > button');
           if (!(await computer.getAttribute("aria-expanded"))?.includes("true")) await computer.click();
           const menu = page.locator(".acpmux-env-popover");
-          const add = menu.getByRole("option", { name: /^Add Machine…/ });
-          const cloud = menu.getByRole("option", { name: /^New Cloud Machine…/ });
+          const add = menu.getByRole("option", { name: /Add Machine…/ });
+          const cloud = menu.getByRole("option", { name: /New Cloud Machine…/ });
           await add.waitFor();
-          expect(await add.isVisible()).toBe(true);
-          expect(await cloud.isVisible()).toBe(true);
+          const names = await menu.getByRole("option").allTextContents();
+          expect(await add.count(), names.join(" | ")).toBe(1);
+          expect(await cloud.count(), names.join(" | ")).toBe(1);
+          await cloud.scrollIntoViewIfNeeded();
+          expect(await cloud.isVisible(), names.join(" | ")).toBe(true);
           const artifacts = process.env.CMUX_COMPUTER_SETUP_ARTIFACTS;
           if (artifacts) {
             mkdirSync(artifacts, { recursive: true });
