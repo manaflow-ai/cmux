@@ -1,4 +1,4 @@
-use super::{QueueLimits, bytes};
+use super::{QueueLimits, bytes, room};
 use crate::config::Config;
 use serde_json::json;
 
@@ -33,4 +33,13 @@ fn bytes_follow_the_json_size() {
     ] {
         assert!(bytes(&v) >= v.to_string().len() as u64, "{v}: {}", bytes(&v));
     }
+}
+
+#[test]
+fn prompts_waiting_for_the_turn_lock_count_against_the_limit() {
+    let limits = QueueLimits { prompts: Some(2), bytes: None };
+    // None in the queue yet, but two wait for the turn lock.
+    let error = room(&[], 2, 1, |_| false, limits).expect_err("room past the limit");
+    assert_eq!(error.data.unwrap()["reason"], "queue.full");
+    room(&[], 1, 1, |_| false, limits).unwrap();
 }

@@ -402,8 +402,17 @@ impl Hub {
         let stop_held = session.stop_hold.load(Ordering::SeqCst) != 0;
         let steer = steer && !stop_held;
         let blocks = vec![json!({"type": "text", "text": text})];
+        // The messages it took stay held with it (`DigestTurn::taken`), so it holds them too.
+        let taken_bytes: u64 = digest
+            .taken
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|q| super::queue_admission::run_bytes(&q.run))
+            .sum();
+        let size = super::queue_admission::content_bytes(&blocks, None) + taken_bytes;
         let run = PromptRun {
-            size: Default::default(),
+            size: size.into(),
             blocks: blocks.clone(),
             display_parts: None,
             control,

@@ -322,6 +322,8 @@ impl Hub {
                     supersede: opts.supersede,
                     display_parts: opts.display_parts,
                     full_access_device: opts.full_access_device,
+                    // Accepted as a steer already: a full queue does not refuse it now.
+                    admitted: true,
                     ..PromptOptions::default()
                 };
                 return Box::pin(self.run_prompt(session, blocks, client, false, opts)).await;

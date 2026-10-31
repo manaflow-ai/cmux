@@ -12,8 +12,10 @@
 //! changes, which were admitted already, and an inbox digest (`inbox_digest.rs`), which joins
 //! queued messages into one and so never adds a prompt.
 //!
-//! Each prompt's size is measured once (`PromptRun::size`), so the check adds up at most
-//! `queueMaxPrompts` numbers under the lock.
+//! Each prompt's size is measured once, where its run is made (`PromptRun::size`), so the check
+//! adds up at most `queueMaxPrompts` numbers under the lock. A digest is charged with the messages
+//! it holds. A prompt the queue accepted already that goes back in (a Send now or a steer whose
+//! turn ended first, `PromptOptions::admitted`) is never refused for room.
 
 use super::queue::{PromptRun, QueuedPrompt, Slot};
 use crate::config::Config;
@@ -42,15 +44,19 @@ impl QueueLimits {
 }
 
 /// Refused unless `queue` has room for one more prompt of `size` bytes, not counting the prompts
-/// it `replaces`. Called with the queue locked.
+/// it `replaces`. `others` is every other prompt waiting (`Session::queued`), the queue's and those
+/// waiting for the turn lock, whose content the queue does not hold yet. Called with the queue
+/// locked.
 pub(super) fn room(
     queue: &[QueuedPrompt],
+    others: u64,
     size: u64,
     replaces: impl Fn(&QueuedPrompt) -> bool,
     limits: QueueLimits,
 ) -> Result<(), RpcError> {
     let staying = || queue.iter().filter(|q| !replaces(q));
-    let queued = staying().count() as u64;
+    let replaced = (queue.len() - staying().count()) as u64;
+    let queued = others.saturating_sub(replaced).max(staying().count() as u64);
     if let Some(max) = limits.prompts
         && queued >= max
     {
@@ -89,7 +95,7 @@ pub(super) fn run_bytes(run: &PromptRun) -> u64 {
     *run.size.get_or_init(|| content_bytes(&run.blocks, run.display_parts.as_ref()))
 }
 
-fn content_bytes(blocks: &[Value], display_parts: Option<&Value>) -> u64 {
+pub(super) fn content_bytes(blocks: &[Value], display_parts: Option<&Value>) -> u64 {
     blocks.iter().map(bytes).sum::<u64>() + display_parts.map_or(0, bytes)
 }
 

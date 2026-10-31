@@ -132,6 +132,8 @@ pub(super) struct Slot<'a> {
     pub(super) replaced: &'a std::sync::OnceLock<Vec<String>>,
     /// `PromptOptions::no_queue`.
     pub(super) no_queue: bool,
+    /// `PromptOptions::admitted`.
+    pub(super) admitted: bool,
 }
 
 /// What a prompt's `session/prompt` answers.
@@ -450,6 +452,8 @@ impl Hub {
             // Send now is the person's; a digest the drain marked to steer is agents' messages,
             // which a turn past its cap does not take (`turn_cap.rs`): it waits for the next turn.
             send_now: !digest || persons,
+            // Taken out of the queue to steer: if it waits again, it waited already.
+            admitted: true,
             ..Default::default()
         };
         Box::pin(self.run_prompt(session, run.blocks.clone(), client, true, opts)).await
@@ -518,7 +522,12 @@ impl Hub {
         let replaces = |q: &QueuedPrompt| {
             p.supersede.is_some_and(|key| supersede::superseded(q, key, p.agent, p.prompt_id))
         };
-        super::queue_admission::room(&queue, size, replaces, limits)?;
+        if !p.admitted {
+            // Every prompt waiting but this one: those in the queue, and those about to join it
+            // or waiting for the turn lock, which `Session::queued` counts already.
+            let others = session.queued.load(Ordering::SeqCst).saturating_sub(1);
+            super::queue_admission::room(&queue, others, size, replaces, limits)?;
+        }
         // The sender's prompts under its key leave under the lock that puts this one in
         // (`supersede.rs`), with the ledger pinned first as `remove_queued_because` pins it.
         let superseded = p.supersede.map(|key| {
@@ -1197,6 +1206,8 @@ impl Hub {
             );
             let supersede = crate::author::restored_supersede(&e.msg).map(str::to_owned);
             restored.push((prompt_id.clone(), turn_id.clone()));
+            let display_parts = e.msg.get("displayParts").cloned();
+            let size = super::queue_admission::content_bytes(&blocks, display_parts.as_ref());
             queue.push(QueuedPrompt {
                 prompt_id: prompt_id.clone(),
                 turn_id,
@@ -1205,9 +1216,9 @@ impl Hub {
                 queued_at: e.at,
                 withdraw: Arc::new(Notify::new()),
                 run: Arc::new(PromptRun {
-                    size: Default::default(),
+                    size: size.into(),
                     blocks,
-                    display_parts: e.msg.get("displayParts").cloned(),
+                    display_parts,
                     control,
                     trust_gate,
                     provenance,
