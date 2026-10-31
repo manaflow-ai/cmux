@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4121223757501",
+  "notes": "notes/4121223757501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 29148,
+      "title": "agent pane: Background activity output reads at the row's full width",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29462,
+      "title": "ci(nightly): the unread-runner owned fallback also needs the rescue switch on",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29458,
+      "title": "Sidebar: hover card tab paths read in dark themes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27160,
+      "title": "cmux NEXT: wait for agent page paint before scene capture",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26408,
+      "title": "Fixes #26396",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26406,
+      "title": "cmux NEXT sidebar: every action is optimistic and rolls back with an error (#26382)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29438,
+      "title": "base red: the per-machine network policy queue moves to CmuxNextCloud as an instance (global_mutable_statics)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
