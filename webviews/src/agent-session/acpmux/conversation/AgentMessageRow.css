@@ -15,7 +15,7 @@
 }
 .cv-agentmsg__line {
   /* The message line has extra inline words, a sender chip and actions; keep its bespoke
-     sentence layout while the shared tool rows use fixed grid columns. */
+     sentence layout while the shared tool rows place the disclosure after their label. */
   display: flex;
   white-space: nowrap;
   user-select: none;
@@ -54,15 +54,16 @@ button.cv-agentmsg__name:focus-visible {
 .cv-agentmsg__toggle {
   all: unset;
   display: flex;
-  flex: 1;
+  flex: 1 1 auto;
   align-items: center;
-  gap: 4px;
+  gap: 0;
   min-width: 0;
   height: 26px;
   cursor: default;
   border-radius: 4px;
 }
 .cv-agentmsg__preview {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -70,7 +71,7 @@ button.cv-agentmsg__name:focus-visible {
   color: var(--cv-text-dim);
 }
 .cv-agentmsg__toggle > .cv-tool__chevron {
-  margin-left: 0;
+  margin-inline-start: var(--cv-disclosure-gap);
 }
 .cv-agentmsg__toggle:hover > .cv-tool__chevron,
 .cv-agentmsg__toggle:focus-visible > .cv-tool__chevron,
@@ -84,7 +85,7 @@ button.cv-agentmsg__name:focus-visible {
 }
 /* A finished send's check at the line's end shows on hover, as a tool row's does. */
 .cv-agentmsg__line > .cv-command__meta {
-  margin-left: 4px;
+  margin-inline-start: auto;
 }
 .cv-agentmsg__line:is(:hover, :focus-within) .cv-command__ok {
   opacity: 1;

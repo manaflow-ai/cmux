@@ -8,6 +8,13 @@ extension WorkspaceRowView {
     /// aligns its field to it): the glyphs start one cell inset inside it.
     override var titleFrame: NSRect { title.frame.insetBy(dx: -Self.labelInset, dy: 0) }
     override var titleFont: NSFont { title.font }
+    /// The marquee label draws its text at its frame's edge, the baseline one ascender (on a whole
+    /// pixel) below its top (`ChromeTextLayer`).
+    override var titlePenOrigin: NSValue? {
+        let scale = window?.backingScaleFactor ?? 2
+        return NSValue(point: NSPoint(x: title.frame.minX, y: title.frame.minY + (title.font.ascender * scale).rounded() / scale))
+    }
+    override var titleInk: NSColor? { title.textColor }
     override func setTitleHidden(_ hidden: Bool) {
         renaming = hidden
         title.isHidden = hidden
@@ -203,11 +210,16 @@ extension WorkspaceRowView {
             trailing -= ind + Metrics.space2
         }
         if !usageWarningMark.isHidden {
-            // The warning badge never gives way to the hover controls: while they show it sits just
-            // left of them, so a person who hovers the row can still point at it and read its tooltip.
-            let x = overlayStart.map { min(trailing - ind, $0 - Metrics.space1 - ind) } ?? trailing - ind
-            usageWarningMark.frame = NSRect(x: x, y: cy - ind / 2, width: ind, height: ind)
-            trailing -= ind + Metrics.space2
+            // The triangle takes a status mark's box (the spinner's, `statusGlyphFrame`); with no spinner it is the
+            // column's mark (`layoutColumnMark`), centered where every spinner above it centers (Lawrence 2026-10-30:
+            // "triangle not aligned, not sure if triangle is even centered": it ended at the row's inset, in a smaller
+            // box). It never gives way to the hover controls: while they show it sits just left of them, so a person
+            // who hovers the row can still point at it and read its tooltip.
+            let onColumn = columnMark?.view === usageWarningMark
+            let end = onColumn ? usageWarningMark.frame.maxX : trailing
+            let shown = overlayStart.map { min(end, $0 - Metrics.space1) } ?? end
+            if !onColumn || shown < end { usageWarningMark.frame = statusGlyphFrame(trailing: shown, centerY: cy) }
+            if !onColumn { trailing = usageWarningMark.frame.minX - Metrics.space2 }
         }
         if !audioButton.isHidden {
             audioButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)
