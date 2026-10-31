@@ -61,6 +61,8 @@ export type IncomingMessage = {
   text: string;
   /// The prompt as the agent got it.
   raw: string;
+  /// Structured metadata for a lane report, shown in the existing collapsed Details disclosure.
+  details?: { session?: string; commits?: readonly string[] };
 };
 
 /// What the pane knows that tells an agent's addressed message (`sender -> receiver: …`) from the
@@ -263,6 +265,32 @@ export function incomingPrompt(
   // The sender's harness, when acpmux names it (a relayed message's sender is not listed here).
   const fromHarness = trimmed(provenance?.fromHarness) ?? trimmed(msg?.fromHarness);
   const harness = fromHarness ? { harness: fromHarness } : {};
+  if (provenance?.kind === "lane_report") {
+    const name = trimmed(provenance.fromName) ?? trimmed(provenance.from) ?? "lane";
+    const reportDetails = provenance.details as Record<string, unknown> | undefined;
+    const session = trimmed(reportDetails?.session);
+    const commits = Array.isArray(reportDetails?.commits)
+      ? reportDetails.commits.filter((commit): commit is string => typeof commit === "string" && commit.trim() !== "")
+      : [];
+    const details =
+      session || commits.length > 0
+        ? { ...(session ? { session } : {}), ...(commits.length ? { commits } : {}) }
+        : undefined;
+    const sessionId =
+      typeof provenance.from === "string" ? provenance.from.replace(/^acp:/, "") || undefined : undefined;
+    return {
+      kind: "message",
+      message: {
+        name,
+        ...(sessionId ? { sessionId } : {}),
+        ...remote,
+        ...harness,
+        text: text.trim(),
+        raw: text,
+        ...(details ? { details } : {}),
+      },
+    };
+  }
   const fromSession =
     provenance?.kind === "subsession_message" ||
     provenance?.kind === "session_message" ||

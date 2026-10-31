@@ -21,6 +21,7 @@ fn item(
         report: false,
         at,
         text: text.to_owned(),
+        details: None,
         noticed: false,
         read: false,
         answer: None,

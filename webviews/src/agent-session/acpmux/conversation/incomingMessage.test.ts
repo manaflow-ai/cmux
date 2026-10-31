@@ -749,3 +749,36 @@ test("a card drops a signature naming its sender that a record still has", () =>
   expect(unsigned("[WIP] MERGED", "agent-message-style")).toBe("[WIP] MERGED");
   expect(unsigned("[lane-b] MERGED", "lane-a")).toBe("[lane-b] MERGED");
 });
+
+test("lane report provenance becomes an incoming message with collapsed details", () => {
+  expect(
+    incomingPrompt("[builder] SHIP at abcdef123456 · no findings · turn 2, idle", {
+      _meta: {
+        provenance: {
+          kind: "lane_report",
+          from: "lane-7",
+          fromName: "builder",
+          details: { session: "gcp/builder", commits: ["abcdef1234567890", "fedcba6543210000"] },
+        },
+      },
+    }),
+  ).toEqual({
+    kind: "message",
+    message: {
+      name: "builder",
+      sessionId: "lane-7",
+      details: { session: "gcp/builder", commits: ["abcdef1234567890", "fedcba6543210000"] },
+      text: "[builder] SHIP at abcdef123456 · no findings · turn 2, idle",
+      raw: "[builder] SHIP at abcdef123456 · no findings · turn 2, idle",
+    },
+  });
+});
+
+test("lane report without metadata remains a normal incoming message", () => {
+  expect(
+    incomingPrompt("[builder] turn 3 ended, idle", { _meta: { provenance: { kind: "lane_report", from: "builder" } } }),
+  ).toMatchObject({
+    kind: "message",
+    message: { name: "builder", text: "[builder] turn 3 ended, idle", raw: "[builder] turn 3 ended, idle" },
+  });
+});

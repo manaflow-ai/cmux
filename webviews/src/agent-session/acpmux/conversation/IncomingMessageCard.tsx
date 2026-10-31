@@ -173,6 +173,7 @@ export function IncomingMessageLine({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
   }, [inText, inRaw, reveal]);
   const raw = message.raw.trim() === message.text ? undefined : message.raw;
+  const hasStructuredDetails = message.details !== undefined;
   // A Chief's message names the Chief (chiefFace.ts): its name and avatar as the sidebar shows them.
   // Its turn session is no chat of the list, so no listed chat with its name stands in for it.
   const chief = useChiefFace(message.chief);
@@ -271,7 +272,7 @@ export function IncomingMessageLine({
         </div>
       </MessageScopeContext.Provider>
       {images && images.length > 0 && <SentImages images={images} className="cv-message__images" />}
-      {raw !== undefined && (
+      {(raw !== undefined || hasStructuredDetails) && (
         <div className="cv-received__details">
           <button
             ref={envelope.headerRef}
@@ -288,10 +289,13 @@ export function IncomingMessageLine({
             <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${details ? " is-open" : ""}`} />
           </button>
           {envelope.present && (
-            <div {...envelope.bodyProps}>
-              <pre id={rawId} className="cv-tool-output selectable">
-                {raw}
-              </pre>
+            <div id={rawId} {...envelope.bodyProps}>
+              {message.details && (
+                <pre className="cv-tool-output selectable" data-lane-report-details="">
+                  {JSON.stringify(message.details, null, 2)}
+                </pre>
+              )}
+              {raw !== undefined && <pre className="cv-tool-output selectable">{raw}</pre>}
             </div>
           )}
         </div>
