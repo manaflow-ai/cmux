@@ -32,6 +32,8 @@ Usage:
   pr_status.py field --repo R --pr N (--bead cx-ID | --preview SHA)
   pr_status.py render --sections-json F        (print the body; tests and previews)
 Needs GH_TOKEN or GITHUB_TOKEN with pull-requests: write; GITHUB_API_URL overrides the API.
+Comment reads go over GraphQL (its own hourly pool) and fall back to REST; writes are REST. A spent
+REST quota is infrastructure: `set` and `field` warn and exit 0, never a red check.
 """
 from __future__ import annotations
 
@@ -85,12 +87,28 @@ def render(sections: Mapping[str, str]) -> str:
         parts.append(f"<!-- cmux-pr-status:{key} -->\n{inert(sections[key])}\n<!-- /cmux-pr-status:{key} -->")
     body = "\n\n".join(parts) + "\n"
     if len(body) > LIMIT:
-        # Trim the longest section (the tour's step table, in practice), never the others.
-        longest = max(known + extra, key=lambda k: len(sections[k]))
+        # Publication history is retained after migration; trim another section
+        # first when one exists. If it is the only section, the normal cap still
+        # applies because no comment can exceed GitHub's limit.
+        cut_marker = "(cut to fit GitHub's comment limit"
+        candidates = [key for key in known + extra if key != "published"]
+        # A prior cut section remains eligible, so successive status updates
+        # keep trimming the large section instead of cutting each newly added
+        # field. A marker-only section is removed before published becomes the
+        # terminating option; publication callers still detect omitted lines
+        # and retain their fallback.
+        candidates = candidates or known + extra
+        longest = max(candidates, key=lambda k: len(sections[k]))
         cut = dict(sections)
         over = len(body) - LIMIT + 200
-        cut[longest] = sections[longest][: max(0, len(sections[longest]) - over)].rstrip() + \
-            "\n\n(cut to fit GitHub's comment limit; the run that wrote this has the rest)"
+        value = sections[longest]
+        if cut_marker in value and not value.split(cut_marker, 1)[0].strip():
+            # The marker itself is expendable. Removing it gives a later
+            # status field room without sacrificing publication history.
+            cut.pop(longest)
+        else:
+            cut[longest] = value[: max(0, len(value) - over)].rstrip() + \
+                "\n\n(cut to fit GitHub's comment limit; the run that wrote this has the rest)"
         return render(cut)
     return body
 
@@ -121,13 +139,39 @@ def note_call(headers, method: str, path: str) -> None:
         pass
 
 
+class QuotaSpent(RuntimeError):
+    """The token's hourly API quota is spent (a primary rate limit: X-RateLimit-Remaining 0) and does not reset soon.
+    Infrastructure, never the pull request's fault: `main` turns it into a ::warning:: and exits 0, so a spent quota
+    never shows as a red check (2026-10-31 00:50Z: every push's `link` job failed on HTTP 403 for an hour)."""
+
+
+# A primary limit that resets within this long is waited out once; a later reset is not: five retries over 135 s
+# (RETRY_WAITS) cannot outlast an hour's window, and each retry spends another call from the same empty pool.
+QUOTA_WAIT_MAX = 60
+
+
+def quota_reset_in(headers, now: Callable[[], float] = time.time) -> float | None:
+    """Seconds until a spent primary limit resets, from a refusal's headers; None when the refusal is no primary
+    limit (X-RateLimit-Remaining is not 0: a secondary limit or a permission refusal)."""
+    try:
+        if str((headers or {}).get("X-RateLimit-Remaining") or "").strip() != "0":
+            return None
+        return max(0.0, float((headers or {}).get("X-RateLimit-Reset") or 0) - now())
+    except (TypeError, ValueError):
+        return None
+
+
 def http_api(method: str, path: str, payload: dict | None = None, *,
-             sleep: Callable[[float], None] = time.sleep, opener=urllib.request.urlopen):
+             sleep: Callable[[float], None] = time.sleep, opener=urllib.request.urlopen,
+             now: Callable[[], float] = time.time):
     """GitHub REST at GITHUB_API_URL with GH_TOKEN (or GITHUB_TOKEN). A refusal that may pass later is retried; the
-    last error is raised with what GitHub said."""
+    last error is raised with what GitHub said. A spent hourly quota raises QuotaSpent at once unless it resets
+    within QUOTA_WAIT_MAX seconds, when it is waited out once."""
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
     token = os.environ.get("GH_TOKEN") or os.environ["GITHUB_TOKEN"]
-    for attempt in range(len(RETRY_WAITS) + 1):
+    waited_reset, attempt = False, -1
+    while True:
+        attempt += 1  # the one wait for a reset does not count as a retry
         request = urllib.request.Request(api + path, method=method,
                                          data=None if payload is None else json.dumps(payload).encode(),
                                          headers={"Authorization": f"Bearer {token}",
@@ -142,6 +186,17 @@ def http_api(method: str, path: str, payload: dict | None = None, *,
             said = (error.read() or b"").decode(errors="replace")[:300]
             after = (error.headers or {}).get("Retry-After") or ""
             limited = error.code == 429 or (error.code == 403 and (after or "rate limit" in said.lower()))
+            reset = quota_reset_in(error.headers, now) if limited else None
+            if reset is not None:
+                if waited_reset or reset > QUOTA_WAIT_MAX:
+                    raise QuotaSpent(f"{method} {path}: HTTP {error.code}: the API quota is spent until "
+                                     f"{time.strftime('%H:%M:%SZ', time.gmtime(now() + reset))}: {said}") from error
+                waited_reset = True
+                print(f"{method} {path}: HTTP {error.code}: the API quota resets in {reset:.0f}s; waiting once",
+                      file=sys.stderr)
+                sleep(reset + 1)
+                attempt -= 1
+                continue
             if not (limited or (error.code >= 500 and method != "POST")) or attempt == len(RETRY_WAITS):
                 raise RuntimeError(f"{method} {path}: HTTP {error.code}: {said}") from error
             wait = min(float(after), 120.0) if after.isdigit() else RETRY_WAITS[attempt]
@@ -150,9 +205,78 @@ def http_api(method: str, path: str, payload: dict | None = None, *,
             sleep(wait)
 
 
+# The client list_comments reads over GraphQL for: the original, so a test that patches http_api with a fake keeps
+# reading the fake.
+REST_CLIENT = http_api
+
+# The comment reads go to GraphQL, a separate hourly pool from REST, as one query a page of 100 (1 point) instead of
+# one REST call a page: upsert reads before it writes and again after the settle wait, so a status write cost three
+# REST calls (read, write, read) and now costs one (the write). Writes stay on REST: they need the numeric id, and
+# a fork's read-only token or a missing permission answers the same way it did.
+COMMENTS_QUERY = """query($owner:String!,$name:String!,$number:Int!,$after:String){
+  repository(owner:$owner,name:$name){issueOrPullRequest(number:$number){
+    ... on PullRequest{comments(first:100,after:$after){pageInfo{hasNextPage endCursor}
+      nodes{fullDatabaseId body author{__typename login}}}}
+    ... on Issue{comments(first:100,after:$after){pageInfo{hasNextPage endCursor}
+      nodes{fullDatabaseId body author{__typename login}}}}}}
+  rateLimit{limit cost remaining used resetAt}}"""
+
+
+def graphql(query: str, variables: dict, *, opener=urllib.request.urlopen) -> dict:
+    """One GitHub GraphQL query with GH_TOKEN (or GITHUB_TOKEN); its `data`. Raises RuntimeError on any error, a
+    rate limit included: the caller falls back to REST."""
+    api = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+    url = os.environ.get("GITHUB_GRAPHQL_URL") or (api[:-len("/v3")] + "/graphql" if api.endswith("/api/v3") else
+                                                    api + "/graphql")
+    token = os.environ.get("GH_TOKEN") or os.environ["GITHUB_TOKEN"]
+    request = urllib.request.Request(url, method="POST", data=json.dumps({"query": query, "variables": variables}).encode(),
+                                     headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+    try:
+        with opener(request, timeout=30) as response:
+            reply = json.loads(response.read() or b"null") or {}
+    except (urllib.error.URLError, OSError, ValueError) as error:
+        raise RuntimeError(f"GraphQL: {type(error).__name__}: {str(error)[:200]}") from error
+    if reply.get("errors") or not isinstance(reply.get("data"), dict):
+        raise RuntimeError(f"GraphQL: {json.dumps(reply.get('errors') or reply)[:300]}")
+    limit = reply["data"].get("rateLimit") or {}
+    note_call({"X-RateLimit-Resource": "graphql", "X-RateLimit-Used": limit.get("used"),
+               "X-RateLimit-Remaining": limit.get("remaining"), "X-RateLimit-Reset": limit.get("resetAt")},
+              "POST", "/graphql")
+    return reply["data"]
+
+
+def graphql_comments(repo: str, pr: int, *, query=graphql) -> list[dict]:
+    """The pull request's (or issue's) comments in REST's shape ({"id", "body", "user": {"login"}}), oldest first,
+    over GraphQL. A bot's login gets REST's "[bot]" suffix, so BOTS matches either."""
+    owner, name = repo.split("/", 1)
+    found, after = [], None
+    while True:
+        data = query(COMMENTS_QUERY, {"owner": owner, "name": name, "number": int(pr), "after": after})
+        page = ((data.get("repository") or {}).get("issueOrPullRequest") or {}).get("comments")
+        if not isinstance(page, dict):
+            raise RuntimeError(f"GraphQL: no comments for {repo}#{pr}")
+        for node in page.get("nodes") or []:
+            author = node.get("author") or {}
+            login = author.get("login") or ""
+            if author.get("__typename") == "Bot" and login and not login.endswith("[bot]"):
+                login += "[bot]"
+            found.append({"id": int(node["fullDatabaseId"]), "body": node.get("body") or "", "user": {"login": login}})
+        info = page.get("pageInfo") or {}
+        if not info.get("hasNextPage"):
+            return found
+        after = info.get("endCursor")
+
+
 def list_comments(api: Api, repo: str, pr: int) -> list[dict]:
+    """The pull request's comments. With the default REST client they are read over GraphQL (graphql_comments), and
+    over REST only when that fails; any other `api` (a test's fake, a caller's own client) is read as before."""
+    if api is REST_CLIENT:
+        try:
+            return graphql_comments(repo, pr)
+        except RuntimeError as error:
+            print(f"pr-status: GraphQL comment read failed, reading over REST: {str(error)[:200]}", file=sys.stderr)
     found, page = [], 1
-    while page <= 30:
+    while True:
         items = api("GET", f"/repos/{repo}/issues/{pr}/comments?per_page=100&page={page}", None) or []
         found += items
         if len(items) < 100:
@@ -342,7 +466,12 @@ def main(argv: list[str] | None = None) -> int:
         key = args.section
         text = None if args.clear else args.body_file.read_text()
         legacy = args.legacy
-    did = upsert(args.repo, args.pr, key, text, legacy=legacy)
+    try:
+        did = upsert(args.repo, args.pr, key, text, legacy=legacy)
+    except QuotaSpent as error:
+        # Infrastructure, not the pull request: the line stays as it was and the next push writes it.
+        print(f"::warning title=pr-status::#{args.pr} {key} not written: {str(error)[:300]}")
+        return 0
     print(f"pr-status: #{args.pr} {key}: {did}")
     return 0
 

@@ -88,7 +88,10 @@ pub fn unattended_cwd_in(acpmux_home: &Path, home: Option<&Path>) -> PathBuf {
     } else {
         std::env::temp_dir().join("acpmux-unattended")
     };
-    if let Err(e) = owner_only_dir(&dir) {
+    // Not made under a lost home (`config::mark_home_lost`): it may be another daemon's now.
+    let made = crate::config::refuse_lost_home(&dir)
+        .and_then(|()| owner_only_dir(&dir).map_err(anyhow::Error::from));
+    if let Err(e) = made {
         tracing::warn!(dir = %dir.display(), "unattended agent folder: {e}");
     }
     dir

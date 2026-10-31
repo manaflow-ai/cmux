@@ -666,6 +666,12 @@ Object.assign(variants, {
       field.scrollIntoView({ block: "center" });
     },
   }),
+  // Settings > Updates with the Update Channel menu open: the menu hugs its rows and lines up with
+  // its trigger, and Check Every reads in hours (settings-select-menu-browser.test.ts measures it).
+  "updates-channel-open": variant("updates", {
+    steps: [click(`${row("updates.channel")} .ui-select-button`), wait(".ui-select-popup .ui-menu-item")],
+    note: "Settings > Updates, the Update Channel menu open over the Check Every row.",
+  }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
   "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),
   "search-results-theme": variant("general", {
@@ -976,6 +982,44 @@ Object.assign(variants, {
       { selector: '[data-harness-update-card="codex"] [data-harness-action="updateCard"]', action: "focus" },
     ],
     note: "Harness health with an in-app Codex update and a separate manual command for an elevated Claude Code install.",
+  }),
+  "agents-harness-sign-in-expired": variant("agents", {
+    harnesses: {
+      loading: false,
+      problem: null,
+      harnesses: [
+        {
+          id: "codex",
+          name: null,
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "0.4.0",
+          latest: "0.4.0",
+          outdated: false,
+          auth: "expired",
+          update: null,
+        },
+        {
+          id: "claude",
+          name: null,
+          kind: "claude-stdio",
+          source: "path",
+          problem: null,
+          version: "2.0.9",
+          latest: "2.0.9",
+          outdated: false,
+          auth: "signedIn",
+          update: null,
+        },
+      ],
+    },
+    steps: [
+      wait('[data-harness="codex"]'),
+      // Scrolls the Codex row into view; the control exists before and after the change.
+      { selector: '[data-harness="codex"] [data-harness-action="check"]', action: "focus" },
+    ],
+    note: "Codex's sign-in expired: Agents gets its badge and the row says Signed out, as for a signed-out harness.",
   }),
   "agents-harness-update-manual": variant("agents", {
     harnesses: {

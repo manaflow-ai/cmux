@@ -26,7 +26,7 @@
   gap: calc(var(--ds-space-1) + 2px);
   box-sizing: border-box;
   min-height: var(--cv-disclosure-line-height);
-  cursor: pointer;
+  cursor: default;
   border-radius: 6px;
   padding: 0 var(--ds-space-1);
 }
@@ -109,4 +109,13 @@
 }
 .cv-disclosure__panel > .cv-disclosure {
   margin: calc(var(--ds-space-1) / 2) 0;
+}
+/* Opened, the line's state reads whole (a lane's error, what it waits on): the panel under it does
+   not repeat it (Leo, ask-486cb2cec3: "why the fuck did you guys ffucking ellipsis EVERYTHING WITH NO
+   WAY TO EXPAND WHAT WAS SAID TO SEE"). */
+.cv-disclosure[data-open] .cv-disclosure__status {
+  flex: 0 1 auto;
+  max-width: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }

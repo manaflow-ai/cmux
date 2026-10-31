@@ -156,6 +156,14 @@ pub(crate) fn row_index(
         .map(|row| row.index))
 }
 
+/// The personal index right after this session's home row (Home stays
+/// first), else 0: the slot of `workspaces.newPlacement` `top`.
+fn below_home(transaction: &Transaction<'_>) -> anyhow::Result<usize> {
+    let Some((_, home)) = super::home_store::live_home(transaction)? else { return Ok(0) };
+    let local = local_registry_id(transaction)?;
+    Ok(row_index(transaction, &local, &home)?.map_or(0, |index| index + 1))
+}
+
 pub(crate) fn all_placements(transaction: &Transaction<'_>) -> anyhow::Result<Vec<Value>> {
     Ok(personal::placement_snapshots(transaction)?
         .into_iter()
@@ -261,15 +269,25 @@ fn apply_personal_change(
 ) -> anyhow::Result<StateChanges> {
     match change {
         PersonalChange::GroupCreate { name, color, collapsed, room, index } => {
+            // A group made with no place (`cmux workspace group create`, MCP,
+            // iOS, the Chief's subagent groups) forms where a new workspace
+            // goes: under `workspaces.newPlacement` `top` (the default) the
+            // first group, right below Home, above the loose rows; else last.
+            let top = index.is_none()
+                && crate::user_settings::NewWorkspacePlacement::current()
+                    == crate::user_settings::NewWorkspacePlacement::Top;
             let group = personal::create_group(
                 tx,
                 room.as_deref(),
                 &name,
                 color.as_deref(),
                 collapsed,
-                index,
+                if top { Some(0) } else { index },
             )
             .map_err(|error| typed(error, "room", room.as_deref().unwrap_or_default()))?;
+            if top {
+                personal::set_group_top(tx, &group.id, Some(below_home(tx)?))?;
+            }
             let value = personal::workspace_group_snapshot(tx, &group.id)?
                 .context("created group vanished")?;
             Ok(StateChanges::new(value, all_groups(tx)?))

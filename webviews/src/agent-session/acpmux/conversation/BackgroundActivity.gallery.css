@@ -1,9 +1,13 @@
 /* Gallery-only surfaces for the background activity placement review. Keep the board token based * so the same fixture is legible in both requested captures without touching app session styles. */ [data-bg-gallery]{--bg-space-1: 1px; --bg-space-2: 2px; --bg-space-3: 3px; --bg-space-5: 5px; --bg-space-6: 6px; --bg-space-7: 7px; --bg-space-8: 8px; --bg-space-9: 9px; --bg-space-10: 10px; --bg-space-12: 12px; --bg-space-13: 13px; --bg-space-14: 14px; --bg-space-16: 16px; --bg-space-18: 18px; --bg-space-20: 20px; --bg-space-22: 22px; --bg-space-25: 25px; --bg-space-42: 42px; --bg-space-150: 150px; --bg-space-188: 188px; --bg-space-280: 280px; --bg-space-540: 540px; --bg-space-980: 980px; --bg-space-580: 580px; --bg-text-caption: var(--text-caption, 11px); --bg-text-detail: var(--text-detail, 12px); --bg-text-body: var(--text-body, 13px); --bg-text-control: var(--text-control, 12px); --bg-text-title: var(--text-title, 15px); --bg-text-heading: var(--text-heading, 17px); --bg: #f6f7f9; --surface: #ffffff; --surface-raised: #ffffff; --surface-muted: #eef1f4; --ink: #18202a; --ink-muted: #5d6876; --ink-faint: #52606f; --line: rgba(24, 32, 42, 0.13); --line-strong: rgba(24, 32, 42, 0.2); --accent: #2267b1; --accent-soft: rgba(34, 103, 177, 0.13); --success: #197144; --success-soft: rgba(25, 113, 68, 0.12); --danger: #b32932; --danger-soft: rgba(179, 41, 50, 0.11); --shadow: var(--elevation-2); box-sizing: border-box; min-height: 100%; padding: var(--bg-space-20); background: var(--bg); color: var(--ink); color-scheme: light; font: var(--bg-text-body) / 1.4 var(--font-ui);}
 [data-bg-gallery][data-mode="dark"]{--bg: #11151c; --surface: #191f28; --surface-raised: #212a35; --surface-muted: #252f3a; --ink: #e7edf4; --ink-muted: #aab7c5; --ink-faint: #8290a1; --line: rgba(231, 237, 244, 0.14); --line-strong: rgba(231, 237, 244, 0.24); --accent: #73b4ff; --accent-soft: rgba(115, 180, 255, 0.15); --success: #70d09b; --success-soft: rgba(112, 208, 155, 0.13); --danger: #ff8c93; --danger-soft: rgba(255, 140, 147, 0.14); --shadow: var(--elevation-2); color-scheme: dark;}
 [data-bg-gallery] *, [data-bg-gallery] *::before, [data-bg-gallery] *::after{box-sizing: border-box;}
+/* The board takes its frame's height and its surface scrolls inside it, as a chat pane does, so nothing
+ * runs off the frame's bottom edge. */
+.bg-gallery[data-bg-gallery]{display: flex; flex-direction: column; height: 100vh; min-height: 0;}
+.bg-gallery > *{flex: 0 1 auto; min-height: 0; overflow: auto;}
 .bg-gallery__shell, .bg-gallery__surface{width: min(100%, var(--bg-space-980)); margin: 0 auto; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow);}
 .bg-gallery__surface{padding: var(--bg-space-18);}
-.bg-gallery__shell{min-height: var(--bg-space-580); overflow: hidden;}
+.bg-gallery__shell{min-height: min(var(--bg-space-580), 100%);}
 .bg-gallery__shell--side{display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 38%);}
 .bg-gallery__shell--compact{display: flex; flex-direction: column; gap: var(--bg-space-14); padding: var(--bg-space-20);}
 .bg-gallery__header{display: flex; align-items: flex-start; justify-content: space-between; gap: var(--bg-space-16); padding-bottom: var(--bg-space-13); border-bottom: 1px solid var(--line);}
@@ -15,16 +19,18 @@
 .bg-gallery__tail-head, .bg-gallery__tail-foot{display: flex; align-items: center; justify-content: space-between; gap: var(--bg-space-12); padding: var(--bg-space-10) var(--bg-space-12);}
 .bg-gallery__tail-head{border-bottom: 1px solid var(--line);}
 .bg-gallery__tail-head strong{display: block; margin-top: 3px; font-size: var(--bg-text-detail); font-weight: 600;}
-.bg-gallery__tail-foot{justify-content: flex-start; border-top: 1px solid var(--line); color: var(--ink-muted); font-size: var(--bg-text-caption);}
+.bg-gallery__tail-foot{flex-wrap: wrap; row-gap: var(--bg-space-6); justify-content: flex-start; border-top: 1px solid var(--line); color: var(--ink-muted); font-size: var(--bg-text-caption);}
 .bg-gallery__follow-dot, .bg-gallery__status-dot{display: inline-block; flex: none; width: var(--bg-space-7); height: var(--bg-space-7); border-radius: 50%; background: var(--success); box-shadow: 0 0 0 3px var(--success-soft);}
 .bg-gallery__tail-body, .bg-gallery__failed pre{max-height: var(--bg-space-188); margin: 0; overflow: auto; padding: var(--bg-space-12); color: var(--ink); font: var(--bg-text-caption) / 1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; tab-size: 2; white-space: pre;}
-.bg-gallery__text-button, .bg-gallery__terminal-button, .bg-gallery__composer button, .bg-gallery__pill{border: 0; color: var(--accent); cursor: pointer; font: inherit;}
-.bg-gallery__text-button, .bg-gallery__terminal-button{padding: var(--bg-space-3) 0; background: transparent; font-size: var(--bg-text-caption); font-weight: 600;}
+.bg-gallery__text-button, .bg-gallery__terminal-button, .bg-gallery__composer button, .bg-gallery__pill{border: 0; color: var(--accent); cursor: default; font: inherit;}
+.bg-gallery__text-button, .bg-gallery__terminal-button{padding: var(--bg-space-3) 0; background: transparent; white-space: nowrap; font-size: var(--bg-text-caption); font-weight: 600;}
 .bg-gallery__terminal-button{margin-left: auto; padding: var(--bg-space-5) var(--bg-space-8); border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface-muted);}
 .bg-gallery__text-button:focus-visible, .bg-gallery__terminal-button:focus-visible, .bg-gallery__pill:focus-visible, .bg-gallery__composer button:focus-visible{outline: 2px solid var(--accent); outline-offset: 2px;}
-.bg-gallery__commands{display: grid; gap: var(--bg-space-1); margin-top: 14px; overflow: hidden; border: 1px solid var(--line); border-radius: 9px;}
+.bg-gallery__commands{display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--bg-space-1); margin-top: 14px; overflow: hidden; border: 1px solid var(--line); border-radius: 9px;}
 .bg-gallery__commands--compact{margin-top: 12px;}
-.bg-gallery__command{display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: var(--bg-space-9); min-width: 0; padding: var(--bg-space-9) var(--bg-space-10); background: var(--surface);}
+/* A row is a <details>: Chromium boxes everything after its <summary> in one ::details-content block, so a
+ * grid here put the output and its controls in the first, 10px column. The row is a block; its summary is the grid. */
+.bg-gallery__command{display: block; min-width: 0; background: var(--surface);}
 .bg-gallery__command[data-command-state="failed"]{background: var(--danger-soft);}
 .bg-gallery__command[data-command-state="failed"] .bg-gallery__status-dot{background: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft);}
 .bg-gallery__command-copy{display: grid; min-width: 0; gap: var(--bg-space-2);}
@@ -59,11 +65,10 @@
 .bg-gallery__side-section{margin-top: 18px;}
 .bg-gallery__side-section > .bg-gallery__eyebrow{margin-bottom: 7px;}
 .bg-gallery__side-panel .bg-gallery__commands{margin-top: 0;}
-.bg-gallery__side-panel .bg-gallery__command{grid-template-columns: 8px minmax(0, 1fr); padding: var(--bg-space-8);}
-.bg-gallery__side-panel .bg-gallery__command-state{grid-column: 2;}
+.bg-gallery__side-panel .bg-gallery__command > summary{grid-template-columns: 8px minmax(0, 1fr) auto auto; padding: var(--bg-space-8);}
 .bg-gallery__side-panel .bg-gallery__done{margin-top: 0;}
 .bg-gallery__failed{margin-top: 7px; border: 1px solid var(--danger-soft); border-radius: 8px; background: var(--danger-soft);}
-.bg-gallery__failed summary{display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; align-items: center; gap: var(--bg-space-7); padding: var(--bg-space-8); cursor: pointer; list-style: none;}
+.bg-gallery__failed summary{display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; align-items: center; gap: var(--bg-space-7); padding: var(--bg-space-8); cursor: default; list-style: none;}
 .bg-gallery__failed summary::-webkit-details-marker{display: none;}
 .bg-gallery__failed summary > span:last-child{color: var(--danger); font-size: var(--bg-text-caption); font-weight: 650; white-space: nowrap;}
 .bg-gallery__failed .bg-gallery__status-dot{background: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft);}
@@ -79,20 +84,18 @@
 @media (max-width: 620px) {[data-bg-gallery]{padding: var(--bg-space-10);}
 .bg-gallery__shell--side{display: block;}
 .bg-gallery__side-panel{border-top: 1px solid var(--line); border-left: 0;}
-.bg-gallery__command{grid-template-columns: 10px minmax(0, 1fr);}
-.bg-gallery__command-state{grid-column: 2;}
-.bg-gallery__tail-foot{flex-wrap: wrap;}
 .bg-gallery__terminal-button{margin-left: 0;}
 }
 
 .bg-gallery__command > summary {
   display: grid;
-  grid-template-columns: 10px minmax(0, 1fr) auto;
+  /* Dot, command, state and the ::after chevron, on one line. */
+  grid-template-columns: 10px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: var(--bg-space-9);
   min-width: 0;
   padding: var(--bg-space-9) var(--bg-space-10);
-  cursor: pointer;
+  cursor: default;
   list-style: none;
 }
 .bg-gallery__command > summary::-webkit-details-marker { display: none; }
@@ -103,9 +106,6 @@
 .bg-gallery__command[data-command-state="failed"] > .bg-gallery__tail-body { color: var(--danger); }
 
 .bg-gallery__text-button:disabled { color: var(--ink-faint); cursor: default; opacity: .8; }
-.bg-gallery__command > summary,
-.bg-gallery__command > pre,
-.bg-gallery__command > .bg-gallery__tail-foot { grid-column: 1 / -1; }
 
 .bg-gallery__shell--compact .bg-gallery__composer { margin-top: 0; }
 .bg-gallery__command[data-command-state="stopped"] { background: var(--surface-muted); }
