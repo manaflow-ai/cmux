@@ -190,3 +190,21 @@ fn vt_fuzz_finding_e2_snapshot_path_probe() {
     let difference = snapshot_difference((20, 5), &e2_ops());
     assert!(difference.is_none(), "E2 snapshot path: {}", difference.unwrap_or_default());
 }
+
+/// E3 (job 0414ac186cbe713b7bea8c43, proptest minimal input): a wide
+/// character at 20x5, autowrap off (CSI ? 7 l), then a resize to 1x1:
+/// `encode_snapshot(Ready)` fails with "invalid value". The daemon's snapshot
+/// attach (`terminal-snapshot-v1`, the macOS app's path) encodes this READY
+/// after every grid change, so a view attached to a 1-column terminal in
+/// this state gets no READY.
+#[test]
+fn vt_fuzz_finding_e3_ready_snapshot_encodes_after_a_resize_to_one_column() {
+    let mut term = Terminal::new(20, 5, SCROLLBACK, Callbacks::default()).unwrap();
+    term.vt_write("\u{4e00}aaa      \0       ".as_bytes());
+    term.vt_write(b"\x1b[?7l");
+    term.resize(1, 1, 8, 16).unwrap();
+    let ready = term.encode_snapshot(SnapshotPhase::Ready);
+    assert!(ready.is_ok(), "E3: READY at 1x1 does not encode: {ready:?}");
+    let complete = term.encode_snapshot(SnapshotPhase::Complete);
+    assert!(complete.is_ok(), "E3: COMPLETE at 1x1 does not encode: {complete:?}");
+}
