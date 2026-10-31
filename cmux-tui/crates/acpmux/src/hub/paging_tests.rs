@@ -462,6 +462,18 @@ fn a_reply_fits_one_message_whatever_holds_its_bytes() {
     );
     assert_eq!(kind["session"], json!({"sessionId": "s", "status": "idle"}));
 
+    // A page counts a record's envelope as written: a kind of NULs is six bytes a character.
+    let nuls = EventRecord {
+        seq: 1,
+        at: 1,
+        dir: "in".into(),
+        kind: format!("claude.{}", "\0".repeat(169)),
+        msg: Value::Null,
+        host_seq: None,
+    };
+    let written = serde_json::to_string(&nuls).unwrap().len();
+    assert!(record_bytes(&nuls) >= written, "{} < {written}", record_bytes(&nuls));
+
     // A reply that fits is left exactly as it is.
     let small =
         json!({"session": {"sessionId": "s"}, "events": [event(1, "a")], "turnOpener": null});

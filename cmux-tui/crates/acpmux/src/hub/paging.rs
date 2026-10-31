@@ -179,10 +179,12 @@ fn is_wire(rec: &EventRecord) -> bool {
     (rec.dir == "in" || rec.dir == "out") && !live_update
 }
 
-/// About what a record adds to a page's JSON: its message plus the envelope
-/// (`sessionId`, `seq`, `at`, `dir`, `kind`).
+/// About what a record adds to a page's JSON: the record as written, escapes and all, plus the
+/// `sessionId` the page adds. An agent names its own kinds, and a kind of 169 NULs is 1 KiB
+/// of JSON: 14,000 such records counted by the kind's length passed as a 4 MiB page and were
+/// more than one message.
 fn record_bytes(rec: &EventRecord) -> usize {
-    serde_json::to_string(&rec.msg).map_or(0, |msg| msg.len()) + rec.kind.len() + 120
+    serde_json::to_string(rec).map_or(0, |json| json.len()) + 120
 }
 
 /// The most JSON one page holds when the caller names no `maxBytes`, and the most it may
@@ -221,6 +223,10 @@ fn fit_sized(mut rec: EventRecord, bytes: usize, bounded: bool) -> (EventRecord,
         return (rec, bytes);
     }
     rec.msg = omitted(bytes);
+    // A kind is an agent's own name for its update, and can be the large part.
+    if rec.kind.len() > ENVELOPE_FIELD_BYTES {
+        rec.kind.clear();
+    }
     let stub = record_bytes(&rec);
     (rec, stub)
 }
