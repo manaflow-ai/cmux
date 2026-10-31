@@ -430,7 +430,7 @@ const driverResult = (config: CloudConfig, state: CloudState, params: unknown, c
   if (l.op === "create" && machine && r.bind_token_sha256) {
     const bind: BindState = { token_sha256: r.bind_token_sha256, expires_at: ctx.now + BIND_TOKEN_TTL_MS, spent: false }
     // The record takes the VM's real size (a provider without `sizing` takes no size at create).
-    return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done, upsertMachine({ ...machine.row, bind, ...(r.resources ? { size: r.resources } : {}) }, machine.n)] }
+    return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done, upsertMachine({ ...machine.row, bind, ...(r.network ? { network: r.network } : {}), ...(r.resources ? { size: r.resources } : {}) }, machine.n)] }
   }
   if (l.op === "create" || !machine) return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done] }
   const tomb: TombstoneRow = { machine: l.machine, deleted_at: ctx.now, revision: String(rev) }
