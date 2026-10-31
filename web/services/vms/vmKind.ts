@@ -74,5 +74,5 @@ export function vmKindForCallerNeedsMembers(row: VmGuestKindRow, callerUserId: s
 
 function callerIsMember(lookup: VmTeamMemberLookup, callerUserId: string): boolean {
   if ("error" in lookup || lookup.memberIds === null) return false;
-  return lookup.memberIds.length === 1 && lookup.memberIds[0] === callerUserId;
+  return lookup.memberIds.includes(callerUserId);
 }
