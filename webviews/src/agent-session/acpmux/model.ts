@@ -1,5 +1,6 @@
 import type { MachineResources } from "./machineResources";
 import type { VideoInfo } from "./composer/videoAttachments";
+import type { AttachmentSource } from "./attachments";
 import type { HarnessIconSpec } from "../shared/harnessIcons";
 import type { ChatUnavailable } from "./chatUnavailable";
 import type { ChatPresence, Participant } from "./multiplayer/participants";
@@ -176,6 +177,8 @@ export type PromptImage = {
   width?: number;
   height?: number;
   src?: string;
+  /// The app it came from (attachments.ts `AttachmentSource`), as acpmux kept it with the prompt.
+  source?: AttachmentSource;
 };
 /// Ordered ACP content. The daemon validates blockIndex/companionOf against the actual blocks.
 /// Local attachment identities and video previews survive echo; companions remain on the wire.
@@ -203,6 +206,7 @@ export type PromptContentPart =
       pageCount?: number;
       uri?: string;
       video?: VideoInfo;
+      source?: AttachmentSource;
     };
 /// A queued prompt's image: `src` is its data URL when the pane has its bytes (it sent them, or
 /// the `queued` record carries them), else the row reads it by `id`. acpmux names an image by the
@@ -623,6 +627,11 @@ export type AcpmuxContextBreakdown = {
   maxTokens: number;
 };
 
+/// A Claude Code chat's plan usage limits as acpmux reports them (claude_stdio `usage_limits`):
+/// `id` is `session` (5 hours), `weekly`, `weekly_opus` or `weekly_sonnet`; `usedPercent` is 0-100;
+/// `resetsAt` is unix seconds, only when Claude Code said when the window resets.
+export type AcpmuxUsageLimits = { windows: { id: string; usedPercent: number; resetsAt?: number }[] };
+
 /// Optional Labs workflow payload. acpmux does not emit this field yet; keeping the wire shape
 /// here gives the future event a typed adapter seam without deriving workflow state from rows.
 export type AcpmuxWorkflowWire = {
@@ -704,7 +713,8 @@ export type AcpmuxSnapshot = {
     baseUrl?: string;
     route?: string;
     settingsSources?: unknown;
-    usageLimits?: string;
+    /// acpmux's structured limits, or a harness's own text for them.
+    usageLimits?: AcpmuxUsageLimits | string;
     /// The model the agent last reported, when the pane draws a pick (`model`) it has not
     /// confirmed yet (harnessSwitch.ts). Unset otherwise: `model` is what it reported.
     confirmedModel?: string;
@@ -753,6 +763,12 @@ export type AcpmuxSnapshot = {
   /// wire to a chat on another machine lists `acp.trust.set` (cx-1bhjj); acpmux never lists it,
   /// so a remote browser still cannot answer.
   answersTrust?: boolean;
+  /// The connection is the app's wire to a chat on the person's OWN Cloud machine: the Cloud API
+  /// said the signed-in caller owns it (`vmKind: "owner"`), and that machine's daemon checks the
+  /// same answer again at each start. A disposable VM of the person's own is its own boundary, so
+  /// Codex and opencode chats send there (remoteEditing.ts). Never set for a team machine,
+  /// another person's computer or a remote browser.
+  ownerCloud?: boolean;
   /// acpmux reconnects a Claude Code chat's failed MCP server for this connection: its `initialize`
   /// lists `_acpmux/mcp/reconnect` (an older acpmux does not), so the Inspector's Connectors offer
   /// Reconnect.
