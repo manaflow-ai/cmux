@@ -124,18 +124,23 @@ fn plan_with_globals(rest: &[String], global: &GlobalArgs) -> Result<Vec<String>
 /// `vm run --sync -- echo --json` would lose the `--` and hand `--json` to
 /// cmux. `None` when the command is not `vm`.
 pub(super) fn split_raw(args: &[String]) -> Option<(GlobalArgs, &[String])> {
-    for (index, word) in args.iter().enumerate() {
+    // `through` ends at each word in turn; `split_at` never exceeds the length.
+    for end in 1..=args.len() {
+        let (through, after) = args.split_at(end);
+        let Some(word) = through.last() else {
+            continue;
+        };
         if word == "--" {
             return None;
         }
         if word != "vm" {
             continue;
         }
-        let Ok((global, command)) = super::parse_globals(&args[..=index]) else {
+        let Ok((global, command)) = super::parse_globals(through) else {
             return None;
         };
         if command.len() == 1 {
-            return Some((global, &args[index + 1..]));
+            return Some((global, after));
         }
         if !command.is_empty() {
             return None;
