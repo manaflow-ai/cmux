@@ -1,10 +1,10 @@
 {
  "id": "r3-e2-reattach",
  "priority": "P1",
- "title": "R3 (h, fuzzer e2): small window with content, grow it, a scroll region and wide text, quit and reopen: the replayed screen equals the daemon's",
- "why": "Lawrence's v2.2.11-opt capture (2026-10-31): grid 297x87 but fit_grid 126x87 in a 2088x1233 view. After a resize the shown terminal must have one size in the app, Ghostty, the PTY and the daemon, and a typed long line must wrap at it. Fuzzer e2 (vt_fuzz_finding_e2, STATUS 1976): after a resize to a larger grid, a scroll region and wide text, the attach replay drew a row 43 columns to the right.",
+ "title": "R3 (h, fuzzer e2): rows ending at the last column with a wide CJK char, an emoji and an invalid UTF-8 byte, then quit and reopen: the replayed screen equals the daemon's",
+ "why": "Lawrence's v2.2.11-opt capture (2026-10-31): grid 297x87 but fit_grid 126x87 in a 2088x1233 view. After a resize the shown terminal must have one size in the app, Ghostty, the PTY and the daemon, and a typed long line must wrap at it. Fuzzer e2 (vt_fuzz_finding_e2, STATUS 2039): the attach replay drew a row with a wide or broken character at the right edge in the wrong place.",
  "source": "cmux-ad P0 2026-10-31 (Lawrence on v2.2.11-opt: resizing terminals is broken); R3 invariant",
- "budget_seconds": 240,
+ "budget_seconds": 200,
  "steps": [
   {
    "do": "smoke_remember_workspaces"
@@ -51,17 +51,17 @@
   },
   {
    "do": "window_place",
-   "title": "set-up: a small window (25% x 30%)",
+   "title": "set-up: the window at 70% x 70% of the screen",
    "fraction": [
     0.05,
     0.05,
-    0.25,
-    0.3
+    0.7,
+    0.7
    ]
   },
   {
    "do": "expect",
-   "title": "the small terminal fits",
+   "title": "baseline: the terminal fits the placed window (R3, settled)",
    "timeout": 15,
    "settle": 1.5,
    "all": [
@@ -79,43 +79,12 @@
   },
   {
    "do": "type",
-   "text": "seq -f 'pre-%02g' 1 8",
-   "enter": true
-  },
-  {
-   "do": "window_drag",
-   "title": "grow the window: drag the corner 900 right, 300 down",
-   "by": [
-    900,
-    300
-   ],
-   "events": 30,
-   "mark": "grow"
-  },
-  {
-   "do": "expect",
-   "title": "the grown terminal fits",
-   "since": "grow",
-   "timeout": 20,
-   "settle": 2,
-   "all": [
-    {
-     "r3_settled": {
-      "pane": "main",
-      "vs": "start",
-      "cols": "wider"
-     }
-    }
-   ]
-  },
-  {
-   "do": "type",
-   "text": "printf '\\033[3;10r\\033[1001;885t\\033]0;e2\\007'; for i in 1 2 3 4 5 6 7 8 9 10 11 12; do printf 'e2-%02d \u6f22\u5b57\u304b\u306a wide \u8868\u793a Nu\\n' $i; done; printf '\\033[r'; echo e2done-${nonce}",
+   "text": "c=$(tput cols); f() { printf '%*s' $((c-$2)) '' | tr ' ' \"$1\"; }; for i in 1 2 3; do f a 2; printf '\\346\\274\\242'; f b 1; printf '\\360\\237\\230\\200'; f c 1; printf '\\377'; f d 1; printf '\\346\\274\\242x'; echo; done; echo e2done-${nonce}",
    "enter": true
   },
   {
    "do": "expect",
-   "title": "the scroll-region output ran",
+   "title": "the edge rows printed",
    "timeout": 15,
    "all": [
     {
