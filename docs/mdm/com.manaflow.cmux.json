@@ -3913,12 +3913,6 @@
       "title" : "Show Timestamps",
       "type" : "boolean"
     },
-    "sidebar.showWorkspaceTabs" : {
-      "default" : false,
-      "description" : "Lists tabs beneath each workspace in the sidebar.",
-      "title" : "Show Workspace Tabs",
-      "type" : "boolean"
-    },
     "sidebar.side" : {
       "default" : "left",
       "description" : "The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar.",
@@ -4655,12 +4649,6 @@
       "title" : "Swap Cmd-T and Cmd-N",
       "type" : "boolean"
     },
-    "tabs.terminalFirst" : {
-      "default" : false,
-      "description" : "New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab.",
-      "title" : "cmux Classic Mode",
-      "type" : "boolean"
-    },
     "tabs.toolbarButtons" : {
       "default" : [
 
@@ -4986,7 +4974,7 @@
       "type" : "number"
     },
     "workspaces.autoArchive.style" : {
-      "default" : "suggest",
+      "default" : "manual",
       "description" : "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them.",
       "enum" : [
         "suggest",
