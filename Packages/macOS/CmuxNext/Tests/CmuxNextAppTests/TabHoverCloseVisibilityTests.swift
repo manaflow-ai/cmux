@@ -6,7 +6,13 @@ import Testing
 /// close target on hover. The unhovered icon keeps its original center;
 /// TabCell uses centersContent to put the replacement close glyph there.
 @MainActor @Suite(.serialized) struct TabHoverCloseVisibilityTests {
-    private let metrics = TabStripMetrics.standard
+    // Fixed narrow fixture: the app's scroll-overflow setting can otherwise
+    // raise the minimum inactive width to the normal icon+close width.
+    private let metrics: TabStripMetrics = {
+        var values = TabStripMetrics.standard
+        values.minInactiveTabWidth = 32
+        return values
+    }()
 
     @Test func pinnedTabsSwapTheirIconForTheCloseOnHover() {
         for style in [TabStripStyle.chrome, .compact] {
