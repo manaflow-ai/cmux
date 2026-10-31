@@ -14,6 +14,10 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     public var model: String?
     /// The page's send: a second call with the same key while one runs is the same send.
     public var key: String
+    /// The folder the copy uploads (the Git working copy that holds ``cwd``, else ``cwd``), set by
+    /// the pane once it checked that folder against its roots too (``AgentPaneHandOff``); nil when
+    /// the page named no folder. The App copies only this folder, never one it finds anew.
+    public var uploadRoot: String?
 
     public init(task: String, cwd: String?, harness: String? = nil, model: String? = nil, key: String) {
         (self.task, self.cwd, self.harness, self.model, self.key) = (task, cwd, harness, model, key)
@@ -33,6 +37,33 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         let cwd = params?["cwd"]
         if let cwd, !((cwd as? String).map { $0.hasPrefix("/") && !$0.contains("\0") && $0.count <= 4096 } ?? false) { return nil }
         self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key)
+    }
+
+    /// The machine's chat tab's creation key: a retry of the same send (its answer was lost after
+    /// the machine's daemon made the tab) gets that tab back, never a second chat with the prompt again.
+    public var tabKey: String { "cloud-start-chat-" + key.lowercased() }
+
+    /// The folder under the machine's work root this send's copy goes to: its own, so a second
+    /// Cloud chat from the same folder never writes over the first one's changes on a reused
+    /// machine (Move to Cloud's sync overwrites every file the machine changed), and a retry of
+    /// the same send lands in the same copy.
+    public var remotePlace: String { "chats/" + key.lowercased() }
+
+    /// The idempotency key of the Cloud machine a send creates: a retry of the same send whose
+    /// create reached the server but lost its answer gets that machine back, never a second VM.
+    public var createKey: String { "cloud-start-chat-" + key.lowercased() }
+
+    /// The folder `cmux link sync push` copies for a chat in `folder`: the nearest folder at or
+    /// above it holding `.git` (a Git working copy's top), else `folder` itself (as
+    /// `CloudMoveFolder` picks it). Reads the disk.
+    public nonisolated static func uploadRoot(of folder: String) -> String {
+        var current = folder
+        while true {
+            if FileManager.default.fileExists(atPath: (current as NSString).appendingPathComponent(".git")) { return current }
+            let parent = (current as NSString).deletingLastPathComponent
+            if parent == current || parent.isEmpty { return folder }
+            current = parent
+        }
     }
 
     /// The seed of the chat on the Cloud machine, in `cwd` (the folder's copy there): the person's
@@ -63,13 +94,49 @@ struct AgentPaneHandOff {
     func cloud(_ start: AgentPaneCloudStart) async -> [String: Any] {
         // The folder is a path on this Mac: a chat on another machine never names one to copy.
         guard let run = model.onCloudStartChat, !model.chatIsElsewhere else { return AgentPaneModel.unsupported("cloud.startChat") }
-        return await held("cloud.startChat") { replacements in
+        // The page names the folder, and its whole tree is copied off this Mac: it must be one of
+        // the pane's own folders (AcpmuxPathPolicy's roots, by canonical path and by components),
+        // never home or above it, as for a chat that starts here. Nil: the App uses the tab's folder.
+        var start = start
+        start.uploadRoot = nil
+        if let cwd = start.cwd {
+            guard let folder = await Self.folderInScope(cwd, transport: model.transport) else {
+                return AgentPaneModel.transportFailure(.pathOutsideRoots)
+            }
+            // What is copied is the Git working copy that holds the folder: it must be in scope too,
+            // so a grant of /repo/project never uploads /repo, its siblings and its history.
+            let root = await Task.detached(priority: .userInitiated) { AgentPaneCloudStart.uploadRoot(of: folder) }.value
+            if root != folder {
+                let checked = await Self.folderInScope(root, transport: model.transport)
+                guard checked == root else { return AgentPaneModel.transportFailure(.pathOutsideRoots) }
+            }
+            start.cwd = folder
+            start.uploadRoot = root
+        }
+        return await held("cloud.startChat") { [start] replacements in
             let reply = await run(start)
             // A chat that started on the machine keeps the hold: this pane never starts one too,
             // also when the App could not close it.
             if reply["ok"] as? Bool != true { replacements.endSandbox() }
             return reply
         }
+    }
+
+    /// `cwd` canonical when it is a folder under one of the pane's roots and not the home folder
+    /// or above it; nil otherwise. The roots are AcpmuxPathPolicy's: the pane's own and the New Tab
+    /// page's scan (which the Send's gesture picks), never home or above it, and the folders the
+    /// person added, as given.
+    static func folderInScope(_ cwd: String, transport: AgentPaneTransport) async -> String? {
+        let roots = transport.roots() + transport.gestureRoots(), granted = transport.addedRoots
+        let home = transport.homeFolder
+        return await Task.detached(priority: .userInitiated) { () -> String? in
+            guard let folder = AcpmuxPathPolicy.canonical(cwd), AcpmuxPathPolicy.isDirectory(folder) else { return nil }
+            let canonicalHome = home.flatMap(AcpmuxPathPolicy.canonical)
+            guard !AgentHome.isHomeOrAbove(folder, home: canonicalHome) else { return nil }
+            let own = roots.compactMap(AcpmuxPathPolicy.canonical).filter { !AgentHome.isHomeOrAbove($0, home: canonicalHome) }
+            let allowed = own + granted.compactMap(AcpmuxPathPolicy.canonical).filter { $0 != "/" }
+            return allowed.contains { AcpmuxPathPolicy.contains(root: $0, path: folder) } ? folder : nil
+        }.value
     }
 
     /// The shared guards, then `body` with the replacements held (it ends the hold).

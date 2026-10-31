@@ -105,6 +105,8 @@ final class CloudService {
     @ObservationIgnored let bringBackRetries = CloudMoveRetries(key: "cmux.cloud.bringBackRetries")
     /// The chats moved from this Mac, for Bring Back Local.
     @ObservationIgnored let movedChats = CloudMovedChats()
+    /// The machine each recent `cloud.startChat` send ran on, so its retry stays there.
+    @ObservationIgnored let startChatDestinations = CloudStartChat.Destinations()
     /// Agents' asks to move their chats, and the cards they raise in chats.
     @ObservationIgnored let moveAsks = CloudMoveAsks()
     @ObservationIgnored let toolCards = AgentToolCards()
@@ -218,6 +220,7 @@ final class CloudService {
             hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: Self.deviceName)
         }
         movedChats.defaults = { [weak self] in self?.move.ledger }
+        startChatDestinations.defaults = { [weak self] in self?.move.ledger }
         moveRetries.defaults = { [weak self] in self?.move.ledger }
         bringBackRetries.defaults = { [weak self] in self?.move.ledger }
         moveAsks.defaults = { [weak self] in self?.move.ledger }
