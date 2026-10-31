@@ -5991,8 +5991,13 @@ export class AcpmuxDirectClient {
     );
     const options = { dropped: (id: string) => dropped.has(id) };
     // The prompt is one acpmux message: past its budget, the largest image previews go as the links
-    // to their saved originals (promptBudget.ts). The bubble and a Retry keep the chips as sent.
+    // to their saved originals (promptBudget.ts). The row and a Retry keep what the prompt carried:
+    // such an image is its original's link, drawn as a file as acpmux's echo and a reload draw it.
     const carried = fitPromptBudget(input, sendAttachments, options);
+    if (carried !== sendAttachments) {
+      const linked = new Map(carried.map((chip) => [chip.id, chip]));
+      attachments = attachments.map((chip) => linked.get(chip.id) ?? chip);
+    }
     const blocks = promptBlocks(input, carried, options);
     const inline = inlinePrompt(input, carried);
     const fileDisplay = inline?.display ?? stripFileDisplay(blocks, carried);
@@ -6041,7 +6046,7 @@ export class AcpmuxDirectClient {
     if (waits) {
       this.queue = [
         ...this.queue.filter((entry) => entry.id !== promptId),
-        queuedEntry(promptId, text, false, true, attachedImages(carried), undefined, undefined, inline?.parts),
+        queuedEntry(promptId, text, false, true, attachedImages(attachments), undefined, undefined, inline?.parts),
       ];
       // A Retry behind the turn waits in the queue: its failed bubble goes.
       this.rows.delete(rowId);
@@ -6056,7 +6061,7 @@ export class AcpmuxDirectClient {
         text,
         ...(pasted.length ? { pasted } : {}),
         ...(inline ? { inlineParts: inline.parts } : {}),
-        ...(attachments.length ? { images: attachedImages(carried), retryAttachments: attachments } : {}),
+        ...(attachments.length ? { images: attachedImages(attachments), retryAttachments: attachments } : {}),
         pending: true,
         delivery,
       });
