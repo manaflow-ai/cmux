@@ -11178,16 +11178,13 @@ function AcpmuxPane() {
                 // A fresh chat on another machine has no summary yet: its connection's origin, or a
                 // folder list its host marked as that machine's, says where it runs.
                 const elsewhere =
-                  remoteChat ||
-                  snapshot.origin === "remote" ||
-                  snapshot.origin === "peer" ||
-                  Boolean(machineFolders);
+                  remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer" || Boolean(machineFolders);
                 const route = startRefusalRoute(action, elsewhere);
                 if (route === "newCloudMachine") connectMachine("cloud");
                 // That machine's folder menu; a menu that is not mounted falls back to the panel's answer.
                 else if (route === "machineFolderMenu") {
-                  if (!openPicker("Location")) chooseWorkspaceFolder();
-                } else chooseWorkspaceFolder();
+                  if (!openPicker("Location")) void chooseWorkspaceFolder();
+                } else void chooseWorkspaceFolder();
               }}
             />
           </Notice>
