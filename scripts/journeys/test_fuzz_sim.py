@@ -363,6 +363,12 @@ class Sim(unittest.TestCase):
         self.assertEqual(report["split_type"]["pass_hold"], 2)
         self.assertTrue(report["log"][-1]["recs"][0]["hold_path"])
 
+    def test_split_type_red_is_counted_on_either_path(self):
+        seq = [{"a": "new_terminal", "t": "slow"}, {"a": "split_type", "t": "slow"}]
+        report, error = run(bugs={"split_keys_to_last"}, seq=seq, shrink=False, actions="layout")
+        self.assertEqual(report["split_type"]["red"], 1)
+        self.assertEqual(report["split_type"]["pass_hold"] + report["split_type"]["pass_not_judged"], 0)
+
     def test_both_lines_in_the_second_pane_is_a_keys_red(self):
         seq = [{"a": "new_terminal", "t": "slow"}, {"a": "split_type", "t": "slow", "down": [False, False]}]
         report, error = run(bugs={"split_keys_to_last"}, seq=seq, shrink=False, actions="layout")

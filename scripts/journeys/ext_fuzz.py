@@ -1023,7 +1023,11 @@ class Fuzz:
         for r in recs:
             if r["a"] == "type_line":
                 problems += (r.get("probe") or {}).get("problems", [])
-            if r.get("split_lines") and not any(p[0] == "create" for p in problems):
+            if r.get("split_lines") and any(p[0] == "create" for p in problems):
+                self.split_stats["played"] += 1  # the splits made no pane: a red on any path
+                self.split_stats["hold"] += 1 if r.get("hold_path") else 0
+                self.split_stats["red"] += 1
+            elif r.get("split_lines"):
                 found = self.split_lines(r)
                 problems += found
                 # n(hold)/n(rounds): a pass counts only on the hold path; a red counts on any path.
@@ -1154,7 +1158,7 @@ def step_fuzz_run(j, step):
     if failure and fz.shrink:
         prefix = failure["sequence"]
 
-        kept, kept_speed = dict(fz.findings), list(fz.speed)
+        kept, kept_speed, kept_split = dict(fz.findings), list(fz.speed), dict(fz.split_stats)
 
         def fails(cand):
             if not fz.left():
@@ -1165,7 +1169,8 @@ def step_fuzz_run(j, step):
                 return None
             return bool(got) and got["oracle"] == failure["oracle"]
         shrunk, tries = ddmin(prefix, fails, fz.left)
-        fz.findings, fz.speed = kept, kept_speed  # the shrink's replays repeat what the run saw: no new samples
+        # The shrink's replays repeat what the run saw: no new samples, findings or split + type counts.
+        fz.findings, fz.speed, fz.split_stats = kept, kept_speed, kept_split
     report = {"seed": fz.seed, "source": fz.source, "diagnostic": fz.diagnostic, "planned": len(fz.sequence),
               "played": played, "seconds": round(D.now() - started, 1), "failure": failure,
               "shrunk": shrunk, "shrink_tries": tries, "budget_out": budget_out, "speed": fz.speed,

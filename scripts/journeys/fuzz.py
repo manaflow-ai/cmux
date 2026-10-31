@@ -348,7 +348,8 @@ def text_of(summary):
     for name, sp in (("build", s.get("split_type") or {}), ("base", s.get("split_type_base") or {})):
         if sp.get("played"):
             lines.append(f"  split + type at once ({name}): n(hold)/n(rounds) = {sp['hold']}/{sp['played']}; red {sp['red']}, "
-                         f"pass on the hold path {sp['pass_hold']}, pass not judged (no key held) {sp['pass_not_judged']}")
+                         f"pass on the hold path {sp['pass_hold']}, pass not judged (no key held) {sp['pass_not_judged']}"
+                         + ("; HOLD PATH NOT PROVEN: no pass of this action is judged" if not sp["hold"] else ""))
     if s["weak_oracles"]:
         lines.append("DIAGNOSTIC (no key window on a slot): weak oracles: " + "; ".join(s["weak_oracles"]))
     for f in s["failures"]:
@@ -549,6 +550,8 @@ def main(argv=None):
     if summary["verdict"] == "CLEAN":
         handoff = Path(opts.handoff)
         handoff.mkdir(parents=True, exist_ok=True)
+        sp = summary.get("split_type") or {}
+        summary["split_type_hold_proven"] = bool(sp.get("hold"))  # TIP RED 1193: a clean run says if it judged a hold
         (handoff / f"{opts.build}.clean").write_text(json.dumps({k: v for k, v in summary.items() if k != "rounds_detail"},
                                                                 indent=1, default=str) + "\n")
         print(f"wrote {handoff / (opts.build + '.clean')}")
