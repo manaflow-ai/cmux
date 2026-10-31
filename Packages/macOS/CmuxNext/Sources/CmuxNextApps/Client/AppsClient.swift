@@ -52,6 +52,8 @@ public final class AppsClient {
     /// Web pane console lines go out one after another, in order.
     @ObservationIgnored var webLogTail: Task<Void, Never>?
     @ObservationIgnored private var listing: Task<Void, Never>?
+    /// File events awaiting the catalog snapshot that describes those files.
+    @ObservationIgnored private var changedFiles: Set<String> = []
     /// The availability epoch the client last connected for (one `connected()` per epoch).
     @ObservationIgnored private var connectedEpoch: Int?
     /// Apps whose log is followed (followed again after a reconnect).
@@ -167,7 +169,7 @@ public final class AppsClient {
             }
         case let .changed(_, app, transaction):
             if let app, let transaction, Self.fileTransactions.contains(transaction) {
-                fileRevisions[app, default: 0] += 1
+                changedFiles.insert(app)
             }
             refresh()
         case let .scene(mountID, ops, reset):
@@ -190,8 +192,20 @@ public final class AppsClient {
         listing?.cancel()
         listing = Task { [weak self, transport] in
             guard let reply = try? await transport.list(), !Task.isCancelled else { return }
-            self?.projection.applyList(reply.apps, revision: reply.revision, request: request)
-            self?.hasList = true
+            guard let self else { return }
+            guard projection.applyList(reply.apps, revision: reply.revision, request: request) else {
+                // A concurrent confirmed mutation made this list stale. Its file events
+                // still need an accepted snapshot before an open pane can reload.
+                if !changedFiles.isEmpty { refresh() }
+                return
+            }
+            hasList = true
+            // A replacement may move the entry or tighten its policy. Publish the file
+            // revision only after its manifest is in the mirror. Cancelled lists leave
+            // these notifications for the next successful snapshot.
+            let changed = changedFiles
+            changedFiles.removeAll()
+            for app in changed { fileRevisions[app, default: 0] += 1 }
         }
     }
 

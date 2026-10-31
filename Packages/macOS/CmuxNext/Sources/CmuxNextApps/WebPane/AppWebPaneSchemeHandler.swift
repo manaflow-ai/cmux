@@ -8,7 +8,7 @@ import WebKit
 /// (``AppWebPane/headers(for:length:)``); any other host, an escaping path or
 /// a missing file fails the request.
 final class AppWebPaneSchemeHandler: NSObject, WKURLSchemeHandler {
-    let pane: AppWebPane
+    var pane: AppWebPane?
     /// Tasks started and not yet answered or stopped; a stopped task must not be answered.
     private var active: Set<ObjectIdentifier> = []
 
@@ -17,7 +17,7 @@ final class AppWebPaneSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
-        guard task.request.httpMethod.map({ $0 == "GET" }) ?? true,
+        guard let pane, task.request.httpMethod.map({ $0 == "GET" }) ?? true,
               let url = task.request.url, let file = pane.file(for: url)
         else {
             task.didFailWithError(URLError(.fileDoesNotExist))
@@ -25,7 +25,6 @@ final class AppWebPaneSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         let id = ObjectIdentifier(task)
         active.insert(id)
-        let pane = pane
         // task-owner: one file read per scheme task; a stopped task is never answered
         Task { @MainActor [weak self] in
             let data = await Self.read(file)

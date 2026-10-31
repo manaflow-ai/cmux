@@ -16,9 +16,10 @@ public import WebKit
 ///   replaced; ``AppsClient/fileRevisions``), the page reloads: hot reload.
 @MainActor
 public final class AppWebPaneView: NSView, WKNavigationDelegate {
-    public let pane: AppWebPane
+    public private(set) var pane: AppWebPane
     let webView: WKWebView
     let bridge: AppWebPaneBridge
+    private let schemeHandler: AppWebPaneSchemeHandler
     private weak var client: AppsClient?
     /// The hot reload watch; dropping it (the view gone, or out of its window) ends it.
     private var reloads: ReloadWatch?
@@ -45,9 +46,10 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
     init(pane: AppWebPane, calls: any AppWebPaneCalls) {
         self.pane = pane
         bridge = AppWebPaneBridge(pane: pane, calls: calls)
+        schemeHandler = AppWebPaneSchemeHandler(pane: pane)
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
-        configuration.setURLSchemeHandler(AppWebPaneSchemeHandler(pane: pane), forURLScheme: AppWebPane.scheme)
+        configuration.setURLSchemeHandler(schemeHandler, forURLScheme: AppWebPane.scheme)
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         configuration.preferences.isElementFullscreenEnabled = false
         // No WebRTC: ICE reaches any STUN or TURN host, which the content policy never sees.
@@ -123,12 +125,25 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
     func filesChanged() {
         hotReloads += 1
         crashReloads = 0
+        webView.stopLoading()
+        if let client {
+            guard let app = client.app(pane.appID), app.isActive,
+                  let bundle = client.bundleDirectory(for: app.id),
+                  let latest = AppWebPane(manifest: app.manifest, bundle: bundle)
+            else {
+                schemeHandler.pane = nil
+                webView.loadHTMLString("", baseURL: nil)
+                return
+            }
+            pane = latest
+            schemeHandler.pane = latest
+        }
         load()
     }
 
     /// Loads the entry page, once the offline rule list is in place.
     private func load() {
-        guard offline, networkClosed else { return }
+        guard offline, networkClosed, schemeHandler.pane != nil else { return }
         webView.load(URLRequest(url: pane.entryURL))
     }
 
