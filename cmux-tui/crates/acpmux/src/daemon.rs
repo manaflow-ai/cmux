@@ -208,7 +208,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Record the held home before any startup write, and start its watcher immediately. The
     // watcher marks a replacement before the later startup and shutdown paths can write there.
     crate::config::hold_home();
-    let startup_home_gone = tokio::spawn(home_watch::watch(owned_home.clone(), None, &home(), &socket_path()));
+    let startup_home_gone =
+        tokio::spawn(home_watch::watch(owned_home.clone(), None, &home(), &socket_path()));
     let _startup_home_watch = AbortOnDrop(startup_home_gone.abort_handle());
     // Gone already (removed between taking the lock and here): stop before the startup makes
     // anything there. A relative home is never watched (it reads as missing from the home cwd),
@@ -753,6 +754,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         Err(_) => {
             tracing::warn!("agents did not stop within {SHUTDOWN_BUDGET:?}; exiting anyway");
             hub.flush();
+            // As a shutdown that ends in time (`Hub::shutdown_all`): no write after this one.
+            hub.seal();
             usize::MAX
         }
     };

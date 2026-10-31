@@ -29,6 +29,12 @@ public final class PageOpenPanel: NSObject, WKUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping @MainActor ([URL]?) -> Void
     ) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let answer = debugAnswer {
+            debugAnswer = nil
+            return completionHandler(answer)
+        }
+        #endif
         // The one file-input path (WebFileInputAnswering), shared with the WebKit browser tab.
         openPanel.answerFileInput(allowsMultipleSelection: parameters.allowsMultipleSelection,
                                   allowsDirectories: parameters.allowsDirectories,
@@ -37,4 +43,10 @@ public final class PageOpenPanel: NSObject, WKUIDelegate {
             completionHandler(urls)
         }
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The files the next file input on a WebKit page takes instead of showing the panel
+    /// (`debug.agent_pane set_files`), as a person's pick there gives them.
+    public var debugAnswer: [URL]?
+    #endif
 }

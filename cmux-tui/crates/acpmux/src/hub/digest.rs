@@ -475,6 +475,15 @@ impl Hub {
 
 /// What one prompt's turn hands the agent messages that join it: its answer, and the queue
 /// entries they left, which go back if it fails.
+/// A turn of agent messages a restart cut and handed to the next daemon: that daemon continues
+/// it with the words of every message that joined it (its `user_message` holds them all,
+/// `restart_resume.rs`), so none goes back to this daemon's queue (`requeue_joined`).
+pub(super) fn forget_joined(joined: Option<&DigestTurn>) {
+    if let Some(joined) = joined {
+        joined.taken.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+}
+
 pub(super) struct DigestTurn {
     pub(super) answer: tokio::sync::watch::Sender<Option<Answer>>,
     taken: StdMutex<Vec<QueuedPrompt>>,
