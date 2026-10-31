@@ -263,6 +263,12 @@ ISOLATED_PRIORITY_SUITES = frozenset((
     "CmuxNextControlTests", "BranchStateResourcesTests", "CLISurfaceParityTests",
 ))
 
+# The priority shard only reorders: the broad pass skips its suites and would run them anyway. Past
+# this many suites its regex stalls swift-testing's filter (cmux#27236's 378 suites, a 9.7 KB
+# `.*(A|B|...)\.`, sat 1500 s in Configuration.TestFilter.apply before any test ran, and the broad
+# pass's matching `--skip` stalled the same way), so a diff that wide gets no priority shard.
+MAX_PRIORITY_SUITES = 40
+
 
 def web_fast(path: str) -> bool:
     """Web sources, their checked bundles, docs: ci-web and the checks job cover them all."""
@@ -943,6 +949,10 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
     graph = load_graph(root)
     tests = {name for name, target in graph["targets"].items() if target["kind"] == "test"}
     result.priority_suites = priority_suites(root, graph, changed)
+    if len(result.priority_suites) > MAX_PRIORITY_SUITES:
+        result.reasons.append(f"{len(result.priority_suites)} changed Swift suites: no priority shard"
+                              f" (over {MAX_PRIORITY_SUITES}, its filter stalls swift-testing)")
+        result.priority_suites = set()
     read = lambda path: any(matches(path, r) for name in tests for r in graph["targets"][name].get("reads", []))  # noqa: E731
     # The fast tiers: a web nit or a CI change lands in minutes. ci-web's bundle --check stands in for
     # the app compile; actionlint, the CI tests and the routing replay check CI changes. A file a Mac
