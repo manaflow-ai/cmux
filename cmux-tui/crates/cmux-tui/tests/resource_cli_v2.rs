@@ -643,7 +643,7 @@ fn stream_commands_validate_and_print_typed_stream_envelopes() {
         let read_half = stream.try_clone_box().unwrap();
         let mut reader = BufReader::new(read_half);
         let mut line = String::new();
-        reader.read_line(&mut line).unwrap();
+        read_public_line(&mut reader, &mut stream, &mut line).unwrap();
         let request: Value = serde_json::from_str(&line).unwrap();
         let request_id = request["id"].clone();
         let stream_id = request["params"]["stream_id"].clone();
@@ -933,7 +933,7 @@ fn journal_subscription_rejects_a_stale_session_before_sending_the_new_envelope(
         let mut reader = BufReader::new(read_half);
         let mut requests = Vec::new();
         let mut line = String::new();
-        if reader.read_line(&mut line).unwrap() != 0 {
+        if read_public_line(&mut reader, &mut stream, &mut line).unwrap() != 0 {
             let request: Value = serde_json::from_str(&line).unwrap();
             requests.push(request.clone());
             let response = if request.get("cmd").and_then(Value::as_str) == Some("identify") {
@@ -965,7 +965,7 @@ fn journal_subscription_rejects_a_stale_session_before_sending_the_new_envelope(
             stream.flush().unwrap();
         }
         line.clear();
-        if reader.read_line(&mut line).is_ok() && !line.is_empty() {
+        if read_public_line(&mut reader, &mut stream, &mut line).is_ok() && !line.is_empty() {
             requests.push(serde_json::from_str(&line).unwrap());
         }
         requests
@@ -1001,7 +1001,12 @@ fn pre_ready_resource_reload_uses_selected_locale() {
     let server = std::thread::spawn(move || {
         let mut stream = listener.accept().unwrap();
         let mut line = String::new();
-        BufReader::new(stream.try_clone_box().unwrap()).read_line(&mut line).unwrap();
+        read_public_line(
+            &mut BufReader::new(stream.try_clone_box().unwrap()),
+            &mut stream,
+            &mut line,
+        )
+        .unwrap();
         let request: Value = serde_json::from_str(&line).unwrap();
         assert_eq!(request["operation"], "session.reload_config");
         let response = json!({
@@ -1052,7 +1057,12 @@ fn pre_ready_resource_reload_json_preserves_server_message() {
     let server = std::thread::spawn(move || {
         let mut stream = listener.accept().unwrap();
         let mut line = String::new();
-        BufReader::new(stream.try_clone_box().unwrap()).read_line(&mut line).unwrap();
+        read_public_line(
+            &mut BufReader::new(stream.try_clone_box().unwrap()),
+            &mut stream,
+            &mut line,
+        )
+        .unwrap();
         let request: Value = serde_json::from_str(&line).unwrap();
         assert_eq!(request["operation"], "session.reload_config");
         let response = json!({
@@ -1110,7 +1120,7 @@ fn journal_subscription_negotiates_then_sends_the_resource_envelope() {
         let mut requests = Vec::new();
 
         let mut line = String::new();
-        reader.read_line(&mut line).unwrap();
+        read_public_line(&mut reader, &mut stream, &mut line).unwrap();
         let identify: Value = serde_json::from_str(&line).unwrap();
         requests.push(identify.clone());
         writeln!(
@@ -1131,7 +1141,7 @@ fn journal_subscription_negotiates_then_sends_the_resource_envelope() {
         stream.flush().unwrap();
 
         line.clear();
-        reader.read_line(&mut line).unwrap();
+        read_public_line(&mut reader, &mut stream, &mut line).unwrap();
         let subscribe: Value = serde_json::from_str(&line).unwrap();
         requests.push(subscribe.clone());
         let stream_id = subscribe["params"]["stream_id"].clone();
@@ -1194,7 +1204,7 @@ fn journal_subscription_sigint_exits_immediately_and_cleanly() {
         let mut reader = BufReader::new(read_half);
 
         let mut line = String::new();
-        reader.read_line(&mut line).unwrap();
+        read_public_line(&mut reader, &mut stream, &mut line).unwrap();
         let identify: Value = serde_json::from_str(&line).unwrap();
         writeln!(
             stream,
@@ -1214,7 +1224,7 @@ fn journal_subscription_sigint_exits_immediately_and_cleanly() {
         stream.flush().unwrap();
 
         line.clear();
-        reader.read_line(&mut line).unwrap();
+        read_public_line(&mut reader, &mut stream, &mut line).unwrap();
         let subscribe: Value = serde_json::from_str(&line).unwrap();
         writeln!(
             stream,
@@ -1231,7 +1241,7 @@ fn journal_subscription_sigint_exits_immediately_and_cleanly() {
         stream.flush().unwrap();
 
         line.clear();
-        let _ = reader.read_line(&mut line);
+        let _ = read_public_line(&mut reader, &mut stream, &mut line);
     });
 
     let mut child = Command::new(bin())
@@ -1314,7 +1324,7 @@ fn fake_resource_cli_with_mode(
         let mut reader = BufReader::new(read_half);
         let mut requests = Vec::new();
         let mut line = String::new();
-        if reader.read_line(&mut line).unwrap() != 0 {
+        if read_public_line(&mut reader, &mut stream, &mut line).unwrap() != 0 {
             let request: Value = serde_json::from_str(&line).expect("CLI sent invalid JSON");
             let id = request["id"].clone();
             let response = match reply {
@@ -1483,4 +1493,26 @@ fn unique_temp_dir(name: &str) -> PathBuf {
 
 fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_cmux-tui")
+}
+
+/// A public CLI connection declares its tab readers before the operation.
+#[cfg(unix)]
+fn read_public_line(
+    reader: &mut impl BufRead,
+    writer: &mut impl Write,
+    line: &mut String,
+) -> std::io::Result<usize> {
+    loop {
+        let read = reader.read_line(line)?;
+        if read == 0 {
+            return Ok(0);
+        }
+        let request: Value = serde_json::from_str(line).unwrap();
+        if request["cmd"] != "set-client-info" {
+            return Ok(read);
+        }
+        writeln!(writer, "{}", json!({"id":request["id"],"ok":true,"data":{}}))?;
+        writer.flush()?;
+        line.clear();
+    }
 }

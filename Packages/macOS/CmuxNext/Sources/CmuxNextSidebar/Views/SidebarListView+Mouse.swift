@@ -162,10 +162,9 @@ extension SidebarListViewComponents {
             model.send(.activateItem(LayoutItemID(item), opensWorkspace: event.modifierFlags.contains(.option)))
         case let .status(section):
             model.toggleStatusSection(section)
-        case let .doneFold(fold):
-            if openDoneFolds.remove(fold) == nil { openDoneFolds.insert(fold) }
-        case let .showMore(list):
-            if openShowMore.remove(list) == nil { openShowMore.insert(list) }
+        case .doneFold, .showMore:
+            _ = SidebarFoldAction(list: self).toggle(press.key)
+            return
         case let .emptyGroup(group):
             // The group's empty row makes a workspace in it, as the header's + does; the new row lays the list out.
             onGroupEditorItem?(group, "workspaceGroup.newWorkspace")
@@ -185,9 +184,8 @@ extension SidebarListViewComponents {
         // F2 renames the active workspace inline.
         if event.keyCode == 120, flags.isEmpty, let active = model.activeWorkspaceID { return inlineRename.begin(.workspace(active)) }
         if event.keyCode == 53 { // Escape
-            if drag != nil { return cancelDrag() }
-            // A held press that has not dragged yet: its release clicks nothing (`endPointerGesture`).
-            if press != nil { return endPointerGesture() }
+            // A held drag or press (a row's or a block item's) ends as a cancel: its release clicks nothing.
+            if escapeSeen() { return }
             if !model.filterText.isEmpty {
                 model.filterText = ""
                 reload(animated: true)

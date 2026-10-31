@@ -9,6 +9,11 @@
 #     --arg MODE --artifact artifacts/ios-sim/evidence.zip
 #
 # MODE:
+#   release-build
+#           CmuxMobileLinkFFI.xcframework, xcodegen, and an unsigned Release app
+#           for generic iOS Simulator, without injected DEBUG or demo conditions.
+#           Compile only: no simulator runtime, install, launch or publication.
+#           Takes no further arguments; retains build logs and evidence.zip.
 #   build   CmuxMobileLinkFFI.xcframework, xcodegen, and the app for the
 #           simulator (Demo: optimized, with the DEBUG developer surface); then
 #           boot one iPhone, install, launch, screenshot.
@@ -39,6 +44,11 @@
 #             --arg shots --arg devices=-cmux-mobile-settings-page,devices \
 #               --arg feed=CMUX_MOBILE_FEED_STRESS=60,-cmux-mobile-tab,feed
 #           Run it at the base and at the head for a PR's before and after.
+#   chief-live-perf / chief-live-perf-baseline
+#           Three Chief layout measurements on one simulator, reusing test
+#           DerivedData. Copy the identical head benchmark test to the baseline
+#           tree; baseline mode selects its original-view adapter.
+#           bench/ retains each log, console output and result bundle.
 #   pair-e2e
 #           build, plus a tagged DEBUG cmux NEXT Mac app built here
 #           (reload.sh), and pairing by its QR code end to end
@@ -48,6 +58,9 @@
 #           the token), the phone's Settings > Devices (a base ref gives
 #           the "before") and its scanner with the camera off; the Mac's
 #           pairing log, hostd's log and paired-devices.json, keys redacted.
+#           Then the upload leg: the phone streams a sparse ~150 MB file (past
+#           the old 100 MiB cap) to the Mac with its own LinkUpload, and the
+#           stored file's size and SHA-256 must match (UploadProbe.swift).
 #
 # Isolation: the step makes its own simulator device set under its checkout
 # (`simctl --set`), so it never lists, boots or deletes another simulator, and
@@ -63,7 +76,10 @@ cmux_next_require_fleet cmux-next-ios-sim.sh "xcodebuild and an iOS simulator" "
   "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg bench --artifact artifacts/ios-sim/evidence.zip"
 
 mode="${1:-build}"
-case "$mode" in build|test|bench|all|pair-e2e|shots) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, test, bench, all, pair-e2e or shots, got '$mode'" >&2; exit 2 ;; esac
+case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|chief-live-perf|chief-live-perf-baseline) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e or shots, got '$mode'" >&2; exit 2 ;; esac
+if [[ "$mode" == release-build && $# -ne 1 ]]; then
+  echo "cmux-next-ios-sim.sh: release-build takes no further arguments" >&2; exit 2
+fi
 scenes=("${@:2}")
 if [[ "$mode" == shots && ${#scenes[@]} -eq 0 ]]; then
   echo "cmux-next-ios-sim.sh: shots needs one or more scenes after it, name=WORD,WORD,..." >&2; exit 2
@@ -112,10 +128,12 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin:$PATH"
 # pinned xcodegen's temp dir and, once made, the simulator device set.
 xcodegen_dir=""
 sims=""
+perf_udid=""
 cleanup() {
+  local result=$?
   # The test iPhones in the default device set, when a step is cut short.
   local d
-  for d in "${test_udid:-}" "${ui_udid:-}"; do
+  for d in "${test_udid:-}" "${ui_udid:-}" "${perf_udid:-}"; do
     [[ -n "$d" ]] || continue
     xcrun simctl shutdown "$d" >/dev/null 2>&1 || true
     xcrun simctl delete "$d" >/dev/null 2>&1 || true
@@ -145,6 +163,16 @@ cleanup() {
     fi
     rm -rf "$mac_dd" || true
   fi
+  if [[ "$mode" == release-build ]]; then
+    # Keep failure evidence too, including FFI or project-generation failures.
+    local log
+    for log in ffi xcodegen build; do
+      if [[ -f "$work/$log.log" ]]; then cp "$work/$log.log" "$out/$log.log" || result=1; fi
+    done
+    note "- exit status: $result" || result=1
+    (cd "$out" && zip -qr evidence.zip . -x evidence.zip) || result=1
+  fi
+  return "$result"
 }
 trap cleanup EXIT
 # A cancelled step gets SIGTERM: exit, so the EXIT trap cleans up.
@@ -180,8 +208,10 @@ fi
 # The simulator runtime and iPhone, chosen before anything is built: the runtime the fleet declares
 # (CMUX_CI_IOS_SIM_RUNTIME, set by the build fleet's controller), else the newest (ios_sim_runtime.py).
 # A host without the declared runtime fails here, with the runtimes it has.
-sim_choice="$(xcrun simctl list -j runtimes devicetypes | python3 -I scripts/ci/ios_sim_runtime.py)" || exit 3
-read -r runtime device_type <<< "$sim_choice"
+if [[ "$mode" != release-build ]]; then
+  sim_choice="$(xcrun simctl list -j runtimes devicetypes | python3 -I scripts/ci/ios_sim_runtime.py)" || exit 3
+  read -r runtime device_type <<< "$sim_choice"
+fi
 
 note "# cmux-next-ios simulator step ($mode)"
 note ""
@@ -252,22 +282,42 @@ if [[ -z "$ffi_how" ]]; then
 fi
 grep -h '^ios-ffi cache:' "$ffi_log" || true
 note "- FFI: $((SECONDS - t0)) s ($ffi_how)"
-(cd cmux-next-ios && "$xcodegen" generate -q)
+(cd cmux-next-ios && "$xcodegen" generate -q) >"$work/xcodegen.log" 2>&1 || {
+  cat "$work/xcodegen.log"; echo "error: xcodegen failed" >&2; exit 1; }
 dd="$work/dd"
 # Demo builds the Swift packages as Release (no DEBUG), so the flood benchmark
 # and terminal demo would be missing; the command-line conditions reach the
 # packages too (verify/terminal-flood.md, Reproducing).
+configuration=Demo
+build_settings=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO')
+if [[ "$mode" == release-build ]]; then
+  configuration=Release
+  build_settings=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO)
+fi
+build_command=(xcodebuild -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration "$configuration"
+  -destination 'generic/platform=iOS Simulator' -derivedDataPath "$dd"
+  CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES
+  "${build_settings[@]}" build)
+if [[ "$mode" == release-build ]]; then
+  printf '%q ' "${build_command[@]}" >"$out/build-command.txt"
+  printf '\n' >>"$out/build-command.txt"
+  note "- configuration: Release; destination: generic/platform=iOS Simulator; signing: disabled"
+  note "- compilation conditions: Release defaults; no injected DEBUG or CMUX_MOBILE_DEMO"
+fi
 set +e
-xcodebuild -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Demo \
-  -destination 'generic/platform=iOS Simulator' -derivedDataPath "$dd" \
-  CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
-  'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO' \
-  build >"$work/build.log" 2>&1
+"${build_command[@]}" >"$work/build.log" 2>&1
 status=$?
 set -e
 grep -E "error:|BUILD (SUCCEEDED|FAILED)" "$work/build.log" | sort -u | head -40 || true
 [[ $status -eq 0 ]] || { tail -40 "$work/build.log"; exit 1; }
-app="$dd/Build/Products/Demo-iphonesimulator/CmuxMobileApp.app"
+app="$dd/Build/Products/$configuration-iphonesimulator/CmuxMobileApp.app"
+if [[ "$mode" == release-build ]]; then
+  [[ -d "$app" ]] || { echo "error: Release app missing at $app" >&2; exit 1; }
+  note "- build: $((SECONDS - t0)) s (FFI + xcodegen + Release simulator app)"
+  ditto -c -k --keepParent "$app" "$out/CmuxMobileApp-Release-simulator.app.zip"
+  note "- compile only: no simulator install or launch, TestFlight upload or publication"
+  exit 0
+fi
 bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")"
 note "- build: $((SECONDS - t0)) s (FFI + xcodegen + Demo simulator app), bundle $bundle_id"
 
@@ -378,6 +428,51 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
   keep_test_logs "$work/ui-test.log" "$work/ui.xcresult" ui
   grep -h "^FAILED:" -A3 "$out/ui-tests-failures.txt" 2>/dev/null || true
   note "- UI tests ${ui_suites[*]}: exit $ui_status, $(cat "$out/ui-tests-counts.txt" 2>/dev/null || echo "no result bundle"), $((SECONDS - t0)) s"
+fi
+
+# --- Chief layout benchmark -------------------------------------------------
+if [[ "$mode" == chief-live-perf || "$mode" == chief-live-perf-baseline ]]; then
+  perf_udid="$(xcrun simctl create "cmux-chief-perf-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
+  perf_flags=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited)')
+  if [[ "$mode" == chief-live-perf-baseline ]]; then
+    perf_flags=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_CHIEF_LIVE_BASELINE')
+  fi
+  note "## Chief live layout ($mode): three runs, one warm-up + three samples per run"
+  note "- harness sha256: $(shasum -a 256 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileChiefTests/ChiefLiveLayoutPerformanceTests.swift | awk '{print $1}')"
+  perf_status=0
+  for run in 1 2 3; do
+    # TEST_RUNNER_ forwards this opt-in to the simulator test process. No
+    # controller env allowlist change is needed: the mode owns the setting.
+    # Keep one simulator and DerivedData for all runs; only the result path varies.
+    set +e
+    (cd cmux-next-ios/CmuxMobileKit && TEST_RUNNER_CMUX_CHIEF_LIVE_PERF=1 xcodebuild test \
+      -scheme CmuxMobileKit-Package -destination "id=$perf_udid,arch=arm64" \
+      -enableCodeCoverage NO -parallel-testing-enabled NO \
+      -only-testing:CmuxMobileChiefTests/ChiefLiveLayoutPerformanceTests \
+      -derivedDataPath "$work/dd-chief-perf" \
+      -resultBundlePath "$out/bench/chief-live-$run.xcresult" \
+      CODE_SIGNING_ALLOWED=NO "${perf_flags[@]}") > "$out/bench/chief-live-$run.log" 2>&1
+    run_status=$?
+    set -e
+    note "- run $run: xcodebuild exit $run_status"
+    if [[ "$run_status" -ne 0 ]]; then
+      tail -60 "$out/bench/chief-live-$run.log"
+      perf_status=$run_status
+      break
+    fi
+    xcrun xcresulttool get log --type console --path "$out/bench/chief-live-$run.xcresult" \
+      > "$out/bench/chief-live-$run-console.log" 2>/dev/null || true
+    if ! grep -h 'CHIEF_LIVE_LAYOUT main_thread_ms_per_1000_tokens=' "$out/bench/chief-live-$run.log" "$out/bench/chief-live-$run-console.log" \
+      > "$out/bench/chief-live-$run.txt"; then
+      note "- ERROR: run $run produced no measurement; a skipped test is not a benchmark pass. See its log and xcresult."
+      perf_status=1
+      break
+    fi
+    cat "$out/bench/chief-live-$run.txt" | tee -a "$summary"
+  done
+  xcrun simctl shutdown "$perf_udid" >/dev/null 2>&1 || true
+  xcrun simctl delete "$perf_udid" >/dev/null 2>&1 || true
+  perf_udid=""
 fi
 
 # --- Benchmarks -------------------------------------------------------------
@@ -537,3 +632,5 @@ cat "$summary"
 if [[ "${test_status:-0}" -ne 0 ]]; then exit "$test_status"; fi
 if [[ "${ui_status:-0}" -ne 0 ]]; then exit "$ui_status"; fi
 if [[ "${pair_status:-0}" -ne 0 ]]; then exit "$pair_status"; fi
+
+if [[ "${perf_status:-0}" -ne 0 ]]; then exit "$perf_status"; fi

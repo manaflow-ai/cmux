@@ -27,6 +27,7 @@ extension AgentTabStore {
     /// send, in the page's folder and agent (nil: the seed's, then a workspace folder there).
     func startRemoteChat(_ key: String, machine: String, cwd: String? = nil, harness: String? = nil, model: String? = nil,
                          personKey: AgentSessionAttachClient.PersonKey? = nil, ownerLink: AgentSessionAttachClient.OwnerLink? = nil,
+                         reconnect: AgentSessionAttachClient.Reconnect? = nil,
                          endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
         if let running = remoteStarts[resolveRemote(key)] { return try await running.value }
@@ -35,7 +36,7 @@ extension AgentTabStore {
         let task = Task<AgentTabRemoteStart.Started, any Error> { [weak self] in
             guard let self else { throw CancellationError() }
             return try await runRemoteStart(key, machine: machine, cwd: cwd, harness: harness, model: model, personKey: personKey,
-                                            ownerLink: ownerLink, endpoint: endpoint)
+                                            ownerLink: ownerLink, reconnect: reconnect, endpoint: endpoint)
         }
         remoteStarts[resolveRemote(key)] = task
         defer { if remoteStarts[resolveRemote(key)] == task { remoteStarts[resolveRemote(key)] = nil } }
@@ -44,6 +45,7 @@ extension AgentTabStore {
 
     private func runRemoteStart(_ key: String, machine: String, cwd chosen: String?, harness chosenHarness: String?, model chosenModel: String?,
                                 personKey: AgentSessionAttachClient.PersonKey?, ownerLink: AgentSessionAttachClient.OwnerLink?,
+                                reconnect: AgentSessionAttachClient.Reconnect?,
                                 endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
         if let pending = remoteCreations[key] ?? remoteCreations[resolveRemote(key)] { _ = try await pending.value() }
@@ -56,10 +58,19 @@ extension AgentTabStore {
         let seed = await remoteSeeds[key]?.peek()
         // Only an absolute folder of that machine (a `~` or relative one is not its path).
         let absolute = { (path: String?) in path.flatMap { $0.hasPrefix("/") ? $0 : nil } }
-        guard let cwd = absolute(chosen) ?? absolute(seed?.cwd) ?? remoteFolder?(key) else {
+        // No folder picked and none in its workspace: that machine's own work folder (`~/work`,
+        // `agent-session-folders`), never a dead end (Leo, 2026-10-31). An older daemon has none.
+        // Its own connection, so the start's owner-checked one is made for the start alone.
+        var fallback = absolute(chosen) ?? absolute(seed?.cwd) ?? remoteFolder?(key)
+        if fallback == nil {
+            let lister = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
+            fallback = try? await lister.folders().work
+            await lister.close()
+        }
+        guard let cwd = fallback else {
             throw AgentRemoteStartRefusal.folderNeeded(machine: machine)
         }
-        let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, endpoint: endpoint)
+        let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, reconnect: reconnect, endpoint: endpoint)
         let result: Result<String, any Error>
         let home = existingView(key)?.model.transport.remoteHomeChosen.contains(cwd) == true // the person's Use Home Folder (cx-1bhjj)
         let harness = chosenHarness ?? seed?.harness
@@ -91,6 +102,13 @@ nonisolated enum AgentTabRemoteStart {
     static let registryPrefix = MachineRegistry.registryHostPrefix
     /// acpmux has 60 s to create the session on its machine (spec), plus the carrier.
     static let timeout: Duration = .seconds(75)
+
+    /// The project list of a chat on another machine: its workspaces' folders, then the folders the
+    /// machine lists itself, each once, in that order.
+    static func folders(listed: [String], machine: [String]) -> [String] {
+        var seen = Set<String>()
+        return (listed + machine).filter { seen.insert($0).inserted }
+    }
 
     struct Started: Sendable, Equatable {
         let surface: UInt64
@@ -133,8 +151,8 @@ nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHostRefusal
             RefusalStrings.format("handlers.refusal.agentRemoteStart.harnessRefused",
                                   "This agent cannot ask before it acts on %@, so it cannot run there from this Mac. Pick another agent.", machine)
         case "agent_session.team_vm_blocked":
-            RefusalStrings.text("handlers.refusal.agentRemoteStart.teamVM",
-                                "Agent chats cannot be started from this Mac on a team VM yet.")
+            RefusalStrings.format("handlers.refusal.agentRemoteStart.teamVM",
+                                  "%@ is a teammate's machine, so its owner starts chats there. Pick your own machine, or create one with New Cloud Machine.", machine)
         case "agent_session.host_unverified":
             RefusalStrings.format("handlers.refusal.agentRemoteStart.hostUnverified",
                                   "%@ could not confirm what kind of Cloud machine it is, so no agent chat starts there.", machine)
@@ -156,7 +174,7 @@ nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHostRefusal
             RefusalStrings.format("handlers.refusal.agentRemoteStart.updateForTrust", "Update cmux on %@ to trust folders from here.", machine)
         case Self.folderNeededCode:
             RefusalStrings.format("handlers.refusal.agentRemoteStart.folderNeeded",
-                                  "Open a terminal in a folder on %@ first; the chat starts there.", machine)
+                                  "%@ has no work folder to start in. Use Choose folder to pick one there.", machine)
         case Self.hostMismatchCode:
             RefusalStrings.text("handlers.refusal.agentRemoteStart.hostMismatch",
                                 "This chat belongs to another machine, so it does not run here.")
