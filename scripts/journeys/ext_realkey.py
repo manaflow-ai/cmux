@@ -252,11 +252,10 @@ def front_pid():
                              timeout=5).stdout if asn else ""
     except (OSError, subprocess.SubprocessError):
         return None
-    for line in out.splitlines():
-        key, sep, value = line.partition("=")
-        if sep and value.strip().strip('"').isdigit():
-            return int(value.strip().strip('"'))
-    return None
+    import re
+    # `lsappinfo info -only pid` prints e.g. `pid = 397 !cgsConnection !signalled ...` (one line, more fields after).
+    found = re.search(r'"?pid"?\s*=\s*(\d+)', out)
+    return int(found.group(1)) if found else None
 
 
 def require_front(j):

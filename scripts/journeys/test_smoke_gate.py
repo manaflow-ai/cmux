@@ -348,6 +348,12 @@ class RealKeySteps(unittest.TestCase):
                 return False, {"effect": "unverifiable"}, {}
 
         self.session = Session()
+        if not hasattr(ext_realkey, "_original_front_pid"):
+            ext_realkey._original_front_pid = ext_realkey.front_pid
+        self.real_front_pid = ext_realkey._original_front_pid
+
+    def tearDown(self):
+        self.rk.front_pid = self.rk._original_front_pid
 
     def journey(self, mode):
         j = type("J", (), {})()
@@ -356,7 +362,7 @@ class RealKeySteps(unittest.TestCase):
         j.marks, j.vars, j.cua_session = {}, {}, self.session
         j.sub = lambda x: x
         j.before_keys = lambda: None
-        self.rk.front_pid = lambda: 7
+        self.rk.front_pid = lambda: 7  # restored in tearDown
         j.step_key = lambda step: {"key": step["key"], "reply": {"handled_by": "app"}}
         j.step_type = lambda step: {"typed": step["text"]}
         return j
@@ -380,6 +386,15 @@ class RealKeySteps(unittest.TestCase):
         self.assertEqual([(t, a.get("key") or a.get("keys")) for t, a in self.sent],
                          [("press_key", "a"), ("hotkey", ["shift", "4"]), ("hotkey", ["shift", "9"]),
                           ("hotkey", ["shift", "b"]), ("press_key", "return")])
+
+    def test_front_pid_reads_lsappinfos_one_line_answer(self):
+        real_run = self.rk.subprocess.run
+        answers = iter(["ASN:0x0-0x9009:\n", "    pid = 397 !cgsConnection !signalled type=[ NULL ]  Arch=!!none \n"])
+        self.rk.subprocess.run = lambda *a, **k: type("R", (), {"stdout": next(answers)})()
+        try:
+            self.assertEqual(self.real_front_pid(), 397)
+        finally:
+            self.rk.subprocess.run = real_run
 
     def test_the_debug_key_mode_says_so(self):
         self.assertEqual(self.ext.step_smoke_key(self.journey("debug"), {"key": "n", "modifiers": ["cmd"]})["key_path"], "debug.key")
