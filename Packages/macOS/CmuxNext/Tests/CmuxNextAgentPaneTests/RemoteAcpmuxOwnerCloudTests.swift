@@ -50,11 +50,19 @@ struct RemoteAcpmuxOwnerCloudTests {
 
     /// The link's owner answer decides, and only through a daemon that serves the owner start.
     @Test func theOwnerAnswerAndTheDaemonDecide() async throws {
-        #expect(RemoteAcpmuxWire.ownerCloud(nil, served: true) == nil)
-        #expect(RemoteAcpmuxWire.ownerCloud({ 7 }, served: false) == nil)
-        let owned = try #require(RemoteAcpmuxWire.ownerCloud({ 7 }, served: true))
+        // Built outside the macros: #require's expansion passes its call's arguments on without
+        // the parameter's @Sendable.
+        let ownerLink: @Sendable () async -> Int? = { 7 }
+        let noOwnerLink: @Sendable () async -> Int? = { nil }
+        let noLink = RemoteAcpmuxWire.ownerCloud(nil, served: true)
+        let unserved = RemoteAcpmuxWire.ownerCloud(ownerLink, served: false)
+        #expect(noLink == nil)
+        #expect(unserved == nil)
+        let ownedAnswer = RemoteAcpmuxWire.ownerCloud(ownerLink, served: true)
+        let owned = try #require(ownedAnswer)
         #expect(await owned())
-        let lost = try #require(RemoteAcpmuxWire.ownerCloud({ nil }, served: true))
+        let lostAnswer = RemoteAcpmuxWire.ownerCloud(noOwnerLink, served: true)
+        let lost = try #require(lostAnswer)
         #expect(await lost() == false)
     }
 }
