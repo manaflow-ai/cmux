@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "build": "4122444305401",
+  "notes": "notes/4122444305401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 29110,
+      "title": "iOS: no blue in chrome (terminal Send, armed keys, diff match bar, lock screen)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29100,
+      "title": "iOS: shipped copy says no \"yet\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29091,
+      "title": "test(ios): frame pacing test floods Ghostty without a main-actor hop per batch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28957,
+      "title": "test(ios): ProbeRaceTests asserts the race's ordering, not wall clock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28198,
+      "title": "Keep working after declining folder trust",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29044,
+      "title": "fuzz(browser): row k browser fuzz harness for Chromium tabs",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29080,
+      "title": "cmux mcp: open tool (file, diff, page placed right/left/below/sticky in one call), tab_move by pane or workspace; tool-evals open-placement cases",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29500,
+      "title": "cmux NEXT: a prompt's attachments never add up past one acpmux message",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29511,
+      "title": "fix(acpmux tests): test threads get the daemon's worker stack",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28861,
+      "title": "NEXT: keep hover actions lit while popups are open (carry #27965)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28613,
+      "title": "Cloud: Codex and opencode chats run on your own Cloud machine",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
