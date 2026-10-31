@@ -50,10 +50,11 @@ public struct Glass {
         cornerRadius: CGFloat = Metrics.panelCornerRadius,
         interactive: Bool = true,
         tone: OverlayTone = .theme,
-        cardFill: Bool = false
+        cardFill: Bool = false,
+        keepsActiveLook: Bool = false
     ) -> OverlaySurfaceView {
         let surface = OverlaySurfaceView(interactive: interactive, cornerRadius: cornerRadius,
-                                         card: tone.style == nil && cardFill, tone: tone)
+                                         card: tone.style == nil && cardFill, tone: tone, keepsActiveLook: keepsActiveLook)
         surface.translatesAutoresizingMaskIntoConstraints = false
         if let content {
             content.translatesAutoresizingMaskIntoConstraints = true
@@ -72,9 +73,10 @@ public struct Glass {
         content: NSView? = nil,
         style: Style = .regular,
         cornerRadius: CGFloat = Metrics.panelCornerRadius,
-        interactive: Bool = false
+        interactive: Bool = false,
+        keepsActiveLook: Bool = false
     ) -> GlassPanelView {
-        let glass = GlassPanelView(style: style, cornerRadius: cornerRadius, interactive: interactive)
+        let glass = GlassPanelView(style: style, cornerRadius: cornerRadius, interactive: interactive, keepsActiveLook: keepsActiveLook)
         glass.translatesAutoresizingMaskIntoConstraints = false
         glass.tintColor = Palette.glassTint
         glass.contentView = content

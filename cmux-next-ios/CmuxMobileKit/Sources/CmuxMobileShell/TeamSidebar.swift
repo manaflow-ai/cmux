@@ -69,6 +69,7 @@ struct TeamSidebar: View {
                 .textInputAutocapitalization(.never)
             Button("Cancel", role: .cancel) { newTeamName = "" }
             Button("Create") { shell.createTeam(named: newTeamName); newTeamName = "" }
+                .keyboardShortcut(.defaultAction)
         } message: {
             Text("Teams share Macs and workspaces.")
         }
@@ -78,6 +79,7 @@ struct TeamSidebar: View {
                 .keyboardType(.URL)
             Button("Cancel", role: .cancel) { inviteLink = "" }
             Button("Join") { shell.joinTeam(inviteLink: inviteLink); inviteLink = "" }
+                .keyboardShortcut(.defaultAction)
         }
     }
 

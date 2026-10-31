@@ -69,7 +69,7 @@ final class NewTabInputCoordinator {
             if incoming != nil { return true }
             guard let pane, pane.view.window === window, !pane.view.isHiddenOrHasHiddenAncestor else { return false }
             guard let key = pane.currentTabKey else { return !shown }
-            if pane.services.agentTabs.isNewTabPage(key) { return true }
+            if pane.services.agentTabs.isNewTabPage(key) || LocalPageTab.page(of: key) == .nativeNewTab { return true }
             return !shown && key == opened
         }
     }
@@ -118,6 +118,11 @@ final class NewTabInputCoordinator {
         // The pane focus had at the opening, when the opening may move focus (a person's, not a script's).
         var focusedAtOpening = ActionRunScope.viewChangeAllowed() ? pane.services.windowController(showing: pane)?.focus.state.pane : nil
         let buffer = NewTabInputBuffer(began: now(), focusField: { [weak pane, weak window] in
+            // The native page (tabs.nativeNewTabPage): its field, once SwiftUI has made it.
+            if let pane, let window, let key = pane.currentTabKey, LocalPageTab.page(of: key) == .nativeNewTab {
+                guard let field = nativeNewTabHost(in: pane.view)?.fieldView, field.window === window else { return false }
+                return window.firstResponder === field || window.makeFirstResponder(field)
+            }
             guard let pane, let window, let key = pane.currentTabKey, pane.services.agentTabs.isNewTabPage(key),
                   let view = pane.services.agentTabs.existingView(key), view.window === window,
                   !view.isHiddenOrHasHiddenAncestor else { return false }
@@ -389,4 +394,11 @@ final class NewTabInputCoordinator {
         guard let window else { return false }
         return buffers[window.windowNumber] != nil
     }
+}
+
+/// The shown native New Tab page under `view`, depth first.
+@MainActor func nativeNewTabHost(in view: NSView) -> NativeNewTabHostingView? {
+    if let host = view as? NativeNewTabHostingView, !host.isHiddenOrHasHiddenAncestor { return host }
+    for subview in view.subviews { if let host = nativeNewTabHost(in: subview) { return host } }
+    return nil
 }
