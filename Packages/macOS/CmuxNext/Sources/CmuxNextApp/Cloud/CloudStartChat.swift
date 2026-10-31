@@ -70,8 +70,19 @@ struct CloudStartChat {
     /// root the pane checked against its roots; for the tab's own folder (no `cwd`), only that folder
     /// itself, never a Git working copy found above it, which no check covered (a tab in
     /// /repo/project never uploads /repo, its siblings and its history).
-    nonisolated static func uploads(_ folder: CloudMoveFolder, as start: AgentPaneCloudStart) -> Bool {
-        guard start.cwd != nil else { return folder.subpath.isEmpty }
+    /// The tab's own folder also never when it is the home folder or above it, by its canonical
+    /// path too (a tab in /Users would copy every home folder's credentials).
+    nonisolated static func uploads(_ folder: CloudMoveFolder, as start: AgentPaneCloudStart,
+                                    home: String? = NSHomeDirectory()) -> Bool {
+        guard start.cwd != nil else {
+            guard folder.subpath.isEmpty else { return false }
+            let canonicalHome = home.flatMap(AcpmuxPathPolicy.canonical) ?? home
+            for path in [folder.root, AcpmuxPathPolicy.canonical(folder.root)].compactMap({ $0 })
+            where AgentHome.isHomeOrAbove(path, home: canonicalHome) || AgentHome.isHomeOrAbove(path, home: home) {
+                return false
+            }
+            return true
+        }
         return start.uploadRoot == folder.root
     }
 

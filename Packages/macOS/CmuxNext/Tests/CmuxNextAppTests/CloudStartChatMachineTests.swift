@@ -170,6 +170,13 @@ struct CloudStartChatMachineTests {
         #expect(!CloudStartChat.uploads(inRepo, as: tabs))
         let atRoot = try #require(CloudMoveFolder(chat: repo.path))
         #expect(CloudStartChat.uploads(atRoot, as: tabs))
+        // Never the home folder or a folder above it (a tab in /Users), whatever `isTooBroad` says.
+        let users = try #require(CloudMoveFolder(chat: "/Users"))
+        #expect(!CloudStartChat.uploads(users, as: tabs, home: "/Users/me"))
+        let home = try #require(CloudMoveFolder(chat: "/Users/me"))
+        #expect(!CloudStartChat.uploads(home, as: tabs, home: "/Users/me"))
+        #expect(!CloudStartChat.uploads(try #require(CloudMoveFolder(chat: "/")), as: tabs, home: "/Users/me"))
+        #expect(CloudStartChat.uploads(atRoot, as: tabs, home: "/Users/me"))
     }
 
     /// The create's key is the send's, so a retry after a lost create answer never makes a second VM.
