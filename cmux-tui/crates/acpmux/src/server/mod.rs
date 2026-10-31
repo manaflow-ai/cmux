@@ -211,6 +211,8 @@ pub struct Conn {
     pub(super) remote_media: media_forward::RemoteMedia,
     /// Requests this daemon sent the client, waiting on its answer (`client_request.rs`).
     client_requests: client_request::ClientRequests,
+    /// Its refused Stops that wait for room (`requests/cancel_refused.rs`).
+    cancel_refusals: Arc<requests::cancel_refused::Waiting>,
 }
 
 // Bound only request handlers that do finite work on behalf of the connection.
@@ -713,6 +715,7 @@ pub async fn listen_unix(hub: Arc<Hub>, path: PathBuf) -> Result<()> {
 /// Bind the daemon socket (mode 0600), refusing to steal a live one.
 #[cfg(unix)]
 pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
+    crate::config::refuse_lost_home(&crate::config::home())?;
     // A configured path longer than sun_path fails here with the path and
     // the limit, never as a bare bind error.
     cmux_unix_socket::check_path(path)?;
@@ -726,8 +729,10 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
         if tokio::net::UnixStream::connect(path).await.is_ok() {
             anyhow::bail!("another acpmux daemon owns {}", path.display());
         }
+        crate::config::refuse_lost_home(&crate::config::home())?;
         std::fs::remove_file(path)?;
     }
+    crate::config::refuse_lost_home(&crate::config::home())?;
     let listener = UnixListener::bind(path).with_context(|| format!("bind {}", path.display()))?;
     #[cfg(unix)]
     {
@@ -1062,12 +1067,12 @@ pub async fn serve_ws_until(
                 pairing::Admitted::Ticket(secret) => {
                     let close = tokio::select! {
                         biased;
-                        () = shutdown.normal() => Some(false),
-                        () = shutdown.closing() => Some(true),
-                        () = pairing::serve_redeem(hub, &mut ws, secret) => None,
+                        () = shutdown.normal() => true,
+                        () = shutdown.closing() => true,
+                        () = pairing::serve_redeem(hub, &mut ws, secret) => false,
                     };
-                    if let Some(restarting) = close {
-                        ws_shutdown::close(&mut ws, restarting).await;
+                    if close {
+                        ws_shutdown::close(&mut ws, shutdown.close_code_restart()).await;
                     }
                     return;
                 }
@@ -1466,6 +1471,7 @@ async fn serve_connection_from(
         },
         remote_media: media_forward::RemoteMedia::default(),
         client_requests: Default::default(),
+        cancel_refusals: Default::default(),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 

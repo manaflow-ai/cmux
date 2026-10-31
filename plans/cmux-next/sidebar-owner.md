@@ -1,5 +1,27 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-30: a workspace row has no second line of its own. Leo, of a row titled "claude-sr2-coord"
+  over "local · claude-sr2-coord": "and yes ofc remove the second line". The compact and comfortable
+  row's second line used to lead with the computer (another machine in the one-list sidebar), its
+  folder, a Cloud stage and the description's first line, whatever `sidebar.workspaceRow` showed. It
+  now holds only the second-line elements the person turned on (none by default), so a default row
+  is one line. The computer stays in the row's machine mark, its hover card and its accessibility
+  label; the description in the hover card; an expanded row keeps its own meta line (computer, stage,
+  pull request). Nothing else about rows changes. Regression: `SidebarNoSecondLineTests`.
+  The comments that described the old line (`SidebarWorkspace.workspaceDescription`,
+  `SidebarLayoutOptions.flattensMachines`) say where the description and the computer show now
+  (653053e21f7, comments only, logged here: no visual change of its own).
+- 2026-10-30: the narrowest sidebar fits its titlebar row. Lawrence: "get rid of this intersect thing",
+  then "not remove glyph but just make min width of sidebar bigger": at the 160 pt minimum the toolbar band's
+  Forward chevron drew over the +. `SidebarModel.minimumWidth` is now the wider of the `sidebarMinWidth`
+  tunable and `SidebarView.titlebarControlsWidth` (the band reserve, the Priority bell while it shows, the +
+  and its trailing inset); the window's layout sets it and a narrower `width`, saved or dragged, clamps up.
+  No glyph is removed; the options chevron still hides first. Regression: `SidebarMinimumWidthTitlebarTests`.
+
+## Link opener placement keeps pane-local relationships (2026-10-30)
+
+- [1cc205d8d16](https://github.com/manaflow-ai/cmux/commit/1cc205d8d16) (carry of #26582): behavior-only opener bookkeeping keeps a tab's opener relationship inside its source pane when placement moves it elsewhere. No sidebar drawing or layout changes; the existing `RightPanePlacementTests` cover placement behavior. Reviewed as `Sidebar-Look: no visual change`.
+
 - 2026-10-30: the "cmux Updated!" card is glass again. Leo: "I don't like the non-glassness". The card is a
   React page over the sidebar whose own CSS glass could not see the sidebar (a flat fill; solid in an opaque
   window through the theme bootstrap's html background). `SidebarUpdatedCardHost` now draws `CardSurfaceView`
@@ -21,6 +43,12 @@
   Default rationale: `sidebar.groupChromeShape` defaults to false, so existing sidebar geometry
   remains unchanged until explicitly enabled. Expanded parent groups retain a rail through their
   nested members; the gallery's Agent fleet group is not an exception.
+
+- 2026-10-30: a Cloud machine that ran and then lost its app link (or whose resume failed) reads "Disconnected" in
+  its header and workspace rows, with the attention tone, instead of "Failed to start" in red.
+  `SidebarMachine.Status.disconnected` is new; "Failed to start" stays for a create or a machine the provider failed.
+  Nothing else about the header changes. Leo 2026-10-29: "a whole lot of this cloud stuff ought to get better...".
+  Regression: `CloudLinkEndedHeaderTests`.
 
 - 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
   pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned

@@ -70,6 +70,10 @@ pub fn mark(env: &mut BTreeMap<String, String>, workspace: Option<&str>) {
 /// [`BASE`] the first time. Ids compare lowercased.
 pub fn display_for(dir: &Path, workspace: &str) -> Result<u32> {
     let workspace = workspace.to_ascii_lowercase();
+    // Check before creating `agent-displays`: a removed home must never be
+    // recreated by the allocation path before its atomic write notices the
+    // lost-home fence.
+    crate::config::refuse_lost_home(dir)?;
     private_dir(dir)?;
     let lock_path = dir.join("lock");
     let lock = open_private(&lock_path)
