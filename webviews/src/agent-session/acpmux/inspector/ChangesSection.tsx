@@ -76,8 +76,12 @@ export function headerStatus(pr: HeaderPullRequest | undefined): Record<string, 
   };
 }
 
-function formatCommentCount(count: number): string {
-  if (count < 10_000) return count.toLocaleString();
+const ABBREVIATE_FROM = 10_000;
+
+/** A row count (lines, comments, failing checks) short enough for a narrow row: 1,284, then 12.3K,
+ *  4.6M ... 9Q. Below 10,000 the number is exact; above it, screen readers get the exact one. */
+export function formatCount(count: number): string {
+  if (count < ABBREVIATE_FROM) return count.toLocaleString();
   const units = ["K", "M", "B", "T", "Q"];
   let value = count;
   let unit = "";
@@ -261,7 +265,7 @@ function PullRequestRow({
             {comments > 0 && (
               <span className="acpmux-chat-inspector-pr__comments">
                 <Icon name="agent.chat" size={12} />
-                <span aria-hidden="true">{formatCommentCount(comments)}</span>
+                <span aria-hidden="true">{formatCount(comments)}</span>
                 <span className="acpmux-chat-inspector-sr-only">
                   {t("chatInspector.changes.comments", { count: comments })}
                 </span>
@@ -269,11 +273,24 @@ function PullRequestRow({
             )}
             {failing !== 0 ? (
               <span className="acpmux-chat-inspector-pr__checks" data-checks="failing">
-                {failing > 0 ? t("chatInspector.changes.failing", { count: failing }) : t("rail.checksFailing")}
+                {failing <= 0 ? (
+                  t("rail.checksFailing")
+                ) : failing < ABBREVIATE_FROM ? (
+                  t("chatInspector.changes.failing", { count: formatCount(failing) })
+                ) : (
+                  <>
+                    <span aria-hidden="true">
+                      {t("chatInspector.changes.failing", { count: formatCount(failing) })}
+                    </span>
+                    <span className="acpmux-chat-inspector-sr-only">
+                      {t("chatInspector.changes.failing", { count: failing })}
+                    </span>
+                  </>
+                )}
                 {onBase > 0 && (
                   <span className="acpmux-chat-inspector-pr__base">
                     {" "}
-                    {t("chatInspector.changes.failingOnBase", { count: onBase })}
+                    {t("chatInspector.changes.failingOnBase", { count: formatCount(onBase) })}
                   </span>
                 )}
               </span>
@@ -342,7 +359,19 @@ function LineTotals({
   breakdown?: Partial<Record<ChangeKind, LineCounts>>;
 }) {
   const t = useT();
-  const counts = <Counts additions={additions} deletions={deletions} />;
+  // Shortened like the comment count, so the comments and checks after it keep their room.
+  const counts = (
+    <Counts
+      additions={additions}
+      deletions={deletions}
+      format={formatCount}
+      label={
+        Math.max(additions, deletions) < ABBREVIATE_FROM ? undefined : (
+          <span className="acpmux-chat-inspector-sr-only">{`+${additions} -${deletions}`}</span>
+        )
+      }
+    />
+  );
   const kinds = KINDS.filter((kind) => breakdown?.[kind]);
   if (kinds.length === 0) return counts;
   return (

@@ -125,11 +125,24 @@ test("abbreviates huge comment counts before trailing checks", async () => {
   const container = installDom();
   const open = pr("manaflow-ai/cmuxterm-hq", 2681);
   await render(container, [open], {
-    [open.url]: { comments: Number.MAX_SAFE_INTEGER, checks: "failing", failing: 3 },
+    [open.url]: {
+      additions: Number.MAX_SAFE_INTEGER,
+      deletions: Number.MAX_SAFE_INTEGER,
+      comments: Number.MAX_SAFE_INTEGER,
+      checks: "failing",
+      failing: Number.MAX_SAFE_INTEGER,
+    },
   });
   const line = container.querySelector(".acpmux-chat-inspector-pr__line")!;
   const comments = line.querySelector(".acpmux-chat-inspector-pr__comments");
   expect(comments?.textContent).toBe("9QComments: 9007199254740991");
+  // The line counts and the failing checks shorten the same way; screen readers get the exact counts.
+  expect(line.querySelector(".acpmux-diff-add")?.textContent).toBe("+9Q");
+  expect(line.querySelector(".acpmux-diff-del")?.textContent).toBe("-9Q");
+  expect(line.querySelector(".acpmux-diff-counts .acpmux-chat-inspector-sr-only")?.textContent).toBe(
+    "+9007199254740991 -9007199254740991",
+  );
+  expect(line.querySelector('.acpmux-chat-inspector-pr__checks [aria-hidden="true"]')?.textContent).toBe("9Q failing");
   // The abbreviated count still sits before the trailing failing checks.
   expect([...line.children].map((child) => child.className).slice(-2)).toEqual([
     "acpmux-chat-inspector-pr__comments",
@@ -175,7 +188,7 @@ test("the title leads, then repo #N, the line counts, the comments, and the fail
 test("a long repository reference gives way before counts and check status", () => {
   const css = readFileSync(new URL("../src/agent-session/acpmux/inspector/inspector.css", import.meta.url), "utf8");
   expect(css).toMatch(
-    /\.acpmux-chat-inspector-pr__ref \{[^}]*flex: 0 1 auto;[^}]*min-width: 0;[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/s,
+    /\.acpmux-chat-inspector-pr__ref \{[^}]*flex: 0 100 auto;[^}]*min-width: 0;[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/s,
   );
   expect(css).not.toMatch(/\.acpmux-chat-inspector-pr__ref \{[^}]*flex: 0 0 auto;/s);
 });

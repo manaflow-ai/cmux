@@ -652,10 +652,11 @@ button.acpmux-chat-inspector-port:hover,
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-/* `repo #N` stays whole (Claude's); the failing checks at the end give way first. */
+/* What gives way in a narrow row, in order: `repo #N` first (its shrink weighs 100x the counts'),
+   then the line counts; the comments and the checks at the trailing edge are never cut. The
+   counts, comments and failing checks are short already (formatCount: 12.3K, 9Q). */
 .acpmux-chat-inspector-pr__ref {
-  /* Long repository names give way to the counts and check status at the trailing edge. */
-  flex: 0 1 auto;
+  flex: 0 100 auto;
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
@@ -664,7 +665,15 @@ button.acpmux-chat-inspector-port:hover,
 }
 .acpmux-chat-inspector-pr__counts,
 .acpmux-chat-inspector-pr__line .acpmux-diff-counts {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+.acpmux-chat-inspector-pr__line .acpmux-diff-counts > * {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .acpmux-chat-inspector-pr__comments {
   flex: none;
@@ -673,10 +682,7 @@ button.acpmux-chat-inspector-port:hover,
   gap: 3px;
 }
 .acpmux-chat-inspector-pr__checks {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: none;
   margin-left: auto;
 }
 .acpmux-chat-inspector-pr__checks[data-checks="failing"] {
