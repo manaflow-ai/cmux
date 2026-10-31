@@ -114,9 +114,11 @@ test("a start that takes two minutes opens the chat at once with the prompt queu
     const screen = newTabScreenActions({
       callNative: (method) => {
         sent.push(method);
+        // fixed-wait: fake timers stand in for a two-minute start; nothing waits on the wall clock.
         if (method === "chat.new") return new Promise((resolve) => setTimeout(() => resolve("session-1"), 120_000));
         // The switch's queue sends the held prompt once its session is up (harnessSwitch.ts).
         if (method === "chat.send")
+          // fixed-wait: fake timers stand in for the queued prompt's delivery.
           return new Promise((resolve) =>
             setTimeout(() => {
               delivered = true;

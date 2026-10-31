@@ -1486,11 +1486,11 @@ export function NewTabScreen(props: Props) {
           </p>
         ) : (
           starting !== undefined && (
-            <p className="acpmux-composer-remote-note" role="status">
+            <output className="acpmux-composer-remote-note">
               {t("switch.starting", {
                 agent: snapshot.catalog.find((entry) => entry.id === starting)?.name ?? starting,
               })}
-            </p>
+            </output>
           )
         )}
         {props.startNotice}

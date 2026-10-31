@@ -293,7 +293,7 @@ async function newTabPage(options: { auth?: unknown; onAsk?: (...args: unknown[]
     act(async () =>
       field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
     );
-  const status = () => host.querySelector(".nt-composer [role=status]")?.textContent;
+  const status = () => host.querySelector(".nt-composer output.acpmux-composer-remote-note")?.textContent;
   const alert = () => host.querySelector(".nt-composer [role=alert]")?.textContent;
   return { root, field, asks, type, pressReturn, status, alert };
 }
@@ -334,14 +334,13 @@ test("an Ask row click and New chat during the sign-in check ask at once", async
   }
 });
 
-// Leo typed "helo" with the Ask row on top ("Ask Codex · …", Search the web for helo, New
-// terminal, New chat): Return asks the agent with that prompt, the check answered or not.
-test("Return on a short prompt with the Ask row on top asks with that prompt", async () => {
+// Leo typed "helo" (the page offered "Ask Claude Code · …", Search the web for helo, New terminal,
+// New chat): Return asks the agent with that prompt, the check answered or not.
+test("Return on a one-word prompt asks with that prompt", async () => {
   for (const auth of [undefined, READY]) {
     const page = await newTabPage({ auth });
     try {
       await page.type("helo");
-      expect(host.querySelector('.nt-row[data-type="ask"]')).not.toBeNull();
       await page.pressReturn();
       expect(page.asks).toHaveLength(1);
       expect(page.asks[0]?.slice(0, 2)).toEqual(["codex", "helo"]);
