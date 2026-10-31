@@ -84,9 +84,14 @@ export default agentPaneEntry({
   ],
   variants: {
     "after-steer": {
-      note: "A reply followed by the person's steer, pointed at: its Copy, Pin, Read aloud row and age under it. The turn's answer keeps its footer.",
+      note: "A reply followed by the person's steer, with the finished turn's Worked for opened and the reply pointed at: its Copy, Pin, Read aloud row and age under it. The turn's answer keeps its footer.",
       snapshot: afterSteer(),
-      play: pointAt("reply-steer"),
+      // A finished turn folds everything before its closing answer, this reply and the steer included.
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-worked.is-toggle" });
+        await ctx.waitFor(() => ctx.document.querySelector('[data-row-id="reply-steer"]'));
+        await pointAt("reply-steer")(ctx);
+      },
     },
     "after-incoming": {
       note: "A reply followed by another agent's message, pointed at: its own row, as Claude desktop draws over “Received message from”.",
