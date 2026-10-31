@@ -54,11 +54,24 @@ final class ApprovalNotificationCaptureUITests: XCTestCase {
             let cell = openNotificationCenter(springboard)
             sleep(2)
             attach(XCUIScreen.main.screenshot(), "banner-\(name)")
-            // Long press on the notification itself (its centre), which opens the long look.
-            cell.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 2.0)
-            sleep(5)
+            note(springboard, "nc-\(name)")
+            // The long look: a long press on the notification (Haptic Touch).
+            cell.press(forDuration: 2.5)
+            sleep(4)
             attach(XCUIScreen.main.screenshot(), "longlook-\(name)")
-            print("CAPTURE-HIERARCHY-\(name)-BEGIN\n\(springboard.debugDescription)\nCAPTURE-HIERARCHY-END")
+            note(springboard, "longlook-\(name)")
+            if name == "light" {
+                // Second way, once: press and hold at the cell's centre a little longer.
+                XCUIDevice.shared.press(.home)
+                sleep(2)
+                let again = openNotificationCenter(springboard)
+                sleep(2)
+                let centre = again.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                centre.press(forDuration: 3.5, thenDragTo: centre)
+                sleep(4)
+                attach(XCUIScreen.main.screenshot(), "longlook2-\(name)")
+                note(springboard, "longlook2-\(name)")
+            }
             // Close the long look and Notification Center.
             XCUIDevice.shared.press(.home)
             sleep(1)
@@ -79,12 +92,21 @@ final class ApprovalNotificationCaptureUITests: XCTestCase {
         let button = springboard.buttons.matching(match).firstMatch
         let cell = button.waitForExistence(timeout: 10)
             ? button : springboard.descendants(matching: .any).matching(match).element(boundBy: 0)
-        print("CAPTURE-CELL \(cell.debugDescription)")
+        note(springboard, "cell", extra: cell.debugDescription)
         if !cell.exists {
             attach(XCUIScreen.main.screenshot(), "no-notification")
             XCTFail("the permission notification is in Notification Center\n\(springboard.debugDescription)")
         }
         return cell
+    }
+
+    /// The element tree, kept with the screenshots.
+    @MainActor
+    private func note(_ app: XCUIApplication, _ name: String, extra: String = "") {
+        let attachment = XCTAttachment(string: extra + "\n" + app.debugDescription)
+        attachment.name = "tree-\(name)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     @MainActor
