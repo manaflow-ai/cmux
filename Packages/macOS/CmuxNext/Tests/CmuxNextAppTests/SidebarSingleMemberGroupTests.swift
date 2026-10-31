@@ -232,6 +232,64 @@ import Testing
         }
     }
 
+    /// Sol review: a collapsed group keeps its active member's row without its tab rows (as on base); the one row of
+    /// such a group lists none either.
+    @Test func aCollapsedOneRowListsNoTabRows() throws {
+        var coord = ws("w-coord", "release-coord")
+        coord.tabs = [SidebarTab(id: TabID("t1"), title: "t1")]
+        let group = SidebarGroup(id: GroupID("g-coord"), name: "release-coord", isCollapsed: true, workspaces: [coord])
+        var options = SidebarLayoutOptions()
+        options.showWorkspaceTabs = true
+        options.activeWorkspaceID = WorkspaceID("w-coord")
+        let layout = SidebarLayout.make(sections: [SidebarSection(kind: .machine(machine), nodes: [.group(group)])], metrics: metrics, options: options)
+        #expect(try #require(layout.row(for: .workspace(WorkspaceID("w-coord")))).standsForGroup)
+        #expect(layout.row(for: .tab(WorkspaceID("w-coord"), TabID("t1"))) == nil, "a collapsed group listed its member's tabs")
+    }
+
+    /// Sol review: a group drag cuts the list into top-level blocks; the one row starts its own group's block (as its
+    /// header did), never joining the open group above it.
+    @Test func aGroupDragCutsTheOneRowIntoItsOwnBlock() throws {
+        let alpha = SidebarGroup(id: GroupID("g-alpha"), name: "Alpha", workspaces: [ws("w-a1", "a1"), ws("w-a2", "a2")])
+        let coord = SidebarGroup(id: GroupID("g-coord"), name: "release-coord", workspaces: [ws("w-coord", "release-coord")])
+        let layout = SidebarLayout.make(sections: [SidebarSection(kind: .machine(machine), nodes: [.group(alpha), .group(coord)])],
+                                        metrics: metrics)
+        let one = try #require(layout.row(for: .workspace(WorkspaceID("w-coord"))))
+        let blocks = SidebarGroupDragPlan.blocks(of: layout.rows)
+        let block = try #require(blocks.first { $0.range.contains(one.y + 1) })
+        #expect(block.head.key == .group(coord.id), "the one row joined \(block.head.key)'s block")
+        #expect(block.head.siblingIndex == 1, "its group's place in the section")
+        #expect(block.nextIndex == 2)
+    }
+
+    /// Sol review: the document drag reads the one row as its group's slot, as it read the header: its top band drops
+    /// before the group, its middle into it, its bottom band after it (out of a nested group too).
+    @Test func aDocumentDropOnTheOneRowGoesBeforeIntoOrAfterTheGroup() throws {
+        var coord = ws("w-coord", "release-coord")
+        coord.tabs = [SidebarTab(id: TabID("t1"), title: "t1")]
+        let group = SidebarGroup(id: GroupID("g-coord"), name: "release-coord", workspaces: [coord])
+        let sections = [SidebarSection(kind: .machine(machine), nodes: [.workspace(ws("w-loose", "loose")), .group(group)])]
+        var options = SidebarLayoutOptions()
+        options.showWorkspaceTabs = true
+        let layout = SidebarLayout.make(sections: sections, metrics: metrics, options: options)
+        let doc = SidebarDocDrag(item: { key in
+            switch key {
+            case let .workspace(id): "w_\(id.rawValue)"
+            case let .group(id): "g_\(id.rawValue)"
+            default: nil
+            }
+        }, section: { _ in "sec" }, begin: { _ in [:] }, drop: { _, _ in })
+        let (geometry, rows) = doc.geometry(layout, width: 240, acceptance: [:])
+        let one = try #require(layout.row(for: .workspace(WorkspaceID("w-coord"))))
+        let tab = try #require(layout.row(for: .tab(WorkspaceID("w-coord"), TabID("t1"))))
+        let span = tab.maxY - one.y // the tab rows are part of the row's slot
+        func target(_ fraction: CGFloat) -> SidebarDocTarget? { geometry.hit(CGPoint(x: 100, y: one.y + span * fraction))?.target }
+        #expect(target(0.1) == SidebarDocTarget(section: "sec", before: "g_g-coord"), "top band: before the group")
+        #expect(target(0.5) == SidebarDocTarget(section: "sec", parent: "g_g-coord"), "middle: into the group")
+        #expect(target(0.9) == SidebarDocTarget(section: "sec", after: "g_g-coord"), "bottom band: after the group")
+        let hit = try #require(geometry.hit(CGPoint(x: 100, y: one.y + span / 2)))
+        #expect(rows[hit.slot.key].map { SidebarDocDrag.display(hit, row: $0) } == .intoGroup(group.id), "the drop look fills the group")
+    }
+
     /// Sol review: opening a folded same-named single-member group draws its one row, as a full layout does (the
     /// fold's splice assumes a header over member rows, so it leaves this group to the full layout).
     @Test func openingAFoldedSameNameGroupMatchesAFullLayout() throws {
