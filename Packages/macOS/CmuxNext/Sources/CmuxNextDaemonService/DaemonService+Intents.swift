@@ -36,8 +36,14 @@ extension DaemonService {
             }
         }
         store.intend(intent, transaction: transaction)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let held = creationHold.creationStarted(label)
+        #endif
         return { [self] in do {
             let value = try await body(connection)
+            #if DEBUG || CMUX_BENCH_HOOKS
+            await creationHold.replied(held) // a test's held creation reply (debug.creation.hold)
+            #endif
             // Every event the daemon emitted before the reply. Nil when the
             // connection is gone: no event will come on it, and the next
             // connection's first snapshot holds the result.
