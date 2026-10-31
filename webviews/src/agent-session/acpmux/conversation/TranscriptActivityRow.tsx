@@ -1,4 +1,4 @@
-import type { ReactNode, Ref } from "react";
+import type { MouseEventHandler, ReactNode, Ref } from "react";
 import { ChevronRight } from "./icons";
 import { AgentTag } from "./AgentTag";
 import "./TranscriptActivityRow.css";
@@ -17,7 +17,6 @@ export function TranscriptActivityRow({
   children,
   attributes,
   headerRef,
-  onClick,
   expanded = false,
 }: {
   icon: ReactNode;
@@ -82,12 +81,13 @@ export function TranscriptActivityRowShell({
   className,
   attributes,
   headerRef,
+  onClick,
 }: {
   children: ReactNode;
   className?: string;
   attributes?: Record<string, string | undefined>;
   headerRef?: Ref<HTMLDivElement>;
-  onClick?(): void;
+  onClick?: MouseEventHandler<HTMLDivElement>;
 }) {
   return (
     <div
