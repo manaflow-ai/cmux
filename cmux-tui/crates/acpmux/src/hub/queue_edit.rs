@@ -307,7 +307,7 @@ impl Hub {
         };
         let mut msg = json!({"promptId": prompt_id, "turnId": turn_id, "text": text, "prompt": run.blocks, "control": run.control.as_str(), "trustGate": run.trust_gate});
         // Its images, kept and named as `queued` names them (`prompt_images.rs`).
-        let images = super::prompt_images::keep(&run.blocks);
+        let images = super::prompt_images::keep_sourced(&run.blocks, run.display_parts.as_ref());
         if !images.is_empty() {
             msg.set("images", Value::Array(images));
         }
