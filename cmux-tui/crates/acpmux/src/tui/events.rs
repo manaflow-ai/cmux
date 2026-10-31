@@ -234,7 +234,28 @@ impl App {
                 t.mode = detail.get("currentModeId").and_then(Value::as_str).map(str::to_owned);
                 t.model = detail.get("model").and_then(Value::as_str).map(str::to_owned);
                 self.details.insert(id.clone(), detail);
+                self.history_more.insert(id.clone(), has_more);
                 self.transcripts.insert(id, t);
+            }
+            AppMsg::Older { id, events, has_more } => {
+                self.history_in_flight.remove(&id);
+                self.history_more.insert(id.clone(), has_more);
+                if let Some(t) = self.transcripts.get_mut(&id) {
+                    let added = t.prepend_events(&events);
+                    if let Some(v) = self.viewport.get_mut(&id) {
+                        v.offset = v.offset.saturating_add(added);
+                    }
+                    self.follow_removed_rows(&id);
+                    self.status = if has_more {
+                        "loaded earlier history; scroll up for more".into()
+                    } else {
+                        "loaded all available history".into()
+                    };
+                }
+            }
+            AppMsg::OlderFailed { id, error } => {
+                self.history_in_flight.remove(&id);
+                self.status = format!("earlier history failed: {error}");
             }
             AppMsg::RecoveryFailed { id, after_seq, error } => {
                 self.recovery_pages.remove(&id);

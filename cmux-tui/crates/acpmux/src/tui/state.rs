@@ -151,6 +151,15 @@ pub enum AppMsg {
         has_more: bool,
         last_seq: u64,
     },
+    Older {
+        id: String,
+        events: Vec<Value>,
+        has_more: bool,
+    },
+    OlderFailed {
+        id: String,
+        error: String,
+    },
     /// A recovery attach failed.  Keeping this distinct from an ordinary
     /// request error lets the UI clear the in-flight guard and report that a
     /// manual recovery is required.
