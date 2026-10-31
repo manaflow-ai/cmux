@@ -26845,6 +26845,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "accounts github-connect",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "accounts.githubConnect",
+      "main_menu" : null,
+      "mcp" : "credentials",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Connect GitHub",
+      "title_key" : "action.accounts.githubConnect",
+      "title_table" : "AccountsActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "accounts show",
       "context_menu" : "noObject",
       "context_menus" : [
