@@ -64,8 +64,30 @@ import Testing
         )
         #expect(category == .listenerNotRunning(host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort))
         #expect(category.analyticsReason == "listener_not_running")
-        #expect(category.message.lowercased().contains("cmux"))
+        #expect(category.message.contains("100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"))
         #expect(category.guidance != nil)
+    }
+
+    /// A running 0.65 Mac pairs over Iroh only and refuses TCP on its pairing
+    /// port. The phone must not tell the user that cmux is closed or pairing
+    /// is off; it names the address it tried and the Iroh way out.
+    @Test func refusedTailscaleRouteDoesNotClaimCmuxIsClosed() throws {
+        let category = MobilePairingFailureCategory.classify(
+            error: CmxNetworkByteTransportError.connectionFailed("refused", .connectionRefused),
+            route: try route(host: "100.88.12.34", port: 58465)
+        )
+        #expect(!category.message.localizedCaseInsensitiveContains("isn't running"))
+        #expect(!category.message.localizedCaseInsensitiveContains("pairing is off"))
+        #expect(category.message.contains("100.88.12.34:58465"))
+        let guidance = try #require(category.guidance)
+        #expect(guidance.contains("QR code"))
+        #expect(guidance.contains("Iroh"))
+    }
+
+    @Test func refusedConnectionWithoutAddressStillExplainsThePort() {
+        let category = MobilePairingFailureCategory.listenerNotRunning(host: nil, port: nil)
+        #expect(!category.message.localizedCaseInsensitiveContains("isn't running"))
+        #expect(category.message.localizedCaseInsensitiveContains("port"))
     }
 
     @Test func permissionDeniedMapsToLocalNetworkBlocked() throws {
