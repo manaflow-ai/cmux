@@ -61,7 +61,7 @@ public struct MonogramAvatar: Hashable, Sendable {
         return NSImage(size: NSSize(width: side, height: side), flipped: true) { r in
             NSBezierPath(ovalIn: r).addClip()
             NSGradient(starting: colors.top, ending: colors.bottom)?.draw(in: r, angle: 90)
-            let font = NSFont.systemFont(ofSize: side * (initials.count > 1 ? 0.4 : 0.46), weight: .medium)
+            let font = HomeFonts.system(ofSize: side * (initials.count > 1 ? 0.4 : 0.46), weight: .medium)
             let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.white]
             let size = (initials as NSString).size(withAttributes: attrs)
             (initials as NSString).draw(at: CGPoint(x: r.midX - size.width / 2, y: r.midY - size.height / 2), withAttributes: attrs)
