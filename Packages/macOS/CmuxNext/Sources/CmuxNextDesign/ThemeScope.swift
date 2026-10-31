@@ -243,7 +243,8 @@ public final class ThemeScope {
     // action runs; a main-actor deinit's hop traps there (cx-t7hu).
     nonisolated deinit {}
 
-    private init(root store: ThemeStore) {
+    /// A root scope on `store` (``app`` for the app's store; tests root a tree on their own store).
+    init(root store: ThemeStore) {
         level = .config
         self.store = store
         input = store.input
