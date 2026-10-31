@@ -87,6 +87,20 @@ import Testing
         #expect(result["tab"] == "tab-own")
     }
 
+    @Test(arguments: [false, true]) func focusPreferenceBelongsToItsWorkspace(inCallerWorkspace: Bool) async throws {
+        var snapshot = Self.snapshot()
+        snapshot.topology.workspaces[0].sessionID = "session-remote"
+        snapshot.topology.workspaces[1].screens[0].panes[1].selectedTabID = "tab-own"
+        snapshot.topology.workspaces[1].screens[0].panes.append(Self.pane("pane-farther", column: 3, [Self.browser("tab-front")]))
+        if inCallerWorkspace {
+            snapshot.topology.focus = ControlFocus(windowID: "win-b", workspaceID: "ws-agent", paneID: "pane-farther", tabID: "tab-front")
+        }
+        let (router, executor) = install(snapshot)
+        #expect(try await state(router, caller: Self.agent).get()["tab"] == .string(inCallerWorkspace ? "tab-front" : "tab-own"))
+        _ = try await router.handle(ControlRequest(method: "action.run", params: ["action": "browserReload", "caller": Self.agent])).get()
+        #expect(executor.last?.target == ControlTargetRef(kind: "pane", id: inCallerWorkspace ? "pane-farther" : "pane-beside"))
+    }
+
     @Test func withoutOneInItsWorkspaceItTakesTheSameGroupThenTheWindowNeverTheOtherWindow() async throws {
         let (router, _) = install(Self.snapshot(ownBrowser: false))
         #expect(try await state(router, caller: Self.agent).get()["tab"] == "tab-near")
