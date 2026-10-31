@@ -141,16 +141,24 @@ use loom::sync::atomic::{AtomicBool, Ordering};
 use loom::thread;
 use loom_arc::Arc;
 
-fn explore(model: impl Fn() + Sync + Send + 'static) {
-    explore_bounded(3, model);
-}
-
-/// Two accept loops that each run a full reclaim pass do not finish at bound 3
-/// within 25 min (job 8af2d10a): that model runs at bound 2.
-fn explore_bounded(bound: usize, model: impl Fn() + Sync + Send + 'static) {
+/// Runs `model` in every interleaving loom allows at preemption bound `bound`,
+/// then prints the iteration count and the time: the run log shows each model's
+/// size, so a model near the job's time limit is named before it passes it.
+fn explore_bounded(name: &str, bound: usize, model: impl Fn() + Sync + Send + 'static) {
+    static ITERATIONS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    ITERATIONS.store(0, std::sync::atomic::Ordering::Relaxed);
+    let started = std::time::Instant::now();
     let mut builder = loom::model::Builder::new();
     builder.preemption_bound = Some(bound);
-    builder.check(model);
+    builder.check(move || {
+        ITERATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        model();
+    });
+    println!(
+        "loom model {name}: {} iterations in {:.1} s at preemption bound {bound}",
+        ITERATIONS.load(std::sync::atomic::Ordering::Relaxed),
+        started.elapsed().as_secs_f64()
+    );
 }
 
 /// A claim as the accept loop makes it (`bounded_outbound.rs`
@@ -177,7 +185,7 @@ fn check_drained(stats: &ConnectionStats) {
 
 #[test]
 fn concurrent_claims_never_pass_the_limit() {
-    explore(|| {
+    explore_bounded("concurrent_claims", 3, || {
         let limit = 2;
         let stats = Arc::new(ConnectionStats::new());
         let threads: Vec<_> = (0..3)
@@ -201,35 +209,36 @@ fn concurrent_claims_never_pass_the_limit() {
     });
 }
 
+/// Two accept loops reclaim one hung-up slot at once: it is taken back once.
+///
+/// The model is the reclaim pass alone (`reclaim_hung_up`, which `try_claim`
+/// calls at the limit), not two whole claims: the two-claim model did not end
+/// at bound 3 in 25 min (job 8af2d10a), and the claim's own steps (the active
+/// count, the peak, the new lease) are covered by the other two models. The
+/// race needs one preemption: loop A passes the peer check and takes a pool
+/// place, B runs its whole pass on the same lease, then A's compare-exchange
+/// on `hung_up` must fail and give its pool place back. Bound 3 covers that
+/// and two more switches (A back to B, B back to A).
 #[test]
 fn two_accept_loops_take_back_one_hung_up_slot_once() {
-    explore_bounded(2, || {
+    explore_bounded("two_reclaim_passes", 3, || {
         let limit = 1;
         let stats = Arc::new(ConnectionStats::new());
-        let closed = Arc::new(AtomicBool::new(false));
-        let peer: PeerClosed = {
-            let closed = closed.clone();
-            Box::new(move || closed.load(Ordering::SeqCst))
-        };
-        let first = claim(&stats, limit, Some(peer)).expect("an empty session serves");
-        // The client hangs up; its thread (this lease) still runs.
-        closed.store(true, Ordering::SeqCst);
-        let threads: Vec<_> = (0..2)
+        // The client already hung up: the peer check is a constant, so loom
+        // spends no state on it.
+        let first = claim(&stats, limit, Some(Box::new(|| true))).expect("an empty session serves");
+        let passes: Vec<_> = (0..2)
             .map(|_| {
                 let stats = stats.clone();
-                thread::spawn(move || {
-                    let lease = claim(&stats, limit, None);
-                    check_bounds(&stats, limit);
-                    lease
-                })
+                thread::spawn(move || stats.reclaim_hung_up(limit))
             })
             .collect();
-        let leases: Vec<_> = threads.into_iter().map(|t| t.join().unwrap()).collect();
-        let served = leases.iter().filter(|l| l.is_some()).count();
-        assert_eq!(served, 1, "one hung-up slot served {served} clients");
-        assert!(first.is_hung_up(), "the served client did not take the hung-up slot");
-        assert_eq!(stats.reclaimed.load(Ordering::SeqCst), 1, "the slot was taken back twice");
-        drop(leases);
+        let freed: u64 = passes.into_iter().map(|t| t.join().unwrap()).sum();
+        assert_eq!(freed, 1, "one hung-up slot was taken back {freed} times");
+        assert!(first.is_hung_up(), "the slot was freed but the lease does not know");
+        assert_eq!(stats.active.load(Ordering::SeqCst), 0, "the slot did not come back");
+        assert_eq!(stats.hung_up.load(Ordering::SeqCst), 1, "the hung-up pool miscounted");
+        assert_eq!(stats.reclaimed.load(Ordering::SeqCst), 1, "reclaimed miscounted");
         drop(first);
         check_drained(&stats);
     });
@@ -237,7 +246,7 @@ fn two_accept_loops_take_back_one_hung_up_slot_once() {
 
 #[test]
 fn a_lease_dropped_during_its_reclaim_frees_one_place() {
-    explore(|| {
+    explore_bounded("lease_dropped_during_reclaim", 3, || {
         let limit = 1;
         let stats = Arc::new(ConnectionStats::new());
         let closed = Arc::new(AtomicBool::new(true));

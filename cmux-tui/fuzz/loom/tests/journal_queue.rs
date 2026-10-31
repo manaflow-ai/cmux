@@ -35,10 +35,24 @@ use loom::sync::atomic::{AtomicBool, Ordering};
 use loom::sync::{Arc, Condvar, Mutex};
 use loom::thread;
 
-fn explore(model: impl Fn() + Sync + Send + 'static) {
+/// Runs `model` in every interleaving loom allows at preemption bound `bound`,
+/// then prints the iteration count and the time: the run log shows each model's
+/// size, so a model near the job's time limit is named before it passes it.
+fn explore_bounded(name: &str, bound: usize, model: impl Fn() + Sync + Send + 'static) {
+    static ITERATIONS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    ITERATIONS.store(0, std::sync::atomic::Ordering::Relaxed);
+    let started = std::time::Instant::now();
     let mut builder = loom::model::Builder::new();
-    builder.preemption_bound = Some(2);
-    builder.check(model);
+    builder.preemption_bound = Some(bound);
+    builder.check(move || {
+        ITERATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        model();
+    });
+    println!(
+        "loom model {name}: {} iterations in {:.1} s at preemption bound {bound}",
+        ITERATIONS.load(std::sync::atomic::Ordering::Relaxed),
+        started.elapsed().as_secs_f64()
+    );
 }
 
 /// A queued event's completion (`JournalIngressCompletion`): the writer
@@ -216,7 +230,7 @@ fn background(id: u32) -> Event {
 
 #[test]
 fn producers_waiting_for_space_are_woken_and_every_event_lands_once() {
-    explore(|| {
+    explore_bounded("producers_woken", 2, || {
         let state = State::new(1);
         let producers: Vec<_> = (1..=2u32)
             .map(|id| {
@@ -247,7 +261,7 @@ fn producers_waiting_for_space_are_woken_and_every_event_lands_once() {
 /// committed.
 #[test]
 fn closing_admission_answers_a_waiting_producer() {
-    explore(|| {
+    explore_bounded("close_answers_waiter", 2, || {
         let state = State::new(1);
         // The queue is full: the producer must wait for space.
         state.enqueue(background(1)).unwrap();
@@ -292,7 +306,7 @@ fn closing_admission_answers_a_waiting_producer() {
 #[test]
 #[ignore = "fuzz finding i3: red until the writer drains once more after close"]
 fn an_accepted_background_event_is_committed_across_close() {
-    explore(|| {
+    explore_bounded("accepted_event_across_close", 2, || {
         let state = State::new(2);
         let producer = {
             let state = state.clone();

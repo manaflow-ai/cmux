@@ -39,10 +39,24 @@ use loom::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use loom::sync::{Arc, Condvar, Mutex, MutexGuard};
 use loom::thread;
 
-fn explore(model: impl Fn() + Sync + Send + 'static) {
+/// Runs `model` in every interleaving loom allows at preemption bound `bound`,
+/// then prints the iteration count and the time: the run log shows each model's
+/// size, so a model near the job's time limit is named before it passes it.
+fn explore_bounded(name: &str, bound: usize, model: impl Fn() + Sync + Send + 'static) {
+    static ITERATIONS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    ITERATIONS.store(0, std::sync::atomic::Ordering::Relaxed);
+    let started = std::time::Instant::now();
     let mut builder = loom::model::Builder::new();
-    builder.preemption_bound = Some(2);
-    builder.check(model);
+    builder.preemption_bound = Some(bound);
+    builder.check(move || {
+        ITERATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        model();
+    });
+    println!(
+        "loom model {name}: {} iterations in {:.1} s at preemption bound {bound}",
+        ITERATIONS.load(std::sync::atomic::Ordering::Relaxed),
+        started.elapsed().as_secs_f64()
+    );
 }
 
 /// `lock_rank.rs` `LockRank`, in order.
@@ -221,6 +235,8 @@ impl Mux {
     }
 }
 
+/// Bound 2 covers B3: the late receipt needs one switch (the timer before the
+/// writer's answer), and the pinning holder's settle needs none after that.
 fn run(before_28147: bool) {
     let mux = Mux::new(before_28147);
     let writer = {
@@ -247,7 +263,7 @@ fn run(before_28147: bool) {
 
 #[test]
 fn a_late_receipt_is_settled_once_without_deadlock() {
-    explore(|| run(false));
+    explore_bounded("late_receipt_settle", 2, || run(false));
 }
 
 /// Red before #28147: settling a late receipt locked state again. Loom's
@@ -257,5 +273,5 @@ fn a_late_receipt_is_settled_once_without_deadlock() {
 #[test]
 #[ignore = "the red variant: run-fleet.sh loom requires loom to report its deadlock"]
 fn before_28147_the_settle_deadlocks() {
-    explore(|| run(true));
+    explore_bounded("before_28147", 2, || run(true));
 }
