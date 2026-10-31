@@ -294,10 +294,11 @@ fn copy_of(local: &str, subpath: &str) -> StartCopy {
     }
 }
 
+/// One push's outcome: Ok, or the error code it fails with.
+type Outcome = Result<(), &'static str>;
+
 /// A push that fails with a code per call, recording where it pushed.
-fn pushes(
-    results: Vec<Result<(), &'static str>>,
-) -> (RefCell<Vec<String>>, RefCell<Vec<Result<(), &'static str>>>) {
+fn pushes(results: Vec<Outcome>) -> (RefCell<Vec<String>>, RefCell<Vec<Outcome>>) {
     (RefCell::new(Vec::new()), RefCell::new(results))
 }
 
