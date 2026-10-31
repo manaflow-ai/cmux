@@ -1758,6 +1758,9 @@ fn code_mode_takes_the_shapes_models_write() {
         "async () => { const r = await cmux.workspace_list({}); return {listed: !!r.items}; }",
         "(async () => {\n  const r = await cmux.workspace_list({});\n  return {listed: !!r.items};\n})",
         "async (c) => { return {listed: !!(await c.workspace_list({})).items}; }",
+        "async ({cmux}) => {\n  const r = await cmux.workspace_list({});\n  return {listed: !!r.items};\n}",
+        "async function ({ cmux }) { return {listed: !!(await cmux.workspace_list({})).items}; }",
+        "(async ({cmux}) => { return {listed: !!(await cmux.workspace_list({})).items}; })()",
     ] {
         let ran = call(&mut server, "cmux_exec", json!({"script": wrapped}));
         assert_eq!(ran["structuredContent"]["result"]["listed"], true, "{wrapped}: {ran}");

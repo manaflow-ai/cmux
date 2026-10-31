@@ -27,7 +27,8 @@ Its "slow-stop" turn runs until session/cancel and takes 5 s more to stop.
 FAKE_CLAUDE_STEER=1: steering as Claude Code (claude-stdio) does it. The agent
 advertises steering; a prompt while a turn runs is read into that turn and
 answered at once with stopReason "steered"; the turn runs on and its own
-prompt is answered when it ends.
+prompt is answered when it ends. With FAKE_STEER_STEP=<fifo> a steer is
+answered only once the test writes to that FIFO (the agent's next tool step).
 
 FAKE_SESSION_PREFIX=<p>: session ids are <p><n> instead of fake-<n> (an id as
 long as a real agent's, for checks that refuse short ones).
@@ -235,6 +236,12 @@ def claude_prompt(rid, params):
             claude_turns.add(sid)
     if steer:
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "steer: " + text}})
+        # FAKE_STEER_STEP=<fifo>: the steer is read at the agent's next tool step, which the
+        # test makes by writing to the FIFO, as Claude Code answers a steer only there.
+        step = os.environ.get("FAKE_STEER_STEP")
+        if step:
+            with open(step) as gate:
+                gate.read()
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "steered"}})
         return
     try:

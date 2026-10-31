@@ -29,7 +29,7 @@ export const evalAgentStub = (dir) =>
 
 /** ssh to the daemon's host. No ControlPersist: its background master keeps the first
  * caller's output pipe open, so that call never returned. */
-const SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=20", "-o", "ServerAliveInterval=15"];
+export const SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=20", "-o", "ServerAliveInterval=15"];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

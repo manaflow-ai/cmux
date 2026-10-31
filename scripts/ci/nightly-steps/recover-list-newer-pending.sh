@@ -16,6 +16,12 @@ candidates="$(python3 scripts/ci/find-nightly-next-recovery.py \
 keep=""
 while IFS=$'\t' read -r run_id head; do
   [ -n "$run_id" ] || continue
+  # NIGHTLY_NEXT_TREE_AT_INSTALL: never a build whose tree marker check did not pass.
+  if ! why="$(bash scripts/ci/nightly-steps/recover-tree-marker-ok.sh "$run_id")"; then
+    echo "::notice title=Recovery refused::run $run_id: $why"
+    echo "- refused run $run_id: $why" >> "$GITHUB_STEP_SUMMARY"
+    continue
+  fi
   if verdict="$(bash scripts/ci/nightly-next-recovery-lineage.sh "$GITHUB_REPOSITORY" "$CHANNEL_RELEASE_TAG" "$head" </dev/null)"; then
     keep="$keep $run_id"
   else

@@ -12,14 +12,12 @@ import Foundation
 /// rest of the app's run, which a capture starts fresh.
 @MainActor
 enum DebugAddDevice {
-    /// What Add Device shows while set (``AddDeviceServices/app(_:)``): the devices, and the one-line
+    /// What Add Device shows while set (``AppServices/DebugFixtures/addDevice``): the devices, and the one-line
     /// join's calls (`join`) in place of the CLI and the platform.
     struct Listing {
         var devices: DeviceListing
         var join: MachineJoinService?
     }
-
-    static var listing: Listing?
 
     static func show(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let rows = params["computers"]?.arrayValue ?? [
@@ -41,7 +39,7 @@ enum DebugAddDevice {
         // Only while labs.machineJoin is on (AddDeviceServices.app reads the switch first); a call
         // with no `join` clears it.
         let join = params["join"]?.stringValue
-        listing = Listing(devices: devices, join: join.map(Self.joinFixture))
+        services.debugFixtures.addDevice = Listing(devices: devices, join: join.map(Self.joinFixture))
         let way = params["way"]?.stringValue.map { AddDeviceWay(rawValue: $0) } ?? AddDeviceWay.network
         let opening = services.addDevice.open(way: way, over: services.windows.active?.window)
         // The card's Make Line, pressed for the capture; `joined` then reads the list once (as a focus does).
@@ -107,11 +105,11 @@ extension DebugAddDevice {
     static func showJoined(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         // Only while labs.machineJoin is on, as the section itself.
         guard services.settings?.snapshot.machineJoin == true else {
-            services.debugJoinedMachines = nil
+            services.debugFixtures.joinedMachines = nil
             return .object(["machines": .number(0), "reason": .string("labs.machineJoin is off")])
         }
         let rows = joinedRows
-        services.debugJoinedMachines = MachineJoinService(mint: { _ in .failure(.unavailable) }, list: { rows })
+        services.debugFixtures.joinedMachines = MachineJoinService(mint: { _ in .failure(.unavailable) }, list: { rows })
         let store = services.joinedMachines
         store.apply(rows)
         _ = services.registry.perform("switchRightSidebarToMachines")

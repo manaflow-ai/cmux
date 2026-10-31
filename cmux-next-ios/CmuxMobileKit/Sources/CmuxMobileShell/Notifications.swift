@@ -4,10 +4,11 @@ import CmuxMobileChief
 import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileNotifications
+import CmuxMobileScreenSharing
 import CmuxMobileSettings
 import Foundation
-import Observation
 import OSLog
+import Observation
 import UIKit
 import UserNotifications
 
@@ -135,6 +136,8 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         // The App Group resolves once, off the main thread (its lookup is a synchronous XPC).
         PushAppGroup.prime()
         PushReplies.shared.registerCategories()
+        // One notification per Chief reply: the Mac's push when this phone gets them, else the app's own alert.
+        ChiefAlerts.shared.macPushesReplies = { PushRegistration.shared.receivesChiefPushes }
         // A cmux link tapped in a chat, the Feed or Chief opens here, not in Safari.
         CmuxLinkOpener.shared.handler = { NotificationRouter.shared.open(link: $0) }
         #if DEBUG && targetEnvironment(simulator)
@@ -146,6 +149,11 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
             if BuildCapabilities.current.push, [.authorized, .provisional, .ephemeral].contains(status) { application.registerForRemoteNotifications() }
         }
         return true
+    }
+
+    /// Portrait everywhere but a Mac's shared screen, which turns with the phone.
+    public func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        ScreenSharingOrientation.shared.allowed
     }
 
     public func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {

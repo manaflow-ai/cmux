@@ -90,14 +90,14 @@ final class FilePageOpener: FileOpening {
         guard let pane = pane ?? services.windows.active?.focusedPane else { return FilePageStrings.noPane }
         switch Self.route(for: url, userChose: userChose, asText: asText) {
         case .renderedPage:
-            pane.newBrowserTab(url: url, background: placed != nil, then: placed)
+            pane.newBrowserTab(url: url, background: placed != nil, placementOwner: placed != nil, then: placed)
         case .markdown:
             services.viewers.markdownPages.open(url, in: pane, focus: placed == nil, userChose: userChose, placed: placed)
         case .editor:
             services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, at: position, placed: placed)
         case .preview:
             guard AgentPaneFileOpen.showsInTab(url) else { return FilePageStrings.notAFile }
-            pane.newBrowserTab(url: url, engine: Self.tabEngine(for: url), background: placed != nil, then: placed)
+            pane.newBrowserTab(url: url, engine: Self.tabEngine(for: url), background: placed != nil, placementOwner: placed != nil, then: placed)
         }
         return nil
     }

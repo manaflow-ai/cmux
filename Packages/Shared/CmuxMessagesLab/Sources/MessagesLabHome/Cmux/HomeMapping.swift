@@ -49,7 +49,7 @@ enum HomeMapping {
         return { root in
             if let hit = mapped.entries[root] { return hit }
             let entry = found.value(for: root).map { (id($0, aliases: aliases), projectedParts($0, summary: summary, media: media, links: links).owners) }
-            mapped.entries[root] = .some(entry)
+            mapped.entries.updateValue(entry, forKey: root) // a miss (nil) is cached too
             return entry
         }
     }
