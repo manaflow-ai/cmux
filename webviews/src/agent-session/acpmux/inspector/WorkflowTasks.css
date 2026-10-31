@@ -6,6 +6,7 @@
   padding-bottom: 4px;
 }
 .acpmux-workflow-tasks__group {
+  font-variant-numeric: tabular-nums;
   margin: 4px 0 0;
   padding: 0 8px;
   color: var(--agent-muted);

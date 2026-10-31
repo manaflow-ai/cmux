@@ -607,6 +607,19 @@ export default componentEntry<Props>({
       props: workflowProps("finished"),
       play: openPhase(2),
     },
+    "workflow-mixed": {
+      note: "Running and finished workflows together expose both group counts.",
+      props: {
+        ...workflowProps("running"),
+        workflows: [
+          ...workflowProps("running").workflows!,
+          ...workflowProps("finished").workflows!.map((workflow) => ({
+            ...workflow,
+            id: `${workflow.id}-finished`,
+          })),
+        ],
+      },
+    },
     "workflow-agent-row-compact": {
       note: "Alternative (gallery only): a compact one-line workflow agent row keeps the action inline with the name for the highest density.",
       props: workflowProps("running", "compact"),

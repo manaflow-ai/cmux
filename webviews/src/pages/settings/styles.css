@@ -457,6 +457,11 @@ mark {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
 }
 
+.number,
+.number-sizer {
+  font-variant-numeric: tabular-nums;
+}
+
 .number {
   width: 64px;
   text-align: right;
