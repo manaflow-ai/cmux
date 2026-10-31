@@ -60,6 +60,12 @@ public final class QuitStepLimiter {
         let waited = overruns.filter { !excluding.contains($0.name) }
         overruns.removeAll { entry in waited.contains { $0.task == entry.task } }
         guard !waited.isEmpty else { return true }
+        guard limit > .zero else {
+            // No time is left before the deadline: the steps go on until it ends the process.
+            overruns.append(contentsOf: waited)
+            mark("quit.overruns.limit")
+            return false
+        }
         let race = QuitStepRace(owner: "quit.overruns", clock: clock)
         // task-owner: awaits the late steps; the race below bounds the quit's wait for it.
         let all = Task { @MainActor in
