@@ -1,8 +1,8 @@
+import CmuxNextCompat
 import CmuxNextWakeups
 import Darwin
 import Dispatch
-import Foundation
-import CmuxNextCompat
+public import Foundation
 
 /// Writes `run.json` for `AppRunMarker` on a serial background queue, so
 /// the main thread never waits on the disk.
@@ -21,13 +21,16 @@ import CmuxNextCompat
 /// - `written(_:timeout:)` lets the quit path await one write with a
 ///   deadline (no sleep: a continuation resumed by the write, or by a
 ///   one-shot `DemandTimer`).
-nonisolated final class RunMarkerFile: Sendable {
-    typealias Writer = @Sendable (Data, URL) throws -> Void
+public nonisolated final class RunMarkerFile: Sendable {
+    /// Writes the bytes to the file (tests pass a fake).
+    public typealias Writer = @Sendable (Data, URL) throws -> Void
     /// Makes the bytes to write; nil when they cannot be made (nothing is written).
-    typealias Encode = @Sendable () -> Data?
+    public typealias Encode = @Sendable () -> Data?
 
-    let url: URL
-    let signalURL: URL
+    /// `run.json`.
+    public let url: URL
+    /// The signal handler's marker next to it, removed with it at a clean exit.
+    public let signalURL: URL
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.run-marker", qos: .utility)
     private let writer: Writer
     private let state = Mutex(State())
@@ -56,7 +59,8 @@ nonisolated final class RunMarkerFile: Sendable {
         var writes = 0
     }
 
-    init(url: URL, signalURL: URL, writer: @escaping Writer = RunMarkerFile.replaceAtomically) {
+    /// The marker at `url` with its signal marker at `signalURL`, written by `writer`.
+    public init(url: URL, signalURL: URL, writer: @escaping Writer = RunMarkerFile.replaceAtomically) {
         self.url = url
         self.signalURL = signalURL
         self.writer = writer
@@ -65,7 +69,7 @@ nonisolated final class RunMarkerFile: Sendable {
     /// Asks for `data` on disk; returns at once. The ticket is satisfied
     /// once these bytes, or newer ones, are written.
     @discardableResult
-    func submit(_ data: Data) -> UInt64 {
+    public func submit(_ data: Data) -> UInt64 {
         submit(encoding: { data })
     }
 
@@ -74,7 +78,7 @@ nonisolated final class RunMarkerFile: Sendable {
     /// replaces one whose bytes are not made yet. The ticket is satisfied once these bytes, or newer ones, are
     /// written.
     @discardableResult
-    func submit(encoding encode: @escaping Encode) -> UInt64 {
+    public func submit(encoding encode: @escaping Encode) -> UInt64 {
         let ticket: UInt64? = state.withLock { state in
             guard !state.closed else { return nil }
             state.latestTicket &+= 1
@@ -88,7 +92,7 @@ nonisolated final class RunMarkerFile: Sendable {
 
     /// True once `ticket` is on disk; false when `timeout` passes first.
     /// After `close` it answers true: the file was removed on purpose.
-    func written(_ ticket: UInt64, timeout: Duration) async -> Bool {
+    public func written(_ ticket: UInt64, timeout: Duration) async -> Bool {
         let deadline = DemandTimer(owner: "run-marker.write")
         defer { deadline.cancel() }
         return await withCheckedContinuation { continuation in
@@ -106,7 +110,7 @@ nonisolated final class RunMarkerFile: Sendable {
     /// Removes `run.json` and `run.signal` after any write in progress, and
     /// writes nothing more (a normal quit). Called at exit: it waits for at
     /// most one in-flight write of about 100 bytes without fsync.
-    func close() {
+    public func close() {
         let waiters = state.withLock { state in
             state.closed = true
             defer { state.waiters = [] }
@@ -121,10 +125,10 @@ nonisolated final class RunMarkerFile: Sendable {
     }
 
     /// Disk writes done so far (tests).
-    var writeCount: Int { state.withLock { $0.writes } }
+    public var writeCount: Int { state.withLock { $0.writes } }
 
     /// Returns once every drain queued before the call has run (tests).
-    func drained() async {
+    public func drained() async {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in queue.async { done.resume() } }
     }
 
@@ -188,7 +192,7 @@ nonisolated final class RunMarkerFile: Sendable {
 
     /// Writes `data` to a temporary file next to `url`, then renames it
     /// over `url`. No fsync (see the type's comment).
-    static func replaceAtomically(_ data: Data, to url: URL) throws {
+    public static func replaceAtomically(_ data: Data, to url: URL) throws {
         let temporary = url.deletingLastPathComponent().appending(path: ".\(url.lastPathComponent).\(getpid()).tmp").path
         let descriptor = open(temporary, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
