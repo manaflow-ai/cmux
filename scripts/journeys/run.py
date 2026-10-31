@@ -319,11 +319,14 @@ def stamp_harness(results, out, start, lease):
                     # A reader of result.json alone sees the same verdict as results.jsonl.
                     on_disk.update(harness=result["harness"], status=result["status"], reason=result.get("reason", ""))
                     path.write_text(json.dumps(on_disk, indent=1, default=str) + "\n")
-                    if why:  # a step group's own report (fuzz.json) of an unpinned round is not evidence either
-                        for report in (out / i).glob("fuzz.json"):
-                            report.rename(report.with_name("fuzz.json.unpinned"))
             except (OSError, ValueError):
                 pass
+        if why:  # a step group's own report (fuzz.json) of an unpinned round is not evidence either, result.json or not
+            for report in (out / i).glob("fuzz.json"):
+                try:
+                    report.rename(report.with_name("fuzz.json.unpinned"))
+                except OSError as error:
+                    log(f"{i}: {report.name} of an unpinned round not renamed: {error}")
     return results
 
 
@@ -620,6 +623,14 @@ def set_aside_old_results(out, ids):
             old.rename(out / f"{i}.old-{time.strftime('%Y%m%dT%H%M%S', time.gmtime())}-{os.getpid()}")
 
 
+def set_aside_foreign(out, i, ident):
+    """Moves a refused <id>/ folder aside (<id>.foreign-<run id>); a failure is logged, never raised out of run_lease."""
+    try:
+        (out / i).rename(out / f"{i}.foreign-{ident['run_id']}")
+    except OSError as error:
+        log(f"{i}: the refused result folder was not moved aside: {error}")
+
+
 def collect(out, ids, host, missing_reason, ident):
     """{id: this run's result.json}, or not run: with missing_reason when there is none, "stale or foreign result"
     when its run id or start time is not `ident`'s (an earlier round's file, or one from a reused slot)."""
@@ -632,14 +643,14 @@ def collect(out, ids, host, missing_reason, ident):
         try:
             result = json.loads(path.read_text())
         except ValueError as error:
-            (out / i).rename(out / f"{i}.foreign-{ident['run_id']}")
+            set_aside_foreign(out, i, ident)
             results[i] = {"status": "not run", "reason": f"result.json does not parse: {error}", "host": host}
             continue
         why = stale_reason(result, ident)
         if why:
             log(f"{i}: {why}")
             # Moved aside, so no clip, check frame or reader of <id>/ takes another run's files as this run's.
-            (out / i).rename(out / f"{i}.foreign-{ident['run_id']}")
+            set_aside_foreign(out, i, ident)
             results[i] = {"status": "not run", "reason": why, "host": host}
             continue
         result["host"] = host
