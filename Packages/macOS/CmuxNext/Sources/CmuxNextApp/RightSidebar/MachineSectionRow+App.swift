@@ -19,8 +19,10 @@ extension MachineSectionRow {
             let connecting = state == .connecting
             let name = daemon.isLocal ? RightSidebarStrings.thisMac : machines.machineName(daemon.machineID) ?? daemon.machineID
             let report = health.reports[daemon.machineID]
+            let cloud = daemon.isLocal ? nil : machines.session(daemon.machineID)
             return MachineSectionRow(id: daemon.machineID, name: name, isConnected: connected, isLocal: daemon.isLocal,
                                      kind: kind(daemon.machineID, isLocal: daemon.isLocal, in: machines), isConnecting: connecting,
+                                     serverState: cloud.flatMap { .cloud($0.machine.status, stagePaused: $0.stage.isPaused, stageFailed: $0.stage.failure != nil) },
                                      health: report?.health, healthStep: report?.worstStep?.step,
                                      joined: daemon.isLocal ? nil : byPeer[daemon.machineID])
         }
