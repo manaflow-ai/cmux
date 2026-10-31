@@ -56,6 +56,20 @@ def upsert(gh, key, text, **kw):
 
 
 class PrStatusTests(unittest.TestCase):
+    def test_list_comments_reads_past_the_old_thirty_page_cap(self):
+        pages = []
+
+        def api(method, path, payload):
+            page = int(path.rsplit("page=", 1)[1])
+            pages.append(page)
+            if page > 31:
+                return []
+            return [{"id": page, "body": "", "user": {"login": "github-actions[bot]"}}] * 100
+
+        comments = pr_status.list_comments(api, "o/r", 7)
+        self.assertEqual(len(comments), 3100)
+        self.assertEqual(pages[-1], 32)
+
     def test_a_clean_pull_request_gets_no_comment(self):
         gh = FakeGitHub()
         self.assertEqual(upsert(gh, "checks", None), "unchanged")
@@ -144,6 +158,36 @@ class PrStatusTests(unittest.TestCase):
         self.assertLessEqual(len(body), pr_status.LIMIT)
         self.assertEqual(pr_status.parse(body)["bead"], "Bead: `cx-abc1`")
         self.assertIn("cut to fit", pr_status.parse(body)["tour"])
+
+    def test_overflow_terminates_after_other_section_cut(self):
+        published = "Shipped in:\n" + "\n".join(f"- build-{i}" for i in range(2600))
+        body = pr_status.render({"published": published, "checks": "x" * 64800})
+        self.assertLessEqual(len(body), pr_status.LIMIT)
+        self.assertIn("published", pr_status.parse(body))
+
+    def test_oversized_other_section_does_not_cut_published_history(self):
+        published = "Shipped in:\n" + "\n".join(f"- build-{i}" for i in range(1800))
+        body = pr_status.render({"published": published, "tour": "x" * 50000})
+        sections = pr_status.parse(body)
+        self.assertEqual(sections["published"], published)
+        self.assertIn("cut to fit", sections["tour"])
+
+    def test_successive_updates_retrim_the_existing_cut_section(self):
+        first = pr_status.render({"tour": "x" * 70000, "bead": "Bead: cx-abc1"})
+        sections = pr_status.parse(first)
+        sections["receipt"] = "r" * 258
+        second = pr_status.parse(pr_status.render(sections))
+        self.assertEqual(second["bead"], "Bead: cx-abc1")
+        self.assertEqual(second["receipt"], "r" * 258)
+        self.assertIn("cut to fit", second["tour"])
+
+    def test_status_update_does_not_trim_fitting_publication_history(self):
+        published = "Shipped in:\n" + "\n".join(f"- build-{i}" for i in range(822))
+        first = pr_status.parse(pr_status.render({"published": published, "tour": "x" * 70000}))
+        first["checks"] = "x" * 10
+        second = pr_status.parse(pr_status.render(first))
+        self.assertEqual(second["published"], first["published"])
+        self.assertEqual(second["checks"], "x" * 10)
 
     def test_dispatched_fields_accept_only_valid_values(self):
         self.assertEqual(pr_status.field_text("cx-bi1nt", None), ("bead", "Bead: `cx-bi1nt`"))

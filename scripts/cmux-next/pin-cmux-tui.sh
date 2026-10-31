@@ -20,11 +20,13 @@
 #   scripts/ci/cmux_tui_tree_key.py (`pin-cmux-tui.sh key`). That is key v2.
 #   Key v1 also hashed the classic `ghostty` gitlink, which no cmux-tui binary
 #   builds from since 0c9d74bc3ea (CMUX-TUI-TREE-KEY-V2). Until v1 goes away,
-#   fetch and resolve-commit take the v2 publication, else the v1 publication
-#   of the same commit (`key --version v1`), and the workflow publishes both.
+#   fetch and resolve-commit take the v2 publication, else the compatibility
+#   publications of the same commit (v2-legacy, then v1).
 #   The `cmux-tui artifacts` workflow runs on every trusted push to
-#   feat-cmux-next and feat-cmux-next-acpmux that touches cmux-tui, ghostty or
-#   ghostty-next. Untrusted synthetic merge refs are refused.
+#   feat-cmux-next and feat-cmux-next-acpmux that changes a runtime input.
+#   GitHub filters pushes containing only cmux-tui/docs prose, so consumers
+#   never wait for an unpublished docs-only key. Untrusted synthetic merge
+#   refs are refused.
 #   After the hosted build and the cmux_next_ daemon tests pass on that commit,
 #   it publishes https://files.cmux.com/cmux-tui/tree/<key>/ with
 #   cmux-tui-aarch64-apple-darwin, cmux-tui-aarch64-apple-darwin.sha256 and
@@ -101,7 +103,7 @@
 #
 # No mode needs GitHub credentials: downloads are public and sha256-checked.
 #
-# Usage: pin-cmux-tui.sh fetch [--tree|--pin] | fetch-acpmux | path [--tree|--pin] | key [--version v1|v2] [--rev <rev>]
+# Usage: pin-cmux-tui.sh fetch [--tree|--pin] | fetch-acpmux | path [--tree|--pin] | key [--version v1|v2|v2-legacy] [--rev <rev>]
 #        | app-host-path [--tree|--pin] (where fetch puts the app host)
 #        | cloud-server-path [--tree|--pin] (where fetch puts cmux-cloud)
 #        | browser-host-path [--tree|--pin] (where fetch puts cmux-browser-host)
@@ -116,6 +118,9 @@
 #          CMUX_TUI_TREE_TIP_WAIT_SECONDS (3000), for the tip's active publisher; CMUX_TUI_TREE_SAME_PATHS, space-separated
 #          paths, skips a commit whose copy of any of them differs from the tip's;
 #          no Mac Release compile is required: the nightly compiles the app itself)
+#        | runs-state <commit> (its cmux-tui artifacts runs: active, none, unknown, or "ended <conclusions>")
+#        | active-publisher <key> (the head commit of an active cmux-tui artifacts run whose
+#          commit has tree <key>; nothing when none; "unknown" when the runs cannot all be read)
 #        | verify-key <key> (commit=<publishing commit> when tree <key> is published and its
 #          manifest sha256 verifies; exit 1 not published (a 404), 3 a read failure or unverifiable)
 #        | wait (wait for the tree; superseded=true output for a superseded commit)
@@ -200,10 +205,10 @@ download() {
 tree_key() {
   python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "${1:-HEAD}"
 }
-# The v1 key of <rev> (with the classic ghostty gitlink): trees published
-# before CMUX-TUI-TREE-KEY-V2 exist only under it.
-# Empty when <rev> has no v1 key (a revision without the classic gitlink).
+# The compatibility key of <rev> using the pre-docs v2 algorithm. Trees
+# published before docs-only filtering may exist only under this key.
 legacy_tree_key() {
+  python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2-legacy "${1:-HEAD}" 2>/dev/null || true
   python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v1 "${1:-HEAD}" 2>/dev/null || true
 }
 # The tree this checkout fetches and bundles: its own, or CMUX_TUI_TREE_KEY.
@@ -218,7 +223,7 @@ checkout_tree_key() {
     tree_key HEAD
   fi
 }
-# The checkout's v1 key; none for a CMUX_TUI_TREE_KEY tree (always v2).
+# The checkout's compatibility keys; none for an explicit CMUX_TUI_TREE_KEY.
 checkout_legacy_tree_key() {
   [[ -n "${CMUX_TUI_TREE_KEY:-}" ]] || legacy_tree_key HEAD
 }
@@ -299,10 +304,11 @@ require_target_in_tree() {
   fi
 }
 
-# B2 evidence (CMUX-TUI-TREE-KEY-V2): "<key> (v2)" or "<key> (v1 fallback)"
+# B2 evidence (CMUX-TUI-TREE-KEY-V2): "<key> (v2)" or
+# "<key> (compatibility fallback)" for the compatibility publication actually read.
 # for the publication actually read. <key> is published_key, <v2 key> the
 # checkout's key.
-tree_source_label() { [[ "$1" == "$2" ]] && echo "$1 (v2)" || echo "$1 (v1 fallback)"; }
+tree_source_label() { [[ "$1" == "$2" ]] && echo "$1 (v2)" || echo "$1 (compatibility fallback)"; }
 
 # Refuses a checkout whose cmux-tui source differs from the committed tree:
 # the published binary would not contain those edits.
@@ -684,19 +690,33 @@ report_tree_miss() {
   echo "no published cmux-tui tree for $key (head ${head:0:12}); nearest published tree: ${nearest:-none in the last $limit commits}" >&2
 }
 
+# Read the preferred key, then the exact historical keys of this commit.
+# The compatibility list contains only git-produced hex object IDs.
+read_tree_digest() {
+  local key="$1" out="$2" legacy="${3:-}" candidate url
+  for candidate in "$key" $legacy; do
+    [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || return 1
+    url="$BASE/tree/$candidate/$(tree_asset).sha256"
+    if curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$out" "$url?t=$(date +%s)" 2>/dev/null; then
+      published_key="$candidate"
+      sha_url="$url"
+      return 0
+    fi
+  done
+  return 1
+}
+
 # Downloads the published sha256 file of tree <key> to <file>, waiting up to
 # CMUX_TUI_TREE_WAIT_SECONDS while the artifacts workflow publishes it. With
 # CMUX_TUI_TREE_PUBLISHER_SHA and GH_TOKEN set, it fails fast when two run
 # checks in a row find no active artifacts run for that commit.
-# Waits until tree <key> (v2) or <legacy> (the v1 key of the same commit) is
+# Waits until tree <key> (v2) or <legacy> (the v2-legacy key of the same commit) is
 # published, writes its sha256 file to <out>, and sets published_key to the
 # key that was found and published to its sha256.
 wait_for_tree() {
-  local key="$1" out="$2" legacy="${3:-}" sha_url legacy_url wait_seconds poll_seconds started elapsed
+  local key="$1" out="$2" legacy="${3:-}" sha_url wait_seconds poll_seconds started elapsed
   local publisher="${CMUX_TUI_TREE_PUBLISHER_SHA:-}" check_seconds next_check=0 ended_checks=0 state="" active_cap extended=false
   sha_url="$BASE/tree/$key/$(tree_asset).sha256"
-  legacy_url=""
-  [[ -n "$legacy" && "$legacy" != "$key" ]] && legacy_url="$BASE/tree/$legacy/$(tree_asset).sha256"
   published_key="$key"
   wait_seconds="${CMUX_TUI_TREE_WAIT_SECONDS:-2700}"
   poll_seconds="${CMUX_TUI_TREE_POLL_SECONDS:-30}"
@@ -736,10 +756,7 @@ wait_for_tree() {
   started="$(date +%s)"
   local dispatched=false reported=false dispatch_sha
   # The query string bypasses a cached 404 at the CDN edge.
-  until curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$out" "$sha_url?t=$(date +%s)" 2>/dev/null \
-    || { [[ -n "$legacy_url" ]] \
-      && curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$out" "$legacy_url?t=$(date +%s)" 2>/dev/null \
-      && published_key="$legacy" && sha_url="$legacy_url"; }; do
+  until read_tree_digest "$key" "$out" "$legacy"; do
     elapsed=$(( $(date +%s) - started ))
     if [[ "$reported" == false ]]; then
       reported=true
@@ -1017,7 +1034,7 @@ fetch_tree() {
   dir="$(tree_dir "$key")"
   binary="$dir/$file"
   # The cache dir carries the v2 key's name even when the binary came from the
-  # v1 publication, so fetched-key records the source; a cache without that
+  # compatibility publication, so fetched-key records the source; a cache without that
   # record is fetched again rather than reported as an unknown source.
   if [[ -f "$binary" && -f "$dir/$file.sha256" && -s "$dir/fetched-key" &&
         "$(sha256_of "$binary")" == "$(cat "$dir/$file.sha256")" ]]; then
@@ -1046,7 +1063,7 @@ fetch_tree() {
   require_target_in_tree "$wait_key" "$(checkout_legacy_tree_key)"
   wait_for_tree "$wait_key" "$temp_dir/sha256" "$(checkout_legacy_tree_key)"
   if [[ "$published_key" != "$key" ]]; then
-    echo "same-tree cmux-tui $key: using its v1 publication $published_key (CMUX-TUI-TREE-KEY-V2)" >&2
+    echo "same-tree cmux-tui $key: using its compatibility publication $published_key (CMUX-TUI-TREE-KEY-V2)" >&2
     url="$BASE/tree/$published_key/$(tree_asset)"
   fi
   download "$url" "$temp_dir/$file" || { echo "error: could not download $url" >&2; exit 1; }
@@ -1058,7 +1075,7 @@ fetch_tree() {
   mv -f "$temp_dir/source.json" "$dir/source.json"
   mv -f "$temp_dir/$file" "$binary"
   printf '%s\n' "$published" > "$dir/$file.sha256"
-  if [[ "$published_key" == "$key" ]]; then echo "$published_key v2"; else echo "$published_key v1"; fi > "$dir/fetched-key"
+  if [[ "$published_key" == "$key" ]]; then echo "$published_key v2"; else echo "$published_key compatibility"; fi > "$dir/fetched-key"
   echo "fetched same-tree cmux-tui $key to $binary"
   echo "fetched cmux-tui tree $(tree_source_label "$published_key" "$key")"
   fetch_tree_companions "$key" "$dir"
@@ -1136,12 +1153,13 @@ wait_for_checkout_tree() {
   return 0
 }
 
-# Prints whether tree <key> (v2) or <legacy> (v1 of the same commit) is
+# Prints whether tree <key> (v2) or <legacy> (historical keys of the same commit) is
 # published now: one request each, no wait.
 tree_published() {
-  local key="$1" legacy="${2:-}" url
-  for url in "$BASE/tree/$key/$(tree_asset).sha256" \
-             ${legacy:+"$BASE/tree/$legacy/$(tree_asset).sha256"}; do
+  local key="$1" legacy="${2:-}" url candidate
+  for candidate in "$key" $legacy; do
+    [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || return 1
+    url="$BASE/tree/$candidate/$(tree_asset).sha256"
     # The query string bypasses a cached 404 at the CDN edge.
     if curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 "$url?t=$(date +%s)" 2>/dev/null \
         | awk 'NR==1 && $1 ~ /^[0-9a-f]{64}$/ { found=1 } END { exit !found }'; then
@@ -1794,6 +1812,14 @@ PY
     ;;
   verify-key)
     verify_key_command "${1:-}"
+    ;;
+  runs-state)
+    [[ "${1:-}" =~ ^[0-9a-f]{40}$ ]] || { echo "error: runs-state takes a 40-hex commit" >&2; exit 2; }
+    artifacts_runs_state "$1"
+    ;;
+  active-publisher)
+    [[ "${1:-}" =~ ^[0-9a-f]{40}$ ]] || { echo "error: active-publisher takes a 40-hex tree key" >&2; exit 2; }
+    active_publisher_for_key "$1"
     ;;
   resolve-exact)
     resolve_exact_tree

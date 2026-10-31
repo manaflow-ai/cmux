@@ -956,11 +956,14 @@ impl<B: Backend> Server<B> {
             }
             list.insert("pane".into(), Value::String(tab.to_owned()));
             let answer = self.call_v2(tab_list, &list);
-            if answer["isError"] == true {
+            if answer.get("isError").and_then(Value::as_bool) == Some(true) {
                 return Err(answer);
             }
-            let items =
-                answer["structuredContent"]["items"].as_array().cloned().unwrap_or_default();
+            let items = answer
+                .pointer("/structuredContent/items")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
             let shown = match items.as_slice() {
                 [only] => Some(only),
                 items => items.iter().find(|item| item["focused"] == true),
@@ -971,10 +974,10 @@ impl<B: Backend> Server<B> {
             shown.clone()
         } else if bare.starts_with("tab_") || under_scope {
             let answer = self.call_v2(tab_get, &lookup);
-            if answer["isError"] == true {
+            if answer.get("isError").and_then(Value::as_bool) == Some(true) {
                 return Err(answer);
             }
-            let record = &answer["structuredContent"];
+            let record = answer.get("structuredContent").unwrap_or(&Value::Null);
             record.get("value").unwrap_or(record).clone()
         } else {
             let Some(tab_list) = v2_tools::find("tab_list") else {
@@ -989,8 +992,11 @@ impl<B: Backend> Server<B> {
             }
             list.insert("limit".into(), json!(500));
             let answer = self.call_v2(tab_list, &list);
-            let items =
-                answer["structuredContent"]["items"].as_array().cloned().unwrap_or_default();
+            let items = answer
+                .pointer("/structuredContent/items")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
             let named: Vec<Value> =
                 items.into_iter().filter(|item| item["name"].as_str() == Some(bare)).collect();
             // No tab, or several, by that name: the daemon judges it as a terminal name.
@@ -1088,7 +1094,10 @@ impl<B: Backend> Server<B> {
         let page = call.page;
         let typed = self.wait_past_typed(tool, &mut call);
         let wrote = (tool.wire == "terminal.input.write")
-            .then(|| typed_key(&call).zip(call.plan.params["text"].as_str().map(str::to_owned)))
+            .then(|| {
+                typed_key(&call)
+                    .zip(call.plan.params.get("text").and_then(Value::as_str).map(str::to_owned))
+            })
             .flatten();
         match self.backend.resource(call.session.as_deref(), call.plan, &call.prefixes) {
             Ok(value) if typed.is_some() => success(
@@ -1143,7 +1152,7 @@ impl<B: Backend> Server<B> {
             return None;
         }
         let anchored = format!("(?m)^\\s*(?:{pattern})");
-        call.plan.params["pattern"] = json!(anchored);
+        call.plan.params.set("pattern", json!(anchored));
         Some(format!(
             "pattern {pattern:?} is also in the command typed here, so this waited for it at \
              the start of an output line: {anchored:?}"

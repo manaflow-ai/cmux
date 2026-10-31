@@ -10,6 +10,7 @@ import CmuxMobileModel
 import CmuxMobileNotifications
 import CmuxMobileTransport
 import CmuxMobileOnboarding
+import CmuxMobileScreenSharing
 import CmuxMobileSettings
 import CmuxMobileVoice
 import CmuxMobileSupport
@@ -351,7 +352,12 @@ public struct RootView: View {
         PushReplies.shared.attach(live: coordinator)
         // Before the session ends: stop pushes to this phone. The Macs keep
         // their approval of it (verify/persistence.md).
-        auth.willSignOut = AccountSignOut().willSignOut { await PushRegistration.shared.unregister() }
+        auth.willSignOut = AccountSignOut().willSignOut {
+            await PushRegistration.shared.unregister()
+            // Screen Sharing: end the session on screen and sign this phone out of the device hub
+            // while the account can still reach it (docs/device-hub/PROTOCOL.md, sign-out).
+            await ScreenSharingService.current?.signOutBeforeSessionEnds()
+        }
         log.info("live data on \(base.host() ?? "", privacy: .public)")
         syncTeams()
         if let invite = heldInvite {
@@ -431,6 +437,17 @@ struct ShellView: View {
     init(store: AppStore, auth: CmuxMobileAuthModel, settings: SettingsStore, sidebar: SidebarModel, live: LiveCoordinator?, options: ShellLaunchOptions) {
         let shell = ShellModel(store: store, auth: auth, settings: settings, sidebar: sidebar)
         shell.attach(live: live)
+        #if DEBUG
+        // Synthetic connection metadata for captures; never reads a real machine.
+        if auth.isMock, UserDefaults.standard.bool(forKey: "cmux-mobile-link-status-demo"),
+           let mac = store.activeTeam?.macs.first {
+            let phase = LinkMachine.Phase.connected(.wireGuard, .direct, rttMillis: 27)
+            let status = phase.statusLine(macName: mac.name, media: .up(.turn, rttMillis: 30))
+            let detail = phase.diagnosticLine(macName: mac.name, media: .up(.turn, rttMillis: 30))
+            if store.macLinkStatus[mac.id] != status { store.macLinkStatus[mac.id] = status }
+            if store.macLinkDiagnostics[mac.id] != detail { store.macLinkDiagnostics[mac.id] = detail }
+        }
+        #endif
         if let tab = options.initialTab.flatMap(RootTab.init(rawValue:)) { shell.tab = tab }
         if let page = options.settingsPage.flatMap(SettingsRoute.init(name:)) {
             shell.tab = .settings
@@ -472,6 +489,7 @@ struct ShellView: View {
                 if let team = shell.invitingTeam { shell.sendInvite(email: inviteEmail, to: team) }
                 inviteEmail = ""
             }
+                .keyboardShortcut(.defaultAction)
         } message: {
             Text("They'll get an email invitation to join.")
         }
@@ -691,6 +709,7 @@ struct ShellTabs: View {
                     directory: shell.deviceDirectory,
                     sizing: shell.sizingService,
                     callChief: { shell.callChief() },
+                    screenSharing: shell.screenSharing,
                     inviteToTeam: { shell.invite(to: $0) },
                     saveAppearance: { shell.saveAppearance($0, for: $1) }
                 ) {

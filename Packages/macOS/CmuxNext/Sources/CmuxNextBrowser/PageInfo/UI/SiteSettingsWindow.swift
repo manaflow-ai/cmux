@@ -15,12 +15,13 @@ final class SiteSettingsWindow: PageInfoWindow {
     private var observation: ObservationLoop?
 
     init(origin: String, site: PageInfoSite, store: SitePermissionStore, provider: any PageInfoProviding,
-         send: @escaping (PageInfoCommand) -> Void) {
+         send: @escaping (PageInfoCommand) -> Void, activeLook: ActiveLookScope?) {
         self.origin = origin
         self.store = store
         self.provider = provider
         self.send = send
-        super.init(title: PageInfoStrings.siteSettingsTitle(site.displayName), size: CGSize(width: 460, height: 520))
+        super.init(title: PageInfoStrings.siteSettingsTitle(site.displayName), size: CGSize(width: 460, height: 520),
+                   activeLook: activeLook)
         setAccessibilityIdentifier("cmux.pageInfo.siteSettings")
         usage.stringValue = PageInfoStrings.loading
         let deleteData = ThemedBezelButton(title: PageInfoStrings.deleteData, target: self, action: #selector(deleteSiteData))

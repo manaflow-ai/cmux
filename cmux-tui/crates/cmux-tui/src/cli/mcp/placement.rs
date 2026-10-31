@@ -168,7 +168,11 @@ impl<B: Backend> Server<B> {
                 Err(failure) => match self.daemon_caller() {
                     Some(caller) => Some(caller),
                     None => {
-                        let message = failure.error["message"].as_str().unwrap_or("no answer");
+                        let message = failure
+                            .error
+                            .get("message")
+                            .and_then(Value::as_str)
+                            .unwrap_or("no answer");
                         return Err(caller_scope::unresolved(message));
                     }
                 },
@@ -199,8 +203,12 @@ impl<B: Backend> Server<B> {
         arguments.insert("direction".into(), json!("right"));
         let call = tool.plan(&arguments).ok()?;
         let answer = self.backend.resource(None, call.plan, &call.prefixes).ok()?;
-        let right =
-            answer.get("value").unwrap_or(&answer)["pane"]["id"].as_str().map(str::to_owned);
+        let right = answer
+            .get("value")
+            .unwrap_or(&answer)
+            .pointer("/pane/id")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         Some(match right {
             Some(right) => json!({"caller": caller, "beside": {"pane": right}}),
             None => json!({"caller": caller}),

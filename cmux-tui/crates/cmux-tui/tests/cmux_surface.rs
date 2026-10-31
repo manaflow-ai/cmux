@@ -170,6 +170,8 @@ fn a_classic_verb_names_its_resource_command() {
         (&["new-surface"][..], "cmux tab create terminal"),
         (&["rename-surface", "x"][..], "cmux tab <tab> rename <name>"),
         (&["close-surface"][..], "cmux tab <tab> close"),
+        (&["rpc", "action.list", "{}"][..], "cmux action list"),
+        (&["rpc", "snapshot.get"][..], "cmux action list"),
     ] {
         let output = names.run("cmux", args);
         let stderr = text(&output.stderr);

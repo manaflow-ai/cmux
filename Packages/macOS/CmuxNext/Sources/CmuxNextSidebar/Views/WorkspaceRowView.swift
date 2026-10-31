@@ -30,6 +30,10 @@ final class WorkspaceRowView: SidebarRowView {
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
     /// in the trailing cluster, in the tertiary text color; hidden otherwise.
     let mutedMark = DecorativeImageView()
+    /// A runaway agent chat in the workspace (`SidebarWorkspace.usageWarnings`: no autocompact
+    /// cap, a huge context, a storm of subagents): a small warning triangle in the trailing
+    /// cluster, apart from the working spinner; its tooltip says each rule and the number.
+    let usageWarningMark = DecorativeImageView()
     /// The computer the workspace runs on (`WorkspaceRowContent.machine`): its icon in its
     /// color, small, before the title; hidden while the sidebar lists one machine.
     let machineMark = DecorativeImageView() // the row's label names the machine
@@ -151,9 +155,12 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
         mutedMark.setAccessibilityElement(false)
+        usageWarningMark.imageScaling = .scaleProportionallyDown
+        usageWarningMark.isHidden = true
+        usageWarningMark.setAccessibilityElement(false)
         machineMark.imageScaling = .scaleProportionallyDown
         machineMark.isHidden = true
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, machineMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock,
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, usageWarningMark, machineMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap, treeFoldButton, rollUp].forEach(addSubview)
         setUpSessionTree()
         disclosureButton.isHidden = true
@@ -317,6 +324,11 @@ final class WorkspaceRowView: SidebarRowView {
         // The bell-slash alone does not say what is muted: notifications, not the tabs' sound
         // (the row's accessibility label says it too).
         mutedMark.themedToolTip = mutedMark.isHidden ? nil : Strings.notificationsMuted
+        // acpmux's own lines name the rule and the number ("90 subagents started in the last hour, above 40").
+        usageWarningMark.image = ws.usageWarnings.isEmpty || isShowingPlaceholder ? nil
+            : NSImage.icon(symbol: "exclamationmark.triangle.fill", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1))
+        usageWarningMark.isHidden = usageWarningMark.image == nil
+        usageWarningMark.themedToolTip = usageWarningMark.isHidden ? nil : ws.usageWarnings.joined(separator: "\n")
         let previousMachine = machine
         machine = isShowingPlaceholder ? nil : shown.machine
         // A new image only when the mark or its size changes: every patch and every row scrolled in configures the row.

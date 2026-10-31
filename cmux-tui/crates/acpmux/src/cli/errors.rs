@@ -2,7 +2,9 @@
 //!
 //! Exit codes: 0 ok, 1 runtime or agent error, 2 usage, 3 timeout, 4 no
 //! such session, 5 every permission in the turn was denied or the host
-//! refused a new session (`admission_refused`), 130 interrupted. `code`
+//! refused a new session (`admission_refused`), 6 `session stop --if-idle`
+//! refused: the session is not idle (`busy`) or its revision moved
+//! (`revision_moved`, `hub/stop_if_idle.rs`), 130 interrupted. `code`
 //! is the small stable set orchestrators branch on; `detail` is free text
 //! for diagnostics, or the daemon's own `reason` for a refusal that carries one (then `data` holds the daemon's error data, such
 //! as `cwd_missing` with the missing `cwd`).
@@ -17,6 +19,8 @@ pub enum Code {
     Timeout = 3,
     NoSession = 4,
     PermissionDenied = 5,
+    /// A conditional stop refused (`hub/stop_if_idle.rs`): nothing was stopped.
+    NotIdle = 6,
     /// Reserved: a SIGINT ends the process with the shell's own 130.
     #[allow(dead_code)]
     Interrupted = 130,
@@ -30,6 +34,7 @@ impl Code {
             Code::Timeout => "timeout",
             Code::NoSession => "no_session",
             Code::PermissionDenied => "permission_denied",
+            Code::NotIdle => "not_idle",
             Code::Interrupted => "interrupted",
         }
     }
@@ -178,6 +183,8 @@ pub fn classify(e: &anyhow::Error) -> AppError {
         // when no host qualifies (`hub/admission.rs`).
         let code = if reason == crate::hub::admission::REASON {
             Code::PermissionDenied
+        } else if daemon.is_some_and(|d| d.0.code == crate::hub::stop_if_idle::NOT_IDLE_CODE) {
+            Code::NotIdle
         } else if daemon.is_some_and(|d| d.0.code == -32602) {
             Code::Usage
         } else {
@@ -314,6 +321,26 @@ mod typed_error_tests {
             app.envelope()["error"]["data"]["details"]["lastSeenAt"],
             "1970-01-01T00:00:01.000Z"
         );
+    }
+
+    /// A refused `session stop --if-idle` exits 6 with the daemon's reason as its detail, and
+    /// the envelope keeps the revision the caller reads again.
+    #[test]
+    fn a_refused_conditional_stop_exits_6_with_its_reason() {
+        use crate::hub::stop_if_idle::{BUSY, NOT_IDLE_CODE, REVISION_MOVED};
+        for (reason, busy_with) in [(BUSY, json!("turn")), (REVISION_MOVED, json!(null))] {
+            let e = RpcError::new(NOT_IDLE_CODE, "session is not idle: not stopped").with_data(
+                json!({"reason": reason, "busyWith": busy_with, "revision": 41u64, "sessionId": "s", "retryable": true}),
+            );
+            let app = classify(&daemon(e));
+            assert_eq!(app.code, Code::NotIdle);
+            assert_eq!(app.exit_status(), 6);
+            assert_eq!(app.detail, reason);
+            assert!(app.retryable);
+            let env = app.envelope();
+            assert_eq!(env["error"]["code"], "not_idle");
+            assert_eq!(env["error"]["data"]["revision"], 41);
+        }
     }
 
     /// The daemon refusing work while it shuts down says it is restarting.
