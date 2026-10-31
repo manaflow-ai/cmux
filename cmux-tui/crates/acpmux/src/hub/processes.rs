@@ -225,15 +225,10 @@ impl ProcessTable {
         p.clone()
     }
 
-    /// The processes as the wire carries them, each with its output's
-    /// length now.
-    fn values(&self) -> Vec<Value> {
-        let listed = |p: &Process| {
-            let mut p = p.clone();
-            p.output_bytes = p.output_file.as_deref().map(output_len);
-            serde_json::to_value(p).ok()
-        };
-        self.processes.iter().filter_map(listed).collect()
+    /// Snapshot the rows while the process table is locked. Output-file metadata may hit
+    /// a slow filesystem, so it is read only after the caller releases that lock.
+    fn snapshot(&self) -> Vec<Process> {
+        self.processes.clone()
     }
 
     /// Every running process ends `lost` for `reason`; returns them.
@@ -250,6 +245,18 @@ impl ProcessTable {
         }
         lost
     }
+}
+
+/// Serialize a process-list snapshot after releasing the session's process-table mutex.
+/// Keep outputBytes live, even for completed tasks whose output file changes after exit.
+fn process_values(processes: Vec<Process>, length: impl Fn(&str) -> u64) -> Vec<Value> {
+    processes
+        .into_iter()
+        .filter_map(|mut process| {
+            process.output_bytes = process.output_file.as_deref().map(|path| length(path));
+            serde_json::to_value(process).ok()
+        })
+        .collect()
 }
 
 /// Takes the output file a shell's session update names
@@ -429,18 +436,21 @@ impl Hub {
     /// every chat whose processes this daemon has read (any chat that ran one
     /// since it started, or that it adopted).
     pub fn list_processes(&self, session: Option<&Session>) -> Value {
-        let processes = match session {
-            Some(session) => self.process_table(session).values(),
+        // Taking the snapshot is the only operation that needs the process-table lock.
+        // File metadata reads and JSON conversion must not hold it: process updates
+        // from a running harness need to acquire the same mutex.
+        let processes: Vec<Process> = match session {
+            Some(session) => self.process_table(session).snapshot(),
             None => self
                 .sessions()
                 .iter()
                 .flat_map(|s| {
                     let table = s.processes.lock().unwrap_or_else(|e| e.into_inner());
-                    if table.loaded { table.values() } else { Vec::new() }
+                    if table.loaded { table.snapshot() } else { Vec::new() }
                 })
                 .collect(),
         };
-        json!({"processes": processes})
+        json!({"processes": process_values(processes, output_len)})
     }
 
     /// The session of the process `id` (`<sessionId>/<taskId>`).
@@ -618,4 +628,42 @@ pub(super) fn backgrounds_work(kind: crate::config::HarnessKind) -> bool {
 /// No process has the id.
 fn unknown_process(id: &str) -> RpcError {
     RpcError::not_found(format!("no background process {id:?}"))
+}
+
+#[cfg(test)]
+mod process_list_snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn a_process_list_reads_output_metadata_after_releasing_its_table() {
+        let process: Process = serde_json::from_value(json!({
+            "id": "chat/task", "sessionId": "chat", "toolCallId": "call",
+            "taskId": "task", "harness": "claude", "command": "cargo test",
+            "cwd": "/tmp", "startedAt": 100, "endedAt": 200,
+            "state": "exited", "origin": "background", "outputFile": "/tmp/task-output"
+        }))
+        .unwrap();
+        let table = std::sync::Mutex::new(ProcessTable {
+            loaded: true,
+            processes: vec![process],
+            ..ProcessTable::default()
+        });
+        // Every caller first takes its snapshot, then drops the guard before
+        // collecting live file sizes and serializing the reply.
+        let snapshot = table.lock().unwrap().snapshot();
+        let rows = process_values(snapshot, |path| {
+            assert_eq!(path, "/tmp/task-output");
+            assert!(
+                table.try_lock().is_ok(),
+                "filesystem metadata read under process-table lock"
+            );
+            42
+        });
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["id"], "chat/task");
+        assert_eq!(rows[0]["state"], "exited");
+        assert_eq!(rows[0]["outputBytes"], 42);
+        // The saved table remains unchanged: a later list re-reads the file size.
+        assert_eq!(table.lock().unwrap().processes[0].output_bytes, None);
+    }
 }
