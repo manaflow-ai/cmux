@@ -292,9 +292,7 @@ test("Return during the sign-in check asks once the check settles", async () => 
       field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
     );
     expect(asks).toEqual([]);
-    await act(async () =>
-      settle({ state: "ready", source: "authCheck", evidenceAt: 1, harness: "codex", host: null }),
-    );
+    await act(async () => settle({ state: "ready", source: "authCheck", evidenceAt: 1, harness: "codex", host: null }));
     expect(asks).toHaveLength(1);
     expect(asks[0]?.slice(0, 2)).toEqual(["codex", "fix the flaky upload test"]);
   } finally {
@@ -347,9 +345,7 @@ test("an edit after Return during the sign-in check sends nothing on its own", a
       field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
     );
     await type("fix the flaky upload test and the lint");
-    await act(async () =>
-      settle({ state: "ready", source: "authCheck", evidenceAt: 1, harness: "codex", host: null }),
-    );
+    await act(async () => settle({ state: "ready", source: "authCheck", evidenceAt: 1, harness: "codex", host: null }));
     expect(asks).toEqual([]);
     expect(field.value).toBe("fix the flaky upload test and the lint");
   } finally {
