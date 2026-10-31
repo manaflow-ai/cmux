@@ -1,0 +1,74 @@
+{
+ "id": "cmdn-ctrlbt-type",
+ "priority": "P0",
+ "title": "Cmd-N, then Ctrl-` in the new workspace, then type: the line runs in the new terminal at once",
+ "why": "STATUS 1729: in 6 of 14 rounds of focus-switch-corner-drag the line typed after Cmd-N then Ctrl-` got debug.key handled_by app (the router's stale last action newSurface) and did not run. Cmd-N's New Tab key hold owns every key of its window until its page reports ready (at most 4 s); a Ctrl-` before that hid the page and the hold kept the keys typed for the new terminal. The last check records the New Tab hold's log (debug.focus new_tab_key_log): 'hold key' on the base, 'release: a creation took the keys' on the fix, when the page was not ready at the Ctrl-` (the hold path).",
+ "source": "P0 CMD-N CTRL-BACKTICK FIRST KEY (STATUS 1729), agent a539d1ff2011e6d9e",
+ "budget_seconds": 90,
+ "steps": [
+  {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "key",
+   "title": "Cmd-N: a new workspace on the New Tab page",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "ws-a"
+  },
+  {
+   "do": "expect",
+   "title": "the new workspace shows",
+   "since": "ws-a",
+   "timeout": 20,
+   "all": [
+    {
+     "smoke_workspaces": {
+      "new": 1
+     }
+    }
+   ]
+  },
+  {
+   "do": "new_terminal",
+   "name": "jr-cmdn-ctrlbt",
+   "via": "key"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo cb-${nonce}",
+   "enter": true,
+   "mark": "typed"
+  },
+  {
+   "do": "expect",
+   "title": "the typed line runs in the new terminal at once (not after Cmd-N's 4 s New Tab hold)",
+   "since": "typed",
+   "within": 1.0,
+   "timeout": 8,
+   "all": [
+    {
+     "daemon_line": "cb-${nonce}"
+    },
+    {
+     "app_text_line": "cb-${nonce}"
+    },
+    {
+     "frame_text": "cb-${nonce}"
+    },
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "new_tab_key_log",
+      "len_gte": 0
+     }
+    }
+   ]
+  }
+ ]
+}
