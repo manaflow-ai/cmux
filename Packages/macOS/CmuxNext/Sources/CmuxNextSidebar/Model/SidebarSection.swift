@@ -66,8 +66,9 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
         case pausedIdle
 
         /// The machine cannot connect until the person acts (sign-in,
-        /// network, install or update). In one list its workspaces' second
-        /// line names the status (cx-mdo0); no header or status row shows.
+        /// network, install or update). In one list its workspaces' rows say
+        /// the status to VoiceOver and an expanded row's meta line names it
+        /// (cx-mdo0); no header or status row shows.
         public var needsAttention: Bool {
             switch self {
             case .authFailed, .unreachable, .installRequired, .updateRequired, .failed, .disconnected: true
