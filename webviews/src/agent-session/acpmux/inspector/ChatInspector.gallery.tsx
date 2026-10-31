@@ -373,6 +373,19 @@ const fleet: AcpmuxSessionEntry[] = [
   }),
 ];
 
+/// A session whose tokens and context acpmux read but whose cost it could not (a harness with no
+/// price table): sorted by 24h cost it reads as an em dash, never its token count.
+const unpricedFleet: AcpmuxSessionEntry[] = [
+  ...fleet.slice(0, 3),
+  sessionEntry({
+    sessionId: "unpriced-codex",
+    name: "lane-vm/unpriced-codex",
+    peer: "lane-vm",
+    harness: "codex",
+    usageStats: spent({ launcher: "codex-acp", autocompact: "unknown", contextTokens: 41_000, tokens24h: 52_000_000 }),
+  }),
+];
+
 const full: Props = {
   summary,
   allSessions: fleet,
@@ -754,6 +767,21 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-chat-inspector-usage__sort-option:nth-child(2)" });
         await ctx.waitFor(() => ctx.document.querySelector('[data-sort="context"]') !== null);
+      },
+    },
+    "usage-unknown-cost": {
+      note: "Usage sorted by 24h cost with a session whose cost acpmux could not read (its tokens and context it did): the row ends in an em dash, never its 24h token count under the cost heading. Sorted by Context it shows its context.",
+      props: {
+        ...full,
+        allSessions: unpricedFleet,
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
       },
     },
     "usage-all": {
