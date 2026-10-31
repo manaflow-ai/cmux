@@ -36,7 +36,8 @@ import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { hasInlineMarks, promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
 import { carryInline, inlinePrompt, recordedPromptParts, restoreInline, stripFileDisplay } from "./inlinePrompt";
-import { fitPromptBudget } from "./promptBudget";
+import { fitPromptBudget, uploadsToFit } from "./promptBudget";
+import type { SendPrompt, SendUploadResult } from "./sendUploads";
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
@@ -5818,6 +5819,8 @@ export class AcpmuxDirectClient {
   /// Opens a chat's Cloud hand-off turn before a prompt that starts one (cloudHandoffTurn.ts); set
   /// by the page only for a chat on a Cloud machine whose app opens them.
   handoffTurn?: (sessionId: string) => Promise<number | undefined>;
+  /// Uploads attachments too large to go inline at the Send (sendUploads.ts); set by the page.
+  uploadForSend?: (chips: ComposerAttachment[], prompt: SendPrompt) => Promise<SendUploadResult>;
   /// The hand-off turn each chat asks the app for now (sendNow), with the selection it was asked in.
   private handoffAsks = new Map<string, { generation: number; ask: Promise<number | undefined> }>();
   /// The newest hand-off turn each chat sent a prompt under: the store may still say it is `starting`
@@ -5997,7 +6000,23 @@ export class AcpmuxDirectClient {
     // The prompt is one acpmux message: past its budget, the largest image previews go as the links
     // to their saved originals (promptBudget.ts). The row and a Retry keep what the prompt carried:
     // such an image is its original's link, drawn as a file as acpmux's echo and a reload draw it.
-    const carried = fitPromptBudget(input, sendAttachments, options);
+    let carried = fitPromptBudget(input, sendAttachments, options);
+    // Still too large: the largest attachments with no saved copy upload now, under the Send's
+    // ticket, and go as links (sendUploads.ts). A failed upload fails the send with its words.
+    const uploads = this.uploadForSend ? uploadsToFit(input, sendAttachments, options) : [];
+    if (uploads.length) {
+      const sent = await this.uploadForSend!(uploads, { sessionId, promptId, ...(ticket ? { ticket } : {}) });
+      if ("error" in sent) {
+        if (claim && this.handoffTurnsSent.get(sessionId) === claim.turn) {
+          if (claim.before === undefined) this.handoffTurnsSent.delete(sessionId);
+          else this.handoffTurnsSent.set(sessionId, claim.before);
+        }
+        throw new Error(sent.error);
+      }
+      ticket = sent.ticket;
+      const uploaded = new Map(sent.attachments.map((chip) => [chip.id, chip]));
+      carried = carried.map((chip) => uploaded.get(chip.id) ?? chip);
+    }
     if (carried !== sendAttachments) {
       const linked = new Map(carried.map((chip) => [chip.id, chip]));
       attachments = attachments.map((chip) => linked.get(chip.id) ?? chip);

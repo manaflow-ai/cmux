@@ -107,3 +107,28 @@ function originalLink(image: ComposerAttachment): ComposerAttachment {
     saved: true,
   };
 }
+
+/// The attachments that must upload at the Send for the prompt to fit `budget` once the saved
+/// originals are linked (`fitPromptBudget`): the largest inline image, PDF or recording with no saved
+/// copy first, until the rest fits. Empty when the prompt already fits. They go as links to their
+/// uploads (sendUploads.ts), so no attachment has a size cap and none is left out.
+export function uploadsToFit(
+  input: string,
+  attachments: ComposerAttachment[],
+  options: InlineReadOptions = {},
+  budget = PROMPT_INLINE_BUDGET,
+): ComposerAttachment[] {
+  const fitted = fitPromptBudget(input, attachments, options, budget);
+  let total = inlineBytes(promptBlocks(input, fitted, options));
+  if (total <= budget) return [];
+  const inline = fitted
+    .filter((chip) => (chip.kind === "image" || chip.kind === "document" || chip.kind === "audio") && chip.data)
+    .sort((a, b) => b.data!.length - a.data!.length);
+  const picked: ComposerAttachment[] = [];
+  for (const chip of inline) {
+    if (total <= budget) break;
+    picked.push(chip);
+    total -= chip.data!.length + chip.mimeType.length + jsonBytes(chip.name) + BLOCK_OVERHEAD;
+  }
+  return picked;
+}

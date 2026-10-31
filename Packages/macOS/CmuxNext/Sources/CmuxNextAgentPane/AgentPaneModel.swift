@@ -231,6 +231,9 @@ public final class AgentPaneModel {
     /// The App's upload for this chat (a chat moved to a Cloud machine), nil when it takes none (``AgentPaneUpload``).
     @ObservationIgnored public var onUpload: (@MainActor () -> AgentPaneUploader?)?
     @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?
+    /// The stages of uploads begun under a Send's ticket, by stage token, each with its hold on the
+    /// ticket (``AgentPaneUserGestures/holdForUpload(_:upload:connection:sessionId:promptId:)``).
+    @ObservationIgnored var uploadHolds: [String: String] = [:]
     /// App-owned, explicitly confirmed provider credential setup for this pane's Cloud chat.
     @ObservationIgnored public var onCloudCredentialTransfer: (@MainActor (AgentPaneCloudCredentialTransferRequest) async -> Bool)?
 
@@ -531,7 +534,9 @@ public final class AgentPaneModel {
             // to stream, so a recording over the one-frame size failed with Retry (#28647).
             guard let stager = onUploadStage?() else { return Self.unsupported("chat.upload.stage") }
             if case .begin(_, _, let batchToken, _) = stage, batchToken == nil, !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
-            return await stager(stage, sessionId)
+            return await stageHeld(stage, stager)
+        case .uploadStageForSend(let stage, let ticket):
+            return await beginSendUpload(stage, ticket: ticket)
         case .unsupported(let method): return Self.unsupported(method)
         }
     }

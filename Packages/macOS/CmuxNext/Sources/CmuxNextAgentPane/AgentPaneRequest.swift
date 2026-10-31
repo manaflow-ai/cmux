@@ -333,6 +333,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chat.upload {files: [{name, data}]}`: files the person dropped or pasted, for the chat's Cloud machine (``AgentPaneUpload``).
     case upload([AgentPaneUpload])
     case uploadStage(AgentPaneUploadStageRequest)
+    /// `chat.upload.begin {..., sessionId, promptId, ticket}`: a file the page uploads at the
+    /// person's Send, begun under that Send's ticket instead of a live gesture
+    /// (``AgentPaneModel/beginSendUpload(_:ticket:)``).
+    case uploadStageForSend(AgentPaneUploadStageRequest, AgentPaneUploadSendTicket)
     case unsupported(String)
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).
@@ -356,6 +360,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     public var carriesFiles: Bool {
         if case .upload = self { return true }
         if case .uploadStage = self { return true }
+        if case .uploadStageForSend = self { return true }
         return false
     }
 
