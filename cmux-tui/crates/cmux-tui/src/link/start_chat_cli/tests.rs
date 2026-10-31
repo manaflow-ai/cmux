@@ -382,6 +382,14 @@ fn plan_and_pin_keep_each_workspaces_machine_across_a_relaunch() {
     let other =
         json!({"key": key(), "workspace": "ws-b", "user": ME, "loaded": true, "machines": listed});
     assert_eq!(plan(&path, &other.to_string())["machine"], Value::Null);
+    // A retry of the first send stays on vm-a, but never takes ws-a back from the machine
+    // that replaced it.
+    assert_eq!(pin(&path, &key(), "vm-c", Some("ws-a"))["ok"], json!(true));
+    let retry_first =
+        json!({"key": first, "workspace": "ws-a", "user": ME, "loaded": true, "machines": listed});
+    assert_eq!(plan(&path, &retry_first.to_string())["machine"], json!("vm-a"));
+    let kept = Ledger::update(&path, |pins| pins.clone()).unwrap();
+    assert_eq!(kept.workspace_machine("ws-a").as_deref(), Some("vm-c"));
 
     // A ledger written before workspaces (the sends' list alone) still reads.
     let older = scratch();

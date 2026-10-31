@@ -177,7 +177,8 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
         );
         if let Destination::Machine(id) = &destination {
             pins.record(id, &request.key);
-            if let Some(workspace) = workspace {
+            // A retry of an older send keeps its machine, never the workspace's newer one.
+            if let Some(workspace) = workspace.filter(|ws| pins.workspace_machine(ws).is_none()) {
                 pins.bind(workspace, id);
             }
         }
