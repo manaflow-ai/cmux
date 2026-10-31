@@ -28,6 +28,7 @@ import { registerPicker } from "../pickerOpeners";
 import {
   Menu,
   MenuButton,
+  MenuCheckboxItem,
   MenuItem,
   MenuPopup,
   MenuRadioGroup,
@@ -91,6 +92,8 @@ export type ChatMenuChild = {
   shortcutAction?: string;
   shortcutLabel?: string;
   checked?: boolean;
+  /// A row that is on or off on its own (Transcript view's Wrap lines), drawn with a check when on.
+  on?: boolean;
   separatorBefore?: boolean;
   onSelect: () => void;
 };
@@ -664,6 +667,11 @@ function childRows(children: readonly ChatMenuChild[]): ReactNode[] {
   for (let index = 0; index < children.length;) {
     const child = children[index]!;
     if (child.separatorBefore && index > 0) nodes.push(<MenuSeparator key={`separator-${child.key}`} />);
+    if (child.on !== undefined) {
+      nodes.push(<ChatMenuToggleRow key={child.key} child={child} />);
+      index += 1;
+      continue;
+    }
     if (child.checked === undefined) {
       nodes.push(<ChatMenuChildRow key={child.key} child={child} />);
       index += 1;
@@ -696,6 +704,24 @@ function ChatMenuChoice({ rows }: { rows: readonly ChatMenuChild[] }) {
         </MenuRadioItem>
       ))}
     </MenuRadioGroup>
+  );
+}
+
+/// A row that flips on or off; the menu stays open, so the row keeps its own state after a flip.
+function ChatMenuToggleRow({ child }: { child: ChatMenuChild }) {
+  const [on, setOn] = useState(child.on ?? false);
+  return (
+    <MenuCheckboxItem
+      className="acpmux-chat-menu-item"
+      disabled={child.disabled}
+      checked={on}
+      onCheckedChange={() => {
+        setOn(!on);
+        child.onSelect();
+      }}
+    >
+      <span className="acpmux-chat-menu-label">{child.label}</span>
+    </MenuCheckboxItem>
   );
 }
 

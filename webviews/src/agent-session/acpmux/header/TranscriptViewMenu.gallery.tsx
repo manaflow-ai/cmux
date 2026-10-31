@@ -3,7 +3,8 @@
 // these kinds of settings from claude code desktop..."), three layouts side by side:
 //   A (Recommended, shipped): a "Transcript view ›" submenu in the ··· menu, as Claude Code
 //     desktop's chat menu: Normal, Thinking, Verbose with a check, then "Make … the default", then
-//     Text & Width…. It takes Text & Width's row, so the full-height menu grows by none and Archive
+//     Wrap lines (every command's output; Verbose opens every Shell block, so it lives here once)
+//     and Text & Width…. It takes Text & Width's row, so the full-height menu grows by none and Archive
 //     stays on screen; the choice is two clicks away, the default beside it.
 //   B: the three views inline in the ··· menu under a "Transcript view" label: one click, but the
 //     menu grows by four rows that most opens never use.
@@ -79,6 +80,10 @@ function Layouts({ layout }: { layout: Layout }) {
           <div style={rule} />
           <div style={{ ...item, opacity: 0.5 }}>Make Normal the default</div>
           <div style={rule} />
+          <div style={{ ...item, justifyContent: "flex-start", gap: 6 }}>
+            {check(true)}
+            Wrap lines
+          </div>
           <div style={item}>Text & Width…</div>
         </div>
       </div>

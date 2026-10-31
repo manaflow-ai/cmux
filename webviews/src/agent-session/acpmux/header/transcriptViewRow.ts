@@ -14,7 +14,16 @@ import {
   type TranscriptView,
 } from "../conversation/transcriptView";
 import { defaultTranscriptView } from "../chatDisplay";
+import { blockWrapOf, setBlockWrap } from "../conversation/blockWrap";
 import type { ChatMenuChild, ChatMenuItem } from "./ChatHeaderTools";
+
+/// The submenu's Wrap lines: whether every command's output wraps (blockWrap.ts "output", one
+/// choice for every Shell block). Verbose opens every Shell block, so the choice lives here once
+/// and each block shows its own Wrap lines only on hover or focus (conversation.css .cv-shell__wrap).
+export function wrapOutputRow(t: Translate): ChatMenuChild {
+  const on = blockWrapOf("output");
+  return { key: "transcriptView.wrap", label: t("changes.wrapLines"), on, onSelect: () => setBlockWrap("output", !on) };
+}
 
 export const TRANSCRIPT_VIEW_NAMES: Record<TranscriptView, StringKey> = {
   normal: "chatMenu.transcriptView.normal",

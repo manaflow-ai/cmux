@@ -188,6 +188,50 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       await page.close();
     });
 
+    // Verbose opens every Shell block; Wrap lines is one choice for all of them (blockWrap.ts), so it
+    // never repeats on every block at rest: a block shows it on hover or focus, and the Transcript
+    // view submenu has it once (the review of #28782 at 13b0b525).
+    test("Verbose shows no Wrap lines on every Shell block at rest; the submenu's Wrap lines flips them all", async () => {
+      const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
+      await page.goto(pageUrl());
+      await page.getByText(ANSWER).waitFor();
+      await pick(page, "Verbose");
+      const shells = page.locator(".cv-shell");
+      await shells.nth(1).waitFor();
+      await page.mouse.move(1, 1);
+      // The Wrap lines buttons a reader sees at rest: drawn, and not see-through.
+      const shownWraps = () =>
+        page.evaluate(
+          () =>
+            [...document.querySelectorAll<HTMLElement>('.cv-shell button[aria-label="Wrap lines"]')].filter(
+              (button) => {
+                const box = button.getBoundingClientRect();
+                return box.width > 0 && Number(getComputedStyle(button).opacity) > 0.01;
+              },
+            ).length,
+        );
+      const atRest = { shells: (await shells.count()) >= 2, wraps: await shownWraps() };
+      // Hovering a block shows its own.
+      await shells.first().hover();
+      const hovered = await shownWraps();
+      await page.mouse.move(1, 1);
+      expect({ atRest, hovered }).toEqual({ atRest: { shells: true, wraps: 0 }, hovered: 1 });
+
+      const wrapOf = () => page.locator(".cv-shell__body").first().getAttribute("data-wrap");
+      const before = await wrapOf();
+      await page.getByRole("button", { name: "Chat actions" }).click();
+      await page.getByRole("menuitem", { name: "Transcript view" }).click();
+      const toggle = page.getByRole("menuitemcheckbox", { name: "Wrap lines" });
+      expect(await toggle.getAttribute("aria-checked")).toBe(before);
+      await toggle.click();
+      await page.waitForFunction(
+        (was) =>
+          [...document.querySelectorAll(".cv-shell__body")].every((body) => body.getAttribute("data-wrap") !== was),
+        before,
+      );
+      await page.close();
+    });
+
     test("a replay of the chat draws under the chat's view", async () => {
       const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
       await page.addInitScript(() => localStorage.setItem("cmux.experiments", '{"session-replay":"on"}'));

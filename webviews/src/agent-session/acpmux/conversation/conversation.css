@@ -2135,6 +2135,16 @@ pre.cv-math-source {
   gap: 2px;
   margin-right: -6px;
 }
+/* Wrap lines is every Shell block's one choice: it shows on the block's hover or keyboard focus,
+   never on every open block at rest (Verbose opens them all); the chat menu's Transcript view
+   submenu has it once. */
+.cv-shell__actions .cv-shell__wrap {
+  opacity: 0;
+}
+.cv-shell:hover .cv-shell__wrap,
+.cv-shell:focus-within .cv-shell__wrap {
+  opacity: 1;
+}
 .cv-shell__title {
   display: flex;
   align-items: center;

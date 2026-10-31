@@ -452,7 +452,7 @@ import { configureQuickActions, quickActions, type QuickActionMode } from "./hea
 import { chatColumnOf, configureChatWidth, useChatSizing } from "./chatWidth";
 import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
-import { transcriptViewRow } from "./header/transcriptViewRow";
+import { transcriptViewRow, wrapOutputRow } from "./header/transcriptViewRow";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
 import { configureToolRunLook } from "./toolRunLook";
@@ -10192,9 +10192,10 @@ function AcpmuxPane() {
           ) ?? document.querySelector<HTMLElement>(".acpmux-header-tools"),
         ),
     };
-    // Normal, Thinking or Verbose for this chat, with Text & Width… under them in one submenu
-    // (header/transcriptViewRow.ts): the menu is full height, and a row more pushes Archive off it.
-    const transcriptView = transcriptViewRow(snapshot.sessionId, t, [display]);
+    // Normal, Thinking or Verbose for this chat, then Wrap lines (every command's output) and
+    // Text & Width… under them in one submenu (header/transcriptViewRow.ts): the menu is full
+    // height, and a row more pushes Archive off it.
+    const transcriptView = transcriptViewRow(snapshot.sessionId, t, [wrapOutputRow(t), display]);
     const tools: ChatMenuItem[] = [
       transcriptView ?? { ...display, icon: "site.permission.localfonts" },
       ...replay,
