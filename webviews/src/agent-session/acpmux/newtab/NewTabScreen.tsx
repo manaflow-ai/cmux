@@ -501,28 +501,39 @@ export function NewTabScreen(props: Props) {
   const [sandboxRefusal, setSandboxRefusal] = useState<string>();
   const [startError, setStartError] = useState<string>();
   const asking = useRef(false);
+  /// The agent whose chat is starting while the page still shows (a chat on another machine, or in
+  /// no project, leaves only once it has started): the composer says "Starting Claude Code…" until
+  /// the start answers, so a slow start never reads as Return having done nothing.
+  const [starting, setStarting] = useState<string>();
   const requestChat = (...args: Parameters<NewTabScreenActions["onAsk"]>) => {
     if (asking.current) return;
     asking.current = true;
     setStartError(undefined);
+    setStarting(args[0]);
     const failed = (error: unknown) => {
       setStartError(errorMessage(error) || t("switch.unknownError"));
       created.current = false;
     };
+    const done = () => {
+      asking.current = false;
+      setStarting(undefined);
+    };
     try {
       Promise.resolve(props.onAsk(...args))
         .catch(failed)
-        .finally(() => {
-          asking.current = false;
-        });
+        .finally(done);
     } catch (error) {
       failed(error);
-      asking.current = false;
+      done();
     }
   };
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
-    if (targetAuthPending || authBlocksSend(targetAuth)) return false;
+    // Only a verdict that already says the harness is signed out holds the prompt back. A check
+    // still running never does (Leo 2026-10-30: "I SHOULD BE ALWAYS ABLE TO SATRT NEW FUCKGN
+    // CHATS"): it has no deadline and can take many seconds on a busy daemon, and the turn itself
+    // reports a sign-in that turns out missing.
+    if (authBlocksSend(targetAuth)) return false;
     if (command.intercept(prompt, agent, attachments.length)) return false;
     if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
       const started = props.onSandbox(agent, prompt, attachments);
@@ -566,27 +577,13 @@ export function NewTabScreen(props: Props) {
     harness && (!remoteTarget || targetHost)
       ? { target: { harness, ...(targetHost ? { host: targetHost } : {}) } }
       : undefined;
-  const {
-    auth: targetAuth,
-    pending: targetAuthPending,
-    recheck: recheckTarget,
-  } = useSessionAuth(
+  const { auth: targetAuth, recheck: recheckTarget } = useSessionAuth(
     authQuery,
     parentSignIn?.readSessionAuth,
     parentSignIn?.authEpoch,
     parentSignIn?.authRefresh,
     parentSignIn?.authObservation,
   );
-  const authTarget = JSON.stringify(authQuery ?? null);
-  /// The ask that waits on the harness's sign-in check (askChat refuses while it runs: Return, an
-  /// Ask row or New chat right after Cmd-T, or setup's resume), with the check's target. It runs
-  /// again once the check settles on that target; a sign-in it then finds missing keeps the draft.
-  /// One slot: a later ask replaces it, so one ask goes. An edit drops it, except setup's resume,
-  /// which reads the draft as it is then.
-  const afterAuth = useRef<{ target: string; run: () => void; keepOnEdit?: true }>(undefined);
-  const waitForAuth = (run: () => void, keepOnEdit = false) => {
-    afterAuth.current = { target: authTarget, run, ...(keepOnEdit ? { keepOnEdit } : {}) };
-  };
 
   // The Ask row names the agent Return asks and the model on its chip.
   const ask = useMemo(() => {
@@ -860,7 +857,6 @@ export function NewTabScreen(props: Props) {
       case "workspace":
         return props.onJump("workspace", row.id);
       case "ask":
-        if (targetAuthPending) return waitForAuth(() => activateNow.current(row));
         return askChat(row.harness, row.text, project, row.harness === harness ? chipModel : undefined);
       case "create":
         return row.kind === "chat" ? startChat() : create(row.kind);
@@ -868,12 +864,8 @@ export function NewTabScreen(props: Props) {
         return props.onAction?.(row.id);
     }
   };
-  const activateNow = useRef(activate);
-  activateNow.current = activate;
   const edit = (next: string) => {
     touch();
-    // An ask still waiting on the sign-in check was for the draft before this edit.
-    if (!afterAuth.current?.keepOnEdit) afterAuth.current = undefined;
     setTouched(true);
     const entry = composing.current || shell ? undefined : shellEntry(text, next, wholeSelection.current);
     wholeSelection.current = false;
@@ -930,7 +922,6 @@ export function NewTabScreen(props: Props) {
       openSetup();
       return;
     }
-    if (targetAuthPending) return waitForAuth(() => submitNow.current());
     askChat(harness, prompt, project, chipModel);
   };
   submitNow.current = submit;
@@ -955,7 +946,6 @@ export function NewTabScreen(props: Props) {
     if (created.current) return;
     const prompt = shell ? "" : text.trim();
     if (command.intercept(prompt, harness, attachments.length)) return;
-    if (targetAuthPending) return waitForAuth(() => startChatNow.current());
     created.current = true;
     const asked = askChat(
       harness,
@@ -966,16 +956,10 @@ export function NewTabScreen(props: Props) {
     // A Sandboxed New chat that started nothing (no prompt, a refusal) leaves the page's creates open.
     if (asked === false) created.current = false;
   };
-  const startChatNow = useRef(startChat);
-  startChatNow.current = startChat;
   continueAfterSetup.current = (agent) => {
     // Setup may finish while an attachment is still loading. Resume the same draft only once
     // its files are ready, reading the latest state rather than the setup-opening snapshot.
     if (holdForAttachments(() => continueAfterSetup.current(agent)) || created.current) return;
-    // Setup just made the harness ready, so its sign-in check is usually still running, and askChat
-    // refuses while it does. Resume once that harness's check settles; a sign-in it then finds
-    // missing keeps the draft.
-    if (targetAuthPending && harness === agent) return waitForAuth(() => continueAfterSetup.current(agent), true);
     created.current = true;
     const prompt = shell ? "" : text.trim();
     const asked = askChat(
@@ -985,18 +969,6 @@ export function NewTabScreen(props: Props) {
     );
     if (asked === false) created.current = false;
   };
-  useEffect(() => {
-    const waiting = afterAuth.current;
-    if (!waiting) return;
-    // The person picked another harness or machine meanwhile: send nothing; the draft stays.
-    if (waiting.target !== authTarget) {
-      afterAuth.current = undefined;
-      return;
-    }
-    if (targetAuthPending) return;
-    afterAuth.current = undefined;
-    waiting.run();
-  }, [targetAuthPending, authTarget]);
   const send = () => {
     touch();
     if (!shell) return submit();
@@ -1508,10 +1480,18 @@ export function NewTabScreen(props: Props) {
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
           composer location strip; newtab/screen.css). */}
       <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
-        {authBlocksSend(targetAuth) && (
+        {authBlocksSend(targetAuth) ? (
           <p className="acpmux-composer-remote-note" role="alert">
             {targetAuthText}
           </p>
+        ) : (
+          starting !== undefined && (
+            <output className="acpmux-composer-remote-note">
+              {t("switch.starting", {
+                agent: snapshot.catalog.find((entry) => entry.id === starting)?.name ?? starting,
+              })}
+            </output>
+          )
         )}
         {props.startNotice}
 
@@ -1853,10 +1833,10 @@ export function NewTabScreen(props: Props) {
                     aria-selected={index === current}
                     data-type={row.type}
                     className={index === current ? "nt-row is-selected" : "nt-row"}
-                    onMouseMove={() => {
-                      if (index === current) return;
-                      pick(index);
-                    }}
+                    // The pointer only lights the row it rests on (screen.css :hover); Return stays
+                    // the prompt's, or the row the keyboard picked. A hovered row that took Return
+                    // left "helo" unsent (Leo 2026-10-31: "i cant even press enter on that hello
+                    // anymore it doesnt send it to claude"). A press still runs the row it presses.
                     onMouseDown={(event) => {
                       event.preventDefault();
                       activate(row);
@@ -1893,10 +1873,7 @@ export function NewTabScreen(props: Props) {
                         aria-selected={index === current}
                         data-type={row.type}
                         className={index === current ? "nt-create-strip-item is-selected" : "nt-create-strip-item"}
-                        onMouseMove={() => {
-                          if (index === current) return;
-                          pick(index);
-                        }}
+                        // As the rows: hover lights it, only the keyboard makes it Return's.
                         onMouseDown={(event) => {
                           event.preventDefault();
                           activate(row);
