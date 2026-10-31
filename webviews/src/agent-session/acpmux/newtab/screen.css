@@ -552,9 +552,9 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-widget-rule{height:0;margin:4px -6px;border:0;border-top:var(--cmux-hairline,.5px) solid var(--acpmux-composer-edge)}
 .nt-widget-attention{gap:4px}
 .nt-widget-chat{display:flex;align-items:center;gap:4px;min-width:0;padding-right:6px;border-radius:14px}
-.nt-widget-chat:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent)}
-.nt-widget-chat-open{flex:1;display:flex;align-items:baseline;gap:6px;min-width:0;height:36px;padding:0 12px;box-sizing:border-box;border:0;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);line-height:36px;text-align:left;letter-spacing:var(--text-body--letter-spacing)}
-.nt-widget-chat-open:hover{color:var(--agent-text)}
+/* A Needs you chat's hover lights the control under the pointer alone: its open button, or its x. The row never takes a wash around its small x (Leo 2026-10-27: "why are you giving it the entire row when it's only this small little section? Just don't do that. Don't ever do that."). */
+.nt-widget-chat-open{flex:1;display:flex;align-items:baseline;gap:6px;min-width:0;height:36px;padding:0 12px;box-sizing:border-box;border:0;border-radius:14px;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);line-height:36px;text-align:left;letter-spacing:var(--text-body--letter-spacing)}
+.nt-widget-chat-open:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
 .nt-widget-state{flex:none;color:var(--agent-warning,var(--agent-text))}
 .nt-widget-chat[data-state=error] .nt-widget-state,.nt-widget-chat[data-state=failed] .nt-widget-state{color:var(--agent-danger)}
 .nt-widget-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
