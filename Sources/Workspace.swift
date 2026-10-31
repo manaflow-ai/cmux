@@ -6943,7 +6943,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>) {
-        for panelId in Array(programStatusStoresByPanelId.keys) where !validSurfaceIds.contains(panelId) {
+        // A mirrored remote tmux pane is not a panel, but its program status
+        // stays while the pane is live (#22082).
+        for panelId in Array(programStatusStoresByPanelId.keys)
+        where !validSurfaceIds.contains(panelId) && !ownsProgramStatusSurface(panelId) {
             clearProgramStatusPanel(panelId: panelId)
         }
         for panelId in Array(pendingTerminalInputObserversByPanelId.keys) where !validSurfaceIds.contains(panelId) {
@@ -6982,8 +6985,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         remoteDetectedSurfaceIds = remoteDetectedSurfaceIds.filter { validSurfaceIds.contains($0) }
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
-        programStatusStoresByPanelId = programStatusStoresByPanelId.filter { validSurfaceIds.contains($0.key) }
-        programStatusUrgencyByPanelId = programStatusUrgencyByPanelId.filter { validSurfaceIds.contains($0.key) }
+        programStatusStoresByPanelId = programStatusStoresByPanelId.filter {
+            validSurfaceIds.contains($0.key) || ownsProgramStatusSurface($0.key)
+        }
+        programStatusUrgencyByPanelId = programStatusUrgencyByPanelId.filter {
+            validSurfaceIds.contains($0.key) || ownsProgramStatusSurface($0.key)
+        }
         restoredPanelTitleBoundariesByPanelId = restoredPanelTitleBoundariesByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
