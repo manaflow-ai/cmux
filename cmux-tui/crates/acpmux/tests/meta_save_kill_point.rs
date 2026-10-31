@@ -452,7 +452,6 @@ fn meta_save_kill_point_a_no_op_answers_after_the_change_it_repeats_is_on_disk()
             std::fs::write(daemon.holds.join(format!("release-{id}")), "").unwrap();
             assert!(b.answer(b_request, method, Duration::from_secs(30)).is_some(), "B unanswered");
             assert!(a.answer(a_request, method, Duration::from_secs(30)).is_some(), "A unanswered");
-            holder.join().unwrap();
         }
         // The crash: with the save still held when B was answered early.
         daemon.kill9();
@@ -469,10 +468,8 @@ fn meta_save_kill_point_a_no_op_answers_after_the_change_it_repeats_is_on_disk()
         if !ok {
             lost.push(field);
         }
-        if early.is_some() {
-            // The holder's connection closed with the old daemon.
-            let _ = holder.join();
-        }
+        // Answered, or its connection closed with the killed daemon.
+        let _ = holder.join();
     }
     assert!(
         lost.is_empty(),
