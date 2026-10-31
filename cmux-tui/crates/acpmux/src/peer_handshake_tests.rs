@@ -399,8 +399,12 @@ async fn a_watch_list_too_large_from_an_old_peer_is_read_in_pages_of_rows() {
     let (tx, mut notices) = mpsc::channel(64);
     let peer = Peer::new("cosmic", "ws://127.0.0.1:9", None, None, tx);
     let (ours, theirs) = tokio::io::duplex(1 << 16);
-    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
-    let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    let client =
+        WebSocketStream::from_raw_socket(ours, Role::Client, Some(crate::server::ws_config()))
+            .await;
+    let server =
+        WebSocketStream::from_raw_socket(theirs, Role::Server, Some(crate::server::ws_config()))
+            .await;
     // 500 rows of 70 KB: 35 MB whole, over the limit; a page of 512 is too, one of 256 is not.
     let (rows, bytes) = (500, 70_000);
     assert!(rows * bytes > crate::rpc::MAX_MESSAGE_BYTES);
