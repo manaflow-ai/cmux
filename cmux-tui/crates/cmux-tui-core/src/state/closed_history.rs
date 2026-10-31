@@ -70,7 +70,7 @@ impl ReopenRequest {
             fingerprint.set("tab", serde_json::json!(tab));
         }
         if let Some(workspace) = &self.workspace {
-            fingerprint["workspace"] = serde_json::json!(workspace);
+            fingerprint.set("workspace", serde_json::json!(workspace));
         }
         if let Some(pane) = &self.fallback_pane {
             fingerprint.set("fallback_pane", serde_json::json!(pane));

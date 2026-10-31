@@ -377,8 +377,10 @@ pub(crate) fn group_member_holding_workspace(
     workspace: &str,
 ) -> anyhow::Result<Option<(String, usize)>> {
     // A `ws_` id is lowercase hex after its prefix: no LIKE wildcard in it.
-    if !workspace.starts_with("ws_") || !workspace[3..].bytes().all(|byte| byte.is_ascii_hexdigit())
-    {
+    let Some(suffix) = workspace.strip_prefix("ws_") else {
+        return Ok(None);
+    };
+    if !suffix.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Ok(None);
     }
     let mut statement = connection.prepare(
@@ -390,7 +392,11 @@ pub(crate) fn group_member_holding_workspace(
     for row in rows {
         let (closed_id, record) = row?;
         let record: Value = serde_json::from_str(&record)?;
-        let members = record["members"].as_array().cloned().unwrap_or_default();
+        let members = record
+            .get("members")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
         let holds = |member: &Value| {
             member["kind"] == "workspace"
                 && member["closed_workspace_id"].as_str() == Some(workspace)
