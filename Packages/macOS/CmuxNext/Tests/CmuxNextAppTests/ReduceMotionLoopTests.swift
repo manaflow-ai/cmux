@@ -99,4 +99,26 @@ import Testing
         #expect(CmuxSidebarView.reduceMotionOverride == nil)
         #expect(MessagesLabHomeView.reduceMotionOverride == nil)
     }
+
+    /// Calm mode (`ui.calm`) reduces motion everywhere `Motion` reaches; Home's vendored views
+    /// only see their pins, so the mirror pins them on while it is on and gives them back after.
+    @Test func calmModePinsHomesReduceMotion() {
+        _ = HomeSidebarView(frame: .zero)
+        let design = DesignSettings.shared
+        let saved = design.calmMode
+        defer { design.calmMode = saved }
+        Motion.reduceMotionOverride = nil
+        design.calmMode = .calm
+        #expect(MessagesLabHomeView.reduceMotionOverride == true)
+        #expect(CmuxSidebarView.reduceMotionOverride == true)
+        design.calmMode = .still
+        #expect(MessagesLabHomeView.reduceMotionOverride == true)
+        // A test's pin still wins over calm mode.
+        Motion.reduceMotionOverride = false
+        #expect(MessagesLabHomeView.reduceMotionOverride == false)
+        Motion.reduceMotionOverride = nil
+        design.calmMode = .off
+        #expect(MessagesLabHomeView.reduceMotionOverride == nil)
+        #expect(CmuxSidebarView.reduceMotionOverride == nil)
+    }
 }
