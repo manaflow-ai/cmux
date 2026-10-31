@@ -176,6 +176,7 @@ test("the strip view shows a draft's attachments once, in the strip; its × take
   await until(() => inlineChips(field) === 1);
   await act(async () => {
     handle.focus();
+    handle.setCaret(handle.plainText().length);
     handle.insertTyped("what is in this?");
   });
   // The inline view: the chip in the text, none in the strip.

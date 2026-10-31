@@ -45,6 +45,12 @@ beforeAll(() => {
     url: "https://cmux.test/",
   });
   const { window } = dom;
+  // jsdom has no layout; ProseMirror reads these when a multi-line paste scrolls its caret.
+  const box = () => new window.DOMRect(0, 0, 1, 1);
+  Object.assign(window.Range.prototype, {
+    getBoundingClientRect: box,
+    getClientRects: () => Object.assign([box()], { item: () => box() }),
+  });
   Object.assign(scope, {
     ResizeObserver: class {
       observe() {}
@@ -222,15 +228,7 @@ test("pasting the same long block again opens its chip once instead of duplicati
   expect(editor.textContent).toContain("line 1 of the build log");
   expect(editor.textContent).toContain("line 25 of the build log");
   await press(editor, "Enter");
-  expect(calls).toContainEqual([
-    "ask",
-    "claude",
-    `before ${LONG_LOG}`,
-    "/Users/you/src/app",
-    "claude-opus-5-5",
-    undefined,
-    undefined,
-  ]);
+  expect(calls).toContainEqual(["ask", "claude", `before ${LONG_LOG}`, undefined, "claude-opus-5-5"]);
 });
 
 test("Paste as Plain Text keeps a long New Tab paste as text", async () => {

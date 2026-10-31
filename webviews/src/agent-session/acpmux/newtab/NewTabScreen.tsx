@@ -384,6 +384,16 @@ export function NewTabScreen(props: Props) {
   const projectPending = pending && !reserveOver;
   const project = none ? undefined : (recent ?? seeded);
   const field = useRef<MarkdownFieldHandle | null>(null);
+  const shellEntryDraft = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    const command = shellEntryDraft.current;
+    if (command === undefined) return;
+    shellEntryDraft.current = undefined;
+    // A lone ! enters shell mode with the same empty controlled value. The editor has already
+    // inserted !, so its value effect does not run. Remove the prefix after that edit completes,
+    // only on this transition; normal typing keeps its selection and undo history.
+    if (field.current?.value() !== command) field.current?.reset(command);
+  }, [shell]);
   const [fieldReady, setFieldReady] = useState(false);
   const fieldElement = () => field.current?.element() ?? null;
   const fieldText = useCallback(
@@ -946,6 +956,7 @@ export function NewTabScreen(props: Props) {
     const entry = composing.current || shell ? undefined : shellEntry(text, next, wholeSelection.current);
     wholeSelection.current = false;
     if (entry) {
+      shellEntryDraft.current = entry.command;
       setShell(true);
       setText(entry.command);
       props.onPromptTyped?.("");

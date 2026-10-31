@@ -103,10 +103,12 @@ async function type(text: string) {
   for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   const handle = field.acpmuxMarkdownField!;
-  handle.writeText(text, text.length, text.length);
   const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
-  editor.focus();
-  handle.setCaret(text.length);
+  await act(async () => {
+    handle.writeText(text, text.length, text.length);
+    editor.focus();
+    handle.setCaret(text.length);
+  });
   return editor;
 }
 

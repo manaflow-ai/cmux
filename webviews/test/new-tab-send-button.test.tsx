@@ -91,7 +91,7 @@ async function writeScreenPrompt(host: HTMLElement, text: string) {
   const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
   for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  field.acpmuxMarkdownField!.writeText(text, text.length, text.length);
+  await act(async () => field.acpmuxMarkdownField!.writeText(text, text.length, text.length));
   return field;
 }
 const PNG = Uint8Array.from([
