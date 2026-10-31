@@ -12,14 +12,14 @@ nonisolated public struct UpdateBuildIdentity: Sendable, Equatable {
     public var shortVersion: String
     /// `CFBundleVersion`, which Sparkle compares with `sparkle:version`.
     public var build: String
-    /// The source commit this bundle was built from (`CMUXCommit`), when stamped by CI.
-    public var sourceCommit: String?
     /// `LSMinimumSystemVersion` (26.0 for cmux-next).
     public var minimumSystemVersion: SystemVersion?
     /// `SUFeedURL` as baked into the bundle.
     public var infoFeedURL: String?
     /// Whether `SUPublicEDKey` holds a real key.
     public var hasPublicKey: Bool
+    /// The source commit this bundle was built from (`CMUXCommit`), when stamped by CI.
+    public var sourceCommit: String?
 
     public init(bundleIdentifier: String?, shortVersion: String, build: String, minimumSystemVersion: SystemVersion?,
                 infoFeedURL: String?, hasPublicKey: Bool, sourceCommit: String? = nil) {

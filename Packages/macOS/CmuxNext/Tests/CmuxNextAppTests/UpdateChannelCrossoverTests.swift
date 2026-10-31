@@ -25,7 +25,7 @@ import Testing
 
     static func feed(version: String, commit: String) -> String {
         """
-        <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:cmux="https://cmux.com/xml-namespaces/cmux"><channel><title>cmux NEXT</title><item><sparkle:version>(version)</sparkle:version><sparkle:shortVersionString>0.1.0</sparkle:shortVersionString><cmux:sourceCommit>(commit)</cmux:sourceCommit><enclosure url="https://example.com/update.dmg" /></item></channel></rss>
+        <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:cmux="https://cmux.com/xml-namespaces/cmux"><channel><title>cmux NEXT</title><item><sparkle:version>\(version)</sparkle:version><sparkle:shortVersionString>0.1.0</sparkle:shortVersionString><cmux:sourceCommit>\(commit)</cmux:sourceCommit><enclosure url="https://example.com/update.dmg" /></item></channel></rss>
         """
     }
 
