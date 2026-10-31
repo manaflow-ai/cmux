@@ -113,6 +113,11 @@ final class CloudService {
     /// `cmux cloud start-session` runs, joined by a repeat of the same ask (``CloudStartSessionRuns``).
     @ObservationIgnored let startSessionRuns = CloudStartSessionRuns()
     @ObservationIgnored let signedOutCreation = CloudSignedOutCreationContinuation()
+    #if DEBUG
+    /// `debug.cloud_machine_fixture {backend: true}`: Cloud reads as reachable in a capture build that has no
+    /// Cloud backend or client, so its actions show the signed-out state a person's build does.
+    @ObservationIgnored var debugBackendFixture = false
+    #endif
     /// When the loaded list landed (``hasCurrentList(within:)``).
     @ObservationIgnored private var listLoadedAt: ContinuousClock.Instant?
     /// Moved chats' file requests for this Mac, asked in their chats.
@@ -243,6 +248,9 @@ final class CloudService {
         // RestrictToManagedTeam (P17-3): no request goes out without the managed team.
         if auth.managedTeamID != nil, auth.teamID == nil { return RefusalStrings.turnedOffByOrganization }
         // The app server path needs no web backend (cx-t2rz): only the legacy /api/vm path does.
+        #if DEBUG
+        if debugBackendFixture { return nil }
+        #endif
         if case .localOnly = configuration.backend, configuration.linkSource == .legacy { return CloudStrings.localBackend }
         if binary == nil { return CloudStrings.noClient }
         return nil
