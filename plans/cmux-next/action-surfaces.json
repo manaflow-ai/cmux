@@ -166,6 +166,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "app merge-all-windows",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.mergeAll",
+      "main_menu" : "window",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Merge All Windows",
+      "title_key" : "action.window.mergeAll",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "app close-all-windows",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -5002,6 +5030,34 @@
       "palette_suggested" : null,
       "title" : "Open Space in New Window",
       "title_key" : "action.space.openInNewWindow",
+      "title_table" : "ProfileActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "space bring-here",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "space"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "space.bringHere",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Space to This Window",
+      "title_key" : "action.space.bringHere",
       "title_table" : "ProfileActions"
     },
     {
@@ -23762,6 +23818,93 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "agent fork-conversation-to-new-column-right",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "terminalSelection",
+        "agentChat"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.forkAgentConversationNewColumnRight",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Fork Conversation to New Column Right",
+      "title_key" : "action.palette.forkAgentConversationNewColumnRight",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "agent fork-conversation-to-new-column-left",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "terminalSelection",
+        "agentChat"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.forkAgentConversationNewColumnLeft",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Fork Conversation to New Column Left",
+      "title_key" : "action.palette.forkAgentConversationNewColumnLeft",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "agent fork-conversation-to-new-row",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "terminalSelection",
+        "agentChat"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.forkAgentConversationNewRow",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Fork Conversation to New Row",
+      "title_key" : "action.palette.forkAgentConversationNewRow",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "agent fork-conversation-to-new-tab",
       "context_menu" : "offered",
       "context_menus" : [
@@ -38630,7 +38773,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.forkAgentConversationNewTab",
+              "id" : "palette.forkAgentConversationLeft",
               "kind" : "action",
               "order" : 1,
               "visible_when" : {
@@ -38643,7 +38786,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.forkAgentConversationLeft",
+              "id" : "palette.forkAgentConversationTop",
               "kind" : "action",
               "order" : 2,
               "visible_when" : {
@@ -38656,7 +38799,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.forkAgentConversationTop",
+              "id" : "palette.forkAgentConversationBottom",
               "kind" : "action",
               "order" : 3,
               "visible_when" : {
@@ -38668,21 +38811,12 @@
               }
             },
             {
-              "enabled_when" : "can_perform",
-              "id" : "palette.forkAgentConversationBottom",
-              "kind" : "action",
-              "order" : 4,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
+              "kind" : "separator",
+              "order" : 4
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.forkAgentConversationNewWorkspace",
+              "id" : "palette.forkAgentConversationNewColumnRight",
               "kind" : "action",
               "order" : 5,
               "visible_when" : {
@@ -38695,9 +38829,65 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.forkAgentConversationNewWindow",
+              "id" : "palette.forkAgentConversationNewColumnLeft",
               "kind" : "action",
               "order" : 6,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.forkAgentConversationNewRow",
+              "kind" : "action",
+              "order" : 7,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "kind" : "separator",
+              "order" : 8
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.forkAgentConversationNewTab",
+              "kind" : "action",
+              "order" : 9,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.forkAgentConversationNewWorkspace",
+              "kind" : "action",
+              "order" : 10,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.forkAgentConversationNewWindow",
+              "kind" : "action",
+              "order" : 11,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44854,15 +45044,29 @@
           }
         },
         {
+          "enabled_when" : "can_perform",
+          "id" : "space.bringHere",
+          "kind" : "action",
+          "label" : "Move to This Window",
+          "order" : 2,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
           "kind" : "separator",
-          "order" : 2
+          "order" : 3
         },
         {
           "enabled_when" : "can_perform",
           "id" : "space.setIcon",
           "kind" : "action",
           "label" : "Set Icon…",
-          "order" : 3,
+          "order" : 4,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -44876,7 +45080,7 @@
           "id" : "space.clearIcon",
           "kind" : "action",
           "label" : "Remove Icon",
-          "order" : 4,
+          "order" : 5,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -44889,7 +45093,7 @@
           "enabled_when" : "can_perform",
           "id" : "space.rename",
           "kind" : "action",
-          "order" : 5,
+          "order" : 6,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -45180,7 +45384,7 @@
           "id" : "space.setColor",
           "kind" : "submenu",
           "label" : "Color",
-          "order" : 6,
+          "order" : 7,
           "title_from" : "action",
           "visible_when" : {
             "debug_only" : false,
@@ -45199,7 +45403,7 @@
           "id" : "browserProfile.setSpaceDefault",
           "kind" : "choices",
           "label" : "Set Browser Profile…",
-          "order" : 7,
+          "order" : 8,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -45210,14 +45414,14 @@
         },
         {
           "kind" : "separator",
-          "order" : 8
+          "order" : 9
         },
         {
           "enabled_when" : "can_perform",
           "id" : "space.newGroup",
           "kind" : "action",
           "label" : "New Group",
-          "order" : 9,
+          "order" : 10,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -45228,13 +45432,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 10
+          "order" : 11
         },
         {
           "enabled_when" : "can_perform",
           "id" : "sidebar.spaces.hide",
           "kind" : "action",
-          "order" : 11,
+          "order" : 12,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -45245,13 +45449,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 12
+          "order" : 13
         },
         {
           "enabled_when" : "can_perform",
           "id" : "space.delete",
           "kind" : "action",
-          "order" : 13,
+          "order" : 14,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -47139,7 +47343,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.forkAgentConversationNewTab",
+              "id" : "palette.forkAgentConversationLeft",
               "kind" : "action",
               "order" : 1,
               "visible_when" : {
@@ -47152,7 +47356,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.forkAgentConversationLeft",
+              "id" : "palette.forkAgentConversationTop",
               "kind" : "action",
               "order" : 2,
               "visible_when" : {
@@ -47165,7 +47369,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.forkAgentConversationTop",
+              "id" : "palette.forkAgentConversationBottom",
               "kind" : "action",
               "order" : 3,
               "visible_when" : {
@@ -47177,21 +47381,12 @@
               }
             },
             {
-              "enabled_when" : "can_perform",
-              "id" : "palette.forkAgentConversationBottom",
-              "kind" : "action",
-              "order" : 4,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
+              "kind" : "separator",
+              "order" : 4
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.forkAgentConversationNewWorkspace",
+              "id" : "palette.forkAgentConversationNewColumnRight",
               "kind" : "action",
               "order" : 5,
               "visible_when" : {
@@ -47204,9 +47399,65 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.forkAgentConversationNewWindow",
+              "id" : "palette.forkAgentConversationNewColumnLeft",
               "kind" : "action",
               "order" : 6,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.forkAgentConversationNewRow",
+              "kind" : "action",
+              "order" : 7,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "kind" : "separator",
+              "order" : 8
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.forkAgentConversationNewTab",
+              "kind" : "action",
+              "order" : 9,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.forkAgentConversationNewWorkspace",
+              "kind" : "action",
+              "order" : 10,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.forkAgentConversationNewWindow",
+              "kind" : "action",
+              "order" : 11,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
