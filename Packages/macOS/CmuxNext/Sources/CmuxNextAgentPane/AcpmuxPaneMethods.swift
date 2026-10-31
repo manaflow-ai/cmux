@@ -97,6 +97,10 @@ nonisolated enum AcpmuxPaneMethods {
         // for that child (claude_stdio/workflows.rs). It stops work like `_acpmux/kill`, so no
         // gesture; caller params never reach Claude.
         "_acpmux/subagent_stop", "_acpmux/subagent_transcript",
+        // Page a chat's older turns in from its Claude Code transcript, past the newest page its log
+        // was seeded with (direct.ts fetchNativeOlder; acpmux hub/native_history.rs). A read of the
+        // pane's own chat: `before` is a byte cursor acpmux gave, never a path.
+        "_acpmux/native_history",
         // Resume a paused agent pair of a chat in the pane's scope (the pause row's Resume; acpmux
         // hub/agent_pairs.rs): delivers the messages the two agents already sent and the guard held.
         // `peerSessionId` only picks one of that chat's paused pairs; acpmux resumes no pair the
@@ -234,7 +238,7 @@ nonisolated enum AcpmuxPaneMethods {
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
-        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/agent_pair_resume", "_acpmux/app_reply",
+        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits",
