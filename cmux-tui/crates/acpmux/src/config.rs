@@ -1523,12 +1523,18 @@ impl Config {
         Ok(cfg)
     }
 
-    /// Without a configured default, prefer Claude, then Codex, then another ACP harness.
+    /// Without a configured default, prefer Claude, then Codex, then another coding ACP harness.
+    /// Terminal and Chief harnesses are chosen only explicitly.
     fn pick_auto_default(&mut self) {
         if self.default_harness.is_none() {
             self.auto_default = true;
             self.default_harness = crate::default_harness::auto_default_harness(&self.harnesses);
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pick_auto_default_for_tests(&mut self) {
+        self.pick_auto_default();
     }
 
     /// A capture fixture's harnesses join as discovered ones would
@@ -1754,10 +1760,10 @@ mod codex_adapter;
 mod discover;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
 pub use discover::{
-    CMUX_ROUTER_MODEL_SETTING, CMUX_ROUTER_PROFILE, CODEROUTER_CLAUDE_PROFILE,
-    CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_cmux_router, add_cmux_router_with,
-    add_coderouter_route, cmux_router_model_setting, coderouter_claude_route, discover_harnesses,
-    discover_harnesses_from,
+    CHIEF_FAMILY, CHIEF_PROFILE, CMUX_ROUTER_MODEL_SETTING, CMUX_ROUTER_PROFILE,
+    CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_chief,
+    add_cmux_router, add_cmux_router_with, add_coderouter_route, cmux_router_model_setting,
+    coderouter_claude_route, discover_harnesses, discover_harnesses_from,
 };
 mod peer;
 pub use peer::PeerConfig;
