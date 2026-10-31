@@ -23,7 +23,7 @@ type Moved = { name: string; dx: number; dy: number; dw: number; dh: number };
 type Probe = Window & {
   __stillBefore?: Map<Element, DOMRect>;
   __stillWorst?: Map<Element, Moved>;
-  __stillSampling?: boolean;
+  __stillStop?: () => void;
 };
 
 await requireBrowserLane("session-info-layout-still.test.ts", async () => {
@@ -96,16 +96,15 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
           if (size(moved) > 0.5 && size(moved) > size(probe.__stillWorst!.get(element) ?? { ...moved, dx: 0, dy: 0, dw: 0, dh: 0 }))
             probe.__stillWorst!.set(element, moved);
         }
-        if (probe.__stillSampling) requestAnimationFrame(sample);
       };
-      probe.__stillSampling = true;
-      requestAnimationFrame(sample);
+      // Read after each painted frame (support/paintedFrames.ts), until moved() stops it.
+      probe.__stillStop = window.cmuxAfterPaint(sample);
     });
   /// Stops sampling and lists what moved, the outermost first.
   const moved = (page: Page) =>
     page.evaluate(() => {
       const probe = window as Probe;
-      probe.__stillSampling = false;
+      probe.__stillStop?.();
       const worst = probe.__stillWorst!;
       // An element that moved only because its ancestor did is the ancestor's move.
       return [...worst.entries()]
@@ -198,9 +197,12 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
             }
             const content = await moved(page);
 
+            // It closes.
+            await mark(page);
             await close(page);
             await settle(page);
-            expect({ opening, content }).toEqual({ opening: [], content: [] });
+            const closing = await moved(page);
+            expect({ opening, content, closing }).toEqual({ opening: [], content: [], closing: [] });
           } finally {
             await page.close();
           }
