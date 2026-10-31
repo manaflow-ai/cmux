@@ -159,7 +159,11 @@ import Testing
             let field = view.rect(bar.field), chip = view.rect(bar.chip), star = view.rect(bar.starButton)
             #expect(Self.inside(field, barRect), "\(label): the field \(field) leaves the bar \(barRect)")
             let font = try #require(bar.field.font)
-            #expect(field.height >= ceil(font.ascender - font.descender), "\(label): the field \(field.height) pt cuts its \(font.pointSize) pt text")
+            // Nothing squeezes the field below the height its text asks for, and a full line of the
+            // font (ascender to descender) fits in the bar around the field's center.
+            #expect(field.height >= bar.field.intrinsicContentSize.height, "\(label): the field \(field.height) pt is squeezed")
+            #expect(font.ascender - font.descender <= barRect.height - 2 * (field.midY - barRect.midY).magnitude,
+                    "\(label): a \(font.pointSize) pt line does not fit the \(barRect.height) pt bar")
             #expect(Self.inside(chip, barRect), "\(label): the chip \(chip) leaves the bar")
             #expect(chip.maxX <= field.minX + 0.5, "\(label): the chip overlaps the URL")
             #expect(!bar.starButton.isHidden, "\(label): the star shows for a bookmarkable page")
