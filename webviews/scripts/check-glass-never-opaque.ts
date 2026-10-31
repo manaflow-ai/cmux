@@ -498,14 +498,7 @@ export const OVERLAY_ALLOWED = new Map<string, string>([
 // Overlays that are solid today and are being made glass, keyed `file selector`, with what fixes it.
 // Each fails as stale once its fill is glass, so the entry goes with the fix.
 export const OVERLAY_PENDING = new Map<string, string>([
-  [
-    "agent-session/acpmux/summary/summary.css .acpmux-summary-card",
-    "the agent chat's Summary card paints the solid popup surface; its glass fix is in flight",
-  ],
-  [
-    "agent-session/acpmux/summary/summary.css .acpmux-summary-card[data-placement=popover]",
-    "the agent chat's Summary popover paints the solid popup surface; its glass fix is in flight",
-  ],
+  ["pages/settings/styles.css .menus-move-picker", "Settings' Menus move picker paints the solid popup surface"],
   ["pages/shared/pageBase.css .page-menu", "the shared page menu paints the solid popup surface, not .ui-glass"],
   ["pages/cloud/styles.css .cloud-create-sheet", "Cloud's create sheet paints the elevated surface"],
   ["pages/home-channels/ledger.css .lg-sheet", "the ledger's side sheet paints its solid surface"],
