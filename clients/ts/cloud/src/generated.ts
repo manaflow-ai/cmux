@@ -92,6 +92,7 @@ export type CloudConnectInfo = {
   readonly host: HostId
   readonly epoch: number
   readonly state: CloudMachineStatus
+  readonly network?: CloudVmNetwork
   readonly peer: {
     readonly wg_public_key: string
     readonly overlay_address: string
@@ -240,6 +241,13 @@ export type CloudSnapshot = {
   readonly status: "creating" | "ready" | "deleting" | "failed"
   readonly created_at: number
   readonly revision: Revision
+}
+
+export type CloudVmNetwork = {
+  readonly tenant: NativeTenantId
+  readonly mesh: NativeMeshId
+  readonly ipv4_cidr: string
+  readonly ipv4: string | null
 }
 
 export type CloudVmNetworkPolicyView = {
@@ -1746,6 +1754,7 @@ export interface CloudOps {
     readonly params: {
       readonly host: HostId
       readonly services: ReadonlyArray<"daemon" | "ssh">
+      readonly native_proof?: ServerNetworkProof
     }
     readonly result: {
       readonly token: string
