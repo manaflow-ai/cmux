@@ -85,7 +85,10 @@ view (`set-viewport-pane-width`); a fixed width would change on each window resi
 W3. Proportions include the gaps: `(view - gap) * p - gap` (`ColumnStripGeometry.pixelWidth`).
 Two columns with `p + q = 1` fill the view exactly.
 
-W4. (Since 2026-10-02 only with `layout.newColumnWidth` = fixed; the default matchCurrent never
+W4. Removed 2026-10-31 (R3b, Lawrence: "creating new columns must never resize existing
+columns"): a new column never resizes a column that is there, in any mode; a lone full-width
+column stays full width and the strip scrolls to the new column. The text below is the old rule.
+(Since 2026-10-02 only with `layout.newColumnWidth` = fixed; the default matchCurrent never
 resizes a column, plans/cmux-next/column-sizing.md.) A lone full-width column changes to
 `1 - new width` (1/2 with the default) when a second column opens next to it, so both
 columns are fully visible and the view does not move. Reason: a cmux workspace starts as

@@ -978,10 +978,19 @@ impl Mux {
                 let column_id = split_id.context("viewport column reserved no column id")?;
                 let column = LayoutColumn::single(column_id, width, pane_id);
                 let base = base_column_id.context("viewport column reserved no base id")?;
+                let columns = layout_invariants::project_screen(screen);
                 anyhow::ensure!(
                     screen.insert_layout_column_after(target, base, column),
                     "target pane disappeared from its layout"
                 );
+                // R3b: the new column is new space; every column there keeps its width.
+                // A refusal puts the screen back as it was: nothing of the create stays.
+                if let Err(error) =
+                    layout_invariants::ensure_columns_kept(operation, &columns, screen)
+                {
+                    screen.restore_layout_snapshot(before);
+                    return Err(error);
+                }
             } else if let Some((dir, before_target)) = split_direction {
                 let split = split_id.context("split direction reserved no split id")?;
                 let in_viewport_column = screen.layout_columns_active();

@@ -29,7 +29,7 @@ public struct NewColumnCommand: Sendable {
     }
 
     /// The optimistic column in two steps: `provisional` (made with
-    /// ``ProvisionalPane/init(columnWidth:widths:treeWidth:)``) is in the store's visible records
+    /// ``ProvisionalPane/init(columnWidth:)``) is in the store's visible records
     /// when this returns, in the caller's turn; the returned work sends `new-pane-right` under its
     /// client-minted ids, so the daemon's pane replaces it under the same public id. A refusal
     /// removes it exactly; a close of the provisional pane first cancels it (``PaneSplitCancelled``).

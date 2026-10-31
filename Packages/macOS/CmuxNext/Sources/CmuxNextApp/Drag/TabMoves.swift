@@ -148,12 +148,8 @@ enum TabMoves {
         let surface = tab.surface, paneHandle = pane.handle
         let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue)
         // view-observation-allow: one MachineTabIndex lookup, no observation
-        let spawn = services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(tab.id)?.1)
-        let width = spawn.width
-        send("TabMoves.toNewColumn", services: services, landed: { ok in
-            if ok { spawn.commit() }
-            completion(ok)
-        }) {
+        let width = services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(tab.id)?.1)
+        send("TabMoves.toNewColumn", services: services, landed: completion) {
             // The daemon's reason reaches the caller (a CLI run's reply, the sweep's row), not only the log.
             await daemon.failure("move-tab-to-column") { connection in
                 do {
@@ -199,12 +195,9 @@ enum TabMoves {
         let half = edge == .left && width == nil ? Self.leftDockWidth : nil
         // view-observation-allow: one MachineTabIndex lookup, no observation
         let source = services.locateTab(tab.id)?.1
-        let spawn = edge.isBand || width != nil || half != nil ? nil : services.newColumnWidth(nextTo: pane, movingFrom: source)
-        let width = width ?? half ?? spawn?.width ?? 0.3
-        send("TabMoves.toNewDockColumn", services: services, landed: { ok in
-            if ok { spawn?.commit() }
-            completion(ok)
-        }) {
+        let beside = edge.isBand || width != nil || half != nil ? nil : services.newColumnWidth(nextTo: pane, movingFrom: source)
+        let width = width ?? half ?? beside ?? 0.3
+        send("TabMoves.toNewDockColumn", services: services, landed: completion) {
             let ok = await daemon.request("move-tab-to-column") { connection -> Void in
                 if let respawn {
                     let move = MoveTabToColumnRequest(surface: surface, target: .pane(paneHandle), width: width, dock: pin,
