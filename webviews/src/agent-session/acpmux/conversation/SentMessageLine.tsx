@@ -1,8 +1,9 @@
 // A message this agent sent another one, as one tool row: "Sending message to tests" with the
 // working spinner while it goes out, "Sent message to tests" with the envelope once it went, and
 // "Couldn't send to tests" when it failed; then how it was delivered, when the call says ("· queued"),
-// and the message's first line, muted. The row opens to the whole message as Markdown and, behind
-// Raw, the call itself (its command and output, or its MCP request and response); a failed send
+// and the message's first line, muted, while the row is shut. The row opens to the whole message as
+// Markdown, its first line then gone from the row (Leo 2026-10-29, on the line and the body under it
+// saying the same thing: "this rendering can be better for sent stuff"), and, behind Raw, the call itself (its command and output, or its MCP request and response); a failed send
 // opens to its output. Both ways of sending draw this one row: a cmux-subsessions `send_message`
 // (SubsessionCallCard.tsx) and a shell `acpmux send` (acpmuxSends.ts, `AcpmuxSendLine` below).
 // Whether a row is open lasts across the virtualized transcript (transcriptDisclosure.tsx). The
@@ -21,12 +22,16 @@ import {
 } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
-import type { AcpmuxSendCall, SendState } from "./acpmuxSends";
+import type { AcpmuxSendCallPart, SendState } from "./acpmuxSends";
 import { messagePreview } from "./AgentMessageRow";
 import { messageDelivery } from "./agentMessages";
 import { useFindReveal } from "./chatFind";
 import { AlertCircle, ChevronRight, Envelope, Spinner } from "./icons";
 import { AgentMessageBody } from "./AgentMessageBody";
+import { SentActions } from "./MessageActions";
+import { acpmuxMcpSendCall } from "./acpmuxMcpSends";
+import { McpCallDetails } from "./McpCallRows";
+import { mcpCall, mcpRawName } from "./mcpCalls";
 import { ShellBlock } from "./ShellBlock";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
@@ -90,6 +95,7 @@ export function SentMessageLine({
   target,
   targetSession,
   text,
+  file,
   detail,
   others = 0,
   disclosureKey,
@@ -107,6 +113,9 @@ export function SentMessageLine({
   others?: number;
   /// The message, when the call holds it; without it the row names only the target.
   text?: string;
+  /// The file the message was read from, when the call names it but not the words in it
+  /// (`"$(cat note.md)"`, the MCP send's `file`): the row names it where the first line would be.
+  file?: string;
   /// How it was delivered, after the line ("queued", "read at its next step").
   detail?: string;
   disclosureKey: string;
@@ -140,6 +149,10 @@ export function SentMessageLine({
   const readChat = () => targetChat(store, target, targetSession);
   const chat = useSyncExternalStore(store.subscribeNames, readChat, readChat);
   const preview = text ? messagePreview(text) : "";
+  // The open row shows the whole message under it: its first line on the row would say it twice.
+  const trailing = preview && state !== "failed" && !(open && text) ? preview : "";
+  // No words to show, only where they came from: the file's path, as code, after the line.
+  const source = !text && file && state !== "failed" ? file : "";
   const label =
     shape === "arrow" && (state === "sending" || state === "sent") && preview
       ? t(state === "sending" ? "subsession.sending" : "subsession.to", { name: MARK, text: preview })
@@ -188,16 +201,27 @@ export function SentMessageLine({
           {before}
           {name}
           {after}
-          {shape === "quote" && preview && state !== "failed" && (
+          {shape === "quote" && trailing && (
             // l10n-allow: punctuation around the message's own words.
-            <span className="cv-tool__detail">{`: “${preview}”`}</span>
+            <span className="cv-tool__detail">{`: “${trailing}”`}</span>
           )}
           {detail && <span className="cv-tool__detail">{` · ${detail}`}</span>}
           {more && <span className="cv-tool__detail cv-sent__more">{` · ${more}`}</span>}
-          {shape === "sentence" && preview && state !== "failed" && (
-            <span className="cv-tool__detail cv-sent__preview">{preview}</span>
+          {shape === "sentence" && trailing && <span className="cv-tool__detail cv-sent__preview">{trailing}</span>}
+          {source && (
+            <code className="cv-tool__detail cv-sent__preview cv-sent__file" title={source}>
+              {source}
+            </code>
           )}
         </span>
+        {/* Copy takes the message's text, shown while the row is pointed at, as a SendMessage
+            row's is (MessageCard.tsx); its click never toggles the row. */}
+        {text && (
+          // oxlint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events
+          <span onClick={(event) => event.stopPropagation()}>
+            <SentActions text={text} />
+          </span>
+        )}
         <ChevronRight
           size={14}
           strokeWidth={1.2}
@@ -254,11 +278,28 @@ export function RawToggle({
   );
 }
 
-/// A shell `acpmux send` (acpmuxSends.ts) as the sent-message row; Raw holds its Shell card.
-export function AcpmuxSendLine({ tool, send }: { tool: Tool; send: AcpmuxSendCall }) {
+/// A message's disclosure and React key: the call's id, and for one message of a batch its place
+/// in the batch, so each message of one call opens on its own.
+export function sendKey(id: string, index?: number): string {
+  return index === undefined ? id : `${id}#${index}`;
+}
+
+/// A message sent by a shell `acpmux send` (acpmuxSends.ts), one of a shell batch's, or one of an
+/// acpmux MCP send's batch (acpmuxMcpSends.ts), as the sent-message row; Raw holds the call as it
+/// was made: its Shell card, the whole command line for every message of a batch, or the MCP
+/// request and response.
+export function AcpmuxSendLine({ tool, send }: { tool: Tool; send: AcpmuxSendCallPart }) {
   const t = useT();
-  // `--no-wait` prints how the daemon took the message; a send that waits prints the reply.
-  const delivery = send.noWait && send.state === "sent" ? messageDelivery(tool) : undefined;
+  // `--no-wait` prints how the daemon took the message; a send that waits prints the reply. A
+  // batch's message reads its own line of the output (`delivery`).
+  const delivery =
+    send.state !== "sent"
+      ? undefined
+      : send.index !== undefined
+        ? send.delivery
+        : send.noWait
+          ? messageDelivery(tool)
+          : undefined;
   const detail =
     delivery === "queued"
       ? t("subsession.delivery.queuedBare")
@@ -271,19 +312,33 @@ export function AcpmuxSendLine({ tool, send }: { tool: Tool; send: AcpmuxSendCal
       state={send.state}
       target={send.target}
       text={send.text}
+      file={send.file}
       detail={detail}
-      disclosureKey={`send:${tool.id}`}
+      disclosureKey={`send:${sendKey(tool.id, send.index)}`}
       others={send.others}
       rawOpen={send.state === "failed"}
-      raw={(reveal) => (
-        <ShellBlock
-          command={tool.command}
-          output={tool.output}
-          exitCode={tool.exitCode}
-          live={send.state === "sending"}
-          reveal={reveal}
-        />
-      )}
+      raw={(reveal) => <SendRaw tool={tool} reveal={reveal} live={send.state === "sending"} />}
     />
+  );
+}
+
+/// The call behind a send row's Raw: a shell call's command and output, an MCP call's request and
+/// response.
+function SendRaw({ tool, reveal, live }: { tool: Tool; reveal: number; live: boolean }) {
+  const id = useId();
+  const call = useMemo(() => (tool.command ? undefined : (mcpCall(tool) ?? acpmuxMcpSendCall(tool))), [tool]);
+  if (call)
+    return (
+      <McpCallDetails
+        id={id}
+        call={call}
+        raw={mcpRawName(tool, call)}
+        output={tool.output}
+        strip={false}
+        reveal={reveal}
+      />
+    );
+  return (
+    <ShellBlock command={tool.command} output={tool.output} exitCode={tool.exitCode} live={live} reveal={reveal} />
   );
 }

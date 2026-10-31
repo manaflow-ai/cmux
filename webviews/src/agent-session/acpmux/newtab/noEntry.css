@@ -8,6 +8,7 @@
    test/new-tab-no-entry-motion.test.ts holds this. */
 :root[data-new-tab] {
   --ui-popup-open: 0s;
+  --ui-dialog-open: 0s;
   --tooltip-fade-in: 0s;
   --tooltip-rise: 0px;
   --ui-enter-duration: 0s;

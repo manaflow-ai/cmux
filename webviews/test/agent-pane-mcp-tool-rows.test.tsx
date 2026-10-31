@@ -129,7 +129,9 @@ for (const [harness, call] of [
   test(`${harness}: an opened MCP call shows its request and response pretty-printed, without internal context`, async () => {
     await render([call("r1", "read_thread", { threadId: THREAD }, readOutput)]);
     await click(toggles()[0]!);
-    const blocks = [...host.querySelectorAll(".cv-mcp-call__body")].map((node) => node.textContent ?? "");
+    const blocks = [...host.querySelectorAll(".cv-mcp-call__body, .cv-tool-output")].map(
+      (node) => node.textContent ?? "",
+    );
     expect(blocks).toHaveLength(2);
     expect(blocks[0]).toBe(`{\n  "threadId": "${THREAD}"\n}`);
     // The text block's JSON string is parsed, not shown escaped.
@@ -139,6 +141,25 @@ for (const [harness, call] of [
     expect(blocks[1]).not.toContain('\\"');
     expect(host.textContent).not.toContain("in-app-browser-context");
     expect(host.textContent).not.toContain("ambient UI state");
+  });
+
+  test(`${harness}: a Markdown MCP result shares full-read expansion, Raw, and Find formatting`, async () => {
+    const { activityText } = await import("../src/agent-session/acpmux/conversation/chatFind");
+    const text = `${"## Sample section\n\nRead every line.\n\n".repeat(15)}The **service** is healthy.`;
+    const item = call(
+      "markdown",
+      "web_read",
+      { url: "https://example.test/guide" },
+      JSON.stringify({ content: [{ type: "text", text: `\x1b[32m${text}\x1b[0m` }] }),
+    );
+    await render([item]);
+    await click(toggles()[0]!);
+    expect(host.querySelector(".cv-tool-output__markdown h2")?.textContent).toBe("Sample section");
+    expect([...host.querySelectorAll("button")].some((node) => node.textContent === "Show all 61 lines")).toBe(true);
+    expect([...host.querySelectorAll("button")].some((node) => node.textContent?.trim() === "Raw")).toBe(true);
+    expect(activityText(item)).toContain("The service is healthy.");
+    const { menuPartAt } = await import("../src/agent-session/acpmux/conversation/menuParts");
+    expect(menuPartAt(host.querySelector(".cv-tool-output-card"))?.output).toBe(text);
   });
 
   test(`${harness}: a send group opens to one row per call, each opening to its own request`, async () => {
@@ -151,7 +172,9 @@ for (const [harness, call] of [
     await click(toggles()[0]!);
     expect(labels()).toEqual(["Sent 2 messages", "Sent a message", "Sent a message"]);
     await click(toggles()[2]!);
-    const blocks = [...host.querySelectorAll(".cv-mcp-call__body")].map((node) => node.textContent ?? "");
+    const blocks = [...host.querySelectorAll(".cv-mcp-call__body, .cv-tool-output")].map(
+      (node) => node.textContent ?? "",
+    );
     expect(blocks[0]).toContain('"message": "two"');
     expect(host.textContent).not.toContain('"message": "one"');
   });
@@ -166,7 +189,7 @@ test("a non-MCP call's output also drops injected internal context", async () =>
     },
   ]);
   await click(toggles()[0]!);
-  expect(host.querySelector(".cv-tool-output")?.textContent).toBe("page text");
+  expect(host.querySelector(".cv-tool-output__markdown")?.textContent).toBe("page text");
 });
 
 test("output that only names an internal tag keeps the text after it", async () => {
@@ -175,7 +198,7 @@ test("output that only names an internal tag keeps the text after it", async () 
     {
       kind: "tool",
       text: "Read",
-      tool: { id: "f2", title: "Read tags.ts", kind: "fetch", status: "completed", output: source },
+      tool: { id: "f2", title: "Read tags.ts", kind: "read", status: "completed", output: source },
     },
   ]);
   await click(toggles()[0]!);

@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextWakeups
 
 /// Where the files of the person's last native drop on a chat page, or paste into it, are on this
 /// Mac. WebKit gives the page a dropped or pasted file's name and bytes, never its path, and a
@@ -12,9 +13,11 @@ public import AppKit
 /// names, with the same names in any order. Any other ask uses it up and answers nothing.
 public final class AgentPaneDroppedPaths {
     /// Which gesture brought the files in. A drop's record and a paste's are kept apart, so one never
-    /// answers for the other.
+    /// answers for the other. `choose`: the person's pick in the page's file input (+ > Attach files,
+    /// ``PageOpenPanel``), which only fills a source record (``stashSource(_:items:claimed:kind:)``):
+    /// the page already has those files' bytes, so `chat.attach.dropped` never asks for it.
     public nonisolated enum Kind: String, Sendable {
-        case drop, paste
+        case drop, paste, choose
     }
 
     /// How long after the drop or paste the page may ask: it asks as soon as it has read the files.
@@ -22,8 +25,31 @@ public final class AgentPaneDroppedPaths {
     /// The most files one ask names.
     public nonisolated static let maximumNames = 100
 
-    private var held: [Kind: (urls: [URL], at: TimeInterval)] = [:]
+    struct Item {
+        var url: URL
+        var needsSnapshot: Bool
+        var snapshot: AgentPaneRecordingSnapshot?
+    }
+
+    private struct Record {
+        var items: [Item]
+        var at: TimeInterval
+        var id: UUID
+        var expiry: DemandTimer
+    }
+
+    private var held: [Kind: Record] = [:]
+    /// What the last drop's or paste's pasteboard said about where its contents came from, for the
+    /// page's `chat.attach.source` (``AgentPaneModel/attachSource(_:names:apps:)``): its file URLs,
+    /// how many items it held, and the app it says wrote it. Kept apart from ``held``, since each
+    /// record answers one ask.
+    private var sourced: [Kind: (urls: [URL], items: Int, claimed: String?, at: TimeInterval)] = [:]
     private let now: @MainActor () -> TimeInterval
+    /// Exact copies of the person's recording drops, never their parent folders. These remain
+    /// usable by this pane's existing file open/drag actions after the preview path disappears.
+    private(set) var retainedPaths: [String] = []
+    /// Invalidates async drop work when the pane switches to a different chat.
+    private(set) var generation = UUID()
 
     public init(now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
         self.now = now
@@ -33,26 +59,100 @@ public final class AgentPaneDroppedPaths {
     /// clears it. Finder may put a file reference URL (`file:///.file/id=…`) on the pasteboard: it is
     /// kept as the file's path.
     public func stash(_ urls: [URL], kind: Kind) {
+        held.removeValue(forKey: kind)?.expiry.cancel()
         let paths = urls.map { url in (url as NSURL).isFileReferenceURL() ? (url as NSURL).filePathURL ?? url : url }
-        held[kind] = paths.isEmpty ? nil : (paths, now())
+        guard !paths.isEmpty, paths.count <= Self.maximumNames else { return }
+        var budget = AgentPaneUpload.maximumTotalBytes
+        let items = paths.map { url -> Item in
+            let needsSnapshot = AgentPaneRecordingSnapshot.needsSnapshot(url)
+            var snapshot = needsSnapshot ? AgentPaneRecordingSnapshot.pin(url) : nil
+            if let pinned = snapshot {
+                if pinned.size > budget { snapshot = nil } else { budget -= pinned.size }
+            }
+            return Item(url: url, needsSnapshot: needsSnapshot, snapshot: snapshot)
+        }
+        let id = UUID(), expiry = DemandTimer(owner: "agent-pane.droppedPaths.expiry")
+        held[kind] = Record(items: items, at: now(), id: id, expiry: expiry)
+        expiry.schedule(after: .seconds(Self.lifetime)) { @MainActor [weak self] in
+            guard self?.held[kind]?.id == id else { return }
+            self?.held[kind] = nil
+        }
+    }
+
+    /// Records what a drop's or paste's pasteboard said, with its file URLs and its item count:
+    /// where its contents came from, as only the person's own drop or paste can say
+    /// (``source(_:names:)``). One with no files and no claim says nothing, and clears the record.
+    public func stashSource(_ urls: [URL], items: Int, claimed: String?, kind: Kind) {
+        let paths = urls.map { url in (url as NSURL).isFileReferenceURL() ? (url as NSURL).filePathURL ?? url : url }
+        sourced[kind] = paths.isEmpty && claimed == nil ? nil : (paths, max(items, paths.count), claimed, now())
+    }
+
+    /// What the last drop or paste of `kind` said, for the files `names` names, within ``lifetime``:
+    /// the file URLs among them, and its claim. Only an ask for that gesture's own files answers,
+    /// and uses the record up: no more files than the pasteboard held items, and every file URL it
+    /// held named (a drop of files and pictures names both). Any other ask answers nothing and
+    /// leaves the record for the page's own ask.
+    func source(_ kind: Kind, names: [String]) -> (urls: [URL], claimed: String?)? {
+        guard let record = sourced[kind] else { return nil }
+        guard now() - record.at <= Self.lifetime else {
+            sourced[kind] = nil
+            return nil
+        }
+        guard !names.isEmpty, names.count <= record.items else { return nil }
+        var left = record.urls
+        var picked: [URL] = []
+        for name in names {
+            guard let index = left.firstIndex(where: { Self.named($0, name) }) else { continue }
+            picked.append(left.remove(at: index))
+        }
+        guard left.isEmpty else { return nil }
+        sourced[kind] = nil
+        return (picked, record.claimed)
     }
 
     /// The recorded URLs of `kind` for the files `names` names (WebKit's `File.name`, the URL's last
     /// component), in the order of `names`; nil when there are none, they are older than
     /// ``lifetime``, or they are other files. Either way the record is used up.
     public func take(_ kind: Kind, names: [String]) -> [URL]? {
-        guard let record = held.removeValue(forKey: kind), now() - record.at <= Self.lifetime,
-              record.urls.count == names.count else { return nil }
+        guard let items = takeItems(kind, names: names), !items.contains(where: \.needsSnapshot) else { return nil }
+        return items.map(\.url)
+    }
+
+    /// The same one-shot record with the pinned recording bytes for the model's local upload.
+    func takeItems(_ kind: Kind, names: [String]) -> [Item]? {
+        guard let record = held.removeValue(forKey: kind) else { return nil }
+        record.expiry.cancel()
+        guard now() - record.at <= Self.lifetime, record.items.count == names.count else { return nil }
         // WebKit hands the page the pasteboard's files in its order: a folder and a zip of the same
         // name (both `name.zip` to the page) stay apart.
-        if zip(record.urls, names).allSatisfy(Self.named) { return record.urls }
-        var left = record.urls
-        var picked: [URL] = []
+        if zip(record.items, names).allSatisfy({ Self.named($0.0.url, $0.1) }) { return record.items }
+        var left = record.items
+        var picked: [Item] = []
         for name in names {
-            guard let index = left.firstIndex(where: { Self.named($0, name) }) else { return nil }
+            guard let index = left.firstIndex(where: { Self.named($0.url, name) }) else { return nil }
             picked.append(left.remove(at: index))
         }
         return picked
+    }
+
+    /// Remembers only the trusted local upload owner's returned files, bounded to this pane's
+    /// newest hundred copies. No parent directory becomes an allowed root.
+    func retain(_ paths: [String]) {
+        for path in paths {
+            retainedPaths.removeAll { $0 == path }
+            retainedPaths.append(path)
+        }
+        if retainedPaths.count > 100 { retainedPaths.removeFirst(retainedPaths.count - 100) }
+    }
+
+    /// A pane can move between chat sessions. Clear pending drops as well as already-retained
+    /// copies so the next chat cannot consume or open the prior chat's recording.
+    func clearForSessionChange() {
+        generation = UUID()
+        held.values.forEach { $0.expiry.cancel() }
+        held.removeAll()
+        sourced.removeAll()
+        retainedPaths.removeAll()
     }
 
     /// Whether WebKit names the file at `url` `name`. String equality is canonical: a name WebKit

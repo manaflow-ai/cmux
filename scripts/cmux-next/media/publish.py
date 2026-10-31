@@ -12,7 +12,7 @@ steps' screenshots inline and the rest folded. With no tour output, `--note`
 says why in one line. The comment this used to keep on its own (COMMENT_MARKER)
 is deleted on the first write.
 
-Uploads go through scripts/pr-media.py's contents-API writer, after its
+Uploads go through scripts/pr-media.py's git writer, after its
 privacy check (scripts/ci/pr_media_privacy.py) has passed every file of the
 tour: one refused file uploads none of that tour's media. Nothing is
 posted when the pull request's head has moved past SHA: the newer push's run
@@ -36,8 +36,13 @@ from typing import Any, Callable
 ROOT = Path(__file__).resolve().parents[3]
 COMMENT_MARKER = "<!-- cmux-next:tour-media -->"
 TOURS_DIR = "scripts/cmux-next/media/tours"
-# Frames are taken about every 0.5 s; played at 4 per second the video runs at 2x.
+# The output rate the reel (reel.py) normalizes every clip to. A tour's frames are read at the rate
+# tour.py took them (its manifest's frame_interval), so its video plays in real time: Leo, 2026-10-31,
+# "you guys always only ever seem to be able to record 5 second videos" (a hard-coded 4 frames a second
+# played 0.5 s frames at 2x and 1.0 s app-window frames at 4x).
 VIDEO_FPS = 4
+# tour.py's FRAME_INTERVAL, for a manifest that names none.
+DEFAULT_FRAME_INTERVAL = 0.5
 GIF_FPS = 4
 VIDEO_SIZE = (1280, 800)
 # tour.py's MAX_FRAMES: a larger artifact does not make a longer video.
@@ -50,6 +55,8 @@ SHOT_PATH = re.compile(r"shots/[0-9]{2}-[a-z0-9-]{1,40}(?:-failed)?(?:--w[0-9]{1
 MAX_WINDOW_SHOTS = 20
 WINDOW_KIND = re.compile(r"[A-Za-z0-9._-]{1,40}")
 STATUS_TEXT = {"ok": "ok", "failed": "**failed**", "unavailable": "unavailable"}
+# An ok step whose shot no `expect` checked (tour.py's `checked`): it ran, but nothing read the screen.
+UNCHECKED_TEXT = "ok, unchecked (no expect)"
 
 
 def load_pr_media() -> Any:
@@ -106,6 +113,8 @@ def clean_step(step: dict[str, Any]) -> dict[str, Any]:
         "detail": str(step.get("detail") or "")[:500],
         "command": str(step.get("command") or "")[:500],
         "shot": step["shot"] if isinstance(step.get("shot"), str) else "",
+        # False when no `expect` checked the step; absent in manifests from before tour.py wrote it.
+        **({"checked": step["checked"]} if isinstance(step.get("checked"), bool) else {}),
         # The step's other windows (floating panels, popovers, sheets), each a shot tour.py wrote.
         "windows": [
             {"shot": window["shot"], "kind": window["kind"] if WINDOW_KIND.fullmatch(str(window.get("kind"))) else "window"}
@@ -126,6 +135,15 @@ def shot_file(directory: Path, shot: Any) -> Path | None:
     return path
 
 
+def input_framerate(manifest: dict[str, Any]) -> str:
+    """ffmpeg's -framerate for the tour's frames: one over the seconds between them, so the video runs in
+    real time. A missing or unreasonable frame_interval falls back to tour.py's default."""
+    interval = manifest.get("frame_interval")
+    if isinstance(interval, bool) or not isinstance(interval, (int, float)) or not 0.05 <= interval <= 10:
+        interval = DEFAULT_FRAME_INTERVAL
+    return f"{1 / interval:.6g}"
+
+
 def make_video(directory: Path, manifest: dict[str, Any], into: Path, pr_media: Any,
                run: Callable[..., Any] = subprocess.run) -> tuple[Path | None, Path | None]:
     """(mp4, gif) from the tour's frames; (None, None) with fewer than two frames."""
@@ -133,8 +151,8 @@ def make_video(directory: Path, manifest: dict[str, Any], into: Path, pr_media: 
         return None, None
     mp4 = into / "tour.mp4"
     env = pr_media.tool_env()
-    done = run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-framerate", str(VIDEO_FPS),
-                "-i", str(directory / "frames/frame-%05d.jpg"),
+    done = run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-framerate",
+                input_framerate(manifest), "-i", str(directory / "frames/frame-%05d.jpg"),
                 "-frames:v", str(MAX_FRAMES),
                 # A fixed output size: a frame of another size cannot break the stream.
                 "-vf", f"scale={VIDEO_SIZE[0]}:{VIDEO_SIZE[1]}:force_original_aspect_ratio=decrease,"
@@ -152,8 +170,13 @@ def make_video(directory: Path, manifest: dict[str, Any], into: Path, pr_media: 
     return mp4, None
 
 
+def unchecked(step: dict[str, Any]) -> bool:
+    """An ok step with a shot that no `expect` checked."""
+    return step.get("status") == "ok" and bool(step.get("shot")) and step.get("checked") is False
+
+
 def step_row(step: dict[str, Any]) -> str:
-    status = STATUS_TEXT.get(step.get("status", ""), "")
+    status = UNCHECKED_TEXT if unchecked(step) else STATUS_TEXT.get(step.get("status", ""), "")
     detail = f": {cell(step['detail'])}" if step.get("detail") else ""
     # A code span cannot hold its own backticks, and inside one nothing else is Markdown.
     one_line = re.sub(r"[\r\n]+", " ", str(step.get("command") or "")).replace("`", "'")
@@ -186,8 +209,9 @@ def step_images(step: dict[str, Any], urls: dict[str, str]) -> str:
 
 def tour_section(manifest: dict[str, Any], urls: dict[str, str]) -> str:
     steps = manifest.get("steps") or []
-    counts = {status: sum(1 for step in steps if step.get("status") == status)
+    counts = {status: sum(1 for step in steps if step.get("status") == status and not unchecked(step))
               for status in ("ok", "failed", "unavailable")}
+    counts["unchecked"] = sum(1 for step in steps if unchecked(step))
     summary = ", ".join(f"{count} {status}" for status, count in counts.items() if count)
     verdict = manifest.get("result")
     verdict_label = {

@@ -12,6 +12,8 @@ import { translate } from "../src/agent-session/acpmux/i18n";
 import { ChatInspector } from "../src/agent-session/acpmux/inspector/ChatInspector";
 import { resetInspectorState } from "../src/agent-session/acpmux/inspector/inspectorState";
 import { outputArtifacts, outputLinks } from "../src/agent-session/acpmux/inspector/OutputsSection";
+import { SummaryBody } from "../src/agent-session/acpmux/summary/SummaryBody";
+import type { SessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
 
 let dom: JSDOM | undefined;
@@ -133,6 +135,32 @@ test("every Outputs row opens what it names: artifacts in the side panel, files 
   expect(link.textContent).toBe(`cmux.com/docs/inspector${translate("chatInspector.outputs.link")}`);
 });
 
+test("without a diff opener, changed files stay readable plain output rows", async () => {
+  const container = installDom();
+  const base = chat([]);
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ChatInspector
+        summary={base.summary}
+        made={{
+          outputs: [
+            { path: "/src/a.ts", displayPath: "src/a.ts", edits: [], additions: 2, deletions: 1, created: false },
+          ],
+          pullRequests: [],
+          scheduled: [],
+        }}
+      />,
+    );
+  });
+  const outputs = container.querySelector<HTMLElement>('ul[data-section="outputs"]')!;
+  expect(outputs.querySelector("button")).toBeNull();
+  const row = outputs.querySelector<HTMLElement>(".acpmux-chat-inspector-row")!;
+  expect(row.tagName).toBe("DIV");
+  expect(row.hasAttribute("disabled")).toBe(false);
+  expect(row.textContent).toContain("a.ts");
+});
+
 test("without a side panel (Quick Chat) the artifacts are not listed", async () => {
   const container = installDom();
   const base = chat(rows);
@@ -141,4 +169,32 @@ test("without a side panel (Quick Chat) the artifacts are not listed", async () 
     root.render(<ChatInspector summary={base.summary} rows={rows} documents={outputArtifacts(rows)} />);
   });
   expect(container.querySelector('ul[data-section="outputs"]')).toBeNull();
+});
+
+test("SummaryBody does not re-add checkpoint files outside the project", async () => {
+  const container = installDom();
+  const summary: SessionSummary = {
+    cwd: "/work/project",
+    scheduled: [],
+    pullRequests: [],
+    outputs: [],
+    subagents: [],
+    sources: [],
+    backgroundTasks: [],
+  };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <SummaryBody
+        summary={summary}
+        changes={{
+          additions: 2,
+          deletions: 0,
+          files: [{ path: "/tmp/m1076.txt", displayPath: "m1076.txt", additions: 2, deletions: 0, created: true }],
+        }}
+        onOpenChanges={() => undefined}
+      />,
+    );
+  });
+  expect(container.textContent).not.toContain("m1076.txt");
 });

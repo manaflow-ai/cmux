@@ -5,10 +5,15 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxActivity } from "../model";
 import { mcpCall } from "./mcpCalls";
-import { toolGroups } from "./toolGroups";
+import { isMessageEntry, toolGroups as groupedToolGroups } from "./toolGroups";
 import { recordedMessageBodyParseCountForTests, resetRecordedMessageBodyCacheForTests } from "./acpmuxSends";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
+
+/// Most tests here read each message on its own; a run of them is one `messages` group, which lists
+/// them as its members (tested at the end of this file).
+const toolGroups = (items: readonly AcpmuxActivity[]) =>
+  groupedToolGroups(items).flatMap((group) => (group.type === "messages" ? group.members : [group]));
 
 let ids = 0;
 const item = (tool: Omit<Tool, "id" | "status"> & { status?: string }): AcpmuxActivity => {
@@ -86,9 +91,32 @@ test("every MCP call draws in an MCP, message or sub-session card, never as a To
     const groups = toolGroups(items);
     expect(drawnByToolRow(groups).filter((entry) => entry.tool && mcpCall(entry.tool))).toEqual([]);
     const carded = groups.flatMap((group) =>
-      group.type === "mcp" ? group.items : group.type === "message" || group.type === "subsession" ? [group.item] : [],
+      group.type === "mcp"
+        ? group.items
+        : group.type === "message" || group.type === "subsession"
+          ? [group.item]
+          : group.type === "subsessionGroup"
+            ? group.items
+            : [],
     );
     expect(carded).toHaveLength(items.filter((entry) => mcpCall(entry.tool!)).length);
+  }
+});
+
+test("adjacent start_session calls become one grouped disclosure", () => {
+  const starts = ["msg-fold", "picker-polish", "cloud-demo"].map((name) =>
+    item({
+      title: "mcp__cmux-subsessions__start_session",
+      inputSummary: JSON.stringify({ name, prompt: `Own the ${name} lane` }),
+      output: `Started sub-session ${name} (sessionId ${name}-id, depth 1).`,
+    }),
+  );
+  const group = toolGroups(starts);
+  expect(group).toHaveLength(1);
+  expect(group[0]?.type).toBe("subsessionGroup");
+  if (group[0]?.type === "subsessionGroup") {
+    expect(group[0].items).toHaveLength(3);
+    expect(group[0].calls.map((call) => call.name)).toEqual(["msg-fold", "picker-polish", "cloud-demo"]);
   }
 });
 
@@ -661,4 +689,54 @@ test("unchanged streamed tool revisions reuse the lifetime-owned parser memo", (
   const failed = toolGroups([writer, failedWriter, send]).find((entry) => entry.type === "send");
   expect(failed?.type).toBe("send");
   if (failed?.type === "send") expect(failed.send.text).toBeUndefined();
+});
+
+const sendMessage = (to: string, message: string, status = "completed") =>
+  item({ title: "SendMessage", kind: "other", status, inputSummary: JSON.stringify({ to, message }) });
+
+test("consecutive messages to agents, of any kind, are one messages group", () => {
+  const shell = item({ title: "Bash", kind: "execute", command: "acpmux send tests 'cover retries'" });
+  const subsession = item({
+    title: "mcp__cmux-subsessions__send_message",
+    kind: "other",
+    inputSummary: JSON.stringify({ sessionId: "sub-tests", text: "and the backoff" }),
+    output: "Delivered into its running turn: it reads it at its next tool step.",
+  });
+  const groups = groupedToolGroups([sendMessage("Picker", "brief"), shell, subsession, sendMessage("Picker", "more")]);
+  expect(groups.map((group) => group.type)).toEqual(["messages"]);
+  const [group] = groups;
+  if (group?.type !== "messages") throw new Error("no group");
+  expect(group.members.map((member) => member.type)).toEqual(["message", "send", "subsession", "message"]);
+  expect(group.items).toEqual(group.members.map((member) => member.item));
+  expect(group.members.every(isMessageEntry)).toBe(true);
+});
+
+test("a lone message stays its own entry, and other work splits a run of messages", () => {
+  const read = item({ title: "Read a.ts", kind: "read", locations: [{ path: "/repo/a.ts" }] });
+  expect(groupedToolGroups([sendMessage("A", "one")]).map((group) => group.type)).toEqual(["message"]);
+  const split = groupedToolGroups([sendMessage("A", "one"), read, sendMessage("B", "two"), sendMessage("C", "three")]);
+  expect(split.map((group) => group.type)).toEqual(["message", "item", "messages"]);
+  // A sub-session start is no message: it keeps its own card between two messages.
+  const start = item({
+    title: "mcp__cmux-subsessions__start_session",
+    kind: "other",
+    inputSummary: JSON.stringify({ name: "tests", prompt: "go" }),
+    output: "Started sub-session tests (sessionId tests-id, depth 1).",
+  });
+  expect(groupedToolGroups([sendMessage("A", "one"), start, sendMessage("B", "two")]).map((g) => g.type)).toEqual([
+    "message",
+    "subsession",
+    "message",
+  ]);
+});
+
+test("a message that did not go out keeps its own row and ends the run", () => {
+  const failed = sendMessage("Picker", "lost", "failed");
+  const refused = item({ title: "Bash", kind: "execute", command: "acpmux send gone 'hello'", exitCode: 4 });
+  expect(
+    groupedToolGroups([sendMessage("A", "one"), sendMessage("B", "two"), failed]).map((group) => group.type),
+  ).toEqual(["messages", "message"]);
+  expect(
+    groupedToolGroups([sendMessage("A", "one"), refused, sendMessage("B", "two")]).map((group) => group.type),
+  ).toEqual(["message", "send", "message"]);
 });

@@ -22,6 +22,7 @@ use crate::cli::errors::{AppError, Code};
 use crate::cli::output::print_json;
 use crate::client::Client;
 use crate::rpc::method;
+use cmux_json::JsonSet as _;
 
 #[derive(Subcommand, Debug, PartialEq, Eq)]
 pub enum ChatsCmd {
@@ -109,7 +110,7 @@ pub fn open_params(key: &str, cwd: Option<&Path>) -> Result<Value, AppError> {
         if !cwd.is_absolute() {
             return Err(AppError::usage(format!("--cwd {} must be absolute", cwd.display())));
         }
-        params["cwd"] = json!(cwd);
+        params.set("cwd", json!(cwd));
     }
     Ok(params)
 }

@@ -37,8 +37,19 @@ extension SidebarBridge {
     func place(_ ids: [SidebarWorkspaceID], at position: DropPosition, in sections: [SidebarRowSection]) {
         // On the sidebar document a group is its item (`itm_g_<id>`): the document takes the move, as it takes a
         // drag, with no undo step of its own (the placement belongs to the create or drop that asked for it).
-        if SidebarDocWiring.handle(.reorder(ids, to: position), bridge: self, undoable: false) { return }
-        let edit = rows.add(.reorder(ids, to: position))
+        if SidebarDocWiring.docMachines(services.machines).place(ids, at: position, model: model) ||
+            SidebarDocWiring.handle(.reorder(ids, to: position), bridge: self, undoable: false) {
+            // The mirror already holds this move, but its observed projection normally follows a turn later.
+            // A burst resolves the next slot now: show the current document through the normal rows writer
+            // first, including a refused move's unchanged order. No second pending edit owns its lifetime.
+            if let document = SidebarDocStore.current {
+                let machines = services.machines
+                document.reshow(live: SidebarDocWiring.docMachines(machines).liveRefs())
+                resync()
+            }
+            return
+        }
+        let edit = rows.edits.add(.reorder(ids, to: position))
         if usesPersonalOrganization {
             placePersonal(ids, at: position, in: sections, edit: edit)
         } else {

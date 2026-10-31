@@ -14,21 +14,11 @@ import CmuxNextWakeups
 // and diagnostics.
 extension CloudHandlers {
     static func bindCreation(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
-        bind("newCloudMachine", registry, reason: reason) { invocation in
-            let request = try newMachineRequest(invocation)
-            let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
-            if request.isDefault, origin(of: invocation) == .user, window != nil {
-                beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession)
-                return
-            }
-            let flow = creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession)
-            guard request.isDefault else { return createRequested(request, flow: flow, window: window, context) }
-            // The new machine's progress shows in the window at once; its
-            // first workspace opens there when its daemon is ready.
-            reportCreatedMachine(flow.start(in: window, existing: nil), context)
-        }
-        bind("newCloudWorkspace", registry, reason: reason) { invocation in
+        let cloud = context.services.cloud
+        bindMachineCreation(into: registry, context: context, reason: reason)
+        bind("newCloudWorkspace", registry, reason: { reason() ?? (cloud.isSignedIn ? nil : CloudStrings.signInFirst) }) { invocation in
             let target = try workspaceMachine(invocation, context)
+            if let target { try requireAttachableState(target) }
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
             guard let session = target, session.daemon.connection != nil else {
                 if target == nil, origin(of: invocation) == .user, window != nil {
@@ -39,7 +29,8 @@ extension CloudHandlers {
                 // now. An ended app link connects again on this gesture, and
                 // a paused machine resumes (idle auto-pause).
                 target?.attach(origin: connectOrigin(for: invocation))
-                creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession).start(in: window, existing: target)
+                creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession,
+                             reveals: invocation.allowsViewChange).start(in: window, existing: target)
                 // A CLI or agent hears that the workspace comes later: its machine is starting or connecting.
                 result("new cloud workspace", context) {
                     (target.map { machineFields($0.machineID) } ?? [:]).merging(["pending": .bool(true), "status": .string(target == nil ? "creating" : "connecting")]) { field, _ in field }
@@ -58,25 +49,37 @@ extension CloudHandlers {
         }
     }
 
-    static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?) {
+    /// The asking chat's folder: its tab's cwd, else the folder its local session reports (a chat
+    /// tab may have no cwd cached yet), as Move to Cloud reads it.
+    static func chatFolder(_ chat: TabModel?, _ services: AppServices) async -> String? {
+        guard let chat else { return nil }
+        if let cwd = chat.cwd, cwd.hasPrefix("/") { return cwd }
+        let tabs = services.agentTabs
+        guard let session = tabs.sessions[tabs.resolve(chat.id)] ?? chat.agentSession?.session else { return nil }
+        let host = tabs.localSessionHost ?? tabs.host
+        guard let folder = try? await host.sessionFolder(sessionId: session), folder.isLocal, folder.cwd.hasPrefix("/") else { return nil }
+        return folder.cwd
+    }
+
+    static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?, chat: TabModel? = nil) {
         runTracked("new Cloud workspace", context) {
             let cloud = context.services.cloud, services = context.services
             let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID
             let availability = CloudWorkspaceSetupWizard.CredentialAvailability.resolve(
-                teamID: cloud.auth.teamID, supportsFileRoute: cloud.configuration.linkSource == .legacy)
+                teamID: cloud.auth.teamID, supportsFileRoute: AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: cloud.configuration.linkSource, isSignedIn: true))
             let present: (CmuxDialogSpec) async -> CmuxDialogAnswer = { spec in
                 let scope: CmuxDialogScope = services.windows.active?.window.map(CmuxDialogScope.window) ?? .app
                 return await CmuxDialogCenter.shared.present(spec, in: scope)
             }
-            let wizard = CloudWorkspaceSetupWizard()
+            let wizard = CloudWorkspaceSetupWizard(), pick = await CloudChatPick(services: services).read(folder: await chatFolder(chat, services), tab: chat)
             // Environments live in the cmux-next backend's CloudDO: only its Cloud path lists them.
             let supportsEnvironments = cloud.configuration.linkSource == .appServer
             let environments = supportsEnvironments ? await cloud.appServerEnvironmentOptions() : []
             guard let plan = try await wizard.choosePlan(availability: availability,
                 scopeIsCurrent: { cloud.auth.user?.id == userID && cloud.auth.teamID == teamID },
-                supportsRepository: cloud.configuration.linkSource == .legacy,
+                supportsRepository: cloud.configuration.linkSource == .legacy, suggested: pick?.repo,
                 environments: environments, supportsEnvironments: supportsEnvironments, present: present) else { return }
-            var request = plan.request
+            var request = CloudChatPick.request(plan, sizedFor: pick)
             if let new = plan.newEnvironment {
                 // Saved first, then booted: the first machine starts cold and runs the setup itself.
                 guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return }
@@ -160,7 +163,7 @@ extension CloudHandlers {
                     machineID: session.machineID, teamID: teamID, userID: userID, openTerminal: { [weak services] line in
                         await services?.openLocalProviderLogin(line) ?? false
                     })
-                try await transfer.run(api: cloud.api, currentTeamID: { cloud.auth.teamID },
+                try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID },
                                        currentUserID: { cloud.auth.user?.id }, confirmed: true)
             }
         }
@@ -347,7 +350,10 @@ extension CloudHandlers {
     /// `startedByPerson`: true only for an action invoked with origin user;
     /// any other create (a Retry or Dismiss button of the progress view,
     /// which carries no gesture origin) asks the person first.
-    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false, askedBy: String? = nil,
+    /// `reveals`: the run may change the view (a person's, or one with `--focus`): a machine made with no
+    /// window showing its creation still opens its workspace in one. Without it the workspace waits,
+    /// out of the sidebar, until the person opens the machine (`unopenedCloudWorkspaces`).
+    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false, askedBy: String? = nil, reveals: Bool = false,
                              proceed: @escaping (CloudMachineCreation) throws -> Void = { _ in }) -> CloudCreationFlow {
         let cloud = context.services.cloud
         let windows = context.services.windows
@@ -362,9 +368,11 @@ extension CloudHandlers {
                 let after = creation.readyAfter.map { String(format: "%.1f s", Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18) } ?? "?"
                 cloud.logger.info("new cloud workspace \(id, privacy: .public) on \(creation.session?.machineID ?? "?", privacy: .public) ready after \(after, privacy: .public)")
                 // The window that still shows the creation shows its
-                // workspace; one that moved on gets it filed quietly.
+                // workspace; one that moved on gets it filed quietly. A
+                // machine an agent or the CLI made without focus stays out
+                // of the sidebar until the person opens it (`unopenedCloudWorkspaces`).
                 guard let windowID = creation.windowID, let state = windows.controller(for: windowID)?.state else {
-                    windows.reveal(workspaceID: id)
+                    if startedByPerson || reveals { windows.reveal(workspaceID: id) }
                     return
                 }
                 if state.cloudCreation == creation.id {
@@ -393,7 +401,7 @@ extension CloudHandlers {
             // The bootstrap and the machine config go with the machine, so a Retry starts each too while it
             // has not started.
             bootstrap: { creation, session in
-                let machine = CloudMachineBootstrap.Machine(api: cloud.api.pinningTeam(creation.request.team), machineID: session.machineID)
+                let machine = CloudMachineBootstrap.Machine(api: cloud.machineAPI.pinningTeam(creation.request.team), machineID: session.machineID)
                 await CloudCreationFlow.startBootstrap(creation, on: machine)
             }
         )
@@ -493,5 +501,58 @@ extension CloudHandlers {
             }
         }
         return CloudStrings.diagnosticsAllWell(CloudDiagnosticsReport.accountLabel(account))
+    }
+}
+
+// HQ #4884 ("Signed-out cloud is text only"): a person's run of a Cloud action that is
+// unavailable only because nobody is signed in signs in, then runs the action, the way New
+// Cloud Machine resumes after sign-in (#27104). The CLI, MCP, scripts and pages still get
+// ``CloudStrings/signInFirst``.
+extension CloudHandlers {
+    /// Actions whose signed-out reason gets no recovery: running them after a sign-in means
+    /// nothing (Sign Out) or the sign-in already chose for them (Switch Active Team).
+    static let signInRecoveryExempt: Set<ActionID> = ["palette.auth.signOut", "openTeamPicker"]
+
+    /// Whether a person's run of `id`, unavailable for `reason`, signs in and then runs it.
+    static func signInRecovers(_ id: ActionID, reason: String) -> Bool {
+        reason == CloudStrings.signInFirst && !signInRecoveryExempt.contains(id)
+    }
+
+    static func bindSignInRecovery(into registry: ActionRegistry, cloud: CloudService) {
+        // One pending replay, shared with New Cloud Machine's: a later intent, a sign-out or a
+        // team change drops the earlier one (``CloudSignedOutCreationContinuation``).
+        let pending = cloud.signedOutCreation
+        registry.unavailableRecoveries.append { [weak registry] id, reason in
+            guard signInRecovers(id, reason: reason) else { return nil }
+            return ActionRecovery(note: CloudStrings.signInToContinue) { id, invocation in
+                let expected = pending.reserve()
+                // task-owner: the reserved generation owns the replay; a later intent, sign-out or team change cancels it.
+                Task { @MainActor in
+                    // The machine list loads after sign-in; a machine action replayed before it lands finds no machine.
+                    await pending.perform(expected: expected, signIn: {
+                        guard await cloud.auth.signIn() else { return false }
+                        // A list read for this account, else a fresh read; one a newer read superseded (the
+                        // sign-in's own refresh) is read once more. A failed read still replays, so the action
+                        // reports its own error instead of nothing.
+                        for _ in 0..<2 where !cloud.hasCurrentList(within: .seconds(30)) && cloud.isSignedIn {
+                            if await cloud.refresh() { break }
+                        }
+                        return true
+                    }, resume: {
+                        guard let registry, cloud.isSignedIn else { return }
+                        resumeAfterSignIn(id, invocation, in: registry)
+                    })
+                }
+            }
+        }
+    }
+
+    /// Runs `id` for the person once signed in; a reason that still holds (no team, no backend) is reported.
+    static func resumeAfterSignIn(_ id: ActionID, _ invocation: ActionInvocation, in registry: ActionRegistry) {
+        if let reason = registry.unavailableReason(for: id) {
+            registry.refuse(reason)
+            return
+        }
+        registry.perform(id, invocation: invocation)
     }
 }

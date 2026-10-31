@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 
 #[cfg(unix)]
 use crate::codex_auth_file::{self, AccessFile};
+use cmux_json::JsonSet as _;
 
 mod background;
 pub use background::TERMINATE;
@@ -98,7 +99,7 @@ impl AuthGate {
             "chatgptAccountId": file.account_id,
         });
         if let Some(previous) = self.previous_account_id.as_deref() {
-            params["previousAccountId"] = Value::String(previous.to_owned());
+            params.set("previousAccountId", Value::String(previous.to_owned()));
         }
         Out::Server(serde_json::json!({
             "jsonrpc": "2.0", "id": id, "method": "account/login/start", "params": params

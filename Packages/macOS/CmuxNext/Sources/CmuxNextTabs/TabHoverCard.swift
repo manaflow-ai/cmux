@@ -181,7 +181,9 @@ final class TabHoverCardController: HoverCardSource {
         // Once per card, not on every content refresh (resource samples).
         if newCard, full, case .tab = content { loadThumbnail(for: tab) }
         if newCard, case .tab = content { startSampling(tab, card: id) }
-        return HoverCardBody(view: body, placement: Self.placement(for: DesignSettings.shared.tabBarPosition), themeAnchor: strip) { [weak body] in body?.applyColors() }
+        // The card hangs from its tab with no gap: it takes the tab's corners.
+        return HoverCardBody(view: body, placement: Self.placement(for: DesignSettings.shared.tabBarPosition), themeAnchor: strip,
+                             cornerRadius: strip.metrics.cornerRadius) { [weak body] in body?.applyColors() }
     }
 
     func hoverCardActivated(_ id: HoverTargetID) {

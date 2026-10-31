@@ -134,3 +134,78 @@ fn a_closed_tab_drops_its_mark_and_a_reopen_does_not_bring_it_back() {
     let reopened = reopened["tab_ids"][0].as_str().unwrap();
     assert!(listed_attention(&mux, reopened).is_null());
 }
+
+#[test]
+fn attention_request_identity_clear_is_guarded_and_validated() {
+    let mux = Mux::new_for_test("state-attention-request-id", SurfaceOptions::default());
+    let tab = tab_id(&mux, terminal_tabs(&mux, 1)[0]);
+    let a = mutate(&mux, "tab.update", json!({"tab":tab,"attention":REASON}), "request-a");
+    let a_id = a["extra"]["attention"]["request_id"].clone();
+    let b = mutate(&mux, "tab.update", json!({"tab":tab,"attention":REASON}), "request-b");
+    let b_id = b["extra"]["attention"]["request_id"].clone();
+    assert_ne!(a_id, b_id);
+    let stale = mutate(
+        &mux,
+        "tab.update",
+        json!({
+            "tab":tab,"attention":null,"attention_request_id":a_id,"zoom":1.5
+        }),
+        "request-stale-clear",
+    );
+    assert_eq!(stale["extra"]["attention"]["request_id"], b_id);
+    assert_eq!(stale["extra"]["zoom"], 1.5);
+    // A retry replays the original result, never creates a third identity.
+    let replay =
+        send(&mux, "tab.update", json!({"tab":tab,"attention":REASON}), Some("request-b")).unwrap();
+    assert_eq!(replay["replayed"], true);
+    assert_eq!(replay["value"]["extra"]["attention"]["request_id"], b_id);
+    for (index, invalid) in [
+        Value::Null,
+        json!(true),
+        json!(""),
+        json!("0".repeat(31)),
+        json!("0".repeat(33)),
+        json!("A".repeat(32)),
+        json!("é".repeat(16)),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert_eq!(
+            error_code(send(
+                &mux,
+                "tab.update",
+                json!({
+                    "tab":tab,"attention":null,"attention_request_id":invalid
+                }),
+                Some(&format!("request-invalid-{index}"))
+            )),
+            "validation.invalid"
+        );
+        assert_eq!(listed_attention(&mux, &tab)["request_id"], b_id);
+    }
+    for (index, attention) in [Some(json!(REASON)), None].into_iter().enumerate() {
+        let mut params = json!({"tab":tab,"attention_request_id":b_id,"zoom":1.0});
+        if let Some(value) = attention {
+            params["attention"] = value;
+        }
+        assert_eq!(
+            error_code(send(
+                &mux,
+                "tab.update",
+                params,
+                Some(&format!("request-wrong-use-{index}"))
+            )),
+            "validation.invalid"
+        );
+    }
+    let cleared = mutate(
+        &mux,
+        "tab.update",
+        json!({
+            "tab":tab,"attention":null,"attention_request_id":b_id
+        }),
+        "request-current-clear",
+    );
+    assert!(cleared["extra"].get("attention").is_none());
+}

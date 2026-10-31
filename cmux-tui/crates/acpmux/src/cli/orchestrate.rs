@@ -10,6 +10,7 @@ use crate::client::Client;
 use crate::rpc::{Message, method};
 use crate::transcript::Transcript;
 use anyhow::{Result, anyhow};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::io::Write;
 use std::sync::Arc;
@@ -74,6 +75,28 @@ pub(crate) enum Matcher {
     Regex(regex::Regex),
 }
 
+fn remaining_timeout(started: tokio::time::Instant, timeout: Option<u64>) -> Option<u64> {
+    timeout.map(|seconds| seconds.saturating_sub(started.elapsed().as_secs()))
+}
+
+async fn resolve_id_after_update(
+    client: &mut Arc<Client>,
+    key: &str,
+    budget: Option<std::time::Duration>,
+) -> Result<String> {
+    match resolve_id(client, key).await {
+        Ok(id) => Ok(id),
+        Err(error) if daemon_closed_error(&error) => {
+            *client = match budget {
+                Some(budget) => reconnect_after_update_with_budget(budget).await?,
+                None => reconnect_after_update().await?,
+            };
+            resolve_id(client, key).await
+        }
+        Err(error) => Err(error),
+    }
+}
+
 impl Matcher {
     fn hit(&self, text: &str) -> Option<String> {
         match self {
@@ -96,11 +119,32 @@ fn transcript_text(t: &Transcript) -> String {
 
 /// `acpmux wait`: server-side state wait, or a client-side text match.
 pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) -> Result<()> {
+    // One deadline includes name resolution, every reconnect and reply reads.
+    // A phase must never reset the caller's timeout after spending it upstream.
+    match opts.timeout {
+        Some(seconds) => tokio::time::timeout(
+            std::time::Duration::from_secs(seconds),
+            wait_inner(client, opts, json_out),
+        )
+        .await
+        .map_err(|_| AppError::timeout("no session resolved in time"))?,
+        None => wait_inner(client, opts, json_out).await,
+    }
+}
+
+async fn wait_inner(client: Arc<Client>, opts: WaitOpts, json_out: bool) -> Result<()> {
+    let mut client = client;
+    let started = tokio::time::Instant::now();
     // Resolve names first so a typo is exit 4, not a silent no-op.
     let mut ids: Vec<(String, String)> = Vec::new();
     for key in &opts.sessions {
         let key = expand_session_key(key)?;
-        let id = resolve_id(&client, &key).await?;
+        let id = resolve_id_after_update(
+            &mut client,
+            &key,
+            opts.timeout.map(std::time::Duration::from_secs),
+        )
+        .await?;
         ids.push((key, id));
     }
     if let Some(matcher) = &opts.matcher {
@@ -109,16 +153,43 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
                 AppError::usage("--match and --regex need at least one session name").into()
             );
         }
-        return wait_match(client, &ids, matcher, opts.timeout, opts.all, opts.notify, json_out)
-            .await;
+        return wait_match_after_update(
+            client,
+            &ids,
+            matcher,
+            opts.timeout,
+            opts.all,
+            opts.notify,
+            json_out,
+        )
+        .await;
     }
     let params = json!({
         "sessions": ids.iter().map(|(_, id)| id.clone()).collect::<Vec<_>>(),
         "until": opts.until,
         "all": opts.all,
-        "timeoutMs": opts.timeout.map(|s| s * 1000),
+        "timeoutMs": remaining_timeout(started, opts.timeout).map(|s| s * 1000),
     });
-    let v = client.request(method::MUX_WAIT, params).await?;
+    let v = match client.request(method::MUX_WAIT, params.clone()).await {
+        Ok(value) => value,
+        Err(error) if crate::cli::output::daemon_closed_error(&error) => {
+            let budget = opts.timeout.map(|s| {
+                std::time::Duration::from_secs(s.saturating_sub(started.elapsed().as_secs()))
+            });
+            client = match budget {
+                Some(budget) => reconnect_after_update_with_budget(budget).await?,
+                None => reconnect_after_update().await?,
+            };
+            let params = json!({
+                "sessions": ids.iter().map(|(_, id)| id.clone()).collect::<Vec<_>>(),
+                "until": opts.until,
+                "all": opts.all,
+                "timeoutMs": remaining_timeout(started, opts.timeout).map(|s| s * 1000),
+            });
+            client.request(method::MUX_WAIT, params).await?
+        }
+        Err(error) => return Err(error),
+    };
     let sessions = v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
     let resolved = v.get("resolved").and_then(Value::as_array).cloned().unwrap_or_default();
     let timed_out = v.get("timedOut").and_then(Value::as_bool).unwrap_or(false);
@@ -290,7 +361,46 @@ fn session_exit_code(s: &Value) -> i32 {
 /// Resolve when a session's transcript contains the text (with `all`,
 /// when every session's does). Existing text matches at once; then live
 /// updates are followed.
-async fn wait_match(
+async fn wait_match_after_update(
+    mut client: Arc<Client>,
+    ids: &[(String, String)],
+    matcher: &Matcher,
+    timeout: Option<u64>,
+    all: bool,
+    notify: bool,
+    json_out: bool,
+) -> Result<()> {
+    let started = tokio::time::Instant::now();
+    let mut retried = false;
+    loop {
+        match wait_match_once(
+            client.clone(),
+            ids,
+            matcher,
+            remaining_timeout(started, timeout),
+            all,
+            notify,
+            json_out,
+        )
+        .await
+        {
+            Ok(()) => return Ok(()),
+            Err(error) if !retried && daemon_closed_error(&error) => {
+                retried = true;
+                let budget = timeout.map(|s| {
+                    std::time::Duration::from_secs(s.saturating_sub(started.elapsed().as_secs()))
+                });
+                client = match budget {
+                    Some(budget) => reconnect_after_update_with_budget(budget).await?,
+                    None => reconnect_after_update().await?,
+                };
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+async fn wait_match_once(
     client: Arc<Client>,
     ids: &[(String, String)],
     matcher: &Matcher,
@@ -365,7 +475,7 @@ async fn wait_match(
             return Err(client.closed("following the session events"));
         }
         let p = params.unwrap_or(Value::Null);
-        let sid = p.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
+        let Ok(sid) = crate::cli::resolve::routed_id(&p) else { continue };
         let Some(i) = transcripts.iter().position(|(_, id, _)| *id == sid) else {
             continue;
         };
@@ -425,6 +535,7 @@ pub(crate) async fn ensure(
     policy: Option<String>,
     effort: Option<String>,
     tags: Vec<String>,
+    harness_from: Option<String>,
     json_out: bool,
 ) -> Result<()> {
     let (agent, model) = match &target {
@@ -435,8 +546,15 @@ pub(crate) async fn ensure(
         None => (None, None),
     };
     crate::session_name::validate(name).map_err(AppError::usage)?;
+    if let (Some(h), Some(from)) = (&host, &harness_from) {
+        return Err(AppError::usage(format!(
+            "--harness-from copies a session on this machine only: run \
+             `ssh {h} acpmux ensure {name} --harness-from {from}` there instead of --host {h}"
+        ))
+        .into());
+    }
     let tags = parse_tags(&tags)?;
-    let existing = client.request(method::MUX_SESSIONS, json!({})).await?;
+    let existing = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
     let full = match &host {
         Some(h) => format!("{h}/{name}"),
         None => name.to_owned(),
@@ -469,6 +587,9 @@ pub(crate) async fn ensure(
             if !tags.as_object().is_none_or(|m| m.is_empty()) {
                 meta["tags"] = tags;
             }
+            if let Some(p) = &harness_from {
+                meta.set(crate::hub::lineage::successor::HARNESS_FROM_FIELD, json!(p));
+            }
             meta["argv"] = json!(crate::cli::entry::original_args());
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             match (&host, cwd) {
@@ -477,6 +598,7 @@ pub(crate) async fn ensure(
                 (None, c) => p["cwd"] = json!(c.unwrap_or(std::env::current_dir()?)),
             }
             let v = client.request(method::SESSION_NEW, p).await?;
+            crate::cli::run::launch::print_new_warnings(&v);
             let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
             (client.request(method::MUX_INFO, json!({"sessionId": id})).await?, true)
         }
@@ -679,6 +801,7 @@ pub(crate) async fn compare(
                     &id,
                     &prompt,
                     CollectOpts {
+                        deadline: None,
                         timeout,
                         on_permission: OnPermission::Wait,
                         stall_secs: 0,
@@ -804,7 +927,7 @@ pub(crate) async fn tail(
                 return Err(client.closed("following the session"));
             }
             let p = params.unwrap_or(Value::Null);
-            if p.get("sessionId").and_then(Value::as_str) != Some(id.as_str()) {
+            if crate::cli::resolve::routed_id(&p).ok().as_deref() != Some(id.as_str()) {
                 continue;
             }
             let seq = if m == method::MUX_EVENT {

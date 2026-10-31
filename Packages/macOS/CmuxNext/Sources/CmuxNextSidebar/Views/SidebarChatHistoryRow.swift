@@ -69,10 +69,11 @@ final class SidebarChatHistoryHeader: NSView {
     override func layout() {
         super.layout()
         let side = Metrics.smallIconSize
-        chevron.frame = NSRect(x: bounds.width - Metrics.space2 - side, y: (bounds.height - side) / 2, width: side, height: side)
+        // On the sidebar's trailing column, as every row's mark and header chevron (Leo 2026-10-28: "the alignment").
+        chevron.frame = SidebarStyle.trailingColumnFrame(rowWidth: bounds.width, centerY: bounds.midY, side: side)
         let h = ceil(name.intrinsicContentSize.height)
         let x = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
-        let trailing = foldable ? chevron.frame.minX - Metrics.space2 : bounds.width - Metrics.space2
+        let trailing = foldable ? SidebarStyle.trailingColumnStart(rowWidth: bounds.width) - Metrics.space2 : bounds.width - Metrics.space2
         name.frame = NSRect(x: x, y: (bounds.height - h) / 2, width: max(0, trailing - x), height: h)
     }
 }

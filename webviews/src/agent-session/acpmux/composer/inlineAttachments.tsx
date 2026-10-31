@@ -2,7 +2,7 @@
 // at the caret; resolution fills the same node. Deletion takes the payload out, undo restores it,
 // and moving a node preserves its place among text. Settings can draw these same payloads in the
 // strip instead, without rewriting the draft or its sent order.
-import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import {
   type ComposerAttachment,
@@ -15,7 +15,7 @@ import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
-import type { PendingAttachment } from "./attachmentIntake";
+import { AttachmentChip, type PendingAttachment } from "./attachmentIntake";
 import { keptThumb } from "./imagePool";
 import { reordered } from "./stripReorder";
 
@@ -31,9 +31,16 @@ type Options = {
   /// A pending chip's cancel (attachmentIntake.tsx).
   cancel(id: string): void;
   retry(id: string): void;
+  /// A cancelled loading chip's file read again under its id (attachmentIntake.tsx `revive`).
+  revive(id: string): boolean;
   expand(id: string): void;
   /// Whether a paste or drop now places what it brings in the text (not in shell mode).
   placing(): boolean;
+  /// A Codex chat: a PDF's chip says it goes as a file (attachmentIntake.tsx PdfAttachmentChip).
+  codex?: boolean;
+  /// Why a staged image's original failed to upload, by id: its chip in the text shows Retry, as the
+  /// strip's does (attachmentIntake.tsx `originalFailures`).
+  originalFailures?: Readonly<Record<string, string>>;
 };
 
 export function useInlineAttachments(options: Options) {
@@ -45,13 +52,20 @@ export function useInlineAttachments(options: Options) {
   const removed = useRef(new Map<string, ComposerAttachment>());
   /// Placeholders this composer placed in the text, until each is a chip or gone.
   const placed = useRef(new Set<string>());
+  /// Placeholders whose node an edit took out while they loaded: an undo brings each back loading.
+  const cancelled = useRef(new Set<string>());
   /// Attachments sent with a prompt: an undo of the send's clear brings their nodes back with no
   /// attachment to draw, so they leave the text again. One the host puts back (a refusal, Edit on a
   /// failed prompt) is the composer's again.
   const sentIds = useRef(new Set<string>());
+  /// From a send until its clear is done (the same task): the clear takes the text's nodes out, and a
+  /// file among them still uploading is not sent (useSendWhenAttached) but stays for the next prompt,
+  /// never cancelled. Only the person's own edit cancels one (review of #26667).
+  const clearing = useRef(false);
   useLayoutEffect(() => {
     removed.current.clear();
     placed.current.clear();
+    cancelled.current.clear();
     sentIds.current.clear();
   }, [options.scope]);
   const [views, setViews] = useState<ReadonlyMap<string, HTMLElement>>(() => new Map());
@@ -60,6 +74,7 @@ export function useInlineAttachments(options: Options) {
   // for it, its attachments come with it (keptAttachments.ts).
   useLayoutEffect(() => {
     seen.current = options.text;
+    placedNow.current = placedIn(options.text, true);
   }, [options.text]);
 
   const keep = (attachment: ComposerAttachment) => {
@@ -89,7 +104,20 @@ export function useInlineAttachments(options: Options) {
     return undefined;
   };
   const known = (id: string) =>
-    placed.current.has(id) || live.current.pending.some((chip) => chip.id === id) || sourceFor(id) !== undefined;
+    placed.current.has(id) ||
+    cancelled.current.has(id) ||
+    live.current.pending.some((chip) => chip.id === id) ||
+    sourceFor(id) !== undefined;
+  /// The attachments placed in the text: the editor's own nodes, never text the person typed or
+  /// pasted in a token's shape (review of #26667); read from `markdown`, as the editor reads a value,
+  /// before the editor is made. `all`: also the nodes of ids the composer does not know.
+  const placedIn = (markdown: string, all = false) => {
+    const ids = live.current.field.current?.inlineIds();
+    if (!ids) return inlineTokenIds(markdown, all ? undefined : known);
+    return all ? ids : ids.filter(known);
+  };
+  /// The nodes in the text the last edit left, or the value from outside put there, by id.
+  const placedNow = useRef<string[]>([]);
   /// Whether `id` went with a prompt and has not been put back.
   const isSent = (id: string) =>
     sentIds.current.has(id) && !live.current.attachmentsRef.current.some((attachment) => attachment.id === id);
@@ -107,27 +135,40 @@ export function useInlineAttachments(options: Options) {
     ready() {
       const { attachments, field, placing } = live.current;
       if (!placing()) return;
-      const marks = new Set(inlineTokenIds(field.current?.value() ?? seen.current, known));
+      const marks = new Set(placedIn(field.current?.value() ?? seen.current));
       const fresh = attachments.filter((chip) => !marks.has(chip.id) && !removed.current.has(chip.id));
       if (fresh.length) field.current?.insertInline(fresh.map((chip) => chip.id));
     },
     /// The prompt changed by an edit (MarkdownField `onChange`), to `markdown`.
     edited(markdown: string) {
-      const before = seen.current;
       seen.current = markdown;
-      const stale = inlineTokenIds(markdown).filter(isSent);
+      const nodes = placedIn(markdown, true);
+      const stale = nodes.filter(isSent);
       // After the edit's own render: the field is still dispatching it.
       if (stale.length)
         queueMicrotask(() => stale.filter(isSent).forEach((id) => live.current.field.current?.removeInline(id)));
-      const was = inlineTokenIds(before, known);
-      const now = inlineTokenIds(markdown, known);
+      const was = placedNow.current.filter(known);
+      const now = nodes.filter(known);
+      placedNow.current = nodes;
       if (!was.length && !now.length) return;
       const kept = new Set(now);
       const had = new Set(was);
       const gone = new Set(was.filter((id) => !kept.has(id)));
       const came = now.filter((id) => !had.has(id));
       const { setAttachments, attachmentsRef, pending, cancel } = live.current;
-      for (const id of gone) if (placed.current.delete(id) || pending.some((chip) => chip.id === id)) cancel(id);
+      if (!clearing.current)
+        for (const id of gone)
+          if (placed.current.delete(id) || pending.some((chip) => chip.id === id)) {
+            cancelled.current.add(id);
+            cancel(id);
+          }
+      // Undo of a loading chip's deletion: it reads again under its id and loads in its node; one whose
+      // file is not kept leaves the text, never an empty atom.
+      for (const id of came) {
+        if (!cancelled.current.delete(id) || sourceFor(id)) continue;
+        if (live.current.revive(id)) placed.current.add(id);
+        else queueMicrotask(() => live.current.field.current?.removeInline(id));
+      }
       for (const attachment of attachmentsRef.current) if (gone.has(attachment.id)) keep(attachment);
       const update = (current: ComposerAttachment[]) => {
         let next = gone.size ? current.filter((attachment) => !gone.has(attachment.id)) : current;
@@ -164,17 +205,31 @@ export function useInlineAttachments(options: Options) {
       const next = reordered(attachmentsRef.current, id, index);
       attachmentsRef.current = next;
       setAttachments(() => next);
-      const inText = new Set(inlineTokenIds(seen.current, known));
+      const inText = new Set(placedIn(seen.current));
       if (inText.size > 1)
         field.current?.orderInline(next.filter((each) => inText.has(each.id)).map((each) => each.id));
     },
-    /// The attachments sent with a prompt are gone for good: no undo brings them back.
+    /// The attachments sent with a prompt are gone for good: no undo brings them back. The send's
+    /// clear follows in the same task (Composer.tsx `clear`).
     sent(ids: Iterable<string>) {
       for (const id of ids) {
         removed.current.delete(id);
         placed.current.delete(id);
         sentIds.current.add(id);
       }
+      clearing.current = true;
+      queueMicrotask(() => {
+        clearing.current = false;
+      });
+    },
+    /// A failed chip's Retry and a pasted chip's open, stable across renders so the chips keep still
+    /// while the person types (InlineChip is memoized).
+    retry: (id: string) => live.current.retry(id),
+    /// A pasted chip opened: kept first, so an undo that brings its node back brings its text too.
+    expand: (id: string) => {
+      const attachment = live.current.attachmentsRef.current.find((each) => each.id === id);
+      if (attachment) keep(attachment);
+      live.current.expand(id);
     },
     known,
     /// The field tells its nodes' elements in a microtask after the change that made them (MarkdownField
@@ -206,8 +261,10 @@ export function useInlineAttachments(options: Options) {
         pending={options.pending.find((chip) => chip.id === id)}
         onRemove={api.remove}
         onCancel={api.cancel}
-        onRetry={options.retry}
-        onExpand={options.expand}
+        onRetry={api.retry}
+        onExpand={api.expand}
+        codex={options.codex ?? false}
+        originalFailed={options.originalFailures?.[id]}
       />,
       dom,
       id,
@@ -216,9 +273,11 @@ export function useInlineAttachments(options: Options) {
   return { ...api, chips: chips as ReactNode };
 }
 
-/// An attachment as the text shows it: its thumbnail, with a × that takes it out of the prompt; a
-/// file still being read spins (its × cancels it); one that could not be read says why, with Retry.
-function InlineChip({
+/// An attachment as the text shows it: the strip's own chip (attachmentIntake.tsx AttachmentChip), with
+/// its preview, open, play and × (which takes it out of the prompt); a file still being read spins
+/// (its × cancels it); one that could not be read says why, with Retry. Memoized: a keystroke
+/// re-renders the composer, never a chip whose attachment did not change.
+const InlineChip = memo(function InlineChip({
   id,
   attachment,
   pending,
@@ -226,6 +285,8 @@ function InlineChip({
   onCancel,
   onRetry,
   onExpand,
+  codex,
+  originalFailed,
 }: {
   id: string;
   attachment: ComposerAttachment | undefined;
@@ -234,17 +295,14 @@ function InlineChip({
   onCancel(id: string): void;
   onRetry(id: string): void;
   onExpand(id: string): void;
+  codex: boolean;
+  originalFailed: string | undefined;
 }) {
   const t = useT();
 
-  const [thumb, setThumb] = useState(() => keptThumb(id));
-  useEffect(() => {
-    if (!thumb && attachment)
-      setThumb(keptThumb(inlineCopyParent(attachment.id) ?? attachment.id) ?? keptThumb(attachment.id));
-  }, [attachment, thumb]);
   // A node whose attachment is not here (yet: a chat's kept chips still on their way) draws nothing.
   if (!attachment && !pending) return null;
-  const name = imageLabel(t, { name: attachment?.name ?? pending?.name, ...thumb });
+  const name = imageLabel(t, { name: attachment?.name ?? pending?.name, ...keptThumb(id) });
   const remove = (
     <button
       type="button"
@@ -276,38 +334,31 @@ function InlineChip({
         {remove}
       </span>
     );
-  // A file (a link to it on the session's machine): its name, as the strip's link chip shows it.
-  if (attachment.kind !== "image")
+  // A huge paste: its name; a click puts its text back in the prompt at its place.
+  if (attachment.kind === "pasted")
     return (
       <span
         className="acpmux-md-inline-chip"
         data-state="ready"
         data-kind="file"
-        /* tooltip-allow: a long name is cut to the chip */ title={attachment.path ?? attachment.name}
+        /* tooltip-allow: a long name is cut to the chip */ title={attachment.name}
       >
-        {attachment.kind === "pasted" ? (
-          <button type="button" className="acpmux-md-inline-retry" onClick={() => onExpand(id)}>
-            {attachment.name}
-          </button>
-        ) : (
-          <span className="acpmux-md-inline-file-name">{attachment.name}</span>
-        )}
+        <button type="button" className="acpmux-md-inline-retry" onClick={() => onExpand(id)}>
+          {attachment.name}
+        </button>
         {remove}
       </span>
     );
-  const source =
-    attachment.kind === "image" && attachment.data
-      ? `data:${attachment.mimeType};base64,${attachment.data}`
-      : undefined;
-  const image = <img alt={name} draggable={false} src={thumb?.url ?? source} />;
+  // An image, a PDF, a video or a file: the strip's chip, so it previews, opens, plays and falls back
+  // (an image that cannot be drawn) as it does there.
   return (
-    <span
-      className="acpmux-md-inline-chip"
-      data-state="ready"
-      /* tooltip-allow: a thumbnail shows no name */ title={name}
-    >
-      {image}
-      {remove}
+    <span className="acpmux-md-inline-chip" data-state="ready" data-chip="strip">
+      <AttachmentChip
+        attachment={attachment}
+        codex={codex}
+        onRemove={onRemove}
+        {...(originalFailed ? { onRetry, originalFailed } : {})}
+      />
     </span>
   );
-}
+});

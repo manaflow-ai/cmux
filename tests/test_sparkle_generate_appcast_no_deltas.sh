@@ -53,6 +53,9 @@ FAKE_TOOLS="$TMP_DIR/tools"
 mkdir -p "$FAKE_TOOLS"
 # generate_appcast: record argv (one per line, so an empty argument is visible),
 # then write a signed feed for the DMG found in the archives dir (last argument).
+# CMUX_TEST_GENERATE_UNSIGNED=1 emulates the real tool when the private key's
+# public key differs from the app's SUPublicEDKey: it writes the feed but no
+# sparkle:edSignature. CMUX_TEST_ENCLOSURE_LENGTH overrides the length it writes.
 cat > "$FAKE_TOOLS/generate_appcast" <<'GA'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -62,21 +65,32 @@ archives="${@: -1}"
 dmg="$(find "$archives" -maxdepth 1 -name '*.dmg' | sort | tail -n 1)"
 [ -n "$dmg" ] || { echo "fake generate_appcast: no dmg in $archives" >&2; exit 1; }
 name="$(basename "$dmg")"
+length="${CMUX_TEST_ENCLOSURE_LENGTH:-$(wc -c < "$dmg" | tr -d ' ')}"
+signature='sparkle:edSignature="fixture-signature" '
+[ "${CMUX_TEST_GENERATE_UNSIGNED:-}" = 1 ] && signature=""
 cat > "$archives/appcast.xml" <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
   <channel>
     <item>
       <sparkle:version>102</sparkle:version>
-      <enclosure url="https://example.invalid/${name}" sparkle:version="102" sparkle:edSignature="fixture-signature" length="3" type="application/octet-stream"/>
+      <enclosure url="https://example.invalid/${name}" sparkle:version="102" ${signature}length="${length}" type="application/octet-stream"/>
     </item>
   </channel>
 </rss>
 XML
 GA
+# sign_update: `-p --ed-key-file KEY FILE` prints the signature; `--verify
+# --ed-key-file KEY FILE SIGNATURE` checks it (CMUX_TEST_VERIFY_FAIL=1 fails).
 cat > "$FAKE_TOOLS/sign_update" <<'SU'
 #!/usr/bin/env bash
-echo "fixture-signature"
+printf '%s\n' "$*" >> "${CMUX_TEST_SIGN_LOG:-/dev/null}"
+if [ "${1:-}" = --verify ]; then
+  [ "${CMUX_TEST_VERIFY_FAIL:-}" = 1 ] && { echo "fake sign_update: signature does not verify" >&2; exit 1; }
+  [ "${@: -1}" = fallback-signature ] || { echo "fake sign_update: unexpected signature ${@: -1}" >&2; exit 1; }
+  exit 0
+fi
+echo "fallback-signature"
 SU
 # BinaryDelta: the fixture DMGs never mount, so delta prebuilding must fall
 # back to generate_appcast without calling it.
@@ -86,7 +100,43 @@ touch "$CMUX_TEST_BINARY_DELTA_MARKER"
 echo "fake BinaryDelta must not run for fixture archives" >&2
 exit 1
 BD
-chmod +x "$FAKE_BIN"/* "$FAKE_TOOLS"/*
+# hdiutil: the fixture DMGs are plain files, so `attach -mountpoint DIR`
+# lays out the app the DMG would hold, with CMUX_TEST_APP_PUBLIC_KEY as its
+# SUPublicEDKey (an empty value leaves the key out).
+HDI_BIN="$TMP_DIR/hdi-bin"
+mkdir -p "$HDI_BIN"
+cat > "$HDI_BIN/hdiutil" <<'HDI'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  detach) exit 0 ;;
+  attach) ;;
+  *) echo "fake hdiutil: unexpected $*" >&2; exit 1 ;;
+esac
+mountpoint=""
+while [ $# -gt 0 ]; do
+  case "$1" in -mountpoint) mountpoint="$2"; shift ;; esac
+  shift
+done
+[ -n "$mountpoint" ] || { echo "fake hdiutil: no -mountpoint" >&2; exit 1; }
+mkdir -p "$mountpoint/cmux.app/Contents"
+python3 - "$mountpoint/cmux.app/Contents/Info.plist" "${CMUX_TEST_APP_PUBLIC_KEY-}" <<'PY'
+import plistlib, sys
+info = {"CFBundleIdentifier": "com.cmuxterm.app"}
+if sys.argv[2]:
+    info["SUPublicEDKey"] = sys.argv[2]
+with open(sys.argv[1], "wb") as f:
+    plistlib.dump(info, f)
+PY
+HDI
+cp "$HDI_BIN/hdiutil" "$FAKE_BIN/hdiutil"
+chmod +x "$FAKE_BIN"/* "$FAKE_TOOLS"/* "$HDI_BIN"/*
+
+# RFC 8032 test vectors 1 and 2: a real Ed25519 seed (Sparkle's private key
+# format), its public key, and a different public key.
+TEST_PRIVATE_KEY="nWGxne/9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A"
+TEST_PUBLIC_KEY="11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
+OTHER_PUBLIC_KEY="PUAXw+hDiVqStwqnTRt+vJyYLM8uxJaMwM1V8Sr0Zgw="
 
 # Isolate the pinned download path from source builds and tools injection.
 PINNED_BIN="$TMP_DIR/pinned-bin"
@@ -134,7 +184,8 @@ run_script() {
   CMUX_TEST_FAKE_TOOLS="$FAKE_TOOLS" \
   CMUX_TEST_ARGV_LOG="$TMP_DIR/argv.log" \
   CMUX_TEST_BINARY_DELTA_MARKER="$TMP_DIR/binary-delta-called" \
-  SPARKLE_PRIVATE_KEY="Zml4dHVyZS1rZXk" \
+  SPARKLE_PRIVATE_KEY="$TEST_PRIVATE_KEY" \
+  CMUX_TEST_APP_PUBLIC_KEY="${CMUX_TEST_APP_PUBLIC_KEY-$TEST_PUBLIC_KEY}" \
   SPARKLE_VERSION="0.0.0-test" \
   SPARKLE_MINIMUM_SYSTEM_VERSION="${CMUX_TEST_MINIMUM_SYSTEM_VERSION-26.0}" \
   "$@" \
@@ -183,19 +234,19 @@ for bash_bin in "${candidates[@]}"; do
   [ -s "$out_dir/appcast-deltas.xml" ] || fail "bash $version: no appcast written on the delta path"
   paste -sd' ' "$TMP_DIR/argv.log" | grep -q -- "--maximum-deltas 1 " || fail "bash $version: --maximum-deltas 1 not passed with previous archives: $(paste -sd' ' "$TMP_DIR/argv.log")"
   # Explicit tools-directory injection remains a separate supported path.
-  if ! run_script "$bash_bin" "$out_dir/appcast-tools.xml" env SPARKLE_TOOLS_DIR="$FAKE_TOOLS" SPARKLE_PREVIOUS_ARCHIVES_DIR="$TMP_DIR/previous" SPARKLE_MAXIMUM_DELTAS=1 PATH="/usr/bin:/bin" >"$out_dir/run-tools.log" 2>&1; then
+  if ! run_script "$bash_bin" "$out_dir/appcast-tools.xml" env SPARKLE_TOOLS_DIR="$FAKE_TOOLS" SPARKLE_PREVIOUS_ARCHIVES_DIR="$TMP_DIR/previous" SPARKLE_MAXIMUM_DELTAS=1 PATH="$HDI_BIN:/usr/bin:/bin" >"$out_dir/run-tools.log" 2>&1; then
     fail "bash $version: script failed with SPARKLE_TOOLS_DIR: $(tail -n 5 "$out_dir/run-tools.log")"
   fi
   grep -q 'sparkle:edSignature' "$out_dir/appcast-tools.xml" || fail "bash $version: SPARKLE_TOOLS_DIR appcast lacks sparkle:edSignature"
   pinned_calls="$out_dir/pinned-calls"
   : > "$pinned_calls"
-  if ! run_script "$bash_bin" "$out_dir/appcast-pinned.xml" env -u SPARKLE_TOOLS_DIR -u SPARKLE_PREVIOUS_ARCHIVES_DIR SPARKLE_VERSION=2.8.1 CMUX_TEST_PINNED_CALLS="$pinned_calls" PATH="$PINNED_BIN:$PATH" >"$out_dir/run-pinned.log" 2>&1; then
+  if ! run_script "$bash_bin" "$out_dir/appcast-pinned.xml" env -u SPARKLE_TOOLS_DIR -u SPARKLE_PREVIOUS_ARCHIVES_DIR SPARKLE_VERSION=2.8.1 CMUX_TEST_PINNED_CALLS="$pinned_calls" PATH="$PINNED_BIN:$HDI_BIN:$PATH" >"$out_dir/run-pinned.log" 2>&1; then
     fail "bash $version: pinned download path failed: $(tail -n 5 "$out_dir/run-pinned.log")"
   fi
   [ "$(paste -sd, "$pinned_calls")" = download,checksum,extract ] || fail "pinned tools did not download, verify, then extract"
   grep -q 'sparkle:edSignature' "$out_dir/appcast-pinned.xml" || fail "pinned download path produced no signed appcast"
   : > "$pinned_calls"
-  if run_script "$bash_bin" "$out_dir/appcast-bad-checksum.xml" env -u SPARKLE_TOOLS_DIR -u SPARKLE_PREVIOUS_ARCHIVES_DIR SPARKLE_VERSION=2.8.1 CMUX_TEST_PINNED_SHA=bad CMUX_TEST_PINNED_CALLS="$pinned_calls" PATH="$PINNED_BIN:$PATH" >"$out_dir/run-bad-checksum.log" 2>&1; then
+  if run_script "$bash_bin" "$out_dir/appcast-bad-checksum.xml" env -u SPARKLE_TOOLS_DIR -u SPARKLE_PREVIOUS_ARCHIVES_DIR SPARKLE_VERSION=2.8.1 CMUX_TEST_PINNED_SHA=bad CMUX_TEST_PINNED_CALLS="$pinned_calls" PATH="$PINNED_BIN:$HDI_BIN:$PATH" >"$out_dir/run-bad-checksum.log" 2>&1; then
     fail "bash $version: mismatched pinned tarball checksum was accepted"
   fi
   [ "$(paste -sd, "$pinned_calls")" = download,checksum ] || fail "mismatched pinned tarball was extracted"
@@ -211,6 +262,58 @@ grep -q 'test -s appcast.xml' <<<"$step" || fail "release.yml must verify appcas
 grep -q "grep -q 'sparkle:edSignature' appcast.xml" <<<"$step" || fail "release.yml must verify the appcast is signed after generation"
 
 echo "PASS: sparkle_generate_appcast.sh produces a signed appcast on the no-delta release path under every local bash"
+
+# Key checks (HQ 2906): generate_appcast leaves the feed unsigned when the
+# private key's public key is not the app's SUPublicEDKey, and the sign_update
+# fallback used to sign it anyway, publishing a feed every installed app rejects.
+bash_bin="$(command -v bash)"
+key_dir="$TMP_DIR/keys"
+mkdir -p "$key_dir"
+expect_refused() {
+  local label="$1" out="$key_dir/$2.xml" pattern="$3"
+  shift 3
+  if run_script "$bash_bin" "$out" env -u SPARKLE_PREVIOUS_ARCHIVES_DIR "$@" >"$key_dir/$label.log" 2>&1; then
+    fail "$label: generation succeeded: $(tail -n 5 "$key_dir/$label.log")"
+  fi
+  [ ! -e "$out" ] || fail "$label: an appcast was written"
+  grep -q -- "$pattern" "$key_dir/$label.log" || fail "$label: missing '$pattern' in: $(tail -n 5 "$key_dir/$label.log")"
+}
+# The app in the DMG trusts another key: refuse before generating anything.
+expect_refused mismatch mismatch "does not match the app's SUPublicEDKey" \
+  CMUX_TEST_APP_PUBLIC_KEY="$OTHER_PUBLIC_KEY" CMUX_TEST_GENERATE_UNSIGNED=1
+expect_refused mismatch-signed mismatch-signed "does not match the app's SUPublicEDKey" \
+  CMUX_TEST_APP_PUBLIC_KEY="$OTHER_PUBLIC_KEY"
+# An app with no SUPublicEDKey can never accept an update from this feed.
+expect_refused no-app-key no-app-key "has no SUPublicEDKey" CMUX_TEST_APP_PUBLIC_KEY=
+# A private key that is not an Ed25519 key cannot be checked: fail closed.
+expect_refused bad-private-key bad-private-key "could not derive" SPARKLE_PRIVATE_KEY=Zml4dHVyZS1rZXk
+# The enclosure must announce the exact DMG size.
+expect_refused wrong-length wrong-length "length" CMUX_TEST_ENCLOSURE_LENGTH=4
+# A fallback signature that sign_update cannot verify is never published.
+expect_refused verify-fails verify-fails "signature does not verify" \
+  CMUX_TEST_GENERATE_UNSIGNED=1 CMUX_TEST_VERIFY_FAIL=1
+
+# Matching key, generator left the feed unsigned: the fallback signs it,
+# verifies the signature and leaves one length attribute with the DMG size.
+: > "$key_dir/sign.log"
+if ! run_script "$bash_bin" "$key_dir/fallback.xml" env -u SPARKLE_PREVIOUS_ARCHIVES_DIR \
+  CMUX_TEST_GENERATE_UNSIGNED=1 CMUX_TEST_SIGN_LOG="$key_dir/sign.log" >"$key_dir/fallback.log" 2>&1; then
+  fail "fallback: generation failed: $(tail -n 5 "$key_dir/fallback.log")"
+fi
+grep -q -- "^--verify --ed-key-file .* fallback-signature$" "$key_dir/sign.log" \
+  || fail "fallback: the injected signature was not verified with sign_update --verify: $(cat "$key_dir/sign.log")"
+python3 - "$key_dir/fallback.xml" "$(wc -c < "$TMP_DIR/cmux-macos.dmg" | tr -d ' ')" <<'PY' || fail "fallback: enclosure is not signed with the exact DMG length"
+import sys
+import xml.etree.ElementTree as ET
+path, size = sys.argv[1:3]
+ns = "{http://www.andymatuschak.org/xml-namespaces/sparkle}"
+enclosures = [e for e in ET.parse(path).iter("enclosure") if e.get("url", "").endswith("/cmux-macos.dmg")]
+assert len(enclosures) == 1, enclosures
+enclosure = enclosures[0]
+assert enclosure.get(ns + "edSignature") == "fallback-signature", enclosure.attrib
+assert enclosure.get("length") == size, enclosure.attrib
+PY
+echo "PASS: sparkle_generate_appcast.sh refuses a private key the app does not trust and verifies the fallback signature and length"
 
 # Duplicate archive versions must not compete for the same output path or
 # consume both slots, excluding an older distinct version.

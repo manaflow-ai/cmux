@@ -23,8 +23,8 @@ import Observation
 /// (`backdropView`, the bottom subview) and everything above it is clear.
 final class WindowRootView: NSView, WindowSurfacePainting {
     let titlebar = TitlebarView()
-    /// The window's one material and tint (`WindowBackdrop`).
-    let backdropView = WindowMaterialView(frame: .zero)
+    /// The window's one material and tint (`WindowBackdrop`); its glass keeps the key look through `activeLook`.
+    let backdropView: WindowMaterialView
     /// Whether Reduce Transparency is on (tests pin it; the host setting
     /// differs between machines). Internal, not private: the painting itself
     /// is in `WindowRootView+Surface`.
@@ -66,9 +66,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// is a theme fill, not a second glass material: the window keeps its
     /// one root material (WindowRootMaterialTests).
     let trafficLightsGlass = TrafficLightsPatch(frame: .zero)
-    /// Back, Forward and the glass patch: hidden until the top row or the
-    /// sidebar is hovered (`window.titlebarButtons`). The sidebar toggle
-    /// always shows.
+    /// The sidebar toggle, Back, Forward and the glass patch. With the
+    /// sidebar open they show (unless `sidebar.controlsOnHover`); with it
+    /// hidden, `window.titlebarButtons` hover hides them until the top row is
+    /// hovered (`applyTitlebarButtonsMode`).
     private(set) lazy var titlebarReveal = HoverReveal(region: titlebarRevealRegion)
     /// Held while the pointer is over the sidebar (its chrome reveal).
     var sidebarHoverHold: HoverReveal.Hold?
@@ -79,6 +80,9 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         didSet {
             toolbarBand.showSidebarState(hidden: sidebarHidden)
             collapsedBand.setSidebarHidden(sidebarHidden)
+            applyTitlebarButtonsMode()
+            // With tab bars at the bottom the card's top follows who holds the lights (`mainPaneTopInset`).
+            if sidebarHidden != oldValue { needsLayout = true }
         }
     }
     /// Opens the collapsed band while the top-left corner is hovered.
@@ -121,11 +125,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// - Parameter applyWindowBlur: Sets the window's behind-window blur
     ///   radius (the backdrop's ``WindowBackdrop/windowBlurRadius``).
     /// - Parameter revealClock: Times the collapsed band's close delay.
-    init(sidebar: SidebarContainerView,
+    init(sidebar: SidebarContainerView, activeLook: ActiveLookScope? = nil,
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },
          revealClock: any Clock<Duration> = ContinuousClock()) {
-        self.sidebar = sidebar
+        (self.sidebar, backdropView) = (sidebar, WindowMaterialView(frame: .zero, images: .shared, activeLook: activeLook))
         collapsedBand = CollapsedBandReveal(clock: revealClock)
         self.reduceTransparency = reduceTransparency
         self.applyWindowBlur = applyWindowBlur
@@ -171,13 +175,18 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         setUpCollapsedBandReveal()
         tokenObservation = Task { [weak self] in
             for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0,
-                                           DesignSettings.shared.titlebarButtons == .hover ? 1 : 0] }) {
+                                           DesignSettings.shared.titlebarButtons == .hover ? 1 : 0,
+                                           DesignSettings.shared.sidebarSections.controlsOnHover ? 1 : 0,
+                                           DesignSettings.shared.tabBarPosition == .bottom ? 1 : 0] }) {
                 self?.applyTokens()
                 self?.applyTitlebarButtonsMode()
             }
         }
         placementObservation = observePlacement()
-        contentHost.onFrameChange = { [weak self] in self?.updateMainPaneShade() }
+        contentHost.onFrameChange = { [weak self] in
+            self?.updateMainPaneShade()
+            self?.onMainPaneMove?()
+        }
         wireContentAreaMotion()
         applyMainPane()
         mainPaneObservation = observeMainPane()
@@ -239,6 +248,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// Called from layout when the band's presence changed, so strips under
     /// the top row recompute their inset in the same layout pass.
     var onToolbarBandPresenceChange: (() -> Void)?
+    /// The main pane card moved or resized (every frame of a sidebar slide, its last included).
+    var onMainPaneMove: (() -> Void)?
 
     /// Work after the window's layout pass (`ShellWindow.layoutIfNeeded`),
     /// when every frame is final: the agent cursor goes back on top after a
@@ -257,13 +268,16 @@ final class WindowRootView: NSView, WindowSurfacePainting {
 
     override func layout() {
         defer { onHintGeometryChange?() }
+        // Before the pass solves the constraints: the traffic lights' frame does not depend on it,
+        // and a top set after `super.layout()` showed only on the next pass (bottom tab bars' card
+        // sat under the lights until something else relaid the window).
+        updateMainPaneTopInset()
         super.layout()
         // Inside the window's layout pass the cursor order and the sidebar
         // occluder wait for its end (`windowDidLayout`): both change other
         // windows (overlay panel, pages) or this view's subviews.
         if (window as? ShellWindow)?.isInLayoutPass != true { windowDidLayout() }
         TitlebarDragPolicy.layoutBandBlocker(titlebarBandBlocker, in: self)
-        updateMainPaneTopInset()
         // Every frame is final here: the shade follows the card even when the
         // shade's own autoresizing landed after the card's frame change.
         updateMainPaneShade()

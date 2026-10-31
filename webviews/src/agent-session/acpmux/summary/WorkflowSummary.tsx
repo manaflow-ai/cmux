@@ -18,6 +18,7 @@ export type WorkflowActions = {
   onStop?: () => void;
   onSave?: () => void;
   onOpenTranscript?: (rowId: string) => void;
+  onOpenAgent?: (agent: WorkflowAgent) => void;
   onPullAgent?: (request: WorkflowDetailRequest) => Promise<unknown>;
   onDraftWorkflow?: (resume: boolean) => boolean;
 };
@@ -172,7 +173,7 @@ export function WorkflowSummaryRow({
           {workflow.projectedTokens !== undefined && (
             <p className="acpmux-summary-meta">{t("workflow.projectedTokens", { tokens: workflow.projectedTokens })}</p>
           )}
-          {workflow.runId && !actions.onPullAgent && (
+          {workflow.runId && !actions.onPullAgent && !actions.onOpenAgent && (
             <p className="acpmux-summary-meta">
               <output>{t("workflow.detailUnavailable")}</output>
             </p>
@@ -232,10 +233,13 @@ export function WorkflowSummaryRow({
                       {workflowDetailRequest(workflow, agent) && (
                         <button
                           type="button"
-                          disabled={!actions.onPullAgent}
-                          title={!actions.onPullAgent ? t("workflow.detailUnavailable") : undefined}
+                          disabled={!actions.onPullAgent && !actions.onOpenAgent}
+                          title={
+                            !actions.onPullAgent && !actions.onOpenAgent ? t("workflow.detailUnavailable") : undefined
+                          }
                           aria-label={`${t("transcript.label")}: ${agent.name}`}
                           onClick={() => {
+                            if (actions.onOpenAgent) return actions.onOpenAgent(agent);
                             if (!actions.onPullAgent) return;
                             const request = workflowDetailRequest(workflow, agent)!;
                             const ticket = ++detailTicket.current;

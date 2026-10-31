@@ -14,9 +14,11 @@ import {
   ChangesSection,
   changesOrder,
   glyphState,
+  visibleChanges,
   type InspectorPullRequestStatus,
 } from "../src/agent-session/acpmux/inspector/ChangesSection";
 import type { SummaryPullRequest } from "../src/agent-session/acpmux/summary/sessionSummary";
+import { transcriptPullRequests } from "../src/agent-session/acpmux/summary/transcriptPullRequests";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -119,6 +121,40 @@ test("each state is the glyph's shape and the row's color, and no row says Merge
   expect(rows(container)[3]!.querySelector(".acpmux-chat-inspector-sr-only")?.textContent).toBe("Merged");
 });
 
+test("abbreviates huge comment counts before trailing checks", async () => {
+  const container = installDom();
+  const open = pr("manaflow-ai/cmuxterm-hq", 2681);
+  await render(container, [open], {
+    [open.url]: {
+      additions: Number.MAX_SAFE_INTEGER,
+      deletions: Number.MAX_SAFE_INTEGER,
+      comments: Number.MAX_SAFE_INTEGER,
+      checks: "failing",
+      failing: Number.MAX_SAFE_INTEGER,
+      failingOnBase: Number.MAX_SAFE_INTEGER,
+    },
+  });
+  const line = container.querySelector(".acpmux-chat-inspector-pr__line")!;
+  const comments = line.querySelector(".acpmux-chat-inspector-pr__comments");
+  expect(comments?.textContent).toBe("9QComments: 9007199254740991");
+  // The line counts and the failing checks shorten the same way; screen readers get the exact counts.
+  expect(line.querySelector(".acpmux-diff-add")?.textContent).toBe("+9Q");
+  expect(line.querySelector(".acpmux-diff-del")?.textContent).toBe("-9Q");
+  expect(line.querySelector(".acpmux-diff-counts .acpmux-chat-inspector-sr-only")?.textContent).toBe(
+    "+9007199254740991 -9007199254740991",
+  );
+  expect(line.querySelector('.acpmux-chat-inspector-pr__checks [aria-hidden="true"]')?.textContent).toBe("9Q failing");
+  // The on-base share shortens too, and screen readers still get its exact count.
+  const base = line.querySelector(".acpmux-chat-inspector-pr__base")!;
+  expect(base.querySelector('[aria-hidden="true"]')?.textContent).toBe("(9Q already on base)");
+  expect(base.querySelector(".acpmux-chat-inspector-sr-only")?.textContent).toBe("(9007199254740991 already on base)");
+  // The abbreviated count still sits before the trailing failing checks.
+  expect([...line.children].map((child) => child.className).slice(-2)).toEqual([
+    "acpmux-chat-inspector-pr__comments",
+    "acpmux-chat-inspector-pr__checks",
+  ]);
+});
+
 test("the title leads, then repo #N, the line counts, the comments, and the failing checks or a green dot", async () => {
   const container = installDom();
   const failing = pr("manaflow-ai/cmux", 22033);
@@ -152,6 +188,14 @@ test("the title leads, then repo #N, the line counts, the comments, and the fail
   // Nothing read yet: its number stands in for the title, and the end of the line is empty.
   expect(third!.querySelector(".acpmux-chat-inspector-pr__title")?.textContent).toBe("#22523");
   expect(third!.querySelector(".acpmux-chat-inspector-pr__checks")).toBeNull();
+});
+
+test("a long repository reference gives way before counts and check status", () => {
+  const css = readFileSync(new URL("../src/agent-session/acpmux/inspector/inspector.css", import.meta.url), "utf8");
+  expect(css).toMatch(
+    /\.acpmux-chat-inspector-pr__ref \{[^}]*flex: 0 100 auto;[^}]*min-width: 0;[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/s,
+  );
+  expect(css).not.toMatch(/\.acpmux-chat-inspector-pr__ref \{[^}]*flex: 0 0 auto;/s);
 });
 
 test("five rows show, then Show more opens the rest and Show less folds them again", async () => {
@@ -201,8 +245,14 @@ test("the whole lit row is one target: its owner chip opens the pull request, an
   await click(chip);
   expect(opened).toEqual([one.url]);
   // The ⋯ button is still its own target: it opens the menu, not the pull request.
-  await click(container.querySelector("button.acpmux-chat-inspector-pr__more")!);
+  const more = container.querySelector("button.acpmux-chat-inspector-pr__more")!;
+  expect(more.hasAttribute("data-popup-open")).toBe(false);
+  await click(more);
   expect(opened).toEqual([one.url]);
+  // Open, the trigger carries data-popup-open, which keeps the hover-revealed ⋯ shown (inspector.css;
+  // chat-inspector-changes-narrow-browser.test.tsx lays the states out).
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(more.hasAttribute("data-popup-open")).toBe(true);
   // The row's own padding and gap light on hover too, so the link's hit area covers the whole row
   // (JSDOM lays nothing out, so this reads the rule that does it), with the ⋯ button above it.
   const css = readFileSync(new URL("../src/agent-session/acpmux/inspector/inspector.css", import.meta.url), "utf8");
@@ -230,4 +280,40 @@ test("open ones come first, the most recently touched first, then the merged and
   expect(changesOrder(touched, {}).map((item) => item.number)).toEqual([1, 2, 4, 3]);
   expect(glyphState(pr("a/x", 5), { mergeable: "conflicting" })).toBe("conflicting");
   expect(glyphState(pr("a/x", 6, "merged"), { mergeable: "conflicting" })).toBe("merged");
+});
+
+test("visible Changes excludes read-only PR references", () => {
+  const created = { ...pr("a/x", 1), changed: true };
+  const inspected = transcriptPullRequests([
+    {
+      id: "read-only",
+      version: 1,
+      at: 1,
+      kind: "activity",
+      items: [
+        {
+          tool: {
+            id: "view",
+            kind: "execute",
+            status: "completed",
+            exitCode: 0,
+            title: "gh pr view",
+            command: "gh pr view 2 -R a/x",
+            output: "",
+          },
+        },
+      ],
+    },
+  ] as never)[0]!;
+  const edited = { ...pr("a/x", 3), opened: false, changed: true };
+  const mutatedIssue = {
+    url: "https://github.com/a/x/issues/4",
+    repo: "a/x",
+    number: 4,
+    kind: "issue" as const,
+    opened: false,
+    changed: true,
+    state: "open" as const,
+  };
+  expect(visibleChanges([created, inspected, edited, mutatedIssue], {})).toEqual([created, edited]);
 });

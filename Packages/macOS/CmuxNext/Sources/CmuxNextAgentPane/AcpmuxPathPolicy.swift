@@ -133,7 +133,9 @@ nonisolated enum AcpmuxPathPolicy {
                 fields["_meta"] = meta
                 context.changed = true
             }
-            if fields["cwd"] == nil {
+            // A peer without an explicit folder chooses its own default. This Mac's workspace
+            // and agent-home paths must never fill a request for another machine.
+            if fields["cwd"] == nil, !onPeer {
                 if !noProject, let fill = scope.fillCwd, !(canonical(fill).map(homeOrAbove) ?? false) {
                     fields["cwd"] = fill
                 } else if let agentHome = scope.agentHome, let path = agentHome.home.ensure(agentHome.workspace) {
@@ -143,7 +145,7 @@ nonisolated enum AcpmuxPathPolicy {
                     return .failure(Refusal(error: .pathInvalid, requestID: id, method: method))
                 }
                 context.changed = true
-            } else if onPeer {
+            } else if onPeer, fields["cwd"] != nil {
                 // A start on another machine (an ssh peer): its folder is that machine's, which
                 // this Mac's disk and roots say nothing about. Only its shape is checked here, it
                 // goes as the page named it, and that machine's acpmux checks it (cx-k21v).

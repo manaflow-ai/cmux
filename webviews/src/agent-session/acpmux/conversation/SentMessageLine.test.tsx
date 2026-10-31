@@ -8,7 +8,7 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
 import { acpmuxSendCall } from "./acpmuxSends";
 import { toolGroups } from "./toolGroups";
-import { AcpmuxSendLine } from "./SentMessageLine";
+import { AcpmuxSendLine, configureSentLook } from "./SentMessageLine";
 import { resetTranscriptDisclosure } from "./transcriptDisclosure";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import type { AcpmuxSessionEntry } from "../sessionList";
@@ -107,6 +107,9 @@ test("a sent message reads its target, how it was taken and its first line, and 
   await act(async () => row.click());
   expect(row.getAttribute("aria-expanded")).toBe("true");
   expect(container.querySelector(".cv-subsession__under h2")?.textContent).toBe("Merged #4182");
+  // Open, the message shows once: under the row, not again as the row's first line.
+  expect(row.textContent).toBe("Sent message to coord-deputy · queued");
+  expect(row.querySelector(".cv-sent__preview")).toBeNull();
   // The command stays one more click away, behind Raw.
   expect(container.querySelector(".cv-shell")).toBeNull();
   await act(async () => container.querySelector<HTMLButtonElement>(".cv-subsession__toggle")!.click());
@@ -126,6 +129,28 @@ test("a direct recorded heredoc send stays compact and opens to rendered Markdow
   expect(container.querySelector(".cv-subsession__under")?.textContent).toContain("checks pass");
 });
 
+test("closing the row brings its first line back", async () => {
+  const container = await line(bash("acpmux send --no-wait coord-deputy 'Restore base.'", { output: "queued" }));
+  const row = container.querySelector<HTMLElement>(".cv-sent")!;
+  await act(async () => row.click());
+  expect(row.textContent).toBe("Sent message to coord-deputy · queued");
+  await act(async () => row.click());
+  expect(row.textContent).toBe("Sent message to coord-deputy · queuedRestore base.");
+});
+
+test("the quote look drops its quoted line while the row is open", async () => {
+  configureSentLook("quote");
+  try {
+    const container = await line(bash("acpmux send --no-wait coord-deputy 'Restore base.'", { output: "queued" }));
+    const row = container.querySelector<HTMLElement>(".cv-sent")!;
+    expect(row.textContent).toContain("“Restore base.”");
+    await act(async () => row.click());
+    expect(row.textContent).not.toContain("Restore base.");
+  } finally {
+    await act(async () => configureSentLook("sentence"));
+  }
+});
+
 test("in flight it is live, with the spinner", async () => {
   const running = await line(bash("acpmux send lane 'status?'", { status: "in_progress" }));
   const row = running.querySelector<HTMLButtonElement>(".cv-sent")!;
@@ -134,9 +159,10 @@ test("in flight it is live, with the spinner", async () => {
   expect(row.querySelector(".cv-tool__icon svg")).not.toBeNull();
 });
 
-test("a send whose text comes from a file names only its target", async () => {
+test("a send whose text comes from a file names its target and the file", async () => {
   const unknown = await line(bash(`acpmux send reports:leo "$(cat /tmp/summary.md)"`, { output: "" }));
-  expect(unknown.querySelector(".cv-sent")!.textContent).toBe("Sent message to reports:leo");
+  expect(unknown.querySelector(".cv-sent")!.textContent).toBe("Sent message to reports:leo/tmp/summary.md");
+  expect(unknown.querySelector(".cv-sent__file")!.textContent).toBe("/tmp/summary.md");
 });
 
 test("a failed send says it could not send and opens to its output", async () => {
@@ -225,4 +251,33 @@ test("a send the call does not say went reads only who it was for", async () => 
   const row = container.querySelector<HTMLElement>(".cv-sent")!;
   expect(row.dataset.sendState).toBe("ended");
   expect(row.textContent).toBe("Message to lane · and 2 more commandsPushed.");
+});
+
+test("a batch's message names its recipient and the file its words came from; Raw keeps the whole shell body", async () => {
+  const command =
+    'cd /tmp/coord; s(){ acpmux send --no-wait --from coord "$1" "$(cat "$2")" 2>&1 | tail -1; }; s nightly escalate.md; s owner relay.md';
+  const tool = bash(command, { output: "queued\nqueued" });
+  const groups = toolGroups([{ kind: "tool", text: tool.title, tool }]);
+  const group = groups[0]!;
+  if (group.type !== "messages") throw new Error(`expected a messages group, got ${group.type}`);
+  const sends = group.members.map((member) => (member.type === "send" ? member.send : undefined)!);
+  const container = await render(
+    <>
+      {sends.map((send) => (
+        <AcpmuxSendLine key={send.index} tool={tool} send={send} />
+      ))}
+    </>,
+  );
+  const rows = [...container.querySelectorAll<HTMLElement>(".cv-sent")];
+  expect(rows.map((row) => row.textContent)).toEqual([
+    "Sent message to nightly · queuedescalate.md",
+    "Sent message to owner · queuedrelay.md",
+  ]);
+  expect(rows[0]!.querySelector(".cv-sent__file")?.textContent).toBe("escalate.md");
+  // Each message opens on its own.
+  await act(async () => rows[1]!.click());
+  expect(rows[0]!.getAttribute("aria-expanded")).toBe("false");
+  expect(rows[1]!.getAttribute("aria-expanded")).toBe("true");
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-subsession__toggle")!.click());
+  expect(container.querySelector(".cv-shell")?.textContent).toContain("s(){ acpmux send --no-wait");
 });

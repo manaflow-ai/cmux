@@ -120,10 +120,25 @@ async function type(field: MarkdownFieldElement, text: string) {
   return field.querySelector<HTMLElement>("[contenteditable]")!;
 }
 
-async function press(target: HTMLElement, key: string) {
-  const event = new dom.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+async function press(target: HTMLElement, key: string, init: KeyboardEventInit = {}) {
+  const event = new dom.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
   await act(async () => target.dispatchEvent(event));
   await settle();
+}
+
+const LONG_LOG = Array.from({ length: 25 }, (_, index) => `line ${index + 1} of the build log`).join("\n");
+
+async function pasteText(editor: HTMLElement, text: string) {
+  const paste = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", {
+    value: { files: [], types: ["text/plain"], getData: (type: string) => (type === "text/plain" ? text : "") },
+  });
+  await act(async () => editor.dispatchEvent(paste));
+  await settle();
+}
+
+function pastedChipCount() {
+  return host.querySelectorAll(".acpmux-attachment-pasted, .acpmux-md-inline-chip[data-kind=\"file\"]").length;
 }
 
 test("a file pasted on the field draws in the field with its retry and remove controls, not in the strip", async () => {
@@ -170,4 +185,50 @@ test("a shell command with punctuation runs exactly as typed", async () => {
   const editor = await type(field, `!${command}`);
   await press(editor, "Enter");
   expect(calls).toContainEqual(["shell", command]);
+});
+
+
+test("a long text paste is one attachment chip in New Tab", async () => {
+  const calls: unknown[][] = [];
+  const field = await render(calls);
+  const editor = await type(field, "before ");
+  await pasteText(editor, LONG_LOG);
+  expect(pastedChipCount()).toBe(1);
+  expect(editor.textContent).toContain("before");
+  expect(editor.textContent).not.toContain("line 25 of the build log");
+});
+
+test("pasting the same long block again opens its chip once instead of duplicating it", async () => {
+  const calls: unknown[][] = [];
+  const field = await render(calls);
+  const editor = await type(field, "before ");
+  await pasteText(editor, LONG_LOG);
+  await pasteText(editor, LONG_LOG);
+  expect(pastedChipCount()).toBe(0);
+  expect(editor.textContent).toContain("before");
+  expect(editor.textContent).toContain("line 1 of the build log");
+  expect(editor.textContent).toContain("line 25 of the build log");
+  await press(editor, "Enter");
+  expect(calls).toContainEqual(["ask", "claude", `before ${LONG_LOG}`, "/Users/you/src/app", "claude-opus-5-5", undefined, undefined]);
+});
+
+test("Paste as Plain Text keeps a long New Tab paste as text", async () => {
+  const calls: unknown[][] = [];
+  const field = await render(calls);
+  const editor = await type(field, "before ");
+  await press(editor, "V", { metaKey: true, shiftKey: true });
+  await pasteText(editor, LONG_LOG);
+  expect(pastedChipCount()).toBe(0);
+  expect(editor.textContent).toContain("line 25 of the build log");
+});
+
+test("a long paste in shell mode remains raw command text", async () => {
+  const calls: unknown[][] = [];
+  const field = await render(calls);
+  const editor = await type(field, "!");
+  await pasteText(editor, LONG_LOG);
+  expect(pastedChipCount()).toBe(0);
+  expect(editor.textContent).toContain("line 25 of the build log");
+  await press(editor, "Enter");
+  expect(calls).toContainEqual(["shell", LONG_LOG]);
 });

@@ -18,9 +18,15 @@
   color: var(--agent-muted);
   font-variant-numeric: tabular-nums;
 }
+/* Compact: a quiet text action under the rows, at their trailing edge, as Environment's Save. */
+.acpmux-chat-inspector-context__actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: calc(var(--ds-space-1) / 2) calc(var(--ds-space-3) / 2) 0;
+}
 .acpmux-chat-inspector-context__bar {
   display: flex;
-  gap: 2px;
+  gap: 0;
   height: 6px;
   margin: 0 8px 6px;
   border-radius: 3px;
@@ -31,6 +37,18 @@
   flex: none;
   min-width: 2px;
   height: 100%;
+}
+.acpmux-chat-inspector-context__bar > span:not(:last-child) {
+  position: relative;
+}
+.acpmux-chat-inspector-context__bar > span:not(:last-child)::after {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: min(2px, 25%);
+  background: var(--acpmux-context-free);
+  content: "";
+  pointer-events: none;
 }
 .acpmux-chat-inspector-context__bar > [data-part="used"],
 .acpmux-chat-inspector-context__swatch[data-part="used"] {

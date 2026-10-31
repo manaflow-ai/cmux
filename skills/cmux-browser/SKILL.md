@@ -58,7 +58,7 @@ below do not:
   agent cursor; it does not move the user's pointer.
 
 For native macOS apps (not web pages) the tool is cmux Computer Use (the
-`cmux-cua` skill), and only when the user asks for it.
+`cmux-cua` skill), for a task that needs an app on the Mac; never `osascript`.
 
 ## Read the CLI contract first
 
@@ -148,8 +148,8 @@ cmux browser "$TAB" screenshot --full-page --out full.png
 Without `--out` the PNG goes to a new file in the temporary directory and the
 command prints its path; `--out -` writes the PNG to stdout.
 A tab whose workspace is not on screen is captured too: its page is started
-in the background, never focused. For an agent, `cmux window screenshot` paints a
-browser page black and `cmux pane|tab screenshot` refuses one
+in the background, never focused. For an agent, `cmux window|pane|tab screenshot`
+masks every browser pane in gray, its toolbar included, and refuses a browser tab no window shows
 ([cmux skill](../cmux/SKILL.md)): only the REPL's `page.screenshot()` hides
 the secrets a page shows.
 

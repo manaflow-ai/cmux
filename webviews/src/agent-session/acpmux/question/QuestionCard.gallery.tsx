@@ -25,11 +25,14 @@ type Props = {
   onReply(reply: QuestionReply): void | Promise<unknown>;
   otherText?: string;
   look?: "compact" | "inset" | "quiet";
+  /// The answered card's look (QuestionCard.gallery.css): `stacked` ships.
+  answeredLook?: AnsweredLook;
 };
+type AnsweredLook = "stacked" | "inline" | "check";
 
 /// The card sits where the agent pane puts it: inside .acpmux-shell (which defines the card tokens,
 /// the amber input color among them) and the bottom ask stack.
-function QuestionCardInPane({ otherText, look, ...props }: Props) {
+function QuestionCardInPane({ otherText, look, answeredLook, ...props }: Props) {
   const pane = useRef<HTMLDivElement>(null);
   // A variant with `otherText` picks Other on the first question and types it, as a person does.
   useEffect(() => {
@@ -53,6 +56,7 @@ function QuestionCardInPane({ otherText, look, ...props }: Props) {
       ref={pane}
       className="acpmux-shell acpmux-question-visual-gallery"
       data-question-look={look}
+      data-answered-look={answeredLook}
       style={{ flexDirection: "column", justifyContent: "flex-end", paddingTop: 16 }}
     >
       <div className="acpmux-permission">
@@ -95,6 +99,28 @@ const answeredBySession: AgentQuestion = {
     },
   },
 };
+
+/// Four questions answered at once: a multi-select, an Other answer typed in place of an option,
+/// and plain picks, each question with its answer under it.
+const answeredFour: AgentQuestion = {
+  ...(pending4 as unknown as AgentQuestion),
+  state: {
+    kind: "answered",
+    answer: {
+      selections: {
+        q0: { optionIDs: ["Passkeys"] },
+        q1: { optionIDs: ["macOS", "iOS"] },
+        q2: { optionIDs: [], other: "Inline, and a toast when the window is hidden" },
+        q3: { optionIDs: ["Yes, off by default"] },
+      },
+      respondent: { participant: "user_local", displayName: "Lawrence", device: "MacBook Pro", isRemote: false },
+    },
+  },
+};
+const answeredLook = (question: unknown, look: AnsweredLook, note: string) => ({
+  ...variant(question, note),
+  props: { ...variant(question, "").props, answeredLook: look },
+});
 
 /// How an unanswered ask ended, as its record says (record.ts `cancelReason`).
 const skipped: AgentQuestion = {
@@ -264,11 +290,11 @@ export default componentEntry({
     ),
     "folder-trust": variant(
       folderTrust,
-      "An agent's sub-session waits in an untrusted folder: Trust folder or Not now. Trust lets the start go on by itself.",
+      "An agent's sub-session waits in an untrusted folder: a consent like ChatGPT's, the question, what Trust does, Not now (esc) and Trust folder (↩).",
     ),
-    "folder-trust-picked": {
-      ...variant(folderTrust, "Trust folder clicked: the row is chosen and nothing is sent until Submit (or ⌘↩)."),
-      play: (ctx) => ctx.click({ selector: '.acpmux-question-row[data-row="0"]' }),
+    "folder-trust-hover": {
+      ...variant(folderTrust, "The pointer on Trust folder."),
+      play: (ctx) => ctx.hover({ selector: ".acpmux-question-submit" }),
     },
     "pending-multi": variant(pendingMulti, "A multi-select ask: checkbox rows."),
     "pending-other-typing": variant(pendingOther, "Other turned into an inline text field."),
@@ -308,7 +334,21 @@ export default componentEntry({
     },
     answered: variant(
       answeredCollapsed,
-      "Answered: one line per question (header: the chosen answers), and who answered.",
+      "Answered (shipped, Claude desktop's): a compact bordered card, the question, the chosen answer in grey under it, and who answered.",
+    ),
+    "answered-four": variant(
+      answeredFour,
+      "Shipped look, four questions: each question with its answer under it; a multi-select joins its picks; Other shows the typed text.",
+    ),
+    "answered-look-inline": answeredLook(
+      answeredFour,
+      "inline",
+      "Alternative: each question and its grey answer on one line, wrapping when long.",
+    ),
+    "answered-look-check": answeredLook(
+      answeredFour,
+      "check",
+      "Alternative: stacked, with a check glyph before each answer.",
     ),
     "answered-remote": variant(
       answeredRemote,
@@ -320,10 +360,13 @@ export default componentEntry({
     ),
     cancelled: variant(
       cancelled,
-      "Ended unanswered where the record can't say how (no reject option): one muted line, Not answered, and the question.",
+      "Ended unanswered where the record can't say how (no reject option): the answered card's shape, the question, and Not answered in grey.",
     ),
-    skipped: variant(skipped, "The person pressed Skip: the line says Skipped."),
-    stopped: variant(stopped, "The turn was stopped (or the chat closed) before an answer: the line says so."),
+    skipped: variant(skipped, "The person pressed Skip: Skipped in grey under the question."),
+    stopped: variant(
+      stopped,
+      "The turn was stopped (or the chat closed) before an answer: the card says so under the question.",
+    ),
     "answered-elsewhere": variant(
       answeredElsewhere,
       "Answered on the person's phone through the feed, which names an install, not a device: another device.",

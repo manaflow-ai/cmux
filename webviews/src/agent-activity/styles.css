@@ -9,6 +9,10 @@
   --activity-well: var(--cmux-hover, color-mix(in srgb, CanvasText 6%, transparent));
   --activity-live: var(--cmux-app-success, CanvasText);
   --activity-error: var(--cmux-app-danger, CanvasText);
+  /* Image sizes, not control sizes: a filmstrip thumbnail's height and the least a fitted
+     screenshot gets in a short pane. */
+  --activity-thumb-height: 48px;
+  --activity-stage-min-height: 220px;
 }
 
 :root {
@@ -248,62 +252,220 @@ section h3 {
   letter-spacing: var(--text-control--letter-spacing);
 }
 
-.preview {
+/* The frame viewer (viewer.tsx): the screenshot fitted in a well, a bar with Previous, Next, the
+   step that made it, its time and the position, then a filmstrip of every frame. */
+.viewer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.viewer-stage {
   display: grid;
   place-items: center;
-  min-height: 260px;
   flex: 1;
+  min-height: var(--activity-stage-min-height);
+  padding: 16px;
+  overflow: hidden;
   background: var(--activity-well);
 }
 
-.frame {
-  border: 0;
-  background: transparent;
-  cursor: default;
-  padding: 4px;
-  min-width: 24px;
-  min-height: 24px;
-}
-
-.frame img {
+/* The screenshot as captured: fitted, never cropped. */
+.viewer-stage img {
   max-width: 100%;
   max-height: 100%;
+  min-height: 0;
   object-fit: contain;
+  border-radius: 6px;
+  box-shadow: var(--elevation-2);
+  -webkit-user-select: none;
+  user-select: none;
 }
 
-.preview .frame {
-  width: min(80%, 720px);
-  height: min(70%, 420px);
+.viewer-empty {
+  color: var(--activity-text-2);
 }
 
-.scrub {
-  display:flex;
-  justify-content:center;
-  gap:5px;
-  padding:5px;
+.viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 4px 8px;
+  border-top: 1px solid var(--activity-line);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+}
+
+.viewer-button {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--activity-text-2);
+  cursor: default;
+}
+
+.viewer-button svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.viewer-button:hover:not(:disabled) {
+  background: var(--activity-well);
+  color: var(--cmux-text, CanvasText);
+}
+
+.viewer-button:disabled {
+  opacity: 0.4;
+}
+
+.viewer-button:focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--activity-control-line);
+  outline-offset: -1px;
+}
+
+.viewer-step {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  padding: 0 4px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.viewer-step b {
+  font-weight: 500;
+}
+
+.viewer-step span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--activity-text-2);
+}
+
+.viewer-step time,
+.viewer-position {
+  color: var(--activity-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.viewer-step.bad b {
+  color: var(--activity-error);
+}
+
+.viewer-position {
+  flex: none;
+  padding: 0 4px;
+}
+
+/* Every frame of the session; the shown one carries the accent ring. */
+.filmstrip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
   border-top: 1px solid var(--activity-line);
 }
 
-.scrub button {
-  border:0;
-  background:transparent;
+.film {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  outline: 2px solid transparent;
+  outline-offset: 1px;
   cursor: default;
-  padding:3px 8px;
+}
+
+.film[aria-current] {
+  outline-color: var(--cmux-accent, currentColor);
+}
+
+.film.bad .thumb {
+  box-shadow: inset 0 0 0 1px var(--activity-error);
+}
+
+.film:focus-visible {
+  outline-color: var(--activity-control-line);
+}
+
+/* A thumbnail keeps its frame's shape before its pixels arrive, so nothing moves when they do. */
+.thumb {
+  display: block;
+  height: var(--activity-thumb-height);
+  aspect-ratio: 16 / 10;
+  max-width: 120px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--activity-well);
+}
+
+.thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.no-frames {
+  color: var(--activity-text-2);
 }
 
 .events {
   border-top: 1px solid var(--activity-line);
-  max-height: 230px;
+  max-height: 160px;
   overflow: auto;
 }
 
+/* A step; one that kept a screenshot is a button that shows it in the viewer. */
 .event {
   display: flex;
   justify-content: space-between;
-  padding: 4px 14px;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 12px;
+  border: 0;
+  background: transparent;
+  text-align: left;
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   letter-spacing: var(--text-detail--letter-spacing);
+  cursor: default;
+}
+
+.event[aria-current] {
+  background: var(--activity-selected);
+}
+
+.event-text {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.event-text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .event.bad {
@@ -339,9 +501,8 @@ section h3 {
   flex: 1;
 }
 
-.ticks .frame {
-  width: 54px;
-  height: 36px;
+.ticks .film {
+  margin: 8px 0;
 }
 
 .grid {
@@ -363,11 +524,24 @@ section h3 {
   cursor: default;
 }
 
-.tile .frame {
-  height: 110px;
+.tile-frame {
+  aspect-ratio: 16 / 10;
   display: grid;
   place-items: center;
+  overflow: hidden;
+  border-radius: 5px;
   background: var(--activity-well);
+  color: var(--activity-text-2);
+}
+
+.tile-frame .thumb {
+  height: 100%;
+  max-width: 100%;
+  border-radius: 0;
+}
+
+.tile-frame .thumb img {
+  object-fit: contain;
 }
 
 .tile small {
@@ -400,4 +574,43 @@ section h3 {
 .error {
   padding: 14px;
   color: var(--activity-error);
+}
+
+/* The viewer over the timeline or grid: the shared dialog on the liquid glass, nearly the page's
+   size, with the session it belongs to on top. */
+.activity-viewer-dialog {
+  inset: 24px;
+  width: auto;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+  color: var(--cmux-text, CanvasText);
+  --glass-elevation: var(--elevation-2);
+}
+
+.activity-viewer-dialog .viewer-stage {
+  background: transparent;
+}
+
+.activity-viewer-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--activity-line);
+  white-space: nowrap;
+}
+
+.activity-viewer-title strong {
+  font-weight: 600;
+}
+
+.activity-viewer-title span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--activity-text-2);
 }

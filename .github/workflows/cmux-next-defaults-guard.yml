@@ -46,14 +46,22 @@ jobs:
       contents: read
       pull-requests: write
     steps:
+      # On an open pull request the guard and owners come from the base branch's tip when this event
+      # fired (github.sha under pull_request_target), not from pull_request.base.sha: that is the base
+      # as of the pull request's last push, so a guard fix would never reach an open pull request until
+      # its author pushed (#26153 kept failing on a guard 620 commits old). A re-run reuses its event's
+      # github.sha; a new event (a push, or ready for review) reads the current guard. On the merge
+      # receipt (closed) github.sha is the merge itself, the pull request's own code, so that run keeps
+      # the base from before the merge.
       - name: Check out the trusted guard (base)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.action == 'closed' && github.event.pull_request.base.sha || github.sha }}
           fetch-depth: 1
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/defaults_guard.py
+            scripts/ci/pr_status.py
             .github/defaults-call-owners.json
           sparse-checkout-cone-mode: false
 

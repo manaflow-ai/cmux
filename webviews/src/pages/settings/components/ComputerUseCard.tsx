@@ -7,13 +7,20 @@ import type { ComputerUseState } from "../ops";
 import { t } from "../strings";
 import { ActionRow } from "./ActionRow";
 
-function phaseText(state: ComputerUseState): string {
+function helperText(state: ComputerUseState): string {
+  if (state.host_unverified) return t("settingsWindow.computerUse.hostUnverified");
   if (state.phase === "ready") {
     return state.accessibility && state.screen_recording
       ? t("settingsWindow.computerUse.phase.ready")
       : t("settingsWindow.computerUse.phase.missing");
   }
   return t(`settingsWindow.computerUse.phase.${state.phase}`);
+}
+
+// Driver "upstream" in a build without its helper runs the legacy helper: say so first.
+function phaseText(state: ComputerUseState): string {
+  const text = helperText(state);
+  return state.upstream_fallback ? `${t("settingsWindow.computerUse.upstreamFallback")} ${text}` : text;
 }
 
 function Grant({ granted }: { granted: boolean | null }) {

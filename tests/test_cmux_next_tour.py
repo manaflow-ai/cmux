@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import plistlib
+import re
 import shutil
 import signal
 import stat
@@ -34,6 +35,13 @@ server.listen(8)
 lock = threading.Lock()
 with open(log, "a") as out:
     out.write(json.dumps({"method": "_launch", "params": {"no_activate": os.environ.get("CMUX_NEXT_NO_ACTIVATE")}}) + "\n")
+    markers = {key: os.environ[key] for key in ("CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID", "CMUX_TAG", "MUX_AGENT_TOKEN_FILE")
+               if key in os.environ}
+    out.write(json.dumps({"method": "_markers", "params": markers}) + "\n")
+    home = os.environ.get("CMUX_CAPTURE_SHELL_HOME") or ""
+    zshrc = os.path.join(home, ".zshrc")
+    out.write(json.dumps({"method": "_fixture", "params": {"shell_home": home,
+        "zshrc": open(zshrc).read() if home and os.path.isfile(zshrc) else None}}) + "\n")
 def answer(connection):
     with connection:
         data = b""
@@ -189,6 +197,39 @@ class AppWindowCaptureTests(unittest.TestCase):
         launches = [entry["params"] for entry in launches if entry["method"] == "_launch"]
         self.assertEqual(launches, [{"no_activate": "1"}], "the app refuses activation itself")
 
+    def test_the_app_runs_as_under_capture_with_a_fixture_prompt(self) -> None:
+        # pr-media's privacy check refused every core-tour shot for the CI Mac's name in the
+        # composer's machine picker and in the zsh prompt (`cmux@<host> ~ %`). Under capture
+        # (CMUX_CAPTURE_SHELL_HOME) the app names the showcase Mac and its zsh reads this home.
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        try:
+            import pr_media_privacy
+        finally:
+            sys.path.pop(0)
+        done, _ = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        entries = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        [fixture] = [entry["params"] for entry in entries if entry["method"] == "_fixture"]
+        self.assertTrue(Path(fixture["shell_home"]).is_absolute())
+        self.assertFalse(Path(fixture["shell_home"]).is_relative_to(self.root / "out"), "never published as media")
+        # What a shot shows: the machine label, and the prompt zsh draws in the tour's home (`%1~` is `~`).
+        match = re.search(r"(?m)^PROMPT='([^']*)'$", fixture["zshrc"])
+        self.assertIsNotNone(match, fixture["zshrc"])
+        prompt = match.group(1).replace("%1~", "~").replace("%#", "%")
+        self.assertNotRegex(prompt, r"%[^ ]", "no other prompt escape (%m, %n) names the host or account")
+        prompt += " echo hello from the cmux-next tour"
+        # "Studio Mac": AgentTabStore.showcaseMachineName, the name the app shows under capture.
+        found = pr_media_privacy.findings(["Studio Mac", prompt], list(pr_media_privacy.GENERIC_PATTERNS))
+        self.assertEqual(found, [])
+
+    def test_no_other_cmux_marker_reaches_the_app(self) -> None:
+        # Any of LaunchIdentity.otherCmuxMarkers makes the app drop the tour's socket and capture home
+        # as another cmux's, so a tour run from an agent's terminal would show the runner's prompt again.
+        done, _ = self.run_tour(MUX_AGENT_TOKEN_FILE=str(self.root / "token"))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        entries = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([entry["params"] for entry in entries if entry["method"] == "_markers"], [{}])
+
     def test_a_working_window_snapshot_never_probes_the_desktop(self) -> None:
         # A desktop capture shows whatever covers the window (permission
         # prompts, other jobs' windows), so it is only the fallback.
@@ -238,6 +279,27 @@ class AppWindowCaptureTests(unittest.TestCase):
         self.assertEqual(step["status"], "ok")
         self.assertEqual(step["postcondition"]["status"], "passed")
         self.assertIn("matched windows.0.frame", step["postcondition"]["detail"])
+
+    def test_a_shot_no_expect_checked_is_reported_unchecked(self) -> None:
+        # "ok" on a shot step only says the step ran: without an `expect` nothing read the screen it
+        # shows (a palette still with an empty field passed as "the command is selected", #28323).
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Launch", "wait": 0, "shot": False},
+            {"title": "Unchecked shot", "cmux": ["action", "run", "splitRight"], "wait": 0},
+            {"title": "Checked shot", "wait": 0,
+             "expect": {"method": "debug.layers", "fields": {"windows.0.frame": [100, 100, 800, 600]}}},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(manifest["result"], "pass")
+        launch, unchecked, checked = manifest["steps"]
+        self.assertEqual([step["status"] for step in manifest["steps"]], ["ok", "ok", "ok"])
+        self.assertEqual([step["checked"] for step in manifest["steps"]], [False, False, True])
+        self.assertNotIn("shot", launch)
+        self.assertIn("shot", unchecked)
+        self.assertRegex(done.stdout, r"02 unchecked +Unchecked shot")
+        self.assertRegex(done.stdout, r"03 ok +Checked shot")
+        self.assertRegex(done.stdout, r"01 ok +Launch")
 
     def test_required_rendered_state_mismatch_fails(self) -> None:
         self.tour.write_text(json.dumps({"title": "Demo", "steps": [
@@ -621,6 +683,53 @@ class CheckedInToursTests(unittest.TestCase):
         for path in tours:
             with self.subTest(tour=path.name):
                 tour.load_tour(path)
+
+
+class FocusAfterCloseTests(unittest.TestCase):
+    """A directional focus right after a pane close is refused at load: the close already focused a
+    neighbour, and with one pane left the move fails ("no pane left of the focused pane") and fails
+    the whole capture, as the main-pane tour's "Focus the chat" did on #27839."""
+
+    def setUp(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        self.tour_module = tour
+        self.scratch = Path(tempfile.mkdtemp(prefix="tour-focus-close-"))
+        self.addCleanup(shutil.rmtree, self.scratch, ignore_errors=True)
+
+    def load(self, steps: list[dict]) -> dict:
+        path = self.scratch / "demo.json"
+        path.write_text(json.dumps({"title": "Demo", "steps": steps}), encoding="utf-8")
+        return self.tour_module.load_tour(path)
+
+    @staticmethod
+    def run_action(action: str) -> dict:
+        return {"title": action, "cmux": ["action", "run", action], "shot": False}
+
+    def test_a_directional_focus_right_after_a_close_is_refused(self) -> None:
+        for focus in ("focusLeft", "focusRight", "focusUp", "focusDown"):
+            with self.subTest(focus=focus), self.assertRaisesRegex(self.tour_module.TourError, "step 3 runs " + focus):
+                self.load([{"title": "Launch"}, self.run_action("closePane"), self.run_action(focus)])
+
+    def test_steps_that_open_no_pane_do_not_hide_the_close(self) -> None:
+        tunable = {"title": "Tunable", "rpc": {"method": "debug.tunables", "params": {"key": "x", "value": "off"}}}
+        setting = {"title": "Setting", "cmux": ["settings", "set", "sidebar.density", "compact"]}
+        with self.assertRaisesRegex(self.tour_module.TourError, "step 5 runs focusLeft after closePane"):
+            self.load([self.run_action("closePane"), tunable, setting, {"title": "Wait", "wait": 1},
+                       self.run_action("focusLeft")])
+
+    def test_other_focus_moves_do_not_hide_the_close(self) -> None:
+        for move in ("focusPaneByNumber", "focusNextPane", "focusPreviousPane", "pane.focus",
+                     "column.focusLeft", "focusHistoryBack"):
+            with self.subTest(move=move), self.assertRaisesRegex(
+                    self.tour_module.TourError, "step 3 runs focusLeft after closePane"):
+                self.load([self.run_action("closePane"), self.run_action(move), self.run_action("focusLeft")])
+
+    def test_a_pane_opened_after_the_close_allows_the_focus(self) -> None:
+        link = {"title": "Link", "rpc": {"method": "debug.terminal.links", "params": {"agentLink": "https://example.com"}}}
+        self.load([self.run_action("closePane"), link, self.run_action("focusLeft")])
+        self.load([self.run_action("closePane"), self.run_action("splitRight"), self.run_action("focusLeft")])
+        self.load([self.run_action("focusRight"), self.run_action("closePane"), self.run_action("focusPaneByNumber")])
 
 
 if __name__ == "__main__":

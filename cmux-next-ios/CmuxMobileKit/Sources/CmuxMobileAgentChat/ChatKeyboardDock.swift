@@ -21,6 +21,9 @@ enum ChatDockPlacement {
 @MainActor
 protocol ChatTranscriptScrolling: AnyObject {
     func scrollTranscript(toTop: Bool, animated: Bool)
+    /// Find in Chat: brings content y `y` (the transcript's own coordinates) under the header
+    /// and the find bar, and stops following the newest turn.
+    func scrollTranscript(toContentY y: CGFloat, animated: Bool)
 }
 
 /// The agent chat transcript as a UIKit scroll view with a keyboard-docked
@@ -49,11 +52,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     let surface: AgentChatSurface
     var topInset: CGFloat? { didSet { if oldValue != topInset { view.setNeedsLayout() } } }
     var onUserScroll: ((CGFloat) -> Void)?
-
-    private let scrollView = UIScrollView()
-    /// The soft top edge: text fades out under the status bar (a workspace tab, no bar)
-    /// or the navigation bar (pushed), as in the ChatGPT and Claude apps.
+    /// Workspace chats have no navigation bar to provide a native top edge.
+    private let topShelf = UIView()
+    /// Like the embedded terminal, iOS 26 also needs a gradient fallback:
+    /// a bare top edge container alone does not obscure text under the clock.
     private let topFade = TopFadeView()
+
+    private let scrollView = ChatTranscriptScrollView()
     private let contentHost: UIHostingController<AnyView>
     private let emptyHost: UIHostingController<AnyView>
     private var dockHost: UIHostingController<AnyView>?
@@ -99,6 +104,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     static let jumpHostSize: CGFloat = 44
     /// The external stack's bottom with the keyboard down, view coordinates.
     private var externalRest: CGFloat?
+    /// A disclosure the person tapped is opening or closing (`holdForDisclosure`): until its
+    /// animation completes, the tapped line stays where it is drawn.
+    private var foldHolding = false
+    /// A safety cap on the hold, should the animation's completion never come (a view torn down
+    /// mid-animation). The hold normally ends on that completion (`toggleDisclosure`).
+    private var foldHoldCap: Task<Void, Never>?
+    static let foldHoldCapSeconds: Double = 1.5
     #if DEBUG
     private var trace: ChatKeyboardTrace?
     #endif
@@ -118,7 +130,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         if let jump { jumpHost = UIHostingController(rootView: jump) }
         jumpVisibility = JumpToBottomVisibility(isShown: surface.showJump)
         super.init(nibName: nil, bundle: nil)
-        contentHost.rootView = Self.measuring(content, alignment: .top) { [weak self] in self?.contentHeightChanged($0) }
+        contentHost.rootView = transcriptRoot(content)
         if let dock {
             dockHost?.rootView = Self.measuring(dock, alignment: .bottom) { _ in }
         }
@@ -147,6 +159,15 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         )
     }
 
+    /// The transcript's hosted root: measured, and able to hold a tapped disclosure's line.
+    private func transcriptRoot(_ content: AnyView) -> AnyView {
+        Self.measuring(AnyView(content.environment(\.transcriptFoldHold, TranscriptFoldHold(
+            begin: { [weak self] in self?.holdForDisclosure() },
+            end: { [weak self] in self?.endFoldHold() }
+        ))),
+                       alignment: .top) { [weak self] in self?.contentHeightChanged($0) }
+    }
+
     /// The hosted views observe the store and the surface themselves, so
     /// their roots are set once: replacing a root on every update put each
     /// change in a fresh, unanimated transaction (the composer's collapse
@@ -155,7 +176,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// session was replaced) sets them again.
     func update(identity: ObjectIdentifier, content: AnyView, empty: AnyView, dock: AnyView?, jump: AnyView?) {
         if let shown = shownIdentity, shown != identity {
-            contentHost.rootView = Self.measuring(content, alignment: .top) { [weak self] in self?.contentHeightChanged($0) }
+            endFoldHold()
+            contentHost.rootView = transcriptRoot(content)
             emptyHost.rootView = empty
             if let dock {
                 dockHost?.rootView = Self.measuring(dock, alignment: .bottom) { _ in }
@@ -184,12 +206,25 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scrollView.contentInsetAdjustmentBehavior = .never
         scrollView.keyboardDismissMode = .interactive
         scrollView.alwaysBounceVertical = true
-        scrollView.backgroundColor = .clear
+        scrollView.backgroundColor = .cmuxMobileBackground
+        scrollView.topEdgeEffect.style = .soft
         scrollView.delegate = self
         view.addSubview(scrollView)
-        topFade.isUserInteractionEnabled = false
-        topFade.isAccessibilityElement = false
-        view.addSubview(topFade)
+        setContentScrollView(scrollView, for: .top)
+
+        if placement == .external {
+            topShelf.isUserInteractionEnabled = false
+            view.addSubview(topShelf)
+            let topEdge = UIScrollEdgeElementContainerInteraction()
+            topEdge.scrollView = scrollView
+            topEdge.edge = .top
+            topShelf.addInteraction(topEdge)
+            if #unavailable(iOS 27) {
+                topFade.isUserInteractionEnabled = false
+                topFade.isAccessibilityElement = false
+                view.addSubview(topFade)
+            }
+        }
 
         for host in [contentHost, emptyHost] + [dockHost, jumpHost].compactMap({ $0 }) {
             addChild(host)
@@ -338,10 +373,15 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             view.layoutIfNeeded()
             return
         }
-        let top = topInset ?? view.safeAreaInsets.top
+        let top = headerBottom
         if openAreaTop?.constant != top { openAreaTop?.constant = top }
-        let fadeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top + TopFadeView.tail)
-        if topFade.frame != fadeFrame { topFade.frame = fadeFrame }
+        updateStackCeiling(headerBottom: top)
+        scrollView.edgeTopInset = top
+        if placement == .external {
+            let chromeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top)
+            if topShelf.frame != chromeFrame { topShelf.frame = chromeFrame }
+            if topFade.superview != nil, topFade.frame != chromeFrame { topFade.frame = chromeFrame }
+        }
 
         // As in Messages, a transcript drag takes the keyboard once the finger
         // reaches the stack's top edge.
@@ -353,6 +393,34 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     }
 
     // MARK: Insets and position
+
+    /// SwiftUI can consume the safe area before forwarding it to this full-screen
+    /// controller. Resolve visible chrome in our coordinates as well, so neither
+    /// a pushed chat nor a workspace page can start above the clock or title.
+    private var headerBottom: CGFloat {
+        var top = max(topInset ?? 0, view.safeAreaInsets.top)
+        if let window = view.window {
+            let safeTop = view.convert(CGPoint(x: 0, y: window.safeAreaInsets.top), from: window).y
+            top = max(top, safeTop)
+        }
+        if placement == .owned, let navigation = navigationController, !navigation.isNavigationBarHidden {
+            let bar = navigation.navigationBar
+            top = max(top, view.convert(bar.bounds, from: bar).maxY)
+        }
+        return max(0, top)
+    }
+
+    /// The bottom stack's ceiling (window y) for the composer's slash-command list: under
+    /// the header, and for the pushed chat inside the dock's host, which draws nothing and
+    /// takes no touch past its top. The dock measures its stack at its ideal height and
+    /// proposes no height, so the list bounds itself by this.
+    private func updateStackCeiling(headerBottom: CGFloat) {
+        guard view.window != nil else { return }
+        var top = headerBottom + Self.contentGap
+        if let dock = dockContainer { top = max(top, dock.frame.minY) }
+        let ceiling = view.convert(CGPoint(x: 0, y: top), to: nil).y
+        if surface.stackCeiling.map({ abs($0 - ceiling) > 0.5 }) ?? true { surface.stackCeiling = ceiling }
+    }
 
     /// The stack's top is its bottom (which only the keyboard or the
     /// resting place moves) less its height as drawn this frame.
@@ -396,16 +464,21 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     private func updateInsets() {
         guard view.bounds.height > 0 else { return }
         let bottom = bottomInset
-        let headerBottom = topInset ?? view.safeAreaInsets.top
+        let headerBottom = self.headerBottom
         let visible = view.bounds.height - headerBottom - bottom
         let top = max(headerBottom, headerBottom + visible - contentHeight)
+        if foldHolding {
+            holdFoldLine(top: top, bottom: bottom, headerBottom: headerBottom)
+            return
+        }
         let old = scrollView.contentInset
         let bottomDelta = positionedInitially ? bottom - old.bottom : 0
         if old.top != top || old.bottom != bottom {
             // Resting on the newest turn counts as following it (an
             // interactive dismissal drags the content away mid-gesture, then
             // it settles back).
-            if !scrollView.isTracking, !scrollView.isDecelerating, positionedInitially, abs(distanceFromBottom) < 2 {
+            if !scrollView.isTracking, !scrollView.isDecelerating, positionedInitially, abs(distanceFromBottom) < 2,
+               surface.find?.currentMatch == nil {
                 surface.following = true
             }
             scrollView.contentInset = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
@@ -443,11 +516,87 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     private func contentHeightChanged(_ height: CGFloat) {
         guard abs(height - contentHeight) > 0.25 else { return }
         contentHeight = height
-        contentHeightConstraint?.constant = height
+        // While a disclosure closes, the host keeps its taller height: the body is still drawn
+        // closing inside it, and a shorter content size would make the scroll view snap its offset
+        // in (the line jumping) before the offset glides there (`holdFoldLine`).
+        let held = foldHolding ? max(height, contentHeightConstraint?.constant ?? height) : height
+        contentHeightConstraint?.constant = held
         view.setNeedsLayout()
         if view.window != nil, !scrollView.isTracking {
-            UIView.performWithoutAnimation { view.layoutIfNeeded() }
+            if foldHolding {
+                // Not inside performWithoutAnimation: the glide below is an animation.
+                view.layoutIfNeeded()
+            } else {
+                UIView.performWithoutAnimation { view.layoutIfNeeded() }
+            }
         }
+    }
+
+    // MARK: Disclosures
+
+    /// A disclosure in the transcript was tapped (a tool group, a tool call, a thought): its line
+    /// stays where it is drawn while the body opens or closes under it, as in ChatGPT. Opening
+    /// pushes what is below down, so a reader on the newest row stops following it (the jump
+    /// button shows); closing at the end lets the rows above come down with the same spring.
+    func holdForDisclosure() {
+        guard isViewLoaded, positionedInitially, !scrollView.isTracking else { return }
+        foldHolding = true
+        surface.following = false
+        foldHoldCap?.cancel()
+        // A bounded safety cap only; the animation's completion ends the hold.
+        foldHoldCap = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.foldHoldCapSeconds))
+            guard !Task.isCancelled else { return }
+            self?.endFoldHold()
+        }
+    }
+
+    func endFoldHold() {
+        guard foldHolding else { return }
+        foldHolding = false
+        foldHoldCap?.cancel()
+        foldHoldCap = nil
+        if contentHeightConstraint?.constant != contentHeight {
+            contentHeightConstraint?.constant = contentHeight
+            view.setNeedsLayout()
+        }
+        UIView.performWithoutAnimation { view.layoutIfNeeded() }
+        guard !scrollView.isTracking, !scrollView.isDecelerating, surface.find?.currentMatch == nil else { return }
+        // Resting on the newest row follows it again. Otherwise the view stays where the reader
+        // put it: an open pushed the newest row down, or one streamed in meanwhile, and the jump
+        // button shows (as the Mac transcript does, foldAnchor.ts). Snapping back here would
+        // move the line the reader just opened.
+        if abs(distanceFromBottom) < 2 {
+            surface.following = true
+        }
+    }
+
+    /// The hold's layout pass: no following and no snap. A keyboard that moves meanwhile (a tap
+    /// that dismisses it) keeps the line too; the offset only stays in range. Only when the change leaves the view
+    /// past what the content now allows (a body closing at the end, a short chat that sits on the
+    /// stack) does the offset glide into range, on the disclosure's spring.
+    private func holdFoldLine(top: CGFloat, bottom: CGFloat, headerBottom: CGFloat) {
+        let lowest = -top
+        let highest = max(lowest, contentHeight + bottom - view.bounds.height)
+        let y = scrollView.contentOffset.y
+        let target = min(max(lowest, y), highest)
+        if abs(target - y) > 0.5 {
+            // The model offset is the target at once, so the insets below never clamp it.
+            if UIAccessibility.isReduceMotionEnabled {
+                scrollView.contentOffset.y = target
+            } else {
+                UIView.animate(springDuration: 0.35, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+                    self.scrollView.contentOffset.y = target
+                }
+            }
+        }
+        let insets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
+        if scrollView.contentInset != insets {
+            scrollView.contentInset = insets
+            scrollView.verticalScrollIndicatorInsets = UIEdgeInsets(top: headerBottom, left: 0, bottom: bottom, right: 0)
+        }
+        lastOffsetY = scrollView.contentOffset.y
+        updateJump()
     }
 
     /// The stack's height as drawn this frame, from the stack itself
@@ -562,7 +711,11 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
 
     // MARK: Scrolling
 
-    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { followDraggedKeyboard(true) }
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        // The person's own scroll ends a disclosure's hold.
+        endFoldHold()
+        followDraggedKeyboard(true)
+    }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { followDraggedKeyboard(false) }
 
@@ -572,9 +725,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         lastOffsetY = y
         updateJump()
         let away = scrolledDistanceFromBottom > 80
+        // A disclosure's glide is not the reader's scroll: following is settled when it ends.
+        if foldHolding, !scrollView.isTracking { return }
         if scrollView.isTracking || scrollView.isDecelerating {
             surface.following = !away
-        } else if !away {
+        } else if !away, surface.find?.currentMatch == nil {
+            // A Find jump that lands near the bottom keeps the reader on its match: only the
+            // person's own scroll resumes following while a match is shown.
             surface.following = true
         }
     }
@@ -597,10 +754,31 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     }
 
     func scrollTranscript(toTop: Bool, animated: Bool) {
+        endFoldHold()
         surface.following = !toTop
         view.layoutIfNeeded()
-        let target = toTop ? CGPoint(x: 0, y: -scrollView.contentInset.top) : bottomOffset
-        if animated {
+        scroll(to: toTop ? CGPoint(x: 0, y: -scrollView.contentInset.top) : bottomOffset, animated: animated)
+    }
+
+    /// Room the find bar takes under the header (its 44 pt row and its margins).
+    static let findBarClearance: CGFloat = 64
+
+    func scrollTranscript(toContentY y: CGFloat, animated: Bool) {
+        endFoldHold()
+        surface.following = false
+        view.layoutIfNeeded()
+        let headerBottom = topInset ?? view.safeAreaInsets.top
+        let wanted = y - headerBottom - Self.findBarClearance
+        let target = CGPoint(x: 0, y: min(max(-scrollView.contentInset.top, wanted), max(-scrollView.contentInset.top, bottomOffset.y)))
+        scroll(to: target, animated: animated)
+    }
+
+    /// Reduce Motion: a jump lands at once, with the transcript shown
+    /// throughout. Tests set it.
+    var reducesMotion: () -> Bool = { UIAccessibility.isReduceMotionEnabled }
+
+    private func scroll(to target: CGPoint, animated: Bool) {
+        if animated, !reducesMotion() {
             // A long jump animated the offset across pages SwiftUI had not drawn yet (a
             // blank band and stale fragments for ~300 ms). Cut to one screen short of the
             // target, then animate only that last screen.
@@ -823,11 +1001,11 @@ final class ChatKeyboardTrace {
 #endif
 
 #if os(iOS)
-/// A gradient from the screen background to clear: solid over the chrome, fading over
-/// `tail` points below it, so transcript text softens instead of cutting hard.
+/// Solid over the status bar, then fades to clear at the content inset so the
+/// first row at rest is unobscured. Matches the embedded terminal's fallback.
 @MainActor
-final class TopFadeView: UIView {
-    static let tail: CGFloat = 24
+private final class TopFadeView: UIView {
+    private static let tail: CGFloat = 18
 
     override class var layerClass: AnyClass { CAGradientLayer.self }
 
@@ -846,13 +1024,31 @@ final class TopFadeView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let solid = max(0, bounds.height - Self.tail * 2) / max(bounds.height, 1)
+        let solid = max(0, bounds.height - Self.tail) / max(bounds.height, 1)
         gradient.locations = [0, NSNumber(value: Double(solid)), 1]
     }
 
     private func updateColors() {
         let color = UIColor(Color.cmuxMobileBackground).resolvedColor(with: traitCollection)
-        gradient.colors = [color.withAlphaComponent(0.92).cgColor, color.withAlphaComponent(0.85).cgColor, color.withAlphaComponent(0).cgColor]
+        gradient.colors = [color.cgColor, color.cgColor, color.withAlphaComponent(0).cgColor]
+    }
+}
+
+/// Gives the native top scroll edge the same boundary as the transcript content.
+@MainActor
+final class ChatTranscriptScrollView: UIScrollView {
+    /// Content insets are manual; the system edge effect needs the same top
+    /// boundary even when the workspace host consumes the UIKit safe area.
+    var edgeTopInset: CGFloat = 0 {
+        didSet {
+            if edgeTopInset != oldValue { safeAreaInsetsDidChange() }
+        }
+    }
+
+    override var safeAreaInsets: UIEdgeInsets {
+        var insets = super.safeAreaInsets
+        insets.top = max(insets.top, edgeTopInset)
+        return insets
     }
 }
 #endif

@@ -676,7 +676,7 @@ async fn dispatch(
             let response =
                 fetch_body(client.vms_resize_vm(vm_id.as_str(), Some(&key), None, &body))
                     .await
-                    .map_err(|e| e.with_retry_key(&key_text))?;
+                    .map_err(|e| e.with_retry_key(&key_text).for_vm(vm_id.as_str(), "resize"))?;
             let confirmed = serde_json::from_slice::<types::Vm>(&response)
                 .ok()
                 .is_some_and(|actual| {
@@ -754,7 +754,9 @@ async fn dispatch(
             out.image_list(&images)
         }
         Command::Get(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_get_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_get_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "get"))?;
             out.vm(&vm)
         }
         Command::List(args) => {
@@ -777,7 +779,9 @@ async fn dispatch(
             out.vm_list(&page)
         }
         Command::Start(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_start_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_start_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "start"))?;
             out.vm(&vm)
         }
         Command::Identity(IdentityArgs {
@@ -807,11 +811,15 @@ async fn dispatch(
             out.identity(&body)
         }
         Command::Stop(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_stop_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_stop_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "stop"))?;
             out.vm(&vm)
         }
         Command::Pause(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_pause_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_pause_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "pause"))?;
             out.vm(&vm)
         }
         Command::Retire(DeleteArgs { vm_id, yes }) => {
@@ -821,7 +829,9 @@ async fn dispatch(
             if !yes {
                 confirm(prompt, Destroy::RetireVm, id.as_str())?;
             }
-            let response = fetch_body(client.vms_retire_vm(id.as_str(), None)).await?;
+            let response = fetch_body(client.vms_retire_vm(id.as_str(), None))
+                .await
+                .map_err(|e| e.for_vm(id.as_str(), "retire"))?;
             let receipt: serde_json::Value = serde_json::from_slice(&response).map_err(|_| {
                 CliError::unexpected("retirement is unconfirmed; retry retire for the same VM")
             })?;
@@ -840,11 +850,15 @@ async fn dispatch(
                 "command": args.command.join(" "),
                 "timeoutMs": args.timeout_ms,
             }))?;
-            let result = fetch_body(client.exec_exec_vm(&args.vm_id, None, &body)).await?;
+            let result = fetch_body(client.exec_exec_vm(&args.vm_id, None, &body))
+                .await
+                .map_err(|e| e.for_vm(&args.vm_id, "exec"))?;
             out.exec(&result)
         }
         Command::Resume(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_resume_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_resume_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "resume"))?;
             out.vm(&vm)
         }
         Command::Fork(args) => {
@@ -856,14 +870,19 @@ async fn dispatch(
             let key = parse_key::<types::VmsForkVmIdempotencyKey>(&key_text)?;
             let vm = fetch_body(client.vms_fork_vm(&args.vm_id, Some(&key), None, &body))
                 .await
-                .map_err(|e| e.with_idempotency_hint(&key_text))?;
+                .map_err(|e| {
+                    e.with_idempotency_hint(&key_text)
+                        .for_vm(&args.vm_id, "fork")
+                })?;
             out.vm(&vm)
         }
         Command::Delete(DeleteArgs { vm_id, yes }) => {
             if !yes {
                 confirm(prompt, Destroy::DeleteVm, &vm_id)?;
             }
-            call(client.vms_delete_vm(&vm_id, None)).await?;
+            call(client.vms_delete_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "delete"))?;
             out.deleted(&vm_id)
         }
         Command::ClientSession(command) => client_session(client, command, prompt, out).await,
@@ -978,7 +997,9 @@ async fn dispatch(
                 .path
                 .parse::<types::GuestPath>()
                 .map_err(|_| CliError::usage("invalid guest path"))?;
-            let body = fetch_body(client.files_stat_file(id.as_str(), &path, None)).await?;
+            let body = fetch_body(client.files_stat_file(id.as_str(), &path, None))
+                .await
+                .map_err(|e| e.for_vm(id.as_str(), "file stat"))?;
             out.file_stat(&body)
         }
     }
@@ -1076,7 +1097,10 @@ async fn snapshot(
             let snapshot =
                 fetch_body(client.snapshots_create_snapshot(&args.vm_id, Some(&key), None, &body))
                     .await
-                    .map_err(|e| e.with_idempotency_hint(&key_text))?;
+                    .map_err(|e| {
+                        e.with_idempotency_hint(&key_text)
+                            .for_vm(&args.vm_id, "snapshot")
+                    })?;
             out.snapshot(&snapshot)
         }
         SnapshotCommand::Get(SnapshotArg { snapshot_id }) => {

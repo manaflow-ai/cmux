@@ -273,9 +273,12 @@ function drawn(row: AcpmuxRow) {
     ),
   );
   const body = transcriptHost.querySelector(".cv-user__text")!;
+  // A prompt whose attachments the composer placed draws in its recorded order, inside one inline
+  // content run (InlinePromptContent.tsx): its parts are that run's.
+  const run = body.querySelector(":scope > .cv-user__inline-content") ?? body;
   return {
     clamped: body.classList.contains("is-clamped"),
-    parts: [...body.children].map((part): Record<string, string | null | undefined> =>
+    parts: [...run.children].map((part): Record<string, string | null | undefined> =>
       part.classList.contains("cv-user__typed")
         ? { typed: part.textContent }
         : {

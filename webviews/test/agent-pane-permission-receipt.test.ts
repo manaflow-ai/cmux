@@ -4,8 +4,8 @@
 // with the turn. The transcript now keeps a one-line receipt where the ask was answered: "Allowed:
 // Run npm test", "Always allowed: …", "Denied: …", or "Not answered: …" for one the turn's end
 // cancelled. It comes from acpmux's log (`permission_request`, then its `permission_decision`), so
-// a reload shows it again. An ask a chat in Full access answered unasked (`permission_auto` with
-// `fullAccess`) leaves "Approved: … (Full access)"; one a policy answered still leaves none. The page is the pane's dev entry with its browser host, talking
+// a reload shows it again. An ask a chat in its highest mode answered unasked (`permission_auto` with
+// `fullAccess`) leaves "Approved: … (native mode label)"; one a policy answered still leaves none. The page is the pane's dev entry with its browser host, talking
 // JSON-RPC to a stand-in acpmux daemon that can push live events.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -34,6 +34,7 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
   const LIVE = "0190a000-0000-7000-8000-0000000000f5";
   const LAG = "0190a000-0000-7000-8000-0000000000f6";
   const FULL = "0190a000-0000-7000-8000-0000000000f7";
+  const CODEX_FULL = "0190a000-0000-7000-8000-0000000000f9";
   const POLICY = "0190a000-0000-7000-8000-0000000000f8";
   const START = Date.now() - 90_000;
   type Step = [dir: string, kind: string, msg: Record<string, unknown>];
@@ -75,8 +76,8 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     { permissionId: "perm-test", outcome },
   ];
   const picked = (optionId: string) => decided({ outcome: "selected", optionId });
-  /// Claude Code's own guard in bypassPermissions, answered by acpmux without a card: by Full access
-  /// (`fullAccess`, the mode) or, without it, by the chat's policy.
+  /// Claude Code's own guard in bypassPermissions, answered by acpmux without a card: by the
+  /// harness's highest mode (`fullAccess`, the mode) or, without it, by the chat's policy.
   const guard = {
     toolCallId: "call-guard",
     title: "rm -rf f/*",
@@ -130,6 +131,7 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     // The ask, its answer and the reply's first words reach the pane only through a resync.
     [LAG]: log(LAG, asked.slice(0, 3)),
     [FULL]: log(FULL, [...unasked("bypassPermissions"), ...ended("Sheet made.")]),
+    [CODEX_FULL]: log(CODEX_FULL, [...unasked("agent-full-access"), ...ended("Codex sheet made.")]),
     [POLICY]: log(POLICY, [...unasked(), ...ended("Sheet made by policy.")]),
   };
   const chunk = (text: string): Step => [
@@ -142,8 +144,8 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     sessionId,
     cwd: "/home/dev/uploader",
     title: "Build",
-    harness: "claude",
-    family: "claude",
+    harness: sessionId === CODEX_FULL ? "codex" : "claude",
+    family: sessionId === CODEX_FULL ? "codex" : "claude",
     status: sessionId === LIVE || sessionId === LAG ? "waiting" : "idle",
     turnCount: 1,
     updatedAt: START,
@@ -258,8 +260,11 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     }
   });
 
-  test("an ask Full access answered unasked leaves its own receipt; one a policy answered none", async () => {
+  test("an ask in each harness's highest mode keeps its native receipt label; policy answers none", async () => {
     let page = await open(FULL, "Sheet made.");
+    expect(await receipts(page)).toEqual(["Approved: rm -rf f/* (Bypass permissions)"]);
+    await page.close();
+    page = await open(CODEX_FULL, "Codex sheet made.");
     expect(await receipts(page)).toEqual(["Approved: rm -rf f/* (Full access)"]);
     await page.close();
     page = await open(POLICY, "Sheet made by policy.");

@@ -6,7 +6,7 @@ public import Foundation
 /// reopens it through `tab.jump {target: "closed", id}`.
 public nonisolated struct AgentPaneClosedItem: Hashable, Sendable {
     public enum Kind: String, Sendable {
-        case terminal, browser, screen, workspace
+        case terminal, browser, agent, screen, workspace
     }
 
     /// The history entry id (`closed:...`).

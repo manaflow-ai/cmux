@@ -115,6 +115,7 @@ public nonisolated enum MotionTunables {
         .sweep: (1.3, "One pass of an unmeasured progress bar's segment (the update card while checking)."),
         .breath: (2.4, "One breath of the agent-working dot (working look Breathing Dot). Web pages breathe on their own --cmux-breath-period."),
         .wiggle: (0.3, "One back-and-forth of an item's wiggle in the sidebar's edit mode."),
+        .nudge: (1, "One bob (up and back) of the arrow in the Computer Use drag panel."),
     ]
 
     package static let loops: [MotionLoop: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionLoop.allCases.map { loop in

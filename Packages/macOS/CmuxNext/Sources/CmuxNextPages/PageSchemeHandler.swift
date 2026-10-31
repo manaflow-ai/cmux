@@ -18,6 +18,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     /// Where a request goes.
     nonisolated enum Route: Equatable {
+        case artifact
         case file(URL)
         case dynamic(PageResourceRequest)
     }
@@ -105,6 +106,9 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// of the page's folder, else the bundled one.
     func reply(to url: URL) async -> Reply? {
         guard let served = served(url) else { return nil }
+        if served.page.id.lowercased() == PageArtifactFrame.pageID, PageArtifactFrame.isFrame(url) {
+            return Self.artifactReply(url: url)
+        }
         let live = liveOverride()
         if let devServer = devServer ?? live.server, let remote = devServer.url(for: url, page: served.page) {
             if let (body, response) = await fetchDevServer(remote), devServer.isOwn(response.url),
@@ -121,6 +125,8 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         switch Self.route(for: url, page: served.page, root: root) {
         case nil:
             return nil
+        case .artifact:
+            return Self.artifactReply(url: url)
         case .file(let file):
             guard let data = await Self.read(file) else { return nil }
             return Self.reply(url: url, page: served.page, status: 200, mimeType: Self.mimeType(forExtension: file.pathExtension), body: data)
@@ -156,9 +162,25 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     /// A response with `csp` and the other headers every page response carries.
     nonisolated static func reply(url: URL, csp: PageCSP, status: Int, mimeType: String, body: Data) -> Reply {
+        reply(url: url, cspHeader: csp.header, status: status, mimeType: mimeType, body: body)
+    }
+
+    nonisolated static func artifactReply(url: URL) -> Reply {
+        let body = PageArtifactFrame.document
+        let headers = [
+            "Content-Type": "text/html; charset=utf-8", "Content-Length": String(body.count), "Cache-Control": "no-store",
+            "Content-Security-Policy": PageArtifactFrame.csp, "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+        ]
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)
+            ?? HTTPURLResponse(url: url, mimeType: "text/html", expectedContentLength: body.count, textEncodingName: "utf-8")
+        return Reply(response: response, body: body)
+    }
+
+    nonisolated static func reply(url: URL, cspHeader: String, status: Int, mimeType: String, body: Data) -> Reply {
         let headers = [
             "Content-Type": mimeType, "Content-Length": String(body.count), "Cache-Control": "no-store",
-            "Content-Security-Policy": csp.header, "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": cspHeader, "X-Content-Type-Options": "nosniff",
         ]
         let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)
             ?? HTTPURLResponse(url: url, mimeType: mimeType, expectedContentLength: body.count, textEncodingName: nil)
@@ -179,6 +201,9 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// `root`. An empty path is the page's ``PageDescriptor/entry``.
     nonisolated static func route(for url: URL, page: PageDescriptor, root: URL) -> Route? {
         guard page.owns(url) else { return nil }
+        if page.id.lowercased() == PageArtifactFrame.pageID, PageArtifactFrame.isArtifactURL(url) {
+            return PageArtifactFrame.isFrame(url) ? .artifact : nil
+        }
         var components = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
         if components.isEmpty { components = [page.entry] }
         guard !components.contains(where: { $0 == ".." || $0 == "." }) else { return nil }

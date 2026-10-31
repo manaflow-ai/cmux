@@ -69,6 +69,26 @@ class PublishWindowsTests(unittest.TestCase):
                          ["shots/01-open-the-pet--w7.png", "shots/01-open-the-pet--w9.png"])
         self.assertEqual(step["windows"][0]["kind"], "chiefPet")
 
+    def test_an_ok_shot_no_expect_checked_shows_as_unchecked(self):
+        steps = [
+            {"index": 1, "title": "Launch", "status": "ok", "checked": False},
+            {"index": 2, "title": "Unchecked", "status": "ok", "checked": False, "shot": "shots/02-unchecked.png"},
+            {"index": 3, "title": "Checked", "status": "ok", "checked": True, "shot": "shots/03-checked.png"},
+            # A manifest from before tour.py wrote `checked` keeps its plain "ok".
+            {"index": 4, "title": "Older", "status": "ok", "shot": "shots/04-older.png"},
+            {"index": 5, "title": "Failed", "status": "failed", "checked": False, "shot": "shots/05-failed.png"},
+        ]
+        cleaned = [publish.clean_step(step) for step in steps]
+        self.assertNotIn("checked", cleaned[3])
+        rows = [publish.step_row(step) for step in cleaned]
+        self.assertIn("| ok |", rows[0])
+        self.assertIn(f"| {publish.UNCHECKED_TEXT} |", rows[1])
+        self.assertIn("| ok |", rows[2])
+        self.assertIn("| ok |", rows[3])
+        self.assertIn("**failed**", rows[4])
+        section = publish.tour_section({"title": "Demo", "result": "failed", "steps": cleaned}, {})
+        self.assertIn("3 ok, 1 failed, 1 unchecked", section.splitlines()[0])
+
     def test_window_shots_are_uploaded_and_shown_beside_the_step(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp) / "agent-pane"
@@ -122,6 +142,34 @@ class MakeVideoTests(unittest.TestCase):
         self.assertIsNotNone(mp4)
         self.assertIsNotNone(gif)
         self.assertEqual(envs, [{"PATH": "/usr/bin"}] * 2)
+
+    def argv_for(self, manifest):
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append(argv)
+            Path(argv[-1]).write_bytes(b"x")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as scratch, \
+                mock.patch.object(publish.shutil, "which", return_value="/usr/bin/ffmpeg"):
+            publish.make_video(Path(scratch), manifest, Path(scratch), FakePrMedia(), run=run)
+        return calls[0]
+
+    def seconds(self, frames, interval):
+        argv = self.argv_for({"frames": list(range(frames)), "frame_interval": interval})
+        return frames / float(argv[argv.index("-framerate") + 1])
+
+    def test_a_15_second_tour_makes_a_15_second_video(self):
+        # Leo, 2026-10-31: "you guys always only ever seem to be able to record 5 second videos".
+        self.assertAlmostEqual(self.seconds(30, 0.5), 15.0)  # display route, a frame every 0.5 s
+        self.assertAlmostEqual(self.seconds(15, 1.0), 15.0)  # app-window route, a frame every 1.0 s
+
+    def test_a_missing_or_bad_interval_uses_the_default(self):
+        for manifest in ({"frames": [1, 2]}, {"frames": [1, 2], "frame_interval": "fast"},
+                         {"frames": [1, 2], "frame_interval": 0}, {"frames": [1, 2], "frame_interval": True}):
+            argv = self.argv_for(manifest)
+            self.assertEqual(argv[argv.index("-framerate") + 1], "2")
 
 
 if __name__ == "__main__":

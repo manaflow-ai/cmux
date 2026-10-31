@@ -72,6 +72,8 @@ public nonisolated enum MotionLoop: String, Sendable, CaseIterable {
     case breath
     /// Edit mode's wiggle (the sidebar's items, as an iPhone's home screen): one turn either way and back.
     case wiggle
+    /// A pointing arrow's bob (the Computer Use drag panel's arrow up to the list): up and back down.
+    case nudge
 
     /// Seconds per period, never under `minimumPeriod` (a Debug Settings
     /// override included).
@@ -94,6 +96,8 @@ public nonisolated enum MotionLoop: String, Sendable, CaseIterable {
         // A breath is calm: never quicker than one a second.
         case .breath: Self.shortestFlashCycle * 2
         case .wiggle: 0.1
+        // A bob moves, it does not flash; it stays slow enough to read as calm.
+        case .nudge: Self.shortestFlashCycle
         }
     }
 }

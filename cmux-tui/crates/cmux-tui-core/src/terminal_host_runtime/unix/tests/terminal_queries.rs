@@ -92,6 +92,30 @@ impl QueryHost {
         })
     }
 
+    /// Hand `bytes` to the parser as PTY output; returns its source cursor.
+    fn output(&mut self, bytes: &[u8]) -> u64 {
+        self.cursor += 1;
+        let command = ParserCommand::Output {
+            bytes: bytes.to_vec(),
+            source_cursor: self.cursor,
+            accounted_bytes: 0,
+        };
+        self.host.parser_commands.send(command).unwrap();
+        self.cursor
+    }
+
+    /// Whether the parser applied the output at `cursor` within `REPLY_BOUND`.
+    fn applied_within_bound(&self, cursor: u64) -> bool {
+        let deadline = Instant::now() + REPLY_BOUND;
+        while self.host.smart.applied_cursor.load(Ordering::Acquire) < cursor {
+            if Instant::now() >= deadline {
+                return false;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        true
+    }
+
     fn resize(&self, cols: u16, rows: u16, cell_pixels: (u16, u16)) {
         let (response, resized) = sync_channel(1);
         let command = ParserCommand::Resize {
@@ -107,6 +131,51 @@ impl QueryHost {
         self.host.parser_commands.send(command).unwrap();
         let _ = resized.recv_timeout(REPLY_BOUND).expect("the parser applied the resize");
     }
+}
+
+/// The PTY input of a program that stopped reading it: each write blocks
+/// until the test lets the program read once more (or ends).
+struct StalledPtyWriter {
+    reads: Receiver<()>,
+    delivered: Sender<Vec<u8>>,
+}
+
+impl Write for StalledPtyWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        let _ = self.reads.recv();
+        let _ = self.delivered.send(bytes.to_vec());
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// An ssh session froze for good on Oct 30: ssh stopped reading its input
+/// while it waited to write output, the host's parser blocked writing a
+/// query answer into that full input, a resize held the source order
+/// waiting on the parser, and the PTY reader waited on the source order,
+/// so ssh's output never drained. The daemon could no longer take a
+/// snapshot and showed "cmux lost its link to the shell" over a live shell.
+/// A query answer the program does not read yet must never stop the
+/// parser: later output still applies, a resize still answers, and the
+/// answer reaches the program once it reads again.
+#[test]
+fn a_program_that_stops_reading_its_input_never_stalls_the_parser() {
+    let mut host = QueryHost::new();
+    let (read_once, reads) = mpsc_channel();
+    let (delivered, answers) = mpsc_channel();
+    *host.host.writer.lock().unwrap() = Box::new(StalledPtyWriter { reads, delivered });
+
+    host.output(b"\x1b[18t");
+    let later = host.output(b"output after the query");
+    assert!(host.applied_within_bound(later), "the parser stopped behind an unread query answer");
+    host.resize(100, 30, (9, 18));
+
+    read_once.send(()).unwrap();
+    let answer = answers.recv_timeout(REPLY_BOUND).expect("the answer reached the program");
+    assert_eq!(answer, b"\x1b[8;24;80t");
 }
 
 #[test]

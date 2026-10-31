@@ -1,4 +1,5 @@
-//! `cmux vm new|ls|get|pause|resume|rm|exec`: the cmux VM API (vm.cmux.dev)
+//! `cmux vm new|ls|get|pause|resume|start|stop|rm|exec|fork|snapshot|client-session`: the
+//! cmux VM API (vm.cmux.dev)
 //! from the cmux-next CLI. It adds no second client: each verb runs the
 //! `cmux-vm` CLI (workers/cmux-vm/cli), which owns the API key, base URL,
 //! team and typed refusals (exit 12 is a 402, 16 a quota). `--json` is
@@ -21,30 +22,54 @@ pub(super) fn split(command_args: &[String]) -> Option<&[String]> {
     (first == "vm").then_some(rest)
 }
 
+const VM_VERBS: &str =
+    "new, ls, get, pause, resume, start, stop, rm, exec, fork, snapshot, client-session";
+
+const VM_HELP: &str = "usage: cmux vm <verb> [options]
+
+VERBS
+  new       Create a VM (alias: create)
+  ls        List VMs (alias: list)
+  get       Show a VM
+  pause     Pause a VM
+  resume    Resume a VM
+  start     Start a VM
+  stop      Stop a VM
+  rm        Delete a VM (alias: delete)
+  exec      Run a command in a VM
+  fork      Fork a VM
+  snapshot  Manage snapshots (create, get, list, delete)
+  client-session  Manage scoped client sessions (create, list, revoke)
+
+Use `cmux cloud resize-machine` for Cloud machine resizing.
+Use `cmux vm <verb> --help` for the bundled cmux-vm command's options.
+";
+
+fn usage(message: impl AsRef<str>) -> UsageError {
+    UsageError::new(format!("{}\n\n{}", message.as_ref(), VM_HELP.trim_end()))
+}
+
 /// The `cmux-vm` argument list for `cmux vm <rest>`.
 pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, UsageError> {
     let Some((verb, tail)) = rest.split_first() else {
-        return Err(UsageError::new(
-            "cmux vm needs a verb: new, ls, get, pause, resume, rm, exec (see `cmux vm --help`)",
-        ));
+        return Err(usage(format!("cmux vm needs a verb: {VM_VERBS}")));
     };
     let mapped = match verb.as_str() {
-        "-h" | "--help" | "help" => {
-            let mut help = vec!["--help".to_owned()];
-            help.extend(tail.iter().cloned());
-            return Ok(help);
-        }
+        "-h" | "--help" | "help" => return Err(UsageError::new(VM_HELP.trim_end())),
         "new" | "create" => "create",
         "ls" | "list" => "list",
         "rm" | "delete" => "delete",
         "get" | "pause" | "resume" | "start" | "stop" | "exec" | "fork" | "snapshot"
         | "client-session" => verb.as_str(),
+        "resize" => {
+            return Err(usage("`cmux vm resize` moved to `cmux cloud resize-machine`"));
+        }
         "workspace" => {
-            return Err(UsageError::new(
+            return Err(usage(
                 "a VM opens as a workspace through the app: run `cmux cloud new-workspace`",
             ));
         }
-        other => return Err(UsageError::new(format!("unknown vm verb \"{other}\""))),
+        other => return Err(usage(format!("unknown vm verb \"{other}\"; verbs: {VM_VERBS}"))),
     };
     let mut plan = Vec::new();
     if output == OutputMode::Json {
@@ -52,6 +77,28 @@ pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, U
     }
     plan.push(mapped.to_owned());
     plan.extend(tail.iter().cloned());
+    Ok(plan)
+}
+
+/// [`plan`] with the global options `cmux-vm` needs back. `parse_globals` takes a
+/// `--idempotency-key` wherever it stands before `--` (it is also the daemon
+/// mutations' global), so without this a retried `cmux vm new --idempotency-key K`
+/// reached `cmux-vm` with no key, which then made a fresh one and a second VM. Only
+/// the verbs that take a key get it (`create`, `fork`, `snapshot create`); for any
+/// other verb it is dropped, as before, rather than refused as an unknown option.
+fn plan_with_globals(
+    rest: &[String],
+    global: &super::GlobalArgs,
+) -> Result<Vec<String>, UsageError> {
+    let mut plan = plan(rest, global.output)?;
+    if let Some(key) = global.idempotency_key.as_deref() {
+        let words: Vec<&str> = plan.iter().map(String::as_str).filter(|w| *w != "--json").collect();
+        if matches!(words.as_slice(), ["create" | "fork", ..] | ["snapshot", "create", ..]) {
+            // After the verb's own words, before any `--`.
+            let at = plan.iter().position(|word| word == "--").unwrap_or(plan.len());
+            plan.splice(at..at, ["--idempotency-key".to_owned(), key.to_owned()]);
+        }
+    }
     Ok(plan)
 }
 
@@ -75,7 +122,13 @@ fn binary() -> OsString {
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command_args) = super::parse_globals(args).ok()?;
     let rest = split(&command_args)?;
-    let plan = match plan(rest, global.output) {
+    if rest.len() == 1
+        && rest.first().is_some_and(|word| matches!(word.as_str(), "-h" | "--help" | "help"))
+    {
+        println!("{VM_HELP}");
+        return Some(0);
+    }
+    let plan = match plan_with_globals(rest, &global) {
         Ok(plan) => plan,
         Err(error) => {
             return Some(super::app::failure(

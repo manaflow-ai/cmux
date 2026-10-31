@@ -90,11 +90,11 @@ import Testing
     private func checkMyRootOutline() {
         let (bmp, box) = render(preview(Self.short, outgoing: true))
         let bg = srgb(Fixture.background)
-        let blue = srgb(Fixture.outgoing)
+        let blue = srgb(Fixture.quoteOutline)
         // Inside the bubble, clear of the text: the background, not a blue fill.
         let inside = bmp.rgb(CGPoint(x: box.minX + 3, y: box.midY))
         #expect(distance(inside, bg) <= 12, "my root is filled \(inside); it should be an outline on \(bg)")
-        // On the outline at the left end: full blue.
+        // On the outline at the left end: Messages' quote blue (2026-10-28 reference).
         let edge = bmp.rgb(CGPoint(x: box.minX + 0.5, y: box.midY))
         #expect(distance(edge, blue) <= 24, "my root's outline is \(edge), not blue \(blue)")
     }
