@@ -294,7 +294,7 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
       if (decline) {
         expect(prompts).toHaveLength(0);
         await act(async () =>
-          field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+          editor.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
         );
       }
       await until(() => prompts.length === 1, "Trust resumes the retained request exactly once");
@@ -307,7 +307,7 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
       return;
     }
     await act(async () =>
-      field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+      editor.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
     );
     await until(() => starts.length === 2, "retry on the same machine");
     expect(starts[1]._meta.acpmux.peer).toBe(remoteStart ? "devbox" : undefined);

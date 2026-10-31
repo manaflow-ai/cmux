@@ -20,7 +20,15 @@ import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
 import { useSavedEnvironments } from "./savedEnvironments";
-import { inlineTokenIds, placeInline, type ComposerAttachment, type DroppedKind, type LinkItem } from "../attachments";
+import {
+  inlineTokenIds,
+  placeInline,
+  withoutInlineTokens,
+  type ComposerAttachment,
+  type DroppedKind,
+  type LinkItem,
+} from "../attachments";
+import { composerCommand } from "../cmuxCommands";
 import type { UploadResult } from "../cloudUploads";
 import {
   AttachmentStrip,
@@ -319,7 +327,13 @@ export function NewTabScreen(props: Props) {
   const onEditWidgets = template === "minimal" ? props.onEditWidgets : undefined;
   const editing = useWidgetEditing(onEditWidgets);
   const order = shownMovable(widgets);
-  const [text, setText] = useState(location ?? "");
+  // A host-provided location is literal text, not Markdown (paths can contain `_`, `*`, or `[`);
+  // subsequent values are the editor's serialized Markdown, including attachment tokens.
+  const [text, setText] = useState(() =>
+    (location ?? "").replace(/[!-/:-@[-`{-~]/g, "\\$&").replace(/\r\n?|\n/g, "\\\n"),
+  );
+  const untouchedText = useRef(text);
+  const originalLocation = useRef((location ?? "").replace(/\r\n?/g, "\n"));
   const [commandActive, setCommandActive] = useState(0);
   const [commandDismissed, setCommandDismissed] = useState<string>();
   const requestedCommands = useRef<string | undefined>(undefined);
@@ -471,14 +485,18 @@ export function NewTabScreen(props: Props) {
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page) and staged attachments (pages/shared/webSwap.ts).
   useWebSwapHold(
-    text !== (location ?? "") ? "newtab.draft" : attachments.length || reading.length ? "newtab.attachments" : null,
+    text !== untouchedText.current
+      ? "newtab.draft"
+      : attachments.length || reading.length
+        ? "newtab.attachments"
+        : null,
   );
   // The draft as it is now, for `onLeaveDraft` when the page goes.
   const leaving = useRef({ text, attachments, typed: false, onLeaveDraft: props.onLeaveDraft });
   leaving.current = {
     text,
     attachments,
-    typed: text !== (location ?? ""),
+    typed: text !== untouchedText.current,
     onLeaveDraft: props.onLeaveDraft,
   };
   useEffect(
@@ -598,9 +616,21 @@ export function NewTabScreen(props: Props) {
   };
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
-    const sent = placeInline(prompt, attachments, {
+    const inText = placeInline(prompt, attachments, {
       dropped: (id) => reading.some((chip) => chip.id === id),
     });
+    // As in chat, slash commands lead with their words and carry files after the command.
+    const words = withoutInlineTokens(
+      inText.text,
+      (id) => attachments.some((chip) => chip.id === id) || reading.some((chip) => chip.id === id),
+    ).trim();
+    const slash = /^\/(\S+)/.exec(words)?.[1];
+    const isCommand =
+      slash !== undefined &&
+      (composerCommand(words, agent) !== undefined || snapshot.commands?.some((item) => item.name === slash));
+    const sent = isCommand
+      ? { text: words, attachments: attachments.map(({ inline: _, ...attachment }) => attachment) }
+      : inText;
     const sentAttachments = sent.attachments;
     // Only a verdict that already says the harness is signed out holds the prompt back. A check
     // still running never does (Leo 2026-10-30: "I SHOULD BE ALWAYS ABLE TO SATRT NEW FUCKGN
@@ -733,7 +763,7 @@ export function NewTabScreen(props: Props) {
   /// reads back as the same text. What the page acts on (a search, an address, a shell command, a
   /// prompt) is the text as typed, the way the chat composer sends it (`agentText`).
   /// One parse per change of the value, not per render.
-  const typed = useMemo(() => field.current?.agentText(text) ?? text, [text]);
+  const typed = useMemo(() => field.current?.agentText(text) ?? text, [text, fieldReady]);
   // The create actions the buttons under the field offer, at the end of the rows too.
   const creates = useMemo(
     (): CreateKind[] => [
@@ -906,7 +936,10 @@ export function NewTabScreen(props: Props) {
   useLayoutEffect(() => {
     const focus = () => {
       field.current?.focus();
-      field.current?.selectAll();
+      // AllSelection in an empty document selects the root, outside its typing paragraph:
+      // attachment insertion then has no inline parent and menus see a noncollapsed selection.
+      if (field.current?.plainText()) field.current.selectAll();
+      else field.current?.setCaret(0);
     };
     if (fieldReady && focusOnShow) focus();
     if (fieldReady && inputToken && inputReadyReported.current !== inputToken) {
@@ -1721,6 +1754,7 @@ export function NewTabScreen(props: Props) {
                 }
                 multiline
                 literal={shell}
+                plainInput
                 onReady={() => {
                   inline.ready();
                   setFieldReady(true);
@@ -1729,6 +1763,13 @@ export function NewTabScreen(props: Props) {
                   !shell && state.paste && !state.composing ? pastedChips.take(data) : false
                 }
                 onChange={(value) => {
+                  // The editor canonicalizes escaping while mounting; that is still the untouched
+                  // location, not a typed draft or a reason to show suggestions or hold a web swap.
+                  if (!fieldReady && field.current?.agentText(value) === originalLocation.current) {
+                    untouchedText.current = value;
+                    setText(value);
+                    return;
+                  }
                   inline.edited(value);
                   edit(value);
                 }}

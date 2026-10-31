@@ -8,8 +8,9 @@ import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { CMUX_PASS_THROUGH } from "../src/agent-session/acpmux/cmuxCommands";
 import { parseImportedSession } from "../src/agent-session/acpmux/importSession";
-import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import { inlineToken, inlineTokenIds, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { NewTabCommandActions } from "../src/agent-session/acpmux/newtab/useNewTabCommand";
 
 const scope = globalThis as Record<string, unknown>;
@@ -308,7 +309,10 @@ async function commandPage(
     await act(async () => {
       if (template === "screen") {
         const handle = (field as MarkdownFieldElement).acpmuxMarkdownField!;
-        handle.writeText(text, text.length, text.length);
+        // Keep inline attachment atoms in this synthetic whole-prompt edit.
+        const tokens = inlineTokenIds(handle.value()).map(inlineToken).join("");
+        handle.type(`${text}${tokens}`);
+        handle.setCaret(text.length);
       } else {
         const input = field as HTMLInputElement;
         const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")!.set!;
@@ -334,13 +338,15 @@ async function commandPage(
     });
     const target = template === "screen" ? field.querySelector<HTMLElement>("[contenteditable]")! : field;
     await act(async () => target.dispatchEvent(event));
-    expect(
-      host.querySelector(
-        pending
-          ? ".acpmux-attachment-pending"
-          : ".acpmux-attachment-image:not(.acpmux-attachment-pending):not(.acpmux-attachment-failed)",
-      ),
-    ).not.toBeNull();
+    const pendingSelector = ".acpmux-attachment-pending, .acpmux-md-inline-chip[data-state='loading']";
+    const readySelector =
+      ".acpmux-attachment-image:not(.acpmux-attachment-pending):not(.acpmux-attachment-failed), .acpmux-md-inline-chip[data-state='ready']";
+    expect(host.querySelector(pending ? pendingSelector : readySelector)).not.toBeNull();
+  };
+  const waitForAttachment = async () => {
+    const pendingSelector = ".acpmux-attachment-pending, .acpmux-md-inline-chip[data-state='loading']";
+    for (let turn = 0; turn < 200 && host.querySelector(pendingSelector); turn++)
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   };
   return {
     field: {
@@ -351,10 +357,21 @@ async function commandPage(
     edit,
     send,
     paste,
+    waitForAttachment,
     prompts,
     setSandboxed,
   };
 }
+
+test("screen: a ready inline attachment survives /model passthrough", async () => {
+  const page = await commandPage("screen", undefined, undefined, false, () => CMUX_PASS_THROUGH);
+  await page.paste();
+  await page.edit("/model opus");
+  await page.send();
+  expect(page.prompts).toHaveLength(1);
+  expect(page.prompts[0]!.text).toBe("/model opus");
+  expect(page.prompts[0]!.attachments.map((attachment) => attachment.name)).toEqual(["private.png"]);
+});
 
 for (const template of ["screen", "classic"] as const) {
   test(`${template}: /import supersedes an earlier send held for a pending image`, async () => {
@@ -469,11 +486,14 @@ for (const template of ["screen", "classic"] as const) {
         expect(opened).toBe(accepted);
       });
       expect(page.field.value).toBe(accepted ? "" : "/import");
-      expect(Boolean(host.querySelector(".acpmux-attachment-pending"))).toBe(!accepted);
+      expect(
+        Boolean(host.querySelector(".acpmux-attachment-pending, .acpmux-md-inline-chip[data-state='loading']")),
+      ).toBe(!accepted);
       expect(page.prompts).toEqual([]);
       await act(async () => {
         resolve(bytes);
       });
+      await page.waitForAttachment();
       await page.edit("Explain this file");
       await page.send();
       expect(page.prompts).toHaveLength(1);

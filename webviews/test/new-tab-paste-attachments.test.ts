@@ -127,9 +127,14 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
       expect(await fieldText(page)).toBe("what is this");
       await page.keyboard.press("Enter");
       // The page became the chat; its first message carries the text and the image.
-      await page.locator(".cv-user__bubble", { hasText: "what is this" }).waitFor({ timeout: 30_000 });
-      await page.locator(".cv-user__images img").first().waitFor({ timeout: 30_000 });
-      expect(await page.locator(".cv-user__images img").first().getAttribute("src")).toStartWith("data:image/png");
+      const bubble = page.locator(".cv-user__bubble", { hasText: "what is this" });
+      await bubble.waitFor({ timeout: 30_000 });
+      // Placed attachments keep their position in the sent bubble; only attachment-only prompts
+      // use the legacy image band above it.
+      const image = bubble.locator(".cv-user__inline-image img");
+      await image.waitFor({ timeout: 30_000 });
+      expect(await image.getAttribute("src")).toStartWith("data:image/png");
+      expect(await page.locator(".cv-user__images img").count()).toBe(0);
       await page.close();
     },
   );
@@ -325,8 +330,9 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
       );
       await page.locator(INLINE_IMAGES).waitFor();
       await page.keyboard.press("Enter");
-      await page.locator(".cv-user__bubble", { hasText: "example.com" }).waitFor({ timeout: 30_000 });
-      await page.locator(".cv-user__images img").first().waitFor({ timeout: 30_000 });
+      const bubble = page.locator(".cv-user__bubble", { hasText: "example.com" });
+      await bubble.waitFor({ timeout: 30_000 });
+      await bubble.locator(".cv-user__inline-image img").waitFor({ timeout: 30_000 });
       await page.close();
     },
   );

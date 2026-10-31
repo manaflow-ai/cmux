@@ -12,6 +12,8 @@ declare global {
   interface Window {
     rerenderHost?: () => void;
     newTabShellCommands?: string[];
+    newTabOpened?: string[];
+    newTabSearches?: string[];
   }
 }
 
@@ -19,6 +21,8 @@ const classic = new URLSearchParams(location.search).get("screen") === "classic"
 const snapshot = noChat();
 const noop = () => {};
 window.newTabShellCommands = [];
+window.newTabOpened = [];
+window.newTabSearches = [];
 
 function Host() {
   const [update, setUpdate] = useState(0);
@@ -38,12 +42,13 @@ function Host() {
     <NewTabScreen
       snapshot={snapshot}
       lastAgent="claude"
+      location={new URLSearchParams(location.search).get("location") ?? undefined}
       cwd="/Users/you/src/app"
       inputToken="opening-1"
       onInputReady={(token) => ready(token)}
       onAsk={noop}
-      onOpen={noop}
-      onSearch={noop}
+      onOpen={(value) => window.newTabOpened!.push(value)}
+      onSearch={(value) => window.newTabSearches!.push(value)}
       onShell={(command) => window.newTabShellCommands!.push(command)}
       onJump={noop}
       onOpenSession={noop}

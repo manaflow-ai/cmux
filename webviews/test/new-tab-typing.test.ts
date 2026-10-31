@@ -41,7 +41,7 @@ await requireBrowserLane("new-tab-typing.test.ts", async () => {
     await vite?.close();
   });
 
-  test("shell typing keeps Markdown punctuation literal and restores formatting when shell mode ends", async () => {
+  test("shell typing and the normal prompt keep Markdown punctuation literal", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage();
     try {
@@ -61,8 +61,65 @@ await requireBrowserLane("new-tab-typing.test.ts", async () => {
       await page.keyboard.press("Escape");
       await page.keyboard.press("Control+a");
       await page.keyboard.type("**normal prompt**");
-      // Leaving shell mode restores normal prompt formatting.
-      expect(await editor.locator("strong").textContent()).toBe("normal prompt");
+      expect(await editor.textContent()).toBe("**normal prompt**");
+      expect(await editor.locator("em, strong, code, a").count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("real omnibar typing opens URLs and file paths without interpreting underscores", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage();
+    try {
+      await page.goto(`http://127.0.0.1:${port}/test/browser/new-tab-typing.html`);
+      const editor = page.locator(".nt-field .ProseMirror");
+      await editor.focus();
+      const addresses = ["https://example.com/_private_/notes", "file:///tmp/_private_/notes"];
+      for (const address of addresses) {
+        await page.keyboard.press("Control+a");
+        await page.keyboard.type(address);
+        await page.keyboard.press("Enter");
+      }
+      expect(await page.evaluate(() => window.newTabOpened)).toEqual(addresses);
+      expect(await editor.locator("em, strong, code").count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("Search receives the literal query typed into the omnibar", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage();
+    try {
+      await page.goto(`http://127.0.0.1:${port}/test/browser/new-tab-typing.html`);
+      await page.locator(".nt-field .ProseMirror").focus();
+      const query = "find _private_ **logs** in src/_internal_/";
+      await page.keyboard.type(query);
+      await page.locator('.nt-row[data-type="search"]').click();
+      expect(await page.evaluate(() => window.newTabSearches)).toEqual([query]);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("a prefilled location is literal, stays untouched, and can be extended", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage();
+    const location = "file:///tmp/_private_/`notes`";
+    try {
+      await page.goto(
+        `http://127.0.0.1:${port}/test/browser/new-tab-typing.html?location=${encodeURIComponent(location)}`,
+      );
+      const editor = page.locator(".nt-field .ProseMirror");
+      await page.waitForFunction(() => document.activeElement?.matches(".nt-field .ProseMirror"));
+      expect(await editor.textContent()).toBe(location);
+      expect(await editor.locator("em, strong, code").count()).toBe(0);
+      expect(await page.locator(".nt-popover .nt-row").count()).toBe(0);
+      await page.keyboard.press("ArrowRight");
+      await page.keyboard.type("/next");
+      await page.keyboard.press("Enter");
+      expect(await page.evaluate(() => window.newTabOpened)).toEqual([`${location}/next`]);
     } finally {
       await page.close();
     }

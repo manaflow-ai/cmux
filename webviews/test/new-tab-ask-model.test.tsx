@@ -191,7 +191,9 @@ test("New Tab preflights its selected harness and keeps a refused draft", async 
     const handle = field.acpmuxMarkdownField!;
     handle.writeText("keep this draft", "keep this draft".length, "keep this draft".length);
     const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
-    await act(async () => editor.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+    await act(async () =>
+      editor.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
+    );
     expect(asks).toEqual([]);
     expect(handle.plainText()).toBe("keep this draft");
     expect(host.querySelector("[role=alert]")?.textContent).toContain("expired");
@@ -250,7 +252,19 @@ async function newTabPage(options: { auth?: unknown; onAsk?: (...args: unknown[]
     );
   const status = () => host.querySelector(".nt-composer output.acpmux-composer-remote-note")?.textContent;
   const alert = () => host.querySelector(".nt-composer [role=alert]")?.textContent;
-  return { root, field: { get value() { return handle.plainText(); } }, asks, type, pressReturn, status, alert };
+  return {
+    root,
+    field: {
+      get value() {
+        return handle.plainText();
+      },
+    },
+    asks,
+    type,
+    pressReturn,
+    status,
+    alert,
+  };
 }
 
 const READY = { state: "ready", source: "authCheck", evidenceAt: 1, harness: "codex", host: null };
