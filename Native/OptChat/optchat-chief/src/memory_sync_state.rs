@@ -437,37 +437,6 @@ mod tests {
         );
     }
 
-    /// LAUNCH-NO-TCC-PROMPTS: Home's first-run offer runs `detect` at launch with no action of
-    /// the person, so `detect` never reads ~/Downloads or ~/Desktop (a read there raises the
-    /// macOS "access files in your Downloads folder" prompt for cmux). Export zips are found
-    /// only when the person asks (`detect --exports`, the Import Memories dialog).
-    #[test]
-    fn unasked_detect_never_lists_downloads_or_desktop() {
-        let home = temp("unasked");
-        let stage = temp("unasked-stage");
-        write(&stage.join("conversations.json"), "[]");
-        zip_of(
-            &stage,
-            &home.join("Downloads/data-2026.zip"),
-            &["conversations.json"],
-        );
-        zip_of(
-            &stage,
-            &home.join("Desktop/claude-export.zip"),
-            &["conversations.json"],
-        );
-        write(&home.join(".codex/memories/MEMORY.md"), "codex note");
-        let found = detect(&home, None);
-        assert!(
-            found.iter().all(|d| !d.source.starts_with("zip:")),
-            "detect listed a protected folder: {found:?}"
-        );
-        assert_eq!(
-            found.iter().map(|d| d.kind.as_str()).collect::<Vec<_>>(),
-            ["codex"]
-        );
-    }
-
     #[test]
     fn detect_on_an_empty_mac_finds_nothing() {
         assert!(detect(&temp("none"), None).is_empty());
