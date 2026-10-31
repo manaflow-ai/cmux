@@ -5,12 +5,15 @@
 // never merged in; text typed before the page ever read the chat's draft is kept beside acpmux's;
 // an untouched prompt shows acpmux's draft.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { JSDOM } from "jsdom";
 import { act, createRef } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
+import * as composerDraft from "../src/agent-session/acpmux/composerDraft";
 import { hydratedDraft, notifyDraftActionsChanged } from "../src/agent-session/acpmux/composerDraft";
 
 const scope = globalThis as Record<string, unknown>;
@@ -418,4 +421,116 @@ test("a quit's read answers before the load's: the editor and acpmux both keep s
   await settle();
   await settle();
   expect(state.held).toBe("saved\n\ntyped!");
+});
+
+// cmux#28204 review at b7cddbbf: a saved draft one character under the limit plus "x" typed before
+// the read merged to a text past the limit. The stores refuse such a text (acpmux's draft_set errors;
+// AgentUnsentDrafts.set turned it into nil, removing the saved draft), so a quit lost the draft.
+// The chosen behaviour when "saved\n\ntyped" does not fit: no merge is written, the saved draft
+// stays exactly as it was, and the editor keeps what the person typed. Nothing is lost.
+// The limit as the stores keep it (acpmux's Hub::MAX_COMPOSER_DRAFT_CHARS, AgentUnsentDrafts).
+const LIMIT = 1_000_000;
+const tooLong = (text: string) => [...text].length > LIMIT;
+
+test("the web's draft limit is acpmux's and AgentUnsentDrafts'", () => {
+  const repo = path.resolve(import.meta.dir, "../..");
+  const rust = readFileSync(path.join(repo, "cmux-tui/crates/acpmux/src/hub/mod.rs"), "utf8");
+  const swift = readFileSync(
+    path.join(repo, "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentUnsentDrafts.swift"),
+    "utf8",
+  );
+  const number = (match: RegExpMatchArray | null) => Number(match?.[1]?.replaceAll("_", ""));
+  const web = (composerDraft as Record<string, unknown>).MAX_DRAFT_CHARS;
+  expect(number(rust.match(/MAX_COMPOSER_DRAFT_CHARS: usize = ([\d_]+);/))).toBe(LIMIT);
+  expect(number(swift.match(/static let maximumCharacters = ([\d_]+)/))).toBe(LIMIT);
+  expect(web).toBe(LIMIT);
+});
+
+test("a saved draft at the limit and text typed before the read: nothing written over it, the typing kept", async () => {
+  const sessionId = "ordering-over-limit";
+  const saved = "s".repeat(LIMIT - 1);
+  const { state, actions } = gatedDaemon(saved);
+  state.holdReads = true;
+  page().cmuxAcpmuxActions = actions as never;
+  await act(async () => notifyDraftActionsChanged());
+  const handle = await render(sessionId);
+  await settle();
+  await type("x");
+  await until(() => prompt() === "x", "the typed text");
+  await settle();
+  state.holdReads = false;
+  for (const answer of state.reads.splice(0)) await act(async () => answer());
+  await settle();
+  await settle();
+  expect(prompt()).toBe("x");
+  expect(state.held).toBe(saved);
+  // A later key and a quit keep it too: the typed text never goes over the saved draft.
+  await type("y");
+  await until(() => prompt() === "xy", "the next key");
+  await settle();
+  await act(async () => handle.current!.settleDraft());
+  await settle();
+  expect(state.held).toBe(saved);
+  expect(state.written.some((text) => tooLong(text) || !text.trim())).toBe(false);
+});
+
+test("a saved draft and typed text that fit the limit exactly: merged and written", async () => {
+  const sessionId = "ordering-at-limit";
+  const saved = "s".repeat(LIMIT - 3);
+  const { state, actions } = gatedDaemon(saved);
+  state.holdReads = true;
+  page().cmuxAcpmuxActions = actions as never;
+  await act(async () => notifyDraftActionsChanged());
+  await render(sessionId);
+  await settle();
+  await type("x");
+  await until(() => prompt() === "x", "the typed text");
+  await settle();
+  state.holdReads = false;
+  for (const answer of state.reads.splice(0)) await act(async () => answer());
+  await settle();
+  await settle();
+  const merged = `${saved}\n\nx`;
+  expect(merged.length).toBe(LIMIT);
+  expect(prompt()).toBe(merged);
+  expect(state.held).toBe(merged);
+});
+
+test("a new chat's kept draft at the limit arriving after the person typed: the host keeps it, the typing stays", async () => {
+  const saved = "k".repeat(LIMIT - 1);
+  const sent: string[] = [];
+  const onUnsentDraft = (text: string) => void sent.push(text);
+  const handle = await render(undefined, { onUnsentDraft });
+  await type("x");
+  await until(() => prompt() === "x", "the typed text");
+  await settle();
+  // The handshake's seed (the tab's kept draft) comes after the key.
+  const before = sent.length;
+  await render(undefined, { draft: saved, onUnsentDraft }, handle);
+  await settle();
+  await settle();
+  expect(prompt()).toBe("x");
+  await type("y");
+  await until(() => prompt() === "xy", "the next key");
+  await settle();
+  await act(async () => handle.current!.settleDraft());
+  const after = sent.slice(before);
+  // Nothing past the limit, and no blank, went to the host; what it holds last is the kept draft.
+  expect(after.some((text) => tooLong(text) || !text.trim())).toBe(false);
+  expect(after.at(-1)).toBe(saved);
+});
+
+test("a new chat's kept draft and typed text that fit exactly: merged and sent", async () => {
+  const saved = "k".repeat(LIMIT - 3);
+  const sent: string[] = [];
+  const onUnsentDraft = (text: string) => void sent.push(text);
+  const handle = await render(undefined, { onUnsentDraft });
+  await type("x");
+  await until(() => prompt() === "x", "the typed text");
+  await settle();
+  await render(undefined, { draft: saved, onUnsentDraft }, handle);
+  const merged = `${saved}\n\nx`;
+  await until(() => prompt() === merged, "the merged prompt");
+  await act(async () => handle.current!.settleDraft());
+  expect(sent.at(-1)).toBe(merged);
 });
