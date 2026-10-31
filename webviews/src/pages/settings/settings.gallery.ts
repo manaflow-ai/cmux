@@ -983,6 +983,40 @@ Object.assign(variants, {
     ],
     note: "Harness health with an in-app Codex update and a separate manual command for an elevated Claude Code install.",
   }),
+  "agents-harness-sign-in-expired": variant("agents", {
+    harnesses: {
+      loading: false,
+      problem: null,
+      harnesses: [
+        {
+          id: "codex",
+          name: null,
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "0.4.0",
+          latest: "0.4.0",
+          outdated: false,
+          auth: "expired",
+          update: null,
+        },
+        {
+          id: "claude",
+          name: null,
+          kind: "claude-stdio",
+          source: "path",
+          problem: null,
+          version: "2.0.9",
+          latest: "2.0.9",
+          outdated: false,
+          auth: "signedIn",
+          update: null,
+        },
+      ],
+    },
+    steps: [wait('[data-harness-auth="expired"]')],
+    note: "Codex's sign-in expired: Agents gets its badge and the row says Signed out, as for a signed-out harness.",
+  }),
   "agents-harness-update-manual": variant("agents", {
     harnesses: {
       loading: false,
