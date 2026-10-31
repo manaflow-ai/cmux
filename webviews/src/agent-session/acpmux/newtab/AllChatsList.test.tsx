@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { resetSettledChatsForTests } from "./settledCache";
+import { setDeviceChats } from "./deviceChats";
 import { useChatPages, type AllChatsPage, type LoadChatsPage } from "./AllChatsList";
 
 type Request = {
@@ -62,7 +63,12 @@ function Probe({ load }: { load: LoadChatsPage }) {
   const { state, fetchPage } = useChatPages(load);
   return (
     <div>
-      <output data-loaded={state.loaded} data-cursor={state.nextCursor ?? ""} data-failed={state.failedCursor ?? ""} />
+      <output
+        data-loaded={state.loaded}
+        data-cursor={state.nextCursor ?? ""}
+        data-failed={state.failedCursor ?? ""}
+        data-keys={state.rows.map((row) => row.key).join(",")}
+      />
       <button type="button" data-more onClick={() => state.nextCursor && fetchPage(state.query, state.nextCursor)}>
         Load more
       </button>
@@ -105,4 +111,51 @@ test("a failed later page keeps its cursor and can be retried while its loader s
   expect(requests[2]!.params.cursor).toBe("page-2");
   await act(async () => requests[2]!.resolve({ chats: [], ready: true }));
   expect(container.querySelector("output")?.dataset.failed).toBe("");
+});
+
+const chat = (key: string) => ({ key, harness: "claude", title: key, updatedAt: 1 });
+
+test("a live refresh removes deleted chats when acpmux reports its complete list", async () => {
+  const requests: Request[] = [];
+  await render(queuedLoad(requests));
+  await act(async () =>
+    requests[0]!.resolve({ chats: [chat("claude:removed"), chat("claude:kept")], ready: true }),
+  );
+  expect(container.querySelector("output")?.dataset.keys).toBe("claude:removed,claude:kept");
+
+  // The index changed in another window while All chats stayed open.
+  await act(async () => setDeviceChats([chat("claude:kept")]));
+  expect(requests).toHaveLength(2);
+  await act(async () => requests[1]!.resolve({ chats: [chat("claude:kept")], ready: true }));
+
+  expect(container.querySelector("output")?.dataset.keys).toBe("claude:kept");
+});
+
+test("a complete empty refresh removes the last deleted chat", async () => {
+  const requests: Request[] = [];
+  await render(queuedLoad(requests));
+  await act(async () => requests[0]!.resolve({ chats: [chat("claude:removed")], ready: true }));
+  await act(async () => setDeviceChats([]));
+  expect(requests).toHaveLength(2);
+  await act(async () => requests[1]!.resolve({ chats: [], ready: true }));
+
+  expect(container.querySelector("output")?.dataset.keys).toBe("");
+  expect(container.querySelector("output")?.dataset.cursor).toBe("");
+});
+
+test("a live refresh keeps older rows when the new first page still has a cursor", async () => {
+  const requests: Request[] = [];
+  await render(queuedLoad(requests));
+  await act(async () =>
+    requests[0]!.resolve({ chats: [chat("claude:older"), chat("claude:newer")], nextCursor: "next", ready: true }),
+  );
+  await act(async () => setDeviceChats([chat("claude:newer")]));
+  expect(requests).toHaveLength(2);
+  await act(async () =>
+    requests[1]!.resolve({ chats: [chat("claude:newer")], nextCursor: "next", ready: true }),
+  );
+
+  // The missing row may simply have moved onto a later page.
+  expect(container.querySelector("output")?.dataset.keys).toBe("claude:newer,claude:older");
+  expect(container.querySelector("output")?.dataset.cursor).toBe("next");
 });
