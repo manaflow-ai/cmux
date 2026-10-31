@@ -207,15 +207,15 @@ class NightlyTrustedRouting(unittest.TestCase):
         for runner in ('', 'blacksmith-16vcpu-ubuntu-2404', 'blacksmith-32vcpu-ubuntu-2404'):
             with self.subTest(runner=runner):
                 primary = label('prepare-nightly-variant-primary', runner)
-                self.assertEqual(label('prepare-nightly-variant-fallback', runner, 'success'), primary)
-                retry = label('prepare-nightly-variant-fallback', runner, 'failure')
+                self.assertEqual(label('prepare-nightly-variant', runner, 'success'), primary)
+                retry = label('prepare-nightly-variant', runner, 'failure')
                 self.assertNotEqual(retry, primary)
                 self.assertIn(retry, ('blacksmith-16vcpu-ubuntu-2404', 'blacksmith-32vcpu-ubuntu-2404'))
         # The retry and signer-build pick from the declared set, whatever LINUX_RUNNER holds.
         members = ('blacksmith-16vcpu-ubuntu-2404', 'blacksmith-32vcpu-ubuntu-2404')
         for runner in ('', 'ubuntu-24.04', 'blacksmith-4vcpu-ubuntu-2404') + members:
             with self.subTest(runner=runner):
-                self.assertIn(label('prepare-nightly-variant-fallback', runner, 'failure'), members)
+                self.assertIn(label('prepare-nightly-variant', runner, 'failure'), members)
                 self.assertIn(label('signer-build', runner), members)
         self.assertEqual(label('signer-build', 'blacksmith-16vcpu-ubuntu-2404'), 'blacksmith-16vcpu-ubuntu-2404')
         self.assertEqual(label('signer-build', 'ubuntu-24.04'), 'blacksmith-32vcpu-ubuntu-2404')

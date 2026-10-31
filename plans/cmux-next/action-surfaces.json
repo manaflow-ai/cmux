@@ -26782,6 +26782,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "cloud set-network-access",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudSetNetworkAccess",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Internet Access…",
+      "title_key" : "action.cloudSetNetworkAccess",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "cloud delete-snapshot",
       "context_menu" : "offered",
       "context_menus" : [
@@ -40644,7 +40672,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "cloudOpenBrowser",
+              "id" : "cloudSetNetworkAccess",
               "kind" : "action",
               "order" : 13,
               "visible_when" : {
@@ -40657,7 +40685,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "cloudPortList",
+              "id" : "cloudOpenBrowser",
               "kind" : "action",
               "order" : 14,
               "visible_when" : {
@@ -40670,7 +40698,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "cloudPortForward",
+              "id" : "cloudPortList",
               "kind" : "action",
               "order" : 15,
               "visible_when" : {
@@ -40683,7 +40711,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "cloudPortClose",
+              "id" : "cloudPortForward",
               "kind" : "action",
               "order" : 16,
               "visible_when" : {
@@ -40696,7 +40724,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "cloudStartSession",
+              "id" : "cloudPortClose",
               "kind" : "action",
               "order" : 17,
               "visible_when" : {
@@ -40708,14 +40736,27 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "cloudStartSession",
+              "kind" : "action",
+              "order" : 18,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 18
+              "order" : 19
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.cloud.deleteSnapshot",
               "kind" : "action",
-              "order" : 19,
+              "order" : 20,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
