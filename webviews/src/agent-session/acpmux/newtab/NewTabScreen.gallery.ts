@@ -6,6 +6,7 @@ import type { PlayContext } from "../../../gallery/play";
 import { CATALOG, CWD, fleetPeers, manySessions, noChat, session } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import { composerStatePlays } from "../composerStatePlays";
+import { createStripLabelsFit } from "./createStripFit";
 
 /// Favicons as the host sends them (cx-d0d.8): small inline PNGs.
 const SITE_ICON =
@@ -1312,6 +1313,15 @@ export default agentPaneEntry({
             if (rect.left < viewport.left - 1 || rect.right > viewport.right + 1)
               throw new Error(`create action leaves the narrow popover (${rect.left}..${rect.right})`);
           }
+          // No label shows cut off ("Nouv…"): at 260px either every label fits beside its glyph or the
+          // strip goes icon-only (createStripFit.ts), which its ResizeObserver settles in the next frame.
+          const strip = rows.querySelector<HTMLElement>(".nt-create-strip");
+          if (!strip) throw new Error("the create strip did not render");
+          await ctx.waitFor(() => strip.hasAttribute("data-icons-only") || createStripLabelsFit(strip));
+          if (!strip.hasAttribute("data-icons-only"))
+            for (const title of strip.querySelectorAll<HTMLElement>(".nt-create-strip-item .nt-row-title"))
+              if (title.scrollWidth > title.clientWidth + 1)
+                throw new Error(`a create label is cut off at 260px: ${title.textContent}`);
         } finally {
           popover.style.width = width;
         }
