@@ -15,7 +15,6 @@ extension SidebarListViewComponents {
         // No drag holds the rows: this reload shows every held patch (the model has them).
         if !holdsRowPatches { rowHold = SidebarRowHold() }
         workspaces = [:]
-        tabs = [:]
         groups = [:]
         groupSubtrees = [:]
         sections = [:]
@@ -40,7 +39,6 @@ extension SidebarListViewComponents {
                 }
             }
         }
-        for workspace in workspaces.values { for tab in workspace.tabs { tabs[tab.id] = tab } }
         if let drag, !drag.isValid(in: model) { cancelDrag() }
         // The rows changed under a held drag (a batch, an adopt, a close): its hit geometry is rebuilt at the next move.
         if let drag, drag.geometryRevision != model.sectionsRevision { drag.docGeometry = nil }
@@ -126,11 +124,7 @@ extension SidebarListViewComponents {
     func railReach(for row: SidebarRow) -> CGFloat {
         guard case .group = row.key else { return 0 }
         let membersX = inset + indentOffset(for: row)
-        // `inside` uses Chrome's corner geometry all the way to the list edge. The general
-        // header padding would clamp that overhang and put the line back under a member row.
-        let edgePadding = SidebarStyle.groupLineLayout == .inside ? 0 : SidebarStyle.groupEdgePadding
-        let barX = max(0, SidebarStyle.groupLineX(membersMinX: membersX) - SidebarStyle.groupHeaderOverhang)
-        return membersX - min(membersX, max(barX, edgePadding))
+        return membersX - SidebarStyle.groupBarX(membersMinX: membersX)
     }
     /// Whether `group` sits somewhere under `ancestor`, by the groups' parent links (cycle-safe).
     static func isNested(_ group: SidebarGroup, under ancestor: GroupID, in groups: [GroupID: SidebarGroup]) -> Bool {
@@ -243,9 +237,6 @@ extension SidebarListViewComponents {
             view.targetSize = target.size
             // A recycled view (a block's region from another time) takes its content at once, not on a spring.
             configure(view, row: row, animated: animate || (adopting && existing != nil))
-            // Reload may move an offscreen parent's title column without changing this
-            // tab's Content or frame size. Re-resolve the model-derived anchor on apply.
-            if case .tab = row.key { view.needsLayout = true }
             let opens = animate && ((existing == nil && old.row(for: row.key) == nil) || reopened.contains(row.key))
             if existing == nil || opens {
                 // The start state never animates: a recycled view shows no
@@ -372,7 +363,10 @@ extension SidebarListViewComponents {
             guard let ws = workspaces[id] else { return }
             view.configure(ws, row: row, badgeStyle: model.rowBadgeStyle)
             paintSecondaryFills(view, id)
-            view.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id)
+            view.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id) || standsForDropGroup(row)
+            // A group drawn as its one row draws its header's keyboard focus ring (`SidebarGroupKeys`).
+            view.isKeyboardFocused = showsFocusRing && row.standsForGroup && row.group == focusedGroup
+            view.standingGroup = row.standsForGroup ? row.group.map(standingGroupAccess) : nil
         case let (.item(id), view as SidebarItemListRowView):
             guard let item = listItems[id] else { return }
             view.configure(item, favicon: item.iconAddress.flatMap { SidebarModel.itemFavicon?($0) }, row: row)
@@ -381,9 +375,6 @@ extension SidebarListViewComponents {
             view.region.activeItem = activeTopItem
             view.region.selectedWorkspaces = selectedWorkspaces
             if springsRows, animated { view.springShow(content, width: bounds.width) } else { view.show(content, width: bounds.width, animated: animated) }
-        case let (.tab(workspaceID, tabID), view as SidebarTabRowView):
-            guard let tab = tabs[tabID] else { return }
-            view.configure(tab, row: row, focused: workspaces[workspaceID]?.focusedTab == tabID)
         case let (.group(id), view as GroupHeaderRowView):
             // The model's own group when the cache (rebuilt on reload) lags it: a held drag shows the live sections.
             guard var group = groups[id] ?? model.group(id) else { return }

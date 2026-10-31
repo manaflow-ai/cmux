@@ -5,7 +5,7 @@
 // Cloud section and opens the host's create flow. It defaults to this computer. The machines come
 // from acpmux (`_acpmux/status` peers, by URL scheme, and the hosts its chats ran on); with
 // previews off the row keeps its plain Computer menu.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -75,13 +75,20 @@ beforeAll(() => {
   host = dom.window.document.getElementById("root")!;
 });
 
+// These pickers are a signed-in account's: the signed-out Sign in for Cloud row is
+// environment-picker-cloud-machines.test.tsx's.
+beforeEach(async () => {
+  (await import("../src/agent-session/acpmux/cloudMachines")).setCloudMachinesForTestAccount(true);
+});
+
 afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
 });
 
-afterAll(() => {
+afterAll(async () => {
+  (await import("../src/agent-session/acpmux/cloudMachines")).setCloudMachinesForTestAccount(undefined);
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
@@ -519,6 +526,7 @@ test("each connect choice runs its own host action", async () => {
   expect(CONNECT_ACTIONS).toEqual({
     ssh: "remote.connect",
     cloud: "newCloudMachine",
+    cloudSignIn: "palette.auth.signIn",
     cloudPage: "palette.openCloudPane",
     addMachine: "device.add",
     move: "cloudMove",
