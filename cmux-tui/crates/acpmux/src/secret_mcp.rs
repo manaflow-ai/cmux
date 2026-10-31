@@ -26,7 +26,11 @@ pub const PROTOCOL_VERSIONS: &[&str] = &[NEWEST_PROTOCOL_VERSION, "2025-03-26", 
 /// else our newest (the client then decides whether to go on).
 pub fn protocol_version(params: &Value) -> &'static str {
     let requested = params["protocolVersion"].as_str();
-    PROTOCOL_VERSIONS.iter().copied().find(|v| Some(*v) == requested).unwrap_or(NEWEST_PROTOCOL_VERSION)
+    PROTOCOL_VERSIONS
+        .iter()
+        .copied()
+        .find(|v| Some(*v) == requested)
+        .unwrap_or(NEWEST_PROTOCOL_VERSION)
 }
 
 fn tools() -> Value {
