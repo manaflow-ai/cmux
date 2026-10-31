@@ -3669,6 +3669,270 @@
         }
       }
     },
+    "settings.browser.importCookieBanner": {
+      "comment": "Settings > Browser > Import: toggle for the Import Cookies banner in browser tabs.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offer to Import Cookies"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض استيراد ملفات تعريف الارتباط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponudi uvoz kolačića"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilbyd at importere cookies"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookie-Import anbieten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ofrecer importar cookies"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proposer d’importer les cookies"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proponi di importare i cookie"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookie の読み込みを提案"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ដល់ជូនការនាំចូលខូគី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "쿠키 가져오기 제안"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilby å importere informasjonskapsler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proponuj import plików cookie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oferecer importação de cookies"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предлагать импорт файлов cookie"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เสนอให้นำเข้าคุกกี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çerezleri İçe Aktarmayı Öner"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропонувати імпорт файлів cookie"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đề xuất nhập cookie"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示导入 Cookie"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示匯入 Cookie"
+          }
+        }
+      }
+    },
+    "settings.browser.importCookieBanner.help": {
+      "comment": "Settings > Browser > Import: help under Offer to Import Cookies.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعرض علامات تبويب المتصفح استيراد ملفات تعريف الارتباط من متصفحاتك الأخرى لتبقى مسجّل الدخول. لا يُستورد شيء حتى تنقر على استيراد. يؤدي «عدم الإظهار مرة أخرى» في الشريط إلى إيقاف هذا الخيار."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartice preglednika nude uvoz kolačića iz vaših drugih preglednika, kako biste ostali prijavljeni. Ništa se ne uvozi dok ne kliknete Uvezi. Ne prikazuj ponovo na traci isključuje ovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browserfaner tilbyder at importere cookies fra dine andre browsere, så du forbliver logget ind. Intet importeres, før du klikker på Importér. Vis ikke igen på banneret slår dette fra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser-Tabs bieten an, Cookies aus deinen anderen Browsern zu importieren, damit du angemeldet bleibst. Nichts wird importiert, bis du auf Importieren klickst. „Nicht mehr anzeigen“ im Banner schaltet dies aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las pestañas del navegador ofrecen importar cookies de tus otros navegadores para que mantengas la sesión iniciada. No se importa nada hasta que haces clic en Importar. «No volver a mostrar» en el aviso lo desactiva."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les onglets du navigateur proposent d’importer les cookies de vos autres navigateurs pour que vous restiez connecté. Rien n’est importé avant que vous cliquiez sur Importer. « Ne plus afficher » sur la bannière désactive cette option."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le schede del browser propongono di importare i cookie dagli altri browser, così resti connesso. Nulla viene importato finché non fai clic su Importa. «Non mostrare più» sul banner disattiva questa opzione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザタブで、他のブラウザから Cookie を読み込むよう提案し、サインインしたままにします。「読み込む」をクリックするまで何も読み込みません。バナーの「今後表示しない」でオフになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងកម្មវិធីរុករកផ្ដល់ជូនការនាំចូលខូគីពីកម្មវិធីរុករកផ្សេងទៀតរបស់អ្នក ដើម្បីឱ្យអ្នកបន្តចូលគណនី។ គ្មានអ្វីត្រូវបាននាំចូលទេ រហូតដល់អ្នកចុច នាំចូល។ «កុំបង្ហាញម្ដងទៀត» នៅលើបដាបិទមុខងារនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 탭에서 다른 브라우저의 쿠키를 가져오도록 제안하여 로그인 상태를 유지합니다. 가져오기를 클릭하기 전에는 아무것도 가져오지 않습니다. 배너의 '다시 표시하지 않음'을 누르면 꺼집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nettleserfaner tilbyr å importere informasjonskapsler fra de andre nettleserne dine, så du forblir logget på. Ingenting importeres før du klikker på Importer. Ikke vis igjen på banneret slår dette av."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karty przeglądarki proponują import plików cookie z innych przeglądarek, aby pozostać zalogowanym. Nic nie jest importowane, dopóki nie klikniesz Importuj. „Nie pokazuj ponownie” na banerze wyłącza tę opcję."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As abas do navegador oferecem importar cookies dos seus outros navegadores para você continuar conectado. Nada é importado até você clicar em Importar. \"Não mostrar novamente\" no banner desativa isto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки браузера предлагают импортировать файлы cookie из других браузеров, чтобы вы оставались в учётных записях. Ничего не импортируется, пока вы не нажмёте «Импортировать». «Больше не показывать» на баннере отключает это."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บเบราว์เซอร์จะเสนอให้นำเข้าคุกกี้จากเบราว์เซอร์อื่นของคุณ เพื่อให้คุณยังลงชื่อเข้าใช้อยู่ ไม่มีการนำเข้าใดจนกว่าคุณจะคลิกนำเข้า \"ไม่ต้องแสดงอีก\" บนแบนเนอร์จะปิดตัวเลือกนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcı sekmeleri, oturumunuz açık kalsın diye diğer tarayıcılarınızdan çerezleri içe aktarmayı önerir. İçe Aktar'a tıklayana kadar hiçbir şey içe aktarılmaz. Başlıktaki Bir Daha Gösterme bunu kapatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки браузера пропонують імпортувати файли cookie з інших браузерів, щоб ви залишалися в обліковому записі. Нічого не імпортується, доки ви не натиснете «Імпортувати». «Більше не показувати» на банері вимикає це."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các tab trình duyệt đề xuất nhập cookie từ các trình duyệt khác để bạn luôn đăng nhập. Không có gì được nhập cho đến khi bạn nhấp Nhập. \"Không hiển thị lại\" trên biểu ngữ sẽ tắt tùy chọn này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器标签页会提示从你的其他浏览器导入 Cookie，让你保持登录。点按“导入”之前不会导入任何内容。横幅上的“不再显示”会关闭此选项。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器標籤頁會提示從你的其他瀏覽器匯入 Cookie，讓你保持登入。按一下「匯入」之前不會匯入任何內容。橫幅上的「不再顯示」會關閉此選項。"
+          }
+        }
+      }
+    },
     "settings.tabs.nativeNewTabPage": {
       "extractionState": "manual",
       "localizations": {
@@ -57188,268 +57452,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Hides the chosen sections until the pointer is over the sidebar."
-          }
-        }
-      }
-    },
-    "settings.sidebar.showWorkspaceTabs": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Workspace Tabs"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースのタブを表示"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار علامات تبويب مساحات العمل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži kartice radnih prostora"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis faner for arbejdsområder"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Arbeitsbereich-Tabs anzeigen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar pestañas del espacio de trabajo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher les onglets des espaces de travail"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra schede dell’area di lavoro"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្ហាញផ្ទាំងកន្លែងធ្វើការ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "작업 공간 탭 표시"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis faner for arbeidsområde"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokaż karty przestrzeni roboczych"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar abas das áreas de trabalho"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывать вкладки рабочих пространств"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงแท็บเวิร์กสเปซ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Çalışma alanı sekmelerini göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показувати вкладки робочих областей"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hiện các tab không gian làm việc"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示工作区标签页"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示工作區分頁"
-          }
-        }
-      }
-    },
-    "settings.sidebar.showWorkspaceTabs.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lists tabs beneath each workspace in the sidebar."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーの各ワークスペースの下にタブを一覧表示します。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يسرد علامات التبويب أسفل كل مساحة عمل في الشريط الجانبي."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Navodi kartice ispod svakog radnog prostora na bočnoj traci."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Viser faner under hvert arbejdsområde i sidepanelet."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Listet Tabs unter jedem Arbeitsbereich in der Seitenleiste auf."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Muestra las pestañas debajo de cada espacio de trabajo en la barra lateral."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Répertorie les onglets sous chaque espace de travail dans la barre latérale."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Elenca le schede sotto ogni area di lavoro nella barra laterale."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "រាយផ្ទាំងនៅក្រោមកន្លែងធ្វើការនីមួយៗក្នុងរបារចំហៀង។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바에서 각 작업 공간 아래에 탭을 나열합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lister faner under hvert arbeidsområde i sidepanelet."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wyświetla karty pod każdą przestrzenią roboczą na pasku bocznym."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lista as abas abaixo de cada área de trabalho na barra lateral."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывает вкладки под каждым рабочим пространством на боковой панели."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงแท็บใต้เวิร์กสเปซแต่ละรายการในแถบด้านข้าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kenar çubuğunda her çalışma alanının altında sekmeleri listeler."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показує вкладки під кожною робочою областю на бічній панелі."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Liệt kê các tab bên dưới mỗi không gian làm việc trong thanh bên."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在侧边栏中列出每个工作区下的标签页。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在側邊欄中列出每個工作區下的分頁。"
           }
         }
       }
@@ -168009,268 +168011,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "匯入"
-          }
-        }
-      }
-    },
-    "settings.tabs.terminalFirst": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Classic Mode"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "وضع cmux الكلاسيكي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux klasični način"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux klassisk tilstand"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-Classic-Modus"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modo clásico de cmux"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mode cmux classique"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modalità cmux classica"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux クラシックモード"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "របៀប cmux បុរាណ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 클래식 모드"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux klassisk modus"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tryb cmux classic"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modo cmux clássico"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Классический режим cmux"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "โหมด cmux คลาสสิก"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Klasik Modu"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Класичний режим cmux"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chế độ cmux cổ điển"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 经典模式"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 經典模式"
-          }
-        }
-      }
-    },
-    "settings.tabs.terminalFirst.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تفتح علامات التبويب الجديدة (Cmd-T، و+ في شريط علامات التبويب) والتقسيمات (Cmd-D، Cmd-Shift-D) ومساحات العمل الجديدة (Cmd-N، و+ في الشريط الجانبي) والنوافذ الجديدة طرفية، كما في cmux classic، بدلاً من صفحة علامة التبويب الجديدة. لفتح صفحة علامة التبويب الجديدة أثناء التشغيل، انقر بزر الماوس الأيمن على + في شريط علامات التبويب أو اضغط عليه مطولاً، أو شغّل «صفحة علامة تبويب جديدة» من لوحة الأوامر (Cmd-Shift-P). لا يزال Cmd-I يفتح دردشة وكيل وCmd-Shift-L علامة تبويب متصفح."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nove kartice (Cmd-T, + u traci kartica), podjele (Cmd-D, Cmd-Shift-D), novi radni prostori (Cmd-N, + u bočnoj traci) i novi prozori otvaraju terminal, kao u cmux classic, umjesto stranice novog taba. Da otvorite stranicu novog taba dok je ovo uključeno, desnim klikom ili dugim pritiskom kliknite + u traci kartica ili pokrenite Stranica novog taba iz palete naredbi (Cmd-Shift-P). Cmd-I i dalje otvara chat s agentom, a Cmd-Shift-L karticu preglednika."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nye faner (Cmd-T, + i fanelinjen), opdelinger (Cmd-D, Cmd-Shift-D), nye arbejdsområder (Cmd-N, + i sidepanelet) og nye vinduer åbner en terminal som i cmux classic i stedet for siden Ny fane. Vil du åbne Ny faneside, mens dette er slået til, så højreklik eller tryk og hold på + i fanelinjen, eller kør Ny faneside fra kommandopaletten (Cmd-Shift-P). Cmd-I åbner stadig en agentchat og Cmd-Shift-L en browserfane."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neue Tabs (Cmd-T, das + der Tableiste), Teilungen (Cmd-D, Cmd-Shift-D), neue Arbeitsbereiche (Cmd-N, das + der Seitenleiste) und neue Fenster öffnen ein Terminal wie in cmux classic statt der Neue-Tab-Seite. Um die Neue-Tab-Seite zu öffnen, während dies an ist, klicke mit der rechten Maustaste auf das + der Tableiste oder halte es gedrückt, oder führe „Neue-Tab-Seite“ in der Befehlspalette (Cmd-Shift-P) aus. Cmd-I öffnet weiterhin einen Agent-Chat und Cmd-Shift-L einen Browser-Tab."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Las pestañas nuevas (Cmd-T, el + de la barra de pestañas), las divisiones (Cmd-D, Cmd-Shift-D), los espacios de trabajo nuevos (Cmd-N, el + de la barra lateral) y las ventanas nuevas abren una terminal, como en cmux classic, en lugar de la página Nueva pestaña. Para abrir la página de nueva pestaña con esto activado, haz clic derecho o mantén pulsado el + de la barra de pestañas, o ejecuta Página de nueva pestaña desde la paleta de comandos (Cmd-Shift-P). Cmd-I sigue abriendo un chat con un agente y Cmd-Shift-L una pestaña del navegador."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les nouveaux onglets (Cmd-T, le + de la barre d’onglets), les divisions (Cmd-D, Cmd-Shift-D), les nouveaux espaces de travail (Cmd-N, le + de la barre latérale) et les nouvelles fenêtres ouvrent un terminal, comme dans cmux classic, au lieu de la page Nouvel onglet. Pour ouvrir la page Nouvel onglet quand ce réglage est activé, faites un clic droit ou un appui prolongé sur le + de la barre d’onglets, ou lancez Page Nouvel onglet depuis la palette de commandes (Cmd-Shift-P). Cmd-I ouvre toujours une discussion avec un agent et Cmd-Shift-L un onglet de navigateur."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le nuove schede (Cmd-T, il + della barra delle schede), le divisioni (Cmd-D, Cmd-Shift-D), i nuovi spazi di lavoro (Cmd-N, il + della barra laterale) e le nuove finestre aprono un terminale, come in cmux classic, invece della pagina Nuova scheda. Per aprire la pagina Nuova scheda con questa opzione attiva, fai clic destro o tieni premuto il + della barra delle schede, oppure esegui Pagina Nuova scheda dalla tavolozza comandi (Cmd-Shift-P). Cmd-I apre ancora una chat con un agente e Cmd-Shift-L una scheda del browser."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいタブ（Cmd-T、タブバーの +）、分割（Cmd-D、Cmd-Shift-D）、新しいワークスペース（Cmd-N、サイドバーの +）、新しいウインドウは、新しいタブページではなく、cmux classic と同じようにターミナルを開きます。オンのまま新しいタブページを開くには、タブバーの + を右クリックまたは長押しするか、コマンドパレット（Cmd-Shift-P）から「新しいタブページ」を実行します。Cmd-I は引き続きエージェントチャットを、Cmd-Shift-L はブラウザタブを開きます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ផ្ទាំងថ្មី (Cmd-T, + នៃរបារផ្ទាំង) ការបំបែក (Cmd-D, Cmd-Shift-D) កន្លែងធ្វើការថ្មី (Cmd-N, + នៃរបារចំហៀង) និងបង្អួចថ្មី បើកទែមីណាល់ ដូចក្នុង cmux classic ជំនួសឱ្យទំព័រផ្ទាំងថ្មី។ ដើម្បីបើកទំព័រផ្ទាំងថ្មី ពេលការកំណត់នេះបើក សូមចុចខាងស្តាំ ឬចុចសង្កត់ + នៃរបារផ្ទាំង ឬដំណើរការ ទំព័រផ្ទាំងថ្មី ពីបន្ទះពាក្យបញ្ជា (Cmd-Shift-P)។ Cmd-I នៅតែបើកការជជែកជាមួយភ្នាក់ងារ ហើយ Cmd-Shift-L បើកផ្ទាំងកម្មវិធីរុករក។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "새 탭(Cmd-T, 탭 막대의 +), 분할(Cmd-D, Cmd-Shift-D), 새 워크스페이스(Cmd-N, 사이드바의 +), 새 창이 새 탭 페이지 대신 cmux classic처럼 터미널을 엽니다. 이 설정이 켜진 상태에서 새 탭 페이지를 열려면 탭 막대의 +를 오른쪽 클릭하거나 길게 누르거나, 명령어 팔레트(Cmd-Shift-P)에서 새 탭 페이지를 실행하세요. Cmd-I는 계속 에이전트 채팅을, Cmd-Shift-L은 브라우저 탭을 엽니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nye faner (Cmd-T, + i fanelinjen), delinger (Cmd-D, Cmd-Shift-D), nye arbeidsområder (Cmd-N, + i sidepanelet) og nye vinduer åpner en terminal som i cmux classic i stedet for Ny fane-siden. For å åpne Ny fane-siden mens dette er på, høyreklikk eller trykk og hold på + i fanelinjen, eller kjør Ny fane-side fra kommandopaletten (Cmd-Shift-P). Cmd-I åpner fortsatt en agentchat og Cmd-Shift-L en nettleserfane."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nowe karty (Cmd-T, + na pasku kart), podziały (Cmd-D, Cmd-Shift-D), nowe obszary robocze (Cmd-N, + na pasku bocznym) i nowe okna otwierają terminal, jak w cmux classic, zamiast strony nowej karty. Aby otworzyć stronę nowej karty, gdy to jest włączone, kliknij prawym przyciskiem lub przytrzymaj + na pasku kart albo uruchom Strona nowej karty z palety poleceń (Cmd-Shift-P). Cmd-I nadal otwiera czat z agentem, a Cmd-Shift-L kartę przeglądarki."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Novas abas (Cmd-T, o + da barra de abas), divisões (Cmd-D, Cmd-Shift-D), novos espaços de trabalho (Cmd-N, o + da barra lateral) e novas janelas abrem um terminal, como no cmux classic, em vez da página Nova Aba. Para abrir a página de nova aba com isso ativado, clique com o botão direito ou mantenha pressionado o + da barra de abas, ou execute Página de nova aba na paleta de comandos (Cmd-Shift-P). Cmd-I ainda abre um chat com agente e Cmd-Shift-L uma aba do navegador."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Новые вкладки (Cmd-T, + на панели вкладок), разделения (Cmd-D, Cmd-Shift-D), новые рабочие пространства (Cmd-N, + на боковой панели) и новые окна открывают терминал, как в cmux classic, а не страницу новой вкладки. Чтобы открыть страницу новой вкладки, когда это включено, щёлкните правой кнопкой или нажмите и удерживайте + на панели вкладок либо выполните «Страница новой вкладки» в палитре команд (Cmd-Shift-P). Cmd-I по-прежнему открывает чат с агентом, а Cmd-Shift-L — вкладку браузера."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แท็บใหม่ (Cmd-T, + ในแถบแท็บ) การแบ่ง (Cmd-D, Cmd-Shift-D) เวิร์กสเปซใหม่ (Cmd-N, + ในแถบด้านข้าง) และหน้าต่างใหม่จะเปิดเทอร์มินัลเหมือนใน cmux classic แทนหน้าแท็บใหม่ หากต้องการเปิดหน้าแท็บใหม่ขณะเปิดตัวเลือกนี้ ให้คลิกขวาหรือกดค้างที่ + ในแถบแท็บ หรือเรียกใช้ หน้าแท็บใหม่ จากแถบคำสั่ง (Cmd-Shift-P) Cmd-I ยังคงเปิดแชทเอเจนต์ และ Cmd-Shift-L เปิดแท็บเบราว์เซอร์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yeni sekmeler (Cmd-T, sekme çubuğundaki +), bölmeler (Cmd-D, Cmd-Shift-D), yeni çalışma alanları (Cmd-N, kenar çubuğundaki +) ve yeni pencereler, Yeni Sekme sayfası yerine cmux classic'teki gibi bir terminal açar. Bu açıkken Yeni Sekme sayfasını açmak için sekme çubuğundaki +'ya sağ tıklayın veya basılı tutun ya da komut paletinden (Cmd-Shift-P) Yeni Sekme Sayfası'nı çalıştırın. Cmd-I hâlâ bir ajan sohbeti, Cmd-Shift-L ise bir tarayıcı sekmesi açar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Нові вкладки (Cmd-T, + на панелі вкладок), поділи (Cmd-D, Cmd-Shift-D), нові робочі простори (Cmd-N, + на бічній панелі) і нові вікна відкривають термінал, як у cmux classic, замість сторінки нової вкладки. Щоб відкрити сторінку нової вкладки, коли це ввімкнено, клацніть правою кнопкою або натисніть і утримуйте + на панелі вкладок чи виконайте «Сторінка нової вкладки» з палітри команд (Cmd-Shift-P). Cmd-I і далі відкриває чат з агентом, а Cmd-Shift-L — вкладку браузера."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thẻ mới (Cmd-T, dấu + trên thanh thẻ), chia ngăn (Cmd-D, Cmd-Shift-D), không gian làm việc mới (Cmd-N, dấu + trên thanh bên) và cửa sổ mới sẽ mở terminal như trong cmux classic thay vì trang Thẻ mới. Để mở trang Thẻ mới khi đang bật, hãy nhấp chuột phải hoặc nhấn giữ dấu + trên thanh thẻ, hoặc chạy Trang tab mới từ bảng lệnh (Cmd-Shift-P). Cmd-I vẫn mở cuộc trò chuyện với tác tử và Cmd-Shift-L mở thẻ trình duyệt."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新标签页（Cmd-T、标签栏的 +）、拆分（Cmd-D、Cmd-Shift-D）、新工作区（Cmd-N、侧边栏的 +）和新窗口会像 cmux classic 一样打开终端，而不是新标签页页面。开启时如需打开新标签页页面，请右键点按或按住标签栏的 +，或在命令面板（Cmd-Shift-P）中运行“新标签页”。Cmd-I 仍会打开智能体聊天，Cmd-Shift-L 仍会打开浏览器标签页。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新分頁（Cmd-T、分頁列的 +）、分割（Cmd-D、Cmd-Shift-D）、新工作區（Cmd-N、側邊欄的 +）和新視窗會像 cmux classic 一樣開啟終端機，而不是新分頁頁面。開啟時如需開啟新分頁頁面，請按右鍵或按住分頁列的 +，或在指令面板（Cmd-Shift-P）中執行「新分頁頁面」。Cmd-I 仍會開啟代理程式聊天，Cmd-Shift-L 仍會開啟瀏覽器分頁。"
           }
         }
       }
