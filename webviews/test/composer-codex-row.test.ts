@@ -156,7 +156,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
 
   // New Tab's Codex look keeps its chips in the box's row too; a narrow pane steps their labels down
   // rather than wrapping the mic and Send or clipping the model (review of #28901).
-  for (const width of [720, 420, 280])
+  for (const width of [720, 420, 400, 280])
     test(`codex New Tab ${width}: one row inside the box, nothing overlapping`, async () => {
       const page = await browser.newPage({ viewport: { width, height: 560 }, deviceScaleFactor: 2 });
       try {
@@ -172,6 +172,15 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
           () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
         );
         const geometry = await page.evaluate(() => {
+          // The model keeps a visible identity (its name, family, short name or mark) at every width.
+          const model = document.querySelector(".nt-composer .nt-box .nt-pickers .acpmux-model .acpmux-picker-button")!;
+          const modelShown = [...model.querySelectorAll<HTMLElement>("*")].some((el) => {
+            const style = getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            if (style.visibility !== "visible" || r.width < 4 || r.height < 4) return false;
+            const own = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent!.trim().length > 0);
+            return own || el.classList.contains("agent-mark") || !!el.getAttribute("data-label");
+          });
           const box = document.querySelector(".nt-composer .nt-box")!.getBoundingClientRect();
           const row = document.querySelector(".nt-composer .nt-box .nt-pickers")!;
           const parts = [".acpmux-access", ".acpmux-model", ".acpmux-mic", ".acpmux-send"].flatMap((selector) => {
@@ -181,6 +190,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
             return [{ selector, left: r.left, right: r.right, cy: (r.top + r.bottom) / 2 }];
           });
           return {
+            modelShown,
             box: { left: box.left, right: box.right },
             parts,
             foot: !!document.querySelector(".nt-composer .acpmux-composer-foot"),
@@ -190,6 +200,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
           .locator(".nt-composer")
           .screenshot({ path: path.join(out, `codex-newtab-${width}.png`), animations: "disabled", caret: "hide" });
         expect(geometry.foot).toBe(false);
+        expect(geometry.modelShown).toBe(true);
         expect(geometry.parts.map((p) => p.selector)).toEqual([
           ".acpmux-access",
           ".acpmux-model",
