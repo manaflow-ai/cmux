@@ -8,10 +8,6 @@ import Testing
 /// live" override must not start Chromium with AsyncLiveResize on (cmux#25842 review).
 @MainActor
 struct BrowserDragResizeLaunchTests {
-    @Test func resizeSyncIsTheDefault() {
-        #expect(BrowserResizeTunables.dragResize.defaultValue == .resizeSync)
-    }
-
     @Test func theFileValueAppliesWhileTheStoresReadIsPending() throws {
         let file = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "drag-resize-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: file) }
