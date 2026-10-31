@@ -10,8 +10,9 @@
 // stop button. An agent another one spawned sits right under it.
 //
 // One item is its line alone. Several get a header first, as the Codex and Claude desktop apps
-// head their running agents: "2 subagents running · 1 command", the time since the first started
-// and a chevron; between turns it says "Running in background · 2 subagents · 1 command". The
+// head their running agents: the shared spinner while anything under it runs, "2 subagents running ·
+// 1 command", the time since the first started as quiet meta right after the counts (never a column
+// of its own far from them), and the chevron in the trailing column every line's chevron ends in; between turns it says "Running in background · 2 subagents · 1 command". The
 // header counts exactly the lines under it: what runs or waits on the person. The chat's subagents
 // and the chats its agent started are all "subagents" (Leo 2026-10-21: "SHOULDN'T THIS SAY
 // SUBAGENTS?"). What ended stays as compact status cards after them, never counted. A command is
@@ -50,6 +51,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { foldMotion, useFold } from "../conversation/fold";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { formatDuration } from "../conversation/turns";
+import { Spinner } from "../conversation/icons";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -65,6 +67,7 @@ import { itemStart, type TrayItem } from "./runningTray";
 import { doingDetail, toolDetail } from "./trayDetail";
 import { trayPanelLook } from "./trayPanel.experiment";
 import { trayMotionLook } from "./trayMotion.experiment";
+import { trayHeadLook } from "./trayHead.experiment";
 import { Tick, useTrayMotion } from "./trayMotion";
 import type { StartedSession } from "../started/startedSessions";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
@@ -137,6 +140,7 @@ export const SubagentTray = memo(function SubagentTray({
   // Read once per tray: the arm is the gallery's override or a dogfood key, never a per-tick read.
   const [look] = useState(() => experimentArm(trayPanelLook));
   const [motion] = useState(() => experimentArm(trayMotionLook));
+  const [head] = useState(() => experimentArm(trayHeadLook));
   // Only the bottom stack's tray leaves on a snapshot: one placed in the transcript moves with it.
   const motionRef = useTrayMotion(shown, enters, placement === "tray");
   const setTrayRef = useCallback(
@@ -303,6 +307,7 @@ export const SubagentTray = memo(function SubagentTray({
       data-look={look}
       data-motion={motion}
       data-narrow={narrow || undefined}
+      data-head={head}
     >
       {headed && (
         <button
@@ -312,17 +317,24 @@ export const SubagentTray = memo(function SubagentTray({
           aria-controls={open ? listId : undefined}
           onClick={() => setOpened(!open)}
         >
-          <span className="acpmux-lineage__icon" data-state={runs ? "running" : "done"}>
-            <Icon name="agent.session" size={14} />
-          </span>
+          {head !== "bare" && (
+            <span className="acpmux-lineage__icon" data-state={runs ? "running" : "done"}>
+              {head === "spinner" && runs ? (
+                <Spinner size={ROW_ICON} loading />
+              ) : (
+                <Icon name={HEAD_ICON} size={ROW_ICON} row />
+              )}
+            </span>
+          )}
           <Tick className="acpmux-summary-text acpmux-running-tray__title" text={title} />
+          {/* Quiet meta right after the counts, never a column of its own far from them. */}
           <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
             {starts.length > 0 ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
           </span>
+          {/* The one trailing column every line's chevron and View all's end in. */}
           <span className="acpmux-running-tray__status">
             <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
           </span>
-          <span className="acpmux-running-tray__stop-slot" aria-hidden="true" />
         </button>
       )}
       {fold.present && (
@@ -457,6 +469,9 @@ export const SubagentTray = memo(function SubagentTray({
 /// A subagent's mark before its name, in place of the word: a branch off this chat, never the
 /// chat bubble a session's own icon is (Leo, 2026-10-28: "Shouldn't the subagent icon be different?").
 const SUBAGENT_ICON = "agent.fork";
+/// The header's still mark for background work (trayHead.experiment.ts): a running ring, never the
+/// chat bubble, which reads as a message.
+const HEAD_ICON = "app.sample.runningagents";
 const NO_ITEMS: readonly TrayItem[] = [];
 const NO_ARRIVALS: ReadonlySet<string> = new Set();
 /// The most lines that rise in from one update; a bigger burst is simply there.
