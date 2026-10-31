@@ -161,21 +161,9 @@ public actor CloudMachineLink {
         defer {
             if let inviteFile { try? FileManager.default.removeItem(at: inviteFile) }
         }
-        var arguments = [
-            "remote", "connect", endpoint.route,
-            "--device-name", deviceName,
-            "--state-dir", paths.linkState.path,
-            "--local-socket", paths.linkSocket(machineID: machineID),
-            "--headless", "--json", "--exit-with-parent", "--lanes", "single",
-            "--connect-timeout-seconds", "20",
-        ]
-        if let inviteFile {
-            arguments += ["--invite-file", inviteFile.path]
-        } else if endpoint.trustedCarrier {
-            arguments.append("--carrier")
-        }
-        arguments += Self.vmKindArguments(endpoint)
-        arguments += ["--wireguard-hub", hubEndpoint.socket, "--wireguard-hub-token-stdin"]
+        let arguments = Self.connectArguments(route: endpoint.route, deviceName: deviceName, paths: paths, machineID: machineID,
+                                              inviteFile: inviteFile, trustedCarrier: endpoint.trustedCarrier, hubSocket: hubEndpoint.socket,
+                                              vmKind: Self.vmKindArguments(endpoint))
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_REMOTE_STATE_DIR"] = paths.linkState.path
         guard FileManager.default.isExecutableFile(atPath: binary.path) else { throw ChildProcessError.missingBinary(binary.path) }
@@ -221,6 +209,28 @@ public actor CloudMachineLink {
             logger.error("link for \(self.machineID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             throw error
         }
+    }
+
+    /// The `cmux-tui remote connect` argv of one link. `--lanes auto` gives keystrokes their own
+    /// WebSocket, apart from control and from bulk and tunnel bytes (terminal output, forwarded
+    /// browser ports): on one carrier a key waited behind every bulk frame already in its TCP send
+    /// buffer (#25595). Later links of an invited link enroll with the device the first one enrolled.
+    static func connectArguments(route: String, deviceName: String, paths: CloudPaths, machineID: String,
+                                 inviteFile: URL?, trustedCarrier: Bool, hubSocket: String, vmKind: [String] = []) -> [String] {
+        var arguments = [
+            "remote", "connect", route,
+            "--device-name", deviceName,
+            "--state-dir", paths.linkState.path,
+            "--local-socket", paths.linkSocket(machineID: machineID),
+            "--headless", "--json", "--exit-with-parent", "--lanes", "auto",
+            "--connect-timeout-seconds", "20",
+        ]
+        if let inviteFile {
+            arguments += ["--invite-file", inviteFile.path]
+        } else if trustedCarrier {
+            arguments.append("--carrier")
+        }
+        return arguments + vmKind + ["--wireguard-hub", hubSocket, "--wireguard-hub-token-stdin"]
     }
 
     /// The running link client redials on its own after sleep, a network

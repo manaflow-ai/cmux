@@ -24,6 +24,7 @@ public final class RemoteLocalhostService {
     /// machine, as cmux Classic reaches a machine's desktop. Nil until the app sets it.
     public var cloudTunnelSocket: HubLoopbackOpener.Hub?
     @ObservationIgnored private var observation: Task<Void, Never>?
+    private var strandedReload: StrandedPageReload?
 
     /// DEBUG builds: `CMUX_NEXT_REMOTE_LOCALHOST_DEBUG_SOCKET` names a second
     /// cmux-tui socket whose machine the tabs of this Mac use, so the
@@ -127,7 +128,7 @@ public final class RemoteLocalhostService {
             // an address) is nil: a blank page, never this Mac.
             guard let socket = cloudTunnelSocket, let address = machines.cloudTunnelAddress(machine: machine),
                   let hub = HubLoopbackOpener(hub: socket, address: address) else { return nil }
-            key = Self.machineKey(registryID: "cloud-tunnel:" + machine)
+            key = Self.cloudDesktopKey(machine: machine)
             opener = CloudDesktopOpener(base: hub, machine: machine)
         } else {
             guard let registryID = daemon.isLocal ? debugSocket : daemon.store.registryID else { return nil }
@@ -144,6 +145,37 @@ public final class RemoteLocalhostService {
         configuration.machineStore = BrowserMachineStore(machineKey: key, machineName: name, proxyPort: port)
         configuration.navigationGuard = .loopbackOnly
         return configuration
+    }
+
+    /// Starts loading again, when a machine connects again, its pages that showed "not connected"
+    /// (``StrandedPageReload``). `keys` names the machine store keys of a machine besides its
+    /// remote-localhost key (a Cloud machine's proxy store); `reload` loads the pages of a machine
+    /// store at those addresses.
+    public func reloadStrandedPages(keys: @escaping @MainActor (DaemonService) -> [String],
+                                    _ reload: @escaping @MainActor (_ machineKey: String, _ addresses: Set<String>) -> Void) {
+        guard strandedReload == nil else { return }
+        let watch = StrandedPageReload(localhost: self, machines: machines, keys: keys, reload: reload)
+        strandedReload = watch
+        watch.start()
+    }
+
+    /// `daemon`'s remote-localhost store key, nil before its first handshake.
+    func machineKey(of daemon: DaemonService) -> String? {
+        guard !daemon.isLocal, let registryID = daemon.store.registryID else { return nil }
+        return Self.machineKey(registryID: registryID)
+    }
+
+    /// The `host:port` addresses machine store `machineKey`'s proxy listener answered "not
+    /// connected" since the last call (``RemoteLocalhostProxy/takeStranded(listenerPort:)``),
+    /// forgotten by this call. Called when the machine connects again, so those pages load again
+    /// (#25595); a Cloud route of the machine may then fetch again at once (``CloudBrowserRoute``).
+    public func takeStranded(machineKey: String) async -> Set<String> {
+        guard let port = proxy.machinePorts[machineKey] else { return [] }
+        let stranded = proxy.takeStranded(listenerPort: port)
+        if !stranded.isEmpty, let route = proxy.route(forListenerPort: port)?.opener as? CloudBrowserRoute {
+            await route.machineConnected()
+        }
+        return stranded
     }
 
     // MARK: Open Desktop
@@ -257,6 +289,8 @@ public final class RemoteLocalhostService {
     ///   - proxyPort: The loopback port returned by `cloud.browser.open`.
     ///   - proxyUsername: The HMAC user name returned by `cloud.browser.open`.
     ///   - proxyPassword: The random HMAC secret returned by `cloud.browser.open`.
+    ///   - refetch: Asks `cmux-cloud` for the machine's route again once this one is gone (the link
+    ///     dropped or was replaced, ``CloudBrowserRoute``); nil keeps this route for good.
     /// - Returns: A Chromium machine store that points only at the app's peer-checked proxy.
     public func cloudBrowserStore(
         machineKey: String,
@@ -265,12 +299,12 @@ public final class RemoteLocalhostService {
         generation: UInt64,
         proxyPort: UInt16,
         proxyUsername: String,
-        proxyPassword: String
+        proxyPassword: String,
+        refetch: CloudBrowserRoute.Fetch? = nil
     ) async throws -> BrowserMachineStore {
-        let opener = CloudProxyLoopbackOpener(
-            proxyPort: proxyPort,
-            credential: ProxyCredential(username: proxyUsername, password: proxyPassword)
-        )
+        let answer = CloudBrowserRoute.Answer(proxyPort: proxyPort, credential: ProxyCredential(username: proxyUsername, password: proxyPassword))
+        let opener: any LoopbackTunnelOpening = refetch.map { CloudBrowserRoute(first: answer, fetch: $0) }
+            ?? CloudProxyLoopbackOpener(proxyPort: answer.proxyPort, credential: answer.credential)
         let port = try await proxy.listen(
             for: machineKey,
             incarnation: incarnation,
@@ -281,6 +315,16 @@ public final class RemoteLocalhostService {
                 allowsDirectDestinations: false
             )
         )
+        return BrowserMachineStore(machineKey: machineKey, machineName: machineName, proxyPort: port)
+    }
+
+    /// The store of a Cloud proxy tab restored after a relaunch (#25595): the route of the last
+    /// launch is gone, so the machine's route is fetched on the page's first request
+    /// (``CloudBrowserRoute``). A route of the machine already live this launch stays in place: this
+    /// one is version zero, below every `cloud.browser.open` answer.
+    public func restoredCloudBrowserStore(machineKey: String, machineName: String, fetch: @escaping CloudBrowserRoute.Fetch) async throws -> BrowserMachineStore {
+        let route = RemoteLocalhostProxy.Route(machineName: machineName, opener: CloudBrowserRoute(first: nil, fetch: fetch), allowsDirectDestinations: false)
+        let port = try await proxy.listen(for: machineKey, incarnation: 0, generation: 0, route: route)
         return BrowserMachineStore(machineKey: machineKey, machineName: machineName, proxyPort: port)
     }
 

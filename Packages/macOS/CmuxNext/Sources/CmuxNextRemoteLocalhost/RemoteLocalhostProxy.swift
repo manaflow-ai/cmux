@@ -70,6 +70,9 @@ public final class RemoteLocalhostProxy: Sendable {
         var stats = Stats()
         /// Recent outcomes, newest last (`debug.remote-localhost`).
         var events: [String] = []
+        /// `host:port` addresses whose tunnel found the machine not connected, by listener port
+        /// (``takeStranded(listenerPort:)``).
+        var stranded: [UInt16: Set<String>] = [:]
     }
 
     private struct RouteVersion: Comparable {
@@ -191,8 +194,32 @@ public final class RemoteLocalhostProxy: Sendable {
     /// Machine listener ports by machine key (`debug.remote-localhost`).
     public var machinePorts: [String: UInt16] { state.withLock { $0.machineListeners.mapValues(\.port) } }
 
+    /// Notes that a request for `host:port` on listener `listenerPort` found the machine not
+    /// connected (its link down at launch or since): the page it got is an error page.
+    func noteStranded(listenerPort: UInt16, host: String, port: UInt16) {
+        state.withLock { state in
+            var addresses = state.stranded[listenerPort, default: []]
+            guard addresses.count < 64 else { return }
+            addresses.insert(Self.address(host: host, port: port))
+            state.stranded[listenerPort] = addresses
+        }
+    }
+
+    /// The `host:port` addresses (``address(host:port:)``) that machine listener `listenerPort`
+    /// answered with "not connected" since the last call, forgotten by this call: when the machine
+    /// connects again, its pages that show that error load again (#25595).
+    public func takeStranded(listenerPort: UInt16) -> Set<String> {
+        state.withLock { $0.stranded.removeValue(forKey: listenerPort) ?? [] }
+    }
+
+    /// `host:port` with a lowercase host and IPv6 literals in brackets, as ``takeStranded(listenerPort:)`` answers.
+    public static func address(host: String, port: UInt16) -> String {
+        let host = host.lowercased()
+        return host.contains(":") && !host.hasPrefix("[") ? "[\(host)]:\(port)" : "\(host):\(port)"
+    }
+
     /// The route of a machine listener's port, nil for the credential listener.
-    func route(forListenerPort port: UInt16) -> Route? {
+    public func route(forListenerPort port: UInt16) -> Route? {
         state.withLock { $0.routesByPort[port] }
     }
 

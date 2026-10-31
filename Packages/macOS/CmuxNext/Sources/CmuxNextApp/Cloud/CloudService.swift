@@ -424,6 +424,8 @@ final class CloudService {
     /// after the account's machines were dropped (sign-out, another account),
     /// or after this app added or removed a machine, is stale.
     @ObservationIgnored private var listGeneration = 0
+    /// A failed list read again on a capped backoff (``CloudListRetry``).
+    @ObservationIgnored private let listRetry = CloudListRetry()
     /// Orders every read of machine records (a list, Machine Status's one record) by when it was asked.
     @ObservationIgnored private var recordReads = 0
     /// Per machine, the read whose record it holds: an older read's answer that lands later changes nothing.
@@ -466,6 +468,7 @@ final class CloudService {
             machines.cloudLimits = limits
             if let limits { planObserved(limits.planId) }
             lastError = nil
+            listRetry.reset()
             reconcile(list, read: read, connectsAtRead: connectsAtRead)
             hasLoadedMachines = true
             loadedAccount = account
@@ -477,6 +480,7 @@ final class CloudService {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return false }
             lastError = CloudStrings.errorText(error)
             logger.error("machine list failed: \(String(describing: error), privacy: .public)")
+            listRetry.failed { [weak self] in _ = await self?.refresh() }
             return false
         }
     }
@@ -500,7 +504,7 @@ final class CloudService {
     /// Whether the store holds a list the server answered, within `age`, for the user and team
     /// signed in now: a failed or superseded refresh, or another team's list, is not one.
     func hasCurrentList(within age: Duration) -> Bool {
-        Self.listIsCurrent(loadedAt: hasLoadedMachines ? listLoadedAt : nil, loadedFor: loadedAccount, account: listAccount, now: .now, within: age)
+        CloudListRetry.listIsCurrent(loadedAt: hasLoadedMachines ? listLoadedAt : nil, loadedFor: loadedAccount, account: listAccount, now: .now, within: age)
     }
 
     /// Takes a read ticket before sending. A one-record request names its machine; a list does not.
@@ -630,6 +634,7 @@ final class CloudService {
     private func dropAllMachines() {
         // A list in flight belongs to the machines dropped here.
         listGeneration += 1
+        listRetry.reset()
         for creation in creations.all { creations.end(creation) }
         for session in machines.cloud { machines.remove(session.machineID)?.disconnect() }
         recordReadApplied = [:]

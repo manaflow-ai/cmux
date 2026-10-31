@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextRemoteLocalhostService
 import Foundation
 
 extension AppServices {
@@ -80,6 +81,20 @@ extension AppServices {
         machines.onDaemonRemoved = { [weak localhost, weak self] daemon in
             localhost?.closeClient(of: daemon)
             self?.cloudVmHost.forget(daemon.machineID)
+        }
+        // A Cloud proxy tab restored after a relaunch fetches its machine's route again.
+        cache.pageRequests.proxiedTabs.restore = { [weak self] machine in
+            guard let self else { return nil }
+            return await BrowserTabOpen.restoredStore(machine, services: self)
+        }
+        // A machine back after its link was down: its localhost pages that showed "not connected" load again.
+        localhost.reloadStrandedPages(keys: { [BrowserTabOpen.machineKey(machine: $0.machineID)] }) { [weak self] machineKey, addresses in
+            guard let self else { return }
+            for entry in cache.browsers.values {
+                guard let page = entry.tab as? CEFTab, page.machineStore?.machineKey == machineKey, let url = page.state.url,
+                      StrandedPageReload.matches(url, addresses: addresses) else { continue }
+                page.reload()
+            }
         }
         browserTabs.isIncognitoPane = { [weak self] pane in
             guard let self, let workspace = machines.daemon(forPane: pane).store.workspace(containing: pane.handle)?.id else { return false }
