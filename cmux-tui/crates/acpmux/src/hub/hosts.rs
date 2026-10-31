@@ -732,8 +732,13 @@ impl Hub {
         let mut canary_passed = false;
         // Which logged updates are a subagent's, as the tap tells them live: by the subagents
         // the log itself started, never by an update's own `_meta`.
+        // The chat's native roots, current and earlier, are never subagents (as the tap seeds them).
         let mut subagents = crate::subagents::SubagentTree::default();
-        subagents.set_own(session.meta().agent_session_id.as_deref());
+        let meta = session.meta();
+        subagents.set_own(meta.agent_session_id.as_deref());
+        subagents.set_roots(
+            meta.agent_session_id.iter().chain(&meta.retired_agent_session_ids).map(String::as_str),
+        );
         // Only the log's last turn can be open when the scan ends: an earlier turn's records
         // (most of a long log) are folded away at its `turn_result`. Found from the end, on the
         // heads of the records after that turn's marker.
