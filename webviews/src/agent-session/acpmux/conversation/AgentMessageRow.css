@@ -16,6 +16,8 @@
 .cv-agentmsg__line {
   /* The shared tool rows' grid (conversation.css `.cv-tool`): icon, sentence, trailing status,
      chevron. The sentence's words, chip and preview flow inside column 2. */
+  position: relative;
+  isolation: isolate;
   white-space: nowrap;
   user-select: none;
 }
@@ -110,10 +112,19 @@ button.cv-agentmsg__name:focus-visible {
   white-space: nowrap;
   color: var(--cv-text-dim);
 }
-.cv-agentmsg__chevron {
-  cursor: default;
+/* The toggle is the line's one control: its hit area spans the line, under the words, so a click
+   on the status, the chevron or a gap toggles it, while the recipient chip and the hover row sit
+   above it as their own buttons. The status and the chevron only draw. */
+.cv-agentmsg__toggle::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
 }
-.cv-agentmsg__line:has(:is(.cv-agentmsg__toggle:hover, .cv-agentmsg__toggle:focus-visible, .cv-agentmsg__words:hover, .cv-agentmsg__chevron:hover))
+.cv-agentmsg__line > :is(.cv-tool__trail, .cv-agentmsg__chevron) {
+  pointer-events: none;
+}
+.cv-agentmsg__line:has(:is(.cv-agentmsg__toggle:hover, .cv-agentmsg__toggle:focus-visible, .cv-agentmsg__words:hover))
   > .cv-agentmsg__chevron {
   color: var(--cv-text);
 }

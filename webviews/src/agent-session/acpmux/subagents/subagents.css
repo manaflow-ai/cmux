@@ -781,8 +781,23 @@ button.cv-subagent > :last-child {
    button as wide as its words, its hover buttons after it, then the duration pushed to the
    trailing column and the chevron in the disclosure slot, on the same x as every tool row's. */
 .cv-tool.cv-subagent-done-row {
+  position: relative;
+  isolation: isolate;
   display: flex;
   min-width: 0;
+}
+/* The open button is the line's one control: its hit area spans the row, under the words, so a
+   click on the duration, the chevron or the gap between opens it, while Restart, Retry and the
+   ⋯ menu sit above it as their own buttons. The duration and the chevron only draw. */
+.cv-subagent-done-row > .cv-subagent-done::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+}
+.cv-subagent-done-row > .cv-subagent-done__trail,
+.cv-subagent-done-row > .cv-tool__chevron {
+  pointer-events: none;
 }
 .cv-subagent-done-row > .cv-subagent-done {
   grid-template-columns: var(--cv-glyph-slot) minmax(0, 1fr);
@@ -796,7 +811,6 @@ button.cv-subagent > :last-child {
 }
 .cv-subagent-done-row > .cv-tool__chevron {
   flex: none;
-  cursor: pointer;
 }
 .cv-subagent-done-row > .cv-tool__chevron.is-idle {
   visibility: hidden;

@@ -234,7 +234,7 @@ const focusable = (row: Element) =>
 test("a subagent done line is one control: its chevron only draws and opens nothing of its own", async () => {
   const opened: string[] = [];
   const container = await render(
-    <SubagentNavContext.Provider value={(id) => void opened.push(id)}>
+    <SubagentNavContext.Provider value={(id) => void opened.push(id ?? "")}>
       <SubagentDoneLine row={subagentRow} />
     </SubagentNavContext.Provider>,
   );

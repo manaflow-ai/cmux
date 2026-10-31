@@ -141,7 +141,9 @@ export function AgentMessageRow({
           {actions}
         </span>
         {meta && <span className="cv-tool__trail">{meta}</span>}
-        <span className="cv-tool__chevron cv-agentmsg__chevron" data-interactive="" aria-hidden onClick={onToggle}>
+        {/* The chevron only draws: the toggle's hit area reaches it (AgentMessageRow.css
+            `.cv-agentmsg__toggle::before`), so it is no second control beside the toggle. */}
+        <span className="cv-tool__chevron cv-agentmsg__chevron" aria-hidden>
           <ChevronRight size={14} strokeWidth={1.2} className={`cv-rotor${open ? " is-open" : ""}`} />
         </span>
       </div>
