@@ -239,8 +239,8 @@ export default componentEntry<Props>({
       note: "The selected-person count uses tabular digits while choices change.",
       props: { select: "c-release", route: { kind: "newMessage" } },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector('.lg-form .lg-picker-row input'));
-        await ctx.click({ selector: '.lg-form .lg-picker-row input' });
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-picker-row input"));
+        await ctx.click({ selector: ".lg-form .lg-picker-row input" });
       },
     },
     normal: { note: "The conversation list and the page's first conversation.", props: {} },
