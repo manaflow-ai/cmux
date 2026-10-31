@@ -412,6 +412,9 @@ type Props = {
   /// A new chat waiting on its folder choice: no prompt goes, including a trust-resend callback.
   /// Shell mode still runs. This is separate from a trust read's empty `blocked` object.
   blockSend?: boolean;
+  /// A Cloud start is out: the box takes no input until it ends (ComposerBox `inert`), since this
+  /// tab closes once the chat opens on the machine and an edit made meanwhile would be lost.
+  locked?: boolean;
   /// Current session/route auth refusal. Unlike folder Trust, force-send cannot bypass it.
   authBlock?: string;
   /// Keeps auth refusal blocking sends when its text is represented by another notice.
@@ -490,6 +493,7 @@ export function Composer({
   switching,
   blocked,
   blockSend = false,
+  locked = false,
   authBlock,
   authBlocked = false,
   placeholder,
@@ -671,6 +675,7 @@ export function Composer({
     },
     allowImages,
     dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
+    locked: () => locked,
     // A file pasted in shell mode is kept for the next prompt and uploads nothing; the mode stays.
     pasteTarget: (target) =>
       shellField.current?.contains(target)
@@ -726,6 +731,8 @@ export function Composer({
   // A paste anywhere in the pane outside a text field goes into the prompt, after what is already
   // there (composer/pasteAnywhere.ts).
   usePasteAnywhere(() => {
+    // A Cloud start is out (`locked`): the prompt takes nothing until it ends.
+    if (locked) return false;
     const shellInput = shellRef.current.shell ? shellField.current : null;
     if (shellInput) {
       shellInput.focus();
@@ -2186,6 +2193,7 @@ export function Composer({
       <ComposerBox
         handle={box}
         boxRef={setComposerBox}
+        inert={locked}
         fieldRef={fieldRef}
         field={{
           className: shell
@@ -2323,8 +2331,9 @@ export function Composer({
                 const files = [...(event.currentTarget.files ?? [])];
                 // Cleared, choosing the same file again still fires change.
                 event.currentTarget.value = "";
-                // The person chose these files: what the composer can't attach is saved for the chat.
-                void attach(files, true);
+                // The person chose these files: what the composer can't attach is saved for the chat,
+                // and the host says where each came from (its own metadata: Screenshot, a download).
+                void attach(files, true, "choose");
               }}
             />
             {leading !== undefined ? (

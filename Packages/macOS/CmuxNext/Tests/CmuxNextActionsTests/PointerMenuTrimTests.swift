@@ -24,7 +24,8 @@ struct PointerMenuTrimTests {
         #expect(shown.isDisjoint(with: Self.tabTrimmed))
         // Includes every More/Copy row and every target-dependent action.
         let retained: Set<ActionID> = [
-            "agentChat.copyIdentifier", "agentChat.subagentLimit", "agentPane.togglePointerInspector",
+            // agent.share: Share Chat with Guest, a tab-menu row #27959 added after this list was written.
+            "agent.share", "agentChat.copyIdentifier", "agentChat.subagentLimit", "agentPane.togglePointerInspector",
             "browser.editSource", "browser.openInChromium", "browserProfile.duplicateTab", "browserProfile.moveTab",
             "closeOtherTabsInPane", "closeTab", "closeTabsToLeft",
             "closeTabsToRight", "disconnectRemoteTab", "duplicateTab", "file.openAsPage",
