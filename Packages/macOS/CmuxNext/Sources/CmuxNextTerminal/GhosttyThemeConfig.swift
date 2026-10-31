@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 import GhosttyNextKit
 
 /// The user's Ghostty config with one theme applied (`theme = <name>` after
@@ -43,5 +44,23 @@ extension GhosttyRuntime {
                                         colors: Self.themeColors(of: config, backgroundOpacity: opacity))
         themeConfigs[name] = themed
         return themed
+    }
+
+    /// The colors of theme `theme` for the App Theme (`appearance.appTheme`): the theme file with the
+    /// person's edits to it (`appearance.themeEdits`) and the highlight color, never the Ghostty
+    /// config's own color lines, which belong to the terminals. Opacity and blur are not read here
+    /// (the window's come from the full config). Nil when libghostty cannot build the config or
+    /// `theme` could inject another config line.
+    /// - Parameters:
+    ///   - theme: A theme name or absolute path to a theme file (one variant, not a pair).
+    ///   - edits: The person's theme edits and highlight color.
+    public static func appThemeColors(theme: String, edits: ThemeEdits) -> GhosttyThemeColors? {
+        guard themeOverrideLine(theme) != nil, let config = ghostty_config_new() else { return nil }
+        defer { ghostty_config_free(config) }
+        for line in themeLines(theme, isDark: false, edits: edits) + highlightLines(edits.highlight) {
+            line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
+        }
+        ghostty_config_finalize(config)
+        return themeColors(of: config, backgroundOpacity: 1)
     }
 }

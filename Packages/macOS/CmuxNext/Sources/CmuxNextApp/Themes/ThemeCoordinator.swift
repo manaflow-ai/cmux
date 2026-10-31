@@ -81,8 +81,9 @@ final class ThemeCoordinator {
     private var machineColorsObservation: Task<Void, Never>?
 
     /// Follows `appearance.appTheme`: the theme the native chrome (window, sidebar, tab strips, light/dark)
-    /// and the pages (`--cmux-app-*`, `WebTheme`) take, resolved like the other theme levels (the variant
-    /// for the system appearance, the user's explicit config colors over it). `followTerminal` leaves each scope on its own theme.
+    /// and the pages (`--cmux-app-*`, `WebTheme`) take: the variant for the system appearance, from its theme
+    /// file and the person's edits; the Ghostty config's own color lines stay the terminals'
+    /// (`ThemeResolver.resolveAppTheme`). `followTerminal` leaves each scope on its own theme.
     func followChromeTheme(_ settings: SettingsController) {
         let store = services.themeStore
         // `applied`: a live preview (a theme picker's highlighted row) shows too.
@@ -119,10 +120,11 @@ final class ThemeCoordinator {
 
     private func applyChromeTheme() {
         let store = services.themeStore
-        let resolved = chromeTheme.flatMap(ThemeSpec.init).flatMap(resolver.resolve)
+        // The theme file's colors, never the Ghostty config's own color lines (the terminals keep those).
+        let resolved = resolver.resolveAppTheme(chromeTheme.flatMap(ThemeSpec.init))
         // The chrome and the pages derive from these colors; the terminals keep the terminal theme.
         store.setAppTheme(from: resolved.map {
-            var input = $0.input
+            var input = $0
             // Art Color: pages take the app's art hue (a workspace's own art tints its chrome only).
             if store.accentFollowsArt, let hue = ThemeScope.app.backdropArt?.accentHue { input.accentColor = hue }
             return input
