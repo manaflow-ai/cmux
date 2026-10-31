@@ -59,17 +59,14 @@ pub(super) fn parse(rest: &[String]) -> Result<Invocation, UsageError> {
         }
     };
     let mut team = None;
-    let mut index = 0;
-    while let Some(arg) = tail.get(index) {
-        index += 1;
+    let mut args = tail.iter();
+    while let Some(arg) = args.next() {
         let value = if let Some(value) = arg.strip_prefix("--team=") {
             value.to_owned()
         } else if arg == "--team" {
-            let value = tail
-                .get(index)
-                .ok_or_else(|| UsageError::new(app.missing_value.replace("{flag}", arg)))?;
-            index += 1;
-            value.clone()
+            args.next()
+                .ok_or_else(|| UsageError::new(app.missing_value.replace("{flag}", arg)))?
+                .clone()
         } else {
             return Err(UsageError::new(app.unexpected_argument.replace("{value}", arg)));
         };
