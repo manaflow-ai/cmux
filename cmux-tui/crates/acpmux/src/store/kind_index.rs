@@ -45,6 +45,9 @@ pub const INDEXED_KINDS: &[&str] = &[
     "queue_paused",
     "queue_resumed",
     "queue_order",
+    // The owner's answer to a prompt that waits for them (`hub/queue_approve.rs`).
+    "queue_approved",
+    "queue_declined",
     "turn_result",
     "prompt_refused",
     "agent_pair_held",

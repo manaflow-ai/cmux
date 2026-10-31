@@ -326,7 +326,8 @@ impl Hub {
             let mut i = 0;
             while i < queue.len() {
                 let q = &queue[i];
-                if q.held {
+                // Held, or waiting for the owner (`queue_approve.rs`): never sent with this turn.
+                if q.aside() {
                     i += 1;
                     continue;
                 }
