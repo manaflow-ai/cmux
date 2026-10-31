@@ -252,7 +252,7 @@ def launch_facts(text):
 ACQUIRE_SLACK_SECONDS = 60
 
 
-def acquire_lease(ch, exclusive):
+def acquire_lease(ch, exclusive, log_path=None):
     """`capture-host acquire --slot [--exclusive]`; the lease words it prints. An exclusive acquire waits for the
     mini's running fleet steps (the drain), and capture-host moves its own acquire deadline on by the time
     drained, so its bound here is its acquire timeout plus its drain budget. On that bound the acquire gets TERM
@@ -264,6 +264,8 @@ def acquire_lease(ch, exclusive):
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         out, err = proc.communicate(timeout=bound)
+        if log_path:  # capture-host's own lines (each host tried and why it was skipped), for a round with no lease
+            Path(log_path).write_bytes(err or b"")
     except subprocess.TimeoutExpired:
         proc.terminate()  # our own child: capture-host's acquire_interrupted unreserves and exits
         try:
@@ -292,7 +294,8 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
     ch = capture_host()
     ids = [s["id"] for s in specs]
     try:
-        acquired = acquire_lease(ch, exclusive)
+        out.mkdir(parents=True, exist_ok=True)
+        acquired = acquire_lease(ch, exclusive, out / "acquire.log")
     except (RuntimeError, subprocess.TimeoutExpired) as error:
         return {i: {"status": "not run", "reason": f"no capture slot: {str(error)[-300:]}"} for i in ids}
     if not acquired:

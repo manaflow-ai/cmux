@@ -18,8 +18,9 @@ Steps (`do`):
                                       the creation hold (the driver's typing waits 2.5 s after a new terminal; this is
                                       the case Lawrence reports, keys into a terminal while it is created). Binds
                                       ${AS} to the text. Needs `smoke_make_key` first in the journey; reads again
-                                      that a main window is key (debug.window_list) and is "not run: known gap"
-                                      when none is.
+                                      that a main window is key (debug.window_list): another app window key is a
+                                      fail (the app took the keys elsewhere), no app window key is "not run: known
+                                      gap".
   smoke_remember_workspaces {}        keeps the workspace ids the app has now (the baseline)
   smoke_snapshot     {as}             keeps, before the keys that make terminals, the daemon terminals of the
                                       topology, each pane's tabs and the focused pane (smoke_new_terminals reads it)
@@ -87,10 +88,14 @@ def step_smoke_type_now(j, step):
     if not getattr(j, "smoke_key_ok", False):
         # The slot's limit, not the build's: report it as not run (the gate counts that as no pass).
         raise D.NotRun(GAP + f" (debug.window.focus said {json.dumps(getattr(j, 'smoke_key_reply', None))[:200]})")
-    key_now, mains = _main_key(j)
+    key_now, windows = _main_key(j)
     if not key_now:
-        # The window made key before is not key any more: keys cannot be checked here either (never a pass).
-        raise D.NotRun(GAP + f" (the window lost key status after smoke_make_key: {json.dumps(mains)[:200]})")
+        other = [w for w in windows if w["key"] is True]
+        if other:
+            # Another window of the app took the keys (a New Tab page's child window, a panel): the app's bug.
+            raise D.StepError(f"the keys would go to a window that is not a main window: {json.dumps(other)[:300]}")
+        # No window of the app is key any more: keys cannot be checked here (the slot's limit; never a pass).
+        raise D.NotRun(GAP + f" (no app window is key after smoke_make_key: {json.dumps(windows)[:200]})")
     text = j.sub(step["text"])
     j.hold_from = None  # at once: never wait out the creation hold here
     sent, replies = D.now(), []
@@ -277,17 +282,17 @@ def cond_smoke_frame(j, want, cache):
 
 
 def _main_key(j):
-    """(a main window is the app's key window, the main windows): a read (debug.window_list), never a focus."""
+    """(a main window is the app's key window, the app's windows): a read (debug.window_list), never a focus."""
     report = j.app.rpc("debug.window_list") or {}
-    windows = [w for w in report.get("windows", []) if isinstance(w, dict)]
-    mains = [{"id": w.get("id"), "key": w.get("key"), "visible": w.get("visible")} for w in windows if w.get("kind") == "main"]
-    return any(w["key"] is True for w in mains), mains
+    windows = [{"id": w.get("id"), "kind": w.get("kind"), "key": w.get("key"), "visible": w.get("visible")}
+               for w in report.get("windows", []) if isinstance(w, dict)]
+    return any(w["key"] is True and w["kind"] == "main" for w in windows), windows
 
 
 def cond_smoke_key_window(j, want, cache):
     """A main window is the app's key window: a read (debug.window_list), so the check does not make it key."""
-    key_now, mains = _main_key(j)
-    return key_now, {"main_windows": mains}
+    key_now, windows = _main_key(j)
+    return key_now, {"windows": windows}
 
 
 STEPS = {"smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,

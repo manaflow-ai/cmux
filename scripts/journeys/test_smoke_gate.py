@@ -191,7 +191,7 @@ class NewTerminals(unittest.TestCase):
             pass
 
         ext_smoke.install(type("D", (), {"StepError": StepError, "NotRun": NotRun, "now": staticmethod(lambda: 0.0)}))
-        self.NotRun = NotRun
+        self.NotRun, self.StepError = NotRun, StepError
         self.ext = ext_smoke
 
     def journey(self, layout, screens, focused):
@@ -283,6 +283,12 @@ class NewTerminals(unittest.TestCase):
         with self.assertRaises(self.NotRun) as caught:
             self.ext.step_smoke_type_now(j, {"text": "echo x"})
         self.assertIn("known gap", str(caught.exception))
+        self.assertEqual(typed, [])
+        j.app.rpc = lambda method, params=None: {"windows": [{"id": 1, "kind": "main", "key": False},
+                                                             {"id": 2, "kind": "ChromiumChild", "key": True}]}
+        with self.assertRaises(self.StepError) as caught:
+            self.ext.step_smoke_type_now(j, {"text": "echo x"})
+        self.assertIn("not a main window", str(caught.exception))
         self.assertEqual(typed, [])
 
     def test_each_workspace_line_in_its_own_new_workspace(self):
