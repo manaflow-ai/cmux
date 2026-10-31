@@ -4,7 +4,7 @@
 // nothing reaches the user's sessions or app (no app socket, scrubbed env).
 import { execFile, spawn } from "node:child_process";
 import { createServer } from "node:net";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -124,7 +124,7 @@ export async function openSession({ cli, name, dir, allTools, setup = [], noApp 
     await cmux(["workspace", origin.workspace_id, "focus"]);
     await cmux(["pane", origin.pane_id, "focus"]);
 
-    app = noApp ? null : await standInApp(env.CMUX_SOCKET_PATH, cmux, origin);
+    app = noApp ? null : await standInApp(env.CMUX_SOCKET_PATH, cmux, origin, join(dir, "app-calls.jsonl"));
 
     // The agent runs in the origin terminal, so `current` is its workspace and pane.
     // A terminal reaches its session through CMUX_TUI_SOCKET, not --session (which turns
@@ -197,6 +197,12 @@ async function runSetup(cmux, setup, origin, work) {
     if (step.op === "workspace") {
       const r = await cmux(["workspace", "create", "--name", step.name, "--cwd", work]);
       if (step.alias) aliases[step.alias] = r.workspace_id;
+    } else if (step.op === "dock") {
+      // Pins the column of `pane` (an alias) to `edge` (default right): a sticky column.
+      const pane = aliases[step.pane] ?? step.pane;
+      const layout = await cmux(["screen", origin.screen_id, "layout", "export"]);
+      const column = columnsOf(layout).find((c) => c.pane_ids.includes(pane))?.column_id;
+      if (column) await cmux(["screen", origin.screen_id, "column", column, "update", "--dock", "true", "--edge", step.edge ?? "right"]);
     } else if (step.op === "split-right") {
       const r = await cmux(["pane", origin.pane_id, "split", "--right", "--viewport-width", "0.5"]);
       if (step.alias) aliases[step.alias] = r.pane_id;
@@ -217,15 +223,69 @@ async function runSetup(cmux, setup, origin, work) {
   return aliases;
 }
 
+/** The app actions that open a viewer tab (a file, a diff, a page), by id and CLI name. */
+const OPEN_ACTIONS = new Map([
+  ["file.open", "file"], ["file open", "file"],
+  ["openDiffViewer", "diff"], ["browser open-diff-viewer", "diff"],
+  ["palette.openDirectoryDiffViewer", "diff"], ["browser open-directory-diff-viewer", "diff"],
+  ["openBrowser", "page"], ["tab new-browser", "page"],
+  ["openBrowser.webkit", "page"], ["tab new-webkit", "page"],
+  ["openBrowser.chromium", "page"], ["tab new-chromium", "page"],
+]);
+
 /**
  * The app's place-and-focus answers, without an app: `system.identify` names the
  * agent's own terminal (as the app does for a chat in it) and `snapshot.get` the
  * daemon's focus. `action.list` and `system.capabilities` replay a real app's catalogue,
- * so the app's tools are listed and searched as in the app. Every other app method fails as an app that cannot do it would.
+ * so the app's tools are listed and searched as in the app.
+ *
+ * The app's open actions (a file, a diff, a page: OPEN_ACTIONS and `browser.open_split`)
+ * run as the app places them: a tab in the `target` pane (a pane, or a tab's pane), else
+ * the focused pane; a page with no workspace beside the chat. The tab is a terminal named
+ * for what it shows (headless renders no viewer), and every open is recorded in `log` for
+ * the grader. Every other app method fails as an app that cannot do it would.
  */
-async function standInApp(path, cmux, origin) {
+async function standInApp(path, cmux, origin, log) {
   rmSync(path, { force: true });
-  const answer = async (method) => {
+  const paneOf = async (target) => {
+    const id = String(target ?? "").replace(/^(pane|tab|workspace):/, "").replace(/^[\w.-]+:(?=(pane|tab|ws)_)/, "");
+    if (id.startsWith("pane_")) return id;
+    if (id.startsWith("tab_")) return (await cmux(["tab", id, "show"]))?.pane_id ?? null;
+    if (id.startsWith("ws_")) return workspacePane(id);
+    return null;
+  };
+  // A named workspace's pane: its focused one, else its first (the app's default pane).
+  const workspacePane = async (workspace) => {
+    const panes = await cmux(["pane", "list", "--workspace", workspace]);
+    const items = panes?.items ?? panes ?? [];
+    return (items.find((p) => p.focused) ?? items[0])?.id ?? null;
+  };
+  const besidePane = async () => {
+    const layout = await cmux(["screen", origin.screen_id, "layout", "export"]);
+    const columns = columnsOf(layout);
+    const mine = columns.findIndex((c) => c.pane_ids.includes(origin.pane_id));
+    const right = mine >= 0 ? columns.slice(mine + 1).find((c) => !c.docked) : null;
+    if (right?.pane_ids[0]) return right.pane_ids[0];
+    return (await cmux(["pane", origin.pane_id, "split", "--right"]))?.pane_id ?? origin.pane_id;
+  };
+  const open = async (kind, what, pane, request) => {
+    const label = `[${kind}] ${what}`.slice(0, 80);
+    const created = await cmux(["tab", "create", "terminal", "--pane", pane, "--name", label]);
+    appendFileSync(log, `${JSON.stringify({ kind, what, pane, tab: created?.tab_id, request })}\n`);
+    return { created: { tab_id: created?.tab_id, pane_id: pane }, state: "done" };
+  };
+  const answer = async ({ method, params = {} }) => {
+    if (method === "action.run" && OPEN_ACTIONS.has(params.action)) {
+      const kind = OPEN_ACTIONS.get(params.action);
+      const args = params.args ?? {};
+      const what = args.path ?? args.url ?? (kind === "diff" ? "changes" : "");
+      const pane = (await paneOf(params.target)) ?? origin.pane_id;
+      return open(kind, what, pane, { method, action: params.action, args, target: params.target ?? null });
+    }
+    if (method === "browser.open_split") {
+      const pane = params.workspace_id ? await workspacePane(params.workspace_id) : await besidePane();
+      return open("page", params.url ?? "", pane ?? origin.pane_id, { method, url: params.url });
+    }
     if (method === "system.identify") {
       const caller = { workspace: origin.workspace_id, screen: origin.screen_id, pane: origin.pane_id, tab: origin.tab_id, terminal_id: origin.terminal_id };
       // `beside`: the first undocked pane in the column right of the chat's, as the app answers.
@@ -257,7 +317,7 @@ async function standInApp(path, cmux, origin) {
         buf = buf.slice(i + 1);
         let msg;
         try { msg = JSON.parse(line); } catch { continue; }
-        const reply = await answer(msg.method).then((result) => ({ id: msg.id, ok: true, result }), (error) => ({ id: msg.id, ok: false, error }));
+        const reply = await answer(msg).then((result) => ({ id: msg.id, ok: true, result }), (error) => ({ id: msg.id, ok: false, error }));
         socket.write(`${JSON.stringify(reply)}\n`);
       }
     });
