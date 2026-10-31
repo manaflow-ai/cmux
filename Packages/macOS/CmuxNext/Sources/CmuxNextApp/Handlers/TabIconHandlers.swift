@@ -57,7 +57,7 @@ enum TabIconHandlers {
     /// Changes the tab's icon (nil removes it); a user's change is an undo step (IconHistory).
     static func change(_ target: Target, to icon: String?, origin: ActionOrigin, _ ctx: AppActionContext) {
         // The icon the tab shows now (the picker may have been open while it changed).
-        let previous = ctx.services.locateTab(target.tab.id)?.0.userIcon ?? target.tab.userIcon
+        let previous = ctx.services.locateTab(model: target.tab)?.0.userIcon ?? target.tab.userIcon
         try? history(ctx).change(target.tab.id, from: previous, to: icon, origin: origin)
     }
 

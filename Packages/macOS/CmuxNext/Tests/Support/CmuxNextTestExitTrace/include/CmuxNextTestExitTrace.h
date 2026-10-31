@@ -4,6 +4,10 @@
 /// 1 once the test process's exit() prints its stack (installed when the test bundle loads).
 int cmux_next_test_exit_trace_installed(void);
 
+/// 1 once SWIFT_BACKTRACE, if the test process was started with it, is gone from its environment:
+/// this process keeps its backtracer and its children (exit tests, privileged tools) do not get one.
+int cmux_next_test_backtrace_kept_from_children(void);
+
 /// 1 once the main run loop survives being stopped at its outermost run (installed with the trace).
 int cmux_next_test_runloop_guard_installed(void);
 

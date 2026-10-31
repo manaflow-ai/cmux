@@ -385,6 +385,11 @@ impl Hub {
     /// End the host of a session that has no adopted child, when one runs
     /// (a host this build cannot adopt, or one whose link was lost).
     pub(super) async fn end_unadopted_host(&self, session: &Session) {
+        // A lost home's hosts folder may be another daemon's now: its records name that daemon's
+        // agents. This daemon's own hosts end with their folder (`agent_host`), so none is read.
+        if crate::config::home_path_lost() {
+            return;
+        }
         let dir = agent_host::hosts_dir();
         let Ok((good, bad)) = agent_host::load_records(&dir) else { return };
         let record = good.iter().find(|(_, r)| r.session_id == session.id).map(|(_, r)| r.clone());
@@ -727,8 +732,13 @@ impl Hub {
         let mut canary_passed = false;
         // Which logged updates are a subagent's, as the tap tells them live: by the subagents
         // the log itself started, never by an update's own `_meta`.
+        // The chat's native roots, current and earlier, are never subagents (as the tap seeds them).
         let mut subagents = crate::subagents::SubagentTree::default();
-        subagents.set_own(session.meta().agent_session_id.as_deref());
+        let meta = session.meta();
+        subagents.set_own(meta.agent_session_id.as_deref());
+        subagents.set_roots(
+            meta.agent_session_id.iter().chain(&meta.retired_agent_session_ids).map(String::as_str),
+        );
         // Only the log's last turn can be open when the scan ends: an earlier turn's records
         // (most of a long log) are folded away at its `turn_result`. Found from the end, on the
         // heads of the records after that turn's marker.
@@ -1111,14 +1121,14 @@ impl Hub {
             if work.turn_at > 0 {
                 turn.started_at = work.turn_at;
             }
-            self.recover_carried(session, child, turn, None, false);
+            self.recover_carried(session, child, turn, None, Default::default());
         } else if work.turn.is_none()
             && let Some((from, record)) = &work.carry_next
             && let Some(next) = super::carried_turn::NextTurn::from_record(record)
         {
             let super::carried_turn::NextTurn { carried, next, continues } = next;
             let begin = Some((from.clone(), carried));
-            self.recover_carried(session, child, next, begin, continues.trust_gate);
+            self.recover_carried(session, child, next, begin, continues);
         } else if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) =
             work.turn.clone()
         {
@@ -1135,6 +1145,7 @@ impl Hub {
                     self.save_meta(session);
                 }
                 (Some(request_id), answer) => {
+                    let outcome = super::prompt_ledger::recover(session, &prompt_id);
                     // Before anything can force its end (`turn_answer`).
                     let ended = session.steer_end.subscribe();
                     // Its start as logged: a restart does not make it new.
@@ -1166,6 +1177,8 @@ impl Hub {
                         work.open_tools.clone();
                     self.watch_stalled_turn(session, Some(work.heard_at.max(started_at)));
                     self.set_status(session, SessionStatus::Running);
+                    // Its cap counts from its start, as logged (`turn_cap.rs`).
+                    self.arm_turn_cap(session, &turn_id);
                     // The answer is either logged already, or still to come
                     // (`await_response` also takes one that arrived first).
                     let rx = match answer {
@@ -1204,9 +1217,20 @@ impl Hub {
                             c.next.control = Control::Web;
                         }
                         let next = carried.as_deref();
-                        let _ = hub
+                        let mut result = hub
                             .finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq, None, next)
                             .await;
+                        if let Ok(value) = &mut result {
+                            super::merge_mux_meta(
+                                value,
+                                json!({"promptId": prompt_id,
+                                "turnId": turn_id, "turnSeq": turn_seq}),
+                            );
+                        }
+                        outcome.send_replace(Some(result));
+                        super::prompt_ledger::prune(
+                            &mut s.prompts.lock().unwrap_or_else(|e| e.into_inner()),
+                        );
                         // A recovered turn is not continued (`auto_resume.rs`); settle its mark.
                         hub.schedule_auto_resume(&s, &turn_id, None);
                         if let Some(carried) = &carried {
@@ -1711,7 +1735,7 @@ impl Hub {
         let cpu_class = crate::cpu_class::CpuClass::for_session(
             env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
         );
-        let spec = crate::agent_host::SpawnSpec {
+        let mut spec = crate::agent_host::SpawnSpec {
             session_id: session.id.clone(),
             program: std_cmd.get_program().to_string_lossy().into_owned(),
             args: std_cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect(),
@@ -1725,11 +1749,13 @@ impl Hub {
             router_owner_fifo: crate::daemon::router_owner_path(),
             cwd_pin: crate::cwd_pin::CwdPin::current(),
             cpu_class,
+            orphan_exit: None,
         };
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
         // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
         let launch = crate::agent::Launch::new(&spec.program, &spec.args, &spec.env, &spec.cwd);
         let servers = LaunchServers::read(&launch, meta.family.clone().unwrap_or_default()).await;
+        spec.orphan_exit = servers.orphan_exit(self.orphan_exit());
         let launched = |child: Arc<ChildAgent>| {
             child.record_launch(servers.clone());
             child
