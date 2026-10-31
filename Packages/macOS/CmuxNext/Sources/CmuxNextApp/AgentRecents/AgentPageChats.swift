@@ -1,3 +1,4 @@
+import CmuxNextAgentLanes
 import Foundation
 import CmuxNextActions
 import CmuxNextAgentPane

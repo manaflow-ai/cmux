@@ -10,8 +10,9 @@
 //! pull request its first line names, else its sender. An image, an upload, a slash command, a
 //! sub-session family message and a Web one are no inbox items: each still runs as before. So
 //! far only a plain send from this host is ([`plain_send`]): a peer's or the mesh relay's forward,
-//! a team message, a correction under a supersede key, a steer-only send, and the prompts acpmux
-//! makes itself (lane reports, task cards, a paused pair's release) still queue.
+//! a team message, a correction under a supersede key, a steer-only send, a `cmux agent message`
+//! (the cmux daemon delivers and tracks it) and the prompts acpmux makes itself (lane reports,
+//! task cards, a paused pair's release) still queue.
 //!
 //! A chat's first work is no inbox item either ([`first_work`]): the first message another agent
 //! sends a chat that never ran a turn, with none running and nothing waiting (`lane-place
@@ -240,8 +241,21 @@ pub(super) enum Unsend {
 /// a supersede key and a steer-only send keep the queue for now, as do the prompts acpmux makes
 /// itself (lane reports, task cards, a paused pair's release), which never set
 /// `PromptOptions::inbox`.
-pub(crate) fn plain_send(from_peer: bool, team: bool, supersede: bool, steer_only: bool) -> bool {
-    !from_peer && !team && !supersede && !steer_only
+///
+/// Nor a prompt whose caller gave its own provenance (`prompt_provenance::of`): a `cmux agent
+/// message` the cmux daemon's pump delivers (`agents_chat_send`, the app's reply in place). The
+/// cmux daemon keeps that message, its delivery receipt and its Stop hold, and the chat must show
+/// it as that agent message: the app's reply in place answers its `user_message`
+/// (`app_reply_fits`). In the inbox it became a notice, so a reply in place was refused, a send to
+/// a chat that cannot run said delivered, and a send to an idle chat ran no turn.
+pub(crate) fn plain_send(
+    from_peer: bool,
+    team: bool,
+    supersede: bool,
+    steer_only: bool,
+    given_provenance: bool,
+) -> bool {
+    !from_peer && !team && !supersede && !steer_only && !given_provenance
 }
 
 /// Whether a provenance is a plain message from another agent: none (a sender that named
