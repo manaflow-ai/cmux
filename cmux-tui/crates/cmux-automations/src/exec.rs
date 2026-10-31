@@ -150,7 +150,7 @@ pub fn run_job(store: &Store, automation: &str, run: &str) -> Result<ExecOutcome
             let mut c = Command::new(acpmux());
             c.arg("run")
                 .arg("-n")
-                .arg(format!("auto-{}-{}", &a.id[5..13], &r.id[4..12]))
+                .arg(format!("auto-{}-{}", id_head(&a.id, "auto_"), id_head(&r.id, "run_")))
                 .arg("--timeout")
                 .arg(a.timeout_seconds.to_string())
                 .arg("--on-permission")
@@ -217,5 +217,25 @@ fn wait_with_timeout(mut child: Child, timeout: Duration) -> ExecOutcome {
             _ => ExecOutcome::Error("no exit status".into()),
         },
         Err(e) => ExecOutcome::Error(e.to_string()),
+    }
+}
+
+/// The first 8 characters of `id` after `prefix` (`auto_` or `run_` and base32), for a short
+/// session name; the whole id when it does not have that form.
+fn id_head<'a>(id: &'a str, prefix: &str) -> &'a str {
+    id.strip_prefix(prefix).and_then(|rest| rest.get(..8)).unwrap_or(id)
+}
+
+#[cfg(test)]
+mod id_head_tests {
+    use super::id_head;
+
+    #[test]
+    fn a_session_name_takes_8_characters_after_each_prefix() {
+        assert_eq!(id_head("auto_abcdefgh234567abcdef", "auto_"), "abcdefgh");
+        assert_eq!(id_head("run_234567abcdefghijklmn", "run_"), "234567ab");
+        // An id of another form is used whole, never a panic.
+        assert_eq!(id_head("auto_é", "auto_"), "auto_é");
+        assert_eq!(id_head("other", "run_"), "other");
     }
 }
