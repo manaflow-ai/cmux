@@ -86,7 +86,12 @@ await requireBrowserLane("transcript-icon-column.test.ts", async () => {
         const slot = row.querySelector<HTMLElement>(ICON);
         if (!slot) throw new Error(`a row with no icon slot: ${row.className}`);
         const slotBox = slot.getBoundingClientRect();
-        const glyph = [...slot.querySelectorAll<Element>("svg, img, span")].find(visible) ?? slot;
+        // The drawn mark itself (an svg or an img), not a wrapper span around it (AgentIdentity's),
+        // whose box is its line height; a text-only mark (a chief's initial) falls back to its span.
+        const glyph =
+          [...slot.querySelectorAll<Element>("svg, img")].find(visible) ??
+          [...slot.querySelectorAll<Element>("span")].find(visible) ??
+          slot;
         const glyphBox = glyph.getBoundingClientRect();
         let ink = Math.max(glyphBox.width, glyphBox.height);
         if (glyph instanceof SVGSVGElement) {
