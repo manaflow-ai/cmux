@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 527,
+  "count": 529,
   "sections": [
     {
       "id": "general",
@@ -110,6 +110,14 @@
           "key": "agentPane.showDictation",
           "title": "Show Dictation Button",
           "help": "The microphone beside Send in every composer, including the New Tab page.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.showMachineLoadWarnings",
+          "title": "Show Machine Load Warnings",
+          "help": "Shows a warning when a remote machine is at its CPU or memory budget in the Computer menu.",
           "kind": "toggle",
           "default": true,
           "group": "Agent Chat"
@@ -1591,6 +1599,18 @@
             "compact",
             "full",
             "off"
+          ]
+        },
+        {
+          "key": "agentPane.display.rail.side",
+          "title": "Prompt Rail Side",
+          "help": "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.",
+          "kind": "choice",
+          "default": "left",
+          "group": "Agent Chat",
+          "values": [
+            "left",
+            "right"
           ]
         },
         {
@@ -3479,7 +3499,7 @@
           "title": "Show Workspace Tabs",
           "help": "Lists tabs beneath each workspace in the sidebar.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Sidebar"
         },
         {

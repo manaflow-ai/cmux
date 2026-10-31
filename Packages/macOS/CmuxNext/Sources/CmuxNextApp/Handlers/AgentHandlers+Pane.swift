@@ -67,7 +67,7 @@ extension AgentHandlers {
         if wanted == destinations.local.id {
             destination = destinations.local
         } else {
-            let rows = await destinations.load()
+            let rows = await destinations.load(for: wanted)
             guard let remote = AgentChatDestinations.resolve(wanted, in: rows) else {
                 return .failure(ActionWorkFailure(refusal: .notFound, reason: WorkspaceVerbStrings.noMachine))
             }
@@ -87,7 +87,7 @@ extension AgentHandlers {
             routed.arguments["host"] = .string(peer)
         }
         switch destination.route {
-        case .cloud: break
+        case .cloud, .pending: break
         case .local, .peer:
             if let target = invocation.target {
                 guard AgentChatPlacement.resolve(target, services: context.services)?.daemon.isLocal == true else {
