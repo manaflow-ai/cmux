@@ -1,15 +1,6 @@
 import CmuxNextFiles
 import Foundation
 
-/// Watches a file page's file and reports its new content (nil: deleted) through the callback
-/// it was made with. ``FileChangeWatch`` on this Mac, ``RemoteFileChangeWatch`` on a Cloud machine.
-protocol FilePageWatching: AnyObject {
-    /// The hash last reported (or read at open); a read with the same hash reports nothing.
-    var knownHash: String? { get set }
-    func start()
-    func stop()
-}
-
 extension FileChangeWatch: FilePageWatching {}
 
 /// Where a file page's file lives (#25581): this Mac's disk, or the machine of the pane the tab
