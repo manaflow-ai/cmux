@@ -7620,7 +7620,7 @@ function AcpmuxPane() {
         : undefined,
     [quick, inspectorLocal, remoteControlState],
   );
-  // Compact from Session Info's Context and the composer ring's card sends the agent's own /compact
+  // Compact from Session Info's Context sends the agent's own /compact
   // with the reach a context-full failure's Compact has: only where the agent lists it, never to a
   // View Only chat or a read-only pane, never the next chat during a switch's hold (#17537 had it on
   // the ring; #20454 dropped its wiring).
@@ -11770,7 +11770,6 @@ function AcpmuxPane() {
             chips={ComposerChips}
             permissionAccess={permissionAccess}
             onOpenContext={inspector.reveal ? () => inspector.reveal?.("context") : undefined}
-            onCompact={compactChat}
             draft={draft}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
             onTyping={quick ? undefined : postTyping}
