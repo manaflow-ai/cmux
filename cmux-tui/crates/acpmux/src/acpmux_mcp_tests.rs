@@ -250,6 +250,16 @@ async fn a_message_can_be_a_file_of_yours() {
         assert_eq!(r["isError"], true, "{r}");
         assert!(text(&r).contains(want), "{want}: {r}");
     }
+    // A FIFO is refused at once, never waited on for a writer.
+    #[cfg(unix)]
+    {
+        let fifo = dir.path().join("fifo");
+        let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+        // SAFETY: c is a valid NUL-terminated path.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        let err = send::read_message_file(fifo.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("not a regular file"), "{err}");
+    }
     // Another user's file is refused even when readable.
     #[cfg(unix)]
     {

@@ -1322,8 +1322,8 @@ so an agent messages another lane or session with a tool call instead of piping 
   the `promptId` and delivery id once the delivery settles (steered in, queued, or a new turn),
   or after 5 s with the message on its way; it never waits for the reply. `steer` defaults to true.
   It also takes `class`, `pr`, `thread` and `supersede` (as the CLI's flags), `file` in place of
-  `text` (a UTF-8 file of the caller's own, at most 256 KiB; a relative path is from the chat's
-  folder), `tag` in place of `to` (every live session carrying it, at most 32, not the sender),
+  `text` (a UTF-8 file of the caller's own, at most 256 KiB; a relative path is from the
+  folder the agent runs in), `tag` in place of `to` (every live session carrying it, at most 32, not the sender),
   and `messages: [{to|tag, text|file, steer?, class?, pr?, thread?, supersede?}]`, a batch of up
   to 32 sent in order, with the top-level fields as each item's defaults. With `messages` or
   `tag` the result is `results: [{index, to, target, tag, ok, promptId, deliveryId, status,

@@ -42,7 +42,7 @@ pub(super) fn tool() -> Value {
                 "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"], "description": "What the message asks of the receiver: block or blocker (you cannot go on until it acts; wakes an idle receiver), question (you wait for its answer; wakes it too), result or action (work you finished or work for it; the default; wakes an idle receiver only when you started it or gave it its first work) or fyi (wakes no one)."},
                 "pr": {"type": "integer", "description": "The pull request this message is about: the receiver's inbox threads it with the others about it."},
                 "thread": {"type": "string", "description": "The thread this message goes in, a topic or a threadId from inbox_read (default: your messages about the PR its first line names, else all your messages)."},
-                "file": {"type": "string", "description": "Instead of text: a file of yours whose contents are the message (UTF-8, at most 256 KiB). A relative path is from this chat's folder."},
+                "file": {"type": "string", "description": "Instead of text: a file of yours whose contents are the message (UTF-8, at most 256 KiB). Best an absolute path; a relative one is read from the folder your agent runs in."},
                 "tag": {"type": "string", "description": "Instead of to: every live session carrying this tag, key or key=value (as acpmux send --tag), at most 32, not yourself."},
                 "supersede": {"type": "string", "description": "A key: your message still queued at the receiver under the same key is replaced by this one, so a correction is never read after the order it corrects."},
                 "messages": {
@@ -189,14 +189,19 @@ fn body(item: &Item) -> Result<String, String> {
 }
 
 /// A message file: a regular file of this user's, UTF-8, at most [`MAX_FILE_BYTES`]. A relative
-/// path is from this server's folder, the chat's (its harness starts it there). Another user's
+/// path is from this server's folder, which it inherits from the chat's agent. Another user's
 /// file is refused even when it is readable: a message goes to other sessions and peers, so it
 /// carries only the sender's own files.
 pub(super) fn read_message_file(path: &str) -> Result<String, String> {
     use std::io::Read;
     let path = std::path::Path::new(path);
     let shown = path.display();
-    let file = std::fs::File::open(path).map_err(|e| format!("cannot read {shown}: {e}"))?;
+    let mut open = std::fs::OpenOptions::new();
+    open.read(true);
+    // Non-blocking, so a FIFO at the path is refused below instead of waiting for a writer.
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::custom_flags(&mut open, libc::O_NONBLOCK);
+    let file = open.open(path).map_err(|e| format!("cannot read {shown}: {e}"))?;
     // The open file's own metadata, so what is checked is what is read.
     let meta = file.metadata().map_err(|e| format!("cannot read {shown}: {e}"))?;
     if !meta.is_file() {
@@ -214,8 +219,8 @@ pub(super) fn read_message_file(path: &str) -> Result<String, String> {
     if meta.len() > MAX_FILE_BYTES {
         return Err(format!(
             "{shown} is {} KiB, more than {} KiB: send it with acpmux send --attach",
-            meta.len() >> 10,
-            MAX_FILE_BYTES >> 10
+            meta.len() / 1024,
+            MAX_FILE_BYTES / 1024
         ));
     }
     let mut bytes = Vec::new();
@@ -224,7 +229,7 @@ pub(super) fn read_message_file(path: &str) -> Result<String, String> {
         .read_to_end(&mut bytes)
         .map_err(|e| format!("cannot read {shown}: {e}"))?;
     if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_FILE_BYTES {
-        return Err(format!("{shown} grew past {} KiB while it was read", MAX_FILE_BYTES >> 10));
+        return Err(format!("{shown} grew past {} KiB while it was read", MAX_FILE_BYTES / 1024));
     }
     String::from_utf8(bytes).map_err(|_| {
         format!("{shown} is not UTF-8 text: send a binary file with acpmux send --attach")
@@ -439,6 +444,9 @@ fn sent_line(row: &Value) -> String {
     let s = |k: &str| row[k].as_str().unwrap_or_default();
     let (to, prompt_id, delivery) = (s("to"), s("promptId"), s("deliveryId"));
     if row["ok"] == json!(false) {
+        if to.is_empty() {
+            return format!("Not sent (messages[{}]): {}", row["index"], s("error"));
+        }
         return format!("Not sent to {to}: {}", s("error"));
     }
     let how = match s("delivery") {
