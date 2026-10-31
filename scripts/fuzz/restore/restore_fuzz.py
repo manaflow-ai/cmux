@@ -503,17 +503,39 @@ def kill(target):
     return pids
 
 
+EVIDENCE_N = [0]
+
+
+def report_of_build(path):
+    """Is this crash report (.ips: JSON header line, then a JSON body with procPath; .crash: a `Path:` line) one of a
+    process run from this slot's bundle?"""
+    try:
+        with open(path, "r", errors="replace") as f:
+            head = f.read(1 << 20)
+    except OSError:
+        return False
+    prefix = APP.bundle + "/"
+    found = re.search(r'"procPath"\s*:\s*"((?:[^"\\]|\\.)*)"', head)
+    if found:
+        try:
+            return json.loads('"' + found.group(1) + '"').startswith(prefix)
+        except ValueError:
+            return False
+    found = re.search(r"^Path:\s+(.*)$", head, re.M)
+    return bool(found) and found.group(1).strip().startswith(prefix)
+
+
 def evidence(tag):
     """On a failed restore: what ran, what the daemon and the app showed, and any crash report of the build since
     the run began, copied into OUT/evidence-<tag>/ (read on the mini before the lease ends and its slot is reset)."""
-    folder = os.path.join(opts.out, f"evidence-{tag}")
-    os.makedirs(folder, exist_ok=True)
+    EVIDENCE_N[0] += 1
+    folder = os.path.join(opts.out, f"evidence-{EVIDENCE_N[0]:03d}-{tag}")
+    os.makedirs(folder)  # a new folder per failure: a shrink or replay of the same seed never overwrites the first
     rows = [f"{pid} {ppid} {args[:300]}" for pid, ppid, args in ps_table() if APP.mine(args)]
     snap = {"bundle_processes": rows, "app_alive": APP.alive(), "app_pid": APP.pid,
             "daemon_state": daemon_state(), "app_state": (app_state() or [None])[0]}
     with open(os.path.join(folder, "state.json"), "w") as f:
         json.dump(snap, f, indent=1, default=str)
-    exe = os.path.basename(APP.bundle)[:-4] if APP.bundle else "cmux"
     copied = []
     for home in {os.path.expanduser("~"), APP.env.get("HOME", "")}:
         reports = os.path.join(home, "Library", "Logs", "DiagnosticReports") if home else ""
@@ -524,7 +546,7 @@ def evidence(tag):
         for name in names:
             full = os.path.join(reports, name)
             try:
-                if os.path.getmtime(full) < T0 or not (exe.split()[0] in name or "cmux" in name or "acpmux" in name):
+                if os.path.getmtime(full) < T0 or not name.endswith((".ips", ".crash")) or not report_of_build(full):
                     continue
                 with open(full, "rb") as src, open(os.path.join(folder, name), "wb") as dst:
                     dst.write(src.read(4 << 20))
@@ -643,7 +665,7 @@ def fresh(run):
     return state
 
 
-def iteration(seed, targets, keep=None):
+def iteration(seed, targets, keep=None, label="i"):
     """One seeded iteration; `keep`: only these action indexes (shrinking). A record dict."""
     run = Run(seed)
     rec = {"seed": seed, "chaos": opts.chaos, "actions": [], "problems": []}
@@ -724,9 +746,11 @@ def iteration(seed, targets, keep=None):
     rec["timings"] = timings
     if problem:
         rec["problems"].append(problem)
-        rec["crash_reports"] = evidence(f"{rec.get('iteration', 'x')}-{seed}")
+        rec["crash_reports"] = evidence(f"{label}-{seed}")
     else:
         rec["problems"] += judge(state, confirmed, inflight)
+        if rec["problems"]:
+            rec["crash_reports"] = evidence(f"{label}-{seed}")
     rec["verdict"] = "fail" if rec["problems"] else "pass"
     return rec
 
@@ -740,7 +764,7 @@ def shrink(rec, targets, deadline):
         if time.time() > deadline:
             break
         trial = [i for i in keep if i != drop]
-        again = iteration(rec["seed"], targets, keep=set(trial))
+        again = iteration(rec["seed"], targets, keep=set(trial), label=f"shrink{drop}")
         attempts.append({"keep": trial, "verdict": again["verdict"], "problems": again["problems"][:2]})
         if again["verdict"] == "fail":
             keep = trial
@@ -817,7 +841,7 @@ def main():
                 say(f"chaos process(es) {dead} ended early; stopping (the iterations after this would not be under chaos)")
                 break
             it_seed = seeds[0] if seeds else master.randrange(1 << 31)
-            rec = iteration(it_seed, targets)
+            rec = iteration(it_seed, targets, label=f"iter{i}")
             rec["iteration"] = i
             records.append(rec)
             with open(os.path.join(opts.out, "iterations.jsonl"), "a") as f:

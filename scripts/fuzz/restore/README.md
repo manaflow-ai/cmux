@@ -46,4 +46,4 @@ Output: `iterations.jsonl`, `violations.json` (with the shrink attempts), `journ
 
 `python3 scripts/fuzz/restore/test_restore_fuzz.py` (oracle helpers and the verdict reader; no app).
 
-A failed restore writes `evidence-<iter>-<seed>/` (the bundle processes, the daemon and app state, and any crash report of the build since the run began).
+A failed iteration (restore or judge) writes a new `evidence-NNN-<iter|shrinkK>-<seed>/` (the bundle processes, the daemon and app state, and each crash report since the run began whose process path is in this slot build).

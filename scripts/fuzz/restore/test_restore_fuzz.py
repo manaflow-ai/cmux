@@ -155,6 +155,28 @@ class Zombie(unittest.TestCase):
         self.assertFalse(app.alive())
 
 
+class Evidence(unittest.TestCase):
+    def test_only_this_builds_crash_reports(self):
+        # Review finding at ce71d97ab38: other cmux apps' reports must not be copied.
+        import tempfile
+        app = rf.App.__new__(rf.App)
+        app.bundle = "/Users/Shared/cmux-capture/slots/1/lease-x/app/cmux DEV t.app"
+        rf.APP = app
+        d = tempfile.mkdtemp()
+        mine = os.path.join(d, "cmux DEV-2026.ips")
+        other = os.path.join(d, "cmux DEV-2026-2.ips")
+        crash = os.path.join(d, "cmux.crash")
+        with open(mine, "w") as f:
+            f.write('{"app_name":"cmux DEV"}\n{"procPath":"' + app.bundle + '/Contents/MacOS/cmux DEV"}')
+        with open(other, "w") as f:
+            f.write('{"app_name":"cmux DEV"}\n{"procPath":"/Applications/cmux.app/Contents/MacOS/cmux"}')
+        with open(crash, "w") as f:
+            f.write("Process: cmux\nPath:            " + app.bundle + "/Contents/Resources/bin/cmux-tui\n")
+        self.assertTrue(rf.report_of_build(mine))
+        self.assertFalse(rf.report_of_build(other))
+        self.assertTrue(rf.report_of_build(crash))
+
+
 class Answers(unittest.TestCase):
     def test_bare_list_answer_is_listed(self):
         # `cmux --json workspace list` answers a bare list (fleet run seed 1004, cmux21).
