@@ -121,7 +121,7 @@ import Testing
         }
         // The 5-line root is 5 lines in the 628 pt pane (the shots' case).
         if width == 628 { #expect(preview(Self.fiveLines, outgoing: false, width: width).textLines.count == 5) }
-        let long = preview(Array(repeating: Self.fiveLines, count: 4).joined(separator: " "), outgoing: false, width: width)
+        let long = preview(Array(repeating: Self.fiveLines, count: 8).joined(separator: " "), outgoing: false, width: width)
         #expect(long.textLines.count == 8, "\(long.textLines)")
         #expect(long.textLines.last?.hasSuffix("…") == true, "\(long.textLines)")
     }
