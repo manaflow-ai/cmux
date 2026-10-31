@@ -171,7 +171,7 @@ export function AgentLine({
           {/* One muted trailing meta: what it spent and a state worth a word, then its time. */}
           {((progress && progressAt === "meta") || !quiet) && (
             <span className="acpmux-summary-meta acpmux-agent-line__meta">
-              {progress && progressAt === "meta" && <span className="acpmux-agent-line__progress">{progress}</span>}
+              {progress && progressAt === "meta" && <span className="acpmux-agent-line__stats">{progress}</span>}
               {/* Running turns to Waiting or Failed with a tick, never a jump (trayMotion.tsx). */}
               {!quiet && <Tick className="acpmux-summary-agent__state" text={state} />}
             </span>

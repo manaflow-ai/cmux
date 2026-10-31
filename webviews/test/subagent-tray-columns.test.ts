@@ -604,10 +604,13 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
               rows: [...tray.querySelectorAll<HTMLElement>(".acpmux-agent-line")].map((row) => {
                 const button = row.querySelector<HTMLElement>(".acpmux-agent-line__button")!;
                 const name = row.querySelector<HTMLElement>(".acpmux-summary-agent__name")!.getBoundingClientRect();
+                // Every drawn glyph before the title; the gap is measured from the glyph slot, the
+                // box the glyph (spinner, icon or mark) is centred in.
                 const glyphs = [...button.querySelectorAll<SVGElement>("svg")].filter((svg) => {
                   const box = svg.getBoundingClientRect();
                   return box.width > 0 && box.right <= name.left + 0.5;
                 });
+                const slot = button.querySelector<HTMLElement>(".acpmux-lineage__icon")!.getBoundingClientRect();
                 const time = row.querySelector<HTMLElement>(".acpmux-agent-line__time")!.getBoundingClientRect();
                 const meta = row.querySelector<HTMLElement>(".acpmux-agent-line__meta")?.getBoundingClientRect();
                 const visibleText = [...button.querySelectorAll<HTMLElement>("span")]
@@ -616,7 +619,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                   .filter(Boolean);
                 return {
                   glyphs: glyphs.length,
-                  gap: name.left - Math.max(...glyphs.map((svg) => svg.getBoundingClientRect().right)),
+                  gap: name.left - slot.right,
                   subtitle: Boolean(row.querySelector(".acpmux-summary-agent__kind, .acpmux-agent-line__kind-icon")),
                   words: visibleText,
                   timeLeft: time.left,

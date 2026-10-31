@@ -519,14 +519,14 @@ button.cv-subagent > :last-child {
   overflow: hidden;
   white-space: nowrap;
 }
-.acpmux-running-tray .acpmux-agent-line__meta > .acpmux-agent-line__progress {
+.acpmux-running-tray .acpmux-agent-line__meta > .acpmux-agent-line__stats {
   display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.acpmux-running-tray .acpmux-agent-line__meta > .acpmux-agent-line__progress + .acpmux-summary-agent__state::before {
+.acpmux-running-tray .acpmux-agent-line__meta > .acpmux-agent-line__stats + .acpmux-summary-agent__state::before {
   content: "·";
   margin-inline-end: var(--ds-space-1, 4px);
 }
@@ -540,8 +540,6 @@ button.cv-subagent > :last-child {
 /* A quiet line's state word, for screen readers only: the glyph says done or running. */
 .acpmux-agent-line__sr {
   position: absolute;
-  width: 1px;
-  height: 1px;
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
@@ -630,7 +628,7 @@ button.cv-subagent > :last-child {
 }
 /* Progress is a second line and may wrap for long counts or narrow panes. Keep the compact
    28px row when it fits, but let both the tray and Inspector row grow instead of clipping it. */
-.acpmux-agent-line:has(.acpmux-summary-text > .acpmux-agent-line__progress) > .acpmux-agent-line__button {
+.acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
   height: auto;
   min-height: 28px;
   align-items: flex-start;
@@ -667,7 +665,7 @@ button.cv-subagent > :last-child {
     padding: 0 8px;
   }
   /* Progress can wrap above the controls without sharing their track. */
-  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-summary-text > .acpmux-agent-line__progress) > .acpmux-agent-line__button {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
     grid-template-rows: auto var(--ui-row-height, 28px);
     height: auto;
     align-items: center;
