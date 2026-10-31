@@ -148,6 +148,9 @@ final class AgentTabStore {
     /// The folders of every workspace on the machine of tab `key` (its terminals' folders there),
     /// for the project list of a chat on that machine.
     var remoteFolders: (@MainActor (String) -> [String])?
+    /// The folders the machine of tab `key` lists itself (`agent-session-folders`: its work folder,
+    /// then the folders under it), for the same project list; none from an older daemon.
+    var remoteMachineFolders: (@MainActor (String) async -> [String])?
     /// The display name of a remote daemon's machine, recorded on the tabs of its new chats.
     var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
@@ -199,6 +202,9 @@ final class AgentTabStore {
     private let pageSettings = AgentPanePageSettings()
     /// The one Read aloud voice every chat page speaks through, and Stop Reading Aloud stops.
     let readAloud = AgentPaneReadAloud()
+    /// The Cloud machines each page's environment picker lists (`cloudMachine.*`); the app's peer approver for every host and page.
+    let cloudMachines = AgentPaneCloudMachines()
+    let peerApprover: AgentPanePeerApprover?
     /// The device chats every page's New Tab cards show (``AgentPageChats``).
     let pageChats = AgentPageChats()
     weak var actionRegistry: ActionRegistry?
@@ -241,8 +247,8 @@ final class AgentTabStore {
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
     init(build: BuildIdentity?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil,
-         openPanel: MadeAheadOpenPanel? = nil, defaults: UserDefaults = .standard) {
-        self.defaults = defaults
+         openPanel: MadeAheadOpenPanel? = nil, defaults: UserDefaults = .standard, peerApprover: AgentPanePeerApprover? = nil) {
+        (self.defaults, self.peerApprover) = (defaults, peerApprover)
         if let data = defaults.data(forKey: Self.adoptionsDefaultsKey),
            let saved = try? JSONDecoder().decode([String: String].self, from: data) {
             adoptions = saved
@@ -250,7 +256,7 @@ final class AgentTabStore {
         self.openPanel = openPanel
         actionRegistry = registry
         self.linkScheme = linkScheme
-        let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase)
+        let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase, peerApprover: peerApprover)
         host = resolvedHost
         // Start acpmux while the first pane is loading. The page still owns
         // the authenticated WebSocket handshake and session selection. Then
@@ -409,7 +415,9 @@ final class AgentTabStore {
             model.remoteChat = true
             model.onListRemoteProjects = { [weak self] query in
                 guard let self else { return [] }
-                let folders = remoteFolders?(resolveRemote(key)) ?? []
+                let listed = remoteFolders?(resolveRemote(key)) ?? []
+                let machine = await remoteMachineFolders?(resolveRemote(key)) ?? []
+                let folders = AgentTabRemoteStart.folders(listed: listed, machine: machine)
                 guard let query = query?.lowercased(), !query.isEmpty else { return folders }
                 return folders.filter { $0.lowercased().contains(query) }
             }
@@ -546,7 +554,7 @@ final class AgentTabStore {
     private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
-        model.readAloud = readAloud
+        (model.readAloud, model.cloudMachines, model.transport.peerApprover) = (readAloud, cloudMachines, peerApprover)
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value, openPanel: openPanel) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
