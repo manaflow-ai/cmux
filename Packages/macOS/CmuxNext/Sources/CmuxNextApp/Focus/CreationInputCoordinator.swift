@@ -140,7 +140,7 @@ final class CreationInputCoordinator {
         }
         // A pending creation's early view has the keyboard: the keys held for it first, then this one if it was typed for
         // it too. Keys typed for another creation wait for that one's terminal (P0 1193).
-        if let controller, let lane = Self.earlyLane(buffer, controller, shell), runAgain(buffer.take(lane: lane), from: buffer, in: shell),
+        if let controller, let lane = Self.keyboardTerminal(controller, shell).flatMap(buffer.earlyLane(tab:)), runAgain(buffer.take(lane: lane), from: buffer, in: shell),
            lane == buffer.lane(focusedTab: controller.focus.state.typingTab) { return false }
         buffer.capture(event, focusedTab: controller?.focus.state.typingTab)
         return true
@@ -197,12 +197,11 @@ final class CreationInputCoordinator {
         RegistryKeyBindings(router.registry).run(binding, keyContext: context.bits, target: ActionTargetRef(kind: .tab, id: lane.tab))
     }
 
-    /// The pending creation whose early view (focused, shown, the first responder; never another view) has the keyboard.
-    private static func earlyLane(_ buffer: CreationInputBuffer, _ controller: WindowController, _ window: NSWindow) -> Int? {
-        guard case .terminal(let pane, let tab) = controller.focus.state.resolved, let lane = buffer.earlyLane(tab: tab),
-              let shown = controller.content?.paneController(key: pane), shown.currentTabKey == tab,
-              case .terminal(let entry)? = shown.currentContent else { return nil }
-        return entry.session.hasKeyboard(window.firstResponder) ? lane : nil
+    /// The focused terminal's tab when its shown view has the keyboard (never another view: a composer, a text field).
+    private static func keyboardTerminal(_ controller: WindowController, _ window: NSWindow) -> String? {
+        guard case .terminal(let pane, let tab) = controller.focus.state.resolved, let shown = controller.content?.paneController(key: pane),
+              shown.currentTabKey == tab, case .terminal(let entry)? = shown.currentContent else { return nil }
+        return entry.session.hasKeyboard(window.firstResponder) ? tab : nil
     }
 
     /// Keys the daemon gave back from terminal `terminalID`, a creation that did not take them: they
@@ -250,7 +249,7 @@ final class CreationInputCoordinator {
         guard let buffer = buffers[window.windowNumber] else { return }
         guard force || buffer.isResolved else {
             // Before every reply, only a creation whose early view has the keyboard takes its own keys (a focus settle).
-            if let lane = router?.focus(for: window).0.flatMap({ Self.earlyLane(buffer, $0, window) }) { _ = runAgain(buffer.take(lane: lane), from: buffer, in: window) }
+            if let lane = router?.focus(for: window).0.flatMap({ Self.keyboardTerminal($0, window).flatMap(buffer.earlyLane(tab:)) }) { _ = runAgain(buffer.take(lane: lane), from: buffer, in: window) }
             return
         }
         guard let router, let controller = router.focus(for: window).0 else {
@@ -266,7 +265,7 @@ final class CreationInputCoordinator {
         }
         buffers[window.windowNumber] = nil
         let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil)
-        let pending = buffer.take(focused: controller.focus.state.terminalTab)
+        let pending = buffer.take(focused: Self.keyboardTerminal(controller, window)) // as typed only into a terminal with the keyboard
         if end == .limitReached {
             // The person's keys for a new terminal waited the whole bound and go on now, into whatever has the focus.
             Self.logger.notice("creation hold of window \(window.windowNumber, privacy: .public) ended at its limit, not on focus: \(pending.count, privacy: .public) held key(s) go on now; last action \(router.lastInterception?.action.rawValue ?? "-", privacy: .public)")
