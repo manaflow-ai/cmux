@@ -81,6 +81,14 @@ parser.add_argument("--conditions", default="idle,load,load_utility,load_nice")
 parser.add_argument("--cases", default="sidebar,reopen,subagent,big,bloated,restore")
 parser.add_argument("--settle", type=float, default=6, help="seconds a load runs before the first open under it")
 parser.add_argument("--config", default="{}", help="cmux.json for the app (JSON); workspaces.newPlacement stays bottom")
+parser.add_argument("--record-launch", type=float, default=0,
+                    help="restore: record each relaunch's windows for SECONDS from the first frame (the app's "
+                         "--record-launch) into --launch-frames, and list the pictures the quit saved")
+parser.add_argument("--launch-frames", default="artifacts/launch-frames.tar.gz",
+                    help="with --record-launch: the archive of every relaunch's recorded frames")
+parser.add_argument("--backdrop", choices=["opaque", "frosted", "glass", "glass-clear"], default="opaque",
+                    help="the window material (appearance.backgroundBlur at 85%% opacity; opaque leaves the default): "
+                         "a page over a translucent window is clear, which a saved picture must keep")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts = parser.parse_args()
@@ -90,7 +98,8 @@ CASES = [c.strip() for c in opts.cases.split(",") if c.strip()]
 SUBAGENTS = opts.subagents or opts.runs + 1
 # A new workspace goes last, so `workspace.selectLast` shows the one an open just made (the default
 # placement is the top of the list). Over --config: another placement would show the wrong workspace.
-CONFIG = bm.merged(json.loads(opts.config), {"workspaces": {"newPlacement": "bottom"}})
+BACKDROP = {} if opts.backdrop == "opaque" else {"appearance": {"backgroundBlur": opts.backdrop, "backgroundOpacity": 0.85}}
+CONFIG = bm.merged(bm.merged(json.loads(opts.config), BACKDROP), {"workspaces": {"newPlacement": "bottom"}})
 AGENT = os.path.join(HERE, "chat_open_agent.py")
 NCPU = os.cpu_count() or 8
 
@@ -230,7 +239,7 @@ class Run:
         self.sock = None
         self.scratch = None
 
-    def launch(self, trace_launch=False):
+    def launch(self, trace_launch=False, record=None):
         env = dict(self.env)
         if self.scratch is None:
             self.pid, self.sock, self.scratch = bm.launch(APP, CONFIG, env)
@@ -241,7 +250,11 @@ class Run:
             # The argument, not CMUX_CHAT_OPEN_TRACE_LAUNCH: the app unsets every inherited CMUX*
             # variable but the CMUX_NEXT_* knobs at launch (LaunchIdentity.inheritedKeys), before
             # the trace reads it, so a launch trace armed by the variable never ran.
-            self.pid, self.sock = relaunch(self.scratch, env, ["--chat-open-trace-launch"] if trace_launch else [])
+            args = ["--chat-open-trace-launch"] if trace_launch else []
+            if record:
+                # The app's own launch recorder (DebugWindowRecord): every window from its first frame.
+                args += ["--record-launch", record, "--record-launch-seconds", str(opts.record_launch)]
+            self.pid, self.sock = relaunch(self.scratch, env, args)
         self.app = bm.App(APP, self.sock)
         deadline = time.monotonic() + 60
         while not self.app.ping() and time.monotonic() < deadline:
@@ -270,6 +283,14 @@ class Run:
         if self.pid and not bm.wait_gone(self.pid, 30):
             bm.end_bundle(APP)
         bm.end_bundle(APP)  # the bundle's daemons and helpers: this run's only (bm.launch checked)
+
+    def saved_pictures(self):
+        """The agent pages' pictures the last quit saved for this launch's first frame (AgentPaneLaunchImages)."""
+        found = []
+        for folder, _dirs, files in os.walk(self.scratch or ""):
+            if os.path.basename(folder) == "agent-pane-images":
+                found += sorted(files)
+        return found
 
     def end(self):
         bm.end_bundle(APP)
@@ -420,6 +441,7 @@ def main():
     signal.signal(signal.SIGTERM, bm.interrupted)
     load = Load(root)
     run = None
+    frames_root = os.path.join(root, "launch-frames")
     try:
         say("chat-open: seeding")
         home, sessions, seeded = seed(root)
@@ -455,15 +477,23 @@ def main():
                 for index in range(opts.runs):
                     # The shown workspace is the last chat opened (a big one when it ran): it restores.
                     run.quit()
-                    run.launch(trace_launch=True)
+                    record_dir = os.path.join(frames_root, f"{condition}-restore-{index}") if opts.record_launch else None
+                    pictures = run.saved_pictures()
+                    launched = time.monotonic()
+                    run.launch(trace_launch=True, record=record_dir)
                     record = run.rpc("debug.chat_open_trace", {"action": "wait", "timeout_ms": 15000,
                                                                "settle_ms": 600, "page_timing": True}, timeout=40) or {}
                     record["flashes"] = flashes(record.get("frames"))
                     record["first_image_ms"] = first_of(record.get("frames"), ("image",))
                     record["acp_log"] = run.rpc("debug.agent_pane", {"action": "acp_log", "limit": 40})
+                    record["saved_pictures"] = pictures
+                    if record_dir:
+                        # test script: the recording runs on the app's clock from its first frame; the
+                        # next quit must not cut it short.
+                        time.sleep(max(0.0, opts.record_launch + 1 - (time.monotonic() - launched)))
                     records.append(record)
                     say(f"chat-open: {condition} restore {index}: first_content_ms={record.get('first_content_ms')} "
-                        f"first_image_ms={record.get('first_image_ms')}{why(record)}")
+                        f"first_image_ms={record.get('first_image_ms')} saved_pictures={pictures}{why(record)}")
                 results["raw"].setdefault(condition, {})["restore"] = records
                 results["cases"].setdefault(condition, {})["restore"] = summarize(records)
             load.stop()
@@ -472,6 +502,11 @@ def main():
         load.stop()
         if run:
             run.end()
+        if opts.record_launch and os.path.isdir(frames_root):
+            os.makedirs(os.path.dirname(os.path.abspath(opts.launch_frames)), exist_ok=True)
+            archive = os.path.abspath(opts.launch_frames)
+            shutil.make_archive(archive.removesuffix(".tar.gz"), "gztar", frames_root)
+            say(f"chat-open: launch frames in {archive}")
         shutil.rmtree(root, ignore_errors=True)
     table = markdown(results)
     print("CHAT-OPEN-TABLE-BEGIN\n" + table + "\nCHAT-OPEN-TABLE-END", flush=True)
