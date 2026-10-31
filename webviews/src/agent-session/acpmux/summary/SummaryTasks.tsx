@@ -8,33 +8,17 @@
 // A row opens the command's terminal beside the chat (processTerminal.ts). A command that starts
 // while the card is drawn drops in at the top (ui/presence.ts `useArrivals`); the ones the card is
 // drawn with are simply there.
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { useMemo } from "react";
 import { useArrivals } from "../../../ui/presence";
-import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { openProcessTerminal } from "../processTerminal";
-import { useNow } from "../subagents/SubagentGroup";
 import { arrivalKey, type BackgroundCommand, sendLabel, splitCommands } from "../inspector/processes";
 import { COMMAND_STATE, StopButton } from "../inspector/TasksSection";
+import { RunningElapsed, SummaryTaskClock } from "./SummaryTaskClock";
 
 const ROW_ICON = rowIconSize(12);
-
-// The summary owns one shared clock while any task is running. A tick updates only the
-// elapsed labels reading this context, leaving the finished history's rows untouched.
-const TaskNow = createContext(0);
-
-function SummaryTaskClock({ live, children }: { live: boolean; children: ReactNode }) {
-  const now = useNow(live);
-  return <TaskNow.Provider value={now}>{children}</TaskNow.Provider>;
-}
-
-function RunningElapsed({ startedAt }: { startedAt: number }) {
-  const now = useContext(TaskNow);
-  return formatDuration(Math.max(0, now - startedAt));
-}
-
 export function SummaryTasks({
   commands,
   onStop,
