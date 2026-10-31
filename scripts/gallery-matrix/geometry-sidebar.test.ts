@@ -105,7 +105,7 @@ test("native tolerance and reported deltas stay in points at 1x and 2x", async (
     const config = sidebarConfig(states, revision, contract);
     expect(config.rules.every((rule) => rule.tolerancePx === 0.5)).toBe(true);
     const artifacts = states.map((state) => ({ file: "synthetic-scale-replay", artifact: sidebarArtifact(state,
-      { ...revision, source: "synthetic scale replay of measured point frames" },
+      revision,
       { sha256: "0".repeat(64), width: state.imagePixels[0], height: state.imagePixels[1] }, contract) }));
     const rawPoint = artifacts[0]!.artifact.elements.find((element) => element.group === "trailing")!.rect.x;
     const report = await lintGeometry(artifacts, config);
