@@ -102,6 +102,31 @@ import Testing
         #expect(!content.control(field, textView: editor, doCommandBy: #selector(NSResponder.moveRight(_:))))
     }
 
+    @Test func aLateSearchEchoKeepsNewerTyping() throws {
+        let content = NativePopupContent()
+        var model = Self.model()
+        model.search = NativePopupField(id: "query", value: "", placeholder: "Search")
+        content.update(model)
+        let field = try #require(content.subviews.compactMap { $0 as? NSSearchField }.first)
+        for text in ["a", "ab"] {
+            field.stringValue = text
+            content.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+        }
+        model.revision += 1
+        model.search?.value = "a"
+        content.update(model)
+        #expect(field.stringValue == "ab")
+        model.revision += 1
+        model.search?.value = "ab"
+        content.update(model)
+        #expect(field.stringValue == "ab")
+        // A value the page chose itself (a rail click clears the search) still lands.
+        model.revision += 1
+        model.search?.value = ""
+        content.update(model)
+        #expect(field.stringValue == "")
+    }
+
     private static func key(_ characters: String, code: UInt16) throws -> NSEvent {
         try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
                                       windowNumber: 0, context: nil, characters: characters,

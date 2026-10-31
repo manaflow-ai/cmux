@@ -17,6 +17,8 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     private var title: ThemedLabel?
     private var pendingCompositionModel: NativePopupModel?
     private var typeahead = ""
+    /// Search text sent to the page and not yet echoed back in a descriptor, oldest first.
+    private var sentSearch: [String] = []
     private var typeaheadTime: TimeInterval = 0
     private(set) var contentHeight: CGFloat = 0
 
@@ -31,6 +33,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         }
         let selection = (focused?.value.currentEditor() as? NSTextView)?.selectedRange()
         let priorSelection = selected
+        let searchText = reconcileSearch(next.search?.value)
         if next.rows != model?.rows || next.rail != model?.rail || next.footer != model?.footer || next.title != model?.title || next.search?.id != model?.search?.id {
             rebuild(next)
             if let focused, let replacement = fields[focused.key] {
@@ -43,7 +46,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         if let field = next.search, let search {
             // Keep descriptor changes live even when the stable search ID is unchanged.
             // Consumers update placeholder/disabled state while retaining IME focus.
-            search.stringValue = field.value
+            if let searchText, search.stringValue != searchText { search.stringValue = searchText }
             search.placeholderString = field.placeholder
             search.isEnabled = field.disabled != true
         }
@@ -54,6 +57,15 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         if !enabledRows.contains(where: { $0.0.id == selected }) { selected = (bodyRows.first ?? enabledRows.first)?.0.id }
         paintSelection()
         layoutRows()
+    }
+
+    /// The text the search field shows for a descriptor. A descriptor echoing text typed here
+    /// acknowledges it and keeps anything typed since; any other value is the page's own (a clear).
+    func reconcileSearch(_ value: String?) -> String? {
+        guard let value else { sentSearch.removeAll(); return nil }
+        guard let index = sentSearch.firstIndex(of: value) else { sentSearch.removeAll(); return value }
+        sentSearch.removeFirst(index + 1)
+        return sentSearch.last ?? value
     }
 
     func focusInitial() {
@@ -344,6 +356,10 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             pendingCompositionModel = nil
             if isSearch { pending.search?.value = value }
             update(pending)
+        }
+        if isSearch {
+            sentSearch.append(value)
+            if sentSearch.count > 64 { sentSearch.removeFirst(sentSearch.count - 64) }
         }
         emit(isSearch ? .search : .change, id, value)
     }

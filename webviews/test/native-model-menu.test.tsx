@@ -518,3 +518,40 @@ test("a native menu whose web look hides the field until typing still offers its
   await f.emit("query", "al", "search");
   expect(f.latest().search?.value).toBe("al");
 });
+
+test("the full native picker offers the current signed-out harness its Log In", async () => {
+  const logins: string[] = [];
+  const f = await mountPicker({
+    signedOut: { claude: "claude" },
+    onLogIn: (id: string) => logins.push(id),
+  } as Partial<ModelPickerProps>);
+  const login = f.rows().find((row) => row.id === "login");
+  expect(login?.kind).toBe("action");
+  await f.emit("login");
+  expect(logins).toEqual(["claude"]);
+  // A search lists matches, never the signed-out note.
+  await f.emit("query", "gam", "search");
+  expect(f.rows().some((row) => row.id === "signed-out")).toBe(false);
+});
+
+test("the full native picker's informational Default row cannot be picked", async () => {
+  const f = await mountPicker({
+    catalog: [
+      {
+        id: "prime",
+        name: "Prime",
+        family: "prime",
+        models: [
+          { id: "default", name: "Default" },
+          { id: "p1", name: "Prime One" },
+        ],
+      },
+    ] as ModelPickerProps["catalog"],
+    harness: "prime",
+    model: "p1",
+    label: "Prime One",
+  });
+  const fallback = f.latest().rows.find((row) => row.kind === "action" && /default/i.test(row.label));
+  expect(fallback?.disabled).toBe(true);
+  expect(f.latest().rows.find((row) => row.label === "Prime One")?.disabled).toBeUndefined();
+});

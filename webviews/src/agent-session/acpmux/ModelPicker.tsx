@@ -1271,19 +1271,23 @@ export function ModelPicker(props: ModelPickerProps) {
   }
   if (!open) {
     // Nothing to describe while closed.
-  } else if (selectedOther && selected && loginFor(selected) !== undefined) {
+  } else if (selected && !searching && !starredView && loginFor(selected) !== undefined) {
+    // The same conditions as the web list: the selected harness's own Log In, never over a search.
     nativeRows.push({
       kind: "text",
       id: "signed-out",
-      label: t("harnesses.signedOut"),
+      label: t("harness.signedOut", { agent: selected.name }),
       disabled: true,
     });
-    if (onLogIn) nativeRows.push({ kind: "action", id: "login", label: t("harness.logIn") });
+    if (loginFor(selected) && onLogIn) nativeRows.push({ kind: "action", id: "login", label: t("harness.logIn") });
   } else if (selectedOther && selected && blockedProfile(selected)) {
     nativeRows.push({
       kind: "text",
       id: "blocked",
-      label: selected.folder?.diagnostic ?? unavailableText,
+      label:
+        selected.folder?.state === "needs-trust"
+          ? t("picker.trustFirst")
+          : (selected.folder?.diagnostic ?? unavailableText),
       disabled: true,
     });
   } else if (selectedOther && selected?.folder?.state === "needs-enable") {
@@ -1316,7 +1320,11 @@ export function ModelPicker(props: ModelPickerProps) {
                 .join(" · "),
             }
           : {}),
-        ...(model.unavailable ? { disabled: true, disabledReason: unavailableText } : {}),
+        ...(model.unavailable
+          ? { disabled: true, disabledReason: unavailableText }
+          : model.defaultChoice
+            ? { disabled: true }
+            : {}),
         checked: model.id === props.model && owner?.ids.includes(harness ?? ""),
         shortcut: !searching && index < 9 ? String(index + 1) : undefined,
         actions: [
