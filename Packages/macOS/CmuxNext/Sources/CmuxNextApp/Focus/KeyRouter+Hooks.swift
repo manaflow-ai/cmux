@@ -108,7 +108,7 @@ extension KeyRouter {
         guard let services else { return (nil, .other) }
         // No key window (the app is inactive, or an automation launch):
         // menu actions target the active window, so its focus decides.
-        guard let key = NSApp.keyWindow else { return (services.windows.active, .content) }
+        guard let key = services.keyWindowSource() else { return (services.windows.active, .content) }
         return focus(for: key)
     }
 

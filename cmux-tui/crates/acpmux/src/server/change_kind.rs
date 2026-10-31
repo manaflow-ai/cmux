@@ -32,12 +32,16 @@ pub(super) fn session_change_kind(record_kind: &str) -> Option<&str> {
         | "watch_taken_over"
         // The row's `retry` came or went (`hub/auto_resume.rs`).
         | "auto_resume_scheduled"
+        | "auto_resume_restored"
+        | "auto_resume_stopped"
         | "auto_resume_skipped"
         | "auto_resume_exhausted"
         // A turn the row showed `retryDeciding` for gets no retry.
         | "auto_resume_settled"
         // Work the session started runs past its turn, or ended (`hub/work_below.rs`).
-        | "subagents_working" => record_kind,
+        | "subagents_working"
+        // What its harness spent and holds, read after a turn (`hub/usage_view.rs`).
+        | "usage_stats" => record_kind,
         // A Stop's turn reads `stopping`, or a stuck chat works again: the row's `state`.
         "stopping" | "stop_escalated" | "stop_restarted" | "unstuck" => "status",
         k if k == "dequeued" || k.starts_with("queue") => "queue",
@@ -46,4 +50,16 @@ pub(super) fn session_change_kind(record_kind: &str) -> Option<&str> {
         "available_commands_update" => "commands",
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn retry_restore_publishes_a_session_change() {
+        assert_eq!(
+            super::session_change_kind("auto_resume_restored"),
+            Some("auto_resume_restored")
+        );
+        assert_eq!(super::session_change_kind("auto_resume_stopped"), Some("auto_resume_stopped"));
+    }
 }
