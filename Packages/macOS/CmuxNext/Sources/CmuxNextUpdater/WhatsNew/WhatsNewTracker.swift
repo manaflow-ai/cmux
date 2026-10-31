@@ -57,6 +57,12 @@ nonisolated public struct WhatsNewSeenStore {
         self.defaults = defaults
     }
 
+    /// Whether the app ran on this install before (a launch writes the record in ``tracker(current:)``):
+    /// false on a fresh install, until this launch's tracker is made.
+    public var hasRecord: Bool {
+        defaults.string(forKey: Self.lastSeenKey) != nil || defaults.string(forKey: Self.legacyLastSeenBuildKey) != nil
+    }
+
     /// The tracker for this launch. A first launch with no record is a fresh
     /// install: `current` becomes the baseline, so nothing shows. A record
     /// from the retired card (a build number) reads as that build of the

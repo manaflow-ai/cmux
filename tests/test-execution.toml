@@ -198,6 +198,11 @@ path = "tests/test_ci_delta_since_green.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_fast_tier_anchor.py"
+lane = "manual"
+reason = "Run explicitly with cmux-ci when changing fast-tier anchoring; repository policy keeps new regression tests out of automatic CI."
+
+[[test]]
 path = "tests/test_ci_fork_runner_routing.py"
 lane = "linux-guard"
 
@@ -2259,6 +2264,10 @@ path = "tests/test_ci_runs_on_fallback.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_warm_sources.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_workflow_file_size.py"
 lane = "linux-guard"
 
@@ -2283,3 +2292,8 @@ reason = "Run by hand before changing the Cloud capture provision scripts; no ne
 [[test]]
 path = "tests/test_cmux_next_kill_switches.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_devbox_bubblewrap.py"
+lane = "manual"
+reason = "Run by hand (cmux-ci) before changing the devbox bubblewrap recipe: it builds the Dockerfile's devtools and bubblewrap layers in Docker and runs an unprivileged sandbox; no new CI tests (CLAUDE.md, Verification)."
