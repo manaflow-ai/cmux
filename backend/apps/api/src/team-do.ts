@@ -643,7 +643,14 @@ export class TeamDO extends OwnerDO<TeamState> {
   async memberRole(entity: string, user: string): Promise<string | null> { return (await this.membership(entity, user))?.role ?? null } // team selection (x-cmux-team)
   async noOwner(entity: string): Promise<boolean> { return this.isBound(entity) && noOwnerOf(this.bind(entity).currentState) } // RPC from TeamVmDO's team_vm.status (review P2-3)
   async cloudVmPlan(entity: string, stackUser?: string) { return (await import("./cloud-vm-plan.ts")).cloudVmPlanOf(this.ctx.storage.sql, this.isBound(entity) ? this.bind(entity).currentState : null, entity, this.stack ?? stackServer(this.env), stackUser, Date.now()) } // RPC from CloudDO: the operator Cloud grant (cloud-entitlements.ts)
-  async inferencePlan(entity: string, user: string, stackUser?: string) { return (await import("./inference/plan.ts")).inferencePlanOf(this.ctx.storage.sql, this.isBound(entity) ? this.bind(entity).currentState : null, entity, this.stack ?? stackServer(this.env), stackUser, user) } // RPC from the model router: the paid-plan gate (inference/plan.ts)
+  async inferencePlan(entity: string, user: string, stackUser?: string) { return (await import("./inference/plan.ts")).inferencePlanOf(this.ctx.storage.sql, this.isBound(entity) ? this.bind(entity).currentState : null, entity, this.stack ?? stackServer(this.env), stackUser, user, Date.now(), this.env.ENVIRONMENT !== "production") } // RPC from the model router: the paid-plan gate (inference/plan.ts)
+  /** RPC from plan-checkout.ts: a paid test-mode plan checkout of this team (never on production). */
+  async grantTestPlan(plan: string, session: string, subscription: string): Promise<{ added: boolean; revoked: boolean } | { refused: "production" }> {
+    if (this.env.ENVIRONMENT === "production") return { refused: "production" }
+    return (await import("./inference/plan.ts")).grantTestPlan(this.ctx.storage.sql, plan, session, subscription, Date.now())
+  }
+  /** RPC from plan-checkout.ts: the test plan's subscription was cancelled. */
+  async revokeTestPlan(subscription: string): Promise<boolean> { return (await import("./inference/plan.ts")).revokeTestPlan(this.ctx.storage.sql, subscription, Date.now()) }
   /** RPC from the Stack webhook route (stack-webhook.ts): one delivery reconciled with Stack, one at a time per team. */
   async stackWebhook(entity: string, event: StackEvent): Promise<StackSyncReply> {
     this.bind(entity)
