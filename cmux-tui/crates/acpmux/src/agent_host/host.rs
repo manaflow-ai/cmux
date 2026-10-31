@@ -780,7 +780,7 @@ impl State {
         if matches!(entry, Entry::Exit { .. }) {
             self.exit_h = Some(h);
         }
-        let weight = bytes.len() + 32;
+        let weight = bytes.len().saturating_add(32);
         if let Some(c) = self.controller.as_ref().filter(|c| c.resumed)
             && c.tx.send_encoded(bytes.clone()).is_err()
         {

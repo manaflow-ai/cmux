@@ -759,8 +759,9 @@ pub(crate) fn encode_frame_within<T: Serialize>(
     if body.len() > max {
         return None;
     }
-    let mut buf = Vec::with_capacity(body.len() + 4);
-    buf.extend_from_slice(&(body.len() as u32).to_be_bytes());
+    let len = u32::try_from(body.len()).ok()?;
+    let mut buf = Vec::with_capacity(body.len().saturating_add(4));
+    buf.extend_from_slice(&len.to_be_bytes());
     buf.extend_from_slice(&body);
     Some(buf.into())
 }
