@@ -1,3 +1,5 @@
+import CmuxNextComputerUse
+
 /// The live Computer Use sessions on this Mac and the user's stop: the CUA
 /// host in the App (``CuaComputerUseSessions``), a fake in tests.
 @MainActor
