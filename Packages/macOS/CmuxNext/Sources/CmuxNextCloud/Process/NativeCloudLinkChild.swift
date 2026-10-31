@@ -104,7 +104,11 @@ package actor NativeCloudLinkChild {
             let received = Task { try await Self.blockingWork.run(.userVisible, mayBlock: .system) {
                 try NativeBrokerDescriptor.receive(parent)
             } }
-            var fd: Int32? = try await received.value
+            var fd: Int32? = try await withTaskCancellationHandler {
+                try await received.value
+            } onCancel: {
+                received.cancel()
+            }
             defer { if let fd { Darwin.close(fd) } }
             try check(epoch)
             guard let descriptor = fd else { throw POSIXError(.EPROTO) }
