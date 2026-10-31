@@ -368,6 +368,7 @@ body,
   transition: opacity var(--cmux-motion-quick) ease-out;
 }
 .hc-msg:hover .hc-msg-actions,
+.hc-msg:has([data-popup-open]) .hc-msg-actions,
 .hc-msg:focus-within .hc-msg-actions,
 .hc-msg-actions.pinned {
   opacity: 1;

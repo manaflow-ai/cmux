@@ -37,7 +37,7 @@ area shortcuts 'plans/cmux-next/action-surfaces\.json|Packages/macOS/CmuxNext/So
 # The app-host generated files read the operation catalogs, the action export and the apps' fragments.
 area apphost 'cmux-tui/spec/resource-operations-v2\.json|backend/catalog/cloud-operations\.json|plans/cmux-next/action-surfaces\.json|first-party-apps/|cmux-tui/crates/cmux-app-host/(tools|generated)/'
 # The namespace lint reads the package and iOS app sources.
-area ratchets 'Packages/|ios/cmux/|scripts/lint-ios-package-conventions\.sh|scripts/lint_swift_namespaces\.py|scripts/lint-namespace-types-ratchet\.txt'
+area ratchets 'Packages/|ios/cmux/|scripts/lint-ios-package-conventions\.sh|scripts/lint_swift_namespaces\.py|scripts/lint-namespace-types-ratchet\.txt|scripts/lint-namespace-types-baseline\.txt|scripts/lint-ios-package-conventions-baseline\.txt'
 area cloud 'backend/catalog/cloud-operations\.json|backend/packages/protocol/(scripts/export-(rust-)?client\.ts|src/automation-caps\.ts)|clients/ts/cloud/|cmux-tui/crates/cmux-cloud-wire/src/generated/'
 area webviews 'webviews/'
 area ghostty 'ghostty$|scripts/ghosttykit-checksums\.txt'

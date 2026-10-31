@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextDaemon
@@ -211,7 +212,7 @@ enum ScreenshotHandlers {
                 // Up to 4 MiB of PNG grows to 5.3 MiB of text: off the main actor.
                 result["png_base64"] = .string(await files.base64(png))
             case .inline, .temporary:
-                result["path"] = .string(try await files.save(png, tabID: "screenshot"))
+                result["path"] = .string(try await saveTemporary(png, files: files))
             case .file(let url):
                 try await write(png, to: url)
                 result["path"] = .string(url.path)
@@ -222,6 +223,7 @@ enum ScreenshotHandlers {
         if copies {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.writeObjects([NSImage(cgImage: image, size: .zero)])
+            AttachmentSource.claim(NSPasteboard.general) // a paste of it wears cmux's icon
         }
         return result
     }
@@ -236,8 +238,15 @@ enum ScreenshotHandlers {
 
     @concurrent
     nonisolated private static func write(_ png: Data, to url: URL) async throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try png.write(to: url, options: .atomic)
+        try AttachmentSource.writeOwn(png, to: url) // made, written and marked as cmux's
     }
 
+    /// Writes to `$TMPDIR/cmux-screenshots/` with the shared capture retention, then marks the file as
+    /// cmux's (``AttachmentSource/markOwn(_:bundleId:)``), so an attachment made of it wears cmux's icon.
+    @concurrent
+    nonisolated private static func saveTemporary(_ png: Data, files: BrowserScreenshotFiles) async throws -> String {
+        let path = try await files.save(png, tabID: "screenshot")
+        AttachmentSource.markOwn(URL(fileURLWithPath: path))
+        return path
+    }
 }
