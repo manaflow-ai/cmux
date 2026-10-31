@@ -101,10 +101,12 @@ fn check_local_resize_order(add_later_output: bool) {
         }
     }
     // The event bus keeps only a surface's newest title for a subscriber
-    // that has not read yet (event_bus.rs, CoalescedEventKey::Title), so a
-    // reader that is late sees "after-resize" alone. What must hold for any
-    // reader: the last title it sees is the newest one, and the drained
-    // title never comes after a later one.
+    // that has not read yet (event_bus.rs, CoalescedEventKey::Title). Read
+    // after `pace` saw the last title, `events` holds exactly that newest
+    // title: the drained one was published first and then replaced. The
+    // drain's own parse is checked through `drained_title` above; the order
+    // of publication comes from the design (one pending list, one publisher)
+    // and this test does not prove it.
     let mut titles: Vec<String> = Vec::new();
     loop {
         match events.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
@@ -129,17 +131,7 @@ fn check_local_resize_order(add_later_output: bool) {
         drained_title, "resize-drained",
         "the resize drained output without parsing its title"
     );
-    assert_eq!(
-        titles.last().map(String::as_str),
-        Some(last_title),
-        "the newest title was not published: {titles:?}"
-    );
-    let drained = titles.iter().position(|title| title == "resize-drained");
-    let later = titles.iter().position(|title| title == "after-resize");
-    assert!(
-        drained.zip(later).is_none_or(|(drained, later)| drained < later),
-        "the drained title came after the later output's title: {titles:?}"
-    );
+    assert_eq!(titles, [last_title], "a late subscriber sees exactly the newest title");
     assert_eq!(text.lines().next().unwrap_or_default().find('X'), Some(19), "{text:?}");
     if add_later_output {
         assert_eq!(
