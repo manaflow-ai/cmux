@@ -5,12 +5,29 @@
 /// and staging builds are `development`: they never run Sparkle against a
 /// public feed (they are not on the release train), but they may probe it
 /// read-only. The one exception is the tip app (cmux NEXT DEV stamped with
-/// the tip feed, ``UpdateBuildIdentity/isTipBuild``), which is `nightly`.
+/// the tip feed, ``UpdateBuildIdentity/isTipBuild``), which is `nightlyNext`.
+///
+/// The raw value is the `track` of `updates.status` and the probe result.
 nonisolated public enum UpdateTrack: String, Sendable, CaseIterable, Codable {
     case stable
+    /// Classic cmux NIGHTLY: main's `/nightly/` feed.
     case nightly
     case rc
     case development
+    /// cmux NEXT's nightly ring: a `/nightly-next/` feed, with its own release and
+    /// Sparkle key. cmux NEXT (`com.cmuxterm.app.nightly.cmux-next`), the legacy NEXT
+    /// build signed as cmux NIGHTLY and the tip app all read one.
+    case nightlyNext = "nightly-next"
+
+    /// Whether a test appcast may replace the baked feed (`updates.test_feed`,
+    /// `debug.updater`, a pinned test feed): DEV and both nightly rings, never
+    /// stable or RC.
+    public var allowsTestFeed: Bool {
+        switch self {
+        case .nightly, .nightlyNext, .development: true
+        case .stable, .rc: false
+        }
+    }
 
     /// Whether `bundleIdentifier` is a DEV (`com.cmuxterm.app.debug[.<tag>]`)
     /// or staging (`com.cmuxterm.app.staging[.<tag>]`) build.
@@ -33,7 +50,7 @@ nonisolated public enum UpdateTrack: String, Sendable, CaseIterable, Codable {
     /// already off (claude-sr2 2026-10-26, relaying Leo: "maybe better as an opt in for normal users").
     public var downloadsAutomaticallyByDefault: Bool {
         switch self {
-        case .stable, .rc, .nightly, .development: false
+        case .stable, .rc, .nightly, .nightlyNext, .development: false
         }
     }
 }
