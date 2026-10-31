@@ -33,7 +33,7 @@ public final class AddressBarView: NSView {
 
     let pill = OmnibarPillView()
     private let backdrop = OmnibarCardTopView()
-    private let chip = PageInfoChipButton()
+    let chip = PageInfoChipButton()
     let field = AddressField()
     private let machineBadgeView = MachineBadgeView()
     private let profileBadgeView = ProfileBadgeView()
