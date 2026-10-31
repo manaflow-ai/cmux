@@ -367,6 +367,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ("new_agent_chat", t("argument.sidebar.builtin.newAgentChat", "New Agent Chat")),
             ("search_chats", t("argument.sidebar.builtin.searchChats", "Search Chats")),
             ("chief", t("argument.sidebar.builtin.chief", "Chief")),
+            ("automations", t("argument.sidebar.builtin.automations", "Automations")),
             ("customize", t("argument.sidebar.builtin.customize", "Customize Appearance")),
         ]
         // Free text with the built-ins offered: `workspace:<id>` and

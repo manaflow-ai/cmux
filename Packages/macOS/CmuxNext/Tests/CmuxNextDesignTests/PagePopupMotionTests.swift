@@ -1,19 +1,20 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// POLISH audit, batch 3 (cx-2grmt): a page's menu shown past its window's edge (a `<select>`,
 /// WebPopupHost) drew the system window shadow and appeared and left in one frame. It casts the
 /// one popup shadow (`PopupStyle`, like the page's own menus) and opens and closes like every
 /// native popup (`openPopup` / `closePopup`).
-@MainActor @Suite(.serialized) struct PagePopupMotionTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PagePopupMotionTests {
     /// Popup motion is observable only on an awake display with animations enabled. The tests pin
     /// Reduce Motion off around the operation, so the system Reduce Motion setting does not gate
     /// this predicate.
     @Test(.enabled("needs an awake display and animations on, or every popup snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
     func aPageMenuCastsThePopupShadowAndOpensAndClosesWithMotion() async throws {
         let (window, page) = try Self.page()
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let host = WebPopupHost(webView: page, zoom: { 1 }, send: { _ in })
         // The open and the close start with movement on; synchronous inside: the override is process-wide.
         let (reply, panel, opened) = try { () throws -> ([String: Any], WebPopupPanel, Bool) in
@@ -56,7 +57,7 @@ import Testing
     @Test(.enabled("needs an awake display and animations on, or every popup snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
     func anInstantPageMenuOpensInOneFrameAndStillFadesOut() async throws {
         let (window, page) = try Self.page()
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let host = WebPopupHost(webView: page, zoom: { 1 }, send: { _ in })
         let (panel, opening, opacity) = try { () throws -> (WebPopupPanel, [String], Float?) in
             Motion.reduceMotionOverride = false
@@ -83,7 +84,7 @@ import Testing
     @Test(.enabled("needs an awake display and animations on, or every popup snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
     func aNativePopupDefaultsToAnInstantOpenAndFadesOnClose() async throws {
         let (window, _) = try Self.page()
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let panel = NativePopupPanel(identifier: "cmux.tests.instant-popup")
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 80))
         content.wantsLayer = true
@@ -120,7 +121,7 @@ import Testing
     @Test(.enabled("needs an awake display and animations on, or every popup snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
     func anUpdateDuringTheCloseDoesNotReopenTheMenu() async throws {
         let (window, page) = try Self.page()
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let host = WebPopupHost(webView: page, zoom: { 1 }, send: { _ in })
         host.show(try Self.menu(["a", "b"]))
         let panel = try #require(NSApp.windows.compactMap { $0 as? WebPopupPanel }.first { $0.parent === window })
@@ -135,7 +136,7 @@ import Testing
     @Test(.enabled("needs an awake display and animations on, or every popup snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
     func aMenuWhoseHostGoesMidFadeStillLeaves() async throws {
         let (window, page) = try Self.page()
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         var host: WebPopupHost? = WebPopupHost(webView: page, zoom: { 1 }, send: { _ in })
         weak var gone = host
         host?.show(try Self.menu(["a", "b"]))
