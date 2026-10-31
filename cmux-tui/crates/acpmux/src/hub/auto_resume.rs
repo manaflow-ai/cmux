@@ -941,10 +941,10 @@ impl Hub {
     ) {
         // Transfer replacement can leave this old task alive after the returning journal
         // takes its id. It must neither fire nor record a skip in that new journal.
-        if session.replaced.load(std::sync::atomic::Ordering::SeqCst)
-            || (self.shutting_down()
-                && !self.restart_requested.load(std::sync::atomic::Ordering::SeqCst))
-        {
+        // Once a shutdown began (a restart too) it never fires either: starts are fenced, so
+        // it would end as a shutdown failure that supersedes the saved schedule. Its wait
+        // stays durable, and the next daemon restores it (`restore.rs`).
+        if session.replaced.load(std::sync::atomic::Ordering::SeqCst) || self.shutting_down() {
             return;
         }
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
@@ -1012,11 +1012,12 @@ impl Hub {
     ) {
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
         self.clear_fired(session, cut_turn);
+        // Read before the retry lock: scheduling takes the shutdown plan, then this lock
+        // (`before_shutdown`, `set_retry`), so never the other way round.
+        let fenced = self.shutting_down()
+            && !self.restart_requested.load(std::sync::atomic::Ordering::SeqCst);
         let _pending = session.auto_resume.lock();
-        if session.replaced.load(std::sync::atomic::Ordering::SeqCst)
-            || (self.shutting_down()
-                && !self.restart_requested.load(std::sync::atomic::Ordering::SeqCst))
-        {
+        if session.replaced.load(std::sync::atomic::Ordering::SeqCst) || fenced {
             return;
         }
         #[cfg(test)]

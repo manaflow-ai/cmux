@@ -350,6 +350,8 @@ impl Hub {
             // Stop came while the failed turn ran: the caller asks for a retry anyway.
             Some(Mark::Stopped(_)) if allow_stopped => {}
             Some(Mark::Stopped(_)) => return Err(stopped()),
+            // A restored manual retry owns the wait its restore installed: a Stop since cleared it.
+            None if !allow_stopped => return Err(stopped()),
             None => {}
         }
         if !still_cut(session, &cut_turn) {
