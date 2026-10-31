@@ -64,6 +64,21 @@ import Testing
         #expect(resolve("cmux://conversation/c4/message/m4") == .chief(conversationID: "c4"))
     }
 
+    @Test func aColdHomeLinkWaitsForItsExactConversation() {
+        // No Home identity has loaded yet: a navigation fallback would open
+        // the wrong Chief. Once the Mac list arrives, only the named id opens.
+        #expect(!NotificationTarget.knowsHomeConversation("target", macChief: nil, cloudChief: nil,
+                                                        homeChief: nil, homeRows: []))
+        #expect(NotificationTarget.knowsHomeConversation("target", macChief: nil, cloudChief: nil,
+                                                       homeChief: nil, homeRows: ["target", "other"]))
+        #expect(!NotificationTarget.knowsHomeConversation("missing", macChief: "mac", cloudChief: "cloud",
+                                                        homeChief: "mac", homeRows: ["target"]))
+        #expect(NotificationTarget.knowsHomeConversation("mac", macChief: "mac", cloudChief: nil,
+                                                       homeChief: nil, homeRows: []))
+        #expect(NotificationTarget.knowsHomeConversation("cloud", macChief: nil, cloudChief: "cloud",
+                                                       homeChief: nil, homeRows: []))
+    }
+
     @Test func aGroupLinkOpensItsWorkspaceOrTheList() {
         #expect(resolve("cmux://group/grp_abcdefghij0123456789/workspace/\(ws)") == .workspace(id: "w1", tabID: nil))
         #expect(resolve("https://cloud-api.cmux.dev/g/grp_abcdefghij0123456789") == .workspaces)
