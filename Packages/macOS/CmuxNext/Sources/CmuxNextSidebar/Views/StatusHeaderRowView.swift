@@ -19,17 +19,27 @@ final class StatusHeaderRowView: SidebarRowView {
 
     func configure(_ row: SidebarRow) {
         guard case let .status(section) = row.key else { return }
-        name.setString(Strings.statusSection(section))
+        configure(row, title: Strings.statusSection(section), collapses: section.collapses)
+    }
+
+    func configure(_ row: SidebarRow, title: String, collapses: Bool = true) {
+        name.setString(title)
         count.setString("\(row.childCount)")
         name.setFont(SidebarStyle.headerFont)
         count.setFont(SidebarStyle.headerFont)
-        chevron.isHidden = !section.collapses
+        chevron.isHidden = !collapses
         chevron.image = SidebarStyle.chevron(collapsed: row.isCollapsed)
         setAccessibilityElement(true)
-        setAccessibilityRole(section.collapses ? .disclosureTriangle : .staticText)
+        setAccessibilityRole(collapses ? .disclosureTriangle : .staticText)
         setAccessibilityLabel("\(name.stringValue), \(Strings.groupCount(row.childCount))")
-        if section.collapses { setAccessibilityExpanded(!row.isCollapsed) }
+        if collapses { setAccessibilityExpanded(!row.isCollapsed) }
         needsLayout = true
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard case let .sessionHost(host) = key else { return super.accessibilityPerformPress() }
+        SidebarSessionTree.shared.toggleHost(host)
+        return true
     }
 
     override func layout() {

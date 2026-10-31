@@ -34,6 +34,9 @@ public nonisolated struct SidebarNestedFixture: Sendable {
         /// The session tree's needs-you tray (`SidebarNeedsYou`): sessions started by other sessions,
         /// some blocked on you (a question, a permission, a sign-in), one failed, two finished unread.
         case needsYou
+        /// ``needsYou``'s rows with fleet hosts on their agent tabs: the session tree's host groups
+        /// (`SidebarLayout.groupingSessions`). Its before is ``needsYou`` (the same rows, no hosts).
+        case sessionHosts
     }
 
     /// The state this fixture captures.
@@ -43,9 +46,24 @@ public nonisolated struct SidebarNestedFixture: Sendable {
 
     /// Who started whom (the session tree's `parents`), for ``Scenario/needsYou``; empty for the others.
     public var parents: [WorkspaceID: WorkspaceID] {
-        guard scenario == .needsYou else { return [:] }
+        guard scenario == .needsYou || scenario == .sessionHosts else { return [:] }
         let links = ["settings": "release", "shrink": "settings", "notes": "release", "changelog": "notes"]
         return Dictionary(uniqueKeysWithValues: links.map { (WorkspaceID("w-\($0.key)"), WorkspaceID("w-\($0.value)")) })
+    }
+
+    /// Each workspace's fleet host (the session tree's `hosts`), for ``Scenario/sessionHosts``; the
+    /// rows left out stay local. Synthetic names only.
+    public var hosts: [WorkspaceID: String] {
+        guard scenario == .sessionHosts else { return [:] }
+        let hosts = ["release": "registry:build-mac", "settings": "registry:build-mac", "shrink": "registry:build-mac",
+                     "notes": "registry:build-mac", "changelog": "registry:build-mac",
+                     "flaky": "registry:ci-runner", "login": "registry:ci-runner"]
+        return Dictionary(uniqueKeysWithValues: hosts.map { (WorkspaceID("w-\($0.key)"), $0.value) })
+    }
+
+    /// The display names of ``hosts``.
+    public var hostNames: [String: String] {
+        scenario == .sessionHosts ? ["registry:build-mac": "Build Mac", "registry:ci-runner": "CI runner"] : [:]
     }
 
     /// The sidebar width the scenario is captured at.
@@ -95,7 +113,7 @@ public nonisolated struct SidebarNestedFixture: Sendable {
             nodes = Self.sixLevels(folded: ["g-builders", "g-sidebar"])
         case .tallGroup:
             nodes = Self.tallGroup
-        case .needsYou:
+        case .needsYou, .sessionHosts:
             nodes = Self.needsYouRows.map(SidebarNode.workspace)
         }
         sections = [SidebarSection(kind: .machine(machine), nodes: nodes)]

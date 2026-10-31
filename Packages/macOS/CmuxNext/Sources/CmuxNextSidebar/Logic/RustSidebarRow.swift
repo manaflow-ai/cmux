@@ -39,6 +39,11 @@ nonisolated struct RustRowKey: Codable {
             id = nil
             section = RustSectionID(value)
             workspace = nil
+        case let .sessionHost(host):
+            kind = "session_host"
+            id = host
+            section = nil
+            workspace = nil
         case let .status(status):
             // Never sent either: Group by Status's headers are labels and fold controls only.
             kind = "status"
@@ -135,7 +140,7 @@ nonisolated struct RustRow: Codable {
             case .item:
                 if let group = row.group?.rawValue { itemTops[group] = max(itemTops[group] ?? -.infinity, Double(row.y)) }
                 continue
-            case .folder, .status, .emptyGroup:
+            case .folder, .sessionHost, .status, .emptyGroup:
                 continue
             default:
                 if case .custom = row.section { continue } // the older resolver knows Pinned and machines only

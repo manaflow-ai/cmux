@@ -45,7 +45,7 @@ extension SidebarListViewComponents {
             payload = .item(item)
             hidden = [press.key]
             origin = .position(DropPosition(section: row.section, group: row.group, index: row.siblingIndex)) // a group's member item: inside it
-        case .tab, .section, .emptySection, .emptyGroup, .folder, .block, .doneFold, .showMore, .status:
+        case .tab, .section, .emptySection, .emptyGroup, .folder, .block, .doneFold, .showMore, .sessionHost, .status:
             return
         }
         hidden.formUnion(Self.tabKeys(of: hidden, in: model))
@@ -65,6 +65,11 @@ extension SidebarListViewComponents {
             target: origin
         )
         drag.grabOffsetX = press.point.x - rowFrame.minX
+        drag.refusedAtBegin = displayed.hostHeadersShowing
+        if drag.refusedAtBegin {
+            drag.target = nil
+            drag.lift.setRefused(true)
+        }
         drag.lastY = press.point.y
         drag.restFrame = rowFrame
         // A grouped row lifts at the list's inset; its indent comes back only for a drop into a group (morphLift).
@@ -90,7 +95,7 @@ extension SidebarListViewComponents {
         guard let drag else { return }
         let started = CACurrentMediaTime()
         defer { lastDragWorkMs = (CACurrentMediaTime() - started) * 1000 }
-        if SidebarListPinDrop.holds(self, drag, at: windowPoint) || offerHandoff(drag, windowPoint: windowPoint) || holdsDragOut(drag, windowPoint: windowPoint) { return }
+        if offerHandoff(drag, windowPoint: windowPoint) || holdsDragOut(drag, windowPoint: windowPoint) { return }
         drag.lastWindowPoint = windowPoint
         let point = convert(windowPoint, from: nil)
         // The lifted row follows the pointer vertically; x stays locked. A tile has neighbours beside it: it follows both ways.
@@ -99,6 +104,8 @@ extension SidebarListViewComponents {
         } else {
             SidebarReorderLift.follow(drag.lift, top: point.y - drag.grabOffsetY, visible: visibleRect)
         }
+        if drag.refusedAtBegin { return }
+        if SidebarListPinDrop.holds(self, drag, at: windowPoint) { return }
         autoscroll.update(windowPoint: windowPoint)
         let card = drag.probeCard
         if point.y != drag.lastY {
@@ -119,8 +126,9 @@ extension SidebarListViewComponents {
     func finishDrag(at windowPoint: NSPoint? = nil) {
         guard let drag else { return }
         autoscroll.stop()
-        if SidebarListPinDrop.finish(self, drag) { return }
         if let windowPoint, finishDragOut(drag, at: windowPoint) { return } // the release decides; none: a programmatic end
+        if drag.refusedAtBegin { return cancelDrag() }
+        if SidebarListPinDrop.finish(self, drag) { return }
         // A group dropped where it came from, or where nothing takes it, moves nothing: it goes back as for a cancel.
         if let group = drag.group, group.slot == group.plan.origin || group.drops[group.slot] == nil { return cancelDrag() }
         if let items = drag.docItems, let doc = model.docDrag {

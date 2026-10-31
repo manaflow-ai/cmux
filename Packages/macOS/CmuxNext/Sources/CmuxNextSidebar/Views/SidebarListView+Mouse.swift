@@ -83,7 +83,7 @@ extension SidebarListViewComponents {
                 press.activatedOnPress = true
                 model.send(.activateItem(id, opensWorkspace: event.modifierFlags.contains(.option)))
             }
-        case .section, .emptySection, .emptyGroup, .folder, .block, .doneFold, .showMore, .status:
+        case .section, .emptySection, .emptyGroup, .folder, .block, .doneFold, .showMore, .sessionHost, .status:
             break
         }
         self.press = press
@@ -162,6 +162,8 @@ extension SidebarListViewComponents {
             model.send(.activateItem(LayoutItemID(item), opensWorkspace: event.modifierFlags.contains(.option)))
         case let .status(section):
             model.toggleStatusSection(section)
+        case let .sessionHost(host):
+            SidebarSessionTree.shared.toggleHost(host)
         case .doneFold, .showMore:
             _ = SidebarFoldAction(list: self).toggle(press.key)
             return

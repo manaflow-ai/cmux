@@ -17,6 +17,8 @@ public nonisolated enum SidebarRowKey: Hashable, Sendable {
     case folder(SectionID, String)
     /// Group by Status's header over one status section's rows (`SidebarLayout+Status`).
     case status(SidebarStatusSection)
+    /// Ephemeral machine bucket in the enabled session tree; not a document or drop target.
+    case sessionHost(String)
     /// A document item listed as a row (`SidebarNode.item`): its item id.
     case item(String)
     /// A document section's items in its own arrangement (tiles, a grid, a

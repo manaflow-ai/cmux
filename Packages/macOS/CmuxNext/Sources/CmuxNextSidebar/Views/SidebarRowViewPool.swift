@@ -67,7 +67,7 @@ struct SidebarRowViewPool {
         case .emptySection: EmptySectionRowView.self
         case .emptyGroup: EmptyGroupRowView.self
         case .folder: FolderHeaderRowView.self
-        case .status: StatusHeaderRowView.self
+        case .status, .sessionHost: StatusHeaderRowView.self
         case .doneFold, .showMore: SidebarDoneFoldRowView.self
         }
     }

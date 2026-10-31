@@ -36,6 +36,13 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
 
     public static let empty = SidebarLayout(rows: [], totalHeight: 0, gapY: nil, gapHeight: 0, gapShift: 0)
 
+    /// True when opt-in fleet host buckets are actually drawn. Grouped mode
+    /// disables in-sidebar reordering so the projection cannot disagree with
+    /// the document landing; drags out to panes and windows remain available.
+    public var hostHeadersShowing: Bool {
+        rows.contains { if case .sessionHost = $0.key { true } else { false } }
+    }
+
     public func row(for key: SidebarRowKey) -> SidebarRow? { index.position(of: key).map { rows[$0] } }
 
     /// The position of `key`'s row in `rows`, or nil.
@@ -141,6 +148,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         var y = m.topPadding
         var gapY: CGFloat?
         let filtering = o.filterMatches != nil
+        // User-chosen folder/status views keep their own layout; dragging retains host groups.
+        let groupsSessions = o.sessionTree?.hosts.isEmpty == false && !filtering
+            && !o.grouping.byStatus && !o.groupsByFolder
         // One machine needs no machine header: its name adds nothing.
         let machineCount = SidebarSection.machineCount(sections)
         // One list (cx-mdo0, Lawrence 2026-10-10: "just have linear list of
@@ -452,6 +462,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             let byFolder = o.groupsByFolder && section.machine != nil && machineCount == 1 && !filtering
             guard byFolder else {
                 let fold = SidebarDoneFoldID(section: section.id, group: nil)
+                // Keep ordinary lineage rows in the base projection; host
+                // buckets are added by groupingSessions after all sections are
+                // laid out, and may legitimately emit no header.
                 let tree = Self.treeRows(nodes.map { $0.node }, tree: o.sessionTree, filtering: filtering)
                 let treeRow = Dictionary(tree.map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
                 let drawn = Self.foldingDone(tree.map { ($0.index, $0.depth) },
@@ -491,6 +504,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         )
         layout.rowSpacing = m.rowSpacing
         (layout.pinnedChatsY, layout.earlierChatsY) = (chats.pinnedY, chats.earlierY)
+        if groupsSessions, let tree = o.sessionTree {
+            return layout.groupingSessions(tree, sections: sections, gap: o.gap, metrics: m)
+        }
         return layout
     }
 }
