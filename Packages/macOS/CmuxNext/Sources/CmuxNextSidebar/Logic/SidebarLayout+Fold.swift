@@ -59,7 +59,7 @@ nonisolated extension SidebarLayout {
         guard members.count == header.childCount else { return false } // the members changed too: a structural change
         // A group of one member named as the group draws that member's row in the header's place
         // (`SidebarLayout+SoleMember`), not a header over member rows: laid out again.
-        guard Self.soleMember(group, members, hasSubgroups: false) == nil else { return false }
+        guard Self.soleMember(group, members, hasSubgroups: false, options: o) == nil else { return false }
         let machineLabel = Self.machineLabel(section, options: o)
         let parent = header.siblingIndex
         var built: [SidebarRow] = []

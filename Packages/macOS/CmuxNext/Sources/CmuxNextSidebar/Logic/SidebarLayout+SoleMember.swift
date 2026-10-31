@@ -6,13 +6,19 @@ import CoreGraphics
 // (a member row's level is its header's, `SidebarRow.indentLevel`). The row stays the group's member (`group`, its
 // color and line) and stands for the group (`standsForGroup`): its menu carries the group's actions.
 nonisolated extension SidebarLayout {
-    /// The workspace `group` draws as its one row, or nil when the group keeps its header: two or more members (in the
-    /// group, not only among the drawn `members`: a filter showing one of two keeps the header), an item member, a member
-    /// named otherwise (names compared trimmed), or subgroups under it.
-    static func soleMember(_ group: SidebarGroup, _ members: [SidebarGroupMember], hasSubgroups: Bool) -> SidebarWorkspace? {
-        guard members.count == 1, group.workspaces.count + group.items.count == 1, !hasSubgroups,
-              case let .workspace(ws) = members[0] else { return nil }
+    /// The workspace `group` draws as its one row, or nil when the group keeps its header: two or more members, an item
+    /// member, a member named otherwise (names compared trimmed), or subgroups under it. Members count as the group
+    /// holds them (`held`), not as drawn: a filter showing one of two keeps the header.
+    static func soleMember(_ group: SidebarGroup, _ members: [SidebarGroupMember], hasSubgroups: Bool,
+                           options o: SidebarLayoutOptions) -> SidebarWorkspace? {
+        guard members.count == 1, held(group, options: o) == 1, !hasSubgroups, case let .workspace(ws) = members[0] else { return nil }
         return names(group, ws.title) ? ws : nil
+    }
+
+    /// How many members `group` holds, a member a drag carries out excepted: a drag's layout counts as its preview does
+    /// (the member moved out), so both agree on the header and the drop's coordinates hold. A filter's hidden ones count.
+    static func held(_ group: SidebarGroup, options o: SidebarLayoutOptions) -> Int {
+        group.workspaces.count(where: { !o.excludedWorkspaces.contains($0.id) }) + group.items.count(where: { $0.item.id != o.excludedItem })
     }
 
     /// Whether `title` is `group`'s name (both trimmed, the name not empty).
