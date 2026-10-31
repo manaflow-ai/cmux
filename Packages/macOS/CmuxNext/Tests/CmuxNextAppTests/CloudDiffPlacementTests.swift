@@ -19,7 +19,7 @@ struct CloudDiffPlacementTests {
         let machine = CloudMoveTests.machine(services, cli: URL(fileURLWithPath: "/usr/bin/false"), root: root)
         services.machines.add(machine)
         let store = machine.daemon.store
-        let identity = DaemonIdentity(capabilities: ["page-tabs-v1", "page-tab-route-v1"])
+        let identity = DaemonIdentity(capabilities: ["page-tabs-v1", "page-tab-route-v1"], generation: "cloud-diff-placement")
         store.noteHandshake(identity)
         store.connectionState = .connected(identity)
         func tree(_ tabs: [TabSnapshot]) -> DaemonTree {
