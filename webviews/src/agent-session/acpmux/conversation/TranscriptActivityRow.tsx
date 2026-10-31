@@ -17,6 +17,7 @@ export function TranscriptActivityRow({
   children,
   attributes,
   headerRef,
+  onClick,
   expanded = false,
 }: {
   icon: ReactNode;
@@ -86,9 +87,15 @@ export function TranscriptActivityRowShell({
   className?: string;
   attributes?: Record<string, string | undefined>;
   headerRef?: Ref<HTMLDivElement>;
+  onClick?(): void;
 }) {
   return (
-    <div className={`cv-agent-activity-row${className ? ` ${className}` : ""}`} ref={headerRef} {...attributes}>
+    <div
+      className={`cv-agent-activity-row${className ? ` ${className}` : ""}`}
+      ref={headerRef}
+      onClick={onClick}
+      {...attributes}
+    >
       {children}
     </div>
   );

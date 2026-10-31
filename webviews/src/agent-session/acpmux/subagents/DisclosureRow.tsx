@@ -13,6 +13,7 @@ import { useCallback, useId, type ReactNode } from "react";
 import type { AcpmuxActivity } from "../model";
 import { useFindReveal } from "../conversation/chatFind";
 import { ChevronRight } from "../conversation/icons";
+import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "../conversation/headerToggle";
 import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRow";
 import { useTranscriptDisclosure } from "../conversation/transcriptDisclosure";
 import { useT } from "../i18n";
@@ -111,8 +112,9 @@ export function DisclosureRow({
       {/* The line summarizes indexed content in the panel; it adds no Find occurrences. */}
       <TranscriptActivityRowShell
         className={`cv-disclosure__line${lineClassName ? ` ${lineClassName}` : ""}`}
-        attributes={{ "data-find-skip": "" }}
+        attributes={{ "data-find-skip": "", [HEADER_TOGGLE_ATTRIBUTE]: "" }}
         headerRef={onOpen ? collapse.headerRef : undefined}
+        onClick={headerToggleClick(collapse.toggle)}
       >
         {leading}
         {onOpen ? (

@@ -10,6 +10,7 @@ import { useId, type ReactNode } from "react";
 import { ChevronRight } from "./icons";
 import { AgentTag } from "./AgentTag";
 import { clipMessagePreview } from "./clipMessagePreview";
+import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
 import "./AgentMessageRow.css";
 
 /// The message's first line of text as it reads, its spaces collapsed and its Markdown marks (a
@@ -86,12 +87,16 @@ export function AgentMessageRow({
       data-open={open || undefined}
       {...attributes}
     >
-      <div className={`cv-tool cv-agentmsg__line${live ? " is-live" : " is-strong"}`}>
+      <div
+        className={`cv-tool cv-agentmsg__line${live ? " is-live" : " is-strong"}`}
+        {...{ [HEADER_TOGGLE_ATTRIBUTE]: "" }}
+        onClick={headerToggleClick(onToggle)}
+      >
         <span className="cv-tool__icon cv-agentmsg__icon">{icon}</span>
         {/* The words toggle too, for the pointer; the toggle button is the control, and its label
             reads the line. */}
         {before.trim() && (
-          <span className="cv-agentmsg__words" data-interactive="" aria-hidden onClick={onToggle}>
+          <span className="cv-agentmsg__words" aria-hidden>
             {before.trim()}
           </span>
         )}
@@ -104,10 +109,10 @@ export function AgentMessageRow({
             onClick={onOpenName}
           />
         ) : (
-          <AgentTag name={name} className="cv-agentmsg__name" title={nameTitle} onClick={onToggle} />
+          <AgentTag name={name} className="cv-agentmsg__name" title={nameTitle} />
         )}
         {after.trim() && (
-          <span className="cv-agentmsg__words" data-interactive="" aria-hidden onClick={onToggle}>
+          <span className="cv-agentmsg__words" aria-hidden>
             {after.trim()}
           </span>
         )}
