@@ -24251,122 +24251,122 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "チーム VM では、まだこの Mac からエージェントチャットを開始できません。"
+            "state": "translated",
+            "value": "%@ はチームメイトのマシンなので、チャットはその所有者が開始します。自分のマシンを選ぶか、New Cloud Machine で作成してください。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يمكن بدء دردشات الوكيل من جهاز Mac هذا على جهاز افتراضي لفريق بعد."
+            "state": "translated",
+            "value": "%@ جهاز أحد زملائك، لذا يبدأ مالكه المحادثات عليه. اختر جهازك الخاص، أو أنشئ جهازًا باستخدام New Cloud Machine."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agent chatovi se još ne mogu pokrenuti s ovog Maca na timskom VM-u."
+            "state": "translated",
+            "value": "%@ je mašina tvog kolege, pa njen vlasnik tamo pokreće chatove. Izaberi svoju mašinu ili napravi novu pomoću New Cloud Machine."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agentchats kan endnu ikke startes fra denne Mac på en team-VM."
+            "state": "translated",
+            "value": "%@ er en holdkammerats maskine, så dens ejer starter chats der. Vælg din egen maskine, eller opret en med New Cloud Machine."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agent-Chats können auf einer Team-VM noch nicht von diesem Mac aus gestartet werden."
+            "state": "translated",
+            "value": "%@ ist die Maschine eines Teammitglieds, daher startet ihr Besitzer dort Chats. Wähle deine eigene Maschine oder erstelle eine mit New Cloud Machine."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Todavía no se pueden iniciar chats de agente desde este Mac en una VM de equipo."
+            "state": "translated",
+            "value": "%@ es la máquina de un compañero, así que su propietario inicia los chats allí. Elige tu propia máquina o crea una con New Cloud Machine."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Les discussions d’agent ne peuvent pas encore être lancées depuis ce Mac sur une VM d’équipe."
+            "state": "translated",
+            "value": "%@ est la machine d’un coéquipier : c’est son propriétaire qui y démarre les discussions. Choisissez votre propre machine ou créez-en une avec New Cloud Machine."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Non è ancora possibile avviare chat con agenti da questo Mac su una VM del team."
+            "state": "translated",
+            "value": "%@ è la macchina di un collega, quindi è il proprietario ad avviarvi le chat. Scegli una tua macchina o creane una con New Cloud Machine."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនទាន់អាចចាប់ផ្ដើមការជជែកជាមួយភ្នាក់ងារពី Mac នេះនៅលើ VM របស់ក្រុមបានទេ។"
+            "state": "translated",
+            "value": "%@ គឺជាម៉ាស៊ីនរបស់មិត្តរួមក្រុម ដូច្នេះម្ចាស់របស់វាជាអ្នកចាប់ផ្ដើមការជជែកនៅទីនោះ។ ជ្រើសម៉ាស៊ីនផ្ទាល់ខ្លួនរបស់អ្នក ឬបង្កើតមួយដោយប្រើ New Cloud Machine។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "팀 VM에서는 아직 이 Mac에서 에이전트 채팅을 시작할 수 없습니다."
+            "state": "translated",
+            "value": "%@은(는) 팀원의 머신이므로 채팅은 소유자가 시작합니다. 내 머신을 선택하거나 New Cloud Machine으로 새로 만드세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agentchatter kan ennå ikke startes fra denne Macen på en team-VM."
+            "state": "translated",
+            "value": "%@ er en lagkamerats maskin, så eieren starter chatter der. Velg din egen maskin, eller opprett en med New Cloud Machine."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Czatów z agentem nie można jeszcze uruchamiać z tego Maca na maszynie wirtualnej zespołu."
+            "state": "translated",
+            "value": "%@ to maszyna członka zespołu, więc czaty uruchamia na niej jej właściciel. Wybierz własną maszynę lub utwórz ją za pomocą New Cloud Machine."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ainda não é possível iniciar chats de agente deste Mac em uma VM de equipe."
+            "state": "translated",
+            "value": "%@ é a máquina de um colega, então o dono dela é quem inicia chats lá. Escolha sua própria máquina ou crie uma com New Cloud Machine."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Чаты с агентом пока нельзя запускать с этого Mac на командной ВМ."
+            "state": "translated",
+            "value": "%@ — машина вашего коллеги, поэтому чаты на ней запускает её владелец. Выберите свою машину или создайте её через New Cloud Machine."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ยังเริ่มแชทเอเจนต์จาก Mac เครื่องนี้บน VM ของทีมไม่ได้"
+            "state": "translated",
+            "value": "%@ เป็นเครื่องของเพื่อนร่วมทีม เจ้าของเครื่องจึงเป็นผู้เริ่มแชทบนเครื่องนั้น เลือกเครื่องของคุณเอง หรือสร้างเครื่องใหม่ด้วย New Cloud Machine"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ajan sohbetleri henüz bu Mac’ten bir ekip VM’inde başlatılamaz."
+            "state": "translated",
+            "value": "%@ bir takım arkadaşının makinesi, bu yüzden sohbetleri orada sahibi başlatır. Kendi makineni seç ya da New Cloud Machine ile bir tane oluştur."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Чати з агентом поки не можна запускати з цього Mac на командній ВМ."
+            "state": "translated",
+            "value": "%@ — машина вашого колеги, тому чати на ній запускає її власник. Виберіть власну машину або створіть її через New Cloud Machine."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chưa thể bắt đầu trò chuyện với tác tử từ máy Mac này trên VM của nhóm."
+            "state": "translated",
+            "value": "%@ là máy của một đồng đội, nên chủ máy mới bắt đầu trò chuyện ở đó. Hãy chọn máy của bạn, hoặc tạo một máy bằng New Cloud Machine."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "暂时无法从这台 Mac 在团队虚拟机上开始代理聊天。"
+            "state": "translated",
+            "value": "%@ 是队友的机器，只有其所有者能在上面开始对话。请选择你自己的机器，或用 New Cloud Machine 新建一台。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "暫時無法從這台 Mac 在團隊虛擬機器上開始代理程式聊天。"
+            "state": "translated",
+            "value": "%@ 是隊友的機器，只有其擁有者能在上面開始對話。請選擇你自己的機器，或用 New Cloud Machine 新建一台。"
           }
         }
       }
@@ -24906,122 +24906,122 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "先に %@ のフォルダでターミナルを開いてください。チャットはそこで開始します。"
+            "state": "translated",
+            "value": "%@ には開始できる作業フォルダがありません。Choose folder でフォルダを選んでください。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "افتح طرفية في مجلد على %@ أولًا؛ ستبدأ الدردشة هناك."
+            "state": "translated",
+            "value": "لا يحتوي %@ على مجلد عمل للبدء فيه. استخدم Choose folder لاختيار مجلد هناك."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Prvo otvorite terminal u folderu na %@; chat počinje tamo."
+            "state": "translated",
+            "value": "%@ nema radni folder u kojem bi se pokrenulo. Koristi Choose folder da izabereš jedan tamo."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Åbn først en terminal i en mappe på %@; chatten starter der."
+            "state": "translated",
+            "value": "%@ har ingen arbejdsmappe at starte i. Brug Choose folder til at vælge en der."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Öffne zuerst ein Terminal in einem Ordner auf %@; der Chat startet dort."
+            "state": "translated",
+            "value": "%@ hat keinen Arbeitsordner zum Starten. Wähle mit Choose folder dort einen aus."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Primero abre un terminal en una carpeta de %@; el chat empieza allí."
+            "state": "translated",
+            "value": "%@ no tiene una carpeta de trabajo donde empezar. Usa Choose folder para elegir una allí."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ouvrez d’abord un terminal dans un dossier de %@ ; la discussion y démarre."
+            "state": "translated",
+            "value": "%@ n’a pas de dossier de travail où démarrer. Utilisez Choose folder pour en choisir un sur cette machine."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Apri prima un terminale in una cartella su %@; la chat parte da lì."
+            "state": "translated",
+            "value": "%@ non ha una cartella di lavoro in cui iniziare. Usa Choose folder per sceglierne una lì."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "សូមបើកទែមីណាល់ក្នុងថតមួយនៅលើ %@ ជាមុនសិន ការជជែកនឹងចាប់ផ្ដើមនៅទីនោះ។"
+            "state": "translated",
+            "value": "%@ មិនមានថតការងារសម្រាប់ចាប់ផ្ដើមទេ។ ប្រើ Choose folder ដើម្បីជ្រើសថតមួយនៅទីនោះ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "먼저 %@의 폴더에서 터미널을 여세요. 채팅은 그곳에서 시작됩니다."
+            "state": "translated",
+            "value": "%@에 시작할 작업 폴더가 없습니다. Choose folder로 폴더를 선택하세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Åpne først en terminal i en mappe på %@; chatten starter der."
+            "state": "translated",
+            "value": "%@ har ingen arbeidsmappe å starte i. Bruk Choose folder for å velge en der."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Najpierw otwórz terminal w folderze na %@; czat zacznie się tam."
+            "state": "translated",
+            "value": "%@ nie ma folderu roboczego, w którym można zacząć. Użyj Choose folder, aby wybrać folder na tej maszynie."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Primeiro abra um terminal em uma pasta de %@; o chat começa lá."
+            "state": "translated",
+            "value": "%@ não tem uma pasta de trabalho para começar. Use Choose folder para escolher uma lá."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Сначала откройте терминал в папке на %@: чат начнётся там."
+            "state": "translated",
+            "value": "На %@ нет рабочей папки для запуска. Выберите папку там с помощью Choose folder."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "เปิดเทอร์มินัลในโฟลเดอร์บน %@ ก่อน แชทจะเริ่มที่นั่น"
+            "state": "translated",
+            "value": "%@ ไม่มีโฟลเดอร์งานให้เริ่ม ใช้ Choose folder เพื่อเลือกโฟลเดอร์บนเครื่องนั้น"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Önce %@ üzerindeki bir klasörde terminal açın; sohbet orada başlar."
+            "state": "translated",
+            "value": "%@ üzerinde başlanacak bir çalışma klasörü yok. Orada bir klasör seçmek için Choose folder'ı kullan."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Спершу відкрийте термінал у теці на %@: чат почнеться там."
+            "state": "translated",
+            "value": "На %@ немає робочої папки для запуску. Виберіть папку там за допомогою Choose folder."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hãy mở terminal trong một thư mục trên %@ trước; cuộc trò chuyện sẽ bắt đầu ở đó."
+            "state": "translated",
+            "value": "%@ không có thư mục làm việc để bắt đầu. Hãy dùng Choose folder để chọn một thư mục trên máy đó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "请先在 %@ 上的某个文件夹中打开终端；聊天会从那里开始。"
+            "state": "translated",
+            "value": "%@ 上没有可用于开始的工作文件夹。请用 Choose folder 在那里选择一个。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "請先在 %@ 上的某個資料夾中開啟終端機；聊天會從那裡開始。"
+            "state": "translated",
+            "value": "%@ 上沒有可用於開始的工作資料夾。請用 Choose folder 在那裡選擇一個。"
           }
         }
       }
