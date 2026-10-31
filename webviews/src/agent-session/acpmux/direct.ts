@@ -8372,7 +8372,7 @@ export class AcpmuxDirectClient {
     for (const event of this.events) {
       const promptId = event.kind === "user_message" ? event.msg?.promptId : undefined;
       if (typeof promptId !== "string" || !this.continuations.has(promptId)) continue;
-      const row = this.rows.get(`user-${event.seq}`);
+      const row = this.rows.get(this.promptRowKeys.get(promptId) ?? `user-${event.seq}`);
       if (row && !row.continues) this.rows.set(row.id, { ...row, continues: true, version: row.version + 1 });
     }
   }
