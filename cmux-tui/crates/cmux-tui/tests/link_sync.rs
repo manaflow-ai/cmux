@@ -480,6 +480,38 @@ fn a_pull_with_changes_on_both_sides_changes_nothing_and_names_them() {
     assert_eq!(std::fs::read_to_string(repo.join("other.txt")).unwrap(), "other\n", "half applied");
 }
 
+#[test]
+fn a_second_push_keeps_the_files_the_machine_changed_since_the_first() {
+    // A second Cloud chat from the same folder (cloud.startChat, Move to Cloud) pushes it again
+    // to the same copy: what the first chat changed there is never written over.
+    let (_root, _sockets, repo, remote, socket) = pushed_repo();
+    std::fs::write(remote.join("notes.txt"), "notes\nfrom the machine\n").unwrap();
+    std::fs::write(remote.join("src/a.txt"), "one\nfrom the machine\n").unwrap();
+    std::fs::write(repo.join("other.txt"), "other\nfrom the mac\n").unwrap();
+    std::fs::write(repo.join("src/a.txt"), "one\nfrom the mac\n").unwrap();
+
+    let again = push(&socket, &repo, &remote);
+    assert_eq!(
+        std::fs::read_to_string(remote.join("notes.txt")).unwrap(),
+        "notes\nfrom the machine\n",
+        "the push wrote over a file only the machine changed: {again}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(remote.join("src/a.txt")).unwrap(),
+        "one\nfrom the machine\n",
+        "the push wrote over a file both sides changed: {again}"
+    );
+    assert_eq!(std::fs::read_to_string(remote.join("other.txt")).unwrap(), "other\nfrom the mac\n");
+    assert_eq!(again["kept"], 2, "{again}");
+
+    // The record still holds the first push for the kept files: a pull brings the machine-only
+    // edit back and names the file both sides changed.
+    let (ok, answer) = pull(&socket, &repo, &remote);
+    assert!(!ok, "{answer}");
+    assert_eq!(answer["error_code"], "sync_conflict", "{answer}");
+    assert_eq!(answer["conflicts"], serde_json::json!(["src/a.txt"]), "{answer}");
+}
+
 /// Every path below `dir`, relative to it, folders included.
 fn paths_below(dir: &Path) -> Vec<String> {
     let mut found = Vec::new();
