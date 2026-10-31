@@ -18,8 +18,7 @@ nonisolated extension AttachmentSource {
 
     /// Writes `objects` to `pasteboard` in place of what it held, each as one item that also says
     /// cmux wrote it (`org.nspasteboard.source`). The source is written with the contents, on the same
-    /// item, never added after them: on some Macs a source added with the legacy `addTypes` once the
-    /// contents were written read back as nothing. Each item keeps every type its object writes, so an
+    /// item, never added to the pasteboard after them. Each item keeps every type its object writes, so an
     /// image still pastes as an image. Returns whether the pasteboard took the items.
     @MainActor @discardableResult
     public static func write(
@@ -33,7 +32,7 @@ nonisolated extension AttachmentSource {
     }
 
     /// One item with every type `object` writes for `pasteboard`, and `source` as its writer.
-    @MainActor private static func item(for object: any NSPasteboardWriting, on pasteboard: NSPasteboard, source: String?) -> NSPasteboardItem {
+    @MainActor static func item(for object: any NSPasteboardWriting, on pasteboard: NSPasteboard, source: String?) -> NSPasteboardItem {
         let item = NSPasteboardItem()
         for type in object.writableTypes(for: pasteboard) where type != pasteboardSourceType {
             guard let list = object.pasteboardPropertyList(forType: type) else { continue }

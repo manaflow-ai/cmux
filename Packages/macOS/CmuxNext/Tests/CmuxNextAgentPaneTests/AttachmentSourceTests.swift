@@ -57,7 +57,44 @@ struct AttachmentSourceTests {
         #expect(AttachmentSource.source(bundleId: "com.gone.App", apps: Self.apps) == nil)
     }
 
-    @Test func cmuxClaimsWhatItCopies() {
+    /// Whether this process reaches a pasteboard server: a fleet test step often does not, and there
+    /// every write fails and every read returns nil (aws-m4pro-1 and -7, 2026-10-31).
+    nonisolated private static let hasPasteboard: Bool = {
+        let board = NSPasteboard(name: NSPasteboard.Name("cmux-source-probe-\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        board.clearContents()
+        return board.setString("probe", forType: .string) && board.string(forType: .string) == "probe"
+    }()
+
+    /// A 4 x 4 red picture, as Screenshot Tab copies one.
+    private static func picture() throws -> NSImage {
+        let context = try #require(CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 0,
+                                              space: CGColorSpaceCreateDeviceRGB(),
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+        return NSImage(cgImage: try #require(context.makeImage()), size: .zero)
+    }
+
+    /// The item cmux writes carries the picture's own types and the source together, so the source is
+    /// on the item a paste reads. Needs no pasteboard server.
+    @Test func theCopiedItemCarriesThePictureAndItsSource() throws {
+        let board = NSPasteboard(name: NSPasteboard.Name("cmux-source-\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        let image = try Self.picture()
+        let item = AttachmentSource.item(for: image, on: board, source: Self.own)
+        let imageTypes = image.writableTypes(for: board)
+        #expect(imageTypes.contains(.tiff))
+        #expect(Set(item.types).isSubset(of: Set(imageTypes + [AttachmentSource.pasteboardSourceType])))
+        #expect(item.types.contains(.tiff) && item.types.contains(AttachmentSource.pasteboardSourceType))
+        #expect(item.string(forType: AttachmentSource.pasteboardSourceType) == Self.own)
+        let tiff = try #require(item.data(forType: .tiff))
+        #expect(NSImage(data: tiff)?.size == NSSize(width: 4, height: 4))
+        // No source: only the picture's types.
+        #expect(!AttachmentSource.item(for: image, on: board, source: nil).types.contains(AttachmentSource.pasteboardSourceType))
+    }
+
+    @Test(.enabled(if: hasPasteboard, "needs a pasteboard server")) func cmuxClaimsWhatItCopies() {
         let board = NSPasteboard(name: NSPasteboard.Name("cmux-source-\(UUID().uuidString)"))
         defer { board.releaseGlobally() }
         board.clearContents()
@@ -78,16 +115,11 @@ struct AttachmentSourceTests {
 
     /// Screenshot Tab's copy: a picture, written with cmux as its source, pastes as a picture and
     /// says cmux wrote it.
-    @Test func aCopiedPictureStillPastesAsAPictureAndSaysItIsCmuxs() throws {
+    @Test(.enabled(if: hasPasteboard, "needs a pasteboard server"))
+    func aCopiedPictureStillPastesAsAPictureAndSaysItIsCmuxs() throws {
         let board = NSPasteboard(name: NSPasteboard.Name("cmux-source-\(UUID().uuidString)"))
         defer { board.releaseGlobally() }
-        let context = try #require(CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 0,
-                                              space: CGColorSpaceCreateDeviceRGB(),
-                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
-        context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
-        let image = try #require(context.makeImage())
-        #expect(AttachmentSource.write([NSImage(cgImage: image, size: .zero)], to: board, bundleId: Self.own))
+        #expect(AttachmentSource.write([try Self.picture()], to: board, bundleId: Self.own))
         #expect(board.pasteboardItems?.count == 1)
         #expect(board.canReadObject(forClasses: [NSImage.self], options: nil))
         let pasted = board.readObjects(forClasses: [NSImage.self], options: nil) as? [NSImage]
