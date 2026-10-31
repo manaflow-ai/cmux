@@ -72,6 +72,18 @@ import Testing
         #expect(!AgentPaneTunables.newTabPicksFollowLinks.defaultValue)
     }
 
+    @Test(arguments: AgentPaneTabKind.allCases) func refusedNativePairingLinkDoesNotAcceptTheSubmission(kind: AgentPaneTabKind) throws {
+        let (services, pane, page) = try Self.pane(withTerminal: false)
+        defer { pane.teardown() }
+        var consultedPlacement = false
+        services.linkOpener.placement = { consultedPlacement = true; return .splitRight }
+        let accepted = NewTabPage.submitNative("cmux-vnc://pair?room=test&secret=synthetic", kind: kind,
+                                               search: true, cwd: nil, in: pane)
+        #expect(!accepted, "nativeActions must leave the page open when the submission is refused")
+        #expect(!consultedPlacement)
+        #expect(services.agentTabs.newTabPages[page] != nil)
+    }
+
     /// `newTab.picksFollowLinks` on: the pick goes where links go, beside the page.
     @Test func optedInThePickFollowsLinkPlacement() throws {
         #expect(try Self.pickConsultsLinkPlacement(.splitRight, withTerminal: true, optedIn: true))

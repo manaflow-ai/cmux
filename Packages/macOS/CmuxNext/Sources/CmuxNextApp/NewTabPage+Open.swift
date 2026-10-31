@@ -319,7 +319,7 @@ extension NewTabPage {
         NativeNewTabActions(
             submit: { [weak pane] text, kind, search in
                 guard let pane else { return }
-                submitNative(text, kind: kind, search: search, cwd: cwd, in: pane)
+                guard submitNative(text, kind: kind, search: search, cwd: cwd, in: pane) else { return }
                 closingPage(key, in: pane)()
             },
             jump: { [weak pane] target, id in if let services = pane?.services { jump(target, id: id, services: services) } },
@@ -330,11 +330,11 @@ extension NewTabPage {
     /// What a native submit opens: an empty field makes the kind as it is; a terminal runs the text; a
     /// browser opens an address or searches; an agent's text goes through `newTab.submit` (a prompt, or a
     /// URL or `!command` typed there).
-    private static func submitNative(_ text: String, kind: AgentPaneTabKind, search: Bool, cwd: String?, in page: PaneController) {
+    static func submitNative(_ text: String, kind: AgentPaneTabKind, search: Bool, cwd: String?, in page: PaneController) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if let refusal = MacScreenPages.pairingLinkRefusal(for: trimmed) {
             page.services.registry.refuse(refusal)
-            return
+            return false
         }
         var effectiveKind = kind
         var effectiveText = trimmed
@@ -343,7 +343,7 @@ extension NewTabPage {
                                          resolver: page.services.cache.suggestionEngine.resolver)
             switch plan {
             case .terminal(let command): effectiveKind = .terminal; effectiveText = command
-            case .refused(let reason): page.services.registry.refuse(reason); return
+            case .refused(let reason): page.services.registry.refuse(reason); return false
             default: break
             }
         }
@@ -352,26 +352,26 @@ extension NewTabPage {
         let chatPlacement = ChatColumnPlacement.keepsNewTabPage(in: page) || Self.docksChat(page)
         if effectiveKind.opensBesideChat && chatPlacement {
             let request = AgentPaneOpenTab(kind: effectiveKind, text: effectiveText, cwd: cwd, search: search, run: kind == .terminal)
-            servicesOpenNativeTool(request, from: page)
-            return
+            return servicesOpenNativeTool(request, from: page)
         }
         switch (effectiveKind, effectiveText.isEmpty) {
         case (.terminal, _): page.newTerminalTab(cwd: cwd, typing: kind == .terminal ? command(effectiveText) ?? nil : (effectiveText.isEmpty ? nil : effectiveText))
-        case (.browser, true): _ = page.newBrowserTab()
-        case (.agent, true): _ = page.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd)))
+        case (.browser, true): return page.newBrowserTab()
+        case (.agent, true): return page.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd)))
         case (.browser, false), (.agent, false):
             // A browser's words are searched; an agent's go out as a prompt.
             let reads = NewTabSubmit.plan(text: effectiveText, search: search, agent: nil, resolver: page.services.cache.suggestionEngine.resolver)
             var searches = search
             if kind == .browser, case .chat = reads { searches = true }
             let arguments: [String: ActionValue] = ["text": .string(trimmed), "search": .bool(searches)]
-            _ = page.services.registry.perform(NewTabSubmit.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: page.pane.id), arguments: arguments, origin: .user))
+            return page.services.registry.perform(NewTabSubmit.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: page.pane.id), arguments: arguments, origin: .user))
         }
+        return true
     }
 
-    private static func servicesOpenNativeTool(_ request: AgentPaneOpenTab, from page: PaneController) {
+    private static func servicesOpenNativeTool(_ request: AgentPaneOpenTab, from page: PaneController) -> Bool {
         let services = page.services
-        services.linkOpener.open(from: page, kind: request.kind.rightColumnKind) { target, placed in
+        return services.linkOpener.open(from: page, kind: request.kind.rightColumnKind) { target, placed in
             switch request.kind {
             case .terminal:
                 let typing = request.run ? command(request.text) ?? nil : (request.text.isEmpty ? nil : request.text)
