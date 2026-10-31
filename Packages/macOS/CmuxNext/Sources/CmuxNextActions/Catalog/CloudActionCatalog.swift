@@ -300,6 +300,13 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.idlePauseChoice], targets: [.machine], cliName: "cloud set-idle-pause"
             ),
             ActionDescriptor(
+                id: "cloudSetNetworkAccess",
+                title: String(localized: "action.cloudSetNetworkAccess", defaultValue: "Internet Access…", bundle: .module),
+                keywords: ["vm", "network", "internet", "egress", "allowlist", "firewall", "offline", "sandbox"], category: .cloud,
+                symbol: "globe", surfaces: [.contextMenu],
+                arguments: [CatalogArgument.networkAccessChoice], targets: [.machine], cliName: "cloud set-network-access"
+            ),
+            ActionDescriptor(
                 id: "palette.cloud.deleteSnapshot",
                 title: String(localized: "action.palette.cloud.deleteSnapshot", defaultValue: "Delete Cloud Snapshot…", bundle: .module),
                 keywords: ["vm", "snapshot", "delete", "remove"], category: .cloud, symbol: "trash",
@@ -356,6 +363,8 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             // caller hears a failure instead of OK, and can name the result in the next command.
             "palette.cloud.fork", "palette.cloud.restore", "newCloudWorkspace", "cloudRenameMachine", "cloudKillMachine",
             "cloudResizeMachine", "cloudApplyMachineConfig", "cloudDeliverSecrets",
+            // The stored policy's mode and whether the server applied it (a PUT can take a while).
+            "cloudSetNetworkAccess",
         ]
         for index in actions.indices where waitsForResult.contains(actions[index].id) {
             actions[index].waitsForResult = true

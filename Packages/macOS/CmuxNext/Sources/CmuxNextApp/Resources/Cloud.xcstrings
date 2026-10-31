@@ -16586,6 +16586,268 @@
         }
       }
     },
+    "cloud.cli.networkAccessMustBeOneOf": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access must be one of: %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセスには次のいずれかを指定してください: %@。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون الوصول واحدًا من: %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pristup mora biti jedno od: %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adgang skal være en af: %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Zugriff muss einer dieser Werte sein: %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El acceso debe ser uno de: %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’accès doit être l’une des valeurs suivantes : %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’accesso deve essere uno tra: %@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចូលប្រើត្រូវតែជាមួយក្នុងចំណោម៖ %@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "접근은 다음 중 하나여야 합니다: %@."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilgang må være én av: %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostęp musi mieć jedną z wartości: %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O acesso deve ser um destes: %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ должен быть одним из значений: %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเข้าถึงต้องเป็นค่าใดค่าหนึ่งต่อไปนี้: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erişim şunlardan biri olmalıdır: %@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ має бути одним зі значень: %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quyền truy cập phải là một trong: %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "访问级别必须是以下之一：%@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "存取層級必須是下列其中之一：%@。"
+          }
+        }
+      }
+    },
+    "cloud.cli.networkAccessAgentWidens": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent can only turn a machine's internet access off. To choose another level, use Internet Access… in the machine's menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントができるのは、マシンのインターネットアクセスをオフにすることだけです。ほかのレベルを選ぶには、マシンのメニューの「インターネットアクセス…」を使ってください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن للوكيل فقط إيقاف وصول الآلة إلى الإنترنت. لاختيار مستوى آخر، استخدم «الوصول إلى الإنترنت…» في قائمة الآلة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent može samo isključiti pristup internetu za mašinu. Za drugi nivo koristite Pristup internetu… u meniju mašine."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En agent kan kun slå maskinens internetadgang fra. Vælg et andet niveau med Internetadgang… i maskinens menu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Agent kann den Internetzugang einer Maschine nur ausschalten. Eine andere Stufe wählst du über „Internetzugang…“ im Menü der Maschine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agente solo puede desactivar el acceso a internet de una máquina. Para elegir otro nivel, usa Acceso a internet… en el menú de la máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agent peut seulement couper l’accès à Internet d’une machine. Pour choisir un autre niveau, utilisez Accès à Internet… dans le menu de la machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agente può solo disattivare l’accesso a internet di una macchina. Per scegliere un altro livello, usa Accesso a internet… nel menu della macchina."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារអាចត្រឹមតែបិទការចូលប្រើអ៊ីនធឺណិតរបស់ម៉ាស៊ីនប៉ុណ្ណោះ។ ដើម្បីជ្រើសកម្រិតផ្សេង សូមប្រើ «ការចូលប្រើអ៊ីនធឺណិត…» នៅក្នុងម៉ឺនុយរបស់ម៉ាស៊ីន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트는 머신의 인터넷 액세스를 끄는 것만 할 수 있습니다. 다른 수준을 선택하려면 머신 메뉴의 인터넷 액세스…를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En agent kan bare slå av maskinens internettilgang. Velg et annet nivå med Internettilgang… i maskinens meny."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent może jedynie wyłączyć dostęp maszyny do internetu. Aby wybrać inny poziom, użyj opcji Dostęp do internetu… w menu maszyny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um agente só pode desativar o acesso à internet de uma máquina. Para escolher outro nível, use Acesso à internet… no menu da máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент может только отключить доступ машины к интернету. Чтобы выбрать другой уровень, используйте «Доступ к интернету…» в меню машины."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ทำได้เพียงปิดการเข้าถึงอินเทอร์เน็ตของเครื่องเท่านั้น หากต้องการเลือกระดับอื่น ให้ใช้ การเข้าถึงอินเทอร์เน็ต… ในเมนูของเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir ajan yalnızca makinenin internet erişimini kapatabilir. Başka bir düzey seçmek için makinenin menüsündeki İnternet Erişimi… seçeneğini kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент може лише вимкнути доступ машини до інтернету. Щоб вибрати інший рівень, скористайтеся пунктом «Доступ до інтернету…» у меню машини."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử chỉ có thể tắt quyền truy cập internet của máy. Để chọn mức khác, hãy dùng Truy cập internet… trong menu của máy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理只能关闭机器的互联网访问。如需选择其他级别，请使用机器菜单中的“互联网访问…”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式只能關閉機器的網際網路存取。若要選擇其他層級，請使用機器選單中的「網際網路存取…」。"
+          }
+        }
+      }
+    },
     "cloud.link.unsupported": {
       "comment": "A Cloud machine connect needs a connection path this cmux build does not have yet.",
       "extractionState": "manual",
