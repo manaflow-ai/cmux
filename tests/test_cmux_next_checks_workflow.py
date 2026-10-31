@@ -594,7 +594,11 @@ class PathRoutingStructure(unittest.TestCase):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         swift = jobs["swift-test"]
         self.assertNotIn("same-tree-cmux-tui", swift["needs"])
-        self.assertFalse([step for step in swift["steps"] if "pin-cmux-tui.sh" in step.get("run", "")])
+        # Only `path`, which names where the tree would be and never fetches or waits (#26809's broad pass
+        # reads it once so every shard sees the same tree).
+        calls = [call for step in swift["steps"]
+                 for call in re.findall(r"pin-cmux-tui\.sh(?:[ \t]+(\S+))?", step.get("run", ""))]
+        self.assertEqual([call for call in calls if call != "path"], [])
         self.assertIn("SWIFT_FILTER", swift["env"])
 
     def test_swift_test_prioritizes_changed_suites_before_the_broad_pass(self):
@@ -2181,15 +2185,13 @@ GENERATED_FILES_RUNNER_WITHOUT_SESSION_LANE = (
     + "needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) "
     "&& (github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) "
     "&& (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || "
-    "github.repository_owner != 'manaflow-ai' && 'macos-26' || (" + FAST_TIER_FORK_CLAUSE
-    + "(needs.macos-placement.outputs.runner != '' && 'blacksmith-6vcpu-macos-26') || "
-    "needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
+    "github.repository_owner != 'manaflow-ai' && 'macos-26' || " + FAST_TIER_FORK_CLAUSE
+    + "needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
     "needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || "
     "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
     "&& github.run_attempt == 1 "
     "&& (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') "
-    "|| github.run_attempt != 1 && 'blacksmith-6vcpu-macos-26' "
-    "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}"
+    "|| 'blacksmith-6vcpu-macos-26' }}"
 )
 
 
