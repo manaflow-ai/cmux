@@ -292,6 +292,7 @@ pub(crate) mod creating_input;
 mod loss_causes;
 mod orphan_hosts;
 mod pending_terminals;
+mod startup_adoption_gate;
 mod startup_record;
 mod terminal_adoption;
 pub(crate) mod terminal_archive;
@@ -706,6 +707,8 @@ pub struct Mux {
     agent_cli_job_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
+    /// Turns of a start's first adoption attempts (mux/startup_adoption_gate.rs).
+    startup_adoption_gate: Arc<startup_adoption_gate::StartupAdoptionGate>,
     /// Notified when an id leaves `terminal_adoptions` (its adoption ended).
     terminal_adoption_ended: Condvar,
     /// Terminals a request waits on (`wait_for_terminal_adoption`): their

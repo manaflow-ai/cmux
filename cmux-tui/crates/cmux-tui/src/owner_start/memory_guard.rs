@@ -98,7 +98,7 @@ pub(super) fn spawn(panic_log: Option<PathBuf>, forwarder: Option<Forwarder>) {
         let mut guard = MemoryGuard::new(threshold);
         let pid = std::process::id();
         loop {
-            let sample = cmux_tui_core::process_resources::Sampler::new().sample(pid);
+            let sample = cmux_tui_core::process_resources::sample_process(pid);
             if let Some(memory) = sample.map(|sample| sample.memory_bytes)
                 && let Some(crossed) = guard.observe(memory)
             {
