@@ -53,7 +53,17 @@ impl Supervisor {
     /// Reads the catalog again and applies what changed in local apps since
     /// `prints`; returns the new fingerprints.
     pub(crate) fn reload_local_apps(&self, prints: &Prints) -> Prints {
-        let catalog = catalog::load(&self.config.sources);
+        self.reload_local_apps_from(prints, catalog::load)
+    }
+
+    /// `reload_local_apps` with the catalog read given: a test lands a save
+    /// right after the read.
+    pub(super) fn reload_local_apps_from(
+        &self,
+        prints: &Prints,
+        load: impl FnOnce(&catalog::Sources) -> catalog::Catalog,
+    ) -> Prints {
+        let catalog = load(&self.config.sources);
         let next = local_prints(catalog.packages.values());
         let changed: Vec<String> = next
             .iter()
@@ -281,5 +291,81 @@ fn next_burst(
             while events.try_recv().is_ok() {}
             return true;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+    use std::sync::mpsc::channel;
+
+    use notify::event::{AccessKind, AccessMode, DataChange, Event, EventKind, Flag, ModifyKind};
+
+    use super::{fingerprint, next_burst};
+
+    const ROOT: &str = "/apps/customize";
+
+    /// Whether this queue of events wakes the watch.
+    fn wakes(events: Vec<notify::Result<Event>>) -> bool {
+        let (sender, receiver) = channel();
+        for event in events {
+            sender.send(event).unwrap();
+        }
+        drop(sender);
+        next_burst(&receiver, &|path: &Path| path.starts_with(ROOT))
+    }
+
+    fn on(kind: EventKind) -> notify::Result<Event> {
+        Ok(Event::new(kind).add_path(PathBuf::from(ROOT).join("cmux-app.v2.json")))
+    }
+
+    /// Reading a local app opens its folder and files, and inotify reports
+    /// every open: a read that woke the watch made it read again, in a loop
+    /// that never slept (Linux).
+    #[test]
+    fn a_read_does_not_wake_the_watch_and_a_write_does() {
+        let read = vec![
+            on(EventKind::Access(AccessKind::Open(AccessMode::Any))),
+            on(EventKind::Access(AccessKind::Close(AccessMode::Read))),
+        ];
+        assert!(!wakes(read), "opening and reading a file changes nothing");
+        assert!(wakes(vec![on(EventKind::Modify(ModifyKind::Data(DataChange::Any)))]));
+        assert!(
+            wakes(vec![on(EventKind::Access(AccessKind::Close(AccessMode::Write)))]),
+            "a finished write is a change"
+        );
+    }
+
+    /// An overflowed inotify queue drops events and says so in one event that
+    /// names no path; a watch error can lose events too. Both read again.
+    #[test]
+    fn a_watch_that_lost_events_reads_again() {
+        assert!(wakes(vec![Ok(Event::new(EventKind::Other).set_flag(Flag::Rescan))]));
+        assert!(wakes(vec![Err(notify::Error::generic("inotify read failed"))]));
+    }
+
+    /// A coarse file clock (a timer tick on Linux before 6.13, one second on
+    /// some file systems) gives a same-size save its old modification time.
+    #[test]
+    fn a_same_size_save_with_the_old_modification_time_changes_the_fingerprint() {
+        let stamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("cmux-local-reload-{}-{stamp}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest = dir.join("cmux-app.v2.json");
+        std::fs::write(&manifest, r#"{"version":"1.0.0"}"#).unwrap();
+        let modified = std::fs::metadata(&manifest).unwrap().modified().unwrap();
+        let before = fingerprint(&dir);
+        std::fs::write(&manifest, r#"{"version":"1.0.1"}"#).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&manifest)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
+        let after = fingerprint(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_ne!(before, after, "the content changed");
     }
 }
