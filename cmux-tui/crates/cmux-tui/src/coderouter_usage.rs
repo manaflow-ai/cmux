@@ -143,7 +143,8 @@ pub(crate) fn resolve_layered_source(
     env_files: &[Option<&str>],
     bound_instance_id: Option<&str>,
 ) -> Option<UsageSource> {
-    let file_values: Vec<_> = env_files.iter().flatten().map(|file| parse_env_exports(file)).collect();
+    let file_values: Vec<_> =
+        env_files.iter().flatten().map(|file| parse_env_exports(file)).collect();
     let lookup = |key: &str| {
         env(key)
             .filter(|value| !value.trim().is_empty())
@@ -549,7 +550,8 @@ mod tests {
     #[test]
     fn earlier_layers_win_per_key_and_bad_bound_ids_are_ignored() {
         let home = "export CMUX_VM_ID='home-vm'\n";
-        let image = "export CMUX_CODEROUTER_URL='https://image.example'\nexport CMUX_VM_ID='image-vm'\n";
+        let image =
+            "export CMUX_CODEROUTER_URL='https://image.example'\nexport CMUX_VM_ID='image-vm'\n";
         let source =
             resolve_layered_source(|_| None, &[Some(home), Some(image)], Some("bound")).unwrap();
         assert_eq!(source.coderouter_url, "https://image.example");
@@ -561,7 +563,11 @@ mod tests {
         );
         let url_only = "export CMUX_CODEROUTER_URL='https://x'\n";
         for bad in ["", "  \n", "two words", &"a".repeat(MAX_INSTANCE_ID_BYTES + 1)] {
-            assert_eq!(resolve_layered_source(|_| None, &[Some(url_only)], Some(bad)), None, "{bad:?}");
+            assert_eq!(
+                resolve_layered_source(|_| None, &[Some(url_only)], Some(bad)),
+                None,
+                "{bad:?}"
+            );
         }
     }
 
