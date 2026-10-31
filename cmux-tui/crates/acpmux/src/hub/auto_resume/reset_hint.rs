@@ -19,12 +19,13 @@ fn duration_ms(s: &str) -> Option<u64> {
             return (ms <= MAX_HINT_DELAY_MS).then_some(ms);
         }
     };
-    let n = s[..split].parse::<f64>().ok()?;
+    let (number, unit) = s.split_at_checked(split)?;
+    let n = number.parse::<f64>().ok()?;
     if !n.is_finite() || n <= 0.0 {
         return None;
     }
-    let unit = s[split..].trim().to_ascii_lowercase();
-    let multiplier = if unit.starts_with("ms") {
+    let unit = unit.trim().to_ascii_lowercase();
+    let multiplier = if unit.starts_with("ms") || unit.starts_with("millisecond") {
         1.0
     } else if unit.starts_with('m') {
         60_000.0
@@ -45,7 +46,8 @@ fn fixed_offset(zone: &str) -> Option<time::UtcOffset> {
     let (h, m) = if let Some((h, m)) = digits.split_once(':') {
         (h.parse::<i32>().ok()?, m.parse::<i32>().ok()?)
     } else if digits.len() == 4 && digits.bytes().all(|byte| byte.is_ascii_digit()) {
-        (digits[..2].parse::<i32>().ok()?, digits[2..].parse::<i32>().ok()?)
+        let (h, m) = digits.split_at_checked(2)?;
+        (h.parse::<i32>().ok()?, m.parse::<i32>().ok()?)
     } else {
         (digits.parse::<i32>().ok()?, 0)
     };
@@ -87,25 +89,19 @@ fn named_deadline_ms(
 fn clock_reset(error: &str, now_ms: u64) -> Option<u64> {
     let lower = error.to_ascii_lowercase();
     let at = lower.find("resets ")? + "resets ".len();
-    let tail = lower[at..].trim_start();
-    let mut end = 0;
-    while end < tail.len() && tail.as_bytes()[end].is_ascii_digit() {
-        end += 1;
-    }
+    let tail = lower.get(at..)?.trim_start();
+    let end = tail.bytes().take_while(u8::is_ascii_digit).count();
     if end == 0 {
         return None;
     }
-    let mut hour = tail[..end].parse::<u8>().ok()?;
+    let (hour_digits, mut rest) = tail.split_at_checked(end)?;
+    let mut hour = hour_digits.parse::<u8>().ok()?;
     let mut minute = 0u8;
-    let mut rest = &tail[end..];
     if let Some(after_colon) = rest.strip_prefix(':') {
-        let mut minute_end = 0;
-        while minute_end < after_colon.len() && after_colon.as_bytes()[minute_end].is_ascii_digit()
-        {
-            minute_end += 1;
-        }
-        minute = after_colon[..minute_end].parse::<u8>().ok()?;
-        rest = &after_colon[minute_end..];
+        let minute_end = after_colon.bytes().take_while(u8::is_ascii_digit).count();
+        let (minute_digits, after) = after_colon.split_at_checked(minute_end)?;
+        minute = minute_digits.parse::<u8>().ok()?;
+        rest = after;
     }
     let meridiem = rest.trim_start().as_bytes().get(..2).and_then(|m| std::str::from_utf8(m).ok());
     match meridiem {
@@ -179,28 +175,28 @@ fn as_deadline(v: u64, now_ms: u64) -> Option<u64> {
 fn http_date_ms(s: &str) -> Option<u64> {
     let (_, rest) = s.trim().split_once(", ")?;
     let p: Vec<&str> = rest.split_whitespace().collect();
-    if p.len() != 5 || p[4] != "GMT" {
+    let [day, month, year, clock, "GMT"] = p.as_slice() else {
         return None;
-    }
-    let day = p[0].parse::<u32>().ok()?;
+    };
+    let day = day.parse::<u32>().ok()?;
     let month = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         .iter()
-        .position(|m| m.eq_ignore_ascii_case(p[1]))? as u32
+        .position(|m| m.eq_ignore_ascii_case(month))? as u32
         + 1;
-    if p[2].len() != 4 || !p[2].bytes().all(|byte| byte.is_ascii_digit()) {
+    if year.len() != 4 || !year.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
     }
-    let year = p[2].parse::<i32>().ok()?;
+    let year = year.parse::<i32>().ok()?;
     if !(1970..=9999).contains(&year) {
         return None;
     }
-    let t: Vec<&str> = p[3].split(':').collect();
-    if t.len() != 3 {
+    let t: Vec<&str> = clock.split(':').collect();
+    let [hour, minute, second] = t.as_slice() else {
         return None;
-    }
-    let hour = t[0].parse::<u32>().ok()?;
-    let minute = t[1].parse::<u32>().ok()?;
-    let second = t[2].parse::<u32>().ok()?;
+    };
+    let hour = hour.parse::<u32>().ok()?;
+    let minute = minute.parse::<u32>().ok()?;
+    let second = second.parse::<u32>().ok()?;
     if !(1..=31).contains(&day) || hour > 23 || minute > 59 || second > 60 {
         return None;
     }
@@ -220,15 +216,10 @@ fn retry_after(text: &str, now_ms: u64) -> Option<u64> {
     let lower = text.to_ascii_lowercase();
     for marker in ["retry after", "retry-after", "retry_after"] {
         let Some(at) = lower.find(marker) else { continue };
-        let tail = &text[at + marker.len()..];
+        let Some(tail) = text.get(at + marker.len()..) else { continue };
         let tail =
             tail.trim_start_matches(|c: char| c == ':' || c == '=' || c.is_ascii_whitespace());
-        let mut end = 0;
-        while end < tail.len()
-            && (tail.as_bytes()[end].is_ascii_digit() || tail.as_bytes()[end] == b'.')
-        {
-            end += 1;
-        }
+        let end = tail.bytes().take_while(|b| b.is_ascii_digit() || *b == b'.').count();
         if end == 0 {
             if let Some(deadline) =
                 http_date_ms(tail).and_then(|deadline| bounded_deadline(deadline, now_ms))
@@ -241,7 +232,7 @@ fn retry_after(text: &str, now_ms: u64) -> Option<u64> {
         return bounded_deadline(now_ms.saturating_add(ms), now_ms);
     }
     if let Some(pipe) = text.rfind('|')
-        && let Some(v) = seconds(&text[pipe + 1..])
+        && let Some(v) = text.get(pipe + 1..).and_then(seconds)
     {
         return as_deadline(v, now_ms);
     }
@@ -255,7 +246,7 @@ pub(super) fn reset_at(error: &str, usage_limits: Option<&Value>, now_ms: u64) -
             let lower = error.to_ascii_lowercase();
             lower.find("resets at ").and_then(|at| {
                 let n: String =
-                    lower[at + 10..].chars().take_while(|c| c.is_ascii_digit()).collect();
+                    lower.get(at + 10..)?.chars().take_while(|c| c.is_ascii_digit()).collect();
                 seconds(&n).and_then(|v| as_deadline(v, now_ms))
             })
         })
@@ -329,6 +320,7 @@ mod tests {
             Some(1_760_000_000_000)
         );
         assert_eq!(reset_at("Retry-After: 2m", None, 1000), Some(121_000));
+        assert_eq!(reset_at("Retry-After: 500 milliseconds", None, 1000), Some(1500));
         assert_eq!(reset_at("Retry-After: 999999999999999999d", None, 1000), None);
         assert_eq!(reset_at("Retry-After: 999999999999", None, 1000), None);
         assert_eq!(

@@ -203,12 +203,13 @@ impl Hub {
             }
         };
         if let Some(saved) = manual {
-            let Some(_manual_prompt) = saved["manualPromptId"].as_str() else { return };
-            let Some(control) = saved["control"].as_str().map(str::to_owned) else { return };
-            let Some(trust_gate) = saved["trustGate"].as_bool() else { return };
-            let Some(_error) = saved["error"].as_str() else { return };
-            let from = saved["from"].as_str().map(str::to_owned);
-            let full_access_device = saved["fullAccessDevice"].as_str().map(str::to_owned);
+            let text = |key: &str| saved.get(key).and_then(Value::as_str);
+            let Some(_manual_prompt) = text("manualPromptId") else { return };
+            let Some(control) = text("control").map(str::to_owned) else { return };
+            let Some(trust_gate) = saved.get("trustGate").and_then(Value::as_bool) else { return };
+            let Some(_error) = text("error") else { return };
+            let from = text("from").map(str::to_owned);
+            let full_access_device = text("fullAccessDevice").map(str::to_owned);
             let wake = Arc::new(Notify::new());
             pending.replace(Mark::Waiting {
                 turn: turn_id.clone(),
