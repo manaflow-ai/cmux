@@ -29,7 +29,7 @@ impl Hub {
             || session.replaced.load(std::sync::atomic::Ordering::SeqCst)
             || session.status() == SessionStatus::Closed
             || session.turn().is_some()
-            || session.queue().iter().any(|q| !q.held)
+            || session.queue().iter().any(|q| !q.aside())
         {
             return;
         }
@@ -255,6 +255,7 @@ impl Hub {
         }
         let id = format!("{}{SUFFIX}{}", retry.prompt_id, retry.attempt);
         if let Some(outcome) = self.logged_prompt(session, &id) {
+            let outcome = outcome.unwrap_or_default();
             if outcome.get("stopReason").and_then(Value::as_str) == Some("cancelled") {
                 // The retry can be stopped while startup is still pending, before its
                 // turn_started. That Stop names the new turn, not the failed cut turn.
@@ -479,7 +480,7 @@ mod tests {
             assert_eq!(retry.is_object(), expected, "crash after {point}: {retry}");
             if ["message_stop", "stop_message", "stop_without_message"].contains(&point) {
                 assert_eq!(
-                    restored.logged_prompt(&session, "original~resume-1").unwrap()["stopReason"],
+                    restored.logged_prompt(&session, "original~resume-1").unwrap().unwrap()["stopReason"],
                     "cancelled"
                 );
                 let (again, session) = restart(&restored, &session).await;

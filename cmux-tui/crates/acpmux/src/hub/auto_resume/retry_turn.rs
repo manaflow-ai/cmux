@@ -228,7 +228,7 @@ impl Hub {
     /// while a turn runs, a prompt waits to run, or a continuation is about to start.
     fn claim_failed_turn(&self, session: &Session) -> Result<(String, String, String), RpcError> {
         let mut pending = session.auto_resume.lock();
-        if session.turn().is_some() || session.queue().iter().any(|q| !q.held) {
+        if session.turn().is_some() || session.queue().iter().any(|q| !q.aside()) {
             return Err(busy());
         }
         let last = session.meta().last_turn.unwrap_or(Value::Null);

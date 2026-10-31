@@ -24,7 +24,7 @@ use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
-fn hub_env(env: Value) -> Arc<Hub> {
+pub(super) fn hub_env(env: Value) -> Arc<Hub> {
     hub_policy(env, "approve-all")
 }
 
@@ -42,7 +42,7 @@ fn hub_policy(env: Value, policy: &str) -> Arc<Hub> {
     Hub::new(cfg, store)
 }
 
-fn hub() -> Arc<Hub> {
+pub(super) fn hub() -> Arc<Hub> {
     hub_env(json!({}))
 }
 
@@ -52,7 +52,12 @@ fn provenance(to: &str) -> Value {
            "msgId": "msg-1", "threadId": "thread-1", "replyTo": "msg-0"})
 }
 
-fn prompt(session: &str, prompt_id: &str, text: &str, provenance: Option<&Value>) -> Value {
+pub(super) fn prompt(
+    session: &str,
+    prompt_id: &str,
+    text: &str,
+    provenance: Option<&Value>,
+) -> Value {
     let mut mux = json!({"promptId": prompt_id});
     if let Some(p) = provenance {
         mux["provenance"] = p.clone();
@@ -60,10 +65,10 @@ fn prompt(session: &str, prompt_id: &str, text: &str, provenance: Option<&Value>
     json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": mux}})
 }
 
-struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
+pub(super) struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
 
 impl Client {
-    fn open(hub: &Arc<Hub>) -> Self {
+    pub(super) fn open(hub: &Arc<Hub>) -> Self {
         Self::open_as(hub, Origin::Local)
     }
 
@@ -75,14 +80,14 @@ impl Client {
     }
 
     /// Sends a request without waiting for its reply; returns its id.
-    async fn send(&mut self, method: &str, params: Value) -> i64 {
+    pub(super) async fn send(&mut self, method: &str, params: Value) -> i64 {
         self.2 += 1;
         self.0.send(Message::request(self.2, method, params).to_line()).await.unwrap();
         self.2
     }
 
     /// The first message that matches `pred`; every other one is dropped.
-    async fn until(&mut self, pred: impl Fn(&Value) -> bool) -> Value {
+    pub(super) async fn until(&mut self, pred: impl Fn(&Value) -> bool) -> Value {
         loop {
             let line = tokio::time::timeout(Duration::from_secs(30), self.1.recv())
                 .await
@@ -96,22 +101,22 @@ impl Client {
     }
 
     /// The raw reply to request `id` (an error is returned, not asserted).
-    async fn reply_to(&mut self, id: i64) -> Value {
+    pub(super) async fn reply_to(&mut self, id: i64) -> Value {
         self.until(|v| v.get("id") == Some(&json!(id))).await
     }
 
-    async fn reply(&mut self, method: &str, params: Value) -> Value {
+    pub(super) async fn reply(&mut self, method: &str, params: Value) -> Value {
         let id = self.send(method, params).await;
         self.reply_to(id).await
     }
 
-    async fn call(&mut self, method: &str, params: Value) -> Value {
+    pub(super) async fn call(&mut self, method: &str, params: Value) -> Value {
         let value = self.reply(method, params).await;
         assert!(value.get("error").is_none(), "{method}: {value}");
         value["result"].clone()
     }
 
-    async fn new_session(&mut self, mux: Value) -> String {
+    pub(super) async fn new_session(&mut self, mux: Value) -> String {
         let created = self
             .call(
                 "session/new",
@@ -122,25 +127,25 @@ impl Client {
     }
 
     /// The session's records of `kind`, oldest first (their `msg`).
-    async fn records(&mut self, session: &str, kind: &str) -> Vec<Value> {
+    pub(super) async fn records(&mut self, session: &str, kind: &str) -> Vec<Value> {
         let page =
             self.call("_acpmux/events", json!({"sessionId": session, "kinds": [kind]})).await;
         page["events"].as_array().unwrap().iter().map(|e| e["msg"].clone()).collect()
     }
 
-    async fn user_message(&mut self, session: &str, prompt_id: &str) -> Value {
+    pub(super) async fn user_message(&mut self, session: &str, prompt_id: &str) -> Value {
         let found = self.records(session, "user_message").await;
         found.into_iter().find(|m| m["promptId"] == prompt_id).expect("its user_message")
     }
 
     /// Starts an "until-cancel" turn and waits until it runs.
-    async fn busy(&mut self, session: &str) {
+    pub(super) async fn busy(&mut self, session: &str) {
         self.send("session/prompt", prompt(session, "p-run", "until-cancel", None)).await;
         self.until(|v| v.pointer("/params/update/content/text") == Some(&json!("running"))).await;
     }
 
     /// Queues a prompt behind the running turn; returns its request id.
-    async fn queue(&mut self, params: Value) -> i64 {
+    pub(super) async fn queue(&mut self, params: Value) -> i64 {
         let prompt_id = params["_meta"]["acpmux"]["promptId"].clone();
         let id = self.send("session/prompt", params).await;
         self.until(|v| {
@@ -152,7 +157,7 @@ impl Client {
         id
     }
 
-    async fn cancel(&mut self, session: &str) {
+    pub(super) async fn cancel(&mut self, session: &str) {
         let note = Message::notification("session/cancel", json!({"sessionId": session}));
         self.0.send(note.to_line()).await.unwrap();
     }
@@ -719,14 +724,14 @@ fn anas() -> Value {
 }
 
 /// `params` with `author` in `_meta.acpmux`.
-fn by(mut params: Value, author: Option<&Value>) -> Value {
+pub(super) fn by(mut params: Value, author: Option<&Value>) -> Value {
     if let Some(author) = author {
         params["_meta"]["acpmux"]["author"] = author.clone();
     }
     params
 }
 
-fn reason(value: &Value) -> &Value {
+pub(super) fn reason(value: &Value) -> &Value {
     value.pointer("/error/data/reason").unwrap_or(&Value::Null)
 }
 
