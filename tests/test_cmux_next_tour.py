@@ -736,6 +736,44 @@ class FocusAfterCloseTests(unittest.TestCase):
 
 
 class WindowVideoTests(unittest.TestCase):
+    def test_compiler_failure_selects_the_still_fallback(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        with tempfile.TemporaryDirectory() as root:
+            recording = tour.WindowVideo(mock.Mock(), 123, Path(root), Path(root))
+            with mock.patch.object(tour.sys, "platform", "darwin"), \
+                    mock.patch.object(tour.subprocess, "run", return_value=mock.Mock(returncode=1, stderr="SDK unavailable")):
+                self.assertFalse(recording.start())
+            self.assertIn("SDK unavailable", recording.reason)
+            self.assertIsNone(recording.process)
+
+    def test_failed_native_start_records_stills_with_measured_timing(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        with tempfile.TemporaryDirectory() as root:
+            session = mock.Mock(prefix=[], capture_prefix=[], user="test")
+            session.shareable.side_effect = lambda path: (path.mkdir(parents=True, exist_ok=True) or path)
+            app = mock.Mock(identity={}, log_path=Path(root) / "absent")
+            app.main_window_frame.return_value = [0, 0, 800, 600]
+            native = mock.Mock(reason="SDK unavailable")
+            native.start.return_value = False
+            native.stop.return_value = False
+            def step(*args):
+                time.sleep(0.1)
+                return {"status": "ok"}
+            with mock.patch.object(tour, "App", return_value=app), \
+                    mock.patch.object(tour, "WindowVideo", return_value=native), \
+                    mock.patch.object(tour.Screen, "capture", return_value=None), \
+                    mock.patch.object(tour, "run_step", side_effect=step), \
+                    mock.patch.object(tour.signal, "signal"):
+                manifest = tour.run_tour(Path(root), {"name": "demo", "title": "Demo", "steps": [{"title": "Animate"}]},
+                                         Path(root), session)
+            self.assertNotIn("video", manifest)
+            self.assertEqual(manifest["video_fallback"], "SDK unavailable")
+            self.assertGreaterEqual(len(manifest["frames"]), 2)
+            self.assertGreater(manifest["capture_fps"], 2)
+            self.assertAlmostEqual(manifest["frame_interval"], 1 / manifest["capture_fps"])
+
     def test_native_capture_stops_and_finalizes_before_the_app(self):
         sys.path.insert(0, str(SCRIPT.parent))
         import tour
