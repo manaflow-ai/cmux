@@ -82,7 +82,11 @@ describe("foldToggleAt", () => {
       "span",
     ],
     ["a summary", "<details><summary>Context</summary>body</details>", "summary"],
-    ["a block's Wrap lines", '<button class="cv-codeblock__action" aria-pressed="false" data-fold-toggle="">wrap</button>', "button"],
+    [
+      "a block's Wrap lines",
+      '<button class="cv-codeblock__action" aria-pressed="false" data-fold-toggle="">wrap</button>',
+      "button",
+    ],
     ["a diagram's chart or code", '<button class="cv-diagram__toggle" data-fold-toggle="">Code</button>', "button"],
     ["a question's pill", '<button class="acpmux-question-pill" aria-expanded="false">Q</button>', "button"],
     ["a permission's details", '<button class="acpmux-ask-toggle" aria-expanded="false">Details</button>', "button"],
