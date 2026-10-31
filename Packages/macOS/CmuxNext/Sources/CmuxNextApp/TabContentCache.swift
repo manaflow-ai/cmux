@@ -142,6 +142,9 @@ final class TabContentCache {
     private var framedStandIns: Set<String> = [] // stand-in tabs whose page waited for their first frame
     /// Each tab's visibility node, weakly (`node(for:)`).
     private var tabNodes: [String: WeakTabNode] = [:]
+    /// A daemon tab's node that a stand-in's moved node went under (`moveNode`), held until the tab is released: only
+    /// that node's weak parent names it, and a WebKit page or a terminal not shown yet holds nothing else.
+    private var adoptedTabNodes: [String: VisibilityNode] = [:]
     /// `tabNodes` drops its released nodes when it reaches this many entries.
     private var tabNodesPruneAt = 64
     /// The parent of tab nodes that no pane has selected: hidden, so they are.
@@ -555,9 +558,16 @@ final class TabContentCache {
         return node(for: key)
     }
 
-    /// Stand-in tab `key`'s visibility node becomes `real`'s, unless `real` has one: the content moving with it keeps it.
+    /// Stand-in tab `key`'s node, which its moved content follows, becomes `real`'s; if `real` has one (its pane selected
+    /// it first), it goes under that one, which the cache then holds, so the content shows with `real` in any order (P0 resize).
     func moveNode(_ key: String, to real: String) {
-        guard let node = tabNodes.removeValue(forKey: key)?.node, tabNodes[real]?.node == nil else { return }
+        guard let node = tabNodes.removeValue(forKey: key)?.node else { return }
+        if let shown = tabNodes[real]?.node, shown !== node {
+            do { try node.attach(to: shown) } catch { return }
+            node.set(.visible)
+            adoptedTabNodes[real] = shown
+            return
+        }
         tabNodes[real] = WeakTabNode(node: node)
         daemon.trackVisibility(ofTab: real, node: node) // the daemon reports the node's visibility for `real` now
     }
@@ -598,7 +608,7 @@ final class TabContentCache {
         if displacing { createTabs.released(key) }
         if let owner = ledger.remove(key), displacing { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         applyLifecycle(lifecycle.send(.removed(key)))
-        pendingMounts[key] = nil; framedStandIns.remove(key); pendingBrowsers.remove(key); awaitingRead.remove(key); launchDeferredNodes[key] = nil
+        pendingMounts[key] = nil; framedStandIns.remove(key); pendingBrowsers.remove(key); awaitingRead.remove(key); launchDeferredNodes[key] = nil; adoptedTabNodes[key] = nil
         hibernation?.forget(key); pageLifecycle?.remove(key)
         agentMarks.forget(key)
         pageRequests.services?.remoteViewPages.forget(key)
