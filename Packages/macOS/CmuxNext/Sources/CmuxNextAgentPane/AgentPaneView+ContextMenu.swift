@@ -115,22 +115,37 @@ extension AgentPaneView {
     /// Routes WebKit's context menu through the pane and listens for the page's reports. Also takes
     /// a native file drop on the page as the person's gesture (an upload's, ``AgentPaneUpload``), and
     /// records where the files of the person's drop or paste are, for the page's
-    /// `chat.attach.dropped` (``AgentPaneDroppedPaths``).
+    /// `chat.attach.dropped` (``AgentPaneDroppedPaths``), and what the person's drop, paste or pick
+    /// in the file input says about where they came from, for `chat.attach.source`.
     func installContextMenu() {
         let dropped: @MainActor ([URL]) -> Void = { [weak self] urls in
             guard let self, AgentPanePersonInput.currentIsPerson else { return }
             AgentPanePersonInput.record(model.transport.gestures)
             model.droppedPaths.stash(urls, kind: .drop)
+            let drag = NSPasteboard(name: .drag)
+            model.droppedPaths.stashSource(
+                urls, items: drag.pasteboardItems?.count ?? 0, claimed: AttachmentSource.claimed(on: drag), kind: .drop)
         }
         // Read as the paste goes to WebKit: the pasteboard WebKit hands the page. As for a drop, only
         // the person's paste (a posted Cmd-V records nothing).
         let pasted: @MainActor () -> Void = { [weak self] in
-            guard AgentPanePersonInput.currentIsPerson else { return }
-            self?.model.droppedPaths.stash(AgentPaneDroppedPaths.fileURLs(on: .general), kind: .paste)
+            guard let self, AgentPanePersonInput.currentIsPerson else { return }
+            let urls = AgentPaneDroppedPaths.fileURLs(on: .general)
+            model.droppedPaths.stash(urls, kind: .paste)
+            model.droppedPaths.stashSource(
+                urls, items: NSPasteboard.general.pasteboardItems?.count ?? 0,
+                claimed: AttachmentSource.claimed(on: .general), kind: .paste)
+        }
+        // The files the person picked in the file input's open panel (+ > Attach files): only their
+        // own metadata can say where they came from, so the record holds their URLs and no claim.
+        // WebKit opens the panel only for a user-activated file input, and the person picks the
+        // files, so page script can't fill it either.
+        let chosen: @MainActor ([URL]) -> Void = { [weak self] urls in
+            self?.model.droppedPaths.stashSource(urls, items: urls.count, claimed: nil, kind: .choose)
         }
         let edit: @MainActor (NSMenu) -> Void = { [weak self] menu in self?.editContextMenu(menu) }
         if let page {
-            (page.onFilesDropped, page.onPaste) = (dropped, pasted)
+            (page.onFilesDropped, page.onPaste, page.onFilesChosen) = (dropped, pasted, chosen)
             // Both engines: the page host relays the report (a Chromium page's menu waits for it).
             page.addMessageHandler(Self.contextMenuHandler) { [weak self] body in
                 self?.receiveContextMenuReport(body)
@@ -142,6 +157,7 @@ extension AgentPaneView {
             return
         }
         if let view = webView as? AgentPaneWKWebView { (view.onFilesDropped, view.onPaste) = (dropped, pasted) }
+        fileChooser?.onChosen = chosen
         // Never add the handler twice (WebKit throws).
         webView.configuration.userContentController.removeScriptMessageHandler(forName: Self.contextMenuHandler, contentWorld: .page)
         webView.configuration.userContentController.add(AgentPaneContextMenuReporter(view: self), contentWorld: .page,
@@ -157,6 +173,8 @@ extension AgentPaneView {
         page?.contextMenuEditor = nil
         page?.onFilesDropped = nil
         page?.onPaste = nil
+        page?.onFilesChosen = nil
+        fileChooser?.onChosen = nil
         (webView as? AgentPaneWKWebView)?.contextMenuEditor = nil
         (webView as? AgentPaneWKWebView)?.onFilesDropped = nil
         (webView as? AgentPaneWKWebView)?.onPaste = nil

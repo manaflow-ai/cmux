@@ -11,11 +11,15 @@ import {
   isImageFile,
   pastedImageFiles,
   installFileDropLifecycle,
+  sourceOfFile,
   thumbnail,
+  withSource,
   type AttachmentError,
+  type AttachmentSource,
   type ComposerAttachment,
   type DroppedKind,
   type LinkItem,
+  type SourceKind,
 } from "../attachments";
 import type { UploadResult } from "../cloudUploads";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
@@ -26,6 +30,8 @@ import { pasteLines, pasteName } from "../conversation/promptCollapse";
 import { keptThumb } from "./imagePool";
 import { useStripReorder } from "./stripReorder";
 import { intakeFiles, type IntakeError } from "./intakeFiles";
+import { attachSources } from "./attachmentSources";
+import { SourceBadge, useSourceLabel, withSourceLabel } from "./SourceBadge";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { FADE_BAND_PX } from "../MarkdownField";
 import { useScrollEdges } from "../summary/scrollEdges";
@@ -226,10 +232,12 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// `uploads`: the person dropped, pasted or chose these, so the chat's host may save what the
   /// composer can't attach (a moved chat's machine, or this Mac for a local chat) and its chip sends
   /// the saved path (composer/intakeFiles.ts); never a capture. `kind`: the person's own drop or
-  /// paste, whose files the host of a chat on this Mac knows the paths of (`localPaths`).
-  const [attach] = useState(() => async (given: (File | MadeFile)[], uploads = false, kind?: DroppedKind) => {
+  /// paste, whose files the host of a chat on this Mac knows the paths of (`localPaths`), or pick in
+  /// the file input (`choose`), which the host asks only where its files came from.
+  const [attach] = useState(() => async (given: (File | MadeFile)[], uploads = false, kind?: SourceKind) => {
     if (given.length === 0) return;
     const files = given;
+    const dropped: DroppedKind | undefined = kind === "choose" ? undefined : kind;
     const { options: current } = live.current;
     const batch = { scope: current.scope };
     // In the paste's or drop's own task, so React draws them before the next frame.
@@ -249,6 +257,37 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const paths = current.localPaths;
     /// The chip each file became, by index, for its original's path arriving later.
     const made: (string | undefined)[] = [];
+    // The app each file came from: one the page made knows it (a capture cmux took); the host says
+    // the rest for the person's drop, paste or pick in the file input (composer/attachmentSources.ts,
+    // which answers within its deadline). A chip read before the answer waits for it, with its tile
+    // showing, so the chip has its source wherever it goes (this chat's strip, or the chat it was
+    // pasted in) and its first draft write keeps it. One whose source nobody knows has none.
+    const fileSource: (AttachmentSource | undefined)[] = files.map((file) =>
+      isMadeFile(file) ? undefined : sourceOfFile(file),
+    );
+    const asked = kind
+      ? files.flatMap((file, index) => (isMadeFile(file) || fileSource[index] ? [] : [{ file, index }]))
+      : [];
+    let answered = asked.length === 0;
+    const answer = answered
+      ? Promise.resolve()
+      : attachSources(
+          kind!,
+          asked.map(({ file }) => file),
+        ).then((sources) => {
+          sources.forEach((source, at) => {
+            if (!source) return;
+            const { file, index } = asked[at]!;
+            fileSource[index] = source;
+            // A failed chip's Retry reads this same file again: it keeps the answer.
+            withSource(file, source);
+          });
+          answered = true;
+        });
+    const sourced = (index: number, attachment: ComposerAttachment): ComposerAttachment => {
+      const source = fileSource[index];
+      return source && !attachment.source ? { ...attachment, source } : attachment;
+    };
     /// The chips this batch put in this chat's strip (not handed to another chat).
     const staged = new Set<string>();
     const marked = new Set<number>();
@@ -259,8 +298,13 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       setPending((chips) => chips.filter((chip) => chip.id !== id));
       return true;
     };
-    const ready = (index: number, attachment: ComposerAttachment) => {
+    const ready = (index: number, read: ComposerAttachment): void => {
+      if (!answered) {
+        void answer.then(() => ready(index, read));
+        return;
+      }
       if (!settle(index)) return;
+      const attachment = sourced(index, read);
       made[index] = attachment.id;
       // The composer moved to another chat meanwhile: the chip is the chat's it was pasted in.
       const now = live.current.options;
@@ -299,7 +343,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         settled,
         {
           allowImages: current.allowImages,
-          ...(kind && paths ? { localPaths: (batch: File[]) => paths(kind, batch) } : {}),
+          ...(dropped && paths ? { localPaths: (batch: File[]) => paths(dropped, batch) } : {}),
           ...(uploads && current.upload ? { upload: current.upload } : {}),
           // A file not yet a chip: its tile's x. One already a chip (an image whose original still
           // uploads): the chip is gone from the strip (its x, or it was sent), so its original
@@ -320,11 +364,16 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         {
           ready,
           failed,
-          uploading: (index) => {
+          uploading: function uploading(index) {
+            // In order behind its chip, which may be waiting for its source: until then its tile
+            // still holds a send.
+            if (!answered) return void answer.then(() => uploading(index));
             const id = shown[index]!.id;
             setPending((chips) => chips.map((chip) => (chip.id === id ? { ...chip, uploading: true } : chip)));
           },
-          original: (index, path, name) => {
+          original: function original(index, path, name) {
+            // After its chip, which may be waiting for its source.
+            if (!answered) return void answer.then(() => original(index, path, name));
             const id = made[index];
             setAttachments((staged) =>
               staged.map((chip) => (chip.id === id ? { ...chip, originalPath: path, originalName: name } : chip)),
@@ -332,6 +381,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           },
         },
       );
+      // The chips waiting for their sources are placed before the batch ends.
+      await answer;
     } finally {
       batches.current.delete(batch);
       // A file intake said nothing of (it threw) is not left loading.
@@ -750,7 +801,10 @@ function AttachmentChip({
       live = false;
     };
   }, [attachment.data, attachment.id, attachment.mimeType, image]);
-  const remove = (
+  // The app it came from, at the tile's top-right corner (composer/SourceBadge.tsx); the × takes
+  // that corner while the pointer is on the tile, and the tooltip names the source.
+  const from = useSourceLabel(attachment.source);
+  const removeButton = (
     <button
       type="button"
       className="acpmux-attachment-remove"
@@ -761,6 +815,12 @@ function AttachmentChip({
         <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       </svg>
     </button>
+  );
+  const remove = (
+    <>
+      <SourceBadge source={attachment.source} />
+      {removeButton}
+    </>
   );
   // Its right-click menu: Open (or what a click does) where a click opens it, and Remove (cx-2lm4).
   const menu = (open: (() => void) | undefined, chip: React.ReactNode, openLabel = t("image.open")) => (
@@ -799,7 +859,7 @@ function AttachmentChip({
       openImage ? () => openImage(source, name) : undefined,
       <div
         className="acpmux-attachment acpmux-attachment-image"
-        /* tooltip-allow: an image thumbnail shows no name */ title={name}
+        /* tooltip-allow: an image thumbnail shows no name */ title={withSourceLabel(name, from)}
       >
         {openImage ? (
           <button
@@ -878,7 +938,13 @@ function AttachmentChip({
     const play = () => void callChipHost("video.quickLook", { src: attachment.path });
     return menu(
       attachment.video ? play : undefined,
-      <VideoAttachmentTile name={attachment.name} video={attachment.video} remove={remove} onPlay={play} />,
+      <VideoAttachmentTile
+        name={attachment.name}
+        title={withSourceLabel(attachment.name, from)}
+        video={attachment.video}
+        remove={remove}
+        onPlay={play}
+      />,
       t("media.play"),
     );
   }
@@ -888,7 +954,7 @@ function AttachmentChip({
       className="acpmux-attachment acpmux-attachment-file acpmux-attachment-link"
       data-saved={attachment.saved || undefined}
       /* tooltip-allow: the full path is secondary detail for the file chip */
-      title={attachment.path}
+      title={withSourceLabel(attachment.path, from)}
     >
       <FileAttachment
         file={{
@@ -896,7 +962,7 @@ function AttachmentChip({
           // Native path-only choices have no byte count; do not invent a zero-byte file.
           size: attachment.mimeType || attachment.size > 0 ? attachment.size : undefined,
         }}
-        remove={remove}
+        remove={removeButton}
       />
     </div>,
   );

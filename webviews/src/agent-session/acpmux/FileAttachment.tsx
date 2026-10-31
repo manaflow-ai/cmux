@@ -1,8 +1,17 @@
 import React, { type ReactNode } from "react";
 import { usePaneLanguage } from "./i18n";
 import { FileDoc, Folder } from "./conversation/icons";
+import type { AttachmentSource } from "./attachments";
+import { SourceBadge, useSourceLabel, withSourceLabel } from "./composer/SourceBadge";
 
-export type FileAttachmentInfo = { name: string; size?: number; mimeType?: string; path?: string };
+export type FileAttachmentInfo = {
+  name: string;
+  size?: number;
+  mimeType?: string;
+  path?: string;
+  /** The app it came from: its icon rides the file glyph's top-right corner (composer/SourceBadge.tsx). */
+  source?: AttachmentSource;
+};
 
 export function attachmentPath(uri: string | undefined): string | undefined {
   if (!uri?.startsWith("file://")) return undefined;
@@ -38,12 +47,13 @@ export function FileAttachment({ file, remove }: { file: FileAttachmentInfo; rem
   const tail = chars.length > tailLength + 8 ? chars.slice(-tailLength).join("") : "";
   const head = tail ? chars.slice(0, -tailLength).join("") : file.name;
   const size = folder ? undefined : fileSizeLabel(file.size, language);
+  const from = useSourceLabel(file.source);
   return (
     <span
       className={`acpmux-file-chip${remove ? " acpmux-file-chip--removable" : ""}`}
       data-file-type={folder ? "folder" : type}
       /* tooltip-allow: the filename may be middle-truncated; the full path is secondary detail */
-      title={file.path ?? file.name}
+      title={withSourceLabel(file.path ?? file.name, from)}
     >
       {folder ? (
         <Folder size={16} />
@@ -79,6 +89,7 @@ export function FileAttachment({ file, remove }: { file: FileAttachmentInfo; rem
         {tail && <span className="acpmux-file-chip__tail">{tail}</span>}
       </span>
       {size && <span className="acpmux-file-chip__size">{size}</span>}
+      <SourceBadge source={file.source} />
       {remove}
     </span>
   );

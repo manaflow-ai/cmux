@@ -568,7 +568,21 @@ impl Hub {
         let provenance = json!({"kind": "auto_resume", "reason": "daemon_restart", "promptId": root, "attempt": attempt, "turnId": turn_id});
         let control = if raised_to_web { "web" } else { control.as_deref().unwrap_or("web") };
         let mut blocks = vec![json!({"type": "text", "text": text})];
-        blocks.extend(super::super::prompt_images::blocks_of(&images));
+        // Each image's source goes with it as display metadata, so the continuation's record keeps
+        // it (`prompt_images.rs`, `keep_sourced`).
+        let mut display = Vec::new();
+        for image in &images {
+            let Some(block) =
+                super::super::prompt_images::blocks_of(std::slice::from_ref(image)).pop()
+            else {
+                continue;
+            };
+            if let Some(source) = image.get("source") {
+                display
+                    .push(json!({"kind": "image", "blockIndex": blocks.len(), "source": source}));
+            }
+            blocks.push(block);
+        }
         let mut queued = json!({
             "text": text,
             "client": "acpmux",
@@ -584,6 +598,9 @@ impl Hub {
         });
         if !images.is_empty() {
             queued.set("images", Value::Array(images));
+        }
+        if !display.is_empty() {
+            queued.set("displayParts", Value::Array(display));
         }
         let queued = crate::prompt_provenance::marked(queued, Some(&provenance));
         self.append(session, "mux", "queued", queued);

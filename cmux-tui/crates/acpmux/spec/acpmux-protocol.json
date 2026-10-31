@@ -3424,6 +3424,9 @@
             "string",
             "null"
           ]
+        },
+        "source": {
+          "description": "The app it came from (`{name, bundleId?, site?}`), as the prompt's display metadata named it. Absent otherwise."
         }
       },
       "required": [

@@ -34,7 +34,15 @@ import type {
 import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
-import { hasInlineMarks, promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
+import {
+  attachmentSource,
+  hasInlineMarks,
+  promptBlocks,
+  promptText,
+  takesAudio,
+  type AttachmentSource,
+  type ComposerAttachment,
+} from "./attachments";
 import { carryInline, inlinePrompt, recordedPromptParts, restoreInline, stripFileDisplay } from "./inlinePrompt";
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
@@ -636,6 +644,7 @@ function attachedImages(attachments: readonly ComposerAttachment[]): QueuedPromp
             name: attachment.name,
             src: `data:${attachment.mimeType};base64,${attachment.data}`,
             local: true,
+            ...(attachment.source ? { source: attachment.source } : {}),
           },
         ]
       : [],
@@ -645,7 +654,18 @@ function attachedImages(attachments: readonly ComposerAttachment[]): QueuedPromp
 /// `images` named by acpmux, each keeping the bytes the pane already had for it.
 function withKnownBytes(images: QueuedPromptImage[], known: readonly QueuedPromptImage[] | undefined) {
   const bytes = new Map((known ?? []).flatMap((image) => (image.src ? [[image.id, image.src] as const] : [])));
-  return images.map((image) => (bytes.has(image.id) ? { ...image, src: bytes.get(image.id) } : image));
+  // The source each image's `queued` record named, which acpmux's list does not carry: by
+  // occurrence, since byte-identical images share an id but not a source.
+  const sources = new Map<string, (AttachmentSource | undefined)[]>();
+  for (const image of known ?? []) sources.set(image.id, [...(sources.get(image.id) ?? []), image.source]);
+  const seen = new Map<string, number>();
+  return images.map((image) => {
+    const at = seen.get(image.id) ?? 0;
+    seen.set(image.id, at + 1);
+    const src = bytes.get(image.id);
+    const source = image.source ?? sources.get(image.id)?.[at];
+    return src || source ? { ...image, ...(src ? { src } : {}), ...(source ? { source } : {}) } : image;
+  });
 }
 
 /// How long a send waits for acpmux before its row says it is still sending, and before it fails
@@ -1121,6 +1141,7 @@ function promptImages(value: unknown): PromptImage[] {
             mimeType: image.mimeType,
             ...(typeof image.name === "string" && { name: image.name }),
             ...(dimension(image.width) && dimension(image.height) && { width: image.width, height: image.height }),
+            ...(attachmentSource(image.source) && { source: attachmentSource(image.source) }),
           },
         ]
       : [],
@@ -6295,6 +6316,7 @@ export class AcpmuxDirectClient {
           mimeType: data.mimeType,
           size: Math.floor((data.data.length * 3) / 4),
           data: data.data,
+          ...(image.source ? { source: image.source } : {}),
         };
       }),
     );

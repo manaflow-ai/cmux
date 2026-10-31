@@ -32,13 +32,16 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
         /// A normalized image preview's original file on the session machine.
         public var originalPath: String?
         public var originalName: String?
+        /// The app the chip came from (``AttachmentSource``), kept with the chip so a reopened chat's
+        /// chip wears its icon again.
+        public var source: AttachmentSource?
 
         public init(id: String, kind: String, name: String, mimeType: String, size: Double,
                     data: String? = nil, text: String? = nil, pageCount: Int? = nil, path: String? = nil,
-                    originalPath: String? = nil, originalName: String? = nil) {
+                    originalPath: String? = nil, originalName: String? = nil, source: AttachmentSource? = nil) {
             (self.id, self.kind, self.name, self.mimeType, self.size) = (id, kind, name, mimeType, size)
             (self.data, self.text, self.pageCount, self.path) = (data, text, pageCount, path)
-            (self.originalPath, self.originalName) = (originalPath, originalName)
+            (self.originalPath, self.originalName, self.source) = (originalPath, originalName, source)
         }
     }
 

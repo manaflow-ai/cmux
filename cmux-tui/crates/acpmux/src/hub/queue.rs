@@ -558,7 +558,7 @@ impl Hub {
         }
         // Its images are kept now and named, so its row shows them before it runs
         // (`prompt_images.rs`).
-        let images = super::prompt_images::keep(p.blocks);
+        let images = super::prompt_images::keep_sourced(p.blocks, p.display_parts);
         if !images.is_empty() {
             queued.set("images", Value::Array(images));
         }
