@@ -28,6 +28,32 @@ function pageOf<S extends Summary>(reply: any): SessionPage<S> {
 }
 
 /**
+ * A page of a whole-list read, held to what acpmux's own client holds it to (client.rs
+ * `whole_list`): a cursor that is neither a string nor null, or a paged reply with no `sessions`,
+ * is an error, never a short list. An empty page still names the rest.
+ */
+function wholePageOf<S extends Summary>(reply: any, after?: string): SessionPage<S> {
+  const cursor = reply?.nextCursor;
+  if (cursor !== undefined && cursor !== null && typeof cursor !== "string")
+    throw new Error(`acpmux gave the page cursor ${JSON.stringify(cursor)}`);
+  if ((after !== undefined || typeof cursor === "string") && !Array.isArray(reply?.sessions))
+    throw new Error(
+      `the ${after === undefined ? "first page" : `page after cursor ${JSON.stringify(after)}`} lists no sessions`,
+    );
+  return { sessions: pageOf<S>(reply).sessions, ...(typeof cursor === "string" ? { next: cursor } : {}) };
+}
+
+/** acpmux's order (hub/session_pages.rs `sort_session_summaries`): newest first, then by
+ * `sessionId`, then by `peer`, this daemon's own row (no `peer`) first. */
+function newestFirst(a: Summary, b: Summary): number {
+  const updated = (session: Summary) => (typeof session.updatedAt === "number" ? session.updatedAt : 0);
+  const order = (x: string | undefined, y: string | undefined) =>
+    x === y ? 0 : x === undefined ? -1 : y === undefined ? 1 : x < y ? -1 : 1;
+  const peer = (session: Summary) => (typeof session.peer === "string" ? session.peer : undefined);
+  return updated(b) - updated(a) || order(a.sessionId, b.sessionId) || order(peer(a), peer(b));
+}
+
+/**
  * Reads the session list a page at a time. Starting a list again (a reconnect, a lagged watch)
  * or `stop` ends the pages of the one before. Every `session_changed` since the list started is
  * remembered: a page read before it carries the older state, so `settle` lays the changes over
@@ -55,16 +81,17 @@ export class SessionPager<S extends Summary> {
    * comes as its first rows and a `nextCursor`; the rest is read by `_acpmux/sessions` from it.
    */
   async whole(): Promise<S[]> {
-    let page = pageOf<S>(await this.request("_acpmux/watch", { enabled: true }));
+    let page = wholePageOf<S>(await this.request("_acpmux/watch", { enabled: true }));
     const sessions = page.sessions;
     const seen = new Set<string>();
-    while (page.next) {
-      if (seen.has(page.next)) throw new Error("acpmux sent a session list cursor again");
-      seen.add(page.next);
-      page = pageOf<S>(await this.request("_acpmux/sessions", { cursor: page.next }));
+    for (let next = page.next; next !== undefined; next = page.next) {
+      if (seen.has(next)) throw new Error(`acpmux gave the page cursor ${JSON.stringify(next)} twice`);
+      seen.add(next);
+      page = wholePageOf<S>(await this.request("_acpmux/sessions", { cursor: next }), next);
       for (const session of page.sessions) sessions.push(session);
     }
-    return sessions;
+    // The pages come in an order updates do not change (hash order), not newest first.
+    return seen.size > 0 ? sessions.sort(newestFirst) : sessions;
   }
 
   /** A `session_changed` seen while the list loads. */
@@ -82,10 +109,7 @@ export class SessionPager<S extends Summary> {
   /** `list` with every change since the list started laid over it, newest first as acpmux sorts. */
   settle(list: S[]): S[] {
     const kept = list.filter((session) => !this.purged.has(session.sessionId) && !this.changed.has(session.sessionId));
-    const updated = (session: S) => (typeof session.updatedAt === "number" ? session.updatedAt : 0);
-    return [...kept, ...this.changed.values()].sort(
-      (a, b) => updated(b) - updated(a) || (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0),
-    );
+    return [...kept, ...this.changed.values()].sort(newestFirst);
   }
 
   /**

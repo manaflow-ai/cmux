@@ -41,5 +41,59 @@ test("a whole list past one reply is read on from its cursor", async () => {
 
 test("a cursor that comes back fails the read instead of looping", async () => {
   const { pager } = daemon(5, 2, true);
-  await expect(pager.whole()).rejects.toThrow("cursor again");
+  await expect(pager.whole()).rejects.toThrow('the page cursor "2" twice');
+});
+
+/** A daemon that answers `replies` in turn, as sent. */
+function scripted(...replies: unknown[]) {
+  const calls: { method: string; params: Record<string, unknown> }[] = [];
+  const request = async (method: string, params: Record<string, unknown>) => {
+    calls.push({ method, params });
+    return replies.shift();
+  };
+  return { calls, pager: new SessionPager<Row & { peer?: string }>(request) };
+}
+
+// The daemon's pages come in hash order, so the joined rows are sorted back as one reply lists
+// them: newest first, ties by `sessionId`, this daemon's own row before a peer's copy.
+test("a whole list read in pages is sorted newest first", async () => {
+  const { pager } = scripted(
+    {
+      sessions: [
+        { sessionId: "b", updatedAt: 5 },
+        { sessionId: "a", updatedAt: 1 },
+      ],
+      nextCursor: "c1",
+    },
+    {
+      sessions: [
+        { sessionId: "c", updatedAt: 9 },
+        { sessionId: "a", updatedAt: 5, peer: "p" },
+      ],
+      nextCursor: "c2",
+    },
+    { sessions: [{ sessionId: "a", updatedAt: 5 }] },
+  );
+  const sessions = await pager.whole();
+  expect(sessions.map((s) => `${s.sessionId}${s.peer ? `@${s.peer}` : ""}`)).toEqual(["c", "a", "a@p", "b", "a"]);
+});
+
+test("a cursor that is not a string fails the read instead of cutting the list short", async () => {
+  const { pager } = scripted({ sessions: [{ sessionId: "a" }], nextCursor: 7 });
+  await expect(pager.whole()).rejects.toThrow("the page cursor 7");
+});
+
+test("a page after a cursor that lists no sessions fails the read", async () => {
+  const { pager } = scripted({ sessions: [{ sessionId: "a" }], nextCursor: "c1" }, {});
+  await expect(pager.whole()).rejects.toThrow('the page after cursor "c1" lists no sessions');
+});
+
+test("an empty page that names the rest is read on from", async () => {
+  const { calls, pager } = scripted(
+    { sessions: [{ sessionId: "a" }], nextCursor: "c1" },
+    { sessions: [], nextCursor: "c2" },
+    { sessions: [{ sessionId: "b" }], nextCursor: null },
+  );
+  expect((await pager.whole()).map((row) => row.sessionId)).toEqual(["a", "b"]);
+  expect(calls.map((call) => call.params.cursor)).toEqual([undefined, "c1", "c2"]);
 });

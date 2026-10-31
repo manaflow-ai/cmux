@@ -34,6 +34,8 @@ export class FakeAcpmux {
   pageSessions = Number.MAX_SAFE_INTEGER;
   /** A daemon that misbehaves: every `_acpmux/sessions` page names the cursor it was asked with. */
   repeatSessionsCursor = false;
+  /** Replies `_acpmux/sessions` answers in turn, as sent, before it lists its own sessions again. */
+  readonly sessionReplies: unknown[] = [];
   private server!: Server;
   private readonly clients = new Set<Socket>();
   private readonly watchers = new Set<Socket>();
@@ -148,6 +150,7 @@ export class FakeAcpmux {
       case "initialize":
         return reply({ protocolVersion: 1, agentCapabilities: {} });
       case "_acpmux/sessions": {
+        if (this.sessionReplies.length > 0) return reply(this.sessionReplies.shift());
         // Like the daemon, a list past its largest reply (`pageSessions` rows here) ends with a cursor.
         const all = [...this.sessions.values()].map((s) => s.summary);
         const from = Number(params.cursor ?? 0);
