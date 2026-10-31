@@ -1213,6 +1213,22 @@ class HoldPath(unittest.TestCase):
                                                      ("echo d2", ["responder"])), {"lines": ["echo d1", "echo d2"]})
         self.assertEqual((done["hold_path"], done["held_keys"]), (True, 1))  # w1's held keys do not count
 
+    def test_the_second_cmd_d_and_each_d2_line_must_be_held_when_asked(self):
+        j = self._j(("echo d1", ["app"] * 3), ("echo d2", ["app", "responder"]))
+        j.spec = {"steps": [{"do": "key", "mark": "split1"}, {"do": "key", "mark": "split2"}]}
+        j.steps = [{"index": 1, "result": {"reply": {"handled_by": "app"}}},
+                   {"index": 2, "result": {"reply": {"handled_by": "window"}}}]
+        want = {"lines": ["echo d2"], "every_line": True, "held_marks": ["split2"]}
+        with self.assertRaises(self.NotRun) as no:  # the second Cmd-D ran at once: not the hold path
+            self.ext.step_smoke_hold_path(j, want)
+        self.assertIn("'split2' was handled_by 'window'", str(no.exception))
+        j.steps[1]["result"]["reply"]["handled_by"] = "app"
+        done = self.ext.step_smoke_hold_path(j, want)
+        self.assertEqual((done["hold_path"], done["marks"]), (True, {"split2": "app"}))
+        j.smoke_typed_paths[1]["paths"] = ["responder"]  # d2 not held: not proven
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_hold_path(j, want)
+
     def test_a_burst_without_a_hold_counter_is_not_proven(self):
         with self.assertRaises(self.NotRun) as no:
             self.ext.step_smoke_hold_path(self._j(burst=None), {})

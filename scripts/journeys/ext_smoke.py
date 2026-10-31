@@ -1126,12 +1126,29 @@ def step_smoke_hold_path(j, step):
               "paths": sorted(set(t["paths"]))} for t in typed]
     burst = getattr(j, "smoke_burst_holds", "none")
     held = sum(t["held"] for t in lines) + (sum(burst.values()) if isinstance(burst, dict) else 0)
-    result = {"hold_path": held > 0, "held_keys": held, "lines": lines, "burst_holds": burst}
+    # `held_marks`: key steps (by their mark, e.g. the second Cmd-D) whose own key must be held too.
+    marks = {}
+    specs = j.spec.get("steps", []) if isinstance(getattr(j, "spec", None), dict) else []
+    for record in getattr(j, "steps", []):
+        index = record.get("index", 0) - 1
+        mark = specs[index].get("mark") if 0 <= index < len(specs) else None
+        if mark in step.get("held_marks", []):
+            reply = (record.get("result") or {}).get("reply") if isinstance(record.get("result"), dict) else None
+            marks[mark] = str(reply.get("handled_by")) if isinstance(reply, dict) else None
+    result = {"hold_path": held > 0, "held_keys": held, "lines": lines, "burst_holds": burst, "marks": marks}
+    why = []
     if held <= 0:
-        why = "no key typed at once was handled_by app" if lines else "no typed line recorded"
+        why.append("no key typed at once was handled_by app" if lines else "no typed line recorded")
         if burst is None:
-            why += "; this build has no debug.input late_keys hold counter for the burst"
-        raise D.NotRun(f"hold path not proven: {why} ({json.dumps(result)[:400]})")
+            why.append("this build has no debug.input late_keys hold counter for the burst")
+    if step.get("every_line"):
+        why += [f"no key of {t['line']!r} was held" for t in lines if t["held"] <= 0]
+        why += [f"line {line!r} was not typed" for line in j.sub(step.get("lines", [])) if line not in {t["line"] for t in lines}]
+    why += [f"the key of step {m!r} was handled_by {marks.get(m)!r}, not app" for m in step.get("held_marks", [])
+            if marks.get(m) != "app"]
+    if why:
+        result["hold_path"] = False
+        raise D.NotRun(f"hold path not proven: {'; '.join(why)} ({json.dumps(result)[:500]})")
     return result
 
 
