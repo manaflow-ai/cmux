@@ -124,7 +124,9 @@ class BrowserRestoredSession {
             // The page may have moved on while it answered.
             if tab.state.url == url { knownScrollY[url] = y }
         }
-        guard let url = tab.state.url else { return nil }
+        // The engine may have closed the page while it answered (a quit's engine stop ends the
+        // question at once): its back/forward list is gone now.
+        guard !tab.isClosed, let url = tab.state.url else { return nil }
         let shown = BrowserNavigationEntry(url: url, title: tab.state.title)
         var session = (history ?? .empty).session(around: tab.nativeNavigationList(), shown: shown)
         guard session.entries.indices.contains(session.current) else { return nil }
