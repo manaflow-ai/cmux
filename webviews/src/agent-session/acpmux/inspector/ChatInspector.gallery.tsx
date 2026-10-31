@@ -283,6 +283,15 @@ const summary = {
 
 // Icon-bearing section heads belong to the Environment rows' text column. The ordinary
 // section titles intentionally start at the icon column instead.
+/// Holds Outputs mid-drag over Context: pressed on its handle, moved, never released.
+const dragOutputsOverContext: Play = async (ctx) => {
+  const grip = '[data-section="outputs"] > .acpmux-chat-inspector-section__handle';
+  await ctx.waitFor(() => ctx.document.querySelector(grip));
+  await ctx.pointer.down({ selector: grip });
+  await ctx.pointer.move({ selector: '[data-section="context"]' });
+  await ctx.waitFor(() => ctx.document.querySelector('[data-slot="outputs"][data-lifted]'));
+};
+
 const checkTopBlockAlignment: Play = async (ctx) => {
   const rect = (selector: string) => ctx.find({ selector }).getBoundingClientRect();
   const environment = '[data-section="environment"] .acpmux-chat-inspector-row__name';
@@ -334,6 +343,7 @@ const full: Props = {
   onSaveEnvironment: () => undefined,
   onSetRunningLimit: async () => undefined,
   onReconnectMcp: async () => undefined,
+  onCompact: () => undefined,
   remoteControl: { on: false, set: () => undefined },
 };
 
@@ -576,6 +586,8 @@ export default componentEntry<Props>({
     "agent-session/acpmux/inspector/PullRequestGlyph.tsx",
     "agent-session/acpmux/inspector/EnvironmentSection.tsx",
     "agent-session/acpmux/inspector/InspectorSection.tsx",
+    "agent-session/acpmux/inspector/InspectorGroup.tsx",
+    "agent-session/acpmux/inspector/sectionOrder.ts",
     "agent-session/acpmux/inspector/OutputsSection.tsx",
     "agent-session/acpmux/inspector/ServersSection.tsx",
     "agent-session/acpmux/inspector/SubagentLimitStepper.tsx",
@@ -602,7 +614,7 @@ export default componentEntry<Props>({
       },
     },
     "workflow-finished": {
-      note: "Labs: the same workflow finished. 1 finished; Workflow · Finished · 7 agents · 432k tokens; each phase N/N with its dots, no Stop and no Up next. Critique opened: its agents with a check and how long each took.",
+      note: "Labs: the same workflow finished. 1 finished; Workflow · Finished · 7 agents · 432k tokens; each phase N/N with its dots, no Stop. Critique opened: its agents with a check and how long each took.",
       props: workflowProps("finished"),
       play: openPhase(2),
     },
@@ -631,6 +643,11 @@ export default componentEntry<Props>({
       note: "Narrow-width check: at 260px the longest supported model label truncates while the running agent name stays visible and state plus elapsed time keep separate columns.",
       props: workflowProps("running", "detail", 260, "anthropic/claude-sonnet-5-5"),
       play: assertNarrowWorkflowLayout,
+    },
+    "reorder-dragging": {
+      note: 'Mid-drag (Leo, 2026-10-31: "THE CLICK DRAG" ... "WHERE IS MY FUCKING PARITY"): Outputs held by its six-dot handle and carried up into where it runs, over Context. The held section is lifted (a raised surface and a shadow, only while held) and follows the pointer; Connectors and the sections under it have slid out of the way, and the hairlines follow the blocks now adjacent. Released, it settles there and the order is kept; Escape puts it back.',
+      props: full,
+      play: dragOutputsOverContext,
     },
     "layout-glance": {
       note: "Chosen (Leo, 2026-10-22: \"this session rail is tmi and too many boxes?\"). Eight cards became three blocks with a hairline between them and no box: the Environment's rows with no title, Context and Connectors one row each; Changes and Outputs; Subagents and Background tasks, the Servers card's row now heading Background tasks. Least ink of the three while every section and click stays; the rows line up under the panel's title.",
@@ -683,6 +700,10 @@ export default componentEntry<Props>({
     "context-connectors-open": {
       note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",
       props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
+    },
+    "context-compact-working": {
+      note: "Shipped (Leo, 2026-10-28: \"You don't have the compact session\"): Context open while a turn runs. Compact, the quiet text action under the rows (as Environment's Save), is off until the turn ends, as the composer ring's card has it.",
+      props: { ...full, working: true, sections: { ...DEFAULT_SECTIONS, context: true } },
     },
     "context-breakdown": {
       note: "Shipped: a Claude Code chat's /context in Context, open: 43% used with 171.4k / 400k, the bar split by category in steps of the theme accent (largest first; the autocompact buffer grey; free space the track), a row per category with its tokens and share, the deferred ones dimmed with no share, then the MCP tools, Memory files and Skills folds, MCP tools open.",

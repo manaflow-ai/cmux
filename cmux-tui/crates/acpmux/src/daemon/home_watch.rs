@@ -9,6 +9,8 @@
 //! Event-driven, never a timer: on Linux/macOS, watch the individual home/socket/lock paths
 //! and their lexical and resolved ancestors for rename/removal only. Kernel subscription masks
 //! exclude directory-entry activity, so unrelated writes under /tmp or /Users never wake us.
+//! One exception, macOS: kqueue cannot watch a socket (open(2) refuses one), so the entries of
+//! the folder that holds the socket wake a check instead (`record_watch::DirWatch`).
 //! Other Unix platforms keep a nearest-directory notify watch with event filtering.
 //! The watcher is dropped when its task ends. Home and socket have separate tasks, so losing the
 //! socket does not stop monitoring the home during shutdown.
