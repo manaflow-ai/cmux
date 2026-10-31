@@ -14,6 +14,14 @@
 //! delivery at once, and a paused agent pair (`agent_pairs.rs`) leaves it `held` there: the
 //! person's resume runs it, so it is never sent again from here.
 //!
+//! The mesh relay is a transport under this outbox, never a way around it. While a peer's link is
+//! down and no attempt has left this daemon, an attempt that fails as not sent hands a text-only
+//! delivery to the team hub, addressed to the session id the peer's last list named
+//! (`mesh_send.rs` `relay`). The hub's receipt settles the delivery as delivered there; a
+//! delivery the relay cannot carry (attachments, `--supersede`, a class) or a hub that refuses it
+//! stays here and is tried again as before. A post whose answer was lost may have reached the
+//! hub, so that delivery is tried again only through the relay, never on the peer's link too.
+//!
 //! `send_status {deliveryId, waitMs?}` answers the delivery's state, after waiting up to
 //! `waitMs` (at most [`MAX_STATUS_WAIT_MS`]) for it to settle. A target no one here resolves goes
 //! to the mesh hub when the relay is on, and its status is the hub's receipt (`mesh_send.rs`).
@@ -29,6 +37,9 @@ use crate::hub::outbox::{Delivery, RETRY_DELAYS_SECS, State};
 pub(super) enum Next {
     /// Tried again after the next delay.
     Retry,
+    /// Tried again too, and known never to have left this daemon (a peer that is down): the
+    /// mesh relay may carry it instead.
+    Unsent,
     /// A refusal: failed, with its error.
     Fail,
     /// The target holds it for a paused agent pair.
@@ -87,8 +98,13 @@ pub(super) async fn handle(
         {
             return super::mesh_send::send(hub, conn, mesh, &request, &target).await;
         }
-        return Err(RpcError::invalid_params(format!("no session: {target}"))
-            .with_data(json!({"reason": "no_session", "session": target})));
+        // The names it nearly matched, so the sender can pick one (`Hub::unknown_session`).
+        let close = hub.unknown_session(&target).data.and_then(|d| d.get("candidates").cloned());
+        let mut data = json!({"reason": "no_session", "session": target});
+        if let Some(close) = close {
+            data.set("candidates", close);
+        }
+        return Err(RpcError::invalid_params(format!("no session: {target}")).with_data(data));
     }
     // Over the caps it is refused now, never kept (`attach.rs`).
     crate::attach::check_wire(&request)?;
@@ -115,6 +131,8 @@ pub(super) async fn handle(
         caller: conn.caller().filter(|_| !conn.is_person()).map(str::to_owned),
         state: State::Queued,
         attempts: 0,
+        never_sent: true,
+        relay_post: None,
         error: None,
         accepted: None,
         created_at: now,
@@ -195,6 +213,8 @@ pub(super) async fn remember_forward(
         // record as a prompt. New code recognizes the forwardProjection marker.
         state: State::Held,
         attempts: 0,
+        never_sent: false,
+        relay_post: None,
         error: None,
         accepted: None,
         created_at: now,
@@ -209,7 +229,8 @@ pub(super) async fn remember_forward(
 /// Find a receiver projection across every page, including messages still queued
 /// there. Only a locally recorded intent can name the source journal to repair.
 async fn reconcile_forward(hub: &Arc<Hub>, delivery: &Delivery) -> Result<Value, (String, Next)> {
-    let intent = &delivery.request["_meta"]["acpmux"]["forwardProjection"];
+    let intent =
+        delivery.request.pointer("/_meta/acpmux/forwardProjection").unwrap_or(&Value::Null);
     let caller = delivery.caller.as_deref().unwrap_or_default();
     // A restart resumes the outbox before the saved sessions load (`daemon.rs`): the sender is
     // read on demand, or after the load, before its absence counts.
@@ -260,7 +281,7 @@ async fn reconcile_forward(hub: &Arc<Hub>, delivery: &Delivery) -> Result<Value,
             if event["kind"] == "_acpmux/message"
                 && msg["messageId"] == intent["messageId"]
                 && msg["sessionId"] == target
-                && msg["sender"]["sessionId"] == caller
+                && msg.pointer("/sender/sessionId").and_then(Value::as_str) == Some(caller)
             {
                 if !hub.append_sender_message_event(
                     &source.id,
@@ -384,7 +405,13 @@ async fn status(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
     {
         return super::mesh_send::status(hub, conn, mesh, id).await;
     }
-    outbox_status(hub, id, params).await
+    let status = outbox_status(hub, id, params).await?;
+    match hub.outbox.get(id) {
+        Some(delivery) if delivery.settled() => {
+            Ok(relayed_status(hub, conn, &delivery, status).await)
+        }
+        _ => Ok(status),
+    }
 }
 
 /// `_acpmux/send_status` of an outbox delivery `id`, waiting up to `waitMs` for it to settle.
@@ -401,6 +428,40 @@ async fn outbox_status(hub: &Arc<Hub>, id: &str, params: &Value) -> Result<Value
             return Ok(delivery.status());
         }
         let _ = tokio::time::timeout_at(deadline, changed).await;
+    }
+}
+
+/// `own`, the status of `delivery`, or, once the mesh relay took it, the hub's message's: `own`
+/// when the hub does not answer.
+async fn relayed_status(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    delivery: &Delivery,
+    own: Value,
+) -> Value {
+    let relayed = delivery.accepted.as_ref().and_then(|a| a.get("relayDeliveryId"));
+    let (Some(relay), Some(mesh)) = (relayed.and_then(Value::as_str), hub.mesh.get()) else {
+        return own;
+    };
+    match super::mesh_send::status(hub, conn, mesh, relay).await {
+        Ok(mut status) => {
+            // What `acpmux send` reads of an acceptance: whether it steered, and the session.
+            if let (Some(accepted), Some(kept)) = (
+                status.get_mut("accepted").and_then(Value::as_object_mut),
+                delivery.accepted.as_ref(),
+            ) {
+                for key in ["steer", "sessionId"] {
+                    if let Some(v) = kept.get(key).filter(|v| !v.is_null()) {
+                        accepted.insert(key.into(), v.clone());
+                    }
+                }
+            }
+            status.set("deliveryId", json!(delivery.id));
+            status.set("relayDeliveryId", json!(relay));
+            status.set("target", json!(delivery.target));
+            status
+        }
+        Err(_) => own,
     }
 }
 
@@ -436,11 +497,9 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         }
         let attempt = delivery.attempts + 1;
         hub.outbox.update(id, |d| {
-            if d.settled() {
-                return;
+            if !d.settled() {
+                start_attempt(d, attempt);
             }
-            d.state = if d.projection_only() { State::Held } else { State::Delivering };
-            d.attempts = attempt;
         });
         if hub.outbox.get(id).is_none_or(|d| d.settled()) {
             return;
@@ -452,14 +511,41 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         {
             mux.insert("resend".into(), json!(true));
         }
-        let result = if request.pointer("/_meta/acpmux/forwardProjection").is_some() {
+        // Whether the peer's link, if this attempt used it, took nothing (`Delivery::never_sent`).
+        let mut link_unsent = true;
+        let outcome = if request.pointer("/_meta/acpmux/forwardProjection").is_some() {
+            // A projection reconciles with the receiver's log; it never uses the link to send.
+            link_unsent = false;
             tokio::time::timeout(ATTEMPT_WAIT, reconcile_forward(hub, &delivery))
                 .await
                 .unwrap_or_else(|_| Err(("peer message lookup timed out".into(), Next::Retry)))
+        } else if delivery.relay_post.is_some() {
+            // The hub may hold it already: only the relay tries it again. With the relay off here
+            // it may still deliver it (the target's daemon reads it), so it is never sent twice.
+            relay_attempt(hub, &delivery).await.unwrap_or_else(|| {
+                let key = delivery.relay_post.as_ref().map_or("", |m| m.idempotency_key.as_str());
+                let why = format!(
+                    "the mesh relay is off here; the team hub may hold it (key {key}), so it is not sent again another way"
+                );
+                Err((why, Next::Retry))
+            })
         } else {
-            attempt_once(hub, delivery.caller.as_deref(), request, Origin::Local).await
+            let outcome =
+                attempt_once(hub, delivery.caller.as_deref(), request, Origin::Local).await;
+            link_unsent = matches!(outcome, Err((_, Next::Unsent)));
+            match outcome {
+                // Nothing has reached the target: the mesh relay carries it when it can.
+                Err((error, Next::Unsent)) if delivery.never_sent => {
+                    match relay_attempt(hub, &delivery).await {
+                        Some(Ok(accepted)) => Ok(accepted),
+                        Some(Err((why, next))) => Err((format!("{error}; {why}"), next)),
+                        None => Err((error, Next::Unsent)),
+                    }
+                }
+                outcome => outcome,
+            }
         };
-        match result {
+        match outcome {
             Ok(accepted) => {
                 hub.outbox.update(id, |d| {
                     d.state = State::Delivered;
@@ -474,11 +560,12 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 return;
             }
             Err((error, next)) => {
-                let delay = delays.next().filter(|_| next == Next::Retry);
+                let delay = delays.next().filter(|_| matches!(next, Next::Retry | Next::Unsent));
                 hub.outbox.update(id, |d| {
                     if d.settled() {
                         return;
                     }
+                    d.never_sent = delivery.never_sent && link_unsent;
                     d.state = match (next, delay) {
                         (Next::Held, _) => State::Held,
                         (_, Some(_)) if d.projection_only() => State::Held,
@@ -502,6 +589,42 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 tokio::time::sleep(Duration::from_secs(*secs)).await;
             }
         }
+    }
+}
+
+/// One attempt through the mesh relay (`mesh_send.rs` `relay`): the hub's acceptance, or why
+/// not and what next. The hub answers a key it holds before it checks anything else, so a hub
+/// that refused the post outright holds none: the peer's link may try it again (`Next::Unsent`).
+/// The two refusals that say it holds an earlier message under the key, and any failure that may
+/// have left the post with it, keep it for the relay alone (`Delivery::relay_post`). None when
+/// the relay cannot carry it.
+async fn relay_attempt(
+    hub: &Arc<Hub>,
+    delivery: &Delivery,
+) -> Option<Result<Value, (String, Next)>> {
+    let outcome = super::mesh_send::relay(hub, delivery).await?;
+    Some(outcome.map_err(|e| {
+        let held =
+            matches!(e.code.as_deref(), Some("mesh.idempotency_conflict" | "mesh.not_found"));
+        let next = if e.refused && !held {
+            hub.outbox.update(&delivery.id, |d| d.relay_post = None);
+            Next::Unsent
+        } else {
+            Next::Retry
+        };
+        (format!("the mesh relay did not take it: {e}"), next)
+    }))
+}
+
+/// What delivery `d` is saved as while its attempt `attempt` runs: the record a restart resumes.
+/// An attempt on the peer's link may put the frame on the wire before a crash, so it is saved as
+/// maybe sent (`never_sent` false) and marked never sent again only once the link refuses it as
+/// not sent. A relay-only attempt never touches the link and leaves it.
+fn start_attempt(d: &mut Delivery, attempt: u32) {
+    d.state = if d.projection_only() { State::Held } else { State::Delivering };
+    d.attempts = attempt;
+    if d.relay_post.is_none() {
+        d.never_sent = false;
     }
 }
 
@@ -611,6 +734,10 @@ fn next(e: &RpcError) -> Next {
         return Next::Held;
     }
     let reason = data.and_then(|d| d.get("reason")).and_then(Value::as_str).unwrap_or_default();
+    // The peer's link took nothing (`peer_link::unreachable_error`): the request was not sent.
+    if reason == "peer_unreachable" {
+        return Next::Unsent;
+    }
     let flagged = data.and_then(|d| d.get("retryable")).and_then(Value::as_bool);
     match flagged {
         _ if reason.starts_with("agent_pair.") => Next::Fail,
@@ -886,3 +1013,7 @@ mod forward_projection_tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "outbox_relay_tests.rs"]
+mod relay_tests;
