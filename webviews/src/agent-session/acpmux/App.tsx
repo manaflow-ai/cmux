@@ -476,8 +476,9 @@ import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabR
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
-import { cloudPageRefusal, cloudStartToasted, oneCloudStart, type CloudStart } from "./cloudRun";
-import { folderRunLocation } from "./runLocationDefault";
+import { cloudPageRefusal, cloudStartFolder, cloudStartToasted, oneCloudStart, type CloudStart } from "./cloudRun";
+import { folderRunLocation, newChatRunLocation } from "./runLocationDefault";
+import { harnessLabel } from "./subagents/agentRuns";
 import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProgress } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
@@ -5078,7 +5079,7 @@ function AcpmuxPane() {
   // Debug measurement (acpmuxPerf): the pane's own render, before its children.
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
   const t = useT();
-  const { scrollToBottomOnSend } = useComposerSettings();
+  const { scrollToBottomOnSend, newChatsIn } = useComposerSettings();
   const scrollToBottomOnSendRef = useRef(scrollToBottomOnSend);
   scrollToBottomOnSendRef.current = scrollToBottomOnSend;
   /// A new chat's Run as (hq#3367): Persistent is the chat as before; Sandboxed runs the
@@ -7271,7 +7272,9 @@ function AcpmuxPane() {
     // Another Return while a start waits starts nothing, and the card keeps that start.
     if (!started) return false;
     cloudStartPending.current = true;
-    setCloudStart(cloudStartBegun(key, text, start.cwd));
+    setCloudStart(
+      cloudStartBegun(key, text, start.cwd, start.harness ? harnessLabel(start.harness) : undefined, start.home),
+    );
     void started.then((answer) => {
       cloudStartPending.current = false;
       setCloudStartsEnded((count) => count + 1);
@@ -8315,12 +8318,27 @@ function AcpmuxPane() {
   /// went to a Cloud machine, else this Mac. Only while Cloud is offered, and only until the person
   /// picks in this pane. Sandboxed, or Cloud the person picked, is never changed; a Cloud default
   /// goes back to this Mac when the folder's history no longer says Cloud or Cloud is not offered.
+  /// Settings' Start New Chats In (`agentPane.newChatsIn`) set to Cloud makes it Cloud whatever the
+  /// folder's history says (newChatRunLocation); This Mac in the composer's picker still wins.
+  /// Never in a tab on another machine (SSH, Cloud): its chat stays on that machine, and the host
+  /// refuses `cloud.startChat` from it.
   const folderRunDefault = useMemo(
     () =>
-      sandboxOffered
-        ? folderRunLocation(composerSnapshot.summary?.cwd ?? newTab?.cwd, snapshot.sessions, snapshot.peerKinds)
+      sandboxOffered && !remoteChat
+        ? newChatRunLocation(
+            newChatsIn,
+            folderRunLocation(composerSnapshot.summary?.cwd ?? newTab?.cwd, snapshot.sessions, snapshot.peerKinds),
+          )
         : undefined,
-    [sandboxOffered, composerSnapshot.summary?.cwd, newTab?.cwd, snapshot.sessions, snapshot.peerKinds],
+    [
+      sandboxOffered,
+      remoteChat,
+      newChatsIn,
+      composerSnapshot.summary?.cwd,
+      newTab?.cwd,
+      snapshot.sessions,
+      snapshot.peerKinds,
+    ],
   );
   /// The chat the folder default last saw (its session, or the New Tab adoption it came with).
   const defaultedChat = useRef<string | undefined>(undefined);
@@ -11733,8 +11751,9 @@ function AcpmuxPane() {
               if (authBlock) return false;
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               if (cloudPicked) {
+                // The chat's project, copied to the machine; none: the machine's own folder (cloudStartFolder).
                 const refused = sendToCloud(text, chips?.length ?? 0, {
-                  ...(projectDraft ? { cwd: projectDraft } : {}),
+                  ...cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd),
                   ...heldPick(composerSnapshot),
                 });
                 if (refused) directClient.current?.notice(refused);
@@ -12348,7 +12367,7 @@ function AcpmuxPane() {
                         ) =>
                           sendToCloud(text, attachments.length, {
                             harness,
-                            ...(cwd ? { cwd } : {}),
+                            ...cloudStartFolder(cwd),
                             ...(model ? { model } : {}),
                           }),
                         onSandbox: (harness: string, text: string, attachments: ComposerAttachment[]) => {
