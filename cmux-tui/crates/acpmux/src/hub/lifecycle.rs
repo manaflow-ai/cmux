@@ -1318,14 +1318,13 @@ impl Hub {
                 tracing::info!(session = %session.id, "replay {id}: full access is off; kept the harness's own mode");
                 continue;
             }
-            match child
-                .request(
-                    method::SESSION_SET_CONFIG_OPTION,
-                    json!({"sessionId": sid, "configId": id, "value": value}),
-                )
-                .await
-            {
+            let params = json!({"sessionId": sid, "configId": id, "value": value});
+            let asked = super::full_access_bound::asked_option(&params);
+            match child.request(method::SESSION_SET_CONFIG_OPTION, params).await {
                 Ok(res) => {
+                    // A bare answer took the value asked, as a client's does: under an MDM off
+                    // pushed while it was asked, `cap_full_access` then counts it (#26340).
+                    super::full_access_bound::record_option_answer(session, &res, asked);
                     if let Some(o) = res.get("configOptions") {
                         self.write_mode_state(session, [ModeWrite::ConfigOptions(o.clone())]);
                     }

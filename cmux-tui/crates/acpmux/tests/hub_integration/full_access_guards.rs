@@ -340,3 +340,62 @@ async fn a_full_access_off_mdm_forces_stops_full_access_approvals() {
     let rid = c.send(method::SESSION_PROMPT, guard(&id)).await;
     asks_the_person(&mut c, &hub, &id, rid).await;
 }
+
+/// A restarted mode-option chat whose replay asks its harness for Full access while MDM is unset,
+/// the harness answering that `mode` change bare (no options) only once MDM has forced full access
+/// off (`FAKE_OPTION_HOLD`). The bare answer took the value asked, so the start's bound counts it
+/// and the agent is not handed out (#26340).
+async fn replay_answered_bare(managed_off: bool) -> (Arc<Hub>, String, Result<Value, String>) {
+    let dir = std::env::temp_dir().join(format!("acpmux-replay-bare-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let hold = dir.join("hold");
+    let held = dir.join("hold.held");
+    let (hub, mut c) = hub_with(&[
+        ("FAKE_MODE_OPTION", "1"),
+        ("FAKE_NO_MODES", "1"),
+        ("FAKE_BARE_OPTION_ANSWER", "mode"),
+        ("FAKE_OPTION_HOLD", hold.to_str().unwrap()),
+    ])
+    .await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    // The harness reports its mode option in Full access: the chat's options say so.
+    c.request(method::SESSION_PROMPT, prompt(&id, "set-mode-option: full-access", None))
+        .await
+        .unwrap();
+    let session = hub.resolve(&id).unwrap();
+    hub.detach_child(&session).await;
+    // The next prompt starts an agent; its replay asks for Full access and the answer waits.
+    std::fs::write(&hold, "").unwrap();
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "hi", None)).await;
+    let until = std::time::Instant::now() + Duration::from_secs(20);
+    while !held.exists() {
+        assert!(std::time::Instant::now() < until, "the replay never asked for the mode option");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(std::fs::read_to_string(&held).unwrap().trim(), "full-access");
+    if managed_off {
+        hub.apply_full_access_push(Some(false)).await;
+    }
+    std::fs::remove_file(&hold).unwrap();
+    let (answered, _) = c.response(rid).await;
+    let _ = std::fs::remove_dir_all(&dir);
+    (hub, id, answered)
+}
+
+#[tokio::test]
+async fn a_replayed_full_access_option_answered_bare_is_not_handed_out_under_mdm_off() {
+    let (hub, id, answered) = replay_answered_bare(true).await;
+    let refusal = answered.expect_err("a bare replay answer's full-access agent answered");
+    assert!(refusal.contains("sessions.allowFullAccess"), "{refusal}");
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    let refused = events.into_iter().any(|e| e.kind == "full_access_refused");
+    assert!(refused, "the start did not stop its full-access agent");
+}
+
+/// With MDM unset, the same bare replay answer starts the agent as before.
+#[tokio::test]
+async fn a_replayed_full_access_option_answered_bare_runs_while_mdm_is_unset() {
+    let (_hub, _id, answered) = replay_answered_bare(false).await;
+    assert!(answered.is_ok(), "{answered:?}");
+}

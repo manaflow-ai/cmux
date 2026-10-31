@@ -1658,25 +1658,8 @@ impl Hub {
                 if let Some(opts) = res.get("configOptions") {
                     writes.push(ModeWrite::ConfigOptions(opts.clone()));
                 }
-                // A bare answer (no options, or null ones) took the value asked: the full-access
-                // bound reads it (reviews 60 and 61 of #23322). An answer with its options says
-                // what each holds now. Kept in answer order: the harness's own option reports never
-                // clear it, as one sent before this answer may be applied after it (review 1 of
-                // #26058).
-                {
-                    let mut kept =
-                        session.floor.asked_options.lock().unwrap_or_else(|e| e.into_inner());
-                    match res.get("configOptions").and_then(Value::as_array) {
-                        Some(reported) => {
-                            kept.retain(|o| !reported.iter().any(|r| r.get("id") == o.get("id")))
-                        }
-                        None => {
-                            if let Some(asked) = asked_option {
-                                super::full_access_bound::merge_asked_option(&mut kept, asked);
-                            }
-                        }
-                    }
-                }
+                // A bare answer took the value asked (`record_option_answer`).
+                super::full_access_bound::record_option_answer(session, &res, asked_option);
                 // Claude Code answers a `mode` option with the mode it now runs.
                 if asked_option_mode.is_some()
                     && let Some(mode) = res.get("currentModeId").cloned()
