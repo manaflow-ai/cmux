@@ -2,11 +2,18 @@
 //! JSON-RPC both ways over a `local_stream::Stream`.
 
 use super::{ConnAuth, Hub, Origin, serve_connection_from};
+use crate::rpc::{Message, RpcError};
+use futures_util::StreamExt;
+use serde_json::{Value, json};
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncRead, AsyncWriteExt};
 use tokio::sync::mpsc;
+use tokio_util::codec::{FramedRead, LinesCodec, LinesCodecError};
 
-/// The longest line a socket client may send.
+/// The longest line a socket client may send: what one WebSocket message may carry
+/// (`WS_MAX_MESSAGE_BYTES`), so a request either transport takes, the other takes too.
+/// Unbounded, one line with no newline grew the reader's buffer until the daemon ran out of
+/// memory (manaflow-ai/cmuxterm-hq#2888).
 const MAX_LINE_BYTES: usize = super::WS_MAX_MESSAGE_BYTES;
 
 /// One daemon socket connection: newline-delimited JSON-RPC both ways.
@@ -30,15 +37,39 @@ pub(super) async fn serve_stream(
         .await;
 }
 
-/// Hands each line `rd` reads to `in_tx`.
+/// Hands each line `rd` reads to `in_tx`, holding at most `max` bytes of one. A longer line ends
+/// the connection, as a WebSocket message over its limit does: its request id is in the part not
+/// kept, so no reply could name it, and a client waiting on it sees the connection end instead.
+/// The client is told why first, on `out_tx` (weak: the reader never keeps the writer open after
+/// the connection's server is done with it).
 async fn read_lines<R: AsyncRead + Unpin>(
     rd: R,
     in_tx: mpsc::Sender<String>,
-    _out_tx: mpsc::WeakSender<String>,
-    _max: usize,
+    out_tx: mpsc::WeakSender<String>,
+    max: usize,
 ) {
-    let mut lines = BufReader::new(rd).lines();
-    while let Ok(Some(line)) = lines.next_line().await {
+    let mut lines = FramedRead::new(rd, LinesCodec::new_with_max_length(max));
+    while let Some(line) = lines.next().await {
+        let line = match line {
+            Ok(line) => line,
+            Err(LinesCodecError::MaxLineLengthExceeded) => {
+                tracing::warn!(
+                    limit = max,
+                    "closing a socket connection that sent a line over the limit"
+                );
+                let error = RpcError::new(
+                    -32600,
+                    format!("message too large: a line over {max} bytes; closing the connection"),
+                )
+                .with_data(json!({"reason": "message.too_large", "limit": max}));
+                if let Some(out) = out_tx.upgrade() {
+                    let _ = out.send(Message::err(Value::Null, error).to_line()).await;
+                }
+                break;
+            }
+            // Not UTF-8, or the socket failed.
+            Err(LinesCodecError::Io(_)) => break,
+        };
         if in_tx.send(line).await.is_err() {
             break;
         }
