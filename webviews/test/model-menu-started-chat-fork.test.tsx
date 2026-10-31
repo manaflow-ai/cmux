@@ -516,6 +516,28 @@ test("another profile of the chat's own family is no Fork to target (the daemon 
   expect(continueTargets(catalog, "codex").map((target) => target.id)).toEqual(["claude", "cmux"]);
 });
 
+test("the composer excludes same-family forks while another family can take the chat", async () => {
+  const catalog = [
+    { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "opus", name: "Opus" }] },
+    { id: "claude-sr", name: "Claude (sr)", family: "claude", models: [{ id: "opus", name: "Opus" }] },
+    { id: "codex", name: "Codex", family: "codex", models: [{ id: "gpt-6", name: "GPT-6" }] },
+  ] as Snapshot["catalog"];
+  const snapshot = chat(catalog, 1, { canHandoff: true, handoff: { ready: true } });
+  snapshot.summary = { ...snapshot.summary!, family: "claude" };
+  const calls = await mountChat(snapshot);
+  await open();
+  expect(railTabs().map((tab) => tab.getAttribute("aria-label"))).not.toContain("Claude (sr)");
+  expect(menu()!.querySelectorAll('.acpmux-quick-item[role="menuitemradio"]').length).toBeGreaterThan(0);
+  await showTab("Codex");
+  const fork = itemsOf(menu()!).find((item) => labelOf(item) === "Fork to Codex")!;
+  expect(fork.hasAttribute("data-disabled")).toBe(false);
+  await act(async () => fork.click());
+  await settle();
+  expect(calls.filter((call) => call.method.startsWith("chat."))).toEqual([
+    { method: "chat.handoff.prepare", params: { harness: "codex" } },
+  ]);
+});
+
 test("Continue In uses the live session's family after its profile is reloaded", async () => {
   const { canContinueIn } = await import("../src/agent-session/acpmux/handoff/continueIn");
   const catalog = [
