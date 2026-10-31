@@ -541,8 +541,12 @@ async fn link_to_paced_old_peer(
     asked: Arc<Asked>,
 ) -> Result<(Duration, Vec<Value>), String> {
     let (ours, theirs) = tokio::io::duplex(1 << 20);
-    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
-    let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    let client =
+        WebSocketStream::from_raw_socket(ours, Role::Client, Some(crate::server::ws_config()))
+            .await;
+    let server =
+        WebSocketStream::from_raw_socket(theirs, Role::Server, Some(crate::server::ws_config()))
+            .await;
     let fake = paced_old_peer(server, OLD_ROWS, OLD_ROW_BYTES, OLD_WINDOW, asked);
     let mut out_rx = peer.out_rx.lock().await.take().unwrap();
     let started = tokio::time::Instant::now();
