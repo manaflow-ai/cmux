@@ -56,11 +56,16 @@ public final class ScreenshotsModel {
                 listsAtOnce: Bool = true) {
         self.reader = reader
         self.watcher = watcher
-        isListing = true
+        isListing = listsAtOnce
     }
 
     /// Reads and watches the folders from now on (the page is on screen).
-    public func startListing() {}
+    public func startListing() {
+        guard !isListing else { return }
+        isListing = true
+        for source in sources { scheduleRescan(source) }
+        syncWatches()
+    }
 
     /// The files the grid shows: the selected source's (or all), matching the search, newest first.
     public var visibleItems: [FileGridItem] {
@@ -181,6 +186,7 @@ public final class ScreenshotsModel {
     }
 
     private func scheduleRescan(_ source: ScreenshotSource) {
+        guard isListing else { return }
         scans[source.id]?.cancel()
         let reader = reader
         // task-owner: `scans[source.id]`; a newer read of the source or stop() cancels it
@@ -197,6 +203,7 @@ public final class ScreenshotsModel {
 
     /// Watches exactly the folders the sources' last reads covered.
     private func syncWatches() {
+        guard isListing else { return }
         let wanted = Set(sources.flatMap { foldersBySource[$0.id] ?? [$0.folder.path] })
         for (path, task) in watches where !wanted.contains(path) {
             task.cancel()

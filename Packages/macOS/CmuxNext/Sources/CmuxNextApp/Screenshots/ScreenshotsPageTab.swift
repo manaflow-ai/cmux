@@ -64,6 +64,7 @@ final class ScreenshotsPageTab: BrowserTab {
 
     func setContentVisible(_ visible: Bool) {
         view.isHidden = !visible
+        if visible { model.startListing() } // on screen: the person's view (a restored tab they left in front too)
     }
 
     func snapshot() async throws -> CGImage {

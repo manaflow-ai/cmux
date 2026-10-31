@@ -32,11 +32,8 @@ final class ScreenshotsPageService {
         self.services = services
     }
 
-    /// Selects the active window's Screenshots tab, else opens one beside the
-    /// focused tab.
-    ///
-    /// - Parameter focus: select the tab (a person's run); off, an agent or the
-    ///   CLI opens it in the background and keeps the person's focus.
+    /// Selects the active window's Screenshots tab, else opens one beside the focused tab: in front only for
+    /// `focus` (the person's own run), else in the background, where it lists no folder until the person shows it.
     func open(focus: Bool) {
         guard let services else { return }
         guard let window = services.windows.active else { return services.registry.refuse(RefusalStrings.noWindowOpen) }
@@ -51,7 +48,7 @@ final class ScreenshotsPageService {
     }
 
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> ScreenshotsPageTab {
-        let model = ScreenshotsModel()
+        let model = ScreenshotsModel(listsAtOnce: false) // macOS guards ~/Desktop: lists once on screen
         let page = ScreenshotsPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, model: model,
                                       cache: thumbnails, workspace: workspace, files: files)
         page.onClose = { [weak self] in self?.pages.removeValue(forKey: key) }

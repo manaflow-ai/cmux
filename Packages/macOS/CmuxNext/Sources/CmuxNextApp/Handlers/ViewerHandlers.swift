@@ -46,8 +46,8 @@ enum ViewerHandlers {
                 return nil
             })
         })
-        // The Screenshots pane: selected when open, else a new tab (focused only when the run may change the view).
-        registry.bind("screenshots.open", run: { invocation in services.screenshotsPage.open(focus: invocation.allowsViewChange) })
+        // The Screenshots pane: selected when open, else a new tab, in front only for the person's own run (it lists ~/Desktop).
+        registry.bind("screenshots.open", run: { invocation in services.screenshotsPage.open(focus: invocation.isPersonsOwnRun) })
         registry.bind("palette.openDirectoryDiffViewer", run: { invocation in
             guard let pane = context.paneController(invocation) else { return }
             try showPicker(viewers.diffPickerPage(for: pane), context, invocation)
