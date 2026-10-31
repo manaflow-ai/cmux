@@ -983,7 +983,11 @@ test("the symbols row draws one tab per family and the Account row switches its 
   await act(async () => account().click());
   await settle();
   const routes = () => [...document.querySelectorAll<HTMLElement>(".acpmux-quick-route")];
-  expect(routes().map((item) => item.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["Claude Code", "Claude Code (sr2)", "Claude Code (work)"]);
+  expect(routes().map((item) => item.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+    "Claude Code",
+    "Claude Code (sr2)",
+    "Claude Code (work)",
+  ]);
   expect(routes()[1]!.getAttribute("aria-checked")).toBe("true");
   await act(async () => routes()[0]!.click());
   await settle();
