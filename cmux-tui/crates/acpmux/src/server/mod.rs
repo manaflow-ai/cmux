@@ -775,12 +775,25 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
 /// How long to wait after a failed `accept`. A connection that died in the queue is gone, so the
 /// next accept can run at once; anything else (EMFILE, ENFILE, ENOBUFS) leaves the connection
 /// queued, and an immediate retry would spin a core and flood the log until descriptors free up.
-fn accept_retry_delay(error: &std::io::Error) -> std::time::Duration {
+pub(crate) fn accept_retry_delay(error: &std::io::Error) -> std::time::Duration {
     use std::io::ErrorKind::{ConnectionAborted, ConnectionReset, Interrupted};
     match error.kind() {
         ConnectionAborted | ConnectionReset | Interrupted => std::time::Duration::ZERO,
         _ => std::time::Duration::from_millis(100),
     }
+}
+
+/// Whether a failed `accept` means the listener itself is gone (closed, never listening or not a
+/// socket), so a retry can never succeed. Any other failure is about one connection or a passing
+/// shortage, and the loop pauses ([`accept_retry_delay`]) and accepts again.
+/// Its callers are the Linux sandbox proxy and the tailnet ingress.
+#[cfg_attr(not(any(target_os = "linux", feature = "tailnet")), allow(dead_code))]
+pub(crate) fn accept_ends_listener(error: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    if matches!(error.raw_os_error(), Some(libc::EBADF | libc::EINVAL | libc::ENOTSOCK)) {
+        return true;
+    }
+    error.kind() == std::io::ErrorKind::UnexpectedEof
 }
 
 #[cfg(unix)]
@@ -2129,7 +2142,7 @@ mod key_route_tests;
 
 #[cfg(test)]
 mod accept_retry_tests {
-    use super::accept_retry_delay;
+    use super::{accept_ends_listener, accept_retry_delay};
     use std::io::{Error, ErrorKind};
     use std::time::Duration;
 
@@ -2148,6 +2161,23 @@ mod accept_retry_tests {
         assert_eq!(accept_retry_delay(&Error::from(ErrorKind::ConnectionAborted)), Duration::ZERO);
         assert_eq!(accept_retry_delay(&Error::from(ErrorKind::ConnectionReset)), Duration::ZERO);
         assert_eq!(accept_retry_delay(&Error::from(ErrorKind::Interrupted)), Duration::ZERO);
+    }
+
+    #[test]
+    fn only_a_listener_that_is_gone_ends_the_accept_loop() {
+        // A closed tailnet listener reports end of stream; a closed fd reports EBADF.
+        assert!(accept_ends_listener(&Error::from(ErrorKind::UnexpectedEof)));
+        #[cfg(unix)]
+        assert!(accept_ends_listener(&Error::from_raw_os_error(libc::EBADF)));
+        #[cfg(unix)]
+        assert!(accept_ends_listener(&Error::from_raw_os_error(libc::EINVAL)));
+        // Descriptor exhaustion, a dropped connection or one record that lost its fd pass.
+        #[cfg(unix)]
+        assert!(!accept_ends_listener(&Error::from_raw_os_error(libc::EMFILE)));
+        #[cfg(unix)]
+        assert!(!accept_ends_listener(&Error::from_raw_os_error(libc::ENFILE)));
+        assert!(!accept_ends_listener(&Error::from(ErrorKind::ConnectionAborted)));
+        assert!(!accept_ends_listener(&Error::other("accept failed")));
     }
 }
 
