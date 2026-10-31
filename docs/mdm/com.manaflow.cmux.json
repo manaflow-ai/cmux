@@ -3883,6 +3883,12 @@
       "title" : "Mark This Mac's Workspaces",
       "type" : "boolean"
     },
+    "sidebar.showNewWorkspaceChooser" : {
+      "default" : false,
+      "description" : "A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu.",
+      "title" : "Show New Workspace Menu Button",
+      "type" : "boolean"
+    },
     "sidebar.showProfileControl" : {
       "default" : true,
       "description" : "sidebar.showProfileControl",
@@ -4963,6 +4969,17 @@
         "always"
       ],
       "title" : "Titlebar Buttons",
+      "type" : "string"
+    },
+    "workspaceColors.indicatorStyle" : {
+      "default" : "dot",
+      "description" : "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.",
+      "enum" : [
+        "dot",
+        "leftRail",
+        "fill"
+      ],
+      "title" : "Workspace Color Style",
       "type" : "string"
     },
     "workspaces.autoArchive.idleDays" : {
