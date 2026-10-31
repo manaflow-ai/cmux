@@ -697,7 +697,7 @@ fn output_read_serves_live_records_and_exit_snapshot_after_close_detach() {
     let colored: &[u8] = b"output read \x1b[31mred marker\x1b[0m\r\nsecond line\r\n";
     surface.apply_stream_output_for_test(colored).unwrap();
     // Output goes to the output store, never the journal.
-    mux.output_store.append(&terminal, &Arc::from(INCARNATION), colored);
+    mux.output_store.append(&terminal, &Arc::from(INCARNATION), colored, None);
     let total = u64::try_from(colored.len()).unwrap();
 
     // Live: the record window renders plain text with a resumable cursor.

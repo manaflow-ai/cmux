@@ -432,7 +432,7 @@ cmd_ffi() {
   mkdir -p "$out/slices" "$out/macos" "$out/work"
   # Same settings as scripts/cmux-next/build-app-ffi.sh.
   export CARGO_TARGET_DIR="$out/cargo" CARGO_PROFILE_RELEASE_LTO=off RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C embed-bitcode=no"
-  for h in "$crates/cmux-rd-ffi/include/cmux_rd_ffi.h" "$crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h" "$crates/cmux-palette-ranker/include/cmux_palette_ranker.h"; do
+  for h in "$crates/cmux-rd-ffi/include/cmux_rd_ffi.h" "$crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h" "$crates/cmux-palette-ranker/include/cmux_palette_ranker.h" "$crates/cmux-chats-mirror/include/cmux_chats_mirror.h"; do
     grep -oE '\bcmux_[a-z0-9_]+\(' "$h" | tr -d '(' | sort -u | sed 's/^/_/'
   done | sort -u > "$out/work/exports.txt"
   for t in "${TARGETS[@]}"; do

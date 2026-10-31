@@ -53,6 +53,7 @@ FIRST_PARTY_GPL = {
     "cmux-focus-core",
     "cmux-tasks-core",
     "cmux-palette-ranker",
+    "cmux-chats-mirror",
     "cmux-remote-browser",
 }
 
