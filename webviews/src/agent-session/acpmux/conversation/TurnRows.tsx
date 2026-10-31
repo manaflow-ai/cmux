@@ -1,4 +1,4 @@
-import { PullRequestDock } from "../summary/PullRequestDock";
+import { PullRequestDock, useHasPullRequestDock } from "../summary/PullRequestDock";
 // Turn rows for the pane's transcript: the "Worked for" disclosure, tool rows and the
 // footer under an answer. Markup and metrics from reference prototype (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
@@ -21,7 +21,7 @@ import { awaitsPermission, groupId, messageGroupKey, toolGroups, type ToolGroup 
 import { isFoldedRun } from "./toolRunSummary";
 import type { RetryNote } from "../subagents/retryState";
 import { TurnActionsContext } from "./turnActions";
-import { errorRecovery, type ErrorRecovery } from "./errorRecovery";
+import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
 import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
 import { hasTokens, TimedLabel, TurnTokens } from "./TurnTokens";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
@@ -306,6 +306,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 /// count here first.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
+  const prDock = useHasPullRequestDock();
   const {
     fork,
     forkSeq,
@@ -325,7 +326,8 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const seq = row.seq;
   const failed = row.status === "failed" || row.status === "error";
   const kind = failed ? failureKind(row.error, route, row.errorCode) : undefined;
-  // Only the CLI's own login (or an unexplained 401 on a direct route) asks to sign in (cx-w10a).
+  // Only the CLI's own login (or an unexplained 401 on a direct route) asks to sign in (cx-w10a);
+  // its Sign in again is on the card (TurnFailure), and a Cloud chat's credential transfer stays here.
   const authenticationFailed = kind === "subscription-login" || kind === "auth";
   const label = footerLabel(t, row);
   // The last turn, stopped and not yet followed by a prompt, offers Continue (Codex's): it sends the
@@ -355,8 +357,10 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         ? () => retry(row.retryRowId!, prompt)
         : undefined;
   // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing
-  // ran; it shares the footer Retry's one-at-a-time state and refusal note.
-  const recovery = failed ? errorRecovery(row, route, { resume, retry, retryFailed }) : undefined;
+  // ran; it shares the footer Retry's one-at-a-time state and refusal note. A sign-in failure's comes
+  // only after its Sign in again, so only the card offers it (signInRetry), never the native command.
+  const goOnRecovery = failed ? errorRecovery(row, route, { resume, retry, retryFailed }) : undefined;
+  const recovery = goOnRecovery ?? (failed ? signInRetry(row, route, { retryFailed, reauthenticate }) : undefined);
   const goOn =
     recovery &&
     (() => {
@@ -381,6 +385,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           route={route}
           switchModel={switchModel}
           compact={compact}
+          reauthenticate={reauthenticate}
           retry={failedRetry}
           goOn={goOn}
           goOnLabel={recovery?.label}
@@ -398,6 +403,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                 ? "cv-turn-actions cv-turn-actions--empty"
                 : "cv-turn-actions"
         }
+        data-pr-dock={prDock ? "" : undefined}
       >
         <MessageFooterRow className="cv-turn-footer-row">
           {label && (
@@ -453,11 +459,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             <PinButton rowId={row.id} />
             {text && <ReadAloudButton id={row.id} text={text} />}
             {text && row.answerId && <MessageMore rowId={row.answerId} />}
-            {authenticationFailed && reauthenticate && (
-              <button type="button" className="cv-turn-auth-action" onClick={reauthenticate}>
-                {t("turn.signInAgain")}
-              </button>
-            )}
             {authenticationFailed && transferCloudCredentials && row.retryRowId && prompt && (
               <button
                 type="button"
@@ -483,8 +484,8 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
 /// A failed turn's card (cx-w10a; Leo 2026-10-22: "we need to have prettier errors"): the cause in
 /// one human line, naming the harness and the proxy or endpoint when the error names one, never a
 /// generic "sign-in expired" and never the agent's raw words; the way out first (Retry, or Switch
-/// model for capacity, key and proxy failures, and for sign-in ones beside the footer's Sign in
-/// again; Compact for a chat that outgrew its context window, with Retry after it); Details opens the agent's own message with Copy error. Its surface is the
+/// model for capacity, key and proxy failures; Sign in again for a sign-in failure, with Retry and
+/// Switch model after it; Compact for a chat that outgrew its context window, with Retry after it); Details opens the agent's own message with Copy error. Its surface is the
 /// `turn-error-card` experiment's arm (turnErrorCard.experiment.ts).
 function TurnFailure({
   message,
@@ -492,6 +493,7 @@ function TurnFailure({
   route,
   switchModel,
   compact,
+  reauthenticate,
   retry,
   goOn,
   goOnLabel,
@@ -503,6 +505,9 @@ function TurnFailure({
   route?: FailureRoute;
   switchModel?: () => void;
   compact?: () => Promise<void>;
+  /// Runs the chat harness's login (only the CLI's own login, or an unexplained 401 on a direct
+  /// route, asks to sign in; cx-w10a).
+  reauthenticate?: () => void;
   /// Sends the prompt again; CodeRouter's move runs it once the chat is on the new route.
   retry?: () => void;
   /// The way on (errorRecovery.ts): Continue or Retry, the card's lead and its Return.
@@ -546,22 +551,38 @@ function TurnFailure({
       {t("access.addCredits")}
     </button>
   );
+  // An expired login leads with Sign in again, and Continue or Retry follows it for once the login
+  // is done. Where the chat has no login to run (a Cloud chat, a harness that names none), the card
+  // is as it was: Switch model or CodeRouter, and no Retry, which would fail the same way.
+  const signInFirst = recovery === "sign-in" && reauthenticate !== undefined;
   // Continue or Retry is the way out, or the second one after Switch model for a key or proxy
-  // failure; never for a sign-in or trust failure (errorRecovery.ts).
-  const offersRetry = goOn !== undefined;
+  // failure, or after Sign in again; never for trust (errorRecovery.ts).
+  const offersRetry = goOn !== undefined && (recovery !== "sign-in" || signInFirst);
   // A chat that outgrew its context window fails the same way on Retry until it is compacted, so
   // Compact leads and Retry follows it; a harness without /compact keeps Retry alone.
   const compactFirst = recovery === "compact" && compact !== undefined;
   // The way out goes first and reads as the card's one filled button.
-  const switchFirst = offersSwitch && (recovery === "switch-model" || !offersRetry);
+  // Sign in again leads whenever the chat has a login to run, with or without a Retry beside it.
+  const switchFirst = offersSwitch && !signInFirst && (recovery === "switch-model" || !offersRetry);
   // cmux's own route for a key, sign-in or capacity failure (CodeRouterOffer.tsx), placed by the
   // `coderouter-offer` arm. It takes the filled button only in the `primary` arm, or when it is the
   // only way out; the card keeps exactly one.
   const codeRouter = useCodeRouterChoice(kind, route, retry !== undefined);
   const offerArm = experimentArm(codeRouterOffer);
-  const offerLeads = codeRouter !== undefined && offerArm === "primary";
+  // Never ahead of Sign in again: moving the chat (and retrying it there) before the person has signed
+  // in is not the way out the card leads with; in that case it follows the others, outlined.
+  const offerLeads = codeRouter !== undefined && offerArm === "primary" && !signInFirst;
+  const offerTrails = codeRouter !== undefined && (offerArm === "button" || (offerArm === "primary" && signInFirst));
+  // CodeRouter's button fills only when it is the card's only way out: not beside Switch model, Retry,
+  // Sign in again or Compact, which each lead.
   const offerFilled =
-    offerLeads || (codeRouter !== undefined && offerArm === "button" && !offersSwitch && !offersRetry);
+    offerLeads ||
+    (codeRouter !== undefined &&
+      offerArm === "button" &&
+      !offersSwitch &&
+      !offersRetry &&
+      !signInFirst &&
+      !compactFirst);
   const switchButton = offersSwitch && (
     <button
       type="button"
@@ -607,10 +628,19 @@ function TurnFailure({
             {t("context.compact")}
           </button>
         )}
+        {signInFirst && (
+          <button
+            type="button"
+            className={`cv-turn-auth-action${offerLeads ? "" : " cv-turn-error__primary"}`}
+            onClick={reauthenticate}
+          >
+            {t("turn.signInAgain")}
+          </button>
+        )}
         {offersRetry && (
           <button
             type="button"
-            className={`cv-turn-auth-action${switchFirst || offerLeads || accessLeads || compactFirst ? "" : " cv-turn-error__primary"}`}
+            className={`cv-turn-auth-action${switchFirst || offerLeads || accessLeads || compactFirst || signInFirst ? "" : " cv-turn-error__primary"}`}
             // The card's first stop in the tab order, so Return on the focused card goes on.
             aria-keyshortcuts="Enter"
             disabled={retrying}
@@ -620,7 +650,7 @@ function TurnFailure({
           </button>
         )}
         {!switchFirst && switchButton}
-        {codeRouter && offerArm === "button" && (
+        {offerTrails && (
           <CodeRouterAction
             choice={codeRouter}
             retry={retry}

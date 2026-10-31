@@ -314,8 +314,9 @@ pub(crate) struct ClientRegistry {
     /// Called when a surface loses its last attached client (the idle-close
     /// reaper starts that terminal's unattached period).
     pub(super) detach_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
-    /// Called after any client connects or leaves (orphan_shutdown.rs).
-    pub(super) client_presence_observer: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+    /// Called after any client connects or leaves (orphan_shutdown.rs): the
+    /// DEV orphan exit and the lost-paths exit each add one.
+    pub(super) client_presence_observers: Mutex<Vec<Box<dyn Fn() + Send + Sync>>>,
     pub(super) url_opens: url_open::URLRequests,
     pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
@@ -382,7 +383,7 @@ impl ClientRegistry {
     pub(crate) fn new() -> Self {
         Self {
             detach_waker: Mutex::new(None),
-            client_presence_observer: Mutex::new(None),
+            client_presence_observers: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
             clipboard_reads: Default::default(),
@@ -417,6 +418,18 @@ impl ClientRegistry {
     }
 
     pub(super) fn register(&self, transport: ClientTransport, writer: MessageWriter) -> u64 {
+        self.register_classified(transport, writer, false)
+    }
+
+    /// `register`, with `owner_plugin` true for a connection from the owner's
+    /// own journal plugin (orphan_shutdown.rs), fixed before the presence
+    /// observer hears of it.
+    pub(super) fn register_classified(
+        &self,
+        transport: ClientTransport,
+        writer: MessageWriter,
+        owner_plugin: bool,
+    ) -> u64 {
         let client = self.next_id.fetch_add(1, Ordering::Relaxed);
         let mut state = self.state.lock().recover_poison();
         if state.daemon_handoff.is_some() {
@@ -447,6 +460,7 @@ impl ClientRegistry {
                 writer,
                 origin: Default::default(),
                 person: false,
+                owner_plugin,
                 #[cfg(unix)]
                 machine_catalog: None,
             },

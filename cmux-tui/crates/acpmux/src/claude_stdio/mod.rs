@@ -137,6 +137,22 @@ fn effort_value(effort: &str) -> &str {
     }
 }
 
+/// The model id Claude Code accepts for `value`. A versioned family name
+/// without the `claude-` prefix (`opus-5-5`, `sonnet-5-5[1m]`) is not a
+/// Claude Code alias: Claude Code sends it to the API as typed and every turn
+/// fails with "There's an issue with the selected model (opus-5-5)". It takes
+/// the prefix, as the live list's `launch_id` does. Bare aliases (`opus`,
+/// `opusplan`), full ids and other providers' names pass unchanged.
+pub fn model_id(value: &str) -> String {
+    let value = value.trim();
+    let versioned = ["opus-", "sonnet-", "haiku-"].iter().any(|family| {
+        value
+            .strip_prefix(family)
+            .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
+    });
+    if versioned { format!("claude-{value}") } else { value.to_owned() }
+}
+
 /// The Reasoning select's value for a session effort: Ultracode runs at xhigh.
 fn shown_level(effort: &str) -> &str {
     match effort_value(effort) {
@@ -393,7 +409,7 @@ pub fn spawn_plan(
     // A later --model wins over one the profile pins in its argv.
     if let Some(m) = model.filter(|m| !m.is_empty() && *m != "default") {
         args.push("--model".into());
-        args.push(m.into());
+        args.push(model_id(m));
     }
     // Lets the chat switch to bypassPermissions ("Bypass permissions") later; a
     // process that cannot take it is never given bypassPermissions at spawn.
@@ -611,7 +627,7 @@ impl Translator {
             session_id: Mutex::new(None),
             acp_session_id,
             mode: Mutex::new(mode.to_owned()),
-            model: Mutex::new(model.to_owned()),
+            model: Mutex::new(model_id(model)),
             effort: Mutex::new(effort_value(effort).to_owned()),
             fast: Mutex::new(false),
             in_turn: AtomicBool::new(false),

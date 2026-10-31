@@ -250,9 +250,17 @@ impl Message {
 
     /// The line to send when it fits in [`MAX_MESSAGE_BYTES`]. A reply that does not is sent as
     /// the error reply for its id instead; a request or notification that does not is `Err`, with
-    /// its size, for its sender to fail alone.
+    /// its size, for its sender to fail alone. A line near the cap or over it is counted and
+    /// warned of (`wire_size.rs`).
     pub fn bounded_line(&self) -> Result<String, usize> {
+        self.bounded_line_replying(None)
+    }
+
+    /// [`Self::bounded_line`] for a reply whose request's method the sender knows: the size
+    /// watch names it (`reply to <method>`).
+    pub fn bounded_line_replying(&self, reply_to: Option<&str>) -> Result<String, usize> {
         let line = self.to_line();
+        crate::wire_size::observe(crate::wire_size::What::of(self, reply_to), line.len());
         if line.len() <= MAX_MESSAGE_BYTES {
             return Ok(line);
         }

@@ -42,6 +42,19 @@ extension PageWebView {
     }
 
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        webContentEnded(PageTermination(reason: .unknown, pid: PageTermination.webContentPid(of: webView)))
+    }
+
+    /// WebKit's reason for the end (`WKNavigationDelegatePrivate`); a WebKit that has it calls this
+    /// instead of ``webViewWebContentProcessDidTerminate(_:)``.
+    @objc(_webView:webContentProcessDidTerminateWithReason:)
+    public func webView(_ webView: WKWebView, webContentProcessDidTerminateWithReason reason: Int) {
+        webContentEnded(PageTermination(reason: .init(webKit: reason), pid: PageTermination.webContentPid(of: webView)))
+    }
+
+    /// The WebKit page's process ended with `termination` (an injected end in tests).
+    public func webContentEnded(_ termination: PageTermination) {
+        lastTermination = termination.withPid(fallback: knownWebContentPid)
         contentProcessTerminated()
     }
 
@@ -55,7 +68,8 @@ extension PageWebView {
             // A renderer that crashed before the page reached the host leaves the Chromium start
             // deadline armed: its fallback would load the page in WebKit by itself.
             chromiumSession?.deadline.cancel()
-            logger.error("page \(self.descriptor.id, privacy: .public) web content ended; no automatic reload (the crash notice offers Reload)")
+            let termination = lastTermination ?? .unknown
+            logger.error("page \(self.descriptor.id, privacy: .public) web content ended reason=\(termination.reason.rawValue, privacy: .public) pid=\(termination.pid); no automatic reload (the crash notice offers Reload)")
             onCrash?(self, false)
             return
         }
