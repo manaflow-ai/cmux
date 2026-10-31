@@ -497,4 +497,37 @@ struct SecondCreationKeysTests {
             #expect(inFirst, "the line typed for the first terminal did not run there (lost at the hold's end): \(first.suffix(300)); holding \(coordinator.isHolding(in: p.window)), end \(String(describing: coordinator.lastHoldEnd(in: p.window)))")
         }
     }
+
+    /// P0 1193 follow-up (review of #29693 at bd1112a1cfa, defect 1): keys held for a terminal whose view is gone (its
+    /// workspace hidden and its surface evicted) are typed by the daemon, in the order they were typed: "text, Return,
+    /// Ctrl-C" never arrives as "text, Ctrl-C, Return". Before, a chord that is no app shortcut went out as its own daemon
+    /// send, which can pass the send before it.
+    @Test func heldKeysForAnEvictedTerminalKeepTheirOrder() async throws {
+        try await Self.withTwoTerminals { p in
+            let coordinator = Self.replayInTestWindow(p)
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            try await Self.focus(p.first.pane, tab: p.first.tab, in: p)
+            try await Self.startByteReader(nonce: nonce, count: 4, on: p.first.surface, in: p)
+            // The first creation has no early view: the keys typed for it wait for it, on any build.
+            let creation = try #require(coordinator.begin(in: p.window, generation: p.content.beginFocusIntent(), tab: p.first.tab))
+            var held = try Self.type("ab", in: p)
+            held.append(try Self.press("\r", [], keyCode: 36, in: p))
+            held.append(try Self.press("\u{3}", [.control], keyCode: 8, ignoring: "c", in: p))
+            try #require(held.allSatisfy { $0 }, "the test needs the keys held for the first creation: \(held)")
+
+            // Another workspace shows, and the first terminal's hidden view is evicted: only the daemon can type the keys.
+            #expect(p.services.registry.perform("newTab", invocation: ActionInvocation(origin: .user)))
+            try await PinnedPageTests.until({ p.services.windows.active?.workspaceContent !== p.content },
+                                            report: { "waited for another workspace in the window; it still shows the first one" })
+            p.services.cache.evictHiddenTerminal(p.first.tab)
+            try await PinnedPageTests.until({ p.services.cache.existingTerminal(p.first.tab) == nil }, within: .seconds(5), report: {
+                "waited for the first terminal's view to be evicted; it is still in the content cache"
+            })
+            coordinator.resolve(creation, landed: true, in: p.window)
+            // The reader prints the hex of the 4 bytes it got: "ab", Return (0d), Ctrl-C (03), in that order.
+            let inOrder = try await Self.ran("K42x\(nonce)61620d03K", on: p.first.surface, in: p)
+            let first = await Self.screen(p.first.surface, in: p)
+            #expect(inOrder, "the keys held for the evicted terminal did not arrive as typed (61 62 0d 03): \(first.suffix(300))")
+        }
+    }
 }
