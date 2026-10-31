@@ -1,0 +1,58 @@
+{
+  "id": "close-pending-split-then-split",
+  "priority": "P0",
+  "title": "P0 STATUS 1584: from a terminal, in one burst: Cmd-D, a line typed at once, Cmd-W, Cmd-D, a line typed at once. Cmd-W closes the pending split; the second Cmd-D makes a new pane that gets the focus and runs the second line",
+  "why": "STATUS 1584 (found by the P0 1193 owner on feat bcec3ce42ba): Cmd-W cancelled the pending split, but the window kept the closed stand-in and the focus on its pane id until its store observation ran a turn later. A second Cmd-D in that window split the closed stand-in, which no daemon pane takes over, and made NO pane. Fix: fix/p0-close-pending-split-focus (the window applies the store in the close's own turn; the focus goes to the pane the split was made from). Expected: base FAIL (no second pane, or d2 not in a new pane), fix head PASS.",
+  "source": "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ClosedPendingSplitFocusTests.swift (same burst, in-process)",
+  "budget_seconds": 150,
+  "steps": [
+    {"do": "smoke_ready", "timeout": 60},
+    {"do": "smoke_remember_workspaces"},
+    {"do": "smoke_make_key"},
+    {"do": "key", "key": "n", "modifiers": ["cmd"], "mark": "ws1"},
+    {
+      "do": "expect",
+      "title": "Cmd-N makes a workspace (the frame kept: not blank)",
+      "since": "ws1",
+      "timeout": 20,
+      "all": [{"smoke_workspaces": {"new": 1}}, {"smoke_frame": {}}]
+    },
+    {"do": "smoke_snapshot", "name": "before_terminal"},
+    {"do": "key", "key": "`", "modifiers": ["control"], "mark": "wsterm1"},
+    {"do": "smoke_type_now", "text": "echo s0-${nonce}-$((6*7))"},
+    {
+      "do": "expect",
+      "title": "the workspace's Ctrl-` terminal ran its line and has the focus: the burst starts from a terminal",
+      "since": "wsterm1",
+      "timeout": 30,
+      "all": [
+        {"smoke_new_terminals": {"since": "before_terminal", "lines": ["s0-${nonce}-42"], "focused": "s0-${nonce}-42", "placement": "new_workspaces"}},
+        {"smoke_key_window": {}}
+      ]
+    },
+    {"do": "smoke_snapshot", "name": "before_splits"},
+    {"do": "key", "key": "d", "modifiers": ["cmd"], "mark": "split1"},
+    {"do": "smoke_type_now", "text": "echo d1-${nonce}-$((6*7))"},
+    {"do": "key", "key": "w", "modifiers": ["cmd"], "mark": "close1"},
+    {"do": "key", "key": "d", "modifiers": ["cmd"], "mark": "split2"},
+    {"do": "smoke_type_now", "text": "echo d2-${nonce}-$((6*7))"},
+    {
+      "do": "expect",
+      "title": "Cmd-D, line, Cmd-W, Cmd-D, line: the closed split stays closed; the second Cmd-D made one new pane, it has the focus and ran the second line; the first line ran nowhere",
+      "since": "split1",
+      "timeout": 30,
+      "all": [
+        {"smoke_panes": {"line": "d2-${nonce}-42", "count": 2}},
+        {"smoke_new_terminals": {"since": "before_splits", "lines": ["d2-${nonce}-42"], "focused": "d2-${nonce}-42", "placement": "new_panes"}},
+        {"smoke_app_lines": {"lines": ["s0-${nonce}-42", "d2-${nonce}-42"]}},
+        {"smoke_key_window": {}},
+        {"frame_screen": {"shows": ["d2-${nonce}-42"]}},
+        {"smoke_frame": {"lacks": ["d1-${nonce}-42"]}}
+      ]
+    },
+    {"do": "smoke_no_key_gaps"}
+  ],
+  "finally": [
+    {"do": "smoke_close_all"}
+  ]
+}
