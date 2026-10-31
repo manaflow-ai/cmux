@@ -56,24 +56,37 @@ await requireBrowserLane("chat-inspector-changes-narrow-browser.test.tsx", async
     opened: true,
     state: "open" as const,
   }));
-  // Each case: every count at its maximum, with failing checks, a green dot, or the by-kind wrapper.
+  // Each case: every count at its maximum, with failing checks (some already failing on base), a
+  // green dot, or the by-kind wrapper. `ordinary` is a real row (#28774's review): before the checks
+  // annotation could shrink, "3 failing (2 already on base)" pushed `cmux #22240 +1482 -311` out.
   const cases = {
     failing: { checks: "failing", failing: max },
+    failingOnBase: { checks: "failing", failing: max, failingOnBase: max },
     passing: { checks: "passing", failing: 0 },
     breakdown: { checks: "failing", failing: max, breakdown: { code: { additions: max, deletions: max } } },
+    ordinary: { checks: "failing", failing: 3, failingOnBase: 2, additions: 1482, deletions: 311, comments: 0 },
   } as const;
+  const ordinaryPullRequests = titles.map((title, index) => ({
+    url: `https://github.com/manaflow-ai/cmux/pull/${22240 + index}`,
+    repo: "manaflow-ai/cmux",
+    number: 22240 + index,
+    title,
+    opened: true,
+    state: "open" as const,
+  }));
 
   const container = dom.window.document.getElementById("root")!;
   const html: Record<string, string> = {};
   for (const [name, extra] of Object.entries(cases)) {
     const root = createRoot(container);
+    const rows = name === "ordinary" ? ordinaryPullRequests : pullRequests;
     const statuses = Object.fromEntries(
-      pullRequests.map((pr, index) => [
+      rows.map((pr, index) => [
         pr.url,
         { owner: titles[index] || "🦊 Fox", additions: max, deletions: max, comments: max, ...extra },
       ]),
     );
-    await act(async () => root.render(<ChangesSection pullRequests={pullRequests} statuses={statuses} />));
+    await act(async () => root.render(<ChangesSection pullRequests={rows} statuses={statuses} />));
     html[name] = container.innerHTML;
     act(() => root.unmount());
   }
@@ -105,6 +118,9 @@ await requireBrowserLane("chat-inspector-changes-narrow-browser.test.tsx", async
       expect(html.failing).toContain('data-checks="failing"');
       expect(html.passing).toContain('data-checks="passing"');
       expect(html.breakdown).toContain("acpmux-chat-inspector-pr__counts");
+      expect(html.failingOnBase).toContain("acpmux-chat-inspector-pr__base");
+      expect(html.ordinary).toContain("cmux #22240");
+      expect(html.ordinary).toContain("(2 already on base)");
     });
     for (const name of Object.keys(cases))
       test(`${name}: the comments and checks stay whole inside the row, and no count runs past it`, async () => {
@@ -135,6 +151,24 @@ await requireBrowserLane("chat-inspector-changes-narrow-browser.test.tsx", async
                 lineOverflows: line.scrollWidth > line.clientWidth + 1,
                 comments: part(".acpmux-chat-inspector-pr__comments"),
                 checks: part(".acpmux-chat-inspector-pr__checks"),
+                ref: part(".acpmux-chat-inspector-pr__ref"),
+                base: part(".acpmux-chat-inspector-pr__base"),
+                // "N failing": the checks' own width less the on-base share, which may truncate.
+                failingCount: (() => {
+                  const checks = line.querySelector<HTMLElement>(
+                    '.acpmux-chat-inspector-pr__checks[data-checks="failing"]',
+                  );
+                  if (!checks) return null;
+                  const range = document.createRange();
+                  const first = [...checks.childNodes].find(
+                    (node) =>
+                      node.nodeType === Node.TEXT_NODE ||
+                      !(node as HTMLElement).matches(".acpmux-chat-inspector-pr__base, .acpmux-chat-inspector-sr-only"),
+                  )!;
+                  range.selectNodeContents(first);
+                  const box = range.getBoundingClientRect();
+                  return { width: box.width, inside: box.left >= edge.left - 0.5 && box.right <= edge.right + 0.5 };
+                })(),
                 counts: [part(".acpmux-diff-add"), part(".acpmux-diff-del")],
               };
             }),
@@ -143,7 +177,8 @@ await requireBrowserLane("chat-inspector-changes-narrow-browser.test.tsx", async
           for (const row of rows) {
             expect(row.lineRight).toBeLessThanOrEqual(row.rowRight + 0.5);
             expect(row.lineOverflows).toBe(false);
-            for (const kept of [row.comments, row.checks]) {
+            // The ordinary row has no comments; every other row has the maximum.
+            for (const kept of name === "ordinary" ? [row.checks] : [row.comments, row.checks]) {
               expect(kept).not.toBeNull();
               expect(kept!.width).toBeGreaterThan(0);
               expect(kept!.inside).toBe(true);
@@ -155,10 +190,61 @@ await requireBrowserLane("chat-inspector-changes-narrow-browser.test.tsx", async
               expect(count!.inside).toBe(true);
               expect(count!.whole).toBe(true);
             }
+            // "N failing" itself is never cut: only its "(N already on base)" share gives way.
+            if (row.failingCount) {
+              expect(row.failingCount.width).toBeGreaterThan(0);
+              expect(row.failingCount.inside).toBe(true);
+            }
+            if (name === "failingOnBase" || name === "ordinary") {
+              expect(row.base).not.toBeNull();
+              expect(row.base!.inside).toBe(true);
+            }
+            // An ordinary `repo #N` stays whole beside the checks annotation (#28774's review).
+            if (name === "ordinary") {
+              expect(row.ref).not.toBeNull();
+              expect(row.ref!.whole).toBe(true);
+              expect(row.ref!.inside).toBe(true);
+            }
           }
         } finally {
           await page.close();
         }
       });
+  });
+
+  // The ⋯ menu button is not repeated down every row (#28774's review): it shows on the hovered
+  // row, on the row that has focus (so Tab still reaches it), and while its menu is open, after the
+  // pointer and focus leave. Base UI marks the open trigger with data-popup-open
+  // (chat-inspector-changes.test.tsx checks that the click sets it).
+  test("the ⋯ button shows only on hover, on focus, or while its menu is open", async () => {
+    const page = await browser.newPage({ viewport: { width: 280, height: 400 } });
+    try {
+      await page.setContent(
+        `<style>${tokens}\n${css}\nbody { margin: 0; font: 13px system-ui, sans-serif }</style>` +
+          `<div class="acpmux-shell" style="width: 280px">${html.ordinary}</div><button id=away>away</button>`,
+      );
+      const more = page.locator("button.acpmux-chat-inspector-pr__more");
+      const opacities = () =>
+        more.evaluateAll((buttons) => buttons.map((button) => Number(getComputedStyle(button).opacity)));
+      await page.mouse.move(279, 399);
+      expect(await more.count()).toBe(titles.length);
+      expect(await opacities()).toEqual(titles.map(() => 0));
+      // Hover: only that row's button.
+      await page.locator("li.acpmux-chat-inspector-pr").nth(1).hover();
+      expect(await opacities()).toEqual(titles.map((_, index) => (index === 1 ? 1 : 0)));
+      await page.mouse.move(279, 399);
+      // Keyboard: Tab from the first row's link reaches its ⋯, which shows.
+      await page.locator("a.acpmux-chat-inspector-pr__link").first().focus();
+      expect((await opacities())[0]).toBe(1);
+      await page.keyboard.press("Tab");
+      expect(await more.first().evaluate((button) => button === document.activeElement)).toBe(true);
+      expect(await opacities()).toEqual(titles.map((_, index) => (index === 0 ? 1 : 0)));
+      // Menu open: it stays shown once the pointer and focus have left the row.
+      await more.nth(2).evaluate((button) => button.setAttribute("data-popup-open", ""));
+      await page.locator("#away").focus();
+      expect(await opacities()).toEqual(titles.map((_, index) => (index === 2 ? 1 : 0)));
+    } finally {
+      await page.close();
+    }
   });
 });

@@ -245,8 +245,14 @@ test("the whole lit row is one target: its owner chip opens the pull request, an
   await click(chip);
   expect(opened).toEqual([one.url]);
   // The ⋯ button is still its own target: it opens the menu, not the pull request.
-  await click(container.querySelector("button.acpmux-chat-inspector-pr__more")!);
+  const more = container.querySelector("button.acpmux-chat-inspector-pr__more")!;
+  expect(more.hasAttribute("data-popup-open")).toBe(false);
+  await click(more);
   expect(opened).toEqual([one.url]);
+  // Open, the trigger carries data-popup-open, which keeps the hover-revealed ⋯ shown (inspector.css;
+  // chat-inspector-changes-narrow-browser.test.tsx lays the states out).
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(more.hasAttribute("data-popup-open")).toBe(true);
   // The row's own padding and gap light on hover too, so the link's hit area covers the whole row
   // (JSDOM lays nothing out, so this reads the rule that does it), with the ⋯ button above it.
   const css = readFileSync(new URL("../src/agent-session/acpmux/inspector/inspector.css", import.meta.url), "utf8");

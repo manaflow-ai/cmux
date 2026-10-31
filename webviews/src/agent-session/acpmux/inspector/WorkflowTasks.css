@@ -204,10 +204,19 @@ button.acpmux-workflow-agent__button:focus-visible {
   padding-top: calc(var(--ds-space-1) / 2);
   padding-bottom: calc(var(--ds-space-1) / 2);
 }
+/* One line: the name (and model), then the current action, which truncates inside the row. */
 .acpmux-workflow-agent__button--compact .acpmux-workflow-agent__text {
-  display: block;
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  min-width: 0;
+  overflow: hidden;
+}
+.acpmux-workflow-agent__button--compact .acpmux-workflow-agent__line {
+  flex: 0 1 auto;
 }
 .acpmux-workflow-agent__button--compact .acpmux-workflow-agent__doing {
+  flex: 1 1 auto;
   margin-left: 6px;
 }
 .acpmux-workflow-agent__button--grid {

@@ -652,8 +652,9 @@ button.acpmux-chat-inspector-port:hover,
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-/* What gives way in a narrow row, in order: `repo #N` first (its shrink weighs 100x the counts'),
-   then the line counts; the comments and the checks at the trailing edge are never cut. The
+/* What gives way in a narrow row, in order: the checks' on-base share (below), then `repo #N`
+   (its shrink weighs 100x the counts'), then the line counts; the comments and "N failing" are
+   never cut. The
    counts, comments and failing checks are short already (formatCount: 12.3K, 9Q). */
 .acpmux-chat-inspector-pr__ref {
   flex: 0 100 auto;
@@ -681,9 +682,26 @@ button.acpmux-chat-inspector-port:hover,
   align-items: center;
   gap: 3px;
 }
+/* The checks annotation gives way before everything else on the line (#28774's review): its
+   "(N already on base)" share truncates with an ellipsis first, while "N failing" stays whole, so
+   `repo #N` and the line counts keep their room. */
 .acpmux-chat-inspector-pr__checks {
-  flex: none;
+  flex: 0 10000 auto;
   margin-left: auto;
+}
+.acpmux-chat-inspector-pr__checks[data-checks="failing"] {
+  display: inline-flex;
+  column-gap: 0.3em;
+}
+.acpmux-chat-inspector-pr__checks[data-checks="failing"] > * {
+  flex: none;
+}
+.acpmux-chat-inspector-pr__checks[data-checks="failing"] > .acpmux-chat-inspector-pr__base {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .acpmux-chat-inspector-pr__checks[data-checks="failing"] {
   color: var(--agent-status-failure);
@@ -720,6 +738,23 @@ button.acpmux-chat-inspector-port:hover,
 }
 .acpmux-chat-inspector-pr__more {
   margin-top: 4px;
+  opacity: 0;
+}
+/* The ⋯ shows on the row it belongs to only: while the row is hovered, while focus is anywhere in
+   it (Tab reaches the button, so the keyboard sees it), and while its menu is open, after the
+   pointer leaves. Touch screens have no hover, so they always show it. */
+.acpmux-chat-inspector-pr:hover .acpmux-chat-inspector-pr__more,
+.acpmux-chat-inspector-pr:focus-within .acpmux-chat-inspector-pr__more,
+.acpmux-chat-inspector-pr__more[data-popup-open] {
+  opacity: 1;
+}
+.acpmux-chat-inspector-pr__more[data-popup-open] {
+  color: var(--agent-text);
+}
+@media (hover: none) {
+  .acpmux-chat-inspector-pr__more {
+    opacity: 1;
+  }
 }
 .acpmux-chat-inspector-pr-fold {
   margin-top: 2px;
