@@ -67,7 +67,6 @@ enum CloudCreationRows {
         }
         header.detail = withUpdate(header.detail, updates.targets[CloudMachineUpdateTarget.id(session.machineID)],
                                    compatibility: compatibility)
-                                   compatibility: compatibility)
         return header.redialing(session.link?.redial.isRedialing == true)
     }
 
