@@ -196,10 +196,12 @@ test("Edit and Retry put a sent attachment back with its source", async () => {
       inlineParts: [
         { kind: "image", id: "img", mimeType: "image/png", name: "a.png", source: chrome },
         { kind: "file", name: "notes.txt", uri: "file:///tmp/notes.txt", source: { name: "Finder" } },
+        { kind: "pasted", name: "Pasted text", text: "a long paste", source: { name: "Notes" } },
       ],
+      text: "a long paste",
     },
-    "",
+    "a long paste",
     async () => ({ mimeType: "image/png", data: "AQ==" }),
   );
-  expect(restored.attachments.map((chip) => chip.source)).toEqual([chrome, { name: "Finder" }]);
+  expect(restored.attachments.map((chip) => chip.source)).toEqual([chrome, { name: "Finder" }, { name: "Notes" }]);
 });
