@@ -104,7 +104,9 @@ export function menuItemForShortcut(
   const normalized = key.length === 1 ? key.toUpperCase() : "";
   if (!normalized) return undefined;
   return items.find(
-    (item): item is ShortcutMenuItem => item !== "separator" && (item.shortcutLabel ?? ("mnemonic" in item ? item.mnemonic : undefined))?.toUpperCase() === normalized,
+    (item): item is ShortcutMenuItem =>
+      item !== "separator" &&
+      (item.shortcutLabel ?? ("mnemonic" in item ? item.mnemonic : undefined))?.toUpperCase() === normalized,
   );
 }
 
@@ -573,7 +575,12 @@ export function ChatMenu({
     if (pickerLabel === null) return;
     return registerPicker(pickerLabel, () => showRef.current());
   }, [label, registerPickerLabel]);
+  // A row's letter picks it (Claude Code desktop's R, F, A), never a key that is text (menuLetters.ts:
+  // a field, an editor, an IME composition, the menu's own typeahead). Each opening starts a fresh
+  // typeahead, so a key typed into the menu just closed never swallows the next open's first letter.
+  const typing = useRef<MenuTyping>({ last: 0 });
   const onOpenChange = (next: boolean) => {
+    typing.current.last = 0;
     if (next) return show();
     opening.current++;
     setOpen(false);
@@ -581,9 +588,6 @@ export function ChatMenu({
   const focused = only ? rows.find((row) => row !== "separator" && row.key === only) : undefined;
   const children = focused && focused !== "separator" ? focused.children : undefined;
   const shortcutRows = children ?? rows;
-  // A row's letter picks it (Claude Code desktop's R, F, A), never a key that is text (menuLetters.ts:
-  // a field, an editor, an IME composition, the menu's own typeahead).
-  const typing = useRef<MenuTyping>({ last: 0 });
   const onMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.defaultPrevented || !event.currentTarget.contains(event.target as Node)) return;
     const key = menuLetter(event, typing.current);
