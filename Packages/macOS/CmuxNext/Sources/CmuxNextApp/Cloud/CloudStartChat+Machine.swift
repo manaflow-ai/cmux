@@ -19,13 +19,13 @@ extension CloudStartChat {
     }
 
     /// The plan's request: the send's key, account and Mac workspace, who is signed in, the machines the account's list
-    /// named (as the pick reads them), and the store's others, made since (`stored`: kept for a pin, never picked).
+    /// named (as the pick reads them, shown status), and the store's others, made since (`stored`: kept for a pin, never picked).
     static func planRequest(key: String, account: [String?], workspace: String?, user: String?, machines: [CloudMachineSession],
                             stored: [String]) -> String {
         let listed: [[String: Any]] = machines.map { session in
             let connected = session.daemon.connection != nil
             var machine: [String: Any] = ["id": session.machineID, "title": session.machine.title,
-                                          "status": session.machine.status.rawValue, "connected": connected]
+                                          "status": session.machine.shownStatus.rawValue, "connected": connected]
             machine["slug"] = session.machine.slug
             machine["created_by"] = session.machine.createdBy
             machine["pause_reason"] = session.machine.pauseReason?.rawValue

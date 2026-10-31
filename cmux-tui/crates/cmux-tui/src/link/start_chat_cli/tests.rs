@@ -97,6 +97,28 @@ fn a_machine_marked_for_chats_is_taken_first_even_with_chats_open() {
     assert_eq!(pick::pick(&theirs, Some(ME), &none()), None);
 }
 
+/// #28407: a machine with a pause, resume or delete on its way is never
+/// taken, even marked for chats and still connected.
+#[test]
+fn a_changing_machine_is_skipped_even_when_marked_for_chats() {
+    for status in ["pausing", "starting", "deleting"] {
+        for connected in [true, false] {
+            let changing = with(machine("vm-changing", "cloud-chats"), |m| {
+                m.status = status.into();
+                m.connected = connected;
+            });
+            let free = machine("vm-free", "spare");
+            let both = [changing.clone(), free];
+            assert_eq!(
+                pick::pick(&both, Some(ME), &none()).as_deref(),
+                Some("vm-free"),
+                "{status}"
+            );
+            assert_eq!(pick::pick(&[changing], Some(ME), &none()), None, "{status}");
+        }
+    }
+}
+
 #[test]
 fn lane_shell_vms_are_never_picked() {
     let lanes =
@@ -753,6 +775,27 @@ fn a_workspaces_gone_teammates_or_failed_machine_is_replaced_by_a_new_one() {
             "{gone:?}"
         );
         assert_eq!(pins.workspace_machine("ws-a", ACCOUNT), None, "{gone:?}");
+    }
+    // #28407's shown status: a workspace's machine that is pausing or resuming,
+    // its link down meanwhile, stays the workspace's own.
+    for status in ["pausing", "starting"] {
+        let mut pins = Ledger::default();
+        pins.bind("ws-a", ACCOUNT, "vm-a");
+        let changing = [offline(machine("vm-a", "cloud-chats-2"), status, None)];
+        assert_eq!(
+            pick::destination(
+                &send(&key()),
+                ACCOUNT,
+                Some("ws-a"),
+                &mut pins,
+                &changing,
+                &[],
+                Some(ME),
+                true
+            ),
+            Destination::Machine("vm-a".into()),
+            "{status}"
+        );
     }
     // Signed out, a workspace's machine is not taken either.
     let mut pins = Ledger::default();
