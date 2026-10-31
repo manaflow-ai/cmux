@@ -12,6 +12,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
+import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
 import type { SuggestionOrder } from "../src/agent-session/acpmux/newtab/suggestionOrder";
 
 const scope = globalThis as Record<string, unknown>;
@@ -107,7 +108,10 @@ async function type(text: string) {
 const rows = () => [...window.document.querySelectorAll<HTMLElement>('[role="option"]')];
 const title = (row: HTMLElement) => row.querySelector(".nt-row-title")?.textContent ?? "";
 const row = (name: string) => rows().find((option) => title(option) === name)!;
-const returnTarget = () => rows().filter((option) => option.getAttribute("aria-selected") === "true").map(title);
+const returnTarget = () =>
+  rows()
+    .filter((option) => option.getAttribute("aria-selected") === "true")
+    .map(title);
 
 /// The pointer comes to rest on `option`, as a mouse moved over the open list does.
 async function hover(option: HTMLElement) {
@@ -144,7 +148,9 @@ test("Return sends after the pointer swept over every row", async () => {
   const calls: unknown[][] = [];
   await render(calls, "chat");
   const field = await type("helo");
+  // Down the list and back up to the web search: the pointer last rests on a row Return must not take.
   for (const option of rows()) await hover(option);
+  await hover(row("Search the web for helo"));
   await press(field, "Enter");
   expect(calls).toEqual([ASK_HELO]);
 });
@@ -206,7 +212,7 @@ test("a click still runs the row it presses", async () => {
 });
 
 // The classic New Tab page's suggestions had the same trap: its rows' mouse move took Return too.
-async function classicEnter(hoverLast: boolean) {
+async function classicEnter(hoverOther: boolean) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabPage } = await import("../src/agent-session/acpmux/NewTabPage");
   act(() => root?.unmount());
@@ -217,6 +223,7 @@ async function classicEnter(hoverLast: boolean) {
       <NewTabPage
         snapshot={noChat()}
         lastAgent="claude"
+        omnibar={{ ...EMPTY_OMNIBAR, workspaces: [{ id: "ws-helo", name: "helo-app" }] }}
         onSubmit={(...args) => {
           submitted.push(args);
         }}
@@ -235,11 +242,15 @@ async function classicEnter(hoverLast: boolean) {
   const options = rows();
   expect(options.length).toBeGreaterThan(1);
   const target = options.findIndex((option) => option.getAttribute("aria-selected") === "true");
-  if (hoverLast) await hover(options.at(-1)!);
+  expect(target).toBeGreaterThanOrEqual(0);
+  if (hoverOther) await hover(options.find((_, index) => index !== target)!);
   expect(rows().findIndex((option) => option.getAttribute("aria-selected") === "true")).toBe(target);
-  await act(async () =>
-    field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
-  );
+  // Return in the field submits its form (implicit submission, which jsdom does not run for a
+  // dispatched key): the keydown, then the form's submit.
+  await act(async () => {
+    field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    field.form!.requestSubmit();
+  });
   return submitted;
 }
 
