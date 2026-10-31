@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
 import { mergeToolItem } from "../src/agent-session/acpmux/direct";
 import { toolArtifacts } from "../src/agent-session/acpmux/conversation/writtenArtifacts";
-import { artifactKind } from "../src/agent-session/acpmux/conversation/artifactPreview";
+import { artifactKind, type Artifact } from "../src/agent-session/acpmux/conversation/artifactPreview";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const page = "<title>Weather</title><p>Sunny</p>";
@@ -44,6 +44,82 @@ test.each(["Edit", "MultiEdit", "edit", "replace", "replace_in_file", "edit_file
     expect(toolArtifacts(call({ title, diffs: [{ path: "weather.html", newText: "<p>fragment</p>" }] }))).toEqual([]);
   },
 );
+
+const oldDoc = "<!doctype html>\n<html><body><h1>Weather</h1><p>Rain</p></body></html>";
+const newDoc = "<!doctype html>\n<html><body><h1>Weather</h1><p>Sunny</p></body></html>";
+const opened = (code: string, path = "weather.html"): Artifact[] => [{ kind: "html", lang: "html", code, path }];
+
+test("a complete create opens its document", () => {
+  expect(
+    toolArtifacts(call({ title: "Write weather.html", diffs: [{ path: "weather.html", newText: newDoc }] })),
+  ).toEqual(opened(newDoc));
+});
+
+test.each([
+  ["Edit weather.html", { file_path: "weather.html", old_string: "<p>Rain</p>", new_string: "<p>Sunny</p>" }],
+  ["edit", { filePath: "weather.html", oldString: "<p>Rain</p>", newString: "<p>Sunny</p>" }],
+])("a complete %s whose diff is the whole old and new file opens it", (title, input) => {
+  const recorded = call({
+    title,
+    inputSummary: JSON.stringify(input),
+    diffs: [{ path: "weather.html", oldText: oldDoc, newText: newDoc }],
+  });
+  expect(toolArtifacts(recorded)).toEqual(opened(newDoc));
+});
+
+test.each(["replace", "replace_in_file"])("a complete %s opens the whole new document", (title) => {
+  // No recorded input: the diff proves itself a whole file by being a whole HTML document.
+  expect(toolArtifacts(call({ title, diffs: [{ path: "weather.html", oldText: oldDoc, newText: newDoc }] }))).toEqual(
+    opened(newDoc),
+  );
+  // With its input recorded: a diff that is not the input's replacement is the file it left.
+  const withInput = call({
+    title,
+    inputSummary: JSON.stringify({ file_path: "weather.html", old_string: "Rain", new_string: "Sunny" }),
+    diffs: [{ path: "weather.html", oldText: "<p>Rain</p>", newText: "<p>Sunny</p><p>Warm</p>" }],
+  });
+  expect(toolArtifacts(withInput)).toEqual(opened("<p>Sunny</p><p>Warm</p>"));
+});
+
+test("an edit's replacement snippet stays closed, even when it is the shape of a document", () => {
+  const snippet = { path: "weather.html", oldText: "<p>Rain</p>", newText: "<p>Sunny</p>" };
+  expect(
+    toolArtifacts(
+      call({
+        title: "Edit weather.html",
+        inputSummary: JSON.stringify({
+          file_path: "weather.html",
+          old_string: "<p>Rain</p>",
+          new_string: "<p>Sunny</p>",
+        }),
+        diffs: [snippet],
+      }),
+    ),
+  ).toEqual([]);
+  expect(
+    toolArtifacts(
+      call({
+        title: "MultiEdit weather.html",
+        inputSummary: JSON.stringify({
+          file_path: "weather.html",
+          edits: [
+            { old_string: "Rain", new_string: "Sunny" },
+            { old_string: "<html>", new_string: newDoc },
+          ],
+        }),
+        diffs: [
+          { path: "weather.html", oldText: "Rain", newText: "Sunny" },
+          { path: "weather.html", oldText: "<html>", newText: newDoc },
+        ],
+      }),
+    ),
+  ).toEqual([]);
+  // An unmarked legacy snippet with no input is not a document, and a marked fragment never is.
+  expect(toolArtifacts(call({ title: "replace", diffs: [snippet] }))).toEqual([]);
+  expect(
+    toolArtifacts(call({ title: "Edit weather.html", diffs: [{ ...snippet, newText: newDoc, fragment: true }] })),
+  ).toEqual([]);
+});
 
 test.each(["edit", "fileChange"])("%s completed whole ACP diffs need no harness-specific name", (kind) => {
   const recorded = call({

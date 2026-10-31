@@ -6,9 +6,15 @@ type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const cache = new WeakMap<Tool, Artifact[]>();
 const HTML_FILE = /\.html?$/i;
 const WRITE = /^(?:write|write_file|writefile|create_file)(?:[\s:]|$)/i;
-// Older logs did not mark replacement-only diffs as fragments. These calls describe edits,
-// whereas a whole ACP diff (for example apply_patch) describes the entire resulting file.
+// Older logs did not mark replacement-only diffs as fragments. These calls describe edits, and
+// Claude Code's Edit/MultiEdit diff is its replacement strings, not the file. Gemini's replace and
+// OpenCode's edit send the whole old and new file in the same calls, so an edit-named diff opens
+// only once it is shown to be the file (`completeEditDiff`), as a whole ACP diff (apply_patch) does.
 const PARTIAL_EDIT = /^(?:edit|multiedit|replace|replace_in_file|edit_file)(?:[\s:]|$)/i;
+// A whole HTML document: it starts with its doctype, or opens <html> and ends closing it.
+const wholeDocument = (text: string) =>
+  /^\s*<!doctype\s+html\b/i.test(text) || (/^\s*<html\b/i.test(text) && /<\/html\s*>\s*$/i.test(text));
+const NEW_TEXT_KEYS = ["new_string", "newString", "new_str", "newText", "replacement"] as const;
 
 type RecordedInput = Record<string, unknown>;
 type Diff = NonNullable<Tool["diffs"]>[number];
@@ -83,6 +89,31 @@ function isCompleteAddedDiff(diff: Diff, provenance: AddedProvenance): boolean {
   );
 }
 
+/// The replacement texts an edit call's input records (Claude Code `new_string`, MultiEdit `edits`,
+/// OpenCode `newString`, Gemini `new_string`), when it records any.
+function replacementTexts(input: RecordedInput | undefined): Set<string> | undefined {
+  if (!input) return undefined;
+  const texts = new Set<string>();
+  const read = (record: Record<string, unknown>) => {
+    for (const key of NEW_TEXT_KEYS) if (typeof record[key] === "string") texts.add(record[key] as string);
+  };
+  read(input);
+  if (Array.isArray(input.edits))
+    for (const edit of input.edits)
+      if (edit && typeof edit === "object" && !Array.isArray(edit)) read(edit as Record<string, unknown>);
+  return texts.size ? texts : undefined;
+}
+
+/// Whether an edit-named call's unmarked diff is the whole file rather than its replacement: it is
+/// not one of the replacements the input records, and either the input records some (so the agent
+/// sent the file beside them) or its new text is a whole HTML document. A legacy snippet with no
+/// input, or one equal to its input's replacement, never opens.
+function completeEditDiff(diff: Diff, replacements: Set<string> | undefined): boolean {
+  if (diff.fragment || diff.fromInput) return false;
+  if (replacements?.has(diff.newText)) return false;
+  return replacements !== undefined || wholeDocument(diff.newText);
+}
+
 export function toolArtifacts(tool: Tool): Artifact[] {
   if (tool.status !== "completed" || (tool.kind !== "edit" && tool.kind !== "fileChange")) return [];
   const previous = cache.get(tool);
@@ -99,10 +130,12 @@ export function toolArtifacts(tool: Tool): Artifact[] {
     seen.add(path);
     found.push({ kind: "html", lang: "html", code, path });
   };
+  const replacements = partialEdit ? replacementTexts(input) : undefined;
   for (const diff of diffs) {
     const wholeDiff = !diff.fragment || (diff.fromInput && diff.oldText == null);
     const completeAddedDiff = provenance ? isCompleteAddedDiff(diff, provenance) : false;
-    if ((!partialEdit && wholeDiff) || completeAddedDiff) add(diff, diff.newText);
+    const completeEdit = partialEdit && completeEditDiff(diff, replacements);
+    if ((!partialEdit && wholeDiff) || completeAddedDiff || completeEdit) add(diff, diff.newText);
   }
 
   // Claude/pi/OpenCode/Gemini whole-file writes may carry their contents only in rawInput, each
