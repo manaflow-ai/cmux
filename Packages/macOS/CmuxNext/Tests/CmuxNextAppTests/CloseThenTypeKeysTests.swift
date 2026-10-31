@@ -203,4 +203,37 @@ struct CloseThenTypeKeysTests {
             if !focusElsewhereFirst { #expect(p.content.focus.state.resolved == .terminal(pane: p.right.pane.paneKey, tab: p.right.tab)) }
         }
     }
+
+    /// From the Cmd-D-after-Cmd-W P0 (STATUS 1644): Cmd-D, then Cmd-W at once cancels the split's creation, and the close
+    /// list can still name the cancelled stand-in. No close hold may arm for a tab with no live terminal (a provisional
+    /// stand-in has no read to wait for): a line typed after it runs whole in the focused live terminal.
+    @Test func aCancelledStandInArmsNoCloseHoldAndTheNextLineRunsInTheLiveTerminal() async throws {
+        try await Self.withTwoTerminals { p in
+            let coordinator = p.services.keyRouter.creationInputCoordinator
+            let before = Set(p.content.panes.keys)
+            var terminal = ActionInvocation(origin: .user)
+            terminal.opensTerminal = true
+            #expect(p.services.registry.perform("splitRight", invocation: terminal))
+            let standInPane = try #require(p.content.panes.first { !before.contains($0.key) }?.value, "the split shows no pane in its turn")
+            let standIn = try #require(standInPane.pane.tabs.first, "the split's stand-in has no tab")
+            try #require(ProvisionalTab.isProvisional(surface: standIn.surface), "the split replied in its own turn: no stand-in to test")
+            // The guard itself: a stand-in never arms a close hold, whatever the focus names.
+            #expect(coordinator.beginClose(of: [standIn], in: p.window) == nil, "a close hold armed for a cancelled stand-in")
+
+            #expect(try Self.cmdW(in: p), "the key router did not take Cmd-W")
+            try await PinnedPageTests.until({ !p.content.panes.values.contains { $0 === standInPane } },
+                                            report: { "waiting for the cancelled split's pane to go: \(p.content.panes.count) panes" })
+            try await PinnedPageTests.until({ !coordinator.isHolding(in: p.window) },
+                                            report: { "waiting for no key hold after the cancelled split: last end \(String(describing: coordinator.lastHoldEnd(in: p.window)))" })
+            let focused = try #require(p.content.focusedPane, "no focused pane after the cancelled split")
+            let live = try #require(focused.pane.tabs.first { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) },
+                                    "the focused pane after the cancelled split has no live terminal")
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            try Self.type("echo sd\(nonce)x$((6*7))\r", in: p)
+            let ran = await Self.shows("sd\(nonce)x42", on: live.surface, within: 10_000, in: p)
+            let screen = await Self.screen(live.surface, in: p)
+            #expect(ran, "the line typed after the cancelled split did not run whole in the focused live terminal: \(screen.suffix(400))")
+            #expect(coordinator.lastHoldEnd(in: p.window) != .limitReached, "a key hold ran out its 2 s bound after the cancelled split")
+        }
+    }
 }

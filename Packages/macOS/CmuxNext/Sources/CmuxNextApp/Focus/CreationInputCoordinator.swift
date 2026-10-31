@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDaemon
 import CmuxNextFocus
 import CmuxNextTerminal
 import os
@@ -102,9 +103,9 @@ final class CreationInputCoordinator {
         }
     }
 
-    /// A person's close of `tabs` waits for an answer (the close warning's read): when it takes the focused terminal, keys typed meanwhile are the close's (P0 close-then-type).
-    func beginClose(of tabs: [String], in window: NSWindow?) -> CreationInputBuffer.Ticket? {
-        guard let window, ActionRunScope.viewChangeAllowed(), let focused = router?.focus(for: window).0?.focus.state.terminalTab, tabs.contains(focused) else { return nil }
+    /// A person's close of `tabs` waits for an answer (the close warning's read): when it takes the focused live terminal (never a cancelled stand-in), keys typed meanwhile are the close's (P0 close-then-type).
+    func beginClose(of tabs: [TabModel], in window: NSWindow?) -> CreationInputBuffer.Ticket? {
+        guard let window, ActionRunScope.viewChangeAllowed(), let focused = router?.focus(for: window).0?.focus.state.terminalTab, tabs.contains(where: { $0.id == focused && $0.isLiveTerminal }) else { return nil }
         return buffer(in: window).openClose(closing: focused)
     }
 
@@ -120,8 +121,7 @@ final class CreationInputCoordinator {
     func endClose(_ ticket: CreationInputBuffer.Ticket?, parked: CreationInputBuffer.ParkedClose? = nil, stays: Bool = false, in window: NSWindow?) {
         if stays, let window, let parked, !parked.events.isEmpty {
             let lane = CreationInputBuffer.HeldLane(tab: parked.closing, machine: router?.focus(for: window).0?.content?.daemon.machineID)
-            _ = runAgain(CreationInputBuffer.heldKeys(parked.events, for: lane), from: buffers[window.windowNumber] ?? CreationInputBuffer(began: ContinuousClock.now), in: window)
-            return
+            return _ = runAgain(CreationInputBuffer.heldKeys(parked.events, for: lane), from: buffers[window.windowNumber] ?? CreationInputBuffer(began: ContinuousClock.now), in: window)
         }
         guard let window, let controller = router?.focus(for: window).0, let ticket = ticket ?? parked.flatMap({ $0.events.isEmpty ? nil : buffer(in: window).openClose(closing: $0.closing) }) else { return }
         buffers[window.windowNumber]?.settleClose(ticket, parked: parked, keysTo: controller.focus.state.terminalTab, machine: controller.content?.daemon.machineID)

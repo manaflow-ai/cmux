@@ -35,7 +35,7 @@ enum TabCloseGuard {
         asking.formUnion(ids)
         reading.formUnion(ids)
         // Keys typed during the read are the close's, never the closing terminal's; a question parks them for its answer.
-        let coordinator = services.keyRouter.creationInputCoordinator, keys = coordinator.beginClose(of: Array(ids), in: window)
+        let coordinator = services.keyRouter.creationInputCoordinator, keys = coordinator.beginClose(of: tabs, in: window)
         Task { @MainActor in
             let (prompt, asked) = await promptAndAnswers(closing: tabs, on: daemon, services: services)
             reading.subtract(ids)
