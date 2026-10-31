@@ -8,9 +8,10 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { translate } from "../i18n";
-import type { AcpmuxRow, PromptDelivery } from "../model";
+import type { AcpmuxRow, AcpmuxSnapshot, PromptDelivery } from "../model";
 import type { ComposerAttachment } from "../attachments";
 import { failedRuns, failedSendText } from "../sendFailure";
+import { messageMenuTarget } from "./messageMenu";
 import { DeliveryFailure, FailedSendsContext, type FailedSends } from "./PromptDelivery";
 
 let dom: JSDOM | undefined;
@@ -196,4 +197,9 @@ test("a prompt too large to send names its largest attachment and offers Edit, n
   expect(card.querySelector(".cv-user__failure-text")!.textContent).toBe(sentence);
   expect(button(card, "Retry")).toBeUndefined();
   expect(button(card, "Edit")).toBeDefined();
+  // Nor from the message's menu (the native context menu offers Retry for `retryRowId`).
+  const other = failed("b", "deploy", { code: "timeout", error: "no answer" });
+  const snapshot = { rows: [row, other], connection: "connected" } as unknown as AcpmuxSnapshot;
+  expect(messageMenuTarget(snapshot, "a")?.retryRowId).toBeUndefined();
+  expect(messageMenuTarget(snapshot, "b")?.retryRowId).toBe("b");
 });
