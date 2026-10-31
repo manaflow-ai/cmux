@@ -437,8 +437,11 @@ const showLessAtEnd = async (ctx: PlayContext) => {
   const more = { selector: ".cv-shell .cv-output-more" };
   await ctx.click(more);
   await ctx.waitFor(() => ctx.find(more).getAttribute("aria-expanded") === "true");
-  // The reader scrolls down to Show less, under the opened output, at the view's foot.
+  // The reader scrolls down to Show less, under the opened output, at the view's foot. A reader's
+  // scroll is a wheel, which lets go of the hold Show all's click started (App.tsx `release`); an
+  // offset set alone, inside that hold, is put back where the click held the row.
   const scroller = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;
+  scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: 120, bubbles: true, cancelable: true }));
   (ctx.find(more) as HTMLElement).scrollIntoView({ block: "end" });
   scroller.dispatchEvent(new Event("scroll"));
   const view = () => scroller.getBoundingClientRect();
