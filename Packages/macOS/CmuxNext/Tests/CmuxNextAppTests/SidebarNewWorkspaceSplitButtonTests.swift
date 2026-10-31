@@ -10,7 +10,10 @@ import Testing
 @MainActor @Suite(.serialized) struct SidebarNewWorkspaceSplitButtonTests {
     func sidebar(width: CGFloat = 280) -> SidebarView {
         _ = NSApplication.shared
-        let sidebar = SidebarView(model: SidebarModel(), design: DesignSettings())
+        // The chevron is opt-in (`sidebar.showNewWorkspaceChooser`, off by default since 2026-10-30).
+        let design = DesignSettings()
+        design.sidebarSections.showNewWorkspaceChooser = true
+        let sidebar = SidebarView(model: SidebarModel(), design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: width, height: 480)
         sidebar.layoutSubtreeIfNeeded()
         return sidebar
