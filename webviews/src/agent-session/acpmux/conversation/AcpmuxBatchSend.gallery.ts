@@ -89,7 +89,8 @@ const turn = (calls: ReturnType<typeof tool>[], working = false) =>
 const openGroups: Play = async (ctx) => {
   if (ctx.document.querySelector(".cv-worked.is-toggle")) {
     await ctx.click({ selector: ".cv-worked.is-toggle" });
-    await ctx.waitFor(() => ctx.document.querySelector(".cv-msggroup__line"));
+    // The "off" look draws no group line, only the rows.
+    await ctx.waitFor(() => ctx.document.querySelector(".cv-msggroup__line, .cv-sent"));
   }
   for (let at = 0; at < 8; at++) {
     if (!ctx.document.querySelector('.cv-msggroup__line[aria-expanded="false"]')) break;
