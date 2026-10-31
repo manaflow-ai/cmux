@@ -985,17 +985,13 @@ export function ComposerPickers({
           catalog fallback's, a harness acpmux does not have, so the row shows none of them. While
           acpmux has not listed its harnesses yet, `picksModel` holds and the placeholder keeps its
           place (#24517). */}
-      {picksModel &&
-        modes.length === 0 &&
-        startMode &&
-        startModeName &&
-        pendingAccessModes.length === 0 && (
-          <PendingMode
-            label={startModeName}
-            modeId={shownStart?.modeId}
-            icon={pendingMenu?.rows.find((row) => row.id === shownStart?.modeId)?.icon}
-          />
-        )}
+      {picksModel && modes.length === 0 && startMode && startModeName && pendingAccessModes.length === 0 && (
+        <PendingMode
+          label={startModeName}
+          modeId={shownStart?.modeId}
+          icon={pendingMenu?.rows.find((row) => row.id === shownStart?.modeId)?.icon}
+        />
+      )}
       {(modes.length > 0 || pendingAccessModes.length > 0) && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
@@ -1080,9 +1076,9 @@ function PendingMode({ label, modeId, icon }: { label: string; modeId?: unknown;
 
 /** The permission control stays quiet in the footer: the mode's shield names the control and the
  * menu carries the mode title and one-line explanation, each row with its own shield. The menu
- * lists the modes alone: granted folder trust and chat allowance are revoked in Session Info's
- * Environment (EnvironmentSection.tsx), not here (Leo, 2026-10-29). Base UI owns focus, typeahead
- * and Escape. */
+ * lists the modes alone: granted folder trust and chat allowance are revoked from the chat menu's
+ * Revoke Granted Access (header/grantsMenu.ts) and Session Info's Environment, not here (Leo,
+ * 2026-10-29). Base UI owns focus, typeahead and Escape. */
 /// Runs a mode pick; resolves false when the agent refused it (a rejected promise or a throw).
 function settle(run: () => void | Promise<unknown>): Promise<boolean> {
   try {

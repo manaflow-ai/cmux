@@ -163,7 +163,8 @@ const trustThenPermission: Play = async (ctx) => {
   ctx.find({ role: "button", name: allowAlways });
   ctx.find({ role: "button", name: allowOnce });
   geometry(ctx);
-  // The granted trust is revoked in Session Info's Environment, never from the composer's mode menu
+  // The granted trust is revoked from the chat menu's Revoke Granted Access (or Session Info's
+  // Environment), never from the composer's mode menu
   // (Leo, 2026-10-29): these chats offer no modes, so the composer draws no Access menu for it.
   if (ctx.document.querySelector(".acpmux-access-trigger, .acpmux-access-grant"))
     throw new Error("The composer shows a mode menu for granted access");

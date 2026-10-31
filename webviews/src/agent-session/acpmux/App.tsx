@@ -155,7 +155,7 @@ import {
 } from "./attachments";
 import type { KeptAttachments } from "./composer/keptAttachments";
 import { ComposerPickers, PICKER_LABELS } from "./ComposerPickers";
-import type { AccessGrant } from "./inspector/EnvironmentSection";
+import { chatAccessGrants, revokeAccessRows } from "./header/grantsMenu";
 import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
 import { ChatUnavailableState } from "./ChatUnavailableState";
@@ -6743,10 +6743,11 @@ function AcpmuxPane() {
       workflows.length > 0 ? { list: workflows, onStop: stopSubagent, onOpenAgent: showWorkflowAgent } : undefined,
     [workflows, stopSubagent, showWorkflowAgent],
   );
-  // What the chat was granted, revoked from Session Info's Environment (EnvironmentSection.tsx),
-  // never from the composer's mode menu, which lists the modes alone (Leo, 2026-10-29). The trusted
-  // grant names where the answer lives (the repository, a worktree's root, the folder), from the
-  // answer just given or the last read; its × forgets it there.
+  // What the chat was granted (header/grantsMenu.ts): revoked from the chat menu's Revoke Granted
+  // Access, always there, and from Session Info's Environment when it shows; never from the
+  // composer's mode menu, which lists the modes alone (Leo, 2026-10-29). The trusted grant names
+  // where the answer lives (the repository, a worktree's root, the folder), from the answer just
+  // given or the last read.
   const trustScope =
     trustAsk.ask?.state === "decided" && trustAsk.ask.level === "trusted" ? trustAsk.ask : trustAsk.scope;
   const trustLabel = trustScope
@@ -6754,30 +6755,18 @@ function AcpmuxPane() {
       ? t("trust.trustedPrivate")
       : trustedLabel(t, trustScope)
     : undefined;
-  const accessGrants: AccessGrant[] = [
-    ...(trustAsk.trusted
-      ? [
-          {
-            id: "folder-trust",
-            label: trustLabel ?? t("trust.trustedPrivate"),
-            onRemove: trustAsk.undo,
-          },
-        ]
-      : []),
-    ...(snapshot.permissionGroups?.chatAllowance
-      ? [
-          {
-            id: "chat-permission",
-            label: t("permission.allowChat"),
-            // A grant shown from the chat's last read until its refresh lands: removable once it is read.
-            onRemove: () =>
-              snapshot.permissionGroups?.ready === false
-                ? undefined
-                : void callNative("chat.permission_chat.revoke", {}),
-          },
-        ]
-      : []),
-  ];
+  const accessGrants = chatAccessGrants(
+    {
+      trusted: trustAsk.trusted,
+      trustLabel,
+      untrust: trustAsk.undo,
+      chatAllowance: Boolean(snapshot.permissionGroups?.chatAllowance),
+      // A grant shown from the chat's last read until its refresh lands: removable once it is read.
+      allowanceUnread: snapshot.permissionGroups?.ready === false,
+      revokeAllowance: () => void callNative("chat.permission_chat.revoke", {}),
+    },
+    t,
+  );
   const inspector = useChatInspector({
     snapshot,
     machineName,
@@ -9462,6 +9451,8 @@ function AcpmuxPane() {
             },
           ]
         : []),
+      // Revoke Granted Access: the chat's grants, revocable with default settings (header/grantsMenu.ts).
+      ...revokeAccessRows(accessGrants, t),
     ];
     // Quick Chat's panel is not a tab: only the chat's own actions.
     if (quick) return menuGroups(fork, continueIn, copy ? [copy] : [], tools);

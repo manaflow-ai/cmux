@@ -54,5 +54,19 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.document.querySelectorAll("li[data-grant]").length === 2);
       },
     },
+    "granted-hover": {
+      note: "Pointing at a grant shows its own Revoke, at once and on that row alone; the other grant's Revoke stays out of sight (still reachable with Tab).",
+      props: { failFirst: false, granted: true },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll("li[data-grant]").length === 2);
+        await ctx.hover({ selector: 'li[data-grant="folder-trust"]' });
+        await ctx.waitFor(() => {
+          const shown = (id: string) =>
+            ctx.document.defaultView!.getComputedStyle(ctx.document.querySelector(`li[data-grant="${id}"] > button`)!)
+              .opacity;
+          return shown("folder-trust") === "1" && shown("chat-permission") === "0";
+        });
+      },
+    },
   },
 });

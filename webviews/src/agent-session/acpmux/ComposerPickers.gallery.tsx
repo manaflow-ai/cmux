@@ -410,8 +410,8 @@ const managedMode: Play = async (ctx) => {
     throw new Error("Full access must say it is managed by the organization");
 };
 
-// The mode menu lists the modes alone (Leo, 2026-10-29): granted access is revoked in Session
-// Info's Environment (inspector/EnvironmentSection.tsx), never from this menu.
+// The mode menu lists the modes alone (Leo, 2026-10-29): granted access is revoked from the chat
+// menu's Revoke Granted Access (header/grantsMenu.ts), never from this menu.
 const modesOnly: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Mode" });
   await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"]') !== null);
@@ -531,7 +531,7 @@ export default componentEntry<Props>({
       play: managedMode,
     },
     "modes-only": {
-      note: "The mode menu lists the modes alone: no Granted access section (Leo, 2026-10-29); grants are revoked in Session Info's Environment.",
+      note: "The mode menu lists the modes alone: no Granted access section (Leo, 2026-10-29); grants are revoked from the chat menu's Revoke Granted Access.",
       props: {},
       play: modesOnly,
     },

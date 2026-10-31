@@ -3,8 +3,9 @@
 // never "This computer", with Save; then the chat's project (chatFolders.ts), named by its
 // repository, whose full path only a hover shows; the GitHub repository; the branch. Then Remote
 // Control, when the App offers it. Last, what the chat was granted (the folder's trust, a chat-wide
-// allowance), each with Revoke: their one home, since the composer's mode menu lists the modes
-// alone (Leo, 2026-10-29). A chat in a temporary or internal folder (a harness's scratchpad)
+// allowance), each with Revoke on its own row's hover or focus. The chat menu's Revoke Granted
+// Access (header/grantsMenu.ts) lists the same grants in every chat; the composer's mode menu lists
+// the modes alone (Leo, 2026-10-29). A chat in a temporary or internal folder (a harness's scratchpad)
 // has no project row and no Save: only its machine. Every row does something: the project opens in
 // the Files tree beside the chat, the repository and the branch are links to GitHub, which the pane
 // opens in the browser as it opens a reply's link.
@@ -244,7 +245,7 @@ export function EnvironmentSection({
         </li>
       )}
       {grants.map((grant) => (
-        <li className="acpmux-chat-inspector-row" key={grant.id} data-grant={grant.id}>
+        <li className="acpmux-chat-inspector-row acpmux-chat-inspector-row--grant" key={grant.id} data-grant={grant.id}>
           <Icon name="security.lock" size={ROW_ICON} row />
           <span className="acpmux-chat-inspector-row__name">{grant.label}</span>
           <button
