@@ -31,12 +31,13 @@ class AttachmentCapsGuardTests(unittest.TestCase):
                 with self.subTest(path=relative, name=name):
                     self.assertTrue(reason.strip())
                     self.check_source(f"let {name} = 1", 0, relative)
-                    # Home additionally checks short maxBytes-style names; the general scanner
-                    # keeps its existing grammar for unrelated upload policies.
-                    expected = int(guard.FORBIDDEN.fullmatch(name) is not None)
+                    expected = int(guard.FORBIDDEN.fullmatch(name) is not None or guard.FORBIDDEN_COUNT.fullmatch(name) is not None)
                     self.check_source(f"let {name} = 1", expected, "new/uploads/service.swift")
-            self.check_source("let maximumNewFileBytes = 1", 1, relative)
-            self.check_source("guard size <= 1_048_576 else { return failure() }", 1, relative)
+            if guard.attachment_path(Path(relative)):
+                self.check_source("let maximumNewFileBytes = 1", 1, relative)
+                self.check_source("guard size <= 1_048_576 else { return failure() }", 1, relative)
+                self.check_source("guard files.count <= 64 else { return failure() }", 1, relative)
+            self.check_source("let MAX_NEW_ATTACHMENTS = 1", 1, relative)
 
     def test_camel_case_file_and_stage_caps(self):
         for name in ("maximumFileSize", "maximumUploadBytes", "maximumUploadStageFile", "maximumStagedBytes"):

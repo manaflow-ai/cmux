@@ -28,6 +28,8 @@
 .nt-popover .nt-rows{--popup-scroll-cap:360px;box-sizing:border-box;padding:var(--ui-popup-padding);max-height:min(48vh,360px);overflow:auto;overscroll-behavior:contain}
 .nt-row{display:flex;align-items:center;gap:10px;height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);color:var(--agent-soft);font-size:var(--text-control);white-space:nowrap;letter-spacing:var(--text-control--letter-spacing)}
 .nt-row.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
+/* The pointer lights the row it is on in a neutral fill, apart from Return's row (is-selected, with its ↵): hover never takes Return (Leo 2026-10-31: "i cant even press enter on that hello anymore it doesnt send it to claude"). */
+.nt-row:not(.is-selected):hover,.nt-create-strip-item:not(.is-selected):hover{background:color-mix(in srgb,var(--agent-text) 5%,transparent);color:var(--agent-text)}
 .nt-row-glyph{flex:none;display:grid;place-items:center;width:16px;height:16px}
 .nt-row-icon{color:var(--acpmux-composer-dim)}
 .nt-row.is-selected .nt-row-icon,.nt-row:not(:disabled):hover .nt-row-icon{color:var(--agent-text)}
@@ -137,7 +139,9 @@
   gap: var(--nt-composer-gap);
 }
 :root:not([data-top-strip]) .nt-screen .nt-composer .acpmux-composer-strip {
-  --acpmux-strip-height: 26px;
+  /* The chat composer's strip height (composerLocation.css), so the two heads match (Leo
+     2026-10-29: "stop making them take up so much space"). */
+  --acpmux-strip-height: 24px;
   margin: 0;
   /* The ghost buttons' own inset puts the folder icon on the field's text edge. */
   padding: 0 6px;
@@ -386,7 +390,7 @@
 
 /* The browser omnibar's pointer (OmnibarPointer, cx-d0d.80): the field row is the text area, so
    the I-beam shows over all of it (a press there focuses the field, focusFromRow); its glyphs keep
-   the arrow, and the pickers and buttons show the pointing hand (desktop.css). The box itself has no hover state: it is the composer's surface at rest,
+   the arrow, and the pickers and buttons show the arrow (desktop.css). The box itself has no hover state: it is the composer's surface at rest,
    under the pointer and while it has the keyboard (Leo 2026-10-18). */
 .nt-input {
   cursor: text;
@@ -566,43 +570,6 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
    pane), so the New Tab composer is as wide as the chat composer in the same pane (Leo 2026-10-21). */
 /* The quiet row sits 4 px under the box (the column gap is 6). */
 .nt-foot .acpmux-composer-foot { margin-top: -2px; }
-/* Claude's location controls share the existing quiet row, never a tray of their own (Leo:
-   "the claw thing should be one single row"). Codex and the non-split templates retain theirs. */
-.nt-foot :is(.nt-location, .acpmux-composer-strip, .acpmux-composer-context) {
-  display: contents;
-}
-.nt-foot .acpmux-composer-strip::after { content: none; }
-.nt-foot .acpmux-composer-context > .acpmux-location-leading {
-  order: -3;
-  flex: 0 0 45%;
-  max-width: 45%;
-  margin-inline-end: auto;
-}
-.nt-foot:has(.acpmux-access) .acpmux-location-leading { margin-inline-end: 0; }
-/* Choosing a project replaces the folder glyph with its badge and can shorten its name.
-   Keep the folder slot reserved so machine and permission controls stay where the person found
-   them, but size its button to the content. Long names still truncate inside the slot. */
-.nt-foot .acpmux-location-leading > .acpmux-location-picker:first-child { flex: 1; }
-.nt-foot .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-location-button {
-  width: fit-content;
-  max-width: 100%;
-  padding-inline-start: calc(var(--ui-ghost-inset) - var(--ui-ghost-bearing));
-}
-.nt-foot .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-location-label {
-  flex: 0 1 auto;
-  text-align: start;
-}
-.nt-foot .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-project-badge {
-  width: var(--ui-ghost-icon-size);
-  height: var(--ui-ghost-icon-size);
-}
-
-.nt-foot .acpmux-location-leading .acpmux-project-badge > img { max-width: 100%; max-height: 100%; }
-.nt-foot .acpmux-composer-context > .acpmux-location-picker:last-child {
-  order: -2;
-  margin-inline: 0;
-}
-
 /* The stage layout (templates.ts stage; Leo 2026-10-19, Claude Code desktop's new-session screen):
    the composer at the foot of the page, full width of the column. The stage centers its cards
    while they fit. When content grows, the whole page scrolls together. */

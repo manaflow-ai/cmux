@@ -36,6 +36,23 @@ export const ATTACHMENT_LIMITS = {
   unreferencedGraceMs: 24 * 3_600_000
 } as const
 
+const MiB = 1024 * 1024
+/** R2 multipart: at most 10,000 parts; every part but the last has the same size. */
+export const MULTIPART_PART_COUNT = 10_000
+
+/**
+ * How a multipart original is cut: 32 MiB parts, grown in whole MiB only when the file needs more
+ * than 10,000 of them (1 TiB takes 105 MiB parts). Each part is one PUT through the Worker and one
+ * R2 part, so no request or Worker invocation does work that grows with the file. A whole number of
+ * MiB keeps every part boundary on a SHA-256 block, so the hash carries from part to part. Above
+ * about 931 GiB a part is larger than 100 MB, the request body cap of Cloudflare's Free and Pro
+ * plans (Business allows 200 MB, Enterprise 500 MB; the self-hosted server has none).
+ */
+export const multipartPlan = (byteCount: number): { readonly partBytes: number; readonly parts: number } => {
+  const partBytes = Math.max(32 * MiB, Math.ceil(byteCount / MULTIPART_PART_COUNT / MiB) * MiB)
+  return { partBytes, parts: Math.max(1, Math.ceil(byteCount / partBytes)) }
+}
+
 /**
  * The type of a file with no listed type: bytes that do not read as UTF-8 text. Clients send UTF-8
  * text of any name (HTML, source code, dotfiles) as text/plain and every other file as this type,

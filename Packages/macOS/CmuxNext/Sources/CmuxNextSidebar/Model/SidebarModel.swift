@@ -11,6 +11,9 @@ public import Observation
 /// the mock runs standalone.
 @Observable @MainActor
 public final class SidebarModel {
+    /// Effective New Workspace keycaps supplied by the app action registry; nil when unbound.
+    public var newWorkspaceShortcut: String?
+
     /// Pinned area first (optional), then one section per machine. A set is
     /// a structural change (`sectionsRevision` moves, the list reloads); a row
     /// content change goes through `patchWorkspaces` and reloads nothing.
@@ -24,13 +27,14 @@ public final class SidebarModel {
             let newValue = newValue.map { $0.resolvingGroupDepths() }
             // An unchanged set is no structural change (an intent that edits nothing).
             guard newValue != storedSections else { return }
+            let paths = Self.groupPaths(in: newValue)
             withMutation(keyPath: \.sections) {
                 storedSections = newValue
+                groupPaths = paths
                 sectionsRevision &+= 1
                 structureRevision = sectionsRevision
             }
             rowIndex = nil
-            groupPaths = nil
         }
     }
     @ObservationIgnored private var storedSections: [SidebarSection] { didSet { contentRevision &+= 1 } }
@@ -55,8 +59,8 @@ public final class SidebarModel {
         access(keyPath: \.sections)
         return structureRevision
     }
-    /// Where each group sits in `sections` (section, node); built on the first fold after a set.
-    @ObservationIgnored var groupPaths: [GroupID: (section: Int, node: Int)]?
+    /// Where each group sits in `sections` (section, node); prepared with the sections, before a header click.
+    @ObservationIgnored private var groupPaths: [GroupID: (section: Int, node: Int)] = [:]
     /// Told each group `setGroupCollapsed` folded or opened (the list splices that group's rows).
     @ObservationIgnored public var onGroupFolded: ((GroupID) -> Void)?
 
@@ -64,16 +68,7 @@ public final class SidebarModel {
     /// place, no structural set, then `onGroupFolded`, so it costs the group's rows. False when no listed group has `id`.
     @discardableResult
     public func setGroupCollapsed(_ id: GroupID, _ collapsed: Bool) -> Bool {
-        if groupPaths == nil {
-            var paths: [GroupID: (section: Int, node: Int)] = [:]
-            for (s, section) in storedSections.enumerated() {
-                for (n, node) in section.nodes.enumerated() {
-                    if case let .group(group) = node, paths[group.id] == nil { paths[group.id] = (s, n) }
-                }
-            }
-            groupPaths = paths
-        }
-        guard let (s, n) = groupPaths?[id], case var .group(group) = storedSections[s].nodes[n] else { return false }
+        guard let (s, n) = groupPaths[id], case var .group(group) = storedSections[s].nodes[n] else { return false }
         guard group.isCollapsed != collapsed else { return true }
         group.isCollapsed = collapsed
         revealedMembers[id] = nil
@@ -83,10 +78,9 @@ public final class SidebarModel {
         return true
     }
 
-    /// The section that lists group `id` (O(1) after a fold built `groupPaths`).
+    /// The section that lists group `id`, using the lookup prepared with the sections.
     func groupSection(_ id: GroupID) -> SidebarSection? {
-        if let (s, _) = groupPaths?[id] { return storedSections[s] }
-        return SidebarEdits.locateGroup(id, in: storedSections).map { storedSections[$0.section] }
+        groupPaths[id].map { storedSections[$0.section] }
     }
     /// `sectionsRevision` at the user's last keyboard move (never a drop): the next structural set may scroll to the moved
     /// active row; nil, none waits. Changes from others never move the view (DESIGN.md scroll reveal, cx-ml98q).
@@ -218,7 +212,9 @@ public final class SidebarModel {
     public var updatedCard: SidebarUpdatedCard?
     /// The Now Playing card (cx-ouoxo), shown only while ``updateCard`` is nil.
     public var nowPlaying: SidebarNowPlaying?
-    /// Whether each workspace expands to show its intra-workspace tabs.
+    /// Whether each workspace lists its tabs under it. No setting turns it on: every sidebar is the
+    /// plain workspace list (Lawrence 2026-10-30, "i dont want to see tabs expanded inside of sidebar";
+    /// `sidebar.showWorkspaceTabs` is retired). Tests still set it to cover the tab-row code.
     public var showWorkspaceTabs = false
     /// The workspaces whose disclosure hid their tabs: window view state.
     public var collapsedWorkspaces: Set<WorkspaceID> = []
@@ -266,12 +262,28 @@ public final class SidebarModel {
     /// sidebar comes back at the user's width.
     public var width: CGFloat = Metrics.sidebarWidth {
         didSet {
-            let clamped = min(max(width, Self.widthRange.lowerBound), Self.widthRange.upperBound)
+            let clamped = min(max(width, widthRange.lowerBound), widthRange.upperBound)
             if clamped != width { width = clamped }
         }
     }
 
-    public static var widthRange: ClosedRange<CGFloat> { Metrics.sidebarMinWidth...Metrics.sidebarMaxWidth }
+    /// The width the sidebar's titlebar row needs so its controls never overlap: the window's
+    /// traffic lights and toolbar band, then the + (`SidebarView.titlebarControlsWidth`, set from
+    /// the window's layout). Raising it clamps a narrower `width` at once, so a width saved below
+    /// it comes back wide enough (Lawrence 2026-10-30: Forward drew over the + at 160 pt).
+    public var titlebarControlsWidth: CGFloat = 0 {
+        didSet {
+            guard titlebarControlsWidth != oldValue, width < minimumWidth else { return }
+            width = minimumWidth
+        }
+    }
+
+    /// The narrowest the sidebar gets: the `sidebarMinWidth` tunable or what the titlebar row's
+    /// controls need, whichever is wider.
+    public var minimumWidth: CGFloat { max(Metrics.sidebarMinWidth, titlebarControlsWidth) }
+
+    /// The widths the sidebar may take: from ``minimumWidth`` to the `sidebarMaxWidth` tunable.
+    public var widthRange: ClosedRange<CGFloat> { minimumWidth...max(minimumWidth, Metrics.sidebarMaxWidth) }
 
     /// Receives every intent. When nil, `send` applies intents locally.
     @ObservationIgnored public var onIntent: ((SidebarIntent) -> Void)?
@@ -287,6 +299,7 @@ public final class SidebarModel {
 
     public init(sections: [SidebarSection] = [], activeWorkspaceID: WorkspaceID? = nil) {
         storedSections = sections.map { $0.resolvingGroupDepths() }
+        groupPaths = Self.groupPaths(in: storedSections)
         collapsedSections = Set(sections.filter(\.isCollapsed).map(\.id))
         self.activeWorkspaceID = activeWorkspaceID
         if let activeWorkspaceID { selection = [activeWorkspaceID] }
@@ -340,13 +353,8 @@ public final class SidebarModel {
     public func workspace(_ id: WorkspaceID) -> SidebarWorkspace? { SidebarEdits.workspace(id, in: sections) }
 
     public func group(_ id: GroupID) -> SidebarGroup? {
-        // O(1) once a fold built `groupPaths` (a header click reads its group, then folds it).
-        if let (s, n) = groupPaths?[id] {
-            access(keyPath: \.sections)
-            if case let .group(group) = storedSections[s].nodes[n] { return group }
-        }
-        guard let (s, n) = SidebarEdits.locateGroup(id, in: sections),
-              case let .group(group) = sections[s].nodes[n] else { return nil }
+        access(keyPath: \.sections)
+        guard let (s, n) = groupPaths[id], case let .group(group) = storedSections[s].nodes[n] else { return nil }
         return group
     }
 
@@ -546,8 +554,6 @@ public final class SidebarModel {
 
     /// The `sidebar.*` settings that shape the workspace list.
     func applyListPreferences(_ preferences: SidebarSectionsPreferences) {
-        // Minimal mode lists no tab rows under a workspace.
-        showWorkspaceTabs = preferences.showWorkspaceTabs && !preferences.minimal
         workspaceRow = preferences.workspaceRow
         (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
         detailedStatus = preferences.detailedStatusIcons

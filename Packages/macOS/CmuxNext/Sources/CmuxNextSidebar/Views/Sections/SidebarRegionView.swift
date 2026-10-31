@@ -374,6 +374,8 @@ final class SidebarRegionView: NSView {
         // workspace as a workspace row's x does (SidebarItemRowView+HoverActions).
         view.onMore = { [weak self, weak view] in
             guard let view, let button = view.hoverMore, let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
+            view.showsMenu = true
+            defer { view.showsMenu = false }
             _ = menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.isFlipped ? button.bounds.maxY : 0), in: button)
         }
         view.onClose = { [weak self, weak view] in

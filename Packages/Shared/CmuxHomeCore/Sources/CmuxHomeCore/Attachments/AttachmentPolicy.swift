@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 public struct HomeAttachmentPolicy {
     public init() {}
     /// Up to this size a source streams the bytes through the owner's
-    /// Worker; larger files go to a presigned PUT followed by a commit call.
+    /// Worker; larger files use bounded multipart pieces through the Worker.
     public static let streamMaxBytes = 32_000_000
     /// At most this many parts per message (attachments plus text): the
     /// owner's bound on one message (cmux-conversation `MAX_PARTS`), never on
