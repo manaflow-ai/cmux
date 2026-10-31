@@ -93,8 +93,8 @@ extension SidebarListViewComponents {
     /// The header a drop into `group` lines up with (its depth sets the gap's and the card's step-in): the group's
     /// header row, or for a group drawn as its one row, the header that row stands for (`SidebarRow.standingHeader`).
     func dropHeader(_ group: GroupID, in layout: SidebarLayout) -> SidebarRow? {
-        if let header = layout.row(for: .group(group)) { return header }
-        return (model.group(group)?.workspaces ?? []).lazy.compactMap { layout.row(for: .workspace($0.id))?.standingHeader }.first
+        guard let row = layout.groupRow(group) else { return nil }
+        return row.standingHeader ?? row
     }
 
     /// Sets each realized row's selection, multi-selection and drop-target fill from the model and the live drag, as

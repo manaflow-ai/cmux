@@ -371,6 +371,7 @@ extension SidebarListViewComponents {
             view.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id) || standsForDropGroup(row)
             // A group drawn as its one row draws its header's keyboard focus ring (`SidebarGroupKeys`).
             view.isKeyboardFocused = showsFocusRing && row.standsForGroup && row.group == focusedGroup
+            view.standingGroup = row.standsForGroup ? row.group.map(standingGroupAccess) : nil
         case let (.item(id), view as SidebarItemListRowView):
             guard let item = listItems[id] else { return }
             view.configure(item, favicon: item.iconAddress.flatMap { SidebarModel.itemFavicon?($0) }, row: row)

@@ -1,5 +1,15 @@
 import AppKit
 
+/// What VoiceOver reaches on a group's header, for the one row a group draws as (`SidebarLayout+SoleMember`): the
+/// header's expanded state and its editor, menu, New Workspace and fold actions, beside the workspace's own.
+struct StandingGroupAccess {
+    var expanded: Bool
+    var toggle: () -> Void
+    var edit: () -> Void
+    var menu: () -> Void
+    var add: (() -> Void)?
+}
+
 extension WorkspaceRowView {
     /// Routes AXPress through the sidebar's shared workspace selection action.
     override func accessibilityPerformPress() -> Bool {
@@ -26,7 +36,19 @@ extension WorkspaceRowView {
         if let onMore {
             actions.append(NSAccessibilityCustomAction(name: Strings.workspaceMenu) { onMore(); return true })
         }
+        if let group = standingGroup {
+            actions.append(NSAccessibilityCustomAction(name: GroupEditorStrings.editor) { group.edit(); return true })
+            actions.append(NSAccessibilityCustomAction(name: GroupEditorStrings.moreActions) { group.menu(); return true })
+            if let add = group.add { actions.append(NSAccessibilityCustomAction(name: GroupEditorStrings.newWorkspace) { add(); return true }) }
+            let fold = group.expanded ? GroupEditorStrings.collapse : GroupEditorStrings.expand
+            actions.append(NSAccessibilityCustomAction(name: fold) { group.toggle(); return true })
+        }
         return actions.isEmpty ? nil : actions
+    }
+
+    /// The header's AXExpanded on the row that stands for its group; nil (a plain row) otherwise.
+    override func isAccessibilityExpanded() -> Bool {
+        standingGroup?.expanded ?? super.isAccessibilityExpanded()
     }
 
     func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent, title: String? = nil) -> String {

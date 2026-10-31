@@ -65,6 +65,14 @@ nonisolated extension SidebarLayout {
     }
 }
 
+nonisolated extension SidebarLayout {
+    /// The row that is `group`'s on screen: its header, or the one row it draws as (`standsForGroup`) when it has none.
+    /// Every lookup of a group's row, frame or stop goes through here; nil when the layout shows neither.
+    func groupRow(_ group: GroupID) -> SidebarRow? {
+        row(for: .group(group)) ?? rows.first { $0.standsForGroup && $0.group == group }
+    }
+}
+
 nonisolated extension SidebarRow {
     /// The header a group's one row (`standsForGroup`) stands for: the group's open header in the row's place, for code
     /// that plans by headers (the drop resolvers, a group drag's blocks). Nil for any other row.

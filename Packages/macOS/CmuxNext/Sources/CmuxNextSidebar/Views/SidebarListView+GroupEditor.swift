@@ -79,7 +79,7 @@ struct SidebarGroupEditing {
         guard list.groups[id] != nil, let window = list.window, list.model.presentation == .shown, list.drag == nil else { return }
         // A click whose mouse-down closed this group's editor toggles it closed.
         if list.groupEditor.closedByThisClick(id, event: NSApp.currentEvent) { return }
-        if let row = list.displayed.row(for: .group(id)) ?? standingRow(id) { list.scrollToVisible(list.frame(for: row)) }
+        if let row = list.displayed.groupRow(id) { list.scrollToVisible(list.frame(for: row)) }
         list.realizeVisibleRows()
         guard let group = list.groups[id] else { return }
         guard let view = list.rowViews[.group(id)] as? GroupHeaderRowView else { return openAtStandingRow(group, window: window) }
@@ -99,13 +99,9 @@ struct SidebarGroupEditing {
     }
 
     /// The row a group drawn as its one row draws (`SidebarLayout+SoleMember`): it has no header.
-    private func standingRow(_ id: GroupID) -> SidebarRow? {
-        list.displayed.rows.first { $0.standsForGroup && $0.group == id }
-    }
-
     /// The editor of a group drawn as its one row, at that row's title: Rename from its menu, Return from the keyboard.
     private func openAtStandingRow(_ group: SidebarGroup, window: NSWindow) {
-        guard let row = standingRow(group.id), let view = list.rowViews[row.key] else { return }
+        guard let row = list.displayed.groupRow(group.id), let view = list.rowViews[row.key] else { return }
         let rowFrame = list.frame(for: row)
         let title = view.titleFrame.offsetBy(dx: rowFrame.minX, dy: rowFrame.minY)
         let anchor = PopupAnchor(rect: window.convertToScreen(list.convert(title, to: nil)), edge: .leading)
@@ -126,7 +122,7 @@ struct SidebarGroupEditing {
         guard let menu = list.contextMenuProvider?(.group(id)) else { return }
         guard let view = list.rowViews[.group(id)] as? GroupHeaderRowView else {
             // A group drawn as its one row: on that row's trailing edge.
-            guard let row = standingRow(id), let view = list.rowViews[row.key] else { return }
+            guard let row = list.displayed.groupRow(id), let view = list.rowViews[row.key] else { return }
             return list.menuPresenter(menu, PopupAnchor(rect: view.bounds, edge: .trailing), view)
         }
         list.menuPresenter(menu, PopupAnchor(rect: view.moreButton.frame, edge: .trailing), view)
@@ -136,7 +132,7 @@ struct SidebarGroupEditing {
     func followScroll() {
         guard let shown = list.groupEditor.shownGroup else { return }
         let visible = list.enclosingScrollView?.contentView.bounds ?? list.bounds
-        guard let row = list.displayed.row(for: .group(shown)) ?? standingRow(shown), visible.intersects(list.frame(for: row))
+        guard let row = list.displayed.groupRow(shown), visible.intersects(list.frame(for: row))
         else { return list.groupEditor.hide() }
     }
 
@@ -161,5 +157,35 @@ struct SidebarGroupEditing {
             list.rowViews[row.key] = view
             list.wire(view, key: row.key)
         }
+        followFocus(from: old, to: new)
+    }
+
+    /// Keyboard focus on a group the store gave a new id moves to the new id, whatever row the group draws as: a group
+    /// drawn as its one row (`SidebarLayout+SoleMember`) keeps its member's row, so no header view moves above.
+    private func followFocus(from old: SidebarLayout, to new: SidebarLayout) {
+        guard let focused = list.focusedGroup, list.groups[focused] == nil, new.groupRow(focused) == nil else { return }
+        let members = Set(old.rows.compactMap { row -> WorkspaceID? in
+            guard row.group == focused, case let .workspace(id) = row.key else { return nil }
+            return id
+        })
+        guard !members.isEmpty,
+              let moved = list.groups.values.first(where: { $0.workspaces.contains { members.contains($0.id) } }) else { return }
+        list.focusedGroup = moved.id
+    }
+}
+
+extension SidebarListView {
+    /// Group `id`'s header actions for the one row it draws as, through the paths the header's own use (`wire`).
+    func standingGroupAccess(_ id: GroupID) -> StandingGroupAccess {
+        StandingGroupAccess(
+            expanded: groups[id]?.isCollapsed == false,
+            toggle: { [weak self] in
+                self?.model.noteUserIntent()
+                self?.model.send(.toggleCollapse(.group(id)))
+            },
+            edit: { [weak self] in self?.groupEditing.open(id, from: .moreButton) },
+            menu: { [weak self] in self?.groupEditing.showMenu(id) },
+            add: onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
+        )
     }
 }

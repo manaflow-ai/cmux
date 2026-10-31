@@ -109,10 +109,11 @@ import AppKit
         list.showsFocusRing = ring && group != nil
         for key in [old, group].compactMap({ $0 }) {
             let ringed = list.showsFocusRing && key == group
-            (list.rowViews[.group(key)] as? GroupHeaderRowView)?.isKeyboardFocused = ringed
-            // A group drawn as its one row rings that row (`SidebarListView.configure` on a reload).
-            for row in list.displayed.rows where row.standsForGroup && row.group == key {
-                (list.rowViews[row.key] as? WorkspaceRowView)?.isKeyboardFocused = ringed
+            // The header, or the one row a group draws as (`SidebarListView.configure` rings it on a reload too).
+            switch list.displayed.groupRow(key).flatMap({ list.rowViews[$0.key] }) {
+            case let header as GroupHeaderRowView: header.isKeyboardFocused = ringed
+            case let row as WorkspaceRowView: row.isKeyboardFocused = ringed
+            default: break
             }
         }
     }
