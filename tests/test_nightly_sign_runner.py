@@ -38,15 +38,13 @@ SIGNING_JOBS = {
     "verify-final-dmg-nightly": "needs.pick-nightly-sign-runner.outputs.runner",
     "recover-nightly-next-notarization": "needs.find-nightly-next-recovery.outputs.sign_runner",
     "verify-recovered-nightly-next": "needs.find-nightly-next-recovery.outputs.sign_runner",
-    "sign-nightly-identity-legacy": "needs.legacy-identity-target.outputs.sign_runner",
-    # Its same-run Blacksmith twin (tests/test_ci_signing_owned_mac.py).
-    "sign-nightly-identity-legacy-blacksmith": "needs.legacy-identity-target.outputs.sign_runner",
-    "verify-nightly-identity-legacy": "needs.legacy-identity-target.outputs.sign_runner",
-    # Signs the Sparkle deltas (the release environment), after the feed is published.
-    "generate-nightly-deltas": "needs.pick-nightly-sign-runner.outputs.runner",
     # The release-pool path's one Mac job: Apple's checks and the DMG image, no secrets.
     "signer-dmg-image": "needs.pick-nightly-sign-runner.outputs.runner",
 }
+# Jobs that never take Blacksmith (Lawrence, 2026-10-30: nightlies never use Blacksmith): an owned
+# pick where one exists, then the owned nightly slot variable, then the owned side lane.
+OWNED_ONLY_JOBS = ("sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "generate-nightly-deltas")
+OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER }}"
 # Each picker's re-run label, the other Blacksmith macOS 26 size.
 ALTERNATES = {
     "needs.pick-nightly-sign-runner.outputs.runner": "needs.pick-nightly-sign-runner.outputs.alternate",
@@ -310,6 +308,17 @@ class Workflow(unittest.TestCase):
                 needs = jobs[name]["needs"]
                 self.assertIn(picked.split(".")[1], [needs] if isinstance(needs, str) else needs)
 
+    def test_owned_only_jobs_never_name_blacksmith(self) -> None:
+        jobs = WORKFLOW["jobs"]
+        for name in OWNED_ONLY_JOBS:
+            with self.subTest(job=name):
+                runs_on = str(jobs[name]["runs-on"])
+                self.assertTrue(runs_on.endswith(OWNED_FALLBACK), runs_on)
+                self.assertNotIn("blacksmith", runs_on)
+                self.assertNotIn("MACOS_RUNNER", runs_on)
+                self.assertNotIn("sign_runner", runs_on)
+                self.assertNotIn("sign_alternate", runs_on)
+
     def test_no_other_macos_job_resolves_to_the_variable_alone(self) -> None:
         reads = {name for name, job in WORKFLOW["jobs"].items() if "vars.MACOS_RUNNER_26" in str(job.get("runs-on", ""))}
         self.assertEqual(reads - set(SIGNING_JOBS) - BUILD_JOBS, set(),
@@ -387,9 +396,7 @@ class OwnedVerify(unittest.TestCase):
                 # A skipped or failed pick must not skip the verify.
                 self.assertTrue(job["if"].startswith("!cancelled()"))
                 self.assertIn(f"|| needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} "
-                              "|| github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate "
-                              "|| needs.legacy-identity-target.outputs.sign_runner "
-                              "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26'", str(job["runs-on"]))
+                              + OWNED_FALLBACK, str(job["runs-on"]))
                 xcode = job["env"]["CMUX_CI_XCODE_APP"]
                 self.assertIn(f"needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} != '' "
                               "&& vars.CMUX_CI_XCODE_APP_PR", xcode)
