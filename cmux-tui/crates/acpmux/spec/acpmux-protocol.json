@@ -361,6 +361,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/native_history",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/workflows",
       "params": true,
       "result": true
@@ -1778,6 +1784,13 @@
         },
         "visible": {
           "description": "False attaches without showing the chat (`hub/seen.rs`); default true.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "waitLogs": {
+          "description": "Wait for restart-time log restoration before answering; false serves the page immediately.",
           "type": [
             "boolean",
             "null"
