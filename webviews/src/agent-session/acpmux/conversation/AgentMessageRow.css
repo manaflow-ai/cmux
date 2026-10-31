@@ -111,7 +111,7 @@ button.cv-agentmsg__name:focus-visible {
   color: var(--cv-text-dim);
 }
 .cv-agentmsg__chevron {
-  cursor: pointer;
+  cursor: default;
 }
 .cv-agentmsg__line:has(:is(.cv-agentmsg__toggle:hover, .cv-agentmsg__toggle:focus-visible, .cv-agentmsg__words:hover, .cv-agentmsg__chevron:hover))
   > .cv-agentmsg__chevron {
