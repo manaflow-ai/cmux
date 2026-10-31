@@ -183,7 +183,7 @@ def make_video(directory: Path, manifest: dict[str, Any], into: Path, pr_media: 
                 # A fixed output size: a frame of another size cannot break the stream.
                 "-vf", f"scale={VIDEO_SIZE[0]}:{VIDEO_SIZE[1]}:force_original_aspect_ratio=decrease,"
                        f"pad={VIDEO_SIZE[0]}:{VIDEO_SIZE[1]}:(ow-iw)/2:(oh-ih)/2:color=white",
-                *rate, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(mp4)],
+                *rate, "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(mp4)],
                capture_output=True, text=True, env=env)
     if done.returncode != 0 or not mp4.is_file():
         print(f"warning: no video for {directory.name}: {done.stderr.strip()}", file=sys.stderr)
