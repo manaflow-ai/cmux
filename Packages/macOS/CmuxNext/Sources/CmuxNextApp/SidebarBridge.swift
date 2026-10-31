@@ -349,7 +349,7 @@ final class SidebarBridge {
     /// The page face of a browser workspace's front tab, given the work tab it
     /// yields its name to (`AppServices.sidebarPageFace`).
     typealias PageFace = (WorkspaceModel, TabModel, TabModel?) -> SidebarMapping.PageFace?
-    /// A tab's name in the sidebar's tab rows, as its strip names it.
+    /// A tab's name in the sidebar (a row's title, its hover card), as its strip names it.
     typealias TabTitle = (TabModel) -> String
 
     /// The tabs that show the New Tab page, named "New Tab" and badged as a page.
@@ -357,7 +357,7 @@ final class SidebarBridge {
         RestoredNewTabPages.ids(in: store, tabs: tabs)
     }
 
-    /// The strip's title rule (`TabTitleResolver`) for the sidebar's tab rows.
+    /// The strip's title rule (`TabTitleResolver`) for the sidebar's tab names.
     static func tabTitle(_ services: AppServices) -> TabTitle {
         let titles = TabTitleResolver(services: services)
         return { titles.title($0) }
