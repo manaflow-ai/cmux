@@ -119,8 +119,12 @@ import Testing
         for dy: CGFloat in [4, 12] { list.mouseDragged(with: try event(.leftMouseDragged, NSPoint(x: start.x, y: start.y + dy))) }
         let drag = try #require(list.drag, "the row did not lift")
         defer { list.cancelDrag() }
+        // As a tile dragged in from a block: the list opens a gap and moves no row in (a workspace drag's preview moves
+        // the row into the group, which brings its header back), so the group still draws as its one row.
+        drag.tileSource = (section: "tiles", item: LayoutItemID("tile"))
         drag.target = .position(DropPosition(section: one.section, group: child.id, index: 1))
         list.showDragLayout()
+        #expect(list.displayed.row(for: .group(child.id)) == nil, "the gap brought the nested group's header back")
         let stepIn = list.indent.offset(level: one.depth, width: list.indentWidth)
         #expect(stepIn > 0, "a second-level member steps in")
         #expect(list.dropStepIn(list.displayed) == stepIn, "the gap into the nested one-row group sat at another level")
