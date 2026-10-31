@@ -134,7 +134,7 @@ final class CloudMachineSession {
                     if !(error is CancellationError) { await self?.noteLink(.failed(CloudStrings.errorText(error)), since: suspendsBefore) }
                     throw error
                 }
-            })
+            }, requiredCapabilities: DaemonCapability.nativeRemoteRequired)
         }
         if appLink != nil { connectHop = linkTransition }
     }

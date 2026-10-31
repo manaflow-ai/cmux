@@ -1,4 +1,5 @@
 import Foundation
+import CmuxInstallAuthCore
 
 /// The app-owned Native link for one selected team and mesh. Enrollment and
 /// the child broker stay together so a team switch can stop both atomically.
