@@ -206,8 +206,10 @@ final class FakeHomeOwner: @unchecked Sendable {
     @Test func aHeldMainThreadDoesNotUseUpAWait() async {
         let flag = WaitFlag()
         Task {
-            // Runs once the wait below has looked and gone to sleep: hold the main
-            // thread past its watchdog, then finish a few main-actor turns later.
+            // Starts once the wait below is asleep on a tick, so the tick runs out during
+            // the hold: hold the main thread past its watchdog, then finish a few
+            // main-actor turns after the wait gets its next look.
+            try? await Task.sleep(for: .milliseconds(50))
             holdTheMainThread(seconds: 0.5)
             Task {
                 await Task.yield()
