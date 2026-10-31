@@ -616,7 +616,7 @@ fn the_sends_the_app_kept_before_carry_over_once() {
         {"key": format!("{}@{ACCOUNT}", key()), "machineID": "vm-overwritten"},
         {"key": format!("{pinned}@{ACCOUNT}"), "machineID": "vm-pinned"},
         {"key": format!("{copied}@user-leo/team-b"), "machineID": "vm-b", "place": "chats/x/1", "copiedChat": "/w/chats/x/1/paint"},
-        {"key": newer.clone(), "machineID": "vm-no-account"},
+        {"key": newer, "machineID": "vm-no-account"},
         {"key": format!("{newer}@{ACCOUNT}"), "machineID": "vm-old-try"},
     ]);
     assert_eq!(pin(&path, &newer, ACCOUNT, "vm-newer")["ok"], json!(true));
@@ -636,7 +636,7 @@ fn the_sends_the_app_kept_before_carry_over_once() {
         json!({"key": pinned, "account": ACCOUNT, "user": ME, "loaded": false, "machines": []});
     assert_eq!(plan(&path, &retry.to_string())["machine"], json!("vm-pinned"));
     let copy = StartCopy {
-        key: copied.clone(),
+        key: copied,
         account: "user-leo/team-b".into(),
         machine: "vm-b".into(),
         ..copy_of("/a", "")
