@@ -1,8 +1,8 @@
 //! Remote agent session attachment for trusted local Unix clients. It streams
 //! a store tab's bound acpmux session with bounded replay and live records,
 //! and can drive prompts, cancels and permission answers. Every request is
-//! scoped to the tab's stored session; remote relay and WebSocket clients are
-//! refused. Attachments have bounded pages, calls and outbound buffering, and
+//! scoped to the tab's stored session. The explicit Native owner carrier also
+//! reaches these handlers; other remote relay and WebSocket clients are refused. Attachments have bounded pages, calls and outbound buffering, and
 //! close with a replay cursor when acpmux or the client falls behind.
 
 use crate::panic_free::JsonFields;
@@ -565,8 +565,7 @@ impl Refusal {
 }
 
 /// Handles an `agent-session-*` frame of a local connection; `None` for any
-/// other frame. Remote-relay connections never get here (they take
-/// `remote_relay::handle_frame` first).
+/// other frame. The remote path admits only its explicit Native-owner subset.
 pub(super) fn try_handle(
     mux: &Arc<Mux>,
     client: u64,
@@ -611,7 +610,7 @@ pub(super) fn try_handle(
     let Some(command) = AgentSessionCommand::parse(&cmd, Value::Object(object)) else {
         return Some(refuse(writer, id, Refusal::BadRequest));
     };
-    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+    if !mux.agent_carrier_allowed(client) {
         return Some(refuse(writer, id, Refusal::NotTrusted));
     }
     let sessions = &mux.control_clients.agent_sessions;
@@ -658,7 +657,7 @@ fn start(
     let Ok(params) = serde_json::from_value(Value::Object(params)) else {
         return refuse(writer, id, Refusal::BadRequest);
     };
-    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+    if !mux.agent_carrier_allowed(client) {
         return refuse(writer, id, Refusal::NotTrusted);
     }
     let Some(socket) = mux.control_clients.agent_sessions.socket() else {
@@ -678,7 +677,7 @@ fn trust(
     let Ok(params) = serde_json::from_value(Value::Object(params)) else {
         return refuse(writer, id, Refusal::BadRequest);
     };
-    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+    if !mux.agent_carrier_allowed(client) {
         return refuse(writer, id, Refusal::NotTrusted);
     }
     let Some(socket) = mux.control_clients.agent_sessions.socket() else {

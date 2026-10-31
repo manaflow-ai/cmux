@@ -562,7 +562,8 @@ impl From<LinkError> for Failure {
 }
 
 /// Handles an `agent-transfer-*` frame of a local connection; `None` for any
-/// other frame. Remote-relay connections never get here.
+/// other frame. The explicit authenticated Native-owner carrier also reaches
+/// these handlers; other remote-relay connections remain denied.
 pub(super) fn try_handle(
     mux: &Arc<Mux>,
     client: u64,
@@ -586,7 +587,7 @@ pub(super) fn try_handle(
     };
     let id = object.remove("id");
     // Trust first: an untrusted client gets one answer whatever it sent.
-    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+    if !mux.agent_carrier_allowed(client) {
         return Some(reply(writer, id, Err(Refusal::NotTrusted.into())));
     }
     let Some(verb) = Verb::parse(&cmd, object) else {
