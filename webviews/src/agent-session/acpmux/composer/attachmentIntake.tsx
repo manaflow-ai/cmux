@@ -223,6 +223,20 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// chip's: a draft, a wake or another chat gets the preview back without a Retry it has no file for.
   const originals = useRef(new Map<string, File>());
   const [originalFailures, setOriginalFailures] = useState<Readonly<Record<string, string>>>({});
+  /// The staged images whose original is still streaming to the chat's machine, by chip id: a send
+  /// too large for one acpmux message waits for them, so their previews go as links to the
+  /// originals instead (promptBudget.ts `awaitsOriginals`).
+  const [originalUploads, setOriginalUploads] = useState<ReadonlySet<string>>(() => new Set());
+  const [originalUpload] = useState(
+    () => (id: string, on: boolean) =>
+      setOriginalUploads((now) => {
+        if (now.has(id) === on) return now;
+        const next = new Set(now);
+        if (on) next.add(id);
+        else next.delete(id);
+        return next;
+      }),
+  );
   /// The host-made chips (attachLater) whose `make` has not answered yet, each with what stops it
   /// on the host, if anything does.
   const making = useRef(new Map<string, (() => void) | undefined>());
@@ -368,12 +382,15 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           ready,
           failed,
           uploading: (index) => {
+            const image = made[index];
+            if (image) originalUpload(image, true);
             if (!owns(index)) return;
             const id = shown[index]!.id;
             setPending((chips) => chips.map((chip) => (chip.id === id ? { ...chip, uploading: true } : chip)));
           },
           original: (index, path, name) => {
             const id = made[index];
+            if (id) originalUpload(id, false);
             setAttachments((staged) =>
               staged.map((chip) => (chip.id === id ? { ...chip, originalPath: path, originalName: name } : chip)),
             );
@@ -381,6 +398,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           // The preview still sends; the chip says its original was not saved and offers Retry.
           originalFailed: (index, error) => {
             const id = made[index];
+            if (id) originalUpload(id, false);
             // Only in the chat shown: a chip in another chat's kept draft comes back unmarked.
             if (!id || !staged.has(id) || batch.scope !== live.current.options.scope) return;
             originals.current.set(id, settled[index]!);
@@ -391,6 +409,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       );
     } finally {
       batches.current.delete(batch);
+      for (const id of made) if (id) originalUpload(id, false);
       // A file intake said nothing of (it threw) is not left loading.
       shown.forEach((chip, index) => {
         if (owns(index) && !marked.has(index)) failed(index, { name: chip.name, reason: "unsupported" });
@@ -496,9 +515,12 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // Out of the strip meanwhile (sent, removed, or the composer moved to another chat): the upload
     // stops, silently.
     const gone = () => !stagedNow.current.some((chip) => chip.id === id);
-    const sent = await upload([file], gone).catch((failure: unknown): UploadResult => ({
-      error: failure instanceof Error ? failure.message : String(failure),
-    }));
+    originalUpload(id, true);
+    const sent = await upload([file], gone)
+      .catch((failure: unknown): UploadResult => ({
+        error: failure instanceof Error ? failure.message : String(failure),
+      }))
+      .finally(() => originalUpload(id, false));
     const path = sent && "paths" in sent ? sent.paths[0] : undefined;
     if (gone()) return;
     if (path)
@@ -588,6 +610,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     setAttachments,
     pending: shown,
     originalFailures,
+    originalUploads,
     loading,
     unsettled,
     videoReading,
@@ -645,6 +668,24 @@ export function useSendWhenAttached(
       },
     ),
   );
+  return hold;
+}
+
+/// A send too large for one acpmux message waits for the originals of its images still uploading
+/// (`uploading` of them), then goes once, with them as links (promptBudget.ts `awaitsOriginals`).
+/// `hold(awaits, send)`: when `awaits`, holds `send` (true; a later hold replaces it); otherwise the
+/// send goes now (false) and any held one is dropped, so it never goes later on its own with
+/// whatever draft the composer has then. A new `scope` drops it too.
+export function useSendWhenOriginals(
+  uploading: number,
+  scope?: string,
+): (awaits: boolean, send: () => void) => boolean {
+  const wait = useSendWhenAttached(uploading, scope);
+  const [hold] = useState(() => (awaits: boolean, send: () => void) => {
+    if (awaits && wait(send)) return true;
+    wait.cancel();
+    return false;
+  });
   return hold;
 }
 

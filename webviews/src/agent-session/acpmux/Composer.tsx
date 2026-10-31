@@ -15,6 +15,7 @@ import {
   type DroppedKind,
   type LinkItem,
 } from "./attachments";
+import { awaitsOriginals } from "./promptBudget";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import { opensProcessTerminal } from "./processTerminal";
@@ -105,6 +106,7 @@ import {
   attachmentErrorText,
   useAttachmentIntake,
   useSendWhenAttached,
+  useSendWhenOriginals,
 } from "./composer/attachmentIntake";
 import { keepElsewhere, type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
@@ -637,6 +639,7 @@ export function Composer({
     retry,
     revive,
     originalFailures,
+    originalUploads,
     attachError,
     setAttachError,
     drop,
@@ -683,6 +686,12 @@ export function Composer({
     );
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
   const holdForAttachments = useSendWhenAttached(loading + videoReading, sessionId, unsettled + videoReading);
+  /// A prompt too large for one acpmux message waits for its images' originals still uploading,
+  /// then goes with them as links (promptBudget.ts); the person's x on one lets it go without it.
+  const holdForOriginals = useSendWhenOriginals(
+    attachments.filter((attachment) => originalUploads.has(attachment.id)).length,
+    sessionId,
+  );
   // The box makes a huge paste a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
   const box = useRef<ComposerBoxHandle>(null);
   // A paste anywhere in the pane outside a text field goes into the prompt, after what is already
@@ -1096,6 +1105,9 @@ export function Composer({
     return send(false, steersAlways);
   };
   const send = (force: boolean, steer = false): boolean => {
+    // A send waiting for its images' originals is this one's to replace: whatever this one does
+    // (it goes, waits again, runs a command or stops), the earlier one never goes on its own.
+    holdForOriginals(false, () => undefined);
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
     if (!remote.canSend) return false;
     // The folder's trust question is open: the prompt stays where it is.
@@ -1220,6 +1232,14 @@ export function Composer({
     }
     // A file pasted or dropped a moment ago is still being read: the prompt waits for its chip.
     if (holdForAttachments(() => submitNow.current(force, steer))) return false;
+    // Too large for one message until the originals still uploading are saved: it waits for them.
+    if (
+      holdForOriginals(
+        awaitsOriginals(prompt, placed.attachments, (id) => originalUploads.has(id)),
+        () => submitNow.current(force, steer),
+      )
+    )
+      return false;
     if (command?.kind === "cliOnly") {
       setAttachError(t(command.key, { command: command.name }));
       return false;
