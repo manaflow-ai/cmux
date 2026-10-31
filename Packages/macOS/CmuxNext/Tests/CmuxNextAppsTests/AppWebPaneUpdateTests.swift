@@ -52,7 +52,7 @@ struct AppWebPaneUpdateTests {
         #expect(!view.bridge.enabled)
 
         let (restored, didRestore) = AsyncStream.makeStream(of: Void.self)
-        view.onLoaded = { if view.webView.url == pane.entryURL { didRestore.yield() } }
+        view.onLoaded = { [weak view] in if view?.webView.url == pane.entryURL { didRestore.yield() } }
         transport.record = original
         transport.includesRecord = true
         transport.onEvent?(.availability(.available(epoch: 2)))
