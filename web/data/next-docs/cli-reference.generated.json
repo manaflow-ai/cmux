@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 756,
-    "mcp": 674
+    "verbs": 757,
+    "mcp": 675
   },
   "nouns": [
     {
@@ -4175,6 +4175,13 @@
           "id": "moveSurfaceToPreviousPane",
           "mcp": true,
           "mcpTool": "app_tab_move_to_previous_pane"
+        },
+        {
+          "command": "cmux tab move-to-space",
+          "title": "Move Tab to Space…",
+          "id": "tab.moveToSpace",
+          "mcp": true,
+          "mcpTool": "app_tab_move_to_space"
         },
         {
           "command": "cmux tab move-to-workspace",

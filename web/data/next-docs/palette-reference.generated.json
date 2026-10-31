@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1228,
+    "entries": 1229,
     "shortcuts": 189
   },
   "sections": [
@@ -2840,6 +2840,12 @@
           "title": "Move Tab to Previous Pane",
           "shortcut": "⌃⇧⌘[",
           "command": "cmux tab move-to-previous-pane"
+        },
+        {
+          "id": "tab.moveToSpace",
+          "title": "Move Tab to Space…",
+          "shortcut": null,
+          "command": "cmux tab move-to-space"
         },
         {
           "id": "tab.moveToWorkspace",
