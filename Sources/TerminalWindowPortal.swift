@@ -268,7 +268,19 @@ final class WindowTerminalHostView: NSView {
         return samples.contains { shouldPassThroughToChrome(at: $0, eventType: .cursorUpdate) }
     }
 
-    private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
+    /// Whether `point` belongs to the SwiftUI sidebar resizer rather than to
+    /// this portal or a split divider under it. Internal for tests: a split
+    /// pass-through and a sidebar pass-through both return nil from `hitTest`,
+    /// so only this tells them apart.
+    func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
+        // The checks below guess the sidebar and Dock edges from hosted surface
+        // frames alone, so a surface that starts or ends at a split divider (a
+        // terminal beside a browser) reads as one of those edges. A split
+        // divider actually under the point is better evidence than that guess.
+        if splitDividerCursorKind(at: point) != nil {
+            return false
+        }
+
         // The sidebar resizer handle is implemented in SwiftUI. When terminals
         // are portal-hosted, this AppKit host can otherwise sit above the handle
         // and steal hover/mouse events.
