@@ -40,6 +40,8 @@ pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod first_work_tests;
 mod fork;
 #[cfg(test)]
+mod prompt_accept_tests;
+#[cfg(test)]
 mod shutdown_tests;
 pub(crate) use fork::offers_fork;
 mod fork_at;
@@ -110,6 +112,8 @@ pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
 mod git_watch;
 mod github_owner;
+mod lane_report_reads;
+mod lane_report_text;
 mod lane_reports;
 mod offer_results;
 mod offers;
@@ -651,6 +655,8 @@ pub struct Hub {
     pub(super) offers: offers::Offers,
     /// Which session each lane reports its turns to (`lane_reports.rs`).
     pub(super) lane_reports: lane_reports::LaneReports,
+    /// Authenticated parents already receiving a lane result through wait/history.
+    lane_report_reads: lane_report_reads::LaneReportReads,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
     pub(super) subsessions: subsessions::Index,
     /// Creates admitted and still starting (`admission.rs`).
@@ -845,6 +851,7 @@ impl Hub {
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             offers: Default::default(),
             lane_reports: Default::default(),
+            lane_report_reads: Default::default(),
             subsessions: Default::default(),
             admitting: Default::default(),
             subsession_runs: Default::default(),
@@ -1138,6 +1145,8 @@ impl Hub {
             protected_hold: AtomicBool::new(false),
             auto_resume: Default::default(),
             turn_lock: Mutex::new(()),
+            turn_claimed: AtomicBool::new(false),
+            admit: StdMutex::new(()),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
             turn: StdMutex::new(None),
             queued: AtomicU64::new(0),
@@ -1803,6 +1812,9 @@ impl Hub {
                 }
                 "turn_result" => {
                     if let Some(t) = cur.as_mut() {
+                        if let Some(id) = e.msg.get("turnId") {
+                            t.insert("turnId".into(), id.clone());
+                        }
                         t.insert(
                             "status".into(),
                             e.msg.get("status").cloned().unwrap_or(json!("completed")),

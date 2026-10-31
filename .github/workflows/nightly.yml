@@ -3331,7 +3331,7 @@ jobs:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
       TRACK: ${{ needs.decide.outputs.track }}
       CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
-      PREPARE_FALLBACK: ${{ startsWith(github.job, 'prepare-nightly-variant-fallback') && 'true' || 'false' }}
+      PREPARE_FALLBACK: ${{ github.job == 'prepare-nightly-variant' && 'true' || 'false' }}
     steps:
       - name: Reuse a successful primary preparation
         id: reuse
@@ -3754,7 +3754,12 @@ jobs:
           retention-days: 3
 
 
-  prepare-nightly-variant-fallback:
+  # The fallback preparation, and the preparation result every later job reads
+  # (needs.prepare-nightly-variant): success after a primary success (a no-op leg) or after
+  # its own preparation. Until 2026-10-31 a separate prepare-nightly-variant job only echoed
+  # that result, one more queued hop on the signing path (4.8 min queued for a 0 s job in
+  # run 41187578702 attempt 2).
+  prepare-nightly-variant:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon, resolve-nightly-cmux-tui-client, prepare-nightly-variant-primary]
     # Never skipped: a skipped fallback skips signing and publishing (runs 40154003204,
     # 40155340212). After a primary success it finds that result and does nothing.
@@ -3920,14 +3925,6 @@ jobs:
 
       - *upload-prepared-app-for-signin
 
-
-  prepare-nightly-variant:
-    needs: [prepare-nightly-variant-primary, prepare-nightly-variant-fallback]
-    if: always() && (needs.prepare-nightly-variant-primary.result == 'success' || needs.prepare-nightly-variant-fallback.result == 'success')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
-    steps:
-      - name: Accept primary or fallback preparation
-        run: echo "nightly preparation completed on the primary or fallback route"
 
   # The Blacksmith macOS label the signing jobs take, read right before they queue
   # (scripts/ci/nightly_sign_runner.py): never empty, and its step never fails the job.

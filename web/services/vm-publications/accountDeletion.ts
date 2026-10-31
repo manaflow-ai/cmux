@@ -9,6 +9,7 @@ import {
   cloudVmDomains,
   cloudVmPublicationAuthCodes,
   cloudVmPublications,
+  cloudVmPublicationApiKeys,
   cloudVmPublicationSessions,
 } from "../../db/schema";
 import {
@@ -159,6 +160,10 @@ export async function deleteVmPublicationRowsForAccountDeletion(
   await tx
     .delete(cloudVmPublicationAuthCodes)
     .where(eq(cloudVmPublicationAuthCodes.userId, userId));
+  // Keys also go with their publications (cascade); this says so where account data is listed.
+  await tx
+    .delete(cloudVmPublicationApiKeys)
+    .where(eq(cloudVmPublicationApiKeys.ownerUserId, userId));
   await tx
     .delete(cloudVmPublications)
     .where(eq(cloudVmPublications.ownerUserId, userId));

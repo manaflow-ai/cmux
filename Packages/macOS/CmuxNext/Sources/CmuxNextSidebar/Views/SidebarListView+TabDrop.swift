@@ -8,8 +8,6 @@ extension SidebarListViewComponents {
         var proposal: SidebarTabDrop?
         var windowPoint: NSPoint
         var sourceMachine: MachineID?
-        /// A tab drag: a tab row's edge goes before that tab.
-        var reordersTabRows = false
         /// `externalDragMoved`'s slot dwell, kept for autoscroll's re-hit.
         var slotDwell: CFTimeInterval = 0
         var springTarget: WorkspaceID?
@@ -34,7 +32,7 @@ extension SidebarListViewComponents {
     /// pointer has stayed in it this long; before that the row under the
     /// pointer takes the tab, so a hand crossing the slot on its way to the
     /// row does not slide the row away from under it (cx-8g6ez).
-    func externalDragMoved(windowPoint: NSPoint, sourceMachine: MachineID?, reordersTabRows: Bool = false,
+    func externalDragMoved(windowPoint: NSPoint, sourceMachine: MachineID?,
                            slotDwell: CFTimeInterval = 0) -> (SidebarTabDrop, NSRect)? {
         guard drag == nil, !model.isFiltering else { return nil }
         let point = convert(windowPoint, from: nil)
@@ -45,7 +43,6 @@ extension SidebarListViewComponents {
         let external = self.external ?? ExternalDrag(windowPoint: windowPoint, sourceMachine: sourceMachine)
         external.windowPoint = windowPoint
         external.sourceMachine = sourceMachine
-        external.reordersTabRows = reordersTabRows
         external.slotDwell = slotDwell
         if self.external == nil {
             self.external = external
@@ -54,8 +51,7 @@ extension SidebarListViewComponents {
         autoscroll.update(windowPoint: windowPoint)
         if let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) {
             let base = SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: false))
-            var proposal = DropResolver.resolveTabDrop(y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine,
-                                                         reordersTabRows: reordersTabRows)
+            var proposal = DropResolver.resolveTabDrop(y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine)
             external.slotDeadline = nil
             if slotDwell > 0, let slot = proposal, case .newWorkspace = slot {
                 let now = CACurrentMediaTime()
@@ -83,13 +79,12 @@ extension SidebarListViewComponents {
     /// Where no drop is possible at a window point: why, and the refused
     /// row's rect in this view (tab-dnd: the sidebar previews a refusal
     /// instead of nothing).
-    func externalDragRefusal(windowPoint: NSPoint, sourceMachine: MachineID?, reordersTabRows: Bool = false) -> (SidebarTabDropRefusal, NSRect)? {
+    func externalDragRefusal(windowPoint: NSPoint, sourceMachine: MachineID?) -> (SidebarTabDropRefusal, NSRect)? {
         guard drag == nil, !model.isFiltering else { return nil }
         let point = convert(windowPoint, from: nil)
         guard let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) else { return nil }
         let base = SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: false))
-        guard let (key, reason) = DropResolver.tabDropRefusal(y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine,
-                                                                 reordersTabRows: reordersTabRows),
+        guard let (key, reason) = DropResolver.tabDropRefusal(y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine),
               let row = displayed.row(for: key) else { return nil }
         return (reason, frame(for: row))
     }
@@ -120,7 +115,7 @@ extension SidebarListViewComponents {
         switch drop {
         case let .intoGroup(group): group
         case let .newWorkspace(_, group, _): group
-        case let .intoWorkspace(id), let .beforeTab(id, _): SidebarEdits.position(of: id, in: sections)?.group
+        case let .intoWorkspace(id): SidebarEdits.position(of: id, in: sections)?.group
         }
     }
     func highlightRect(for proposal: SidebarTabDrop) -> NSRect? {
@@ -128,16 +123,9 @@ extension SidebarListViewComponents {
         case let .intoWorkspace(id):
             return displayed.row(for: .workspace(id)).map(frame(for:))
         case let .intoGroup(id):
-            return displayed.row(for: .group(id)).map(frame(for:))
+            return displayed.groupRow(id).map(frame(for:))
         case .newWorkspace:
             return displayed.gapY.map { NSRect(x: inset, y: $0, width: indentWidth, height: displayed.gapHeight) }
-        case let .beforeTab(workspace, tab):
-            // An insertion line on the tab row's top edge.
-            // Inside a group the line starts right of the group's line, as the row does.
-            return displayed.row(for: .tab(workspace, tab)).map { row in
-                let rowFrame = frame(for: row)
-                return NSRect(x: rowFrame.minX, y: rowFrame.minY - 1, width: rowFrame.width, height: 2)
-            }
         }
     }
     /// Spring loading: hovering a row for `springLoadDelay` selects
