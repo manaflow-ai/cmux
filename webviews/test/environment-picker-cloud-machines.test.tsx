@@ -194,18 +194,18 @@ test("a pick asks the app to resume or open the machine, then reads the list aga
   ]);
 });
 
-test("previews on: the account's machines join Cloud and VMs with their stage, a pick but no ⌥⌘ digit", async () => {
+test("previews on: the account's machines join the other machines with their stage, a pick but no ⌥⌘ digit", async () => {
   const picks = await mount(true);
   await openPicker();
   const rows = pickerRows();
-  expect(rows.map(label)).toEqual(["this-mac", "gpu-box", "build box", "eval box", "fresh box"]);
+  expect(rows.map(label)).toEqual([t("composer.thisMac"), "gpu-box", "build box", "eval box", "fresh box"]);
   const cloud = rows.slice(2);
   expect(cloud.map((row) => row.querySelector(".acpmux-env-state")?.textContent)).toEqual([
     t("composer.envPausedResume"),
     t("composer.envOpenMachine"),
     t("composer.envStarting"),
   ]);
-  expect(cloud[0]!.querySelector(".acpmux-env-row")!.getAttribute("data-section")).toBe(t("composer.envFleet"));
+  expect(cloud.every((row) => row.querySelector('.acpmux-env-row[data-kind="cloud"]'))).toBe(true);
   expect(cloud.some((row) => row.querySelector('[data-ready="false"], [aria-disabled="true"], .acpmux-env-key'))).toBe(
     false,
   );
