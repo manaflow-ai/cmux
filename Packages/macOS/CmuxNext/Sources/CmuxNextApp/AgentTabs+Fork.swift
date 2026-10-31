@@ -17,15 +17,17 @@ extension AgentTabStore {
         let move: ActionID? = switch destination {
         case .workspace: "palette.moveTabToNewWorkspace"
         case .window: "tab.moveToNewWindow"
-        case .right, .left, .up, .down, .tab: nil
+        case .right, .left, .up, .down, .columnRight, .columnLeft, .row, .tab: nil
         }
         // A split: a tab beside the chat, moved to a new split on that side (`tab.moveToNewSplit`).
         // Else a tab after the chat's, and for a workspace or a window then moved there as Move Tab
-        // to New Workspace / New Window moves one.
+        // to New Workspace / New Window moves one; for a strip column or row, moved into a new one
+        // beside the chat (`DaemonService.placeFork`).
         return openBeside(provisional, split: destination.splitDirection != nil, direction: destination.splitDirection ?? "right",
                           open: open, created: { [weak self] key in
             opened.key = key
             if let move { _ = self?.actionRegistry?.perform(move, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user)) }
+            if case let .column(left) = TerminalForkPlacement(destination), let self { placeFork(key, resolve(provisional), left) } else if destination == .row, let self { placeFork(key, resolve(provisional), nil) }
         }, finished: { [weak self] _ in
             if let key = opened.key { self?.focusForkComposer(key) }
         })
