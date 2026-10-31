@@ -96,9 +96,8 @@ struct Args {
 impl Args {
     fn parse(args: &[String], valued: &[&str], flags: &[&str]) -> Result<Args, Failure> {
         let mut out = Args { words: Vec::new(), values: Vec::new(), flags: Vec::new() };
-        let mut i = 0;
-        while i < args.len() {
-            let arg = &args[i];
+        let mut rest = args.iter();
+        while let Some(arg) = rest.next() {
             if let Some(name) = arg.strip_prefix("--") {
                 let (name, inline) = match name.split_once('=') {
                     Some((n, v)) => (n, Some(v.to_string())),
@@ -107,12 +106,9 @@ impl Args {
                 if valued.contains(&name) {
                     let value = match inline {
                         Some(v) => v,
-                        None => {
-                            i += 1;
-                            args.get(i).cloned().ok_or_else(|| {
-                                Failure::Usage(messages().missing_value.replace("{flag}", name))
-                            })?
-                        }
+                        None => rest.next().cloned().ok_or_else(|| {
+                            Failure::Usage(messages().missing_value.replace("{flag}", name))
+                        })?,
                     };
                     out.values.push((name.to_string(), value));
                 } else if flags.contains(&name) && inline.is_none() {
@@ -123,7 +119,6 @@ impl Args {
             } else {
                 out.words.push(arg.clone());
             }
-            i += 1;
         }
         Ok(out)
     }
