@@ -19,6 +19,7 @@ import {
   BUDGET_60HZ,
   measureAction,
   type ActionResult,
+  type LatencyAction,
   type IdleResult,
   type Instrumentation,
   type MetricReader,
@@ -115,6 +116,9 @@ async function closeServer(server: ChildProcess) {
     server.kill();
   });
 }
+/** A terminal colour escape (ESC [ ... m), as a server banner may wrap its port in one. */
+const SGR = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+
 export function waitForServerReady(server: ChildProcess, port: number, timeoutMs = 30_000): Promise<void> {
   return new Promise((resolve, reject) => {
     let output = "";
@@ -128,9 +132,10 @@ export function waitForServerReady(server: ChildProcess, port: number, timeoutMs
       else resolve();
     };
     const ready = (chunk: Buffer) => {
-      // A ready banner can cross stream chunks; retain only a bounded tail.
+      // The banner may color the port ("127.0.0.1:" ESC[1m port ESC[22m) and arrive split across
+      // chunks: match the output so far (its last 4 KB) with SGR escapes dropped, or startup times out.
       output = `${output}${String(chunk)}`.slice(-4096);
-      if (output.includes(`127.0.0.1:${port}`)) finish();
+      if (output.replaceAll(SGR, "").includes(`127.0.0.1:${port}`)) finish();
     };
     const failed = (error: Error) => finish(error);
     const exited = (code: number | null) => finish(new Error(`server exited ${code}`));
@@ -205,6 +210,12 @@ export async function sampleIdle(page: Page, durationMs: number, metrics?: Metri
   };
 }
 
+export function actionInstrumentation(action: LatencyAction, engine: string): Instrumentation[] {
+  return typeof action.requiredInstrumentation === "function"
+    ? action.requiredInstrumentation(engine)
+    : (action.requiredInstrumentation ?? []);
+}
+
 export function evidenceErrors(
   results: ActionResult[],
   expectedCases: string[],
@@ -224,7 +235,7 @@ export function evidenceErrors(
     if (numericErrors(result)) errors.push(`${result.id}: invalid numeric metric`);
     errors.push(...result.errors.map((error) => `${result.id}: ${error}`));
     if (
-      !result.samples.length ||
+      (!result.samples.length && !result.adapterRuns?.length) ||
       !result.latencyMs ||
       Object.values(result.latencyMs).some((value) => !Number.isFinite(value))
     )
@@ -308,19 +319,24 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
           if (!spec.actions.length) continue;
           const context = await browser.newContext({ viewport: source.viewport, deviceScaleFactor: 1 });
           try {
-            const page = await context.newPage();
-            page.setDefaultTimeout(5000);
-            page.on("pageerror", (error) => errors.push(`${engineName}/${spec.name}: ${error.message}`));
-            await page.addInitScript(installLatencyProbe);
-            await installPaintedFrames(page);
-            let metrics: MetricReader | undefined;
-            if (engineName === "chromium") {
-              const cdp = await context.newCDPSession(page);
-              metrics = await metricReader(cdp);
-              if (options.cpuThrottle > 1)
-                await cdp.send("Emulation.setCPUThrottlingRate", { rate: options.cpuThrottle });
-            }
+            const openPage = async () => {
+              const page = await context.newPage();
+              page.setDefaultTimeout(5000);
+              page.on("pageerror", (error) => errors.push(`${engineName}/${spec.name}: ${error.message}`));
+              await page.addInitScript(installLatencyProbe);
+              await installPaintedFrames(page);
+              let metrics: MetricReader | undefined;
+              if (engineName === "chromium") {
+                const cdp = await context.newCDPSession(page);
+                metrics = await metricReader(cdp);
+                if (options.cpuThrottle > 1)
+                  await cdp.send("Emulation.setCPUThrottlingRate", { rate: options.cpuThrottle });
+              }
+              return { page, metrics };
+            };
+            let { page, metrics } = await openPage();
             for (const action of spec.actions) {
+              if (page.isClosed()) ({ page, metrics } = await openPage());
               await page.goto(`${server.base}${spec.path}`);
               await page.waitForFunction(spec.ready, undefined, { timeout: 30_000 });
               await page.evaluate(() => document.fonts.ready);
@@ -331,9 +347,13 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
                 options.runs,
                 metrics,
               );
-              result.idle = await sampleIdle(page, options.idleMs, metrics);
+              if (!page.isClosed()) result.idle = await sampleIdle(page, options.idleMs, metrics);
+              else {
+                result.unsupportedReasons.cpu = "adapter failure closed the page before idle CPU sampling";
+                result.unsupportedReasons.wakeups = "adapter failure closed the page before idle sampling";
+              }
               results.push(result);
-              errors.push(...evidenceErrors([result], [result.id], action.requiredInstrumentation ?? []));
+              errors.push(...evidenceErrors([result], [result.id], actionInstrumentation(action, engineName)));
               console.log(`${result.id} ${result.metricType}: ${JSON.stringify(result.latencyMs)}`);
             }
           } finally {
@@ -396,10 +416,13 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
   return results.some((result) => !result.pass) && !options.noFail ? 1 : 0;
 }
 if (import.meta.main) {
+  let code = 1;
   try {
-    process.exitCode = await main();
+    code = await main();
   } catch (error) {
     console.error(`latency: ${String(error)}`);
-    process.exitCode = 1;
   }
+  // Exit with the run: a server's child that outlives its killed parent keeps the pipes open, and
+  // with them this process, until an outer timeout (a failed start hung CI runs for 30 minutes).
+  process.exit(code);
 }

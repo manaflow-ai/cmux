@@ -27,6 +27,9 @@ export const BACKDROP_EVENT = "cmux-backdrop";
 export const GLASS_ATTRIBUTE = "data-glass";
 /** On `<html>` while the lens draws: `.ui-glass` drops its own backdrop blur (glass.css). */
 export const LENS_ATTRIBUTE = "data-glass-lens";
+/** On `<html>` of a page whose host draws the glass natively under it (the sidebar's Updated card,
+ * surface.tsx): the lens draws nothing there, since its wallpaper copy would cover the host's glass. */
+export const NATIVE_GLASS_ATTRIBUTE = "data-glass-native";
 /** The one class a glass surface adds. */
 export const GLASS_CLASS = "ui-glass";
 

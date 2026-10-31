@@ -222,12 +222,113 @@ pub fn cli_host(params: &Value) -> Option<&str> {
     fits.then_some(host)
 }
 
-/// `record` with `_meta.provenance` when the prompt has one (a `user_message` or `queued`).
+/// The durable copy of a session-to-session message a prompt's in-memory provenance carries
+/// (`hub/message_events.rs`). A record keeps it as `_meta._acpmuxMessage`, beside
+/// `_meta.provenance` and never inside it, so the provenance a client reads stays the sender's.
+pub const MESSAGE_META: &str = "_acpmuxMessage";
+
+/// `record` with `_meta.provenance` when the prompt has one (a `user_message` or `queued`). Its
+/// message copies (its own, and each joined message's in a digest) go to `_meta._acpmuxMessage`.
 pub fn marked(mut record: Value, provenance: Option<&Value>) -> Value {
     if let (Some(p), Some(fields)) = (provenance, record.as_object_mut()) {
-        fields.insert("_meta".to_owned(), json!({"provenance": p}));
+        let mut p = p.clone();
+        let messages = take_message_meta(&mut p);
+        let mut meta = json!({"provenance": p});
+        if let Some(messages) = messages {
+            meta.set(MESSAGE_META, messages);
+        }
+        fields.insert("_meta".to_owned(), meta);
     }
     record
+}
+
+/// A `queued` or `user_message` record's provenance as the prompt carried it: [`marked`] undone,
+/// with its message copies back in place.
+pub fn recorded(record: &Value) -> Option<Value> {
+    let mut provenance = record.pointer("/_meta/provenance")?.clone();
+    if let Some(messages) = record.get("_meta").and_then(|meta| meta.get(MESSAGE_META)) {
+        put_message_meta(&mut provenance, messages);
+    }
+    Some(provenance)
+}
+
+/// Takes every message copy out of `provenance`: `{message?, messages?}`, where `messages` holds
+/// one entry (or null) per joined message of a digest, in its order.
+fn take_message_meta(provenance: &mut Value) -> Option<Value> {
+    let fields = provenance.as_object_mut()?;
+    let own = fields.remove(MESSAGE_META);
+    let joined: Vec<Value> = fields
+        .get_mut("messages")
+        .and_then(Value::as_array_mut)
+        .map(|messages| {
+            messages
+                .iter_mut()
+                .map(|m| m.get_mut("provenance").and_then(take_message_meta).unwrap_or(Value::Null))
+                .collect()
+        })
+        .unwrap_or_default();
+    let any_joined = joined.iter().any(|m| !m.is_null());
+    if own.is_none() && !any_joined {
+        return None;
+    }
+    let mut taken = Map::new();
+    if let Some(own) = own {
+        taken.insert("message".to_owned(), own);
+    }
+    if any_joined {
+        taken.insert("messages".to_owned(), Value::Array(joined));
+    }
+    Some(Value::Object(taken))
+}
+
+/// Puts back what [`take_message_meta`] took.
+fn put_message_meta(provenance: &mut Value, taken: &Value) {
+    let Some(fields) = provenance.as_object_mut() else { return };
+    if let Some(own) = taken.get("message") {
+        fields.insert(MESSAGE_META.to_owned(), own.clone());
+    }
+    let joined = taken.get("messages").and_then(Value::as_array);
+    let messages = fields.get_mut("messages").and_then(Value::as_array_mut);
+    if let (Some(joined), Some(messages)) = (joined, messages) {
+        for (message, taken) in messages.iter_mut().zip(joined) {
+            if let Some(p) = message.get_mut("provenance").filter(|_| !taken.is_null()) {
+                put_message_meta(p, taken);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod message_meta_tests {
+    use super::{MESSAGE_META, marked, recorded};
+    use serde_json::json;
+
+    /// A record's provenance is the sender's alone: its message copies (one of its own, one per
+    /// joined message of a digest) sit beside it, and reading the record puts them back.
+    #[test]
+    fn a_record_keeps_its_message_copies_beside_its_provenance() {
+        let copy =
+            |id: &str| json!({"messageId": id, "sender": {"name": "lane", "sessionId": "s"}});
+        let own = json!({"kind": "agent_message", "from": "acp:s", "to": "acp:t", MESSAGE_META: copy("m-0")});
+        let digest = json!({"kind": "agent_digest", "messages": [
+            {"promptId": "p-1", "from": "lane", "provenance": {"kind": "session_message", MESSAGE_META: copy("m-1")}},
+            {"promptId": "p-2", "from": "person"},
+            {"promptId": "p-3", "from": "lane", "provenance": {"kind": "session_message"}},
+            {"promptId": "p-4", "from": "lane", "provenance": {"kind": "session_message", MESSAGE_META: copy("m-4")}},
+        ]});
+        for provenance in [own, digest] {
+            let record = marked(json!({"promptId": "p"}), Some(&provenance));
+            let shown = record.pointer("/_meta/provenance").unwrap();
+            assert!(!shown.to_string().contains(MESSAGE_META), "{record}");
+            assert!(record.pointer(&format!("/_meta/{MESSAGE_META}")).is_some(), "{record}");
+            assert_eq!(recorded(&record), Some(provenance));
+        }
+        // No copy: the record is as before, and so is what reading it gives.
+        let plain = json!({"kind": "agent_message", "from": "acp:s", "to": "acp:t"});
+        let record = marked(json!({"promptId": "p"}), Some(&plain));
+        assert_eq!(record["_meta"], json!({"provenance": plain}));
+        assert_eq!(recorded(&record), Some(plain));
+    }
 }
 
 /// `_meta.acpmux.fromSessionId` and `fromHarness`: which session sent an agent's message and on
