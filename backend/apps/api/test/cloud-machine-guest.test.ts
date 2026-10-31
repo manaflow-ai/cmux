@@ -1,6 +1,6 @@
 import { runInDurableObject } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
-import { decodeBase64, execCommand, execTimeout, FILE_MAX_BYTES, FS_PROGRAM, fsCommand, OUTPUT_MAX_BYTES, validPath } from "../src/cloud-machine-guest.ts"
+import { decodeBase64, DIR_MAX_BYTES, DIR_MAX_ENTRIES, execCommand, execTimeout, FILE_MAX_BYTES, FS_PROGRAM, fsCommand, OUTPUT_MAX_BYTES, validPath } from "../src/cloud-machine-guest.ts"
 import { bindBody, bindFile, cloudStub, createdAndBound, frame, person, post, reply, sessionToken, SIZE, worker } from "./cloud-bind-support.ts"
 import { SHARED_TEAM } from "./setup/cloud-teams.ts"
 import { DriverError } from "../src/providers/contract.ts"
@@ -36,6 +36,9 @@ describe("the route's checks", () => {
     expect(cmd.startsWith("python3 -c '")).toBe(true)
     expect(cmd.endsWith(` write '/tmp/it'"'"'s here' 384`) || cmd.endsWith(` write '/tmp/it'\\''s here' 384`)).toBe(true)
     expect(FS_PROGRAM).toContain(`M=${FILE_MAX_BYTES}`)
+    // A listing stops at its entry count and at its JSON's size (the provider answer's bound, freestyle-exec-errors.test.ts).
+    expect(FS_PROGRAM).toContain(`DN,DB=${DIR_MAX_ENTRIES},${DIR_MAX_BYTES}`)
+    expect(FS_PROGRAM).toContain("if n>DB:sys.exit(46)")
     // A new file without a mode is the owner's only (classic's 0600), never readable by the work user.
     expect(FS_PROGRAM).toContain("else 0o600)")
     expect(FS_PROGRAM).not.toContain("0o644")
