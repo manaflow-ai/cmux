@@ -19,6 +19,7 @@ import { acpmuxKeyedStartOn, acpmuxPersonHoldsOn, type AcpmuxHost, type AcpmuxRe
 import type { MachineExecReply } from "./automation-machine.ts"
 import { ClientIdentityStore, mintClientSessionOn, sweepClientIdentities, type ClientSessionReply } from "./cloud-client-session.ts"
 import { teamPlan } from "./domains/cloud-plan.ts"
+import { DriverError } from "./providers/contract.ts"
 
 /** How often connect_info and link_token may read a machine's real state from the provider. */
 const STATE_CHECK_EVERY_MS = 30_000
@@ -381,7 +382,10 @@ export class CloudDO extends CloudIdle {
       tombstoned: (machine) => rows()?.get(TABLE_TOMBSTONE, machine) !== undefined,
       exec: async (row, command, stdin, timeoutMs) => {
         const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)
-        return driver ? driver.execStdin(row.provider_name, { team: entity, machine: row.id }, command, stdin, timeoutMs).catch(() => null) : null
+        return driver ? driver.execStdin(row.provider_name, { team: entity, machine: row.id }, command, stdin, timeoutMs).catch((error: unknown) => {
+          if (error instanceof DriverError && error.code === "cloud.exec.output_limit") throw error
+          return null
+        }) : null
       },
       audit: (e) => this.audit.record(e)
     }, user, call)

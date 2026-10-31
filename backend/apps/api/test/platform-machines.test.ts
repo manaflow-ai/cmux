@@ -7,6 +7,7 @@ import { personalTeamIdFor } from "../src/domains/user.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 import { bindBody, bindFile, cloudStub, frame, reply, SIZE } from "./cloud-bind-support.ts"
 import { ALLOWED_USERS, cloudTestUser, SHARED_TEAM } from "./setup/cloud-teams.ts"
+import { DriverError } from "../src/providers/contract.ts"
 
 /** PlatformMachines (platform-machines.ts): the service-binding entrypoint for the platform Worker's environment setups. */
 type Reply = { ok: boolean; value?: any; code?: string; message?: string; retryable?: boolean }
@@ -99,6 +100,19 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     const warm = await rpc.boot(c, nameOf(), s.value.id)
     expect(warm).toMatchObject({ ok: true })
     expect(warm.value.id).not.toBe(machine)
+  })
+
+  it("returns and audits a terminal output-limit refusal through CloudDO", async () => {
+    const c = caller()
+    const { machine, stub } = await bootAndBind(c)
+    await inDO(stub, async (instance) => {
+      instance.driverFor = async () => ({
+        execStdin: async () => { throw new DriverError("cloud.exec.output_limit", "guest exec: output exceeded the response limit", true) }
+      })
+    })
+    expect(await rpc.exec(c, machine, "yes", null, 1000)).toMatchObject({ ok: false, code: "cloud.exec.output_limit", retryable: false })
+    const ctl = await stub.fakeControl({}) as any
+    expect(ctl.audit.at(-1)).toMatchObject({ action: "platform.exec", machine, outcome: "output_limit" })
   })
 
   it("a delete that failed for good is started again by the next destroy, until the machine is gone", async () => {
