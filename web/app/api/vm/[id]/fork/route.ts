@@ -108,7 +108,7 @@ export async function POST(
         onError: vmCreateLikeErrorResponders({
           operation: "fork",
           planId: entitlements.planId,
-          retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before forking another.",
+          retryAction: "Run `cmux vm ls`, then delete a VM with `cmux vm rm <id>` before forking another.",
         }),
       });
       if (!run.ok) return run.response;
