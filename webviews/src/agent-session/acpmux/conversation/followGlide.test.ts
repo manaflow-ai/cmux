@@ -88,3 +88,19 @@ test("nothing glides for a fall, without room, or with motion off", () => {
   expect(glide.rise(null, 22.75, 40)).toBe(0);
   expect(glides).toHaveLength(0);
 });
+
+test("a glide stops once the room it lands in is smaller than what it still holds back", () => {
+  const glide = createFollowGlide();
+  const { node, glides, at } = thread();
+  glide.rise(node, 22.75, 40);
+  at(0.5);
+  // Still room for the 11.4 px it holds back: it plays on.
+  glide.fit(40);
+  glide.fit(12);
+  expect(glides[0]!.cancelled).toBe(false);
+  // The live line came into view (a call started): no room under the reply, so the rows rest now.
+  glide.fit(0);
+  expect(glides[0]!.cancelled).toBe(true);
+  expect(glide.outstanding()).toBe(0);
+  glide.fit(0);
+});
