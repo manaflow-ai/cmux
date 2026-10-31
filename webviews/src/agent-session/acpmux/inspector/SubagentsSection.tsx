@@ -19,6 +19,7 @@ const ROW_ICON = rowIconSize(12);
 
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
+import { isRepeatedAgentKind } from "../subagents/AgentIdentity";
 import { subagentProgress } from "../subagents/subagentProgress";
 import { nestAgents } from "../subagents/AgentsPill";
 import { Avatar, elapsed, running, useNow } from "../subagents/SubagentGroup";
@@ -178,7 +179,11 @@ export function SubagentsSection({
       agent,
       name: agent.name,
       progress: subagentProgress(t, language, agent).join(" · "),
-      detail: live(status) ? (agent.action ?? agent.kind) : agent.kind,
+      detail: live(status)
+        ? (agent.action ?? (isRepeatedAgentKind(agent.kind) ? undefined : agent.kind))
+        : isRepeatedAgentKind(agent.kind)
+          ? undefined
+          : agent.kind,
       status,
       state: subagentStateText(t, agent, waiting),
       working: Boolean(retrying(agent)),
