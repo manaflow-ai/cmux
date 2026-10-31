@@ -52,6 +52,8 @@ await requireBrowserLane("agent-pane-tool-group-card-height.test.ts", async () =
         step.getBoundingClientRect(),
       );
       const last = steps.at(-1)!;
+      const fold = node.parentElement!;
+      const article = node.closest<HTMLElement>(".acpmux-row")!;
       const transcript = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
       return {
         count: steps.length,
@@ -60,6 +62,11 @@ await requireBrowserLane("agent-pane-tool-group-card-height.test.ts", async () =
         trailing: card.bottom - last.bottom,
         cardBottomFromTranscriptBottom: transcript.bottom - card.bottom,
         border: style.borderTopWidth,
+        foldTrailing: fold.getBoundingClientRect().bottom - card.bottom - Number.parseFloat(style.marginBottom),
+        rowTrailing:
+          article.getBoundingClientRect().bottom -
+          fold.getBoundingClientRect().bottom -
+          Number.parseFloat(getComputedStyle(article).paddingBottom),
       };
     });
     expect(Number.parseFloat(geometry.border)).toBeGreaterThan(0);
@@ -68,6 +75,8 @@ await requireBrowserLane("agent-pane-tool-group-card-height.test.ts", async () =
     expect(geometry.trailing).toBeLessThanOrEqual(1.5);
     expect(Math.abs(geometry.cardHeight - geometry.contentHeight)).toBeLessThanOrEqual(1.5);
     expect(geometry.cardBottomFromTranscriptBottom).toBeGreaterThan(1);
+    expect(Math.abs(geometry.foldTrailing)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(geometry.rowTrailing)).toBeLessThanOrEqual(1.5);
     await page.close();
   });
 });
