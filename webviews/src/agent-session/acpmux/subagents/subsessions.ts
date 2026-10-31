@@ -209,15 +209,14 @@ export class SubsessionStore {
       const cwd = entry.cwd?.trim();
       if (cwd || host) places.set(entry.sessionId, { ...(cwd && { cwd }), ...(host && { host }) });
     }
-    const namedKey = JSON.stringify([
-      [...named],
-      [...harnesses],
-      [...places],
-      sessions.map((entry) => entry.sessionId),
-    ]);
+    // Session-list order can change as activity or priority changes. The same identities
+    // and metadata should not notify every sender card only because rows were reordered.
+    const sorted = <T>(map: Map<string, T>) => [...map].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    const ids = new Set(sessions.map((entry) => entry.sessionId));
+    const namedKey = JSON.stringify([sorted(named), sorted(harnesses), sorted(places), [...ids].sort()]);
     const renamed = namedKey !== this.namedKey;
     this.named = named;
-    this.ids = new Set(sessions.map((entry) => entry.sessionId));
+    this.ids = ids;
     this.harnesses = harnesses;
     this.hosts = hosts;
     if (renamed) this.places = places;
