@@ -1030,7 +1030,7 @@ class Dispatch(unittest.TestCase):
         self.assertIn("cancel", api.calls)
         self.assertIn("budget 180s", summary)
 
-    def test_a_stuck_kit_push_superseded_by_a_newer_push_is_not_cancelled(self):
+    def test_a_stuck_kit_push_superseded_by_a_newer_push_is_cancelled_without_rerun(self):
         payload = kit_event(event="push", head_branch="feat-cmux-next", pull_requests=[])
 
         def jobs(seconds):
@@ -1042,9 +1042,9 @@ class Dispatch(unittest.TestCase):
         code, summary = run_main(api, clock, payload=payload, env_extra={"RESCUE_SECONDS": "600"})
         self.assertEqual(code, 0, summary)
         self.assertIn("newer:feat-cmux-next", api.calls)
-        self.assertNotIn("cancel", api.calls)
+        self.assertIn("cancel", api.calls)
         self.assertNotIn("rerun", api.calls)
-        self.assertIn("never cancelled", summary)
+        self.assertIn("cancelled run", summary)
 
     def test_a_stuck_e2e_job_reruns_only_what_failed_without_a_pull_request(self):
         def jobs(seconds):

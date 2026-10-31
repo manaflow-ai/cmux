@@ -1265,7 +1265,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     # A stuck later attempt re-runs its failed jobs too, but is no refusal.
     keep_main = target.main and refusal
     moved = "" if keep_main else pull_moved(api, target, sleep, log)
-    if moved and target.push_branch and target.path in (CMUX_NEXT_WORKFLOW_PATH, IOS_KIT_WORKFLOW_PATH):
+    if moved and target.push_branch and target.path == CMUX_NEXT_WORKFLOW_PATH:
         # These workflows queue each push Mac job in a group per branch (one
         # runs, one waits, and pushes do not cancel in progress), so a newer
         # push never makes this run cancel. Not re-run either: a re-run would
