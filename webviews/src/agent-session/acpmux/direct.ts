@@ -79,11 +79,12 @@ import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
+import { inboxText, type InboxMessage } from "./conversation/inboxNotice";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
 import { failedSendText, retryHelps, sendCause } from "./sendFailure";
-import { SessionPager, type SessionPage } from "./sessionPages";
+import { SessionPageError, SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { isPlumbingCall, showsNothing } from "./hiddenTools";
 import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
@@ -2278,7 +2279,12 @@ export class AcpmuxDirectClient {
       this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     } catch (error) {
       this.wire.lifecycle("connect failed", {
-        message: error instanceof Error ? error.message : String(error),
+        message:
+          error instanceof SessionPageError
+            ? `${error.message} (${error.detail})`
+            : error instanceof Error
+              ? error.message
+              : String(error),
       });
       this.releaseCopyAttach(mine);
       this.socket?.close();
@@ -4840,6 +4846,20 @@ export class AcpmuxDirectClient {
         return;
       }
     }
+    // Route child updates before session metadata's early returns too: a helper's init or
+    // usage belongs to that helper, just like its text and tools.
+    if (update) {
+      this.subagents.cause = this.turnStopCause(event);
+      this.subagents.chat = this.chatThread();
+      this.subagents.harness = this.summary?.harness;
+      if (this.subagents.reduce(event, update)) {
+        // A later command update can associate a shell call with its recorded child session.
+        if (typeof update.toolCallId === "string" && this.subagents.isRun(update.toolCallId))
+          this.dropToolItem(update.toolCallId);
+        this.takeSubagentRows();
+        return;
+      }
+    }
     if (update?.sessionUpdate === USAGE_KIND) {
       const used = Number(update.used);
       const size = Number(update.size);
@@ -5075,9 +5095,11 @@ export class AcpmuxDirectClient {
             ? { text: incoming.message.text, incoming, resend: raw }
             : incoming?.kind === "notice"
               ? { text: incoming.text, incoming }
-              : incoming?.kind === "hidden"
-                ? { text: "", incoming }
-                : { text: incoming?.kind === "prompt" ? incoming.text : raw };
+              : incoming?.kind === "inbox"
+                ? { text: inboxText(incoming.notice), incoming }
+                : incoming?.kind === "hidden"
+                  ? { text: "", incoming }
+                  : { text: incoming?.kind === "prompt" ? incoming.text : raw };
         const untyped = taskResult !== undefined || (incoming !== undefined && incoming.kind !== "prompt");
         // Its queued line, if the result waited, gives way to this prompt's.
         if (received) this.rows.delete(`received-${received.offerId}`);
@@ -5279,17 +5301,6 @@ export class AcpmuxDirectClient {
       return;
     }
     if (!update) return;
-    this.subagents.cause = this.turnStopCause(event);
-    this.subagents.chat = this.chatThread();
-    this.subagents.harness = this.summary?.harness;
-    if (this.subagents.reduce(event, update)) {
-      // A shell call known to start another agent only once its command came (a later update)
-      // drew a row before: the agent's card stands for it now.
-      if (typeof update.toolCallId === "string" && this.subagents.isRun(update.toolCallId))
-        this.dropToolItem(update.toolCallId);
-      this.takeSubagentRows();
-      return;
-    }
     const commands = commandsFromUpdate(update);
     if (commands) {
       this.commands = commands;
@@ -6828,6 +6839,31 @@ export class AcpmuxDirectClient {
       text: body,
       replyId: `m-${crypto.randomUUID()}`,
     });
+  }
+  /// A thread of the chat's inbox (acpmux `_acpmux/inbox_thread`), oldest first, for an inbox
+  /// notice's line the person opened (conversation/InboxNoticeCard.tsx). It marks nothing read: the
+  /// person reading it is not the agent.
+  async inboxThread(threadId: string): Promise<InboxMessage[]> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || !threadId) throw new Error(translate("error.notOpen"));
+    const reply = (await this.request("_acpmux/inbox_thread", { sessionId, threadId }, 15_000)) as {
+      messages?: unknown;
+    } | null;
+    const messages = Array.isArray(reply?.messages) ? reply.messages : [];
+    return messages
+      .flatMap((m): InboxMessage[] => {
+        const r = m as Record<string, unknown> | null;
+        if (!r || typeof r.text !== "string") return [];
+        return [
+          {
+            from: typeof r.from === "string" ? r.from : "",
+            text: r.text,
+            ...(typeof r.promptId === "string" && { promptId: r.promptId }),
+            ...(typeof r.at === "number" && { at: r.at }),
+          },
+        ];
+      })
+      .reverse();
   }
   /// An offer the reducer draws: offers of one group share one card, in the order they came.
   private addOffer(offer: AcpmuxSessionOffer, at: number): void {

@@ -37,8 +37,8 @@ struct CloudStartChatMachineTests {
     @Test func aMachineMarkedForChatsIsTakenFirstEvenWithChatsOpen() {
         let machines = [Self.machine("vm-free", "spare"), Self.machine("vm-chats", "cloud-chats", chats: 4)]
         #expect(CloudStartChat.pick(machines, user: Self.me, used: []) == "vm-chats")
-        #expect(CloudStartChat.isMarkedForChats("Cloud-Chats-2"))
-        #expect(!CloudStartChat.isMarkedForChats("cloud-chats-x"))
+        #expect(AgentPaneCloudStart.isMarkedForChats("Cloud-Chats-2"))
+        #expect(!AgentPaneCloudStart.isMarkedForChats("cloud-chats-x"))
         // A teammate's machine for chats is still theirs.
         #expect(CloudStartChat.pick([Self.machine("vm-c", "cloud-chats", by: Self.teammate)], user: Self.me, used: []) == nil)
     }
@@ -58,8 +58,8 @@ struct CloudStartChatMachineTests {
         slugged.slug = "fs-lane-7"
         #expect(CloudStartChat.pick([slugged], user: Self.me, used: []) == nil)
         // Only the pool's numbered names.
-        #expect(!CloudStartChat.isLanePool("fs-lane-notes"))
-        #expect(!CloudStartChat.isLanePool("lane-vm-"))
+        #expect(!AgentPaneCloudStart.isLanePool("fs-lane-notes"))
+        #expect(!AgentPaneCloudStart.isLanePool("lane-vm-"))
     }
 
     @Test func anIdlePausedMachineOfMineIsFreeAndAPersonsPauseIsNot() {
@@ -78,8 +78,8 @@ struct CloudStartChatMachineTests {
     }
 
     @Test func aNewMachineForChatsGetsAFreeName() {
-        #expect(CloudStartChat.newMachineName(taken: ["fs-lane-1"]) == "cloud-chats")
-        #expect(CloudStartChat.newMachineName(taken: ["Cloud-Chats", "cloud-chats-2"]) == "cloud-chats-3")
+        #expect(AgentPaneCloudStart.newMachineName(taken: ["fs-lane-1"]) == "cloud-chats")
+        #expect(AgentPaneCloudStart.newMachineName(taken: ["Cloud-Chats", "cloud-chats-2"]) == "cloud-chats-3")
     }
 
     /// #28845: the first try took vm-a; then vm-a dropped its link and the list's order changed, so
