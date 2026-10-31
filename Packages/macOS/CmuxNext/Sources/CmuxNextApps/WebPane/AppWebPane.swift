@@ -26,29 +26,28 @@ public nonisolated struct AppWebPane: Sendable, Hashable {
     public let host: String
     /// The package folder the pane may read (`<bundle>/<runtime.web.root>`).
     public let root: URL
+    private let bundle: URL
     /// The page's path inside `root` (`index.html`).
     public let entry: String
     public let csp: String?
 
     /// The web pane of `manifest` in `bundle`, or nil when it has none, or its
-    /// root or page leaves the package or the page is outside the root.
+    /// root or page lexically leaves the package. Construction does no file I/O;
+    /// serving validates the current symlink targets on the file-work lane.
     public init?(manifest: AppManifest, bundle: URL) {
         guard let pane = manifest.webPane, let page = pane.web,
               let rootPath = Self.relative(manifest.webRoot ?? ""), let pagePath = Self.relative(page),
               !rootPath.isEmpty, pagePath.starts(with: rootPath), pagePath.count > rootPath.count
         else { return nil }
-        let base = bundle.standardizedFileURL.resolvingSymlinksInPath()
         let trimmedCSP = manifest.webCSP?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let webCSP: String? = trimmedCSP.isEmpty ? nil : trimmedCSP
-        // The root itself may be a symlink: the folder it resolves to must stay in the package.
-        let resolvedRoot = rootPath.reduce(base) { $0.appendingPathComponent($1, isDirectory: true) }
-            .standardizedFileURL.resolvingSymlinksInPath()
-        guard resolvedRoot.path.hasPrefix(base.path + "/"), webCSP.map(Self.cspAllowed) ?? true else { return nil }
+        guard webCSP.map(Self.cspAllowed) ?? true else { return nil }
         appID = manifest.id
         // app-platform.md 18's one id mapping (cmux-app-manifest `app_namespace`).
         let id = manifest.id.lowercased().replacingOccurrences(of: "-", with: "_")
         host = id.firstIndex(of: "/").map { id.replacingCharacters(in: $0...$0, with: ".") } ?? id
-        root = resolvedRoot
+        self.bundle = bundle
+        root = rootPath.reduce(bundle) { $0.appendingPathComponent($1, isDirectory: true) }
         entry = pagePath.dropFirst(rootPath.count).joined(separator: "/")
         csp = webCSP
     }
@@ -89,12 +88,15 @@ public nonisolated struct AppWebPane: Sendable, Hashable {
 
     /// The file `url` names inside `root`, or nil for another origin, an
     /// escaping or hidden path, or a path through a symlink out of `root`.
-    public func file(for url: URL) -> URL? {
+    /// Resolves files synchronously: call only on the file-work lane, with the read.
+    func file(for url: URL) -> URL? {
         guard isOwn(url) else { return nil }
         var parts = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
         if parts.isEmpty { parts = [entry] }
         guard !parts.contains(where: { $0 == ".." || $0 == "." || $0.hasPrefix(".") }) else { return nil }
+        let package = bundle.standardizedFileURL.resolvingSymlinksInPath()
         let base = root.standardizedFileURL.resolvingSymlinksInPath()
+        guard base.path.hasPrefix(package.path + "/") else { return nil }
         let file = parts.reduce(base) { $0.appendingPathComponent($1) }.standardizedFileURL.resolvingSymlinksInPath()
         guard file.path.hasPrefix(base.path + "/") else { return nil }
         return file

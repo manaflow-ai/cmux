@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+public import CmuxNextWakeups
 public import WebKit
 
 /// An app's custom pane: its own web page in a sandboxed web view
@@ -40,15 +41,15 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
     private var crashReloads = 0
     static let maxCrashReloads = 3
 
-    public convenience init(pane: AppWebPane, client: AppsClient) {
-        self.init(pane: pane, calls: client)
+    public convenience init(pane: AppWebPane, client: AppsClient, work: BackgroundWork) {
+        self.init(pane: pane, calls: client, work: work)
         self.client = client
     }
 
-    init(pane: AppWebPane, calls: any AppWebPaneCalls) {
+    init(pane: AppWebPane, calls: any AppWebPaneCalls, work: BackgroundWork) {
         self.pane = pane
         bridge = AppWebPaneBridge(pane: pane, calls: calls)
-        schemeHandler = AppWebPaneSchemeHandler(pane: pane)
+        schemeHandler = AppWebPaneSchemeHandler(pane: pane, work: work)
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.setURLSchemeHandler(schemeHandler, forURLScheme: AppWebPane.scheme)

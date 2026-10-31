@@ -46,7 +46,7 @@ final class AppPanePage: InternalPageProvider {
             guard let bundle = apps.client.bundleDirectory(for: app.id),
                   let pane = AppWebPane(manifest: app.manifest, bundle: bundle)
             else { return NSView() }
-            return AppWebPaneView(pane: pane, client: apps.client)
+            return AppWebPaneView(pane: pane, client: apps.client, work: apps.services.work)
         }
         guard let pane = app.manifest.scenePane else { return NSView() }
         let mount = apps.client.mount(app.id, implementation: pane, surface: "pane")

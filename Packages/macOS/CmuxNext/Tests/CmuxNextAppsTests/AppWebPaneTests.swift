@@ -1,5 +1,6 @@
 @testable import CmuxNextApps
 import Foundation
+import CmuxNextWakeups
 import Testing
 import WebKit
 
@@ -181,7 +182,8 @@ struct AppWebPaneTests {
         let linked = FileManager.default.temporaryDirectory.appendingPathComponent("web-pane-link-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: linked, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(at: linked.appendingPathComponent("web"), withDestinationURL: outside.web)
-        #expect(AppWebPane(manifest: app.manifest, bundle: linked) == nil, "the root leaves the package")
+        let escaped = try #require(AppWebPane(manifest: app.manifest, bundle: linked))
+        #expect(escaped.file(for: escaped.entryURL) == nil, "the root leaves the package")
 
         var dashed = app.manifestJSON
         dashed["id"] = .string("local/workspace-board")
@@ -223,7 +225,7 @@ private struct TempApp {
 
     func view(calls: FakeCalls) throws -> AppWebPaneView {
         let pane = try #require(AppWebPane(manifest: manifest, bundle: root))
-        let view = AppWebPaneView(pane: pane, calls: calls)
+        let view = AppWebPaneView(pane: pane, calls: calls, work: BackgroundWork())
         view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         return view
     }

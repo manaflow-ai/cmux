@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApps
 import CmuxNextCompat
 import CmuxNextTestSupport
+import CmuxNextWakeups
 import Testing
 import WebKit
 
@@ -21,7 +22,7 @@ struct AppWebPaneUpdateTests {
         client.start()
         await waitForVersion("1.0.0", client: client, app: first.id)
         let pane = try #require(AppWebPane(manifest: first.manifest, bundle: bundle))
-        let view = AppWebPaneView(pane: pane, client: client)
+        let view = AppWebPaneView(pane: pane, client: client, work: BackgroundWork())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: false)
         window.contentView = view
         defer {
