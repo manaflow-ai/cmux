@@ -523,6 +523,8 @@
         }
       },
       "banners": {
+        "payment_updated": "您的付款方式已更新，未付款项已成功支付。",
+        "payment_failed": "您的新付款方式已保存，但未付款项被拒绝。请尝试其他卡。",
         "team_admin_required": "只有团队管理员可以管理此团队的账单。",
         "team_not_found": "该团队不可用。你可能已退出该团队，或该团队已被删除。",
         "authorization_unavailable": "无法检查团队权限，请稍后重试。",

@@ -523,6 +523,8 @@
         }
       },
       "banners": {
+        "payment_updated": "Način plaćanja je ažuriran i dugovana uplata je izvršena.",
+        "payment_failed": "Novi način plaćanja je sačuvan, ali dugovana uplata je odbijena. Pokušajte s drugom karticom.",
         "team_admin_required": "Naplatom ovog tima mogu upravljati samo njegovi administratori.",
         "team_not_found": "Taj tim nije dostupan. Možda ste ga napustili ili je izbrisan.",
         "authorization_unavailable": "Nije moguće provjeriti dozvole tima. Pokušajte ponovo uskoro.",
