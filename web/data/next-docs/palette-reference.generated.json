@@ -2,7 +2,7 @@
   "version": 1,
   "counts": {
     "entries": 1236,
-    "shortcuts": 189
+    "shortcuts": 186
   },
   "sections": [
     {
@@ -5580,19 +5580,19 @@
         {
           "id": "agentPaneZoomReset",
           "title": "Agent Chat: Actual Size",
-          "shortcut": "⌘0",
+          "shortcut": null,
           "command": "cmux agent actual-size"
         },
         {
           "id": "agentPaneZoomIn",
           "title": "Agent Chat: Zoom In",
-          "shortcut": "⌘=",
+          "shortcut": null,
           "command": "cmux agent zoom-in"
         },
         {
           "id": "agentPaneZoomOut",
           "title": "Agent Chat: Zoom Out",
-          "shortcut": "⌘-",
+          "shortcut": null,
           "command": "cmux agent zoom-out"
         },
         {

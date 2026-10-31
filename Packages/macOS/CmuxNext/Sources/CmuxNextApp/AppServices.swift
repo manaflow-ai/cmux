@@ -173,6 +173,12 @@ final class AppServices {
     let actionBudget: ActionBudgetMonitor
     /// Every action; timed by the always-on `action.*` signposts and `actionBudget`, in Debug and Release.
     let registry: ActionRegistry
+    /// Serializes Cmd +/− chat font writes so key repeats cannot lose a step.
+    @MainActor final class ChatFontSizeWriteQueue {
+        var latest: Task<ActionWorkFailure?, Never>?
+        var generation = 0
+    }
+    let agentChatFontSizeWrites = ChatFontSizeWriteQueue()
     /// The main-thread blocking detector's handle (threading-model.md): the Debug menu, `debug.blocking`, and its log sink (``BlockingLogSink``).
     let blocking = BlockingDetector.forProcess()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).

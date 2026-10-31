@@ -22386,12 +22386,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "=",
-        "modifiers" : [
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "agentPaneZoomIn",
       "main_menu" : "view",
       "mcp" : "systemChange",
@@ -22420,12 +22415,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "-",
-        "modifiers" : [
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "agentPaneZoomOut",
       "main_menu" : "view",
       "mcp" : "systemChange",
@@ -22454,12 +22444,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "0",
-        "modifiers" : [
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "agentPaneZoomReset",
       "main_menu" : "view",
       "mcp" : "systemChange",
