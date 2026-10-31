@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4115130212201",
+  "notes": "notes/4115130212201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28418,
+      "title": "base red: acpmux: macOS clippy dead start_logged; arithmetic ratchet back under its baseline",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28427,
+      "title": "fix(acpmux): the carried-turn cap test queues its agent message with the inbox off",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28467,
+      "title": "fix(cmux-tui tests): the harness auth check test fails its check with /usr/bin/false, which macOS has",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28150,
+      "title": "fix(acpmux tests): web_image_attachments runs hermetic, with node as its one host tool",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
