@@ -49,6 +49,13 @@ public final class AgentPaneView: NSView {
     var crashNotice: NSView?
     /// The page crashed and the notice waits for the person's Reload (nothing rebuilds it meanwhile).
     public var showsCrashNotice: Bool { crashNotice != nil }
+    /// The last WebContent pid seen at a finished load (old host): WebKit may report 0 for a
+    /// process that already ended.
+    var knownWebContentPid: Int32 = 0
+    /// Reloads the person asked for with a crash notice's Reload (this pane's or a sibling's).
+    var crashReloadCount = 0
+    /// The page ends of the app's agent panes, grouped by the termination that ended them.
+    let terminations: AgentPageTerminations
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
     var otherInstallNotice: ChromeLabel?
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
@@ -137,11 +144,14 @@ public final class AgentPaneView: NSView {
     ///   - testRoot: The bundled page is a test's own fixture, which the page host serves (DEBUG only; ``PageWebView``).
     ///   - chromium: Makes the page host's Chromium view when the chat shows in Chromium (the app's
     ///     ``PageWebView/chromiumHosting`` by default; tests pass a fake).
+    ///   - terminations: The record of agent page ends (``AgentPageTerminations``), shared by the
+    ///     panes so one Reload reaches every chat that ended with it; nil: ``processGroups``' (tests pass their own).
     ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`) for Add Files, Attach and a page's
     ///     file input, warmed when the pane reaches a window; nil (tests) shows no file picker and warms none.
     public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
                  pageHost: Bool = false, testRoot: Bool = false, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
-                 openPanel: MadeAheadOpenPanel? = nil) {
+                 openPanel: MadeAheadOpenPanel? = nil, terminations: AgentPageTerminations? = nil) {
+        self.terminations = terminations ?? Self.processGroups.terminations
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.openPanel = openPanel
         fileChooser = openPanel.map { PageOpenPanel(openPanel: $0) }
@@ -403,6 +413,8 @@ public final class AgentPaneView: NSView {
     public func close() {
         // A closed page must not notify the pane that used to host it after it leaves.
         onNativeToolOwnerChange = nil
+        // A closed chat leaves its crash group: a sibling's Reload must not reload it.
+        terminations.forget(self)
         popupHostStorage?.hide()
         rateReapply?.cancel()
         motionObservation?.cancel()
