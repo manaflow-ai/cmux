@@ -33,7 +33,7 @@ public final class AddressBarView: NSView {
 
     let pill = OmnibarPillView()
     private let backdrop = OmnibarCardTopView()
-    private let chip = PageInfoChipButton()
+    let chip = PageInfoChipButton()
     let field = AddressField()
     private let machineBadgeView = MachineBadgeView()
     private let profileBadgeView = ProfileBadgeView()
@@ -166,6 +166,7 @@ public final class AddressBarView: NSView {
                   !BrowserNewTabPage.isNewTabPage(url) else { return nil }
             return BrowserURLDragItem(url: url, title: pageTitle?())
         }
+        registerForDraggedTypes(Self.dropTypes)
         field.setPlaceholder(Strings.omnibarPlaceholder)
         field.delegate = self
         field.sink = self
