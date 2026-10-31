@@ -140,8 +140,12 @@ cmux-ci test --setup webviews --timeout 1800 -- bash -lc '
   cd ../scripts/gallery-matrix
   bun install --frozen-lockfile
   ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+  result=0
   CMUX_GALLERY_IN_VM=1 bun geometry-audit.ts --gallery-dir "$RUNNER_TEMP/gallery" \
-    --output-dir "$RUNNER_TEMP/geometry" --expected-sha "$(git rev-parse HEAD)"
+    --output-dir "$RUNNER_TEMP/geometry" --expected-sha "$(git rev-parse HEAD)" || result=1
+  CMUX_GALLERY_IN_VM=1 bun geometry-audit.ts --config geometry-home.json --gallery-dir "$RUNNER_TEMP/gallery" \
+    --output-dir "$RUNNER_TEMP/geometry/home" --expected-sha "$(git rev-parse HEAD)" || result=1
+  exit "$result"
 '
 ```
 
@@ -182,6 +186,22 @@ ranges. `measurement: text-range` records `DOMRange` bounds as `rectSource: text
 are **not** a text baseline. Unmeasured glyph baselines stay in `coverageGaps`, which is preserved in
 the JSON report. Invisible elements, including opacity-zero ancestors, are excluded by the browser's
 visibility check; missing required peers fail the rule.
+
+### Home shared columns
+
+`geometry-home.json` checks the mark and label columns across all four inbox
+rows and both review rows in the baseline Home fixture, in light and dark. The
+fixture scrolls `.acpmux-home-area` to its end before freezing animations, so
+the lower rows and their geometry share a visible screenshot. A missing or
+ambiguous scroll target fails the capture.
+
+The contract comes from matching capture `62bab366fc72beb1cc38fb40`: before
+`92c51f49804f48da9f46a86bbebea2bc11cd7f99`, review marks/labels drifted 2/4 CSS px;
+after `80cbb16fd9a98586bcfe29c2e1ee7b90522bb643`, both drifted 0 px. The lint
+allows 0.5 px, with no accepted drift. Unit fixtures replay these measured x
+coordinates with explicitly synthetic box dimensions; fleet captures remain
+the screenshot evidence. The lane-run one-liner above runs both audit
+configurations even if one fails.
 
 Session status also captures `header-action-alignment` in both appearances,
 matching capture `9831817724357efacf50b5ff` at product head
