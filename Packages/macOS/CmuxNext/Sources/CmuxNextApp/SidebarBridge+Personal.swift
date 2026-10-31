@@ -22,7 +22,7 @@ extension SidebarBridge {
         switch intent {
         case .reorder(let ids, let position):
             let before = model.sections
-            placePersonal(ids, at: position, in: before, edit: rows.add(intent)) // pending until the store holds it (cx-odqn)
+            placePersonal(ids, at: position, in: before, edit: rows.edits.add(intent)) // pending until the store holds it (cx-odqn)
         case .move(let ids, let group):
             // The drag's rule for every path: a group holds one machine row's workspaces.
             guard SidebarEdits.canMove(ids, toGroup: group, in: model.sections) else { resync(); return true }
@@ -50,12 +50,12 @@ extension SidebarBridge {
             // A pending edit until the store has the delete (#26382): the group leaves in this turn, and no
             // live recompute before the delete lands shows it again; a failed delete brings it back and says why.
             let v2 = statePersonal
-            personal("delete-personal-group", intent, edit: rows.add(intent)) {
+            personal("delete-personal-group", intent, edit: rows.edits.add(intent)) {
                 if v2 { return try await $0.state.deleteWorkspaceGroup(group.rawValue) }
                 try await $0.deletePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue))
             }
         case .reorderGroup(let group, _):
-            let edit = rows.add(intent)
+            let edit = rows.edits.add(intent)
             // The intent's index counts section nodes; the daemon wants a
             // group-order index (and, mixed, the group's place among the rows).
             let place = PersonalSidebarPlanner(machines: services.machines).groupPlacement(of: group, in: model.sections)
@@ -86,7 +86,7 @@ extension SidebarBridge {
         let group = position.group.map { WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: $0.rawValue)) }
         // The queue settles a placement that did not apply (the rows show the store's again); `commit` leaves it.
         let settle: @MainActor () -> Void = { [weak self] in
-            self?.rows.settle(edit)
+            self?.rows.edits.settle(edit)
             self?.resync()
         }
         // A save that failed says why (#26382); a skipped placement, or one an earlier failure stopped, does not.
@@ -129,7 +129,7 @@ extension SidebarBridge {
                 }
             }
             guard sent, await home.appliedThroughReply(on: connection, after: "personal placement") else { return .failed }
-            rows.settle(edit)
+            rows.edits.settle(edit)
             return .applied
         }
     }

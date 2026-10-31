@@ -19,7 +19,7 @@ final class SidebarRows {
     /// The sidebar document's `shownChanges` `live` was built at (nil: not from its projection): the creates'
     /// rows that wait for the window's current row wait while `live` is a projection behind (`layoutCatchingUp`).
     private var liveShownAt: UInt64?
-    private lazy var edits = SidebarRowEdits(model: model, redraw: { [weak self] in self?.show() },
+    lazy var edits = SidebarRowEdits(model: model, redraw: { [weak self] in self?.show() },
                                              confirmedFold: { [weak self] in self?.setLive($0, collapsed: $1) })
     /// The rows of creates the daemon has not reported yet, at their slots
     /// over the edits (`PendingWorkspaceRows`), and the home workspace.
@@ -140,18 +140,6 @@ final class SidebarRows {
         }
     }
 
-    /// Folds or opens `group` at once (the sidebar document path) and keeps that look until the
-    /// live rows show it, or `refuse` drops it. Costs the group's rows: no row is rebuilt.
-    func foldShown(_ group: GroupID, collapsed: Bool) {
-        edits.foldShown(group, collapsed: collapsed)
-    }
-
-    /// The fold of `group` was refused: the live rows show again.
-    func dropFold(_ group: GroupID) { edits.dropFold(group) }
-
-    /// Applies the sidebar document's fold-only batches to this window's rows.
-    func followFolds(of store: SidebarDocStore) { edits.followFolds(of: store) }
-
     /// Writes `group`'s fold into the live rows kept here (one group, no redraw).
     private func setLive(_ group: GroupID, collapsed: Bool) {
         guard let (s, n) = SidebarEdits.locateGroup(group, in: live), case var .group(shown) = live[s].nodes[n],
@@ -160,25 +148,12 @@ final class SidebarRows {
         live[s].nodes[n] = .group(shown)
     }
 
-    /// Shows `intent` at once, until `settle`.
-    func add(_ intent: SidebarIntent) -> SidebarPendingEdits.Token {
-        edits.add(intent)
-    }
-
-    func settle(_ edit: SidebarPendingEdits.Token?) { edits.settle(edit) }
-
-    /// A command's outcome settles its edit before reporting failure, or once its owner holds the result.
-    func outcome(_ edit: SidebarPendingEdits.Token?, failed: @escaping @MainActor (ActionWorkFailure) -> Void)
-        -> (failed: @MainActor (ActionWorkFailure) -> Void, applied: (@MainActor () -> Void)?) {
-        edits.outcome(edit, failed: failed)
-    }
-
     /// Sends `commands` for `edit`, each to its own daemon and each on its own (a slow or failed one never holds
     /// back the others, which were already told their workspaces close): the edit settles once every one replied and
     /// its daemon's store holds the result (read-your-writes), or at the first failure, which runs `failed` once.
     func send(_ edit: SidebarPendingEdits.Token?, _ commands: [(label: String, daemon: DaemonService, body: DaemonCommandBody)],
               failed onFailure: @escaping @MainActor (ActionWorkFailure) -> Void) {
-        let (failed, applied) = outcome(edit, failed: onFailure)
+        let (failed, applied) = edits.outcome(edit, failed: onFailure)
         guard !commands.isEmpty else {
             applied?()
             return

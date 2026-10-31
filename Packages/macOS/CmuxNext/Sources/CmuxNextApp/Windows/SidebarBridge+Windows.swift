@@ -49,7 +49,7 @@ extension SidebarBridge {
             }
             return
         }
-        let edit = rows.add(.reorder(ids, to: position))
+        let edit = rows.edits.add(.reorder(ids, to: position))
         if usesPersonalOrganization {
             placePersonal(ids, at: position, in: sections, edit: edit)
         } else {

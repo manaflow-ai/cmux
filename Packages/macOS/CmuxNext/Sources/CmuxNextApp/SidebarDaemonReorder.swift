@@ -23,7 +23,7 @@ enum SidebarDaemonReorder {
     }
 
     private static func failed(_ edit: SidebarPendingEdits.Token?, _ bridge: SidebarBridge) {
-        bridge.rows.settle(edit)
+        bridge.rows.edits.settle(edit)
         bridge.resync()
     }
 
@@ -50,13 +50,13 @@ enum SidebarDaemonReorder {
                 }
                 if let failure {
                     withExtendedLifetime(services) {
-                        bridge?.rows.settle(edit)
+                        bridge?.rows.edits.settle(edit)
                         failed(failure)
                     }
                     return
                 }
             }
-            bridge?.rows.settle(edit)
+            bridge?.rows.edits.settle(edit)
         }
     }
 }

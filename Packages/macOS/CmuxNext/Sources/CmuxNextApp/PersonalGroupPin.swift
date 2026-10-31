@@ -57,6 +57,6 @@ struct PersonalGroupPin {
     /// One home-daemon request for `intent`. `held`: the rows show `intent` now and hold it until the
     /// home store has it (a pending edit, #26382). A failure re-syncs the sidebar and says why.
     private func send(_ label: String, _ intent: SidebarIntent, held: Bool, _ body: @escaping DaemonCommandBody) {
-        bridge.rows.send(label, edit: held ? bridge.rows.add(intent) : nil, on: home, failed: bridge.saveFailed(intent), body)
+        bridge.rows.send(label, edit: held ? bridge.rows.edits.add(intent) : nil, on: home, failed: bridge.saveFailed(intent), body)
     }
 }

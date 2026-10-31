@@ -17,8 +17,8 @@ extension SidebarBridge {
         // document (its owner of record) the value. No round trip and no rebuild (state-ownership-DESIGN.md).
         if case let .toggleCollapse(.group(group)) = intent, SidebarDocWiring.isActive, let doc = SidebarDocStore.current,
            let shown = model.group(group)?.isCollapsed {
-            rows.foldShown(group, collapsed: !shown)
-            doc.setGroupCollapsed(group.rawValue, !shown) { [weak self] in self?.rows.dropFold(group) }
+            rows.edits.foldShown(group, collapsed: !shown)
+            doc.setGroupCollapsed(group.rawValue, !shown) { [weak self] in self?.rows.edits.dropFold(group) }
             return
         }
         if CloudCreationRows.handle(intent, bridge: self, state: state) || SidebarDocWiring.handle(intent, bridge: self) { return }
@@ -36,7 +36,7 @@ extension SidebarBridge {
             case .pinned, .custom: // a custom section lists only on the sidebar document, which took the intent above
                 let unpinned = ids.filter { services.machines.workspace(id: $0.rawValue)?.0.pinned != true }
                 guard !unpinned.isEmpty else { return resync() }
-                return sendPinned(unpinned, true, edit: rows.add(intent), for: intent)
+                return sendPinned(unpinned, true, edit: rows.edits.add(intent), for: intent)
             case .machine(let machine):
                 let target = services.machines.daemon(machine: machine.rawValue)
                 let leaving = ids.filter { id in
@@ -68,7 +68,7 @@ extension SidebarBridge {
             resync()
         case .reorder(let ids, let position):
             // A pending edit, as on the personal path: each command's echo shows no step between.
-            SidebarDaemonReorder.reorder(ids, to: position, in: model.sections, edit: rows.add(intent), bridge: self)
+            SidebarDaemonReorder.reorder(ids, to: position, in: model.sections, edit: rows.edits.add(intent), bridge: self)
         case .rename(let id, let name):
             model.apply(intent)
             guard let (workspace, daemon) = services.machines.workspace(id: id.rawValue), let key = workspace.key else { return }
@@ -110,7 +110,7 @@ extension SidebarBridge {
             WorkspaceClose.close(members) { daemon, label, body in closes.append((label, daemon, body)) }
             // A pending edit until every close is in its store (#26382): the rows leave in this turn and no live
             // recompute shows them again; a failed close brings back what did not close and says why.
-            rows.send(rows.add(intent), closes, failed: saveFailed(intent))
+            rows.send(rows.edits.add(intent), closes, failed: saveFailed(intent))
         case .switchProfile(let profile):
             services.windows.switchProfile(ProfileID(rawValue: profile.rawValue), in: state)
         case .newProfile:
@@ -123,7 +123,7 @@ extension SidebarBridge {
             let id = ProfileID(rawValue: profile.rawValue)
             command("move-profile", on: services.machines.local, for: intent) { c in try await c.moveProfile(id, to: index) }
         case .setPinned(let ids, let pinned):
-            sendPinned(ids, pinned, edit: rows.add(intent), for: intent)
+            sendPinned(ids, pinned, edit: rows.edits.add(intent), for: intent)
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
         case .installUpdate, .downloadUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated,
@@ -159,7 +159,7 @@ extension SidebarBridge {
         }
         if commands.count < owners.count { failed(ActionWorkFailure(RefusalStrings.needsDaemonCapability(DaemonCapabilities.workspacePin))) }
         guard !commands.isEmpty else {
-            rows.settle(edit)
+            rows.edits.settle(edit)
             return resync()
         }
         rows.send(edit, commands, failed: failed)
