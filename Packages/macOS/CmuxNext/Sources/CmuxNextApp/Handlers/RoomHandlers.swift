@@ -41,6 +41,12 @@ enum RoomHandlers {
                 windows.openWindow(id: windowID, workspaces: adoptable)
             }
         }
+        // Move Space to This Window, the inverse: the acting window takes the space's workspaces from
+        // every other normal window and shows the space; a window left with none closes.
+        bind("space.bringHere") { invocation in
+            let room = try context.room(invocation)
+            try context.services.windows.bringSpace(room.id, into: context.window(invocation).state)
+        }
         bind("space.newWorkspace") { invocation in
             let room = try context.room(invocation)
             let windows = context.services.windows

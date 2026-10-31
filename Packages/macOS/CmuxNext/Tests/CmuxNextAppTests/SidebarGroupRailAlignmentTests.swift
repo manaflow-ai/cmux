@@ -1,13 +1,14 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-23 (screenshot 1.07.56 AM): "left alignment is bad btw, the bar, left side, should be
 /// aligned with the header part left side". A group's members' rail started left of its header's colored
 /// bar. The rule: at every nesting level, sidebar density and Minimal Mode, the rail's left edge is the
 /// header bar's left edge, in points, while the member rows keep the ungrouped rows' left edge (#23975).
-@MainActor @Suite(.serialized) struct SidebarGroupRailAlignmentTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarGroupRailAlignmentTests {
     nonisolated struct Case: CustomTestStringConvertible, Sendable {
         var density: SidebarDensity
         var minimal: SidebarMinimalMode

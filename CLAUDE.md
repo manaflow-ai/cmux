@@ -218,6 +218,10 @@ https://github.com/manaflow-ai/cmux/issues/13742 with a recommendation first.
 Read these before working in their scope; nested files may not load automatically:
 
 - `ios/` or `Packages/iOS/`: [ios/AGENTS.md](ios/AGENTS.md).
+- Cloud backend code (control plane, VM API routes, provider drivers, billing,
+  entitlements, the NEXT Worker): new code goes to the private
+  manaflow-ai/cmux-platform repository, not here. Read
+  [skills/cmux-backend/SKILL.md](skills/cmux-backend/SKILL.md) first.
 - `web/` or any cmux Cloud database work: [web/AGENTS.md](web/AGENTS.md).
 - `cmux-tui/`: [cmux-tui/AGENTS.md](cmux-tui/AGENTS.md).
 - `cmux-next-ios/`: [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md) and the parity rule above.
