@@ -649,7 +649,8 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
           </a>,
         );
       // A template (`${variant}.png`) names no file: its text.
-      else if (!href && isTemplatePath(lm[2])) out.push(<Fragment key={k++}>{renderInline(lm[1], labelOpts)}</Fragment>);
+      else if (!href && isTemplatePath(lm[2]))
+        out.push(<Fragment key={k++}>{renderInline(lm[1], labelOpts)}</Fragment>);
       else if (linkKind(lm[2]) === "file")
         out.push(
           <span key={k++} className="cv-link is-file">
