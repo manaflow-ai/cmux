@@ -268,8 +268,8 @@ import Testing
         let leftmost = { ([sidebar.newButton, sidebar.newWorkspaceOptionsButton, sidebar.priorityButton] as [NSView])
             .filter { !$0.isHidden }.map(\.frame.minX).min() ?? .infinity }
         let roomy = leftmost()
-        // Room for exactly what sat beside the + before the chevron existed, and not one point more.
-        sidebar.titlebarLeadingReserve = roomy + Metrics.space1 + SidebarStyle.toolbarButtonSize
+        // One point less room than the + and its chevron segment need together.
+        sidebar.titlebarLeadingReserve = roomy + 1
         sidebar.layoutSubtreeIfNeeded()
         #expect(sidebar.newWorkspaceOptionsButton.isHidden, "the chevron gives way on a narrow sidebar")
         #expect(leftmost() >= sidebar.titlebarLeadingReserve, "no titlebar control enters the reserve")

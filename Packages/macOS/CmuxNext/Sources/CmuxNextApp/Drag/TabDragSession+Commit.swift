@@ -51,7 +51,7 @@ extension TabDragSession {
         case .tab(let id):
             // A session-local tab (an internal page) is not a daemon tab
             // and cannot move: it springs back.
-            guard let (tab, _) = services.locateTab(id) else { return settle(false) }
+            guard let (tab, _) = services.locateTab(id, onMachine: drag.source.pane.map { services.machines.daemon(forPane: $0.pane).machineID } ?? services.machines.local.machineID) else { return settle(false) }
             executeTab(outcome, tab: tab, dropWindow: dropWindow, drag: drag, transaction: transaction, settle: settle)
         case .group(let id, _):
             executeGroup(outcome, group: CmuxNextDaemon.TabGroupID(rawValue: id.rawValue), dropWindow: dropWindow, drag: drag,

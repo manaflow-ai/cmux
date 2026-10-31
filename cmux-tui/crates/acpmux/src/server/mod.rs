@@ -211,6 +211,10 @@ pub struct Conn {
     pub(super) remote_media: media_forward::RemoteMedia,
     /// Requests this daemon sent the client, waiting on its answer (`client_request.rs`).
     client_requests: client_request::ClientRequests,
+    /// Its windows over the chat index (`chat_windows.rs`).
+    chat_windows: chat_windows::ConnWindows,
+    /// Its refused Stops that wait for room (`requests/cancel_refused.rs`).
+    cancel_refusals: Arc<requests::cancel_refused::Waiting>,
 }
 
 // Bound only request handlers that do finite work on behalf of the connection.
@@ -713,6 +717,7 @@ pub async fn listen_unix(hub: Arc<Hub>, path: PathBuf) -> Result<()> {
 /// Bind the daemon socket (mode 0600), refusing to steal a live one.
 #[cfg(unix)]
 pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
+    crate::config::refuse_lost_home(&crate::config::home())?;
     // A configured path longer than sun_path fails here with the path and
     // the limit, never as a bare bind error.
     cmux_unix_socket::check_path(path)?;
@@ -726,8 +731,10 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
         if tokio::net::UnixStream::connect(path).await.is_ok() {
             anyhow::bail!("another acpmux daemon owns {}", path.display());
         }
+        crate::config::refuse_lost_home(&crate::config::home())?;
         std::fs::remove_file(path)?;
     }
+    crate::config::refuse_lost_home(&crate::config::home())?;
     let listener = UnixListener::bind(path).with_context(|| format!("bind {}", path.display()))?;
     #[cfg(unix)]
     {
@@ -738,6 +745,17 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     Ok(listener)
 }
 
+/// How long to wait after a failed `accept`. A connection that died in the queue is gone, so the
+/// next accept can run at once; anything else (EMFILE, ENFILE, ENOBUFS) leaves the connection
+/// queued, and an immediate retry would spin a core and flood the log until descriptors free up.
+fn accept_retry_delay(error: &std::io::Error) -> std::time::Duration {
+    use std::io::ErrorKind::{ConnectionAborted, ConnectionReset, Interrupted};
+    match error.kind() {
+        ConnectionAborted | ConnectionReset | Interrupted => std::time::Duration::ZERO,
+        _ => std::time::Duration::from_millis(100),
+    }
+}
+
 #[cfg(unix)]
 pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
     loop {
@@ -745,6 +763,7 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
             Ok(s) => s,
             Err(e) => {
                 tracing::warn!("accept failed: {e}");
+                tokio::time::sleep(accept_retry_delay(&e)).await;
                 continue;
             }
         };
@@ -943,6 +962,7 @@ pub async fn serve_ws_until(
             Ok(s) => s,
             Err(e) => {
                 tracing::warn!("ws accept failed: {e}");
+                tokio::time::sleep(accept_retry_delay(&e)).await;
                 continue;
             }
         };
@@ -970,9 +990,8 @@ pub async fn serve_ws_until(
                 Ok(Ok(n)) => n,
                 _ => return,
             };
-            // The peek only routes the request. Each path checks the full
-            // head it parses: serve_http reads it, tungstenite parses the
-            // upgrade request for the callback.
+            // The peek only routes the request. Each path checks the full head it parses:
+            // serve_http reads it, tungstenite parses the upgrade request for the callback.
             let head_text = String::from_utf8_lossy(head.get(..n).unwrap_or(&head)).into_owned();
             if !head_text.to_ascii_lowercase().contains("upgrade: websocket") {
                 serve_http(stream, &policy, &token, peer).await;
@@ -1050,12 +1069,12 @@ pub async fn serve_ws_until(
                 pairing::Admitted::Ticket(secret) => {
                     let close = tokio::select! {
                         biased;
-                        () = shutdown.normal() => Some(false),
-                        () = shutdown.closing() => Some(true),
-                        () = pairing::serve_redeem(hub, &mut ws, secret) => None,
+                        () = shutdown.normal() => true,
+                        () = shutdown.closing() => true,
+                        () = pairing::serve_redeem(hub, &mut ws, secret) => false,
                     };
-                    if let Some(restarting) = close {
-                        ws_shutdown::close(&mut ws, restarting).await;
+                    if close {
+                        ws_shutdown::close(&mut ws, shutdown.close_code_restart()).await;
                     }
                     return;
                 }
@@ -1072,8 +1091,7 @@ pub async fn serve_ws_until(
             // The handshake above checked the listener token: every
             // connection past it is authenticated (`conn_auth.rs`).
             let mut proof = ConnAuth::ListenerToken;
-            // The first frame decides LocalApp; it reaches the protocol
-            // handler without the token.
+            // The first frame decides LocalApp; it reaches the protocol handler without the token.
             let mut origin = Origin::Web;
             let mut first = None;
             let presented =
@@ -1412,6 +1430,8 @@ async fn serve_connection_from(
         refuse_unauthenticated(&mut inbound, &out, origin).await;
         return;
     }
+    // Counted while it is served: a daemon with none stops once unused (`daemon/unused_exit.rs`).
+    let _client = crate::daemon::unused_exit::client();
     let raw_text = !peer_text::masks(origin);
     let conn = Arc::new(Conn {
         id: uuid::Uuid::now_v7().to_string(),
@@ -1453,6 +1473,8 @@ async fn serve_connection_from(
         },
         remote_media: media_forward::RemoteMedia::default(),
         client_requests: Default::default(),
+        chat_windows: Default::default(),
+        cancel_refusals: Default::default(),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -1758,8 +1780,12 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 }
                 return;
             }
-            // Peers already filter to the interesting kinds and send a summary.
-            if rec.dir == "peer" {
+            // Peers already filter to the interesting kinds and send a summary. Another
+            // daemon's link hears no change of a row this daemon mirrors: the link drops every
+            // such row (`peer.rs` `watch_sessions`), so each change of one peer's row went out on
+            // every other peer's link for nothing (24 copies of every change with one daemon's
+            // 25 peers, 2026-10-30), and the row's origin hears it from its own.
+            if rec.dir == "peer" && !view::a_link(conn) {
                 let sid = remote
                     .summary
                     .get("sessionId")
@@ -1824,6 +1850,8 @@ mod client_request;
 mod clock_text;
 pub(crate) use clock_text::iso;
 mod change_kind;
+mod chat_windows;
+pub use chat_windows::live_tasks as live_chat_window_tasks;
 mod chats;
 pub mod conn_auth;
 mod ephemeral;
@@ -1864,6 +1892,7 @@ mod redact;
 pub(crate) use redact::url_without_secrets;
 pub(crate) mod remote_guard;
 mod requests;
+pub use requests::SESSION_RESUME_FEATURE;
 mod routes;
 mod secrets;
 mod session_auth;
@@ -1878,6 +1907,10 @@ pub(crate) mod wait;
 #[cfg(windows)]
 mod windows_socket;
 use requests::handle_notification;
+
+#[cfg(test)]
+#[path = "mirror_relay_tests.rs"]
+mod mirror_relay_tests;
 
 #[cfg(test)]
 mod request_admission_tests {
@@ -2034,7 +2067,39 @@ mod request_admission_tests {
 }
 
 #[cfg(test)]
+#[path = "acp_list_tests.rs"]
+mod acp_list_tests;
+
+#[cfg(test)]
+#[path = "session_list_pages_tests.rs"]
+mod session_list_pages_tests;
+
+#[cfg(test)]
 mod key_route_tests;
+
+#[cfg(test)]
+mod accept_retry_tests {
+    use super::accept_retry_delay;
+    use std::io::{Error, ErrorKind};
+    use std::time::Duration;
+
+    #[test]
+    fn running_out_of_descriptors_pauses_before_the_next_accept() {
+        // The queued connection stays queued on EMFILE, so an immediate retry spins a core.
+        #[cfg(unix)]
+        assert!(accept_retry_delay(&Error::from_raw_os_error(libc::EMFILE)) > Duration::ZERO);
+        #[cfg(unix)]
+        assert!(accept_retry_delay(&Error::from_raw_os_error(libc::ENFILE)) > Duration::ZERO);
+        assert!(accept_retry_delay(&Error::other("no buffers")) > Duration::ZERO);
+    }
+
+    #[test]
+    fn a_connection_that_died_in_the_queue_retries_at_once() {
+        assert_eq!(accept_retry_delay(&Error::from(ErrorKind::ConnectionAborted)), Duration::ZERO);
+        assert_eq!(accept_retry_delay(&Error::from(ErrorKind::ConnectionReset)), Duration::ZERO);
+        assert_eq!(accept_retry_delay(&Error::from(ErrorKind::Interrupted)), Duration::ZERO);
+    }
+}
 
 #[cfg(test)]
 mod nodelay_tests {

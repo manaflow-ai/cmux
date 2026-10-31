@@ -70,13 +70,19 @@ extension HostView {
         }
     }
 
-    /// The bands' colours from the theme (`Fixture.background`, `Fixture.lightAppearance`).
+    /// The bands' colours from this pane's own theme (`Fixture.background`, `Fixture.lightAppearance`
+    /// read inside the transcript's palette scope). Outside it they are the process palette's (the first
+    /// chat's, or another window's), so a dark chat's background band painted white after a light to
+    /// dark switch (Lawrence 2026-10-30, Chief header capture).
     func applyTopFadeColors() {
-        topFadeView?.applyColors(background: Fixture.background, light: Fixture.lightAppearance)
-        if topFadeStyle == .messagesBar {
-            headerBackdrop.setTint(Fixture.background)
-            headerBackdrop.setLight(Fixture.lightAppearance)
+        let apply = {
+            self.topFadeView?.applyColors(background: Fixture.background, light: Fixture.lightAppearance)
+            if self.topFadeStyle == .messagesBar {
+                self.headerBackdrop.setTint(Fixture.background)
+                self.headerBackdrop.setLight(Fixture.lightAppearance)
+            }
         }
+        if let demo { demo.scope(apply) } else { apply() }
     }
 
     /// Follows the pane's width (called from `placeNativeViews`).

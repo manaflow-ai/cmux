@@ -192,6 +192,9 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "send",
         &[
+            ("Send to the one live `review`, here or on a peer", "acpmux send review \"ship it\""),
+            ("Send to `review` on peer hb", "acpmux send hb/review \"ship it\""),
+            ("Send to a session by its id prefix", "acpmux send 0199aaaa \"ship it\""),
             (
                 "Send coord a message and return at once",
                 "acpmux send --no-wait coord \"PR 27310 merged\"",
@@ -203,6 +206,14 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             (
                 "Send a screenshot with the message",
                 "acpmux send fix-27310 --attach ~/notes/before.png \"The caret jumps after paste\"",
+            ),
+            (
+                "Message every live session tagged area=acpmux, on every host",
+                "acpmux send --tag area=acpmux \"base is green again; update your PRs\"",
+            ),
+            (
+                "List who a tagged send would reach, and send nothing",
+                "acpmux send --tag area=acpmux --dry-run \"hello\"",
             ),
         ],
     ),

@@ -270,3 +270,117 @@ fn open_page_perf() {
     measure("after", true);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Bytes this thread has read (Linux `rchar`): other tests' reads are not counted.
+fn read_bytes() -> u64 {
+    std::fs::read_to_string("/proc/thread-self/io")
+        .ok()
+        .and_then(|io| {
+            io.lines().find(|l| l.starts_with("rchar:"))?.split_whitespace().nth(1)?.parse().ok()
+        })
+        .unwrap_or(0)
+}
+
+/// A restored chat's first open, phase by phase: run with
+/// `cargo test -p acpmux --release -- --ignored --nocapture cold_open_perf`.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn cold_open_perf() {
+    let turns: usize =
+        std::env::var("COLD_OPEN_TURNS").ok().and_then(|v| v.parse().ok()).unwrap_or(100);
+    cold_opens(turns, 3, true);
+}
+
+/// A restored chat's log load reads the copies of what it reads, not its log
+/// (`store/kind_index.rs`): the first start after an upgrade reads the log once, the next ones
+/// a small part of it. Counted on Linux, where a thread's reads are known.
+#[test]
+fn a_restored_chats_log_load_reads_the_copies_not_its_log() {
+    let (log_bytes, reads) = cold_opens(6, 2, false);
+    if cfg!(target_os = "linux") {
+        assert!(reads[0] >= log_bytes, "the first load read {} of {log_bytes} bytes", reads[0]);
+        assert!(reads[1] < log_bytes / 4, "a restored load read {} of {log_bytes} bytes", reads[1]);
+    }
+}
+
+/// `runs` fresh hubs over one Codex-shaped log of `turns` turns, each loading the chat's log and
+/// its open page; the log's bytes and what each load read.
+fn cold_opens(turns: usize, runs: usize, print: bool) -> (u64, Vec<u64>) {
+    let root = std::env::temp_dir().join(format!("acpmux-cold-open-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    {
+        let writer = LocalStore::new(sessions.clone(), 8 << 20).unwrap();
+        let mut m = meta("c");
+        m.status = crate::store::SessionStatus::Idle;
+        // Each turn ends with its result, as a chat's log does (the log load reads back to it).
+        let mut log = Vec::new();
+        for rec in codex_chat(turns, 400, 85, false) {
+            let answer = rec.kind == "agent_message_chunk";
+            log.push(rec);
+            if answer {
+                let mut end = log.last().unwrap().clone();
+                (end.dir, end.kind, end.msg) =
+                    ("mux".into(), "turn_result".into(), json!({"status": "completed"}));
+                log.push(end);
+            }
+        }
+        for (n, rec) in log.iter_mut().enumerate() {
+            (rec.seq, rec.at) = (n as u64 + 1, n as u64 + 1);
+        }
+        for rec in &log {
+            writer.append("c", rec).unwrap();
+        }
+        m.last_seq = log.last().unwrap().seq;
+        m.event_count = log.len() as u64;
+        writer.save(&m).unwrap();
+        writer.flush().unwrap();
+    }
+    let log_bytes: u64 = std::fs::read_dir(sessions.join("c").join("events"))
+        .unwrap()
+        .map(|e| e.unwrap().metadata().unwrap().len())
+        .sum();
+    // The first start after an upgrade reads the log and copies what a log load reads; the next
+    // ones read the copies (`store/kind_index.rs`).
+    let mut reads = Vec::new();
+    for _ in 0..runs {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut cfg: crate::config::Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .unwrap();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let (r0, t0) = (read_bytes(), std::time::Instant::now());
+        let hub = Hub::new_deferred(
+            cfg,
+            Box::new(LocalStore::new(sessions.clone(), 8 << 20).unwrap()),
+            crate::mailbox::Mailbox::memory(),
+        );
+        let s = hub.resolve("c").unwrap();
+        let (r1, t1) = (read_bytes(), std::time::Instant::now());
+        hub.load_session_log(&s);
+        let (r2, t2) = (read_bytes(), std::time::Instant::now());
+        let page = hub
+            .events_page("c", 0, None, OPEN_LIMIT, Some(OPEN_BYTES), true, &transcript(true))
+            .unwrap();
+        let (r3, t3) = (read_bytes(), std::time::Instant::now());
+        let ms = |a: std::time::Instant, b: std::time::Instant| (b - a).as_secs_f64() * 1000.0;
+        reads.push(r2 - r1);
+        if !print {
+            continue;
+        }
+        println!(
+            "cold open: log {:.1} MB; start {:.1} ms {:.1} MB read; chat log load {:.1} ms {:.1} MB read; open page {:.1} ms {:.1} MB read, {} records",
+            log_bytes as f64 / 1e6,
+            ms(t0, t1),
+            (r1 - r0) as f64 / 1e6,
+            ms(t1, t2),
+            (r2 - r1) as f64 / 1e6,
+            ms(t2, t3),
+            (r3 - r2) as f64 / 1e6,
+            page.events.len()
+        );
+    }
+    let _ = std::fs::remove_dir_all(&root);
+    (log_bytes, reads)
+}
