@@ -67,7 +67,10 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
                 statusClipped: statusBox ? statusBox.right > box.right + 0.5 || statusBox.width < 1 : false,
                 wordsClipped: (() => {
                   const statusParent = status?.closest(".cv-tool__text, .cv-command__text");
-                  return statusParent ? statusParent.scrollWidth > statusParent.clientWidth + 0.5 && status!.getBoundingClientRect().right > statusParent.getBoundingClientRect().right + 0.5 : false;
+                  return statusParent
+                    ? statusParent.scrollWidth > statusParent.clientWidth + 0.5 &&
+                        status!.getBoundingClientRect().right > statusParent.getBoundingClientRect().right + 0.5
+                    : false;
                 })(),
               };
             });
@@ -85,7 +88,8 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
             });
             // A line under a row (a failure's cause) starts at the row's words.
             const under = [...document.querySelectorAll<HTMLElement>("[data-fixture-column] .cv-tool-error")].map(
-              (line) => line.getBoundingClientRect().left + parseFloat(getComputedStyle(line).paddingLeft) - column.left,
+              (line) =>
+                line.getBoundingClientRect().left + parseFloat(getComputedStyle(line).paddingLeft) - column.left,
             );
             return {
               rows,

@@ -45,7 +45,12 @@ const background = call({
   command: "sleep 600 && gh pr merge 101",
   background: { state: "running" },
 });
-const lone = call({ id: "lone", kind: "read", title: "Read fixture/notes.md", locations: [{ path: "fixture/notes.md" }] });
+const lone = call({
+  id: "lone",
+  kind: "read",
+  title: "Read fixture/notes.md",
+  locations: [{ path: "fixture/notes.md" }],
+});
 const loneFailed = call({
   id: "lone-failed",
   status: "failed",

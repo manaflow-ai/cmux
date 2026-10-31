@@ -197,7 +197,14 @@ export function toolFailure(tool: Tool): ToolFailure | undefined {
       .replace(/^\[[^\]\n]*\]\s*:\s*/, "")
       .replace(/^blocked\s*:\s*/i, "")
       .trim();
-    return { kind: "hook", hook: hook[1] ?? hook[2], cause: oneLine(reason), exitCode, output: said || output, detail: full };
+    return {
+      kind: "hook",
+      hook: hook[1] ?? hook[2],
+      cause: oneLine(reason),
+      exitCode,
+      output: said || output,
+      detail: full,
+    };
   }
   if (!ran && DENIED.test(text))
     return { kind: "denied", cause: oneLine(DENIED_SAID.exec(text)?.[1]), exitCode, output, detail: full };
