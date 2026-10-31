@@ -302,16 +302,28 @@ async fn a_notice_reader_has_tools_only_by_its_last_launch_and_its_next_spawn() 
             json!({"ACPMUX_AGENT_TOOL_SERVERS": "cmux,cmux-forum"}),
             false,
         ),
+        // `${model}` is the chat's model, `0` (`modelRequest`), once the spawn expands it.
+        (
+            "its switch is a placeholder the spawn expands",
+            json!([row(true)]),
+            json!({"ACPMUX_AGENT_TOOLS": "${model}"}),
+            json!({}),
+            false,
+        ),
+        // No catalog profile: a folder profile, whose file a notice does not read.
+        ("a folder profile", json!([row(true)]), json!({}), json!({}), false),
     ];
     for (case, rows, profile_env, session_env, has) in cases {
         let mut cfg = crate::config::Config::default();
         cfg.store.mode = crate::config::StoreMode::Memory;
         let profile = json!({"argv": ["true"], "env": profile_env});
         cfg.harnesses.insert("fake".into(), serde_json::from_value(profile).unwrap());
+        let harness = if case == "a folder profile" { "folder-fake" } else { "fake" };
         let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
         let meta = json!({"schema": crate::store::META_SCHEMA, "id": "inbox-reader",
-            "name": "inbox-reader", "harness": "fake", "cwd": "/tmp", "status": "idle",
-            "createdAt": 1, "updatedAt": 2, "tools": {"rows": rows}, "sessionEnv": session_env});
+            "name": "inbox-reader", "harness": harness, "cwd": "/tmp", "status": "idle",
+            "createdAt": 1, "updatedAt": 2, "tools": {"rows": rows}, "sessionEnv": session_env,
+            "modelRequest": "0"});
         store.save(&serde_json::from_value(meta).unwrap()).unwrap();
         let hub = Hub::new(cfg, store);
         hub.begin_startup(false);
