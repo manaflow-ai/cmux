@@ -507,7 +507,7 @@ fn terminal_cleanup_purges_held_child_agents() {
     let mux = test_mux();
     let surface = mux.new_workspace(None, None).unwrap();
     let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
-    let apply = |event: &str, native: serde_json::Value, sequence: u64| {
+    let apply = |event: &str, native: Value, sequence: u64| {
         let ingress = crate::agent_hooks::agent_hook_journal_ingress(
             "claude",
             event,
