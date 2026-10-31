@@ -1028,6 +1028,9 @@ pub(crate) fn sync_list(dir: &Path) -> Result<SyncList, CliError> {
         Some(listed) => listed,
         None => walk(dir)?,
     };
+    // Credentials are judged by where they are, not only by their path in
+    // `dir`: `--sync --dir ~/.codex` sends Codex's auth.json as `auth.json`.
+    let root = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
     let mut list = SyncList::default();
     for path in listed {
         let in_skipped_dir = path.parent().is_some_and(|parent| {
@@ -1038,7 +1041,7 @@ pub(crate) fn sync_list(dir: &Path) -> Result<SyncList, CliError> {
         if in_skipped_dir {
             continue;
         }
-        if credential_path(&path) {
+        if credential_path(&path) || credential_path(&root.join(&path)) {
             list.credentials.push(path);
             continue;
         }
