@@ -226,10 +226,12 @@ final class TopHomePageView: NSView {
                     picturedChiefs = chiefs
                     home.refreshChiefAvatars()
                 }
-                rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)
+                rows = HomeArchivedChiefs(archived, me: store.me?.id).visible(all)
                 // A conversation came or went (a lease arrived, a request was accepted): requests may have changed.
                 if Set(all.map(\.id)) != listed { listed = Set(all.map(\.id)); home.requests.refresh() }
                 list.update(sidebar.model())
+                // Archive Chief on the conversation that shows: the default conversation takes its place.
+                if let shown, Self.isHidden(shown, rows: rows, home: home) { conversationLeft(shown, next: nil) }
                 if shown == nil, !isComposingNewMessage, let first = Self.defaultConversation(rows: rows, home: home) {
                     show(first)
                     // The page opened it, not the person, so a Chief that arrives later replaces it.
@@ -290,16 +292,6 @@ final class TopHomePageView: NSView {
         }
     }
 
-    /// The rows the list shows: an archived Chief's conversation is hidden
-    /// (its history stays with the owner, read-only).
-    static func visible(_ rows: [InboxRow], archivedChiefs: Set<String>, me: ParticipantID?) -> [InboxRow] {
-        guard !archivedChiefs.isEmpty else { return rows }
-        return rows.filter { row in
-            guard row.kind == .chief else { return true }
-            return !row.summary.participants.contains { $0.id != me && archivedChiefs.contains($0.id.rawValue) }
-        }
-    }
-
     /// The Chief's conversation (the chief placed on a server takes over a
     /// local one without history: `HomeChiefSource`), else the first listed conversation that the
     /// Engine row does not exclude (with This Mac chosen, never a cloud Chief's: ``HomeService/excludedChiefConversations``).
@@ -307,6 +299,11 @@ final class TopHomePageView: NSView {
         if let chief = Self.chief(home) { return ConversationID(chief) }
         let excluded = home.excludedChiefConversations
         return rows.homeLines.lazy.compactMap(\.conversation).first { !excluded.contains($0.rawValue) }
+    }
+
+    /// An archived Chief's conversation: listed by the store, left out of `rows` (``HomeArchivedChiefs``).
+    static func isHidden(_ id: ConversationID, rows: [InboxRow], home: HomeService) -> Bool {
+        home.homeStore.rows.contains { $0.id == id } && !rows.contains { $0.id == id }
     }
 
     /// What the Chief observation watches: the preferred Chief and whether this Mac's Chief is the
@@ -370,7 +367,11 @@ final class TopHomePageView: NSView {
         return next
     }
 
-    static func chief(_ home: HomeService) -> String? { home.defaultChiefConversation }
+    /// The preferred Chief's conversation, unless Archive Chief hid it (``HomeArchivedChiefs/openable(_:listed:)``).
+    static func chief(_ home: HomeService) -> String? {
+        HomeArchivedChiefs(home.directory.archivedChiefs, me: home.homeStore.me?.id)
+            .openable(home.defaultChiefConversation, listed: home.homeStore.rows)
+    }
 
     /// The shown conversation is one the owner's own inbox does not have:
     /// the cache's conversation of a Chief home made again at the same path
