@@ -19,7 +19,11 @@ path = "src/main.rs"
 
 [dependencies]
 optchat-core = { path = "../optchat-core" }
+chief-kernel = { path = "../chief-kernel" }
 optchat-host = { path = "../optchat-host" }
+# Claude Code's stream-json lines and token counts, shared with the Cloud
+# Chief's turn runner (Native/OptChat/chief-turn); the library only.
+chief-turn = { path = "../chief-turn", default-features = false }
 # The daemon client (local-conversations-v1 over the session socket).
 cmux-sdk = { path = "../../../cmux-tui/bindings/rust" }
 # Wire types of the conversation owner, and the pure ports of mux/host's wake
@@ -30,6 +34,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 libc = "0.2"
+# The `watch` tool's `until` (src/watch.rs).
+regex = "1"
 # The native engine's Messages API client (blocking, like optchat-host's).
 ureq = { version = "2", features = ["json"] }
 # Link previews (src/link_preview): URLs as the guard checks them (ureq's own
@@ -51,10 +57,6 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 # The four fingerprint words, the same list and derivation the app shows.
 cmux-server-core = { path = "../../../cmux-tui/crates/cmux-server-core" }
 
-# The acpmux socket peer's Team signature (acpmux_peer, cx-ggai).
-[target.'cfg(target_os = "macos")'.dependencies]
-core-foundation-sys = "0.8"
-
 [features]
 # Only the tests' in-process fake acpmux daemons: a socket peer that is this
 # process passes the peer check (acpmux_peer). Never in a shipped build; the
@@ -64,6 +66,8 @@ test-in-process-peer = []
 [dev-dependencies]
 optchat-chief = { path = ".", features = ["test-in-process-peer"] }
 tempfile = "3"
+# The Chief fast evals (examples/chief_eval.rs): check regexes.
+regex = "1"
 
 # The Chief ships in the app bundle (Resources/bin): fat LTO with one codegen
 # unit, like the cmux-tui client, keeps it small.

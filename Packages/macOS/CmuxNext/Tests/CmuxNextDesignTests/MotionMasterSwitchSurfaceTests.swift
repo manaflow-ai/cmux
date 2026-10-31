@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Turning the master switch `ui.animations.enabled` off (or one category off) makes the real
 /// animation entry points apply their change in one frame and add no Core Animation animation

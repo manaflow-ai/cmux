@@ -42,7 +42,7 @@ Inside a cmux terminal, `$CMUX_BUNDLED_CLI_PATH` is the CLI that ships with the 
 
 ## Selectors
 
-Every instance selector is a public id (`ws_…`, `pane_…`, `tab_…`, `term_…`), `current`, or an exact name. `name:<value>` forces a name; it is required for names equal to `current`, shaped like an id, or containing `_`. An ambiguous name fails with every candidate id. `current` is the focused object in the session, not the caller; use `$CMUX_TUI_TERMINAL_ID` for the caller. Ids are stable across app and daemon restarts. The old `window:N`, `workspace:N`, `pane:N` and `surface:N` refs are gone.
+Every instance selector is a public id (`ws_…`, `pane_…`, `tab_…`, `term_…`), `caller`, `current`, or an exact name. `name:<value>` forces a name; it is required for names equal to `current` or `caller`, shaped like an id, or containing `_`. An ambiguous name fails with every candidate id. `caller` is the workspace, screen, pane, tab or terminal the command runs in (its terminal or agent chat, as `cmux identify` reports). Inside cmux, `current` means the caller's object too; it is the focused object only without a caller (a shell outside cmux) or under `--socket`/`--session`. Prefer `caller` in scripts: it fails instead of guessing. Ids are stable across app and daemon restarts. The old `window:N`, `workspace:N`, `pane:N` and `surface:N` refs are gone.
 
 ## Running a command in a new terminal
 
@@ -61,7 +61,11 @@ cmux agent open SESSION_ID [--group G]                # that agent session's cha
 cmux workspace ws_… status set build "tests passing"   # a status line on the workspace's sidebar row (--state, --ttl…)
 cmux workspace ws_… progress set 0.4 --label "3 of 8"
 cmux notify --title "Review ready" --body "PR #123"    # --desktop false: sidebar marker only
+cmux attention request --tab tab_… --reason "Confirm GitHub access"   # the person must act in this tab
+cmux attention clear --tab tab_…
 ```
+
+When the person must do something in a specific tab (confirm, log in, approve, pick), mark that tab with `cmux attention request` (MCP `tab_update {tab, attention: "reason"}`). The tab and its workspace row show as needing them, without moving their focus. The mark clears when you clear it, when a browser tab goes to another page, or when the tab closes. In what you tell the person, name the workspace and the tab by their titles ("the GitHub tab in the coord-deputy workspace"), never by a `ws_…`, `tab_…` or `pane_…` id: they cannot see or search ids. When they ask to go there, `cmux tab tab_… focus` (MCP `tab_focus`) takes them to it.
 
 To start another agent on a task and show it, use one command, `acpmux new -n NAME --worktree REPO@BASE --prompt-file BRIEF.md --report-to ME --group G -d` (the `acpmux` skill): it makes the worktree, starts the session, sends the brief and opens its chat in group G; running it again changes nothing.
 
@@ -69,7 +73,7 @@ To open a link, the MCP tool `workspace_open_url` loads it on the workspace's ri
 
 ## Asking the person
 
-The person allows tools through the chat's mode and the harness's own permission prompts, never through your questions. A chat in Full access (Claude Code `bypassPermissions`, Codex full access) has already allowed every tool call its harness would ask about. Never ask them to allow, confirm or approve a step, with AskUserQuestion or in text ("allow this?", "should I go ahead?"): decide, say why in one line, and go on. Deciding never widens the task: a step a cmux skill keeps for the person's own request (computer use, importing a browser's cookies, deleting their data) waits for that request, and a cmux consent panel is theirs to answer; leave such a step out and say so. Ask only about product taste you cannot settle from the request or the code (how something should look, read or behave), and ask it as that choice, never as a permission. The cmux MCP server's instructions say the same (`acpmux::agent_tools::ASKING_RULE`).
+The person allows tools through the chat's mode and the harness's own permission prompts, never through your questions. A chat in Full access (Claude Code `bypassPermissions`, Codex full access) has already allowed every tool call its harness would ask about. Never ask them to allow, confirm or approve a step, with AskUserQuestion or in text ("allow this?", "should I go ahead?"): decide, say why in one line, and go on. Deciding never widens the task: a step a cmux skill keeps for the person's own request (importing a browser's cookies, deleting their data) waits for that request, and a cmux consent card (computer use setup) is theirs to answer; leave such a step out and say so. Ask only about product taste you cannot settle from the request or the code (how something should look, read or behave), and ask it as that choice, never as a permission. The cmux MCP server's instructions say the same (`acpmux::agent_tools::ASKING_RULE`).
 
 ## Screenshots of the app
 
@@ -82,7 +86,9 @@ cmux pane screenshot --target pane_… --out pane.png
 cmux tab screenshot --target tab_… --out tab.png
 ```
 
-The reply's `result` holds `path` (or `png_base64` for `--out -`; a PNG over 4 MiB still goes to a file), `width` and `height` in pixels, `scale` (pixels per point) and `method` (`window`, or `page` for a browser tab that is not on screen, which its engine renders in the background). Without `--out` the PNG goes to the temporary directory. A pane or terminal tab that no window shows, or a minimized window, fails with `screenshot.unavailable` and the reason; read a terminal's text with `cmux terminal <id> screen read` instead.
+The reply's `result` holds `path` (or `png_base64` for `--out -`; a PNG over 4 MiB still goes to a file), `width` and `height` in pixels, `scale` (pixels per point), `method` (`window`) and `masked`, how many areas the image covers. Without `--out` the PNG goes to the temporary directory. A pane or terminal tab that no window shows, or a minimized window, fails with `screenshot.unavailable` and the reason; read a terminal's text with `cmux terminal <id> screen read` instead.
+
+Your image comes back masked: every area that can show a browser page, a chat or an unchecked app page is filled opaque mid gray, and menus and floating panels are left out. That is every browser pane whole, its toolbar and tab strip included, every web view cmux does not own (a sidebar app, a link preview), every agent chat and Home conversation, and every app page except Keybindings, Changelog, Apps, Diff, Markdown, Editor, Files, the icon picker and Debug Settings. Only the browser REPL can hide the secrets a page shows, and only `cmux agents chat read` can hide them in a chat. A pane or tab showing a browser is captured with its page masked, not refused; a browser tab that no window shows is refused, because off screen it is all page. A window that keeps animating or resizing, or a mask that cannot be painted, fails with the reason rather than returning unmasked pixels. Screenshot a page with `browser_repl_eval` and `page.screenshot()` ([cmux-browser](../cmux-browser/SKILL.md)). A person's palette or menu run captures everything and also copies the image.
 
 ## Settings
 

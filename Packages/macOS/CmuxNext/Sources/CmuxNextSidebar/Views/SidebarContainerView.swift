@@ -35,6 +35,9 @@ public final class SidebarContainerView: NSView {
     /// (`SidebarContainerView+Resize`).
     lazy var panelWidth: NSLayoutConstraint = panel.widthAnchor.constraint(equalToConstant: model.width)
     let handle: SidebarResizeHandle
+    /// The thin rail (`sidebar.style` = rail) and its open state (`SidebarContainerView+Rail`).
+    public let railView = SidebarRailView()
+    let railCards = SidebarRailHoverCards()
     private var observation: Task<Void, Never>?
     /// Width the constraint is at or animating to. The animator reports
     /// intermediate constants, so compare against this instead. Internal for
@@ -62,13 +65,17 @@ public final class SidebarContainerView: NSView {
     public internal(set) var isWidthAnimating = false {
         didSet {
             guard isWidthAnimating != oldValue else { return }
-            if !isWidthAnimating { widthMotionWatchdog.cancel() }
+            if !isWidthAnimating { widthMotionWatchdog.cancel(); applySurfaceFill() }
             onWidthMotionChange?(isWidthAnimating)
         }
     }
     /// Called when the width starts and stops animating. The window tells its
     /// content when the motion lands (`NSView.notifyPaneMotionSettled`).
     public var onWidthMotionChange: ((Bool) -> Void)?
+    /// Called each time a width animation starts or turns around mid-flight, with the
+    /// sidebar's on-screen width and the width it animates to, before the first frame. The
+    /// window sizes its content once for the whole slide from these (`MainPaneCardView.contentHold`).
+    public var onWidthMotionStart: ((_ from: CGFloat, _ to: CGFloat) -> Void)?
     /// Paces hover refreshes while the width animates. Hover follows views
     /// sliding under a still pointer (cx-3wu5), which needs no 120 Hz: a
     /// refresh walks every hover target of the window, so one deadline is
@@ -137,10 +144,12 @@ public final class SidebarContainerView: NSView {
         sidePins = Self.pins(panel: panel, clip: clip)
         NSLayoutConstraint.activate(sidePins[side] ?? [])
         mountHandle()
-        panel.isHidden = model.isHidden
+        panel.isHidden = isPanelCollapsed
         syncHandleVisibility()
         handle.restingLineWidth = Metrics.sidebarBorderWidth
         handle.onDrag = { [weak self] phase in self?.handleDrag(phase) }
+        handle.yieldsPress = { [weak self] point in self?.scrollerTakesPress(at: point) ?? false }
+        mountRail()
         observe()
     }
 
@@ -196,13 +205,13 @@ public final class SidebarContainerView: NSView {
 
     /// The handle shows while the sidebar is shown and this view is not hidden.
     private func syncHandleVisibility() {
-        handle.isHidden = model.isHidden || isHiddenOrHasHiddenAncestor
+        handle.isHidden = isPanelCollapsed || isHiddenOrHasHiddenAncestor
     }
 
     /// Clear over the window's backdrop, or the user's sidebar background
     /// (`appearance.surfaces.sidebar`, `Palette.surfaceOverride`).
-    private func applySurfaceFill() {
-        clip.layer?.backgroundColor = performWithTheme { Palette.surfaceOverride(.sidebar)?.cgColor }
+    func applySurfaceFill() {
+        clip.layer?.backgroundColor = performWithTheme { (Palette.surfaceOverride(.sidebar) ?? railOverlayFill)?.cgColor }
     }
 
     // MARK: Public API
@@ -239,6 +248,7 @@ public final class SidebarContainerView: NSView {
     /// Shows a hidden sidebar and lays its rows out now, so a rename field
     /// can attach to a row in the same turn. The width still animates.
     private func revealForEditing() {
+        if model.style == .rail, !model.isHidden { revealRail() }
         guard model.isHidden else { return }
         model.presentation = .shown
         apply()
@@ -260,12 +270,13 @@ public final class SidebarContainerView: NSView {
                 // The default width token is tracked so a settings change
                 // resizes live. The collapse prototype is tracked here too,
                 // so Debug Settings retargets an in-flight transition.
-                (model.presentation, model.width, Metrics.sidebarWidth, Metrics.sidebarBorderWidth,
+                ((model.presentation, model.style, model.isRailOpen), model.width, Metrics.sidebarWidth, Metrics.sidebarBorderWidth,
                  SidebarTunables.collapseMotion.value, [Metrics.dividerHitWidth, Metrics.mainPaneGutter])
             }) {
                 self?.handle.restingLineWidth = border
                 if let self, self.resizeBand != self.mountedBand { self.mountHandle() }
                 self?.followDefaultWidth(defaultWidth)
+                self?.syncRail()
                 self?.apply()
             }
         }
@@ -302,16 +313,17 @@ public final class SidebarContainerView: NSView {
         isWidthAnimating = false
         widthConstraint.constant = targetWidth
         panelWidth.constant = model.width
-        panel.isHidden = model.isHidden
+        panel.isHidden = isPanelCollapsed
         panel.alphaValue = 1
         syncHandleVisibility()
+        syncRail()
     }
 
     /// Animates to the model's presentation with the appear / disappear tokens (instant with
     /// Reduce Motion). Idempotent: a repeat call for the same target does
     /// nothing, so the observation and a synchronous caller can both run it.
-    private func apply() {
-        let hidden = model.isHidden
+    func apply() {
+        let hidden = isPanelCollapsed
         let target = model.displayWidth
         let collapseMotion = SidebarTunables.collapseMotion.value
         panelWidth.constant = model.width
@@ -338,6 +350,7 @@ public final class SidebarContainerView: NSView {
         // With no animation at all (Reduce Motion, the gate off) the width lands
         // in this turn and the completion clears this again at once.
         isWidthAnimating = true
+        onWidthMotionStart?(frame.width, target)
         armWidthMotionWatchdog(hidden ? .disappear : .appear)
         widthCompletedGeneration = nil
         fadeCompletedGeneration = collapseMotion.fadesPanel ? nil : generation
@@ -377,7 +390,7 @@ public final class SidebarContainerView: NSView {
     /// Width normally finishes last; the explicit gate also keeps Reduce
     /// Motion's instant width snap from racing the short opacity fade.
     private func finishCollapseIfReady(generation: Int, hidden: Bool, fadesPanel: Bool) {
-        guard hidden, generation == animationGeneration, model.isHidden,
+        guard hidden, generation == animationGeneration, isPanelCollapsed,
               widthCompletedGeneration == generation,
               !fadesPanel || fadeCompletedGeneration == generation else { return }
         panel.alphaValue = fadesPanel ? 0 : 1

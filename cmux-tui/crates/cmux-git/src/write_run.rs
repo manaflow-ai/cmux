@@ -93,6 +93,7 @@ impl WriteGit<'_> {
         }
         let mut child =
             command.spawn().map_err(|error| GitFailure::Unavailable(error.to_string()))?;
+        crate::run::lower_if_background(child.id());
         // All three are piped above; a missing one is a spawn failure, not a
         // panic.
         let (Some(mut input), Some(stdout), Some(stderr)) =
@@ -136,7 +137,7 @@ impl WriteGit<'_> {
         if !status.success() {
             return Err(GitFailure::Exit(String::from_utf8_lossy(&stderr).trim().to_string()));
         }
-        Ok(GitOutput { stdout, truncated })
+        Ok(GitOutput { stdout, truncated, window: None })
     }
 }
 

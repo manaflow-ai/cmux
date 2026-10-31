@@ -19,7 +19,7 @@ enum BrowserDeviceHandlers {
                 guard let (tab, pane) = context.daemonTab(invocation), let resource = tab.resourceID else { throw ActionFailure(message: MiscHandlerStrings.noBrowser) }
                 guard let asked = fixed ?? invocation["fit"]?.stringValue?.trimmingCharacters(in: .whitespaces), !asked.isEmpty else { throw ActionFailure(message: MiscHandlerStrings.noBrowser) }
                 let next: String? = asked.lowercased() == "off" || (fixed != nil && tab.fitValue == fixed) ? nil : asked
-                let (daemon, capability) = (context.services.daemon(for: pane), next.flatMap { Int($0) } != nil ? DaemonCapabilities.shared.browserFitWidth : DaemonCapabilities.shared.browserFit)
+                let (daemon, capability) = (context.services.daemon(for: pane), next.flatMap { Int($0) } != nil ? DaemonCapability.browserFitWidth.rawValue : DaemonCapability.browserFit.rawValue)
                 guard daemon.supports(capability) else { throw ActionFailure(message: daemon.missingCapabilityMessage(capability)) }
                 daemon.send("browser.tab.emulate") { try await $0.state.setTabFit(resource, fit: next) }
             })
@@ -36,7 +36,7 @@ enum BrowserDeviceHandlers {
             let entry = try context.page(invocation)
             guard let (tab, pane) = context.daemonTab(invocation), let resource = tab.resourceID else { throw ActionFailure(message: MiscHandlerStrings.noBrowser) }
             let daemon = context.services.daemon(for: pane)
-            guard daemon.supports(DaemonCapabilities.shared.browserDevices) else { throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.shared.browserDevices)) }
+            guard daemon.supports(DaemonCapability.browserDevices.rawValue) else { throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.browserDevices.rawValue)) }
             let choose: @MainActor (String?, String?) -> Void = { device, orientation in daemon.send("browser.tab.emulate") { try await $0.state.setTabEmulation(resource, device: device, orientation: orientation) } }
             let (device, orientation) = (invocation["device"]?.stringValue?.trimmingCharacters(in: .whitespaces), invocation["orientation"]?.stringValue)
             if device != nil || orientation != nil { return choose(device?.lowercased() == "none" ? nil : device ?? "", orientation) }
@@ -45,7 +45,7 @@ enum BrowserDeviceHandlers {
                 do {
                     let list = try await daemon.perform("browser.devices.list") { try await $0.state.browserDevices() }
                     let menu = BrowserDeviceMenu(devices: BrowserDeviceMenu.devices(list: (try? JSONEncoder().encode(list)) ?? Data()),
-                                                 current: BrowserDeviceMenu.current(record: current), fit: tab.fitValue, fits: ["16:9", "1280"].filter { daemon.supports(Int($0) == nil ? DaemonCapabilities.shared.browserFit : DaemonCapabilities.shared.browserFitWidth) },
+                                                 current: BrowserDeviceMenu.current(record: current), fit: tab.fitValue, fits: ["16:9", "1280"].filter { daemon.supports(Int($0) == nil ? DaemonCapability.browserFit.rawValue : DaemonCapability.browserFitWidth.rawValue) },
                                                  toggleFit: { _ = registry.perform($0 == "1280" ? "browserFitDesktop1280" : "browserFitDesktop", invocation: invocation) }, choose: choose).menu()
                     presentedMenu = menu; chrome.toolbarButtons.present(menu, from: .overflow, themed: true)
                 } catch { registry.refuse(RefusalStrings.describe(error)) }

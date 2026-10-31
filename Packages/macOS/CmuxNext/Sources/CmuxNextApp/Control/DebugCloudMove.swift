@@ -31,13 +31,13 @@ enum DebugCloudMoveMethods {
 enum DebugCloudMove {
     /// Registers both methods in DEBUG builds; a release build registers neither.
     static func register(on router: ControlRouter?, services: AppServices) {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         router?.register(methods(services))
         #endif
     }
 }
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 extension DebugCloudMove {
     static func methods(_ services: AppServices) -> [ControlMethod] {
         [

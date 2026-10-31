@@ -86,7 +86,7 @@ $out"
 $out"
 grep -qF "no Windows daemon published for tree $key" <<<"$out" || fail "the refusal does not say the tree has no Windows daemon:
 $out"
-grep -q 'cmux-tui-pin-' <<<"$out" || fail "the refusal does not say how to republish:
+grep -q 'trusted feat-cmux-next publication' <<<"$out" || fail "the refusal does not say how to republish:
 $out"
 ! grep -qi '404\|error 22\|curl:' <<<"$out" || fail "the refusal is a bare download error:
 $out"

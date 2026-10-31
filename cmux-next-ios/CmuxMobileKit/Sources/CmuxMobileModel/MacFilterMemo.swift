@@ -59,15 +59,14 @@ public final class MacFilterMemo {
 
     public init() {}
 
-    private var rosterKey: (macs: [MacDevice], minute: Int)?
+    private var rosterKey: [MacDevice]?
     private var cachedRoster = MacRoster([])
 
-    /// ``MacRoster`` of `macs`, recomputed only when a Mac changed or the minute moved on.
-    public func roster(_ macs: [MacDevice], now: Date) -> MacRoster {
-        let minute = Int(now.timeIntervalSince1970 / 60)
-        if let rosterKey, rosterKey.minute == minute, rosterKey.macs == macs { return cachedRoster }
-        rosterKey = (macs, minute)
-        cachedRoster = MacRoster(macs, now: now)
+    /// ``MacRoster`` of `macs`, recomputed only when a Mac changed.
+    public func roster(_ macs: [MacDevice]) -> MacRoster {
+        if rosterKey == macs { return cachedRoster }
+        rosterKey = macs
+        cachedRoster = MacRoster(macs)
         return cachedRoster
     }
 
@@ -91,7 +90,7 @@ public final class MacFilterMemo {
         cachedEntries = MacScope.menuOrder(input.macs).map { mac in
             let presence = stamp.presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
             let status = MacStatusLine.make(mac: mac, connection: input.connection[mac.id], live: input.live, presence: presence).text
-            let detail = [status, input.linkStatus[mac.id]].compactMap(\.self).joined(separator: " · ")
+            let detail = input.linkStatus[mac.id] ?? status
             return Entry(id: mac.id, title: names.displayName(mac), detail: detail)
         }
         entriesKey = input

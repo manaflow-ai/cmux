@@ -13,12 +13,16 @@ import { setDeviceChats } from "./newtab/deviceChats";
 import { setToolCards } from "./toolCards/toolCardStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
-import { setImportCards } from "./importCards";
+import { setReadAloudState } from "./conversation/readAloud";
 import { setHeaderState } from "./header/headerState";
 import { setTabRow } from "./header/tabRow";
+import { receiveNativeRowToolInvocation } from "./header/nativeRowTools";
 import { setFloatingState } from "./floatingState";
 import { configureNativeSidebarPreviewVariant } from "./sidebarPreview";
 import { setSessionStatus } from "./sessionStatus";
+import { receivePromptUploadState } from "./promptUploadState";
+import { setComputerUsePreview } from "./computerUse/computerUsePreview";
+import { setMachineLink } from "./machineLink";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -42,8 +46,9 @@ export function pageHostClient(): PageClient | null {
 
 /// Calls `method` on the page host. Rejects with a `NativeError` as the old bridge did: the host's
 /// code, message, retryable, and the `origin` and `details` the host put in the error's details. A
-/// request the host refused before it reached the pane is origin `native`; a lost link leaves code
-/// and origin unset, because nothing tells whether the request ran.
+/// request the host refused before it reached the pane is origin `native`, with the protocol's own
+/// code in `details.protocol` (`cmux.protocol.unknown_op`: this host has no such op); a lost link
+/// leaves code and origin unset, because nothing tells whether the request ran.
 export async function callPageHost<T>(
   page: PageClient,
   method: string,
@@ -54,7 +59,12 @@ export async function callPageHost<T>(
   } catch (error) {
     if (!isPageError(error)) throw new NativeError(undefined, String(error));
     if (error.code === "cmux.protocol.unknown_op" || error.code === "cmux.protocol.invalid_params")
-      throw new NativeError({ code: "native.invalid_request", origin: "native", userMessage: error.message });
+      throw new NativeError({
+        code: "native.invalid_request",
+        origin: "native",
+        userMessage: error.message,
+        details: { protocol: error.code },
+      });
     if (error.code.startsWith("cmux.protocol.")) throw new NativeError({ userMessage: error.message });
     const details = (error as { details?: { origin?: unknown; details?: unknown } }).details;
     throw new NativeError({
@@ -76,6 +86,8 @@ export function applyHostEvent(event: HostEvent): void {
   const bridge = window.cmuxAcpmuxBridge;
   const value = event.value as never;
   switch (event.kind) {
+    case "uploads.state":
+      return receivePromptUploadState(event.value);
     case "theme": {
       const theme = event.value as { web?: unknown; agent?: Record<string, unknown> };
       (window as { cmuxTheme?: { apply(payload: unknown): void } }).cmuxTheme?.apply(theme.web);
@@ -86,11 +98,17 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.applyShortcuts?.(value);
     case "preview":
       return bridge?.applyPreview?.(event.value === true);
+    case "workflowLabs":
+      // Separate from the existing preview environment toggle. The host can opt the
+      // experimental workflow summary in without changing preview semantics.
+      return bridge?.applyWorkflowLabs?.(event.value === true);
     case "sidebarPreviewVariant":
       return configureNativeSidebarPreviewVariant(event.value);
     case "sessionStatus":
       // Direct, like editedFiles: a push before the chat mounts is kept.
       return setSessionStatus(event.value);
+    case "machineLink":
+      return setMachineLink(event.value);
     case "editedFiles":
       // Direct, not through window.cmuxAcpmuxEditedFiles: an event that arrives before the card
       // module loads still sets the value the card then reads.
@@ -110,16 +128,21 @@ export function applyHostEvent(event: HostEvent): void {
     case "nowPlaying":
       // Direct, like recentlyClosed: a push before the New Tab screen mounts is kept.
       return setNowPlaying(event.value);
-    case "importCards":
-      // Direct, like nowPlaying: a push before the New Tab screen mounts is kept.
-      return setImportCards(event.value);
+    case "readAloud":
+      // The app's voice (conversation/readAloud.ts): which message it reads, on every change.
+      return setReadAloudState(event.value);
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
       return setToolCards(event.value);
+    case "computerUsePreview":
+      // Direct, like toolCards: a push before the chat mounts is kept.
+      return setComputerUsePreview(event.value);
     case "customization":
       return bridge?.applyCustomization(value);
     case "headerState":
       return setHeaderState(event.value);
+    case "tabRowToolInvoked":
+      return receiveNativeRowToolInvocation(event.value);
     case "tabRow":
       return setTabRow(event.value);
     case "floatingState":
@@ -132,6 +155,10 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.revealTurn?.(String(event.value));
     case "command":
       return bridge?.command?.(String(event.value));
+    case "stopTurn":
+      return bridge?.command?.("stopTurn", String(event.value));
+    case "sideQuestion":
+      return bridge?.command?.("sideQuestion", String(event.value));
     case "focusLocation":
       window.dispatchEvent(new Event(FOCUS_LOCATION));
       return;
@@ -142,11 +169,22 @@ export function applyHostEvent(event: HostEvent): void {
   }
 }
 
-const subscribed = new WeakSet<PageClient>();
+const subscribed = new WeakMap<PageClient, Promise<void>>();
 
 /// Subscribes to host events once per client, after the page installed `cmuxAcpmuxBridge`.
 export async function startHostEvents(page: PageClient): Promise<void> {
-  if (subscribed.has(page)) return;
-  subscribed.add(page);
-  await page.subscribe<HostEvent>(HOST_EVENTS, (event) => applyHostEvent(event));
+  let ready = subscribed.get(page);
+  if (!ready) {
+    ready = page
+      .subscribe<HostEvent>(HOST_EVENTS, (event) => applyHostEvent(event))
+      .then(
+        () => undefined,
+        (error) => {
+          subscribed.delete(page);
+          throw error;
+        },
+      );
+    subscribed.set(page, ready);
+  }
+  await ready;
 }

@@ -11,6 +11,9 @@ USAGE
   cmux browser profile create --name <name> [--color <value>] [--icon <value>]
     [--index <n>]
   cmux browser profile move --profile <id-or-name> --index <n>
+  cmux browser profile proxy set --profile <id-or-name>
+    --url http|https|socks5://host:port [--bypass <host,...>]
+  cmux browser profile proxy clear --profile <id-or-name>
   cmux browser profile open <url> --profile <id-or-name> [--engine webkit|cef]
     [--pane <selector>] [--title <value>] [--background true|false]
   cmux browser <selector> show|navigate|back|forward|reload|activate
@@ -45,6 +48,20 @@ USAGE
 clear without --terminal or --workspace clears every notification of the
 session; --workspace clears that workspace's rows and those of its terminals. `cmux
 notify` takes the flags of the macOS `cmux notify` (`cmux notify --help`).
+";
+
+pub(super) const ATTENTION_HELP: &str = "\
+USAGE
+  cmux attention request --tab <tab_…> --reason <text>
+  cmux attention clear --tab <tab_…>
+
+request marks the tab where the person must act (confirm, log in, approve,
+pick): the tab and its workspace show as needing them in every cmux client.
+The reason is one line they read (at most 200 bytes). It never moves focus;
+to take the person there when they ask, run `cmux tab <tab_…> focus`. The mark stays while they look at the tab and clears
+when you clear it, when a browser tab goes to another page, or when the tab
+closes. Name the workspace and tab by their titles when you talk to the person,
+never by a ws_ or tab_ id.
 ";
 
 pub(super) const NOTIFY_HELP: &str = "\
@@ -147,7 +164,8 @@ pub(super) const GIT_HELP: &str = "\
 USAGE
   cmux git status [TARGET]
   cmux git diff [TARGET] [--scope <scope>] [--patch] [--max-patch-bytes <n>]
-    [--max-files <n>] [--context-lines <n>] [<path>...]
+    [--max-files <n>] [--context-lines <n>] [--after-path <path>]
+    [--patch-offset <n> [--patch-revision <revision>]] [<path>...]
   cmux git branches [TARGET] [--limit <n>]
   cmux git files [TARGET] [--limit <n>] <query>...
   cmux git list [TARGET] [--limit <n>]
@@ -160,6 +178,7 @@ USAGE
   cmux git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
   cmux git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch]
     [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>]
+    [--after-path <path>] [--patch-offset <n> [--patch-revision <revision>]]
   cmux git commit [TARGET] --message <text> [--all [--include-untracked]] [--amend]
     [--no-verify] [--expected-head <commit>] [<path>...]
   cmux git push [TARGET] [--remote <name>] [--branch <name>]
@@ -191,7 +210,11 @@ default branch, else main or master), and in a linked worktree its main
 checkout. diff prints each changed file's status and line counts; --patch
 adds each file's patch from its first @@ line, cut at --max-patch-bytes
 (262144 by default). At most --max-files files (500) are listed; the rest are
-counted. Paths are relative to the repository root and taken literally.
+counted, and --after-path with the reply's next_path lists the next page.
+With --patch and one file path, --patch-offset reads that file's whole patch
+in pages from a byte offset (start at 0); pass the first page's revision as
+--patch-revision to read the later pages. Paths are relative to the repository
+root and taken literally.
 
 branches lists local branches, then remote-tracking ones, newest commit first:
 each one's ref and commit, and for a local branch its upstream and how far it

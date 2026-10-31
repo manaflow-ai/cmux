@@ -1,6 +1,6 @@
 # Remote groups: a host is a sidebar group, and groups nest inside it
 
-Status: design + slice 1, 2026-10-20 (a283). Owner lane: "Agents & routing".
+Status: design + slices 1-6, 2026-10-20 (a283); part II (surfaces, protocol, transport, skew, offline) 2026-10-21. Owner lane: "Agents & routing".
 Builds on: `remote-hosts.md` (tailnet host listener, `cmux host list|dial`),
 `server-reach.md` (paired server sections), `cloud-subagents-DESIGN.md` (acpmux peers on
 Freestyle VMs), `add-server-ui-DESIGN.md` (pairing card), `motion.md` (motion gate),
@@ -229,3 +229,214 @@ start on the target, resume) stays a284's.
    `extra.cwd` on a group body, inherited by new workspaces; slice 2.
 3. The Swift `SidebarGroup` value holds `workspaces` only; slice 2 adds `subgroups` and keeps
    the snapshot-boundary rule (value snapshots, no store references in rows).
+
+---
+
+# Part II: every surface in a remote group (2026-10-21, Remote groups agent)
+
+User (Oct 22): "remote groups ... each group is kinda just a cmux-tui instance? ... cloud machines
+as well as my own mac mini or linux server or other macbook ... enumerate everything that's open
+... file viewer, diff viewer, acp chat, terminals, browsers, literally everything."
+
+## 10. Verdict on the model
+
+**Yes, and it is already the model in the code.** A remote group is one cmux-tui daemon (headless,
+no UI) on the remote machine. The Mac app, `cmux-tui`, iOS and Cloud Chief are clients of that
+daemon over the one versioned protocol (raw v12 lines + `cmux.protocol/2` streams;
+`cmux-tui-contract.md`). The Mac app is already a client of its own local daemon, so local and
+remote take one code path. Part I (sections 0-9) is the sidebar half of this; Part II is the
+surface half.
+
+Chief's take, checked point by point:
+
+| Claim | Verdict | Evidence |
+| --- | --- | --- |
+| one headless daemon per host, one protocol for every client | agree, exists | `cmux remote connect ssh://…` installs the pinned `cmux-tui` (`cmux-remote/src/ssh_bootstrap.rs`) and splices the unchanged daemon protocol; `cmux host serve` does the same over the tailnet (`remote-hosts.md`) |
+| Mac app is only a client of its local host | agree, exists | `CmuxNextDaemon` / `MachineRegistry.daemon(for:)` |
+| each surface is a protocol object | agree, with one change: the browser **runtime** stays on the viewing Mac by default | `remote-state-ownership.md` 3.5 (decision 2026-10-01); streaming (`rb/1`) is the opt-in for hosts the Mac cannot reach |
+| discovery: host enumerates everything open and pushes changes | agree, exists | `list-workspaces` + `subscribe` (tree snapshot + events, `cmux-tui-contract.md` 2.3) |
+| transport: tailnet or SSH stdio bootstrap (VS Code Remote style) | agree, both exist | SSH: `remote connect ssh://`; tailnet: `cmux host serve|dial`; also `ws(s)://`, `iroh://`, relay routes, `--wireguard-config` |
+| version skew and offline must be handled | agree, partly done | SSH bootstrap probes `remote-probe --json` (protocol, build identity, capabilities) and installs or `--upgrade`s; offline header states landed in slice 5; offline **content** (read-only cache) does not exist (section 15) |
+| per-host auth, per-user later | agree, exists for owner | SSH = the user's SSH identity; tailnet = WhoIs owner check before any byte, `cmux host allow <login>` for teammates |
+
+What I would not do: a second "remote" implementation of any surface, a per-surface tunnel, or a
+remote-only protocol. Every gap below is closed by routing an existing Swift surface to the
+pane's machine daemon (`machines.daemon(for:)`), never by a new server.
+
+## 11. Inventory: what already works remotely (feat-cmux-next 9d0545d50eb, nightly 3970568398401)
+
+Verified end to end on 2026-10-21 against a Linux arm64 VM (OrbStack `mux-linux`, Ubuntu) with
+`scripts/cmux-next/remote-group-e2e.py` (headless bridge, no app state changed):
+
+| Check | Result |
+| --- | --- |
+| SSH bootstrap, first connect (installs pinned `cmux-tui` linux-aarch64) | connected < 90 s |
+| reconnect (daemon already installed) | 0.5 s |
+| enumerate: `workspace list`, `terminal list` | answers; a workspace made by an earlier bridge was still there after that bridge exited (host-owned state) |
+| terminal: create workspace in a folder, type, read screen | `rg-e2e-…-Linux` read back |
+| diff: `git status`, `git diff --patch` on the host | patch `+changed` returned |
+
+Code that exists (read, not all run here):
+
+| Piece | Where |
+| --- | --- |
+| SSH reach + install + upgrade + reconnect | `cmux-tui/crates/cmux-remote` (`ssh_bootstrap.rs`, `provider/ssh.rs`), app `SSHService`, `remote.connect`, `remote.install`, `remote.reconnect` |
+| tailnet reach | `cmux-host` (`cmux host enable|serve|dial|list`), owner WhoIs admission |
+| Cloud VMs | `CmuxNextCloud`, `cloud-subagents-DESIGN.md` (acpmux peers on Freestyle VMs) |
+| remote group sidebar object | Part I slices 1-6 (`remote.newGroup`, header states, nesting, Move Chief To…) |
+| terminals | daemon PTYs, attach stream, resize, scrollback (`terminal-snapshot-history-v1`) |
+| files | daemon `fs.stat|list|read|write|mkdir|rename|delete|pick` (`cmux-tui-core/src/fs_ops`) |
+| git / diff | daemon `git.status|diff|branches|files|commit|push|checkpoint.*|worktree.*`; the diff tab calls "the session host's" git (`DiffPageProvider+Git.swift`) |
+| ACP chats | acpmux runs on the machine that owns the workspace; G2 attach path (`agent-session-attach-v1`, `RemoteAcpmuxWire`); `cmux acp host add` peers |
+| browser reach to host ports | `remote-localhost.md` (stages 1-3 built, Chromium), `loopback-forward-v1`; a464's `workspace-proxy-DESIGN.md` (f432d56) with per-profile app proxy and proposed `terminal ports` discovery |
+| browser streamed from host | `remote-tab-protocol.md` (`cmux.rb/1` on `cmux.rd/1`), crates `cmux-remote-browser*`, `cmux-rd-*` |
+
+## 12. Surface matrix
+
+"Owner" is where the object's state and process live. "Client path" is how the Mac app shows it.
+
+| Surface | Owner | Protocol object | Client path today | Status in a remote group | Gap / next slice |
+| --- | --- | --- | --- | --- | --- |
+| Terminal | host daemon | PTY + attach stream, resize, scrollback, OSC 133/7501 status | GhosttyKit bytes from the pane's daemon | **works** (verified Linux) | none for v1 |
+| Workspace / pane / tab tree | host daemon | tree snapshot + `subscribe` | sidebar machine section | **works** | offline cache (15) |
+| Diff viewer | host daemon (`git.*`) | `git.status`, `git.diff`, stage/commit/push | `DiffPageProvider` → session host | daemon side **verified**; app routing by pane machine **unverified** | slice C: app-level check that a diff tab in a remote workspace calls the remote daemon |
+| File viewer / Files pane / file grid | host daemon (`fs.*`) | `fs.list|stat|read|write`, `fs.pick` | `CmuxNextFiles` reads **local** `FileManager` | **gap**: shows this Mac's disk | slice B: a `FileSource` protocol with `LocalFileSource` and `DaemonFileSource(fs.*)`, picked by the pane's machine; watch via an `fs.watch` stream (new daemon verb, capability `fs-watch-v1`) |
+| Markdown / HTML / image preview | host daemon (`fs.read`) | same as files | local file read | **gap** (same cause as files) | rides slice B |
+| ACP chat | host acpmux, supervised by host daemon | `agent-session-*` verbs over the link | `AgentTabStore.open` via `machines.daemon(for:)` | attach **exists**; new-chat verbs (`agent-session-new`, harness catalog, draft) per `remote-state-ownership.md` 3.4 **open**; origin policy D10 open | slice D: those verbs + "Claude Code is not installed on <host>" install row |
+| Browser (default) | record in host daemon, runtime on the viewing Mac | tab record + `loopback-forward-v1` | Chromium tab with remote localhost (`remote-localhost.md`, a464 proxy) | **works for Chromium**, WebKit stays "this Mac" | port discovery (`terminal ports`, a464) |
+| Browser (streamed) | Chromium on the host | `cmux.rb/1` over `cmux.rd/1` | `CmuxNextRemoteBrowser` | prototype | later; only for hosts the Mac cannot reach or must not hold cookies for |
+| Notifications, status, agent state | host daemon | events on `subscribe` | sidebar dots, Home | **works** (same stream) | none |
+| Chief | the machine named by `chief.brain_place` | Chief protocol | Move Chief To… (slice 6) | **works** for SSH targets | Cloud/tailnet targets (a284) |
+| Remote desktop | host `cmux-rd-host` | `cmux.rd/1` | `CmuxNextRemoteView` | separate feature (`remote-desktop-DESIGN.md`) | out of scope |
+
+## 13. Transport and reach (one ordered route list per host)
+
+Per host, `MachineRegistry` keeps routes in order, first answering wins, re-preflight earlier
+routes on network change (T3's best idea, Part I 1.4):
+
+1. tailnet `cmux host dial` (no SSH key setup, identity from the tailnet) — Mac minis, other Macs
+2. SSH (`ssh://alias`), bootstrap installs/upgrades `cmux-tui` — any Linux server, any Mac
+3. Cloud link (`ws(s)://` with `--carrier` inside the owner's private network, or relay) — Freestyle VMs
+4. relay routes (`relay+wss://`, `iroh://`) when no direct path exists
+
+Targets map: Freestyle VM → 3 (2 as fallback); Mac mini / other MacBook → 1 then 2; Linux server → 2
+(1 when it runs tailscaled + `cmux host serve`).
+
+Tailnet policy (cmuxterm-hq #2982, 75bc7f7, live 2026-10-21, a459): the Cloud Chief tag,
+`chief-dev-vm` (`tag:lawrence-devvm`) and per-agent VMs (`tag:agent-cloud`) reach
+`tag:mac-mini-cluster` on 22/5900/8787/31415, cmux17-24 by IP on 22/5900 and `tag:macbuilder` on
+22/5900; cmux16 stays blocked. Update (cmuxterm-hq #2990, 6d9bc62, live): tcp 7319 (`cmux host serve`) is
+now open from `tag:lawrence-chief`, `tag:lawrence-devvm` and `tag:agent-cloud` to the same
+destinations. Nothing listens on 7319 on the minis yet ("connection refused"), so route 1 from
+cloud to a mini works only after `cmux host enable` (per-user service running `cmux host serve`)
+on each mini; until then SSH (route 2) is the working route. SSH keys for user `chief` exist only on cloud-chief and chief-dev-vm.
+
+## 14. Auth, version skew
+
+- Auth: SSH identity or tailnet WhoIs owner, checked per connection before any protocol byte;
+  teammates by explicit `cmux host allow <login>` (multiplayer, a461's TeamDO records later
+  name who may attach). Relay allowlist stays default deny (`remote_relay/gate.rs`).
+- Skew: the client reads `remote-probe --json` (protocol, build identity, capabilities) and the
+  daemon capability list on connect. Rules: (a) protocol major mismatch → header
+  `Update needed`, one click runs `remote install --upgrade` (terminals survive, RPC state resets);
+  (b) a missing optional capability hides only that surface's UI (e.g. no `fs-watch-v1` → file
+  viewer polls on focus, never a timer); (c) never auto-upgrade a host the user did not install
+  through cmux. Seen today: the Mac mini `cmux-lawrence` has a `~/.local/bin/cmux-tui` from Aug 5,
+  so the first connect there goes through the install/upgrade offer.
+
+## 15. Offline
+
+Today: the header names the state and rows dim (slice 5). Missing: content. Plan: the client
+keeps the last tree snapshot per host (already in memory) and persists it per `registry_id` in the
+app's state dir; an offline group draws from it read-only (titles, cwd, last screen text of each
+terminal from `terminal-snapshot-history-v1`, last diff summary). Actions that need the host are
+refused with "Host offline: Reconnect", never run locally. Object-sync phase 3 (HostDO replicas)
+replaces this cache for cloud-synced hosts.
+
+## 16. Performance budget
+
+| Path | Budget | Today |
+| --- | --- | --- |
+| reconnect to an installed host (LAN/tailnet) | < 1 s to tree drawn | 0.5 s to connected (Linux VM) |
+| first connect incl. install | < 90 s, progress shown | < 90 s |
+| keystroke echo in a remote terminal | RTT + 1 frame | bytes path, no extra hop |
+| enumerate 100 workspaces / 500 terminals | one snapshot, < 50 ms decode on the Mac | not measured |
+| file viewer open (≤ 1 MB file) | RTT + 30 ms | n/a (slice B) |
+| diff of 500 files | counts first, patches on demand (`--patch` per file) | fingerprint path exists (cx-9ce.34) |
+| idle cost of a connected group | 0 timers; heartbeats only on the link | heartbeat interval configurable |
+
+## 17. Slices from here
+
+| Slice | Work | Done when |
+| --- | --- | --- |
+| A (landed with this part) | design part II; `scripts/cmux-next/remote-group-e2e.py` proves bootstrap, enumerate, terminal round trip, git status/diff on any SSH host, headless | script green on a Linux host (done: OrbStack Ubuntu arm64) |
+| B | file viewer / Markdown / image preview read through the pane's daemon (`DaemonFileSource` over `fs.*`); `fs.watch` stream verb | Swift test: a Files pane in a workspace of a fake remote daemon lists the daemon's entries, not `FileManager`'s (red first); fleet build |
+| C | diff tab in a remote workspace calls the remote daemon | Swift test with two fake daemons; live check with the e2e host |
+| D | ACP new chat in a remote group (`remote-state-ownership.md` 3.4 verbs), harness-missing row | daemon tests + live chat on the Linux host |
+| E | New Remote Group lists discovered hosts: `cmux host list` tailnet peers, SSH aliases, Cloud machines (Part I 8.2 gap) | `RemoteGroupDiscoveryTests`; picking a tailnet host makes a remote group without SSH |
+| F | offline read-only cache (section 15) | test: kill the bridge, group still lists last workspaces and screen text, actions refused |
+| G | skew: `Update needed` header + one-click upgrade | test with a probe that reports an older protocol |
+
+## 18. Issues hit while building part II
+
+- SSH destinations of the form `user@container@orb` (OrbStack) are refused ("SSH destination is
+  not shell-safe"): the URL parser percent-encodes the inner `@`. Workaround: an SSH alias. Low
+  priority; fix with a test when slice E touches destination parsing.
+- `cmux remote new-group <host>` (Part I's CLI name) prints the TUI's `remote` usage: the
+  `remote` scope of the bundled CLI shadows the app action. `cmux action run remote.newGroup
+  --destination <host>` works. Fix belongs with slice E.
+- An agent cannot screenshot the app window (`window.screenshot` is person-only), so app-level
+  remote-group checks need the fleet's UI harness, not an agent shell.
+
+## 19. Stable ids for a host (answer to a461, cloud groups slice 1)
+
+No new id is needed: every daemon already serves three stable ids. Use them as below.
+
+| Id | Form | Minted | Stable across | Served by | Use it for |
+| --- | --- | --- | --- | --- | --- |
+| machine id | `machine_<32 hex>` | once per state root, `load_or_create_machine_id` (`cmux-tui-core/src/workspace_registry.rs`), a locked file in the daemon's state root | daemon restarts, upgrades, reconnects, route changes (SSH ↔ tailnet ↔ relay), host renames | `machine.list` (`id`), `identify` with machine metadata (`machine_id`); Swift `DaemonIdentity.machineResourceID` | **the host in a cloud group record**: "this group lives on machine X" |
+| session resource id | `session_<32 hex>` | once per daemon session | as above | `identify` (`session_resource_id`), `workspace list` (`session_id`); Swift `DaemonIdentity.sessionResourceID` | one daemon session on that host (a host can run several sessions) |
+| registry id | UUID v4 | once per session database (`meta.registry_id`) | as above | `identify`, every tree delta and `workspace` reply (`registry_id`); Swift `DaemonIdentity.registryID`, `DaemonStore.registryID` | local placement only: sidebar section `sec_m_<registry_id>`, remote-localhost routing |
+
+Rules:
+
+1. A group record names `{machine_id, session_resource_id}`. Never a host name, an SSH alias, a
+   tailnet IP or a Cloud VM id: those change (a Cloud VM is re-provisioned, a Mac is renamed, a
+   route moves from SSH to tailnet). For a Cloud VM, the daemon's own `machine_id` is also the id,
+   and the Cloud VM id is only a route to it.
+2. All three ids change only when the daemon's state root is deleted. That is a new machine on
+   purpose: its workspaces are gone too. A record that names an unknown `machine_id` draws as
+   "Machine not found" with Forget, and is never matched to a new host by its name.
+3. Read `machine_id` from `machine.list` or `identify` with machine metadata on, after connect.
+   Older daemons without `machine-identity-v1` have no `machine_id`: a cloud group then refuses
+   to bind (`incompatible(version)` header, section 5) and does not fall back to `registry_id`.
+
+## 20. Slice E and the CLI entrance (2026-10-30, a909)
+
+Landed:
+
+- `cmux workspace group create --remote <host> [--name N]` runs New Remote Group
+  (`remote.newGroup`, which now takes an optional `name` shown on the group's header), and
+  `cmux workspace group create --parent <group> --name N` runs New Subgroup
+  (`workspaceGroup.newSubgroup`, which now takes optional `group` and `name`; a personal group id
+  from `workspace group list` names its document item). A plain `workspace group create` stays the
+  daemon's. `--remote` with `--parent` is refused: a remote group is a machine's top-level group.
+  MCP gets the same through the action arguments.
+- Slice E (host picker): New Remote Group's host step lists the app's SSH machines, online
+  Tailscale peers (`cmux-tui acp host candidates`) and `~/.ssh/config` aliases (with one level of
+  `Include`), each host once, plus "Enter Host…" for typed text (`ActionSuggestions.remoteHosts`,
+  `RemoteHostCatalog`, `SSHConfigHosts`, `RemoteHostChoice` in CmuxNextServer). The lists are
+  cached and refresh once a minute in the background; the app warms them once at launch.
+
+Nesting state (user, 2026-10-30, "this might require subgroups"): groups already nest inside a
+remote group (`SidebarDocSubgroupPlan.maxDepth` levels; New Subgroup on the group menu, palette,
+CLI `--parent`, MCP; drag in/out and collapse per slice 2).
+
+Still open:
+
+- A parent group that holds several remote machines (a "Fleet" folder over three Mac minis). A
+  remote group is a machine section, and sections have no parent in the sidebar document, so this
+  needs a section folder (`Section.parent` or a folder section kind) in `cmux-layout-reducer`, its
+  check/repair/view rules, and the Swift header drawing. Next slice.
+- Cloud VMs are not in the host picker: a Cloud machine becomes a remote group through New Cloud
+  Workspace (it is marked on create), not through `remote.newGroup`'s SSH connect.

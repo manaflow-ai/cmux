@@ -16,12 +16,28 @@ extension SidebarListViewComponents {
     /// (16% of the main thread while scrolling 1,000 rows, perf round 2). A view in another superview
     /// (a lift) leaves it, and a view the pool evicts leaves the list.
     func recycle(_ view: SidebarRowView) {
+        // Invalidate before stopping springs: their completion may still arrive after this view is reused.
+        view.reuseGeneration &+= 1
+        view.closingEnd = nil
+        fadingRows[ObjectIdentifier(view)] = nil
+        // A parked view must not retain a render-server move from the list it just left. In
+        // particular, a non-animated reload removes a row by recycling it directly, without
+        // passing it through RowMotion.run's stop set; leaving its additive spring active would
+        // keep the hidden row in the next layout's motion probe and on a later dequeue.
+        SidebarDragSpring.stop([view])
         if view.key == hoveredKey {
             hoveredKey = nil
             view.clearHoverImmediately()
         }
         if view.superview === self { view.isHidden = true } else { view.removeFromSuperview() }
         for evicted in rowPool.put(view) where evicted.superview === self { evicted.removeFromSuperview() }
+    }
+    /// A close owns only the lifetime it started in; a calm reload can already have reused its view.
+    func finishLeaving(_ view: SidebarRowView, generation: Int) {
+        guard view.reuseGeneration == generation else { return }
+        fadingRows[ObjectIdentifier(view)] = nil
+        guard !rowViews.values.contains(where: { $0 === view }) else { return }
+        recycle(view)
     }
     /// Per-key callbacks, set on every dequeue so recycled views never keep
     /// a previous row's target.
@@ -40,6 +56,8 @@ extension SidebarListViewComponents {
             view.onSelect = { [weak self] in
                 self?.model.send(.selectTab(workspace: workspaceID, tab: tabID))
             }
+            // The hover ✕ closes the tab as a middle-click on the row does (SidebarMiddleClick).
+            view.onClose = { [weak self] in self?.model.send(.closeTab(workspace: workspaceID, tab: tabID)) }
         case let (.group(id), view as GroupHeaderRowView):
             view.onMore = { [weak self] in self?.groupEditing.showMenu(id) } // VoiceOver's full menu; the chip and more button edit
             view.onEdit = { [weak self] in self?.groupEditing.open(id, from: .moreButton) }
@@ -47,9 +65,16 @@ extension SidebarListViewComponents {
             view.onAdd = onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
             view.isEditing = groupEditor.shownGroup == id
             view.isKeyboardFocused = showsFocusRing && focusedGroup == id
+        case let (.emptyGroup(id), view as EmptyGroupRowView):
+            // The same New Workspace in Group as the header's + (one action path).
+            view.onAdd = onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
+        case (.doneFold, let view as SidebarDoneFoldRowView), (.showMore, let view as SidebarDoneFoldRowView):
+            view.onToggle = { [weak self] in
+                guard let self else { return false }
+                return SidebarFoldAction(list: self).toggle(key)
+            }
         case let (.section(sectionID), view as SectionHeaderRowView):
-            // The Chief's group holds the workspaces it starts: no + of its own.
-            if case let .machine(machine) = sectionID, !machine.isLocalChief {
+            if case let .machine(machine) = sectionID {
                 view.allowsAdd = true
                 view.onAdd = { [weak self] in self?.model.send(.newWorkspace(machine: machine, group: nil)) }
             } else {

@@ -8,12 +8,12 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use crate::Mux;
 use crate::resource::{
     ContentPublicId, FrontendProjectionPublicId, PanePublicId, ScreenPublicId, TabPublicId,
     TerminalPublicId, WorkspacePublicId,
 };
 use crate::workspace_registry::registry_connection::JournalWriterCommitScope;
+use crate::{Mux, panic_free::RecoverPoison};
 
 // Output coalescing only ever held terminal output, which shipped builds no
 // longer journal (output_store.rs); the ingress tests still exercise it.
@@ -21,6 +21,7 @@ use crate::workspace_registry::registry_connection::JournalWriterCommitScope;
 mod coalesce;
 mod completion;
 pub(crate) mod contention;
+mod disk_full;
 mod effect_intents;
 pub(crate) use completion::JournalBatchReceipt;
 use completion::{complete_batch_error, complete_batch_success};
@@ -49,7 +50,7 @@ const JOURNAL_DURABLE_WAIT_ENV: &str = "CMUX_TUI_JOURNAL_DURABLE_WAIT_MS";
 #[cfg(not(test))]
 const JOURNAL_DURABLE_WAIT_MIN: Duration = Duration::from_secs(5);
 #[cfg(not(test))]
-const JOURNAL_DURABLE_WAIT_MAX: Duration = Duration::from_secs(5 * 60);
+const JOURNAL_DURABLE_WAIT_MAX: Duration = crate::diagnostics::JOURNAL_APPEND_LONGEST_WAIT;
 const JOURNAL_COMMIT_RESULT_WAIT: Duration = Duration::from_secs(1);
 const JOURNAL_WRITER_SHUTDOWN_WAIT: Duration = Duration::from_secs(1);
 const JOURNAL_SQLITE_RETRY_SLICE: Duration = Duration::from_millis(100);
@@ -404,24 +405,25 @@ struct JournalWriterCompletion {
 
 impl JournalWriterCompletion {
     fn finish(&self, result: Result<(), String>) {
-        *self.result.lock().unwrap() = Some(result);
+        *self.result.lock().recover_poison() = Some(result);
         self.changed.notify_all();
     }
 
     fn wait_until(&self, deadline: Instant) -> anyhow::Result<()> {
-        let mut result = self.result.lock().unwrap();
+        let mut result = self.result.lock().recover_poison();
         while result.is_none() {
             let wait = deadline.saturating_duration_since(Instant::now());
             if wait.is_zero() {
                 anyhow::bail!("session journal writer did not stop before the shutdown deadline");
             }
-            let (next, timeout) = self.changed.wait_timeout(result, wait).unwrap();
+            let (next, timeout) = self.changed.wait_timeout(result, wait).recover_poison();
             result = next;
             if timeout.timed_out() && result.is_none() {
                 anyhow::bail!("session journal writer did not stop before the shutdown deadline");
             }
         }
-        result.clone().unwrap().map_err(anyhow::Error::msg)
+        let Some(result) = result.clone() else { anyhow::bail!("no journal writer result") };
+        result.map_err(anyhow::Error::msg)
     }
 }
 
@@ -505,6 +507,7 @@ struct JournalIngressState {
     commit_admission: Mutex<()>,
     queue_space_epoch: Mutex<u64>,
     queue_space_changed: Condvar,
+    disk_full: disk_full::DiskFullState,
     #[cfg(test)]
     failure_notifier: Mutex<Option<SyncSender<String>>>,
     #[cfg(test)]
@@ -515,11 +518,11 @@ struct JournalIngressState {
 
 impl JournalIngressState {
     fn failure(&self) -> Option<String> {
-        self.failure.lock().unwrap().clone()
+        self.failure.lock().recover_poison().clone()
     }
 
     fn fail(&self, error: String) -> String {
-        let mut stored_failure = self.failure.lock().unwrap();
+        let mut stored_failure = self.failure.lock().recover_poison();
         let failure = stored_failure.get_or_insert(error).clone();
         drop(stored_failure);
         self.publish_queue_space();
@@ -535,21 +538,21 @@ impl JournalIngressState {
     }
 
     fn close_admission(&self) {
-        let _admission = self.enqueue_admission.lock().unwrap();
+        let _admission = self.enqueue_admission.lock().recover_poison();
         self.closed.store(true, Ordering::Release);
         self.publish_queue_space();
     }
 
     #[cfg(test)]
     fn notify_failure_for_test(&self, failure: &str) {
-        if let Some(notifier) = self.failure_notifier.lock().unwrap().take() {
+        if let Some(notifier) = self.failure_notifier.lock().recover_poison().take() {
             let _ = notifier.send(failure.to_string());
         }
     }
 
     #[cfg(test)]
     fn pause_nonretryable_failure_for_test(&self) -> bool {
-        let hook = self.nonretryable_failure_hook.lock().unwrap().take();
+        let hook = self.nonretryable_failure_hook.lock().recover_poison().take();
         let Some((entered, release)) = hook else { return false };
         entered.send(()).expect("nonretryable journal failure observer closed");
         release.recv().expect("nonretryable journal failure release closed");
@@ -557,17 +560,17 @@ impl JournalIngressState {
     }
 
     fn queue_space_epoch(&self) -> u64 {
-        *self.queue_space_epoch.lock().unwrap()
+        *self.queue_space_epoch.lock().recover_poison()
     }
 
     fn publish_queue_space(&self) {
-        let mut epoch = self.queue_space_epoch.lock().unwrap();
+        let mut epoch = self.queue_space_epoch.lock().recover_poison();
         *epoch = epoch.wrapping_add(1);
         self.queue_space_changed.notify_all();
     }
 
     fn wait_for_queue_space_until(&self, observed: u64, deadline: Instant) -> Result<(), String> {
-        let mut epoch = self.queue_space_epoch.lock().unwrap();
+        let mut epoch = self.queue_space_epoch.lock().recover_poison();
         while *epoch == observed {
             if let Some(error) = self.admission_error() {
                 return Err(error);
@@ -579,7 +582,8 @@ impl JournalIngressState {
                     journal_durable_wait().as_millis()
                 ));
             }
-            let (next, result) = self.queue_space_changed.wait_timeout(epoch, remaining).unwrap();
+            let (next, result) =
+                self.queue_space_changed.wait_timeout(epoch, remaining).recover_poison();
             epoch = next;
             if result.timed_out() && *epoch == observed {
                 return Err(format!(
@@ -592,19 +596,19 @@ impl JournalIngressState {
     }
 
     fn wait_for_queue_space_change(&self, observed: u64) -> Result<(), String> {
-        let mut epoch = self.queue_space_epoch.lock().unwrap();
+        let mut epoch = self.queue_space_epoch.lock().recover_poison();
         while *epoch == observed {
             if let Some(error) = self.admission_error() {
                 return Err(error);
             }
-            epoch = self.queue_space_changed.wait(epoch).unwrap();
+            epoch = self.queue_space_changed.wait(epoch).recover_poison();
         }
         Ok(())
     }
 
     #[cfg(test)]
     fn notify_enqueue_full_for_test(&self) {
-        if let Some(notifier) = self.enqueue_full_notifier.lock().unwrap().take() {
+        if let Some(notifier) = self.enqueue_full_notifier.lock().recover_poison().take() {
             let _ = notifier.send(());
         }
     }
@@ -677,7 +681,7 @@ impl JournalIngressSender {
     ) -> Result<(), JournalIngressTrySendError> {
         debug_assert!(event.lane() == JournalLane::Terminal);
         let Some(sender) = &self.terminal_sender else { return Ok(()) };
-        let _admission = self.state.enqueue_admission.lock().unwrap();
+        let _admission = self.state.enqueue_admission.lock().recover_poison();
         if let Some(error) = self.state.admission_error() {
             return Err(JournalIngressTrySendError::Failed { event: Box::new(event), error });
         }
@@ -840,7 +844,7 @@ impl JournalIngressSender {
             Done,
         }
         let action = {
-            let mut owner = self.writer.lock().unwrap();
+            let mut owner = self.writer.lock().recover_poison();
             match std::mem::replace(&mut *owner, JournalWriterOwner::Closed) {
                 JournalWriterOwner::Running(writer) => {
                     let completion = Arc::new(JournalWriterCompletion::default());
@@ -852,9 +856,7 @@ impl JournalIngressSender {
                     CloseAction::Wait(completion)
                 }
                 JournalWriterOwner::Vacant | JournalWriterOwner::Closed => CloseAction::Done,
-                JournalWriterOwner::Reserved => {
-                    unreachable!("journal writer reservation escaped its owner lock")
-                }
+                JournalWriterOwner::Reserved => CloseAction::Done, // never escapes the lock
             }
         };
         match action {
@@ -869,7 +871,7 @@ impl JournalIngressSender {
         name: &str,
         task: impl FnOnce() + Send + 'static,
     ) -> anyhow::Result<()> {
-        let mut owner = self.writer.lock().unwrap();
+        let mut owner = self.writer.lock().recover_poison();
         anyhow::ensure!(
             matches!(*owner, JournalWriterOwner::Vacant),
             "session journal writer is already installed"
@@ -889,7 +891,7 @@ impl JournalIngressSender {
 
     #[cfg(test)]
     pub(crate) fn install_failure_notifier_for_test(&self, notifier: SyncSender<String>) {
-        *self.state.failure_notifier.lock().unwrap() = Some(notifier);
+        *self.state.failure_notifier.lock().recover_poison() = Some(notifier);
     }
 
     #[cfg(test)]
@@ -898,12 +900,12 @@ impl JournalIngressSender {
         entered: SyncSender<()>,
         release: Receiver<()>,
     ) {
-        *self.state.nonretryable_failure_hook.lock().unwrap() = Some((entered, release));
+        *self.state.nonretryable_failure_hook.lock().recover_poison() = Some((entered, release));
     }
 
     #[cfg(test)]
     fn install_enqueue_full_notifier_for_test(&self, notifier: SyncSender<()>) {
-        *self.state.enqueue_full_notifier.lock().unwrap() = Some(notifier);
+        *self.state.enqueue_full_notifier.lock().recover_poison() = Some(notifier);
     }
 
     pub(crate) fn stats(&self) -> &crate::diagnostics::JournalWriterStats {
@@ -920,7 +922,7 @@ impl JournalIngressSender {
         loop {
             let space_epoch = self.state.queue_space_epoch();
             let result = {
-                let _admission = self.state.enqueue_admission.lock().unwrap();
+                let _admission = self.state.enqueue_admission.lock().recover_poison();
                 if let Some(error) = self.state.admission_error() {
                     return Err(error);
                 }
@@ -941,6 +943,9 @@ impl JournalIngressSender {
                 }
                 Err(TrySendError::Full(event)) => {
                     self.state.stats.enqueue_failed(lane);
+                    if self.state.disk_full.is_full() {
+                        return Err(self.state.disk_full.drop_event());
+                    }
                     pending = event;
                 }
                 Err(TrySendError::Disconnected(_)) => {
@@ -985,7 +990,7 @@ impl JournalIngressSender {
             }
             let space_epoch = self.state.queue_space_epoch();
             let result = {
-                let _admission = self.state.enqueue_admission.lock().unwrap();
+                let _admission = self.state.enqueue_admission.lock().recover_poison();
                 if Instant::now() >= deadline {
                     return Err((
                         format!(
@@ -998,6 +1003,11 @@ impl JournalIngressSender {
                 }
                 if let Some(error) = self.state.admission_error() {
                     return Err((error, Box::new(pending)));
+                }
+                // A waiter is answered now, not at its deadline.
+                if self.state.disk_full.is_full() {
+                    self.state.disk_full.refused_waiter(&self.state);
+                    return Err((disk_full::WAITER_ERROR.into(), Box::new(pending)));
                 }
                 // Count before the event is visible to the writer, which may
                 // drain it before `try_send` returns.
@@ -1046,7 +1056,7 @@ impl JournalIngressSender {
                 Err(anyhow::Error::msg(self.writer_error()))
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                let admission = self.state.commit_admission.lock().unwrap();
+                let admission = self.state.commit_admission.lock().recover_poison();
                 match commit_fence.load(Ordering::Acquire) {
                     COMMIT_PENDING => {
                         commit_fence.store(COMMIT_CANCELED, Ordering::Release);
@@ -1097,6 +1107,7 @@ pub(crate) fn start(
 }
 
 fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
+    let mut disk_full_retry = disk_full::DiskFullRetry::new();
     loop {
         let Some(batch) = receive_batch(&receivers) else { return };
         let mut pending = VecDeque::from([batch]);
@@ -1121,7 +1132,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     // in a retry wait. Drain both ingress lanes so receipts
                     // for events that never entered the active batch cannot
                     // remain unresolved forever.
-                    let _admission = receivers.state.enqueue_admission.lock().unwrap();
+                    let _admission = receivers.state.enqueue_admission.lock().recover_poison();
                     complete_queued_error(&receivers, &error);
                     return;
                 };
@@ -1141,12 +1152,13 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     }
                 }
                 let events = batch.iter().map(|queued| &queued.event).collect::<Vec<_>>();
-                match mux.commit_session_journal_events(
+                let committed = mux.commit_session_journal_events(
                     &events,
                     retry_deadline,
                     JOURNAL_SQLITE_RETRY_SLICE,
                     || admit_batch_commit(&receivers.state, &batch, retry_deadline),
-                ) {
+                );
+                match committed {
                     Ok(commits) => {
                         let terminal_events =
                             events.iter().filter(|e| e.lane() == JournalLane::Terminal).count();
@@ -1158,7 +1170,13 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                         // drops the last other owner after its receipt must not
                         // leave the final drop (and its session lease) to this
                         // thread.
+                        // A batch no request waits for (background events)
+                        // asks for its own flush; a request's reply does.
+                        if batch.iter().all(|queued| queued.completion.is_none()) {
+                            mux.request_registry_flush();
+                        }
                         drop((writer, mux));
+                        disk_full_retry.recovered(&receivers.state);
                         complete_batch_success(&batch, commits);
                         break;
                     }
@@ -1168,6 +1186,19 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                         if reported_error.as_deref() != Some(summary.as_str()) {
                             eprintln!("cmux-tui: append session journal batch: {summary}");
                             reported_error = Some(summary.clone());
+                        }
+                        if disk_full::is_disk_full(&error) {
+                            drop((writer, mux));
+                            let (batch, rest) = (&mut batch, &mut pending);
+                            if !disk_full_retry.wait(&receivers, batch, rest, &summary) {
+                                return;
+                            }
+                            if batch.is_empty() {
+                                break;
+                            }
+                            // Only events nobody waits on are kept: no deadline.
+                            retry_deadline = Instant::now() + journal_durable_wait();
+                            continue;
                         }
                         let transient = contention::is_transient(&error, retry_deadline);
                         if Instant::now() >= retry_deadline {
@@ -1198,7 +1229,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             let later = batch.split_off(batch.len() / 2);
                             pending.push_front(later);
                             pending.push_front(batch);
-                        } else if batch[0].completion.is_none()
+                        } else if batch.first().is_some_and(|event| event.completion.is_none())
                             && uncompleted_nonretryable_failures
                                 < JOURNAL_TERMINAL_FAILURE_RETRY_ATTEMPTS
                         {
@@ -1211,8 +1242,8 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             wait_for_journal_retry(mux, nonretryable_delay.min(remaining));
                             nonretryable_delay = next_nonretryable_retry_delay(nonretryable_delay);
                             continue;
-                        } else if batch[0].completion.is_none() {
-                            let _admission = receivers.state.enqueue_admission.lock().unwrap();
+                        } else if batch.first().is_some_and(|event| event.completion.is_none()) {
+                            let _admit = receivers.state.enqueue_admission.lock().recover_poison();
                             let failure = receivers.state.fail(format!(
                                 "session journal writer failed permanently: {summary}"
                             ));
@@ -1272,7 +1303,7 @@ fn admit_batch_commit(
     batch: &[QueuedJournalEvent],
     deadline: Instant,
 ) -> anyhow::Result<()> {
-    let _admission = state.commit_admission.lock().unwrap();
+    let _admission = state.commit_admission.lock().recover_poison();
     if Instant::now() >= deadline {
         return Err(contention::JournalContention::COMMIT_DEADLINE.into());
     }
@@ -1294,7 +1325,7 @@ fn stop_writer_after_retry_deadline(
     pending: VecDeque<Vec<QueuedJournalEvent>>,
     detail: &str,
 ) {
-    let _admission = receivers.state.enqueue_admission.lock().unwrap();
+    let _admission = receivers.state.enqueue_admission.lock().recover_poison();
     receivers.state.stats.deadline_expired();
     let failure = receivers.state.fail(format!(
         "session journal writer timed out after {} ms: {detail}",
@@ -2695,7 +2726,7 @@ mod tests {
             completed.send(()).unwrap();
         })
         .unwrap();
-        *sender.writer.lock().unwrap() = JournalWriterOwner::Running(writer);
+        *sender.writer.lock().recover_poison() = JournalWriterOwner::Running(writer);
         entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
 
         let deadline = Instant::now() + Duration::from_millis(100);
@@ -2859,7 +2890,7 @@ mod tests {
     fn failed_admission_fence_blocks_enqueue_after_shutdown_drain() {
         let (sender, receivers) = JournalIngressSender::new(true);
         let receivers = receivers.expect("journal receivers");
-        let _admission = receivers.state.enqueue_admission.lock().unwrap();
+        let _admission = receivers.state.enqueue_admission.lock().recover_poison();
         let terminal_id = Arc::new(public_id("term", 13, TerminalPublicId::parse));
         let enqueue = std::thread::spawn(move || {
             sender.try_send(JournalIngressEvent::TerminalOutput {

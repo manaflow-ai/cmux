@@ -2,6 +2,7 @@ import type { Env } from "../env.ts"
 import { cloudEnvTag } from "../cloud-driver.ts"
 import { meteredOwner } from "../model-gateway/routes.ts"
 import { personalTeamIdFor } from "../domains/user.ts"
+import { freestyleCustomer } from "../providers/freestyle/customer.ts"
 
 /**
  * The machine side of the Claude Code route (turn.ts, backend/chief-cc/bake.sh): one Freestyle VM per
@@ -9,7 +10,7 @@ import { personalTeamIdFor } from "../domains/user.ts"
  * and the model forward), joined to the tailnet with a one-use, pre-authorized, ephemeral key tagged
  * CHIEF_CC_TS_TAG (default tag:agent-cloud; minted per VM with the Tailscale OAuth client CHIEF_CC_TS_OAUTH,
  * scope auth_keys, that tag only), so its model calls reach the sr2 gateway, which admits it by its tailnet identity. Deleted by
- * exact id after the turn; Freestyle's own timers (idle pause 300 s, ttl 30 min, run cap 15 min) are the
+ * exact id after the turn; Freestyle's own timers (idle pause 300 s, run cap RUN_MS + 5 min, ttl 10 min after that) are the
  * backstop for a turn whose object never came back. Keys, tokens and the VM's output are never logged:
  * errors carry only the step and the HTTP status.
  *
@@ -20,6 +21,8 @@ import { personalTeamIdFor } from "../domains/user.ts"
 const API = "https://api.freestyle.sh"
 const CALL_MS = 30_000
 export const BOOT_MS = 60_000
+/** One turn's time: the agent is told it (turn.ts ccAddendum) and the runner stops Claude Code at it; Freestyle's run cap is above it. */
+export const RUN_MS = 20 * 60_000
 
 export const ccConfigured = (env: Env): boolean => env.CHIEF_CC_ENABLED === "1" && Boolean(env.CHIEF_CC_FREESTYLE_API_KEY && env.CHIEF_CC_TS_OAUTH && env.CHIEF_CC_SNAPSHOT) && cloudEnvTag(env.ENVIRONMENT) !== null
 /**
@@ -37,9 +40,9 @@ export class CcError extends Error {}
 
 const base = (env: Env) => (env.CHIEF_CC_FREESTYLE_API_URL || API).replace(/\/+$/, "")
 /** One Freestyle API call with the route's key (sandbox.ts uses it too; the key never leaves the Worker). */
-export const freestyle = async (env: Env, method: string, path: string, body?: unknown, ms = CALL_MS): Promise<Response> => {
+export const freestyle = async (env: Env, method: string, path: string, body?: unknown, ms = CALL_MS, headers: Record<string, string> = {}): Promise<Response> => {
   try {
-    return await fetch(`${base(env)}${path}`, { method, redirect: "manual", signal: AbortSignal.timeout(ms), headers: { authorization: `Bearer ${env.CHIEF_CC_FREESTYLE_API_KEY}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+    return await fetch(`${base(env)}${path}`, { method, redirect: "manual", signal: AbortSignal.timeout(ms), headers: { ...headers, authorization: `Bearer ${env.CHIEF_CC_FREESTYLE_API_KEY}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
   } catch {
     throw new CcError(`${method} ${path.split("/").slice(0, 3).join("/")}: no answer`)
   }
@@ -48,15 +51,17 @@ export const freestyle = async (env: Env, method: string, path: string, body?: u
 /** The VM's provider name: cmuxnp-<env>-ccb-<12 random> (FREESTYLE-NAMES; its own lane, no other sweep owns it). */
 export const vmName = (env: Env): string => `cmuxnp-${cloudEnvTag(env.ENVIRONMENT)}-ccb-${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`
 
-export const createVm = async (env: Env, name: string, meta: { agent: string; conversation: string; run: string }): Promise<string> => {
+/** `meta.owner`: the Chief's owner, the VM's Freestyle customer (customer.ts). */
+export const createVm = async (env: Env, name: string, meta: { agent: string; owner: string | null; conversation: string; run: string }): Promise<string> => {
   const res = await freestyle(env, "POST", "/v5/vms", {
     slug: name,
     snapshotId: env.CHIEF_CC_SNAPSHOT,
     idleTimeoutSeconds: 300,
-    maxRunSeconds: 900,
-    ttlSeconds: 1800,
+    maxRunSeconds: RUN_MS / 1000 + 300,
+    ttlSeconds: RUN_MS / 1000 + 900,
     automaticRestart: false,
     metadata: { cmux_chief_cc: meta.agent, cmux_conversation: meta.conversation, cmux_run: meta.run },
+    ...freestyleCustomer(meta.owner),
     // Out to the Internet only, IPv4 and IPv6 (the tailnet comes up inside the guest); nothing comes in.
     // What the agent user may reach inside is net.ts.
     firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }

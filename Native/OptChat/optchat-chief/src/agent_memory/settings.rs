@@ -79,6 +79,13 @@ pub fn expand_tilde(path: &str, home: &Path) -> PathBuf {
     }
 }
 
+/// The user's whole settings document (cmux.json, as `settings_file`
+/// finds it), for other keys read at each use (`chief.reactionsCanWake`,
+/// brain/reaction_wake.rs).
+pub fn document(home: &Path) -> Option<Value> {
+    settings_file(home)
+}
+
 /// The parsed settings file, or None when there is none or it does not parse.
 fn settings_file(home: &Path) -> Option<Value> {
     let read = |path: &Path| std::fs::read_to_string(path).ok();

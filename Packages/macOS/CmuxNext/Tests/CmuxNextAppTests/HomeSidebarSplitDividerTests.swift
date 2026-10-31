@@ -17,9 +17,18 @@ struct HomeSidebarSplitDividerTests {
         (split.layer?.sublayers ?? []).filter { $0.delegate === split }.map(\.frame)
     }
 
-    private static func split(dark: Bool, defaults: UserDefaults) -> (HomeSidebarSplitView, NSWindow) {
+    /// The divider layers that draw something: shown, not transparent, wider than nothing.
+    private static func drawnDividerFrames(_ split: HomeSidebarSplitView) -> [CGRect] {
+        (split.layer?.sublayers ?? []).filter { $0.delegate === split && !$0.isHidden && $0.opacity > 0 }
+            .map(\.frame).filter { $0.width > 0 && $0.height > 0 }
+    }
+
+    /// The list holds `conversations` Chiefs: two by default, as a list of one folds away once the
+    /// clamp would leave it avatars only (`HomeLoneChiefRailTests`).
+    private static func split(dark: Bool, defaults: UserDefaults, conversations: Int = 2) -> (HomeSidebarSplitView, NSWindow) {
         _ = NSApplication.shared
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 300))
+        home.update(HomeLoneChiefRailTests.model(chiefs: conversations))
         let split = HomeSidebarSplitView(sidebar: home, content: NSView(), widths: HomeSidebarWidth(defaults: defaults))
         split.windowKey = { "divider" }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 300), styleMask: [.borderless],
@@ -56,6 +65,27 @@ struct HomeSidebarSplitDividerTests {
         window.display()
         #expect(split.sidebarWidth < old - 100, "the clamp did not move the divider (\(split.sidebarWidth))")
         Self.expectOneDivider(split, notAt: old)
+    }
+
+    /// A list of one conversation folds away in the same narrow column (its divider hides with it):
+    /// no line stays at the old 320 pt place either.
+    @Test(arguments: [false, true])
+    func aFoldedLoneConversationLeavesNoLineAtItsOldPlace(dark: Bool) throws {
+        let suite = "cmux.tests.splitDividerFold.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let (split, window) = Self.split(dark: dark, defaults: defaults, conversations: 1)
+        defer { window.close() }
+        let old = split.sidebarWidth
+        #expect(old == split.standard)
+        #expect(!Self.drawnDividerFrames(split).isEmpty, "no divider layer before the fold")
+
+        window.setContentSize(NSSize(width: 400, height: 300))
+        split.layoutSubtreeIfNeeded()
+        window.display()
+        #expect(split.sidebarWidth == 0, "the lone conversation's list did not fold (\(split.sidebarWidth) pt)")
+        let drawn = Self.drawnDividerFrames(split)
+        #expect(!drawn.contains { $0.minX <= old && old < $0.maxX }, "a divider layer stays at the old \(old) pt: \(drawn)")
     }
 
     @Test(arguments: [false, true])

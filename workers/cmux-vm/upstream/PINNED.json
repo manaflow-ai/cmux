@@ -7,22 +7,22 @@
     "upstream SDK and CLI npm package, byte for byte. The coverage test (S3a)",
     "reads both; the scheduled refresh job opens a PR when either changes."
   ],
-  "fetchedAt": "2026-10-07T02:49:21Z",
+  "fetchedAt": "2026-10-30T02:23:22Z",
   "openapi": {
     "url": "https://api.freestyle.sh/openapi.json",
     "file": "openapi.json",
-    "sha256": "c0eef41b4010c60d817433bba79c1405cc72074aedafe1e72debd275d53b7007",
+    "sha256": "de88e08058e17056df47f48cb0b4884e1224f63b3c42a8bece08a75689c6d1f6",
     "openapiVersion": "3.1.0",
     "infoVersion": "0.1.0",
-    "operations": 88
+    "operations": 90
   },
   "sdk": {
     "package": "freestyle",
-    "version": "0.2.16",
+    "version": "0.2.21",
     "license": "MIT",
-    "tarball": "https://registry.npmjs.org/freestyle/-/freestyle-0.2.16.tgz",
-    "tarballSha256": "2b9f857a856b73d0ecbef10784015270e6175f00962972d3e52e50239748e6b3",
-    "integrity": "sha512-8pC7lh/R2PDanbs9Noc1Q7YlPl8Be8hHaQA/rpwFmELrcLTUAuCuxpoZ1Xm+7fuxqhJqJzO83bTTeLcSUoJ9SA==",
+    "tarball": "https://registry.npmjs.org/freestyle/-/freestyle-0.2.21.tgz",
+    "tarballSha256": "a3bcbdfca5ba2cea118dfa7a48e0d5689107f69446bed1e2bd7ebceaf0a465b2",
+    "integrity": "sha512-/RjHww36gz+t0976SgfiCzFtT/NAR3V2lGTfoazbkaZyDSg5x4ucuYQ1luBu37vGPpUpxNBluCxcrBN0cf6mEg==",
     "directory": "sdk"
   }
 }

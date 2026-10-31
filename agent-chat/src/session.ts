@@ -34,12 +34,41 @@ export type AgentEvent =
   | { kind: "delta"; text: string }
   | { kind: "assistant"; text: string }
   | { kind: "thinking"; text: string }
-  | { kind: "tool-start"; toolId: string; name: string; detail?: string }
-  | { kind: "tool-update"; toolId: string; name?: string; detail?: string; out?: string }
-  | { kind: "tool-end"; toolId: string; name?: string; detail?: string; ok?: boolean }
+  | { kind: "tool-start"; toolId: string; name: string; detail?: string; description?: string }
+  | { kind: "tool-update"; toolId: string; name?: string; detail?: string; description?: string; out?: string }
+  | { kind: "tool-end"; toolId: string; name?: string; detail?: string; description?: string; ok?: boolean }
   | { kind: "done"; stats?: string }
   | { kind: "files-changed"; files: ChangedFile[] }
+  | { kind: "question"; questionId: string; items: AgentQuestionItem[] }
+  | { kind: "question-resolved"; questionId: string; outcome: string }
   | { kind: "error"; message: string; prompt?: string };
+
+export interface AgentQuestionItem {
+  id: string;
+  header?: string;
+  question: string;
+  options: { label: string; description?: string }[];
+  allowsOther: boolean;
+  secret: boolean;
+}
+
+/** A question the agent is waiting on (a `question` event not yet resolved). */
+export interface PendingQuestion {
+  questionId: string;
+  items: AgentQuestionItem[];
+}
+
+export function applyQuestionEvent(pending: PendingQuestion[], evt: AgentEvent): PendingQuestion[] {
+  if (evt.kind === "question") {
+    return [...pending.filter((q) => q.questionId !== evt.questionId), { questionId: evt.questionId, items: evt.items }];
+  }
+  if (evt.kind === "question-resolved") return pending.filter((q) => q.questionId !== evt.questionId);
+  return pending;
+}
+
+export function pendingQuestions(events: AgentEvent[]): PendingQuestion[] {
+  return events.reduce(applyQuestionEvent, [] as PendingQuestion[]);
+}
 
 export type OptionKind = "select" | "toggle";
 export type OptionValue = string | boolean;
@@ -96,7 +125,7 @@ export type Block =
   | { kind: "message"; id: string; from: string; body: string }
   | { kind: "assistant"; text: string; open: boolean }
   | { kind: "thinking"; text: string; open: boolean }
-  | { kind: "tool"; toolId: string; name: string; detail?: string; status: "running" | "ok" | "fail"; out?: string }
+  | { kind: "tool"; toolId: string; name: string; detail?: string; description?: string; status: "running" | "ok" | "fail"; out?: string }
   | { kind: "status"; text: string }
   | { kind: "plan"; entries: AgentPlanEntry[] }
   | { kind: "error"; text: string }
@@ -116,10 +145,21 @@ export interface CwdHarnessResponse {
   requestId?: unknown;
   cwd?: unknown;
   connectionEpoch?: unknown;
+  ok?: unknown;
+  message?: unknown;
+  repositorySlug?: unknown;
 }
 
-/** Only the latest request on the current WebSocket may update visible harnesses. */
-export function acceptsCwdHarnessResponse(
+export interface CwdCheck {
+  ok: boolean;
+  message?: string;
+  repositorySlug?: string;
+  requestId: string;
+  connectionEpoch: number;
+}
+
+/** Only the latest request on the current WebSocket may update visible cwd state. */
+export function acceptsCwdCheckResponse(
   active: CwdHarnessRequest | null,
   response: CwdHarnessResponse,
 ): boolean {
@@ -129,6 +169,33 @@ export function acceptsCwdHarnessResponse(
     && response.cwd === active.cwd
     && response.connectionEpoch === active.connectionEpoch,
   );
+}
+
+/** Only the latest request on the current WebSocket may update visible harnesses. */
+export function acceptsCwdHarnessResponse(
+  active: CwdHarnessRequest | null,
+  response: CwdHarnessResponse,
+): boolean {
+  return acceptsCwdCheckResponse(active, response);
+}
+
+/** Apply a cwd result only when it belongs to the active validation request. */
+export function applyCwdCheckResult(
+  current: Record<string, CwdCheck>,
+  active: CwdHarnessRequest | null,
+  response: CwdHarnessResponse,
+): Record<string, CwdCheck> {
+  if (!acceptsCwdCheckResponse(active, response) || typeof response.cwd !== "string" || !active) return current;
+  return {
+    ...current,
+    [response.cwd]: {
+      ok: Boolean(response.ok),
+      message: typeof response.message === "string" ? response.message : undefined,
+      repositorySlug: typeof response.repositorySlug === "string" ? response.repositorySlug : undefined,
+      requestId: active.requestId,
+      connectionEpoch: active.connectionEpoch,
+    },
+  };
 }
 
 /** Harness recommendations and the cwd they were discovered for. */
@@ -215,7 +282,7 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
       }
       return [...closeStreaming(blocks), { kind: "thinking", text: evt.text, open: true }];
     case "tool-start":
-      return [...closeStreaming(blocks), { kind: "tool", toolId: evt.toolId, name: evt.name || "tool", detail: evt.detail, status: "running" }];
+      return [...closeStreaming(blocks), { kind: "tool", toolId: evt.toolId, name: evt.name || "tool", detail: evt.detail, description: evt.description, status: "running" }];
     case "tool-update":
       return blocks.map((b) =>
         b.kind === "tool" && b.toolId === evt.toolId && b.status === "running"
@@ -223,6 +290,7 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
               ...b,
               ...(evt.name === undefined ? {} : { name: evt.name }),
               ...(evt.detail === undefined ? {} : { detail: evt.detail }),
+              ...(evt.description === undefined ? {} : { description: evt.description }),
               ...(evt.out === undefined ? {} : { out: evt.out }),
             }
           : b,
@@ -230,7 +298,7 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
     case "tool-end":
       return blocks.map((b) =>
         b.kind === "tool" && b.toolId === evt.toolId
-          ? { ...b, status: evt.ok === false ? "fail" : "ok", out: evt.detail || b.out }
+          ? { ...b, status: evt.ok === false ? "fail" : "ok", out: evt.detail || b.out, description: evt.description ?? b.description }
           : b,
       );
     case "done": {
@@ -283,7 +351,7 @@ export interface SessionState {
   providerOptions: Record<string, SessionOption[]>;
   providerCommands: Record<string, CommandGroup[]>;
   filesByCwd: Record<string, string[]>;
-  cwdChecks: Record<string, { ok: boolean; message?: string; repositorySlug?: string }>;
+  cwdChecks: Record<string, CwdCheck>;
   fileDiffs: Record<string, string>;
   fileDiffErrors: Record<string, string>;
   lastError: string;
@@ -296,6 +364,14 @@ export interface SessionState {
   stop(): void;
   /** Focuses the terminal pane behind a terminal chat view. */
   focusTerminal(): void;
+  /** Questions the agent waits on, oldest first. */
+  questions: PendingQuestion[];
+  /** Changes when a sent answer may not have landed (a reconnect, or the
+   * server refused it), so a waiting question's card takes input again. */
+  questionAttempt: number;
+  /** Answers a question by id (one answer per item id); `null` declines it.
+   * Returns false when the WebSocket is not ready. */
+  answerQuestion(questionId: string, answers: Record<string, string> | null): boolean;
   setOption(id: string, value: OptionValue): void;
   fork(): void;
   handoff(): void;
@@ -303,7 +379,7 @@ export interface SessionState {
   requestProviderCommands(provider: string, cwd: string): void;
   requestFiles(cwd: string, query?: string): void;
   requestFileDiff(sessionId: string, path: string): void;
-  checkCwd(cwd: string): void;
+  checkCwd(cwd: string): CwdHarnessRequest | null;
   clearError(): void;
 }
 
@@ -399,6 +475,8 @@ export function useSession(): SessionState {
   const [phase, setPhase] = useState<"composer" | "chat">(routedSessionId ? "chat" : "composer");
   const [session, setSession] = useState<SessionSummary | null>(null);
   const [routing, setRouting] = useState<RouteStatus | null>(null);
+  const [questions, setQuestions] = useState<PendingQuestion[]>([]);
+  const [questionAttempt, setQuestionAttempt] = useState(0);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [options, setOptions] = useState<SessionOption[]>([]);
   const [actions, setActions] = useState<SessionActions>({});
@@ -407,7 +485,7 @@ export function useSession(): SessionState {
   const [providerCommands, setProviderCommands] = useState<Record<string, CommandGroup[]>>({});
   const latestCommandRequestsRef = useRef(new Map<string, { requestId: string; cwd: string; pending: boolean }>());
   const [filesByCwd, setFilesByCwd] = useState<Record<string, string[]>>({});
-  const [cwdChecks, setCwdChecks] = useState<Record<string, { ok: boolean; message?: string; repositorySlug?: string }>>({});
+  const [cwdChecks, setCwdChecks] = useState<Record<string, CwdCheck>>({});
   const [fileDiffs, setFileDiffs] = useState<Record<string, string>>({});
   const [fileDiffErrors, setFileDiffErrors] = useState<Record<string, string>>({});
   const [lastError, setLastError] = useState("");
@@ -521,6 +599,7 @@ export function useSession(): SessionState {
     optimisticUsersRef.current = [];
     setSession(null);
     setRouting(null);
+    setQuestions([]);
     setBlocks([]);
     setOptions([]);
     setActions({});
@@ -550,8 +629,12 @@ export function useSession(): SessionState {
       createSocket: () => new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws")),
       onSocket: (ws) => {
         wsRef.current = ws;
-        if (!ws) failFileDiffRequests();
-        if (!ws) latestCommandRequestsRef.current.clear();
+        if (ws) return;
+        // The socket dropped (close, error or no answer): not ready until the next socket's
+        // hello, so the reconnect notice shows and nothing reads as sent while it is gone.
+        setReady(false);
+        failFileDiffRequests();
+        latestCommandRequestsRef.current.clear();
       },
       onOpen: () => {
         for (const requestId of pendingStartStopsRef.current) sendRaw({ op: "stop", requestId });
@@ -579,12 +662,14 @@ export function useSession(): SessionState {
             setProviders(h.providers);
             setHarnessCatalogs(h.harnessCatalogs ?? {});
             latestCwdRequestRef.current = null;
+            setCwdChecks({});
             setHarnessSnapshot(helloHarnessSnapshot(h));
             setCapabilities(h.capabilities ?? {});
             setDefaultCwd(h.defaultCwd);
             setCtrlJ(h.keys?.ctrlJ === "menu" ? "menu" : "newline");
             setReady(true);
             setConnectionEpoch((n) => n + 1);
+            setQuestionAttempt((n) => n + 1);
             break;
           }
           case "session-created": {
@@ -615,6 +700,7 @@ export function useSession(): SessionState {
             pendingStartRef.current = null;
             setSession({ ...msg.session, status: "running" });
             setRouting(msg.routing?.kind === "routing" ? normalizeRouteStatus(msg.routing) : null);
+            setQuestions([]);
             for (const queued of queuedReplies) {
               sendRaw({ op: "send", sessionId: msg.session.id, requestId: queued.requestId, prompt: queued.prompt });
             }
@@ -643,6 +729,7 @@ export function useSession(): SessionState {
             setSession(msg.session);
             setRouting(latestRouteStatus(msg.events as AgentEvent[]));
             setBlocks((msg.events as AgentEvent[]).reduce(foldEvent, [] as Block[]));
+            setQuestions(pendingQuestions(msg.events as AgentEvent[]));
             optimisticUsersRef.current = [];
             setOptions(latestOptions(msg.events as AgentEvent[]));
             setActions(latestActions(msg.events as AgentEvent[]));
@@ -661,6 +748,7 @@ export function useSession(): SessionState {
             sessionIdRef.current = null;
             setSession(null);
             setRouting(null);
+            setQuestions([]);
             setOptions([]);
             setActions({});
             setCommands([]);
@@ -681,6 +769,9 @@ export function useSession(): SessionState {
               setSession((s) => (s ? { ...s, queuedMessages: Array.isArray(msg.messages) ? msg.messages : [] } : s));
             }
             break;
+          case "answer-refused":
+            if (msg.sessionId === sessionIdRef.current) setQuestionAttempt((n) => n + 1);
+            break;
           case "session-attention":
             if (msg.sessionId === sessionIdRef.current) {
               setSession((s) => (s ? { ...s, attention: typeof msg.attention === "string" ? msg.attention : null } : s));
@@ -700,6 +791,7 @@ export function useSession(): SessionState {
                 break;
               }
               setBlocks((bs) => foldEvent(bs, evt));
+              if (evt.kind === "question" || evt.kind === "question-resolved") setQuestions((qs) => applyQuestionEvent(qs, evt));
               if (evt.kind === "options") setOptions(evt.options);
               if (evt.kind === "options") setActions(evt.actions ?? {});
               if (evt.kind === "commands") setCommands((gs) => upsertCommands(gs, evt));
@@ -781,7 +873,11 @@ export function useSession(): SessionState {
             setFilesByCwd((m) => ({ ...m, [msg.cwd]: msg.files ?? [] }));
             break;
           case "cwd-check":
-            setCwdChecks((m) => ({ ...m, [msg.cwd]: { ok: Boolean(msg.ok), message: msg.message, repositorySlug: typeof msg.repositorySlug === "string" ? msg.repositorySlug : undefined } }));
+            {
+              const active = latestCwdRequestRef.current;
+              if (!acceptsCwdCheckResponse(active, msg)) break;
+              setCwdChecks((current) => applyCwdCheckResult(current, active, msg));
+            }
             if (Array.isArray(msg.harnesses) && acceptsCwdHarnessResponse(latestCwdRequestRef.current, msg)) {
               setHarnessSnapshot({ cwd: String(msg.cwd), harnesses: msg.harnesses as HarnessRecommendation[] });
             }
@@ -876,6 +972,7 @@ export function useSession(): SessionState {
     sessionIdRef.current = null;
     setRouting(null);
     setSession(null);
+    setQuestions([]);
     setBlocks([]);
     setOptions([]);
     setActions({});
@@ -912,6 +1009,10 @@ export function useSession(): SessionState {
   }, [sendRaw, start]);
   const focusTerminal = useCallback(() => {
     if (sessionIdRef.current) sendRaw({ op: "focus-terminal", sessionId: sessionIdRef.current });
+  }, [sendRaw]);
+  const answerQuestion = useCallback((questionId: string, answers: Record<string, string> | null) => {
+    if (!sessionIdRef.current) return false;
+    return sendRaw({ op: "answer-question", sessionId: sessionIdRef.current, questionId, answers });
   }, [sendRaw]);
   const stop = useCallback(() => {
     const pending = pendingStartRef.current;
@@ -997,12 +1098,12 @@ export function useSession(): SessionState {
       return next;
     });
   }, [sendRaw]);
-  const checkCwd = useCallback((cwd: string) => {
+  const checkCwd = useCallback((cwd: string): CwdHarnessRequest | null => {
     const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const request: CwdHarnessRequest = { requestId, cwd, connectionEpoch };
     latestCwdRequestRef.current = request;
     setHarnessSnapshot((current) => harnessSnapshotForCwdCheck(current, cwd));
-    sendRaw({ op: "check-cwd", ...request });
+    return sendRaw({ op: "check-cwd", ...request }) ? request : null;
   }, [connectionEpoch, sendRaw]);
   const clearError = useCallback(() => setLastError(""), []);
 
@@ -1036,6 +1137,9 @@ export function useSession(): SessionState {
     reply,
     stop,
     focusTerminal,
+    questions,
+    questionAttempt,
+    answerQuestion,
     setOption,
     fork,
     handoff,

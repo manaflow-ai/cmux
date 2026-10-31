@@ -28,11 +28,9 @@ final class ClosedTabsFeed {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            observation?.cancel()
-        }
+        observation?.cancel()
     }
 
     /// What the feed watches, O(machines): each connected machine's tab

@@ -7,11 +7,18 @@
 //! - `_acpmux/pair_revoke {id}` revokes a ticket or a machine (by id or
 //!   name); a machine's open connections close at once.
 //! - `_acpmux/pair_issue {name, role}` issues a credential with no ticket
-//!   (the joining side of the daemon role).
+//!   (the joining side of the daemon role). Role `phone` is the person's
+//!   only, for a phone the Mac app's mobile host serves; a live phone of
+//!   that name is replaced (`Pairing::issue_phone`).
+//! - `_acpmux/pair_set {id, fullAccess}` turns a `client` machine's or a phone's
+//!   Full-access setting on (the person only, `hub/person.rs`) or off
+//!   (`crate::pairing` module docs). Off, like a machine's revoke, puts
+//!   every chat out of its policy's mode back at once.
 //!
-//! All four are the unix socket's only. `_acpmux/pair_redeem` is served only
+//! All five are the unix socket's only. `_acpmux/pair_redeem` is served only
 //! on a connection that presented an open ticket, and nothing else is.
 
+use crate::no_panic::JsonExt;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -53,7 +60,7 @@ pub(super) fn admit(
             tracing::warn!("refused a pairing ticket from {from}: plain ws:// from another host");
             return Err(Refusal::WrongToken);
         }
-        if !hub.pairing.ticket_open(secret) {
+        if !hub.pairing.ticket_open(secret, hub.person.instance()) {
             return Err(Refusal::WrongToken);
         }
         return Ok(Admitted::Ticket((*secret).to_owned()));
@@ -76,10 +83,12 @@ pub(super) fn admit(
 }
 
 /// The origin and proof a paired machine's connection is served with:
-/// `client` as a peer daemon, `read-only` as Web with the read-only gate.
+/// `client` as a peer daemon, `read-only` as Web with the read-only gate,
+/// `phone` as Web with its own id (what its Full-access setting reads).
 pub(super) fn origin_of(device: &DeviceAuth) -> (Origin, ConnAuth) {
     match device.role {
         Role::ReadOnly => (Origin::Web, ConnAuth::ReadOnlyDevice),
+        Role::Phone => (Origin::Web, ConnAuth::Device),
         _ => (Origin::Peer, ConnAuth::Device),
     }
 }
@@ -107,14 +116,13 @@ const REDEEM_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 /// answer it, and close.
 pub(super) async fn serve_redeem<S>(
     hub: Arc<Hub>,
-    ws: tokio_tungstenite::WebSocketStream<S>,
+    ws: &mut tokio_tungstenite::WebSocketStream<S>,
     secret: String,
 ) where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    let (mut sink, mut source) = ws.split();
     let first = tokio::time::timeout(REDEEM_WAIT, async {
-        while let Some(Ok(frame)) = source.next().await {
+        while let Some(Ok(frame)) = ws.next().await {
             if let Frame::Text(t) = frame {
                 return Some(t.to_string());
             }
@@ -126,7 +134,7 @@ pub(super) async fn serve_redeem<S>(
     .flatten();
     let Some(Ok(Message::Request { id, method: m, params })) = first.map(|f| Message::parse(&f))
     else {
-        let _ = sink.close().await;
+        super::ws_shutdown::close(ws, false).await;
         return;
     };
     let reply = if m == method::MUX_PAIR_REDEEM {
@@ -138,8 +146,8 @@ pub(super) async fn serve_redeem<S>(
         Ok(v) => Message::ok(id, v),
         Err(e) => Message::err(id, e),
     };
-    let _ = sink.send(Frame::Text(line.to_value().to_string().into())).await;
-    let _ = sink.close().await;
+    let _ = ws.send(Frame::Text(line.to_value().to_string().into())).await;
+    super::ws_shutdown::close(ws, false).await;
 }
 
 async fn redeem(hub: &Arc<Hub>, secret: &str, params: Value) -> Result<Value, RpcError> {
@@ -147,8 +155,8 @@ async fn redeem(hub: &Arc<Hub>, secret: &str, params: Value) -> Result<Value, Rp
     let name = text("name").ok_or_else(|| RpcError::invalid_params("name is required"))?;
     let advertise = (text("advertiseUrl"), text("advertiseToken"));
     let taken = hub.config.read().await.peers.contains_key(&name)
-        || hub.peers().iter().any(|p| p["name"].as_str() == Some(name.as_str()));
-    let redeemed = hub.pairing.redeem(secret, &name, |role| {
+        || hub.peers().iter().any(|p| p.get("name").and_then(Value::as_str) == Some(name.as_str()));
+    let redeemed = hub.pairing.redeem(secret, &name, hub.person.instance(), |role| {
         if role != Role::Daemon {
             return Ok(());
         }
@@ -183,9 +191,11 @@ async fn redeem(hub: &Arc<Hub>, secret: &str, params: Value) -> Result<Value, Rp
         // Checked before the redeem: a daemon-role ticket came with both.
         (Role::Daemon, (Some(url), Some(token))) => {
             hub.add_peer(&name, &url, Some(token), None, false).await?;
-            reply["peer"] = json!({"name": name, "url": url});
+            reply.set("peer", json!({"name": name, "url": url}));
         }
-        _ => reply["token"] = json!(redeemed.token),
+        _ => {
+            reply.set("token", json!(redeemed.token));
+        }
     }
     Ok(reply)
 }
@@ -208,6 +218,10 @@ pub(super) async fn dispatch(
             | method::MUX_PAIR_LIST
             | method::MUX_PAIR_REVOKE
             | method::MUX_PAIR_ISSUE
+            | method::MUX_MACHINE_CONSENT_SET
+            | method::MUX_MACHINE_CONSENT_REFUSED
+            | method::MUX_MACHINE_CONSENT_GET
+            | method::MUX_PAIR_SET
             | method::MUX_PAIR_REDEEM
     ) {
         return None;
@@ -219,19 +233,87 @@ pub(super) async fn dispatch(
         method::MUX_PAIR_TICKET_NEW => mint(hub, params).await,
         method::MUX_PAIR_LIST => Ok(hub.pairing.list()),
         method::MUX_PAIR_REVOKE => revoke(hub, params).await,
-        _ => issue(hub, params),
+        method::MUX_PAIR_SET => set(hub, conn, params).await,
+        method::MUX_MACHINE_CONSENT_SET => machine_consent(conn, params),
+        method::MUX_MACHINE_CONSENT_REFUSED => {
+            let surface = params.get("surface").and_then(Value::as_str).unwrap_or_default();
+            if !matches!(surface, "screen" | "control") {
+                Err(RpcError::invalid_params("surface must be screen or control"))
+            } else {
+                crate::cli::cloud_join::record_consent_refusal(surface)
+                    .map(|_| serde_json::json!({"recorded":true}))
+                    .map_err(|_| RpcError::internal("consent refusal could not be recorded"))
+            }
+        }
+        method::MUX_MACHINE_CONSENT_GET => Ok(crate::cli::cloud_join::consent_status()),
+        _ => issue(hub, conn, params),
     })
+}
+
+/// A same-user shell/PTY cannot prove the app's person key. Both grants and
+/// revocations require the original local person-proof handshake, never mesh.
+fn machine_consent(conn: &Conn, params: &Value) -> Result<Value, RpcError> {
+    let surface = params
+        .get("surface")
+        .and_then(Value::as_str)
+        .filter(|surface| matches!(*surface, "screen" | "control"))
+        .ok_or_else(|| RpcError::invalid_params("surface must be screen or control"))?;
+    if !conn.is_person() || conn.origin != Origin::Local || conn.origin.web_class() {
+        return Err(crate::hub::person::person_required(
+            "changing this machine's screen or control consent; use the local cmux app",
+        ));
+    }
+    let granted = params
+        .get("granted")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| RpcError::invalid_params("granted must be true or false"))?;
+    let consent = crate::cli::cloud_join::set_consent_for_person(surface, granted)
+        .map_err(|_| RpcError::internal("local consent store unavailable"))?;
+    Ok(json!({"consent":consent}))
+}
+
+/// `_acpmux/pair_set {id, fullAccess}`: on only from the person, since it
+/// widens what runs without asking; off from any unix socket client.
+async fn set(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
+    let key = params
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("id is required"))?;
+    let on = params
+        .get("fullAccess")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| RpcError::invalid_params("fullAccess (true or false) is required"))?;
+    if on && !conn.is_person() {
+        return Err(crate::hub::person::person_required(
+            "letting a machine run chats in Full access",
+        ));
+    }
+    let device = hub.pairing.set_full_access(key, on)?;
+    let held_again = if on { 0 } else { hub.hold_policies_again().await };
+    tracing::info!(device = %device.id, name = %device.name, on, "a machine's Full-access setting changed");
+    Ok(json!({
+        "device": device.to_value(),
+        "allows": on.then(|| crate::pairing::full_access_allows(&device.name)),
+        "held_again": held_again,
+    }))
 }
 
 fn role_param(params: &Value) -> Result<Role, RpcError> {
     let name = params.get("role").and_then(Value::as_str).unwrap_or_default();
     Role::parse(name).ok_or_else(|| {
-        RpcError::invalid_params(format!("role must be daemon, client or read-only, not {name:?}"))
+        RpcError::invalid_params(format!(
+            "role must be daemon, client, read-only or phone, not {name:?}"
+        ))
     })
 }
 
 async fn mint(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
     let role = role_param(params)?;
+    if role == Role::Phone {
+        return Err(RpcError::invalid_params(
+            "a phone pairs with the Mac app, never with a ticket: mint a client or read-only ticket",
+        ));
+    }
     let ttl = params
         .get("ttlSeconds")
         .and_then(Value::as_u64)
@@ -246,8 +328,14 @@ async fn mint(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
             "a ticket is redeemed only over wss://, or ws:// to a loopback host; {url:?} is neither"
         )));
     }
-    let (ticket, record) =
-        hub.pairing.mint(role, ttl, label, url.clone(), crate::pairing::machine_name())?;
+    let (ticket, record) = hub.pairing.mint(
+        role,
+        ttl,
+        label,
+        url.clone(),
+        crate::pairing::machine_name(),
+        hub.person.instance().to_owned(),
+    )?;
     Ok(json!({
         "ticket": ticket.encode(),
         "id": record.id,
@@ -286,6 +374,10 @@ async fn revoke(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("id is required"))?;
     let reply = hub.pairing.revoke(key)?;
+    // Its Full-access setting ends with it: no chat stays out of its policy's mode.
+    if reply.pointer("/revoked/kind").and_then(Value::as_str) == Some("device") {
+        hub.hold_policies_again().await;
+    }
     // A machine this daemon drove (role daemon) is also no longer its peer.
     if reply.pointer("/revoked/kind").and_then(Value::as_str) == Some("device")
         && reply.pointer("/revoked/role").and_then(Value::as_str) == Some("daemon")
@@ -296,15 +388,23 @@ async fn revoke(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
     Ok(reply)
 }
 
-fn issue(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+fn issue(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     let role = role_param(params)?;
     if role == Role::Daemon {
-        return Err(RpcError::invalid_params("issue a client or read-only credential"));
+        return Err(RpcError::invalid_params("issue a client, read-only or phone credential"));
     }
     let name = params
         .get("name")
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("name is required"))?;
-    let (device, token) = hub.pairing.issue(name, role)?;
+    // A phone's credential names the device its Full-access setting covers, and a new one
+    // takes over that setting: an agent on this machine must never hold one.
+    if role == Role::Phone && !conn.is_person() {
+        return Err(crate::hub::person::person_required("issuing a phone's credential"));
+    }
+    let (device, token) = match role {
+        Role::Phone => hub.pairing.issue_phone(name)?,
+        _ => hub.pairing.issue(name, role)?,
+    };
     Ok(json!({"deviceId": device.id, "name": device.name, "role": role.as_str(), "token": token}))
 }

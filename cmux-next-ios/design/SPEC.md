@@ -288,9 +288,13 @@ CmuxMobileRoot
    └─ Global overlays: connection banner, toasts
 ```
 
-Pushed full-screen surfaces (Agent chat, Terminal, Browser, File preview, Diff viewer) hide the
-tab bar: `.toolbarVisibility(.hidden, for: .tabBar)`. Composer screens never show a tab bar under
-the composer (Messages and every AI app agree: a conversation owns the bottom edge).
+Pushed full-screen surfaces (a workspace and its tabs, Agent chat, Terminal, Browser, File preview,
+Diff viewer, a Home conversation) hide the tab bar. Composer screens never show a tab bar under
+the composer (Messages and every AI app agree: a conversation owns the bottom edge). One source of
+truth decides it: `ShellModel.showsTabBar(on:)` (anything pushed on Home, Workspaces or the Feed
+hides it; Settings pages keep it), applied per tab by `TabBarVisibility`. Pushed screens never set
+it themselves: SwiftUI drops a pushed screen's hide when one update selects a tab and pushes on it
+(a link, a notification tap, the launch restore).
 
 ### 3.2 TabView
 
@@ -304,15 +308,14 @@ TabView(selection: $tab) {
     Tab("Settings", systemImage: "gearshape", value: .settings) { SettingsStack() }
     Tab(value: .search, role: .search) { SearchStack() }
 }
-.tabBarMinimizeBehavior(.onScrollDown)
+.tabBarMinimizeBehavior(.never)
 .tint(.primary)                               // neutral accent: selected tab is label, not blue
 ```
 
-- Minimize on scroll: on (iPhone only). Workspaces, Feed, Settings and Search lists collapse the
-  bar to the selected tab + search circle as you scroll down, and expand it on scroll up
-  (Apple: "tab bars ... can be configured to minimize on scroll, keeping the focus on your
-  content"). It only works when the list scrolls under the bar; do not put content in a
-  `VStack` with a footer below the list (Donny Wals' caveat).
+- Minimize on scroll: off. The bar stays fully visible on every tab and every list while
+  content scrolls (user decision, 2026-10-27); it never collapses to the selected tab's pill.
+  Full-screen detail screens (workspace, terminal, agent chat, diff, Chief) still hide it while
+  they are open.
 - Search role tab: sits apart at the trailing end. It is the single global search; screens do not
   add their own `.searchable` except the Feed filter chips and file browser filename filter.
   Justification: iOS 26 native placement, and each reference app has one search entry
@@ -323,8 +326,7 @@ TabView(selection: $tab) {
   composer is Home-only. Revisit for a "running agents" mini status.
 - Home root: the Chief composer is placed with `.safeAreaInset(edge: .bottom)` inside Home's
   content, 8 pt above the tab bar. When the composer is focused the keyboard covers the tab bar;
-  when the user scrolls the transcript down the tab bar minimizes and the composer follows the
-  safe area down (system-driven). When a Chief turn opens a workspace tab, it pushes with the tab
+  the tab bar stays in place while the transcript scrolls. When a Chief turn opens a workspace tab, it pushes with the tab
   bar hidden.
 
 ### 3.3 Team sidebar (push-aside drawer)
@@ -460,6 +462,46 @@ snapshot test in light and dark at Large and AX3 Dynamic Type.
   agent's glyph on `surfaceRaised`: Claude Code, Codex, Cursor, Gemini use monochrome SF
   Symbols or template assets; never brand colors in chrome).
 
+### 4.2.1 Lists: one text column (rule, every list)
+
+Every list has one text column, and everything that reads as text starts on it. User
+direction, 2026-10-23: "headers like Needs You and Pinned should be left aligned with all
+text, this should be a principle in general."
+
+- **Text column.** Each row's primary text (the title, and the subtitle under it) starts at
+  the list's text column. Section headers, footers, inline labels ("Loading…", "No Macs
+  yet", a Mac's offline line), group and disclosure titles, and icon-less rows on the same
+  page start there too. Every title in a list starts at one x.
+- **Grouped lists keep native headers.** In `.insetGrouped` lists (Settings and its
+  pages, Devices) section headers and footers stay at the system position, the cell's
+  content margin where the row icons start, as in iOS Settings. They take no
+  `.cmuxMobileTextColumn()`. User direction, 2026-10-30: "the settings group headers like
+  Connection and Appearance are way too indented in cmux next ios, fix."
+- **Gutter.** Marks hang in a leading gutter before the text column: status and unread dots,
+  disclosure chevrons, icons, small avatars, spinners, selection marks (Apple Mail's unread
+  dots, iOS Settings' row icons). A group or disclosure row puts its chevron in the gutter
+  and its title on the text column; extra marks (a group's color dot) follow the title.
+- **Separators** start at the text column, never under the gutter.
+- **Metrics** (`CmuxMobileListColumn`, `CmuxMobileDesign/ListColumn.swift`), measured from
+  the row content's leading edge and scaled like `.body` with Dynamic Type:
+  - plain lists (Workspaces): `plain`, a 32 pt gutter from the screen edge, text at 32 pt;
+  - grouped lists (Settings and its pages, Devices): `grouped`, a 22 pt icon column (up to
+    44 pt) and 14 pt to the text, so text at 36 pt from the cell's content margin, where the
+    system header and footer text start;
+  - a list with its own glyph size declares its column (`CmuxMobileListColumn(mark:gap:)`,
+    e.g. Continue in… 32 + 12, Checkpoints 24 + 12); the Team drawer uses
+    `SidebarTeamRow.textLeading` (side margin + 36 pt avatar + 12 pt).
+- **How to build it.** A row puts its mark in `CmuxMobileGutterRow`; a plain list's header or
+  footer, and an icon-less row in a list with marks, takes `.cmuxMobileTextColumn(kind)`. A page whose rows
+  have no marks keeps the system alignment (its text, headers and footers already share
+  the cell margin) and adds no icons to only some rows.
+- **Exceptions.** A row's own icon or emoji that is part of its name (a workspace's icon)
+  sits on the text column with the name. Centered hero cards (the account card, Chief's
+  header, the Continue in… review header), empty states and centered status notes (Home's
+  "Connecting to …") are not rows. Menus are the system's and already follow the rule.
+- **Check.** Measure the x of each header and each row title per screen (accessibility
+  frames or a pixel scan): they match within 1 pt at the default and a large text size.
+
 ### 4.3 Composer (`CmuxMobileComposer`)
 
 States: `collapsed`, `expanded` (idle), `focused`, `running` (agent working), `queued`
@@ -576,8 +618,9 @@ custom popover. Alerts follow `claude-04-new-session-alert`: title, body, two bu
 ### 5.1 Launch screen
 
 - `UILaunchScreen` in Info.plist: `UIColorName` = `LaunchBackground` (#000000 dark /
-  #FFFFFF light), `UIImageName` = `LaunchMark` (the cmux mark, template, 72 x 72 pt, tinted
-  `label`), centered. No text, no spinner. (ChatGPT, Claude and Grok all show only their mark
+  #FFFFFF light), `UIImageName` = `LaunchMark` (the app icon's chevron layer from
+  `AppIcon.icon`, glow included: a 70 x 86 pt image with the chevron 72 pt tall at its center;
+  `scripts/generate-launch-mark.swift`), centered. No text, no spinner. (ChatGPT, Claude and Grok all show only their mark
   on their background.)
 - `LaunchHandoff` (first SwiftUI frame): the same mark at the same position. When auth resolves
   (Keychain read, < 300 ms typical) to a signed-in destination, the mark scales 1.0 → 0.92 and
@@ -591,9 +634,8 @@ No carousel and no feature copy. The structure follows Claude's welcome
 (`verify/login-claude-reference.md`): a small brand lockup at the top, one illustration and one
 serif line in the middle, the sign-in stack at the bottom. Layout on `bg`:
 
-- Lockup, centered under the status bar (6 pt): the cmux chevron, 22 pt, filled with the app
-  icon's gradient (`#06CDFE` → `#2AA0F9` → `#5170F3`, leading to trailing, sampled from
-  `AppIcon.icon`), 7 pt gap, "cmux" in `welcomeWordmark` (`title2` semibold) `label`.
+- Lockup, centered under the status bar (6 pt): the cmux chevron (the launch mark's image,
+  the app icon's chevron layer), 22 pt tall, 7 pt gap, "cmux" in `welcomeWordmark` (`title2` semibold) `label`.
 - Hero, centered in the space between the lockup and the buttons: the illustration (a Mac and an
   iPhone drawn as one 3.3 pt round-capped `label` line, 291 x 233 pt), a gradient `>_` prompt on
   the Mac's screen and the gradient chevron (30 pt, soft `#2AA0F9` glow) on the phone's screen.
@@ -926,9 +968,9 @@ permission requests, errors, PR events.
   toggle per Mac; pattern `chatgpt-31-filter-menu`).
 - Chip row under the toolbar (scrolls with content): All, Needs you (with count), Finished,
   Errors (4.1 `Chip`). Chips mirror the filter menu.
-- `List(.plain)` with full-bleed 0.5 pt separators (X style), `bg`. New events above the
+- `List(.plain)` with 0.5 pt separators from the text column (4.2.1), `bg`. New events above the
   viewport: glass capsule "↑ 3 new" centered under the toolbar; tap scrolls to top with `smooth`.
-- Tab bar minimizes on scroll (3.2).
+- Tab bar stays fully visible while the list scrolls (3.2).
 
 ### 8.2 Cell
 

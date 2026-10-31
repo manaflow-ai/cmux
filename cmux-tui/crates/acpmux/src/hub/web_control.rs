@@ -10,7 +10,9 @@
 //! same lock every mode write takes (`write_mode_state`, the one setter).
 //! The sticky `web_control_ended` flag adds one rule: after a mode left
 //! the table, the harness's own return does not restore Web control; the
-//! unix socket or the local app setting an asking mode does.
+//! unix socket or the local app setting an asking mode does. A permission
+//! answer that only narrows, or that carries the person's own proof, is held
+//! to less (`Hub::web_answer_check`).
 //!
 //! `Control::Peer` (a proven peer daemon of the same user,
 //! `server/peer_auth.rs`) has no mode rule, unless it forwards a request
@@ -19,6 +21,7 @@
 
 use super::*;
 use crate::web_modes::WebModeTable;
+use cmux_json::JsonSet as _;
 
 /// What the table was built from (`webAskingModes` and the refused
 /// families, which follow the profiles), and the table.
@@ -73,11 +76,16 @@ impl Hub {
         };
         let m = s.meta();
         let family = crate::web_modes::family_of(&m);
-        out["session"] =
-            json!({"sessionId": s.id, "family": family, "mode": crate::web_modes::mode_of(&m)});
+        out.set(
+            "session",
+            json!({"sessionId": s.id, "family": family, "mode": crate::web_modes::mode_of(&m)}),
+        );
         let text = |k: &str| params.get(k).and_then(Value::as_str);
         if let (Some(id), Some(value)) = (text("configId"), text("value")) {
-            out["session"]["asks"] = json!(table.config_value_asks(&family, Some(id), Some(value)));
+            out.set_path(
+                &["session", "asks"],
+                json!(table.config_value_asks(&family, Some(id), Some(value))),
+            );
         }
         Ok(out)
     }
@@ -105,6 +113,17 @@ impl Hub {
         session: &Session,
         writes: impl IntoIterator<Item = ModeWrite>,
     ) {
+        self.write_mode_state_settling(session, writes, false);
+    }
+
+    /// `write_mode_state`; `settles`: the write applies a full-access report the tap counted, and
+    /// takes its count back under the same lock (`permissions::settle_full_access_report`).
+    pub(crate) fn write_mode_state_settling(
+        &self,
+        session: &Session,
+        writes: impl IntoIterator<Item = ModeWrite>,
+        settles: bool,
+    ) {
         let table = self.web_modes();
         let left = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
@@ -112,30 +131,56 @@ impl Hub {
             for w in writes {
                 match w {
                     ModeWrite::Modes(v) => m.modes = Some(v),
-                    ModeWrite::CurrentMode(v) => match m.modes.as_mut() {
-                        Some(modes) => modes["currentModeId"] = v,
+                    ModeWrite::CurrentMode(v) => {
+                        let written = m
+                            .modes
+                            .as_mut()
+                            .is_some_and(|modes| modes.set("currentModeId", v.clone()));
                         // A harness that declared no modes reports one: kept
                         // apart (clients read `modes`), for the asking check.
-                        None => {
+                        // Modes that are not an object (a harness's `session/new` answer is not
+                        // checked) hold nothing to write into, so they count as no modes: an
+                        // `IndexMut` write there panicked under this meta lock and poisoned it.
+                        if !written {
                             *session
                                 .floor
                                 .undeclared_mode
                                 .lock()
                                 .unwrap_or_else(|e| e.into_inner()) = v.as_str().map(str::to_owned);
                         }
-                    },
+                    }
                     ModeWrite::ConfigOptions(v) => m.config_options = Some(v),
                 }
             }
+            if settles {
+                super::permissions::settle_full_access_report(session);
+            }
+            // A mode cmux set stays cmux's only while the chat runs it: a write that moves the mode
+            // anywhere else (the harness's own update, through either form) takes the mark, under
+            // this same lock, so a later write cannot bring the mode back with it
+            // (`trust_wait.rs` `full_access_by_cmux`, `permissions.rs` `full_access_mode`).
+            let unmarked = m.mode_set_by_cmux.is_some()
+                && crate::web_modes::mode_of(&m) != m.mode_set_by_cmux
+                && m.mode_set_by_cmux.take().is_some();
             let asks = self.session_asks_now(session, &m);
             let left = (asked && !asks && !session.web_control_ended.swap(true, Ordering::SeqCst))
                 .then(|| crate::web_modes::mode_of(&m));
-            (left, asks)
+            (left, asks, unmarked)
         };
-        let (left, asks) = left;
+        let (left, asks, unmarked) = left;
+        // Saved now, so a restart does not load the mark back.
+        if unmarked {
+            self.save_meta(session);
+        }
         if let Some(mode) = left {
             tracing::warn!(session = %session.id, ?mode, "the session left the asking-mode table: Web control ends");
             self.append(session, "mux", "remote_control_ended", json!({"mode": mode}));
+        }
+        // MDM forces full access off (#23322): a write that moves the chat into full access (the
+        // harness's own update, in any form) ends its agent. The hub's background task does it
+        // under the session's spawn lock (`idle.rs`, `end_every_managed_full_access`).
+        if self.managed_off_runs_full_access(&self.off_latch(), session) {
+            self.idle_wake.notify_one();
         }
         // The remote floor: a Web turn does not go on in a mode that does
         // not ask, whatever the mode was before (`remote_floor.rs`).
@@ -169,8 +214,14 @@ impl Hub {
 
     /// A steer into the running turn: checked like a prompt, and a Web steer
     /// makes that turn a Web turn (no chat allowance for what it adds).
-    pub(super) fn check_steer(&self, session: &Session, control: Control) -> Result<(), RpcError> {
+    pub(super) fn check_steer(
+        &self,
+        session: &Session,
+        control: Control,
+        device: Option<&str>,
+    ) -> Result<(), RpcError> {
         self.web_control_check(session, control)?;
+        self.full_access_hold(&session.meta(), control, device)?;
         if control != Control::Web {
             return Ok(());
         }
@@ -200,13 +251,16 @@ impl Hub {
         session: &Arc<Session>,
         control: Control,
         trust_gate: bool,
+        device: Option<&str>,
         prompt_id: &str,
         turn_id: &str,
         client: &str,
     ) -> Result<(), RpcError> {
         let refused = {
             let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            self.web_control_verdict(session, &m, control).err()
+            self.web_control_verdict(session, &m, control)
+                .and_then(|()| self.full_access_hold(&m, control, device))
+                .err()
         };
         let refused = match refused {
             Some(e) => Some(e),
@@ -227,6 +281,34 @@ impl Hub {
             json!({"promptId": prompt_id, "turnId": turn_id, "client": client, "error": e.message, "data": e.data}),
         );
         Err(e)
+    }
+
+    /// A chat a paired machine's Full-access setting moved out of its policy's mode
+    /// (`policy_mode.rs` `out_of_policy`; nothing else moves one there) is driven from the Web
+    /// only by a request that setting covers now (`device`, read again here): a prompt, a steer,
+    /// a queued prompt's dispatch. The shared dashboard token and every other machine are refused.
+    pub(crate) fn full_access_hold(
+        &self,
+        meta: &crate::store::SessionMeta,
+        control: Control,
+        device: Option<&str>,
+    ) -> Result<(), RpcError> {
+        if control != Control::Web {
+            return Ok(());
+        }
+        // The config being written: the strictest default, so the chat counts as held.
+        let default =
+            self.config.try_read().map_or(PermissionPolicy::DenyAll, |c| c.permission_policy);
+        if !super::policy_mode::out_of_policy(meta, default, &self.web_modes())
+            || device.is_some_and(|d| self.pairing.full_access(d))
+        {
+            return Ok(());
+        }
+        Err(RpcError::new(
+            -32000,
+            "this chat runs in Full access for the paired machine the person allowed; another device cannot prompt it until it is back in a mode that asks",
+        )
+        .with_data(json!({"reason": "remote.full_access_device"})))
     }
 
     /// `web_control_check` for a caller that holds the meta lock (dispatch).
@@ -269,12 +351,8 @@ impl Hub {
         }
         // A remote chain's agent adopted with no record that it runs in the
         // sandbox (it started before the sandbox existed).
-        if session.floor.unsandboxed.load(Ordering::SeqCst) {
-            return Err(RpcError::new(
-                -32000,
-                "This chat's agent started before the remote sandbox. Restart this chat to control it remotely.",
-            )
-            .with_data(json!({"reason": "remote.unsandboxed_agent", "harness": meta.harness})));
+        if let Some(e) = unsandboxed_refusal(session, meta) {
+            return Err(e);
         }
         // A grant this harness process holds ("allow always", given by a
         // local client) runs its tool without a request in any later turn.
@@ -308,6 +386,38 @@ impl Hub {
 }
 
 impl Hub {
+    /// `web_control_check` for an answer to a pending prompt. An answer that
+    /// only narrows (`narrows`: a reject or a cancel) makes the session do
+    /// nothing it would not do anyway, and any client may give one
+    /// (`person.rs`): no Web rule holds it. An allow that carries the
+    /// person's decision proof or an enrolled approver's signature for this
+    /// very prompt (`proved`) is the person's own click on their own app or
+    /// phone, for this one request: the mode, policy and lasting-grant rules,
+    /// which keep a paired device from steering a session that acts without
+    /// asking, add nothing to it. It still allows once only
+    /// (`lasting_grant_refused`), and a Claude session the Mac started (D13)
+    /// or an unsandboxed agent stays refused. Any other Web answer is held
+    /// to the whole check.
+    pub(crate) fn web_answer_check(
+        &self,
+        session: &Session,
+        control: Control,
+        narrows: bool,
+        proved: bool,
+    ) -> Result<(), RpcError> {
+        if control != Control::Web || narrows {
+            return Ok(());
+        }
+        if !proved {
+            return self.web_control_check(session, control);
+        }
+        let meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(e) = self.local_claude_refusal(&meta) {
+            return Err(e);
+        }
+        unsandboxed_refusal(session, &meta).map_or(Ok(()), Err)
+    }
+
     /// D13: a Claude Code session the Mac started (not a remote chain) runs
     /// with the user's own Claude permission rules, whose allow rules run
     /// tools with no acpmux request, so the remote floor cannot hold there:
@@ -342,6 +452,30 @@ impl Hub {
             .with_data(json!({"reason": "remote.local_claude_session", "harness": meta.harness}))
         })
     }
+}
+
+/// A remote chain's agent adopted with no record that it runs in the
+/// sandbox: no Web control until the chat restarts. A session at its owner's
+/// VM boundary (`vm_boundary.rs`) gets none ever, spawned yet or not: only
+/// the owner's own clients control it, and a request held to the Web's rules
+/// (a paired machine's included, `Hub::refuse_at_vm_boundary`) does not.
+fn unsandboxed_refusal(session: &Session, meta: &crate::store::SessionMeta) -> Option<RpcError> {
+    if meta.vm_boundary {
+        return Some(
+            RpcError::new(
+                -32000,
+                "This chat runs without the sandbox on its owner's own VM: only the owner's own devices control it.",
+            )
+            .with_data(json!({"reason": "remote.unsandboxed_agent", "harness": meta.harness})),
+        );
+    }
+    session.floor.unsandboxed.load(Ordering::SeqCst).then(|| {
+        RpcError::new(
+            -32000,
+            "This chat's agent started before the remote sandbox. Restart this chat to control it remotely.",
+        )
+        .with_data(json!({"reason": "remote.unsandboxed_agent", "harness": meta.harness}))
+    })
 }
 
 /// A Web permission answer that would grant more than this one request
@@ -423,4 +557,53 @@ pub enum Control {
     Web,
     /// A proven peer daemon acting for its own local user: no mode rule.
     Peer,
+}
+
+#[cfg(test)]
+mod mode_write_tests {
+    use super::*;
+    use crate::config::{Config, StoreMode};
+    use crate::hub::NewRequest;
+    use serde_json::json;
+    use std::path::Path;
+
+    fn test_hub() -> Arc<Hub> {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut config: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .expect("config");
+        config.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&config.store, Path::new("/nonexistent")).expect("store");
+        Hub::new(config, store)
+    }
+
+    /// A harness answers `session/new` with `modes` that is not an object (the answer is stored as
+    /// sent) and later reports its current mode. The write used `modes["currentModeId"] = v`, which
+    /// panics on an array, string, number or bool, under the session's meta lock: that poisoned it
+    /// and every later `Session::meta()` panicked with it.
+    #[tokio::test]
+    async fn a_current_mode_written_over_modes_that_are_not_an_object_does_not_panic() {
+        let hub = test_hub();
+        let session = hub
+            .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() })
+            .await
+            .expect("session");
+        for modes in [json!(["plan"]), json!("plan"), json!(7), json!(true)] {
+            hub.write_mode_state(&session, [ModeWrite::Modes(modes.clone())]);
+            hub.write_mode_state(&session, [ModeWrite::CurrentMode(json!("plan"))]);
+            // The modes stay as sent, the mode is kept apart as for a harness with no modes, and
+            // the meta lock still opens.
+            assert_eq!(session.meta().modes, Some(modes));
+            let kept = session.floor.undeclared_mode.lock().unwrap().clone();
+            assert_eq!(kept.as_deref(), Some("plan"));
+            *session.floor.undeclared_mode.lock().unwrap() = None;
+        }
+        // Modes that are an object still take the mode in place.
+        hub.write_mode_state(&session, [ModeWrite::Modes(json!({"availableModes": []}))]);
+        hub.write_mode_state(&session, [ModeWrite::CurrentMode(json!("code"))]);
+        assert_eq!(session.meta().modes.unwrap()["currentModeId"], json!("code"));
+        assert_eq!(*session.floor.undeclared_mode.lock().unwrap(), None);
+    }
 }

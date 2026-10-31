@@ -1,21 +1,24 @@
 // The pieces every changelog design shares (cx-urd.61): release meta, the hero, the grouped
 // change rows and the folded commit list by area. Colors are theme tokens, sizes the type scale
 // (styles.css); nothing here knows which design it sits in.
-import { useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Dialog } from "../../ui/Dialog";
 import { DialogButton } from "../../ui/DialogButton";
 import type { Strings } from "../shared/i18n";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
 import { byArea } from "./areas";
 import { formatReleaseDate, type AreaChange, type MediaRef, type ReleaseItem, type ReleaseView } from "./model";
-import type { ChangeItem, IndexEntry, WhatsNewCategory } from "./types";
+import type { ChangeItem, IndexEntry, NewsLayout, WhatsNewCategory } from "./types";
 import { cardVersion } from "./UpdateSurfaces";
+import { ChangePullRequest } from "./ChangePullRequest";
 
 export interface PartsContext {
   strings: Strings;
   onTry: (action: string) => void;
   /** Each change is a wide row with its whole description and its picture beside it (the Ledger). */
   rowMedia?: boolean;
+  /** How the update's news shows its clips (SpanNews.tsx); grid when unset. */
+  news?: NewsLayout;
 }
 
 export function categoryLabel(strings: Strings, category: WhatsNewCategory): string {
@@ -40,12 +43,12 @@ export function Media({ media, className, strings }: { media: MediaRef; classNam
   const src = scheme === "dark" ? media.dark : media.light;
   const [open, setOpen] = useState(false);
   const picture = media.video ? (
-    <video key={src} src={src} aria-label={media.alt} muted loop playsInline autoPlay preload="none" />
+    <LazyVideo key={src} src={src} alt={media.alt} />
   ) : (
     <img key={src} src={src} alt={media.alt} loading="lazy" decoding="async" />
   );
   return (
-    <figure className={`cl-media${className ? ` ${className}` : ""}`}>
+    <figure className={`cl-media ui-glass${className ? ` ${className}` : ""}`}>
       {strings ? (
         <button
           type="button"
@@ -62,6 +65,42 @@ export function Media({ media, className, strings }: { media: MediaRef; classNam
       )}
       {strings && open && <MediaLightbox media={media} src={src} strings={strings} onClose={() => setOpen(false)} />}
     </figure>
+  );
+}
+
+/** Autoplay overrides preload in browsers, so withhold the source until the clip is nearby. */
+function LazyVideo({ src, alt }: { src: string; alt: string }) {
+  const player = useRef<HTMLVideoElement>(null);
+  const [near, setNear] = useState(false);
+  useEffect(() => {
+    const element = player.current;
+    if (!element) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setNear(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        observer.disconnect();
+        setNear(true);
+      },
+      { rootMargin: "200px 0px" },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return (
+    <video
+      ref={player}
+      src={near ? src : undefined}
+      aria-label={alt}
+      muted
+      loop
+      playsInline
+      autoPlay={near}
+      preload="none"
+    />
   );
 }
 
@@ -169,9 +208,13 @@ export function Hero({
   return (
     <>
       {titled ? (
-        <Heading className="cl-headline">{item.title}</Heading>
+        <Heading className="cl-headline">
+          {item.pr ? <ChangePullRequest pr={item.pr} title={item.title} /> : item.title}
+        </Heading>
       ) : (
-        <h3 className="cl-row-title cll-lead">{item.title}</h3>
+        <h3 className="cl-row-title cll-lead">
+          {item.pr ? <ChangePullRequest pr={item.pr} title={item.title} /> : item.title}
+        </h3>
       )}
       {item.summary
         .split(/\n{2,}/)
@@ -214,7 +257,11 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
           ) : (
             <li key={`${item.id}-${index}`}>
               <span className="cl-row-text">
-                <span className="cl-row-title">{item.title}</span>
+                {item.pr ? (
+                  <ChangePullRequest pr={item.pr} title={item.title} />
+                ) : (
+                  <span className="cl-row-title">{item.title}</span>
+                )}
                 {item.summary && <span className="cl-row-summary"> {item.summary.split(/\n{2,}/)[0]}</span>}
               </span>
               <RowActions item={item} ctx={ctx} />
@@ -240,7 +287,11 @@ function WideRow({ item, ctx }: { item: ReleaseItem; ctx: PartsContext }) {
   return (
     <li className={item.media ? "cl-wide-row cl-has-media" : "cl-wide-row"}>
       <div className="cl-row-text">
-        <span className="cl-row-title">{item.title}</span>
+        {item.pr ? (
+          <ChangePullRequest pr={item.pr} title={item.title} />
+        ) : (
+          <span className="cl-row-title">{item.title}</span>
+        )}
         {paragraphs.length === 0 && actions}
         {paragraphs.map((p, i) => (
           <p key={i} className="cl-row-summary">
@@ -305,27 +356,12 @@ export function ChangesFold({
   );
 }
 
-const pullURL = (pr: number) => `https://github.com/manaflow-ai/cmux/pull/${pr}`;
-
 function ChangeList({ changes }: { changes: ChangeItem[] }) {
   return (
     <ul>
       {changes.map((c, i) => (
         <li key={c.pr ?? `t${i}`}>
-          {c.pr === undefined ? (
-            <span>{c.title}</span>
-          ) : (
-            // The title is a link too (Leo 2026-10-21: "more colored links? not just the #").
-            <a className="cl-change-link" href={pullURL(c.pr)} rel="noreferrer">
-              <span>{c.title}</span>
-            </a>
-          )}
-          {c.pr !== undefined && (
-            // The title already links the same pull request: one tab stop per change.
-            <a className="cl-pr" href={pullURL(c.pr)} rel="noreferrer" tabIndex={-1}>
-              #{c.pr}
-            </a>
-          )}
+          {c.pr === undefined ? <span>{c.title}</span> : <ChangePullRequest pr={c.pr} title={c.title} />}
         </li>
       ))}
     </ul>
@@ -334,10 +370,12 @@ function ChangeList({ changes }: { changes: ChangeItem[] }) {
 
 const CHANGES_PAGE = 20;
 
-/** The span's nightly reels as ONE player (Leo 2026-10-21: one reel inline, not a row per
-    nightly): the newest reel plays in place, muted with controls, and a row of nightly chips picks
-    another. Under it a link opens the video as links do (the host's link setting), which is also
-    all that shows when the video cannot play here. Only an https reel is shown. */
+/** The span's nightly reels as ONE video card (Leo 2026-10-21: one reel inline, not a row per
+    nightly; "this watch is kind aass also id like to be able to watch .mp4s direclty in cmux"):
+    the newest reel's first frame with a play button, its length and its title; a press plays it in
+    place, with controls. A row of nightly chips picks another. Only when the video cannot play
+    here (an app without the page's media-src) does a link open it as links do instead. Only an
+    https reel is shown. */
 export function ReelPlayer({
   builds,
   reels,
@@ -353,45 +391,92 @@ export function ReelPlayer({
   const current = shown.find((b) => b.build === picked) ?? shown[0];
   if (!current) return null;
   const url = reels[current.build]!;
-  const label = strings.format("changelog.page.watchReel", cardVersion(current.shortVersion));
+  const version = cardVersion(current.shortVersion);
+  const label = strings.format("changelog.page.watchReel", version);
   return (
     <div className="cl-reel-player">
       {!broken.has(url) && (
-        <figure className="cl-media cl-reel-video">
-          <video
-            key={url}
-            src={url}
-            aria-label={label}
-            controls
-            muted
-            playsInline
-            preload="metadata"
-            onError={() => setBroken((set) => new Set(set).add(url))}
-          />
-        </figure>
+        <ReelCard
+          key={url}
+          url={url}
+          title={strings.format("changelog.page.reelTitle", version)}
+          onError={() => setBroken((set) => new Set(set).add(url))}
+        />
       )}
-      <div className="cl-reel-bar">
-        {shown.length > 1 && (
-          <div className="cl-reel-picker">
-            {shown.map((b) => (
-              <button
-                key={b.build}
-                type="button"
-                className="cl-reel-chip"
-                aria-pressed={b === current}
-                onClick={() => setPicked(b.build)}
-              >
-                {cardVersion(b.shortVersion)}
-              </button>
-            ))}
-          </div>
-        )}
-        <a className="cl-reel" href={url} rel="noreferrer">
-          {label}
-        </a>
-      </div>
+      {(shown.length > 1 || broken.has(url)) && (
+        <div className="cl-reel-bar">
+          {shown.length > 1 && (
+            <div className="cl-reel-picker">
+              {shown.map((b) => (
+                <button
+                  key={b.build}
+                  type="button"
+                  className="cl-reel-chip"
+                  aria-pressed={b === current}
+                  onClick={() => setPicked(b.build)}
+                >
+                  {cardVersion(b.shortVersion)}
+                </button>
+              ))}
+            </div>
+          )}
+          {broken.has(url) && (
+            <a className="cl-reel" href={url} rel="noreferrer">
+              {label}
+            </a>
+          )}
+        </div>
+      )}
     </div>
   );
+}
+
+/** One reel as a card: its first frame (the `#t` fragment makes the video show it before it
+    plays), a play button and the reel's length over it, its title under it. A press plays it in
+    place with controls; the button goes away so the controls take the clicks. */
+function ReelCard({ url, title, onError }: { url: string; title: string; onError(): void }) {
+  const video = useRef<HTMLVideoElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [seconds, setSeconds] = useState<number | undefined>();
+  const play = () => {
+    setPlaying(true);
+    void video.current?.play()?.catch(() => undefined);
+  };
+  return (
+    <figure className="cl-reel-card">
+      <div className="cl-reel-stage">
+        <video
+          ref={video}
+          src={`${url}#t=0.1`}
+          aria-label={title}
+          controls={playing}
+          muted
+          playsInline
+          preload="auto"
+          onLoadedMetadata={(event) => {
+            const length = event.currentTarget.duration;
+            if (Number.isFinite(length) && length > 0) setSeconds(length);
+          }}
+          onError={onError}
+        />
+        {!playing && (
+          <button type="button" className="cl-reel-play" aria-label={title} onClick={play}>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M8 5.5v13l10.5-6.5z" />
+            </svg>
+          </button>
+        )}
+        {!playing && seconds !== undefined && <span className="cl-reel-length">{clock(seconds)}</span>}
+      </div>
+      <figcaption className="cl-reel-title">{title}</figcaption>
+    </figure>
+  );
+}
+
+/** A video's length as m:ss ("0:07", "2:30"). */
+export function clock(seconds: number): string {
+  const whole = Math.max(1, Math.round(seconds));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
 
 /** A run of builds with no change a person would notice: one quiet line, never a blank row. */

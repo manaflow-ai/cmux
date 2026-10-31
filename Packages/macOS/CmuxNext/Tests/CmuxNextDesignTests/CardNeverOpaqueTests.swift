@@ -2,6 +2,7 @@ import CmuxTheme
 @testable import CmuxNextDesign
 import Foundation
 import Testing
+import CmuxNextDesignTokens
 
 /// Glass is never opaque, and card text keeps WCAG AA (Lawrence, 2026-10-20). Every floating
 /// glass card (`Glass.makeOverlayPanel`) lays its ``CardMaterial`` fill on the glass at
@@ -21,6 +22,8 @@ import Testing
     static let lift = ChromeTunables.opaqueOverlayLift.defaultValue
 
     struct BundledTheme {
+        /// The folder of `themeFolders` the theme file is in.
+        let folder: String
         let name: String
         let label: String
         let input: ThemeInput
@@ -53,7 +56,8 @@ import Testing
                 input.accentColor = colors.accent
                 let tokens = ThemeTokens.derive(from: input)
                 let card = CardMaterial(tokens, lift: lift, minimumOpacity: CardMaterial.defaultMinimumOpacity)
-                themes.append(BundledTheme(name: name, label: "\(folder)/\(name) [\(tokens.isDark ? "dark" : "light")]",
+                themes.append(BundledTheme(folder: folder, name: name,
+                                           label: "\(folder)/\(name) [\(tokens.isDark ? "dark" : "light")]",
                                            input: input, tokens: tokens, card: card))
             }
         }

@@ -1,0 +1,14 @@
+{
+  "title": "Daemon update: an ssh machine's header tooltip while it updates, and the toast of a failed update",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "An ssh machine updating to this Mac's build: its header tooltip",
+     "rpc": {"method": "debug.daemon_update", "params": {"state": "updating", "sidebar": true, "tooltip": true}}, "wait": 2.5,
+     "optional": "debug.daemon_update is DEBUG only"},
+    {"title": "Pointer away", "rpc": {"method": "debug.daemon_update", "params": {"tooltip": false}}, "wait": 1, "shot": false,
+     "optional": "debug.daemon_update is DEBUG only"},
+    {"title": "The update failed: its toast and the header tooltip",
+     "rpc": {"method": "debug.daemon_update", "params": {"state": "failed", "notify": true, "sidebar": true, "tooltip": true}}, "wait": 2.5,
+     "optional": "debug.daemon_update is DEBUG only"}
+  ]
+}

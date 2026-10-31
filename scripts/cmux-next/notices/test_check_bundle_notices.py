@@ -178,6 +178,20 @@ class CheckBundleNoticesTest(unittest.TestCase):
         [ssh] = [e for e in bundle_map["entries"] if e["path"] == "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*"]
         self.assertIn("section:manual-ghostty", ssh["notices"])
 
+    def test_bundled_webrtc_framework_passes_with_the_committed_map_and_notices(self) -> None:
+        # Mac Screen (CmuxScreenKit) embeds WebRTC.framework; an unmapped one
+        # failed every nightly-next build from 2026-10-23.
+        bundle_map = json.loads((HERE / "bundle-map.json").read_text())
+        webrtc = self.app / "Contents/Frameworks/WebRTC.framework/Versions/A/WebRTC"
+        webrtc.parent.mkdir(parents=True)
+        webrtc.write_bytes(FAT)
+        credits = self.app / "Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html"
+        credits.parent.mkdir(parents=True)
+        credits.write_text("<html></html>\n")
+        notices = ROOT / "THIRD_PARTY_LICENSES.md"
+        errors = [e for e in checker.check(self.app, bundle_map, notices) if "WebRTC" in e]
+        self.assertEqual(errors, [])
+
     def test_the_map_covers_bundled_ghostty_themes(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())
         paths = {entry["path"] for entry in bundle_map.get("resources", [])}
@@ -195,6 +209,7 @@ class CheckBundleNoticesTest(unittest.TestCase):
         "Contents/Resources/bin/cmux",
         "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*",
         "Contents/Resources/bin/cmux-tui-host",
+        "Contents/Resources/bin/cmux-holder",
         "Contents/Resources/bin/cmux-app-host",
         "Contents/Resources/bin/cmux-cloud",
         "Contents/Resources/bin/cmux-diff-sidecar",

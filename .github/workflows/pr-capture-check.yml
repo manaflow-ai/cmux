@@ -2,7 +2,8 @@ name: PR capture check
 
 # A pull request that changes native app UI shows a real capture of it in its description:
 # what `cmux-ci capture` prints (a fleet build driven on a capture mini, light and dark, checked
-# for private text), the media-tour label, or a `No capture: <why>` line. Lanes kept merging UI
+# for private text), the media-tour label, or a `No capture: <why>` line. A capture or media-tour
+# label also requires body proof that the after image was viewed and judged. Lanes kept merging UI
 # changes with no capture or with mock stills. scripts/ci/pr_capture_check.py decides; it runs
 # from the base branch, never the pull request's code. Editing the description re-runs it.
 on:
@@ -35,6 +36,30 @@ jobs:
             scripts/cmux-next/media/path_map.py
           sparse-checkout-cone-mode: false
 
+      # The paths this pull request changes, from git rather than the files API
+      # (a call per 100 files on each of the check's events: every push, label
+      # and description edit). The event's merge commit and its first parent,
+      # the base, without blobs: two trees, read as data, never run. The files
+      # API's `.filename` lists the paths the pull request adds, changes or
+      # removes, a rename under its new name; so does this diff, with rename
+      # detection on. It leaves out only a change the base already carries,
+      # which merging changes nothing for. Any failure leaves `listed` unset,
+      # and the next step reads the files API.
+      - name: List the changed paths
+        id: paths
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          MERGE_SHA: ${{ github.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --quiet --depth=2 --filter=blob:none origin "$MERGE_SHA"
+          # Only the merge of this head counts; a stale or one-parent commit reads the files API.
+          [ "$(git rev-parse "$MERGE_SHA^2")" = "$HEAD_SHA" ]
+          git diff --name-only -z -M "$MERGE_SHA^1" "$MERGE_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/paths.txt"
+          echo "listed=true" >> "$GITHUB_OUTPUT"
+
       - name: Check the description for a real capture
         env:
           GH_TOKEN: ${{ github.token }}
@@ -43,6 +68,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BODY: ${{ github.event.pull_request.body }}
           LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          LISTED: ${{ steps.paths.outputs.listed }}
         run: |
           set -euo pipefail
           if [ ! -f scripts/ci/pr_capture_check.py ]; then
@@ -51,6 +77,8 @@ jobs:
             exit 0
           fi
           printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
-          gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' > "$RUNNER_TEMP/paths.txt"
+          if [ "$LISTED" != true ]; then
+            gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' > "$RUNNER_TEMP/paths.txt"
+          fi
           python3 scripts/ci/pr_capture_check.py --body-file "$RUNNER_TEMP/body.md" --paths-file "$RUNNER_TEMP/paths.txt" \
             --labels "$LABELS" --head-sha "$HEAD_SHA" --pr "$PR"

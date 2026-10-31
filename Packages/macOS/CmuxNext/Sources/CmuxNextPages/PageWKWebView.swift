@@ -79,6 +79,11 @@ final class PageWKWebView: WKWebView {
         noteUserActivation(at: event.timestamp > 0 ? event.timestamp : ProcessInfo.processInfo.systemUptime)
     }
 
+    /// A choice in a host-owned native menu is real input even when the menu outlived the opener.
+    func noteNativeMenuSelection(at uptime: TimeInterval) {
+        noteUserActivation(at: uptime)
+    }
+
     /// Drops the recorded activation and the opened menu: the view now shows another document
     /// (a pooled view rebound or parked), which must not use a gesture made in the old one.
     func forgetUserActivation() {
@@ -145,6 +150,14 @@ final class PageWKWebView: WKWebView {
     override var inputContext: NSTextInputContext? {
         menuAutoFill.hidesInputContext() ? nil : super.inputContext
     }
+
+    /// No caret accessory on a cmux page. Since macOS 14 the system draws a small glass bubble
+    /// beside the caret of the focused field (the input source, Caps Lock, dictation); in the
+    /// composer the caret of an empty prompt sits just above the + button, which the bubble covered
+    /// (Leo, 2026-10-21). AppKit asks the focused `NSTextInputClient` (this view) for its placement
+    /// and draws nothing for `.invisible`. Browser tabs use their own views and keep the bubble;
+    /// Chromium's view of a cmux page answers the same (`ChromiumPageTextAccessory`).
+    @objc var preferredTextAccessoryPlacement: NSTextCursorAccessoryPlacement { .invisible }
 
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         openedMenu = menu

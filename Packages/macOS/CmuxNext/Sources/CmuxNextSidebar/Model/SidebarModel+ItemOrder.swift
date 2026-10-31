@@ -21,18 +21,21 @@ extension SidebarModel {
         // the band draws it (a hidden Home is no anchor); other client items are not stops.
         let hidden = Set(itemInfo.filter(\.value.isHidden).keys)
         let shown = layout.sections(in: .top, room: activeProfileID?.rawValue).presenting(hidingItems: hidden, apps: suppressedApps)
-        let top = placingTransientItems(in: shown, anchoredOnly: true).flatMap(\.items).filter { item in
+        let placed = placingTransientItems(in: shown, anchoredOnly: true)
+        let top = placed.flatMap(\.items).filter { item in
             let info = itemInfo[item.id]
             return info?.isHidden != true && info?.isMissing != true && !suppressedApps.contains(item.owningAppID ?? "")
         }
         var options = SidebarLayoutOptions()
         options.filterMatches = filterMatches
-        options.groupsByFolder = groupsByFolder
+        options.grouping = settledGrouping()
         // The session tree moves a started workspace under its parent: the numbers follow the drawn order.
-        options.sessionTree = SidebarSessionTree.shared.state.map { SidebarSessionTreeState(parents: $0.parents) }
+        options.sessionTree = SidebarSessionTree.shared.drawn?.shape
         // The sidebar document draws its sections in the list: a block's items are stops where the block draws.
         let listed = Set(sections.compactMap { section -> String? in if case let .custom(custom) = section.kind { custom.id } else { nil } })
-        let inBlock = Dictionary(grouping: top, by: { item in layout.sections.first { $0.items.contains(item) }?.id.rawValue ?? "" })
+        // A client item belongs to the section it is placed in (a remote chat under Home), not to no section:
+        // else it would be a band stop ahead of the block's Home and take Cmd-1.
+        let inBlock = Dictionary(grouping: top, by: { item in placed.first { $0.items.contains(item) }?.id.rawValue ?? "" })
         for id in listed { options.blockHeights[id] = 1 }
         options.collapsedDocSections = Set(collapsedLayoutSections.map(\.rawValue))
         let selectable = Set(selectableWorkspaces.map(\.id))
@@ -73,9 +76,9 @@ nonisolated struct SidebarItemOrderInputs: Equatable, Sendable {
     var room: ProfileKey?
     var suppressedApps: Set<String>
     var transientTopItems: [SidebarTransientItem]
-    var groupsByFolder: Bool
+    var grouping: SidebarGrouping
     var collapsedLayoutSections: Set<LayoutSectionID>
-    var treeParents: [WorkspaceID: WorkspaceID]?
+    var treeShape: SidebarSessionTreeState?
 
     @MainActor init(_ model: SidebarModel) {
         sectionsRevision = model.observedSectionsRevision
@@ -85,8 +88,8 @@ nonisolated struct SidebarItemOrderInputs: Equatable, Sendable {
         room = model.activeProfileID
         suppressedApps = model.suppressedApps
         transientTopItems = model.transientTopItems
-        groupsByFolder = model.groupsByFolder
+        grouping = model.grouping
         collapsedLayoutSections = model.collapsedLayoutSections
-        treeParents = SidebarSessionTree.shared.state?.parents
+        treeShape = SidebarSessionTree.shared.drawn?.shape
     }
 }

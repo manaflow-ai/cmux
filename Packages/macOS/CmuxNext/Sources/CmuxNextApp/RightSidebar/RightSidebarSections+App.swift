@@ -11,7 +11,7 @@ extension RightSidebarSections {
         register(.sessions) { VaultHostView(vault: $0.services.vault, registry: $0.services.registry) }
         register(.feed) { controller in
             controller.services.feed.startIfSignedIn()
-            return FeedHostView(model: controller.services.feed.model)
+            return FeedHostView(model: controller.services.feed.model, surface: .sidebar)
         }
         register(.dock) { DockSectionHostView(controller: $0) }
         register(.machines) { MachineSectionHostView(services: $0.services) }

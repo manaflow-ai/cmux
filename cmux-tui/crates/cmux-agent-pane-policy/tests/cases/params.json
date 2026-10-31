@@ -638,7 +638,8 @@
    "method": "_acpmux/prewarm",
    "params": {
     "harness": 1,
-    "cwd": 1
+    "cwd": 1,
+    "release": 1
    }
   },
   "mode_fields": null,
@@ -869,7 +870,8 @@
    "method": "acp.session.fork",
    "params": {
     "sessionId": 1,
-    "throughSeq": 1
+    "throughSeq": 1,
+    "live": true
    }
   },
   "mode_fields": null,
@@ -1170,7 +1172,8 @@
    "params": {
     "sessionId": 1,
     "question": 1,
-    "model": 1
+    "model": 1,
+    "inline": true
    }
   },
   "mode_fields": null,
@@ -1308,6 +1311,38 @@
   "breaks": true
  },
  {
+  "name": "retry known params pass",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/retry",
+   "params": {
+    "sessionId": "a",
+    "subagentId": "b"
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "retry unknown param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/retry",
+   "params": {
+    "sessionId": "a",
+    "_meta": {
+     "acpmux": {
+      "control": "full"
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
   "name": "process/kill known params pass",
   "frame": {
    "jsonrpc": "2.0",
@@ -1350,5 +1385,600 @@
   },
   "mode_fields": null,
   "breaks": false
+ },
+ {
+  "name": "app_reply known params pass",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/app_reply",
+   "params": {
+    "sessionId": "a",
+    "to": "b",
+    "replyTo": "msg_1",
+    "threadId": "msg_1",
+    "text": "Done.",
+    "replyId": "m-1"
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "app_reply names no recipients",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/app_reply",
+   "params": {
+    "sessionId": "a",
+    "to": "b",
+    "replyTo": "msg_1",
+    "threadId": "msg_1",
+    "text": "Done.",
+    "replyId": "m-1",
+    "recipients": [
+     "acp:c"
+    ]
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "app_reply carries no credential",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/app_reply",
+   "params": {
+    "sessionId": "a",
+    "to": "b",
+    "replyTo": "msg_1",
+    "threadId": "msg_1",
+    "text": "Done.",
+    "replyId": "m-1",
+    "credential": "x"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "app_reply picks no sender name",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/app_reply",
+   "params": {
+    "sessionId": "a",
+    "to": "b",
+    "replyTo": "msg_1",
+    "threadId": "msg_1",
+    "text": "Done.",
+    "replyId": "m-1",
+    "senderName": "Chief"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "app_reply has no meta",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/app_reply",
+   "params": {
+    "sessionId": "a",
+    "to": "b",
+    "replyTo": "msg_1",
+    "threadId": "msg_1",
+    "text": "Done.",
+    "replyId": "m-1",
+    "_meta": {
+     "acpmux": {
+      "provenance": {}
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "a prompt carries no provenance",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "b",
+    "prompt": [],
+    "_meta": {
+     "acpmux": {
+      "provenance": {
+       "kind": "agent_message"
+      }
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "subsession/limits known params pass",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/subsession/limits",
+   "params": {
+    "sessionId": "a",
+    "maxRunning": 8
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "subsession/limits width and depth are not the pane's",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/subsession/limits",
+   "params": {
+    "sessionId": "a",
+    "maxChildren": 1000,
+    "maxDepth": 8
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "set_tools known params pass",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/set_tools",
+   "params": {
+    "sessionId": "a",
+    "id": "mcp:github",
+    "enabled": false
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "set_tools unknown param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/set_tools",
+   "params": {
+    "sessionId": "a",
+    "id": "mcp:github",
+    "enabled": false,
+    "harness": "x"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "prompt inline display descriptors use the allowlisted metadata key",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [],
+    "_meta": {
+     "acpmux": {
+      "promptId": "p",
+      "inlineParts": []
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "inline display descriptors do not allow other acpmux metadata",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [],
+    "_meta": {
+     "acpmux": {
+      "inlineParts": [],
+      "harness": "codex"
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "a start on another machine names its model",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": {
+    "mcpServers": [],
+    "_meta": {
+     "acpmux": {
+      "harness": "claude",
+      "peer": "devbox",
+      "model": "claude-opus-5-5[1m]"
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "a start's model may be provider/model:tag",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": {
+    "mcpServers": [],
+    "_meta": {
+     "acpmux": {
+      "harness": "opencode",
+      "peer": "devbox",
+      "model": "openrouter/meta-llama/llama-4:free"
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "a start's model of 256 bytes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": {
+    "mcpServers": [],
+    "_meta": {
+     "acpmux": {
+      "peer": "devbox",
+      "model": "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm"
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "a start's model of 257 bytes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": {
+    "mcpServers": [],
+    "_meta": {
+     "acpmux": {
+      "peer": "devbox",
+      "model": "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm"
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "a start's model that is not a string",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": {
+    "mcpServers": [],
+    "_meta": {
+     "acpmux": {
+      "peer": "devbox",
+      "model": 1
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "a start's empty model",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": {
+    "mcpServers": [],
+    "_meta": {
+     "acpmux": {
+      "peer": "devbox",
+      "model": ""
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "a start's model that is a flag",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": {
+    "mcpServers": [],
+    "_meta": {
+     "acpmux": {
+      "peer": "devbox",
+      "model": "--dangerously-skip-permissions"
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "a start's model with whitespace",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": {
+    "mcpServers": [],
+    "_meta": {
+     "acpmux": {
+      "peer": "devbox",
+      "model": "a b"
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "a start's model with a control character",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": {
+    "mcpServers": [],
+    "_meta": {
+     "acpmux": {
+      "peer": "devbox",
+      "model": "a\u0000"
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "a start's model with template text",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": {
+    "mcpServers": [],
+    "_meta": {
+     "acpmux": {
+      "peer": "devbox",
+      "model": "${HOME}"
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "a start's model with shell text",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": {
+    "mcpServers": [],
+    "_meta": {
+     "acpmux": {
+      "peer": "devbox",
+      "model": "m;id"
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "a start's model that is not ASCII",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": {
+    "mcpServers": [],
+    "_meta": {
+     "acpmux": {
+      "peer": "devbox",
+      "model": "mod\u00e8le"
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "a start with its model still refuses a policy",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": {
+    "mcpServers": [],
+    "_meta": {
+     "acpmux": {
+      "peer": "devbox",
+      "model": "m",
+      "policy": "bypass"
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "a start with its model still refuses an effort",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": {
+    "mcpServers": [],
+    "_meta": {
+     "acpmux": {
+      "peer": "devbox",
+      "model": "m",
+      "effort": "high"
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "model is a start's key, not a prompt's",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [],
+    "_meta": {
+     "acpmux": {
+      "promptId": "p",
+      "model": "m"
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "workflow transcript page accepts only its bounded cursors",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/subagent_transcript",
+   "params": {
+    "sessionId": "s",
+    "runId": "wf_run",
+    "agentId": "agent",
+    "before": 3,
+    "after": 7,
+    "limit": 25
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "workflow transcript never accepts control metadata",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/subagent_transcript",
+   "params": {
+    "sessionId": "s",
+    "runId": "wf_run",
+    "agentId": "agent",
+    "_meta": {
+     "acpmux": {
+      "via": "web"
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "workflow transcript rejects an unbounded byte parameter",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/subagent_transcript",
+   "params": {
+    "sessionId": "s",
+    "runId": "wf_run",
+    "agentId": "agent",
+    "maxBytes": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "an older native page names only its chat and marked cursor",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/native_history",
+   "params": {
+    "sessionId": "s",
+    "before": 4096,
+    "mark": "transcript-boundary-mark"
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "an older native page never names a file",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/native_history",
+   "params": {
+    "sessionId": "s",
+    "before": 4096,
+    "file": "/etc/passwd"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
  }
 ]

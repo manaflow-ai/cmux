@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import UniformTypeIdentifiers
 
 /// The Chief's avatar in the settings card: its picture (or text) in a disc;
 /// a click opens the menu that changes it.
@@ -11,9 +12,13 @@ final class HomeChiefAvatarButton: NSButton {
     /// grey disc beside the header's full-size one.
     static let emojiScale: CGFloat = 0.78
 
+    /// A picture file dropped on the avatar (one PNG, JPEG, HEIC, GIF or WebP, as Choose Picture… offers).
+    var onDropPicture: ((URL) -> Void)?
+
     init(size: CGFloat) {
         self.size = size
         super.init(frame: NSRect(x: 0, y: 0, width: size, height: size))
+        registerForDraggedTypes([.fileURL])
         isBordered = false
         bezelStyle = .regularSquare
         title = ""
@@ -31,8 +36,29 @@ final class HomeChiefAvatarButton: NSButton {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
+    /// The one picture file a drag carries; nil for none, several, or another type.
+    private func picture(in drag: any NSDraggingInfo) -> URL? {
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true,
+                                                             .urlReadingContentsConformToTypes: HomeChiefFiles.pictureTypes.map(\.identifier)]
+        let files = drag.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL] ?? []
+        return files.count == 1 ? files[0] : nil
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        let takes = onDropPicture != nil && picture(in: sender) != nil
+        highlight(takes)
+        return takes ? .copy : []
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        highlight(false)
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        highlight(false)
+        guard let onDropPicture, let file = picture(in: sender) else { return false }
+        onDropPicture(file)
+        return true
     }
 
     /// The picture fills the disc; letters sit centered on the theme's fill, and an emoji (or any
@@ -71,9 +97,12 @@ final class HomeChiefAvatarButton: NSButton {
 
 /// A borderless text button drawn as a plain link: the theme's accent (or
 /// `ink`), underlined while hovered. Show Traces, Show Memory, Diagnostics.
+/// The accent is ``Palette/litGlyph``, never the raw `accent`: a theme that
+/// names no accent draws `accent` (its focus ring) at 40% of the text, and
+/// Show Traces and Show Memory read as dim grey (Leo's screenshot, 2026-10-20).
 @MainActor
 final class HomeChiefLinkButton: NSButton {
-    /// Nil draws the theme's accent.
+    /// Nil draws the theme's accent, lifted to read at least as well as secondary text.
     var ink: ThemeInk? { didSet { applyTitle() } }
     var textFont: NSFont = Typography.caption { didSet { applyTitle() } }
     private var text = ""
@@ -94,10 +123,6 @@ final class HomeChiefLinkButton: NSButton {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
-
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
-    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -127,7 +152,7 @@ final class HomeChiefLinkButton: NSButton {
             case .secondary?: Palette.textSecondary
             case .tertiary?: Palette.textTertiary
             case .danger?: Palette.danger
-            case nil: Palette.accent
+            case nil: Palette.litGlyph
             }
         }
         var attributes: [NSAttributedString.Key: Any] = [.font: textFont, .foregroundColor: color]

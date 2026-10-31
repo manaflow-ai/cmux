@@ -9,15 +9,16 @@ import SwiftUI
 /// workspace and tab, newest at the top. Selecting a cell opens that tab's chat.
 public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     let sidebarItem: SidebarItem
+    let reconnect: @MainActor () async -> Void
     @State private var store = FeedStore.shared
     @Binding private var path: [AgentChatDestination]
-    @State private var position = ScrollPosition(idType: String.self)
-    @State private var atTop = true
-    @State private var expanded: Set<String> = []
-    @State private var columnWidth: CGFloat = 0
+    /// The list's scroll commands, whether it shows its top, and the events that arrived above the reader.
+    @State private var list = FeedListControl()
     @State private var swipe = FeedSwipeCoordinator()
     /// Why Clear All Notifications failed, shown once.
     @State private var clearFailure: String?
+    /// Why Mark All Notifications as Read failed on a Mac, shown once.
+    @State private var markFailure: String?
     @State private var rowContext = FeedRowContext(store: FeedStore.shared)
     @Environment(AppStore.self) private var appStore
     #if DEBUG
@@ -26,76 +27,35 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
 
     /// `path`: the Feed's navigation stack, owned by the shell so the team
     /// drawer pan stays off while a chat is pushed (the back swipe wins).
-    public init(path: Binding<[AgentChatDestination]>, @ToolbarContentBuilder sidebarItem: () -> SidebarItem) {
+    public init(path: Binding<[AgentChatDestination]>, reconnect: @escaping @MainActor () async -> Void = {}, @ToolbarContentBuilder sidebarItem: () -> SidebarItem) {
         _path = path
+        self.reconnect = reconnect
         self.sidebarItem = sidebarItem()
-        WebMarkdownRenderer.shared.prewarm(count: 6)
+        WebMarkdownRenderer.shared.prewarm(count: 2)
     }
 
     public var body: some View {
         NavigationStack(path: $path) {
-            ScrollView {
-                VStack(spacing: 0) {
-                    chips
-                        .id("top")
-                    if let refreshError = store.refreshError {
-                        refreshErrorRow(refreshError)
-                    }
-                    if store.visibleItems.isEmpty {
-                        if store.syncState == .connecting {
-                            connectingState
-                        } else {
-                            emptyState
-                        }
-                    }
-                    LazyVStack(spacing: 0) {
-                        ForEach(store.visibleItems) { item in
-                            FeedRow(item: item, expanded: expanded.contains(item.id), context: rowContext, swipe: swipe)
-                                .equatable()
-                                .id(item.id)
-                            .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity))
-                            Divider()
-                        }
-                    }
-                    .scrollTargetLayout()
+            // Keep the SwiftUI overlay coordinate space inside the safe area while the
+            // UIKit collection itself extends under the navigation and tab bars.
+            Color.clear
+                .background {
+                    // UIKit rows (FeedRowCell), laid out off the main thread (verify/feed-perf-20261022.md).
+                    FeedCollection(
+                        items: store.visibleItems, context: rowContext, swipe: swipe, control: list,
+                        header: AnyView(header), headerSignature: AnyHashable(headerSignature),
+                        headerContent: AnyHashable(store.needsYouCount)
+                    )
+                    .ignoresSafeArea(.container, edges: .vertical)
                 }
-                #if DEBUG
-                .background { if FeedStressRig.shared.config.autoscrollPasses != nil { EnclosingScrollViewProbe { FeedScreenRig.scroller.attach($0) } } }
-                #endif
-            }
-            .scrollPosition($position)
-            // An inline reply's keyboard comes down with a downward drag, as
-            // in Messages.
-            .scrollDismissesKeyboard(.interactively)
-            .onScrollPhaseChange { _, phase in
-                if phase == .interacting, swipe.openID != nil { swipe.openID = nil }
-                #if DEBUG
-                // G-04: a finger-driven scroll is one frame-interval window (CMUX_MOBILE_FRAMELOG=1).
-                if FeedStressRig.shared.config.autoscrollPasses == nil {
-                    if phase == .interacting { FrameIntervalLog.shared.begin("feed-scroll") }
-                    if phase == .idle { FrameIntervalLog.shared.end() }
-                }
-                #endif
-            }
             .overlay(alignment: .bottom) { DoneUndoBar(store: store) }
-            .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top < 60 } action: { _, top in
-                atTop = top
-                if top { store.clearUnseen() }
-            }
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
-                columnWidth = width - 16 * 2 - 40 - 12
-                prefetch()
-            }
-            .onChange(of: store.items.count) { prefetch() }
-            // Re-reads the Mac's sessions and open asks (acpmux watch).
-            .refreshable { await store.refresh() }
             .overlay(alignment: .top) { newPill }
             .background(Color.cmuxMobileBackground)
             .navigationTitle("Feed")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 sidebarItem
-                ToolbarItem(placement: .topBarTrailing) { FeedFilterMenu(store: store, clearFailure: $clearFailure) }
+                ToolbarItem(placement: .topBarTrailing) { FeedFilterMenu(store: store, clearFailure: $clearFailure, markFailure: $markFailure) }
             }
             .agentChatDestinations()
             .alert("Couldn't clear notifications", isPresented: Binding(get: { clearFailure != nil }, set: { if !$0 { clearFailure = nil } })) {
@@ -103,21 +63,30 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             } message: {
                 Text(clearFailure ?? "")
             }
+            .alert("Couldn't mark notifications as read", isPresented: Binding(get: { markFailure != nil }, set: { if !$0 { markFailure = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(markFailure ?? "")
+            }
         }
         .onAppear {
             rowContext.open = { open($0) }
-            rowContext.setExpanded = { id, on in
-                if on { expanded.insert(id) } else { expanded.remove(id) }
-            }
             #if DEBUG
             FeedStressRig.shared.start(store: store)
+            // Screenshot rig: CMUX_MOBILE_FEED_SHOT_EVENT=<event id> scrolls that event to the top.
+            if let event = ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_SHOT_EVENT"], !event.isEmpty {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(1.5))
+                    DemoDirector.shared.post(.feedScroll(toEvent: event))
+                }
+            }
             #endif
             FeedRouting.shared.sendPrompt = { item, text in
                 guard let workspace = appStore.workspaces.first(where: { $0.id == item.workspaceID }),
                       let tab = workspace.tabs.first(where: { $0.id == item.tabID }) else {
                     // A chat with no tab in a workspace on the Mac (one the Mac started on its own):
                     // the reply was never sent, so it must not read as sent.
-                    return .failed("This chat isn't in a workspace tab on the Mac, so it can't be answered from here. Open it in cmux on the Mac.")
+                    return .failed("Open this chat in cmux on the Mac to answer it.")
                 }
                 let mac = appStore.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? "Mac"
                 let chat = AgentSessionDirectory.shared.store(workspace: workspace, tab: tab, macName: mac)
@@ -140,11 +109,30 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         path.append(AgentChatDestination(workspaceID: item.workspaceID, tabID: item.tabID))
     }
 
-    /// Measures upcoming bodies off screen so cells are sized before they scroll in.
-    private func prefetch() {
-        guard columnWidth > 0 else { return }
-        WebMarkdownRenderer.shared.lastWidth = columnWidth
-        WebMarkdownRenderer.shared.prefetchHeights(store.items.map(\.markdown), style: .body, width: columnWidth)
+    /// What can change the list header's height: it is measured again only when this changes (a
+    /// chip's count or the selected chip redraw in place; the header cell re-reads its view).
+    private var headerSignature: [String] {
+        [store.refreshError ?? "", "\(store.visibleItems.isEmpty)", "\(store.syncState)", "\(store.needsYouCount > 0)", store.filter.rawValue]
+    }
+
+    /// The filter chips, a refresh error and an empty or connecting state, above the events.
+    private var header: some View {
+        VStack(spacing: 0) {
+            chips
+            if let refreshError = store.refreshError {
+                refreshErrorRow(refreshError)
+            }
+            if store.visibleItems.isEmpty {
+                if store.syncState == .connecting {
+                    connectingState
+                } else {
+                    emptyState
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .background(Color.cmuxMobileBackground)
+        .environment(appStore)
     }
 
     private var chips: some View {
@@ -196,6 +184,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             Image(systemName: "exclamationmark.triangle").foregroundStyle(.secondary)
             Text(message).font(.footnote).foregroundStyle(.secondary)
             Spacer(minLength: 8)
+            RetryButton { await store.retry(reconnect: reconnect) }
+                .accessibilityIdentifier("feed.retry")
             Button {
                 store.clearRefreshError()
             } label: {
@@ -211,18 +201,20 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
 
     @ViewBuilder
     private var newPill: some View {
-        if !store.unseenNewIDs.isEmpty, !atTop {
+        let count = list.newAbove + store.unseenNewIDs.count
+        if count > 0, !list.atTop {
             Button {
-                withAnimation(.cmuxMobileSmooth) { position.scrollTo(id: "top") }
+                list.scrollToTop()
                 store.clearUnseen()
             } label: {
-                Label("\(store.unseenNewIDs.count) new", systemImage: "arrow.up")
+                Label("\(count) new", systemImage: "arrow.up")
                     .font(.footnote.weight(.semibold))
                     .padding(.horizontal, 14)
                     .frame(height: 36)
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.interactive(), in: .capsule)
+            .accessibilityIdentifier("feed.newPill")
             .padding(.top, 8)
             .transition(.offset(y: -12).combined(with: .opacity))
         }
@@ -245,7 +237,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             Image(systemName: store.filter == .all ? "bubble.left.and.text.bubble.right" : "line.3.horizontal.decrease")
                 .font(.system(size: 28))
                 .padding(.bottom, 10)
-            Text(store.filter == .all ? "Nothing yet" : "No matching events").font(.headline)
+            Text(store.filter == .all ? "No events" : "No matching events").font(.headline)
             Text(store.filter == .all ? "Agent updates, questions and finished tasks show up here." : "Try another filter.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -265,9 +257,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         guard let command = director.command else { return }
         switch command {
         case .feedScroll(let id):
-            withAnimation(.smooth(duration: 0.9)) { position.scrollTo(id: id, anchor: .top) }
+            list.scrollTo(id: id)
         case .feedScrollTop:
-            withAnimation(.cmuxMobileSmooth) { position.scrollTo(id: "top") }
+            list.scrollToTop()
             store.clearUnseen()
         case .feedOpen(let id):
             if let item = store.items.first(where: { $0.id == id }) { open(item) }
@@ -281,6 +273,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             swipe.demoSerial += 1
         case .feedSwipeClose:
             swipe.openID = nil
+        case .feedExpand, .feedReply, .answerQuestion:
+            list.demo(command)
         default:
             break
         }
@@ -294,6 +288,8 @@ private struct FeedFilterMenu: View {
     @Bindable var store: FeedStore
     /// Why Clear All Notifications failed (the screen's alert).
     @Binding var clearFailure: String?
+    /// Why Mark All Notifications as Read failed (the screen's alert).
+    @Binding var markFailure: String?
     @Environment(AppStore.self) private var appStore
 
     var body: some View {
@@ -302,6 +298,21 @@ private struct FeedFilterMenu: View {
                 ForEach(FeedFilter.allCases, id: \.self) { Text($0.rawValue) }
             }
             .pickerStyle(.inline)
+            // The Mac's Mark All Notifications as Read (NotificationActionCatalog): every Feed
+            // event here, and every tab each linked Mac shows unread (`ack-tab-notifications`).
+            Section {
+                Button("Mark All Notifications as Read", systemImage: "checkmark.circle") {
+                    store.markAllRead()
+                    guard let mark = FeedRouting.shared.markAllNotificationsRead else { return }
+                    Task {
+                        do { _ = try await mark() } catch {
+                            markFailure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                        }
+                    }
+                }
+                .disabled(store.items.allSatisfy(\.isRead) && FeedRouting.shared.markAllNotificationsRead == nil)
+                .accessibilityIdentifier("feed.markAllRead")
+            }
             if let clear = FeedRouting.shared.clearAllNotifications {
                 // The Mac's Clear All Notifications: its notification ledger, as its panel's Clear All.
                 Section {

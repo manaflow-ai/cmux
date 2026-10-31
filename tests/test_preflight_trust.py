@@ -46,6 +46,8 @@ class PreflightTrustTests(unittest.TestCase):
             "scripts/install-git-hooks.sh",
             "scripts/web_lint_prepush.py",
             "scripts/cmux-next/prepush-gate.py",
+            "scripts/cmux-next/push_range.py",
+            "scripts/cmux-next/git_batch.py",
             "scripts/ci/base_merge_warning.py",
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
@@ -69,6 +71,10 @@ class PreflightTrustTests(unittest.TestCase):
             hook.chmod(0o755)
         (self.repo / ".gitignore").write_text(".local/\n")
         self.commit("base")
+        # The base is on origin, as in a real clone: the pre-push gate judges only a push's own commits
+        # (push_range.py) and refuses a push that shares no history with any origin ref.
+        self.git("push", "--quiet", "--no-verify", "origin", "main")
+        self.git("fetch", "--quiet", "origin")
         subprocess.run(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo,
                        env=self.env, check=True, capture_output=True)
 

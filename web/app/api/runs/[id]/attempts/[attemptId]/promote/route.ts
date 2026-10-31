@@ -1,4 +1,4 @@
-import { runError, runJson } from "../../../../../../../services/runs/http";
+import { runError, runJson, RunRequestError } from "../../../../../../../services/runs/http";
 import {
   promoteRunAttempt,
   runAttemptPromotionDependencies,
@@ -21,10 +21,9 @@ export async function POST(
         || request.headers.get("x-cmux-idempotency-key")?.trim()
         || "";
       if (!requestKey || requestKey.length > 128) {
-        return noStore(runJson({
-          error: "run_promotion_idempotency_required",
-          message: "Idempotency-Key is required for attempt promotion.",
-        }, 400));
+        return noStore(runError(new RunRequestError("run_promotion_idempotency_required",
+          "Idempotency-Key is required for attempt promotion.",
+          "Add an Idempotency-Key header of at most 128 characters and retry.")));
       }
       try {
         const promotion = await promoteRunAttempt({

@@ -9,6 +9,13 @@ import CmuxNextSettings
 /// overlay (focus ring, dim, drop highlight) draws above content child
 /// windows (Chromium pages). WebKit pages are in-window views and never
 /// appear as child windows. `titlebar_band: true` adds `NSWindow.titlebarBandMap`.
+/// Each shown Chromium page counts the `CALayerHost` layers (the class Chromium shows its
+/// GPU output with) in three trees: the pane's own (`hosted_layer_hosts`: only the app's
+/// `CEFHostedPageView` host, so it proves nothing about the fork), the context that host shows
+/// (`hosted_context_layer_hosts`: the hosted `CAContext` lives in this process, so its layers are
+/// readable; null when the pane shows no context or QuartzCore has no `allContexts`), and the
+/// page window's (`page_window_layer_hosts`). A page the fork really hosts has >= 1 in the hosted
+/// context (Chromium's GPU output, there once Chromium drew) and 0 in its page window.
 enum DebugLayers {
     static func report(services: AppServices, params: [String: JSONValue] = [:]) -> JSONValue {
         let windows = services.windows.controllers.compactMap { controller -> JSONValue? in
@@ -101,6 +108,9 @@ enum DebugLayers {
                 fields["host_screen_rect"] = rect(host)
                 fields["page_window_frame"] = page.map { rect($0.frame) } ?? .null
                 fields["page_in_sync"] = .bool(synced)
+                fields["hosted_layer_hosts"] = .number(Double(layerHostCount(content.layer)))
+                fields["hosted_context_layer_hosts"] = hostedContextLayerHostCount(content.layer).map { .number(Double($0)) } ?? .null
+                fields["page_window_layer_hosts"] = page.map { .number(Double(layerHostCount($0.contentView?.layer))) } ?? .null
             }
             return .object(fields)
         }
@@ -111,7 +121,11 @@ enum DebugLayers {
             ((plane.home as? LayoutRootView)?.overlayRings ?? []).allSatisfy { $0.ringInSync }
         }
         var fields: [String: JSONValue] = [:]
-        #if DEBUG
+        // The window's screen less the menu bar and Dock, and the whole screen (screen points, null
+        // on no screen): a caller checks that the window lies on its screen below the menu bar.
+        fields["screen_visible_frame"] = window.screen.map { rect($0.visibleFrame) } ?? .null
+        fields["screen_frame"] = window.screen.map { rect($0.frame) } ?? .null
+        #if DEBUG || CMUX_BENCH_HOOKS
         fields["ring_layout_passes"] = .number(Double(layer.ringLayoutPasses))
         fields["ring_lag_passes"] = .number(Double(layer.ringLagPasses))
         fields["last_ring_lag"] = layer.lastRingLag.map(JSONValue.string) ?? .null
@@ -133,6 +147,7 @@ enum DebugLayers {
             "divider_areas_in_window": .array(layer.dividerAreas.map { rect($0.rect) }),
             "sidebar_resize_area_in_window": layer.sidebarResizeArea.map { rect($0.rect) } ?? .null,
             "divider_catchers_in_window": .array(layer.catchers.framesInWindow.sorted { $0.key < $1.key }.map { rect($0.value) }),
+            "divider_catcher_updates": .number(Double(layer.catchers.panelUpdates)),
             "reorders": .number(Double(layer.reorderCount)),
             "child_window_violations": .array(ChildWindowPolicy.violations.map(JSONValue.string)),
             "pages_in_sync": .bool(pagesInSync),
@@ -142,11 +157,48 @@ enum DebugLayers {
         return .object(fields.merging(base) { _, new in new })
     }
 
+    /// `CALayerHost` layers in `layer`'s tree (a remote context's layers never show in-process).
+    private static func layerHostCount(_ layer: CALayer?) -> Int {
+        guard let layer else { return 0 }
+        let own = NSStringFromClass(type(of: layer)) == "CALayerHost" ? 1 : 0
+        return own + (layer.sublayers ?? []).reduce(0) { $0 + layerHostCount($1) }
+    }
+
+    /// `CALayerHost` layers in the context the first `CALayerHost` under `layer` shows (the pane's
+    /// `CEFHostedPageView`); nil without one, or when that context is not in this process. Every
+    /// QuartzCore SPI message (``QuartzLayerHostingSPI``) is sent only after `responds(to:)` proved the
+    /// receiver implements it, so an OS without it gives nil, never an unrecognized selector.
+    private static func hostedContextLayerHostCount(_ layer: CALayer?) -> Int? {
+        let contextIdGetter = #selector(getter: QuartzLayerHostingSPI.contextId)
+        let rootLayerGetter = #selector(getter: QuartzLayerHostingSPI.layer)
+        guard let host = firstLayerHost(layer), host.responds(to: contextIdGetter) else { return nil }
+        let id = unsafeBitCast(host, to: QuartzLayerHostingSPI.self).contextId
+        guard id != 0, let contextClass: AnyClass = NSClassFromString("CAContext"),
+              (contextClass as AnyObject).responds(to: #selector(QuartzLayerHostingSPI.allContexts)),
+              let contexts = (contextClass as AnyObject).perform(#selector(QuartzLayerHostingSPI.allContexts))?
+                  .takeUnretainedValue() as? [NSObject] else { return nil }
+        for context in contexts {
+            // Two checks, not one `&&`: its autoclosure would capture the non-Sendable context.
+            guard context.responds(to: contextIdGetter) else { continue }
+            guard context.responds(to: rootLayerGetter) else { continue }
+            let spi = unsafeBitCast(context, to: QuartzLayerHostingSPI.self)
+            guard spi.contextId == id else { continue }
+            return layerHostCount(spi.layer)
+        }
+        return nil
+    }
+
+    private static func firstLayerHost(_ layer: CALayer?) -> CALayer? {
+        guard let layer else { return nil }
+        if NSStringFromClass(type(of: layer)) == "CALayerHost" { return layer }
+        return (layer.sublayers ?? []).lazy.compactMap { firstLayerHost($0) }.first
+    }
+
     private static func distance(_ a: CGRect, _ b: CGRect) -> CGFloat {
         max(abs(a.minX - b.minX), abs(a.minY - b.minY), abs(a.width - b.width), abs(a.height - b.height))
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.window_frame` (DEBUG builds): sets a window's frame the way an
     /// Accessibility client (Rectangle) or a display change does: one
     /// programmatic `setFrame`, no live resize. `frame` is [x, y, w, h] in
@@ -168,7 +220,13 @@ enum DebugLayers {
             target.origin = CGPoint(x: visible.midX - target.width / 2, y: visible.midY - target.height / 2)
         }
         window.setFrame(target, display: true)
-        return .object(["frame": rect(window.frame), "screen": .string(window.screen?.localizedName ?? "")])
+        // `visible_frame`: the window's screen less the menu bar and Dock; `screen_frame`: the whole
+        // screen (screen points, null on no screen). A caller places the window on its screen with them
+        // and checks that it lies there.
+        let visible: JSONValue = window.screen.map { rect($0.visibleFrame) } ?? .null
+        let whole: JSONValue = window.screen.map { rect($0.frame) } ?? .null
+        return .object(["frame": rect(window.frame), "screen": .string(window.screen?.localizedName ?? ""),
+                        "visible_frame": visible, "screen_frame": whole])
     }
 
     /// `debug.drop_highlight` (DEBUG builds): drives the layout's in-process
@@ -217,4 +275,15 @@ enum DebugLayers {
     private static func rect(_ rect: CGRect) -> JSONValue {
         .array([rect.minX, rect.minY, rect.width, rect.height].map { .number(Double($0)) })
     }
+}
+
+/// The QuartzCore SPI `debug.layers` reads: `+[CAContext allContexts]`, `-[CAContext contextId]`,
+/// `-[CAContext layer]` and `-[CALayerHost contextId]`. No class conforms; a caller casts an object
+/// it asked `responds(to:)` for the one message it sends.
+@objc private protocol QuartzLayerHostingSPI {
+    /// `+[CAContext allContexts]`: declared as an instance requirement because `#selector` cannot name a static
+    /// one of a protocol; it is sent to the class object with `perform(_:)`.
+    func allContexts() -> [NSObject]?
+    var contextId: UInt32 { get }
+    var layer: CALayer? { get }
 }

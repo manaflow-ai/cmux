@@ -9,7 +9,7 @@ import Testing
 @MainActor @Suite(.serialized)
 struct RightSidebarSectionBackgroundTests {
     @Test func theFilesTreePaintsNoBackground() {
-        let view = FileExplorerSectionView(model: FileExplorerModel(), rootFolder: { URL(fileURLWithPath: "/tmp") }, perform: { _ in })
+        let view = FileExplorerSectionView(model: FileExplorerModel(), rootFolder: { URL(fileURLWithPath: "/tmp") }, perform: { _ in }, rowMenu: { _ in nil })
         #expect(view.table.backgroundColor.alphaComponent == 0)
     }
 

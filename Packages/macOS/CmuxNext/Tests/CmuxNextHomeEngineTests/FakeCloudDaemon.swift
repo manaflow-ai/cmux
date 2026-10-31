@@ -5,7 +5,7 @@ import Foundation
 /// A daemon's cloud proxy without a daemon: it answers the reads a Cloud
 /// source makes when it connects (an empty inbox, live subscriptions) and
 /// records every command the tests look at.
-actor FakeCloudDaemon: CloudConversationCommands, CloudLeaseSessions {
+actor FakeCloudDaemon: CloudConversationCommands {
     /// One `cloud-inbox-op` as the daemon received it.
     struct InboxOp: Equatable {
         var conversation: String
@@ -39,7 +39,24 @@ actor FakeCloudDaemon: CloudConversationCommands, CloudLeaseSessions {
         blobs["\(hash):\(variant.rawValue)"] = (bytes, mimeType)
     }
 
-    func inboxList(limit: Int) async throws -> CloudInboxList { CloudInboxList(entries: []) }
+    /// `cloud-inbox-list` pages by cursor ("" for the first page); none scripted: an empty inbox.
+    private var inboxPages: [String: CloudInboxList] = [:]
+    /// The cursor of each `cloud-inbox-list` call, in order.
+    private(set) var inboxCursors: [String?] = []
+
+    /// Cursors whose `cloud-inbox-list` fails as the Cloud not answering.
+    private var failingInboxCursors: Set<String> = []
+
+    func scriptInbox(_ pages: [String: CloudInboxList], failing: Set<String> = []) {
+        inboxPages = pages
+        failingInboxCursors = failing
+    }
+
+    func inboxList(cursor: String?) async throws -> CloudInboxList {
+        inboxCursors.append(cursor)
+        if failingInboxCursors.contains(cursor ?? "") { throw DaemonError.notConnected }
+        return inboxPages[cursor ?? ""] ?? CloudInboxList(entries: [])
+    }
 
     func snapshot(_ conversation: String, tail: Int) async throws -> CloudConversationSnapshot {
         throw DaemonError.notConnected
@@ -49,8 +66,21 @@ actor FakeCloudDaemon: CloudConversationCommands, CloudLeaseSessions {
         CloudConversationHistory(messages: [], hasMore: false)
     }
 
+    /// `cloud-conversation-op` requests, in order, once ``answerOps(creating:)`` turned answering on.
+    private(set) var ops: [CloudConversationOpRequest] = []
+    /// The conversation `conversation.create` answers with; nil refuses every op (not connected).
+    private var created: String?
+
+    /// Answers each op: `conversation.create` with an empty group `id`, every other op with a bare result.
+    func answerOps(creating id: String) { created = id }
+
     func op(_ request: CloudConversationOpRequest) async throws -> CloudConversationOpResult {
-        throw DaemonError.notConnected
+        guard let created else { throw DaemonError.notConnected }
+        ops.append(request)
+        guard case .create(let title, let participants) = request.op else { return CloudConversationOpResult(rev: 1) }
+        let summary = CmuxNextDaemon.ConversationSummary(id: created, owner: "cloud", title: title ?? "", participants: participants, lastSeq: 0,
+                                                         rev: 1, createdAt: "2026-10-29T20:19:26Z", updatedAt: "2026-10-29T20:19:26Z", kind: "group")
+        return CloudConversationOpResult(rev: 1, conversation: summary)
     }
 
     func subscribeInbox() async throws -> CloudSubscription { CloudSubscription(state: "live") }
@@ -105,3 +135,8 @@ actor FakeCloudDaemon: CloudConversationCommands, CloudLeaseSessions {
         return selfHost
     }
 }
+
+// In an extension: listed on the actor itself, the `nonisolated protocol` conformance makes
+// swift-frontend 6.3.3 (-default-isolation MainActor) infer `nonisolated` on the actor and reject
+// it ("'nonisolated' on an actor's synchronous initializer is invalid").
+extension FakeCloudDaemon: CloudLeaseSessions {}

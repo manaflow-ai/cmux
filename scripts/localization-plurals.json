@@ -646,18 +646,6 @@
       1
     ]
   },
-  "home.turn.steps": {
-    "source": "%lld steps",
-    "arguments": [
-      1
-    ]
-  },
-  "home.turn.moreSteps": {
-    "source": "%lld more steps",
-    "arguments": [
-      1
-    ]
-  },
   "importSuggestions.facts.profiles": {
     "source": "%lld profiles",
     "arguments": [
@@ -696,6 +684,36 @@
   },
   "importSuggestions.count.cookies": {
     "source": "%lld cookies",
+    "arguments": [
+      1
+    ]
+  },
+  "home.stopAll.couldNotStop": {
+    "source": "%lld could not be stopped",
+    "arguments": [
+      1
+    ]
+  },
+  "importSuggestions.status.importedSessions": {
+    "source": "Imported %lld sessions",
+    "arguments": [
+      1
+    ]
+  },
+  "home.list.unread": {
+    "source": "%lld unread",
+    "arguments": [
+      1
+    ]
+  },
+  "home.info.memberCount": {
+    "source": "%lld members",
+    "arguments": [
+      1
+    ]
+  },
+  "handlers.findWork.unread": {
+    "source": "%lld unread",
     "arguments": [
       1
     ]

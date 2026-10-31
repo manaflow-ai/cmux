@@ -38,6 +38,8 @@ import { RunsContext, type RunsContextValue } from "./RunCard";
 import { useRunEntry } from "./runs";
 import { ChiefRoutePage, RouteSheets } from "./RouteSheets";
 import { LiveTyping } from "./LiveTyping";
+import { chiefPresence } from "../../agent-session/acpmux/multiplayer/chiefAdapter";
+import { PresenceStack } from "../../agent-session/acpmux/multiplayer/Faces";
 import { RunSheet } from "./RunSheet";
 import type { HomeChannelsStore } from "./store";
 import { lastLiveReplies, threadObject, type ThreadObject } from "./threads";
@@ -45,6 +47,7 @@ import { ThreadSheet } from "./ThreadSheet";
 import { Timeline } from "./Timeline";
 import type { HomeConversation, HomeMessage, HomeParticipant, HomeRun } from "./types";
 import { useHomeKeys } from "./useHomeKeys";
+import { useWebSwapHold } from "../shared/useWebSwapHold";
 
 const NOTICE_MS = 1600;
 
@@ -59,6 +62,11 @@ export function HomeChannelsPage({
   pane?: Pane;
 }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  // WEB-SWAP: a web update's reload waits while a message lives only in this page: one on its way
+  // to the owner, or a failed one with Retry (pages/shared/webSwap.ts).
+  useWebSwapHold(
+    snap.pending.some((entry) => !entry.failed) ? "home.sending" : snap.pending.length ? "home.send-failed" : null,
+  );
   // Below NARROW_PAGE of its own width the page shows one pane (panes.ts), the one the hash names.
   const shell = useRef<HTMLDivElement>(null);
   const measured = useNarrow(shell);
@@ -75,6 +83,9 @@ export function HomeChannelsPage({
   const [notice, setNotice] = useState<string | undefined>();
   /** The run the run sheet shows (an agent turn's whole trajectory). */
   const [openRun, setOpenRun] = useState<{ conversation: string; author: string; id: string } | undefined>();
+  // WEB-SWAP: an open thread, run sheet, palette or edit lives only in this page's state, so a reload
+  // would close it: the update waits until it closes (pages/shared/webSwap.ts).
+  useWebSwapHold(snap.thread || openRun || palette || editing || sheetState.route ? "home.sheet" : null);
   const runs = useMemo<RunsContextValue>(
     () => ({
       book: store.runs,
@@ -167,6 +178,12 @@ export function HomeChannelsPage({
     () =>
       rows.flatMap((row) => (row.kind === "message" && !row.message.id.startsWith("pending:") ? [row.message] : [])),
     [rows],
+  );
+  // The people here and typing, as the agent chat shows them (multiplayer/chiefAdapter.ts): only
+  // this conversation's members, so a stray id never draws someone from another conversation.
+  const presence = useMemo(
+    () => chiefPresence(new Map(open?.participants.map((p) => [p.id, p])), me ?? "", snap.typing, snap.viewing),
+    [open?.participants, me, snap.typing, snap.viewing],
   );
   const typingNames = snap.typing
     .filter((id) => id !== me && id !== snap.draft?.participant)
@@ -569,6 +586,8 @@ export function HomeChannelsPage({
                         </output>
                       )}
                       {notice && <output className="lg-notice">{notice}</output>}
+                      {/* Who else has the chat open: the agent chat's faces (multiplayer/Faces.tsx). */}
+                      <PresenceStack viewing={presence.viewing} />
                       {channel && (
                         <span className="lg-faces" aria-hidden="true">
                           {open.participants.slice(0, 4).map((p) => (

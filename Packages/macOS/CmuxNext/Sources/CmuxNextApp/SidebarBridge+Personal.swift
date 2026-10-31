@@ -26,8 +26,10 @@ extension SidebarBridge {
             // The drag's rule for every path: a group holds one machine row's workspaces.
             guard SidebarEdits.canMove(ids, toGroup: group, in: model.sections) else { resync(); return true }
             groupFlow.move(ids, into: group, intent)
-        case .createGroup(let group, let name, let color, let ids, _, let collapsed, _):
-            groupFlow.create(group, name: name, color: color, ids, collapsed: collapsed, room: state.profileID, intent)
+        case .createGroup(let group, let name, let color, let ids, _, let collapsed, let index):
+            // `index` is the group's place among the personal groups (nil, or `Int.max`: last, the daemon's default).
+            groupFlow.create(group, name: name, color: color, ids, collapsed: collapsed, room: state.profileID,
+                             index: index.flatMap { $0 == .max ? nil : $0 }, intent)
         case .groupEditorEnded(let group):
             groupFlow.editorEnded(WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: group.rawValue)))
         case .renameGroup(let group, let name):
@@ -77,23 +79,45 @@ extension SidebarBridge {
     /// each in the home session; the workspace's own daemon is not written.
     func placePersonal(_ ids: [SidebarWorkspaceID], at position: DropPosition, in sections: [SidebarRowSection],
                        edit: SidebarPendingEdits.Token? = nil) {
-        let group = position.group.map { WorkspaceGroupID(rawValue: $0.rawValue) }
+        // A position the sidebar document listed names the group by its item (`itm_g_<id>`); the home session
+        // knows only the personal id, and an unknown one would take the rows out of their group.
+        let group = position.group.map { WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: $0.rawValue)) }
         let (failed, applied) = rows.outcome(edit, resync: { [weak self] in self?.resync() })
-        guard let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else { return failed() }
-        let regroup = statePersonal ? plan.regroup : []
-        // Only the dropped workspaces leave their group; a group they empty goes (cx-rcby).
-        let moving = plan.steps.filter(\.moves).map(\.workspace), life = self.life
-        let ending = life.emptied(by: moving, into: group)
-        life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: moving, into: group) }, failed: failed,
-                    applied: applied) { connection in
-            for step in plan.steps {
-                try await connection.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
-                                                                  resource: step.workspace.resource,
-                                                                  group: step.moves ? (group.map { .set($0) } ?? .clear) : .unchanged,
-                                                                  index: step.index)
+        let home = services.machines.local
+        // The queue settles a placement that did not apply; `commit` leaves it.
+        services.personalPlacements.enqueue(on: home, failed: failed) { [weak self] in
+            guard let connection = home.connection else { return .failed }
+            guard let self, let state, services.windows.registry.value.window(state.id)?.isOpen == true,
+                  ids.allSatisfy({ services.machines.workspace(id: $0.rawValue) != nil }),
+                  let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else { return .skipped }
+            // `sections` retains this intent's neighbors. The planner now reads
+            // personal order containing every successful preceding write.
+            let regroup = statePersonal ? plan.regroup : []
+            let moving = plan.steps.filter(\.moves).map(\.workspace), life = self.life
+            let ending = life.emptied(by: moving, into: group)
+            let sent = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+                var finished = false
+                let finish: @MainActor (Bool) -> Void = { ok in
+                    guard !finished else { return }
+                    finished = true
+                    done.resume(returning: ok)
+                }
+                life.commit("set-personal-workspace", ending: ending, recheck: { ending.filter(life.isEmptyUnpinned) },
+                            failed: {}, completed: { finish($0) }) { sending in
+                    guard sending === connection else { throw DaemonError.notConnected }
+                    for step in plan.steps {
+                        try await sending.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
+                                                                          resource: step.workspace.resource,
+                                                                          group: step.moves ? (group.map { .set($0) } ?? .clear) : .unchanged,
+                                                                          index: step.index)
+                    }
+                    guard let first = plan.first else { return }
+                    for id in regroup { try await sending.state.updateWorkspaceGroup(id.rawValue, topIndex: .set(first)) }
+                }
             }
-            guard let first = plan.first else { return }
-            for id in regroup { try await connection.state.updateWorkspaceGroup(id.rawValue, topIndex: .set(first)) }
+            guard sent, await home.appliedThroughReply(on: connection, after: "personal placement") else { return .failed }
+            applied?()
+            return .applied
         }
     }
 

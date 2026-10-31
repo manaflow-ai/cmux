@@ -18,7 +18,7 @@ for what a person must do: an OAuth sign-in, a secret, a macOS switch.
 | Tailscale, mesh | CLI only | `cmux host enable/status --json`; needs Tailscale signed in | yes | yes |
 | MCP servers | docs only; chats cmux starts get them (acpmux `agent_tools`) | `cmux setup mcp [claude\|codex ...]`; `cmux agents doctor --json` checks cmux-cua | yes | yes |
 | Computer Use | GUI (Computer Use Setup) | `cmux setup computer-use`; the person allows it on the app's sheet, and grants are switches in System Settings | yes | yes |
-| Browser import | GUI (Import from Browser...) | `cmux bookmark import-from-browser`, `cmux browser import-cookies` (consent panel); history and passwords person-only | partly | bookmarks/history merge |
+| Browser import | GUI (Import from Browser...) | `cmux setup browser-import --browser B [--cookies]`: bookmarks, and cookies after the person's Allow on the consent panel; history and passwords person-only | yes | bookmarks yes; cookies ask again |
 | Keyboard shortcuts | GUI (Keyboard Shortcuts) | `cmux keybinding list/resolve --json`; edits only over the raw socket or keybindings.json | reads yes | yes |
 | Notifications | GUI (Settings); macOS asks on the first banner | `cmux setup notifications` (the macOS permission); `cmux settings get/set notifications.*` | yes | yes; toggle-workspace-mute no |
 | Team invites | web dashboard | `POST /api/teams/<id>/invitations`; `cmux home invite --email` for Home conversations | API yes | no |
@@ -36,7 +36,14 @@ prints one JSON object, with or without `--json`.
   `check` and `apply` are the commands that do it today; `person` is what
   only the person can do. One read gives an agent the whole map, including
   tasks setup does not run yet.
-- `cmux setup status`: the read-only check of every task setup runs.
+- `cmux setup status`: the read-only check of every task setup runs. Each
+  check keeps its task-specific fields and also has `check_status` (`ok`,
+  `needs_action`, or `failed`) and `recovery`. `recovery` is the existing
+  structured `user_action` or exact `fix` command; when several nested peers
+  or clients need work it is an array of those exact actions. Nested machine,
+  harness, and MCP failures therefore remain visible to an agent instead of
+  collapsing into a task-level `ok`. A missing safe command stays `null` with
+  the original error, rather than guessing a credential, account, or repair.
 - `cmux setup <task> ... [--dry-run]`: check, then change only what is not
   already right. The result is
 
@@ -109,8 +116,8 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
     "undo": null, "user_action": {"kind": "oauth", ...}}
    ```
 
-   A harness is `ok` when it is installed and nothing says it is signed
-   out (`signed_in` is `null` when cmux cannot see the sign-in, such as
+   A harness is `ok` when it is installed and no check reports sign-out or
+   a verification error (`signed_in` is `null` when cmux cannot see the sign-in, such as
    Claude Code's keychain login; its first chat asks if it must). Signed
    out is `needs_user` with kind `oauth` and `cmux harness login ID`, or
    the profile's own login command (`codex login`) for a harness not
@@ -122,6 +129,23 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    adapter, offered everywhere) counts only when named or configured; no
    harness at all is `needs_user` to install one. `cmux setup status`
    adds a `harness` check with the same rows.
+   Harness rows also expose `auth_status` and `recovery` (the same action as
+   `user_action`, or null). `auth_status` is `detected` for existing sign-in or
+   provider-configuration evidence, `signed_out` for the existing check's explicit
+   sign-out or expired credential, `needs_action` when a provider/check error
+   prevents verification, `unknown` when the check is deliberately unavailable,
+   or `not_installed`.
+   `detected` does **not** prove a token is fresh or belongs to the expected account.
+   No expiry or wrong-account conclusion is inferred from missing files or errors.
+   An explicit provider/check error keeps `signed_in: null`, makes the task
+   `needs_user`, and names a `check` action: `cmux harness doctor ID --no-prompt
+   --json` for the configured profile, or `cmux setup harness ID` for an unsaved
+   shipped example. The person/agent inspects `auth_detail` and the profile's
+   provider settings first. This diagnostic sends no model prompt and is never
+   executed automatically. Unknown Keychain/disabled-launch cases keep their
+   existing behavior. Expiry and expected-account verification still require
+   provider evidence; this report neither refreshes credentials nor switches accounts.
+
 3. `machine SSH_TARGET [--name NAME]`. It reads the peers
    from the running acpmux daemon (or acpmux's config without one; it never
    starts a daemon to check) and matches the peer by `--name`, or without
@@ -313,3 +337,83 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    cmux app bundle) answers `unavailable`.
    Which notifications show stays `notifications.*` settings. `cmux setup
    status` adds a `notifications` check.
+8. `browser-import --browser BROWSER[:PROFILE] [--cookies [--domain D]
+   [--reason TEXT]]`: brings another browser's bookmarks, or its sign-ins,
+   into cmux. `--browser` reads the way the app's cookie import reads
+   `--from`: a browser (registry id or product name, ignoring case, spaces
+   and punctuation; the registry is the app's `browser-sources.json`,
+   compiled in), then optionally `:` and one profile (its folder or the
+   name the browser shows), for bookmarks and cookies alike; `chrome:` is
+   `chrome`. A browser with no name (`:Work`, a blank) is a usage error
+   (exit 2), since the app would open its picker, and so is a flag given
+   twice or a flag-like next word taken as a value (`--domain --dry-run`;
+   `--domain=--x` is meant). Without `--browser` it is `needs_user`
+   (`kind` `choose`): the agent asks which browser, or for bookmarks runs
+   `cmux action run bookmark.importFromBrowser` to show the person the
+   app's picker of the browsers it found (with `--cookies` its `command`
+   is null: the picker imports bookmarks).
+
+   Bookmarks are not secrets, so setup does them. The state is
+   `bookmark.list`, where each imported profile is one Bookmarks Bar folder
+   with `source_key` `<browser id>/<profile folder>` and the title
+   "Imported from <Browser> (<profile name>)". The check is per browser: a
+   browser any profile of which was imported counts as done (`ok`, nothing
+   runs); import another profile with `--browser ID:PROFILE`, which is
+   `ok` only when that profile's folder is there: setup asks the app's
+   `bookmark.importSources {browser, source?}` for the source keys the
+   import would use (the app matches the profile's folder or name; with no
+   profile, every profile of the browser) and looks for those, never at
+   the title, which is localized and the person may rename; a browser or
+   profile the app does not find, with no folder of it there yet, is
+   `needs_user` (`kind` `browser`); a profile the browser no longer has is
+   still `ok` when named by its folder (`chrome:Profile 9`), which the
+   stored source key keeps, though not by its shown name, which went with
+   it.
+   `bookmark.list` answers `loaded` false with an empty list until the app
+   has the stored bookmarks; setup reads again until 2 seconds after the
+   first answer (each reread gets only the time left), then is
+   `needs_user` (`kind` `wait`), so folders already there never count as
+   new. A dry run is `planned` with the `undo`
+   `cmux bookmark remove --target bookmark:FOLDER_ID`. Otherwise setup runs
+   `bookmark.importFromBrowser {browser, source?, profile}` (`profile` is
+   the cmux browser profile `bookmark.list` answered for) and reads the
+   list again: `changed`, with `after.folders` the folders of those source
+   keys that were not there before and the `undo` `cmux bookmark remove
+   --target bookmark:<id>` for each; the person's own folders and other
+   imports never enter it. A new folder of another profile of the browser
+   came from an import running at the same time (`chrome:Work` next to
+   `chrome:Default`): it is in `after.other`, with a `note`, and the undo
+   leaves it; it is no sign this run's import landed, so a run whose app
+   stopped waiting with only such folders in is still `wait`. Two runs of the same profile at once both name its folder;
+   the app's import returns no ids, so setup cannot tell them apart. The app replaces a folder of the same `source_key` in
+   place (same id, new title and children), as when the browser's
+   profiles changed between `bookmark.importSources` and the import: such
+   folders, whose title or
+   children changed, are in `after.refreshed`, and an answer that the
+   import ran with no new folder is `changed` with `undo` null and a `note`
+   that the folder was refreshed in place and the Undo on the app's toast
+   is its only undo. The app may stop waiting before the import ends
+   (`timeout`, or a lost answer): setup reads the list anyway, and the
+   folders that came in are `changed` as above, with their `undo` and a
+   `note` that the import may still be adding profiles (run `cmux setup
+   browser-import --browser B --dry-run` again to see them); none yet is
+   `needs_user` (`kind` `wait`: run it again in a few seconds). A browser
+   the app does not find, or with no readable profile, is `needs_user`
+   (`kind` `browser`); profiles that could not be read next to ones that
+   came in are named in `unread`.
+
+   Cookies are the person's: `--cookies` runs `browser.importCookies
+   {from, domain?, reason}` (from an agent or script, never origin `user`),
+   and the app asks the person on its consent panel (then macOS asks for
+   the browser's Keychain key). Allowed is `changed`. Denied, timed out, or
+   another request already waiting is `needs_user` (`kind` `declined`):
+   nothing was read, and the agent asks before trying again. An answer lost
+   after the panel (`timeout` or a dropped connection) is `kind` `app`
+   saying the outcome is unknown: the agent must not run `--cookies` again
+   without asking the person. The app reads no imported cookies back, so a
+   cookie run is never `ok` and running it again asks again; it has no
+   `undo` (clearing the profile's cookies clears every cookie), and
+   `undo_note` says so. History and passwords are person-only (Import from
+   Browser... in cmux); every result names that in `person`. `cmux setup
+   status` adds a `browser_import` check: the browsers whose bookmarks are
+   in.

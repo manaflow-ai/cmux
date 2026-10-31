@@ -2,7 +2,7 @@ import { authenticate, bearerOf, primaryProject, stackProjects, type Caller } fr
 import type { Env } from "./env.ts"
 import { iceServers } from "./ice.ts"
 import { createTeam, sendTeamInvite, userTeams } from "./stack.ts"
-import { apnsConfig, apnsTopics, clean, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey } from "./push.ts"
+import { apnsConfig, apnsTopics, clean, isSealedText, MAX_MAILBOX_SEALED, notifyLimitKey, parseNotify, pushTargets, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey, wantedKinds } from "./push.ts"
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { userHubName, type Attachment } from "./team-hub.ts"
 import { Timing, timingFor } from "./timing.ts"
@@ -21,10 +21,14 @@ const PERSONAL = "personal-"
 export const personalTeamId = (userId: string) => `${PERSONAL}${userId}`
 const COLOR = /^#[0-9A-Fa-f]{6}$/
 const WG_KEY = /^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/
+/** A Mac's machine id (PROTOCOL.md "Devices"): 128 bits of a keyed hash, lowercase hex. */
+const MACHINE_ID = /^[0-9a-f]{32}$/
+/** `{machineId}` when the Mac has one, else nothing: a Mac that never sent one keeps its older wire shape. */
+const machineOf = (d: { machineId: string | null }) => (d.machineId ? { machineId: d.machineId } : {})
+/** Other builds' device ids one registration may name (`siblingDeviceIds`). */
+const MAX_SIBLINGS = 16
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}$/
 const APNS_TOKEN = /^[0-9a-f]{64,200}$/
-const EVENT_ID = /^[A-Za-z0-9._:-]{1,64}$/
-const OPAQUE_ID = /^[A-Za-z0-9._:-]{1,128}$/
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } })
 const fail = (status: number, code: string, message: string) => {
@@ -219,7 +223,11 @@ const withStore = async <T>(env: Env, ctx: ExecutionContext, f: (s: Store) => Pr
 }
 
 /** The PROTOCOL.md device object: `ownerUserId` is the bare sub (the project is recorded, not returned). */
-const publicDevice = (env: Env, d: Device): Device => ({ ...d, ownerUserId: splitOwner(env, d.ownerUserId).userId })
+const publicDevice = (env: Env, { machineId, ...d }: Device) => ({
+  ...d,
+  ownerUserId: splitOwner(env, d.ownerUserId).userId,
+  ...machineOf({ machineId })
+})
 
 const colo = (req: Request): string | null => {
   const c = (req as Request & { cf?: { colo?: unknown } }).cf?.colo
@@ -333,6 +341,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
         updatedAt: d.updatedAt,
         lastSeenAt: d.lastSeenAt,
         online: d.kind === "mac" ? (live.get(d.deviceId) ?? false) : null,
+        ...machineOf(d),
         push: d.push
       }))
     })
@@ -346,11 +355,41 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     return json({ deleted: { devices: gone.length } })
   }
 
-  const dev = path.match(/^\/v1\/devices\/([^/]+)(?:\/(push|notify))?$/)
+  const dev = path.match(/^\/v1\/devices\/([^/]+)(?:\/(push|notify|mailbox)(?:\/([^/]+))?)?$/)
   if (dev) {
     const deviceId = decodeURIComponent(dev[1]!).toLowerCase()
     if (!UUID.test(deviceId)) throw new HttpError(400, "bad_request", "deviceId must be a UUID")
     const sub = dev[2]
+    const itemId = dev[3] === undefined ? undefined : decodeURIComponent(dev[3]).toLowerCase()
+    if (itemId !== undefined && sub !== "mailbox") return fail(404, "not_found", "not found")
+    if (sub === "mailbox") {
+      // PROTOCOL.md "Reply mailbox": a phone's sealed reply for its own Mac. The Worker never opens it.
+      const mac = await withStore(env, ctx, (s) => s.getDevice(deviceId))
+      if (!mac) throw new HttpError(404, "not_found", "no such device")
+      if (mac.ownerUserId !== me || mac.kind !== "mac") throw new HttpError(403, "not_owner", "replies go to your own Mac")
+      if (itemId !== undefined && method === "GET") {
+        if (!UUID.test(itemId)) throw new HttpError(400, "bad_request", "the item id must be a UUID")
+        const state = await userHub(env, caller).mailboxState(me, deviceId, itemId)
+        if (!state) throw new HttpError(404, "not_found", "no such item")
+        return json(state)
+      }
+      if (itemId !== undefined || method !== "POST") return fail(405, "method_not_allowed", "method not allowed")
+      const b = await readJson(req)
+      const id = typeof b.id === "string" ? b.id.toLowerCase() : ""
+      const from = typeof b.from === "string" ? b.from.toLowerCase() : ""
+      if (!UUID.test(id)) throw new HttpError(400, "bad_request", "id must be a UUID")
+      if (!UUID.test(from)) throw new HttpError(400, "bad_request", "from must be your phone's device id")
+      if (!isSealedText(b.sealed, MAX_MAILBOX_SEALED)) throw new HttpError(400, "bad_request", `sealed must be base64url of at most ${MAX_MAILBOX_SEALED} characters`)
+      const phone = await withStore(env, ctx, (s) => s.getDevice(from))
+      if (!phone || phone.ownerUserId !== me || phone.kind !== "phone") throw new HttpError(403, "not_owner", "replies come from your own phone")
+      await limit(env.MAILBOX_LIMIT, me, "replies")
+      const r = await userHub(env, caller).mailboxPost(me, { id, mac: deviceId, from, sealed: b.sealed })
+      if ("error" in r) {
+        if (r.error === "full") throw new HttpError(429, "rate_limited", "this Mac has too many replies waiting; try again later")
+        throw new HttpError(409, "conflict", "another reply already has this id")
+      }
+      return json(r)
+    }
     if (!sub && method === "DELETE") {
       const r = await withStore(env, ctx, (s) => s.deleteDevice(deviceId, me))
       if (r === "not_owner") throw new HttpError(403, "not_owner", "this device belongs to another user")
@@ -378,66 +417,104 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
           throw new HttpError(400, "bad_request", `kinds must be a list of ${PUSH_KINDS.join(", ")}`)
         kinds = [...new Set(b.kinds as Array<PushKind>)]
       }
-      const r = await withStore(env, ctx, (s) => s.setPush({ deviceId, ownerUserId: me, token, environment: b.environment as "sandbox" | "production", topic: b.topic as string, kinds }))
-      return json({ push: { environment: r.environment, topic: r.topic, kinds: r.kinds, updatedAt: r.updatedAt } })
+      let mutedMacs: Array<string> = []
+      if (b.mutedMacs !== undefined && b.mutedMacs !== null) {
+        if (!Array.isArray(b.mutedMacs) || b.mutedMacs.length > 64 || b.mutedMacs.some((m) => typeof m !== "string" || !UUID.test(m.toLowerCase())))
+          throw new HttpError(400, "bad_request", "mutedMacs must be at most 64 Mac device ids")
+        mutedMacs = [...new Set((b.mutedMacs as Array<string>).map((m) => m.toLowerCase()))]
+      }
+      if (b.previews !== undefined && b.previews !== null && typeof b.previews !== "boolean") throw new HttpError(400, "bad_request", "previews must be true or false")
+      const previews = b.previews !== false
+      const r = await withStore(env, ctx, (s) =>
+        s.setPush({ deviceId, ownerUserId: me, token, environment: b.environment as "sandbox" | "production", topic: b.topic as string, kinds, mutedMacs, previews })
+      )
+      return json({ push: { environment: r.environment, topic: r.topic, kinds: r.kinds, mutedMacs: r.mutedMacs, previews: r.previews, updatedAt: r.updatedAt } })
     }
     if (sub === "notify" && method === "POST") {
-      const b = await readJson(req)
-      if (typeof b.eventId !== "string" || !EVENT_ID.test(b.eventId)) throw new HttpError(400, "bad_request", "eventId must be 1-64 of A-Z a-z 0-9 . _ : -")
-      if (!(PUSH_KINDS as ReadonlyArray<unknown>).includes(b.kind)) throw new HttpError(400, "bad_request", `kind must be one of ${PUSH_KINDS.join(", ")}`)
-      for (const k of ["workspaceId", "tabId", "sessionId"] as const)
-        if (b[k] !== undefined && b[k] !== null && (typeof b[k] !== "string" || !OPAQUE_ID.test(b[k] as string))) throw new HttpError(400, "bad_request", `${k} must be an id`)
+      const parsed = parseNotify(await readJson(req))
+      if (typeof parsed === "string") throw new HttpError(400, "bad_request", parsed)
       const device = await withStore(env, ctx, (s) => s.getDevice(deviceId))
       if (!device) throw new HttpError(404, "not_found", "no such device")
       if (device.ownerUserId !== me || device.kind !== "mac") throw new HttpError(403, "not_owner", "notify from your own Mac")
-      await limit(env.NOTIFY_LIMIT, deviceId, "notifications")
+      await limit(env.NOTIFY_LIMIT, notifyLimitKey(deviceId, parsed.kind), "notifications")
       const config = apnsConfig(env)
-      const kind = b.kind as PushKind
-      const targets = config ? (await withStore(env, ctx, (s) => s.listOwnerPush(me))).filter((t) => t.kinds.includes(kind)).slice(0, 20) : []
-      if (!config || targets.length === 0) return json({ configured: !!config, sent: 0, failed: 0, dropped: 0 })
+      const kind = parsed.kind
+      const regs = await withStore(env, ctx, (s) => s.listOwnerPush(me))
+      // The kinds some phone that has not muted this Mac wants: the Mac skips the rest (terminal, say).
+      const wants = wantedKinds(regs, deviceId)
+      const targets = config ? pushTargets(regs, deviceId, kind).slice(0, 20) : []
+      if (!config || targets.length === 0) return json({ configured: !!config, sent: 0, failed: 0, dropped: 0, wants })
       // A burst of turn ends from one session is one notification (a Mac on an older host sends every one).
       // Checked only once some phone wants this kind, so an unwanted kind never uses up the window.
-      const key = turnPushKey(deviceId, { kind, ...(typeof b.sessionId === "string" ? { sessionId: b.sessionId } : {}) })
+      const key = turnPushKey(deviceId, parsed)
       if (key && !(await userHub(env, caller).turnPushAllowed(me, key, TURN_PUSH_WINDOW_MS)))
-        return json({ configured: true, sent: 0, failed: 0, dropped: 0, coalesced: true })
-      const results = await sendApns(config, targets, {
-        eventId: b.eventId,
-        kind,
-        agent: clean(b.agent, 40),
-        place: clean(b.place, 60),
-        macId: deviceId,
-        macName: clean(device.name, 40),
-        ...(typeof b.workspaceId === "string" ? { workspaceId: b.workspaceId } : {}),
-        ...(typeof b.tabId === "string" ? { tabId: b.tabId } : {}),
-        ...(typeof b.sessionId === "string" ? { sessionId: b.sessionId } : {})
-      }, Date.now())
+        return json({ configured: true, sent: 0, failed: 0, dropped: 0, coalesced: true, wants })
+      const results = await sendApns(config, targets, { ...parsed, macId: deviceId, macName: clean(device.name, 40) }, Date.now())
       const drop = results.filter((r) => r.outcome === "drop_target").map((r) => r.token)
       if (drop.length) await withStore(env, ctx, (s) => s.dropPushTokens(drop))
       const failed = results.filter((r) => r.outcome === "failed")
       if (failed.length) console.log(JSON.stringify({ msg: "apns failed", results: failed.map((r) => ({ status: r.status, reason: r.reason })) }))
-      return json({ configured: true, sent: results.filter((r) => r.outcome === "sent").length, failed: failed.length, dropped: drop.length })
+      return json({ configured: true, sent: results.filter((r) => r.outcome === "sent").length, failed: failed.length, dropped: drop.length, wants })
     }
     return fail(405, "method_not_allowed", "method not allowed")
   }
 
   if (path === "/v1/devices" && method === "POST") {
     const b = await readJson(req)
-    const { deviceId, kind, name, teamId, wgPublicKey } = b
+    const { deviceId, kind, name, teamId, wgPublicKey, machineId, siblingDeviceIds } = b
     if (typeof deviceId !== "string" || !UUID.test(deviceId.toLowerCase())) throw new HttpError(400, "bad_request", "deviceId must be a UUID")
     if (kind !== "mac" && kind !== "phone") throw new HttpError(400, "bad_request", "kind must be mac or phone")
     if (typeof name !== "string" || !name.trim() || name.length > 100) throw new HttpError(400, "bad_request", "name must be 1-100 characters")
     if (typeof teamId !== "string") throw new HttpError(400, "bad_request", "teamId is required")
     if (wgPublicKey !== undefined && wgPublicKey !== null && (typeof wgPublicKey !== "string" || !WG_KEY.test(wgPublicKey)))
       throw new HttpError(400, "bad_request", "wgPublicKey must be a base64 Curve25519 key")
-    await requireMember(env, teamId, caller)
-    const r = await withStore(env, ctx, (s) =>
-      s.upsertDevice({ deviceId: deviceId.toLowerCase(), ownerUserId: ownerKey(env, caller), teamId, kind, name: name.trim(), wgPublicKey: (wgPublicKey as string | null | undefined) ?? null })
+    // A Mac's machine id: which computer it runs on, so the phone lists two builds on one Mac as one Mac. A
+    // name never says that (several Macs can share one), and only a Mac has one.
+    if (machineId !== undefined && (kind !== "mac" || typeof machineId !== "string" || !MACHINE_ID.test(machineId)))
+      throw new HttpError(400, "bad_request", "machineId must be 32 lowercase hex digits, for a Mac")
+    if (
+      siblingDeviceIds !== undefined &&
+      (machineId === undefined ||
+        !Array.isArray(siblingDeviceIds) ||
+        siblingDeviceIds.length > MAX_SIBLINGS ||
+        siblingDeviceIds.some((id) => typeof id !== "string" || !UUID.test(id.toLowerCase())))
     )
+      throw new HttpError(400, "bad_request", `siblingDeviceIds must be at most ${MAX_SIBLINGS} device ids, with a machineId`)
+    await requireMember(env, teamId, caller)
+    const id = deviceId.toLowerCase()
+    const siblings = [...new Set(((siblingDeviceIds ?? []) as Array<string>).map((s) => s.toLowerCase()))].filter((s) => s !== id)
+    const owner = ownerKey(env, caller)
+    const r = await withStore(env, ctx, async (s) => {
+      const up = await s.upsertDevice({
+        deviceId: id,
+        ownerUserId: owner,
+        teamId,
+        kind,
+        name: name.trim(),
+        wgPublicKey: (wgPublicKey as string | null | undefined) ?? null,
+        ...(machineId === undefined ? {} : { machineId: machineId as string })
+      })
+      if (up === "not_owner") return up
+      // Other builds on this Mac (a deleted build's record that will never register again): this Mac's machine
+      // id, only for the caller's own Macs that have none. Never another owner's device, never a phone.
+      const claimed = typeof machineId === "string" && siblings.length ? await s.claimSiblings(owner, machineId, siblings) : []
+      return { ...up, claimed }
+    })
     if (r === "not_owner") throw new HttpError(403, "not_owner", "this deviceId belongs to another user")
     // The caller's hub notes the device (and its team; a team move closes its socket with 4001 `moved`).
     await t.span(
       "hub",
-      userHub(env, caller).register({ deviceId: r.device.deviceId, ownerKey: r.device.ownerUserId, kind: r.device.kind, name: r.device.name, teamId, userId: caller.userId, projectId: caller.projectId })
+      userHub(env, caller).register({
+        deviceId: r.device.deviceId,
+        ownerKey: r.device.ownerUserId,
+        kind: r.device.kind,
+        name: r.device.name,
+        teamId,
+        userId: caller.userId,
+        projectId: caller.projectId,
+        machineId: r.device.machineId,
+        claimed: r.claimed
+      })
     )
     return json({ device: publicDevice(env, r.device) })
   }
@@ -464,14 +541,15 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       macs: rows.flatMap((d) => {
         if (!reachable.has(d.teamId)) return []
         const p = presence.get(d.deviceId)
-        return [{ deviceId: d.deviceId, name: d.name, teamId: d.teamId, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId }]
+        return [{ deviceId: d.deviceId, name: d.name, teamId: d.teamId, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d) }]
       })
     })
   }
 
   if (path === "/v1/teams" && method === "POST") {
     // Create team (PROTOCOL.md): Stack's client API refuses it, so the Worker creates the team with the
-    // caller's project server key and the caller as its creator and first member.
+    // caller's project server key and the caller as its creator and first member, then grants the caller
+    // team_admin (rolled back by deleting the team when the grant fails; see createTeam).
     const b = await readJson(req)
     const name = typeof b.name === "string" ? b.name.trim() : ""
     if (!name || name.length > 64 || /\p{Cc}/u.test(name)) throw new HttpError(400, "bad_request", "name must be 1 to 64 characters, no control characters")
@@ -513,7 +591,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     const [device, macs] = await withStore(env, ctx, (s) => Promise.all([s.getDevice(deviceId), s.listOwnerMacs(me)]))
     if (!device || device.ownerUserId !== me) throw new HttpError(403, "not_owner", "register this device first")
     if (device.teamId !== teamId) throw new HttpError(403, "wrong_team", "device is registered in another team")
-    await t.span("hub", hub.seed(me, { userId: caller.userId, projectId: caller.projectId }, macs.map((m) => ({ deviceId: m.deviceId, name: m.name, teamId: m.teamId, lastSeenAt: m.lastSeenAt }))))
+    await t.span("hub", hub.seed(me, { userId: caller.userId, projectId: caller.projectId }, macs.map((m) => ({ deviceId: m.deviceId, name: m.name, teamId: m.teamId, lastSeenAt: m.lastSeenAt, machineId: m.machineId }))))
     const att: Attachment = { userId: caller.userId, projectId: caller.projectId, deviceId, kind: device.kind, name: device.name, teamId }
     const headers = new Headers({ upgrade: "websocket", "x-cmux-mobile-attachment": JSON.stringify(att), "x-cmux-mobile-owner-key": me })
     if (subprotocol) headers.set("x-cmux-mobile-subprotocol", "cmux-mobile.v1")
@@ -537,7 +615,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       macs: rows.flatMap((d) => {
         if (d.teamId !== teamId || d.ownerUserId !== me) return []
         const p = byId.get(d.deviceId)
-        return [{ deviceId: d.deviceId, name: d.name, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId }]
+        return [{ deviceId: d.deviceId, name: d.name, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d) }]
       })
     })
   }

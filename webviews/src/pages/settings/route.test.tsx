@@ -48,6 +48,8 @@ test("the route comes from the fragment alone, never the page's query string", a
     section: "general",
     focus: "app.quitBehavior",
     workspace: null,
+    query: "",
+    changedOnly: false,
   });
   expect(history.createHref("/settings/browser")).toBe("/frame.html?entry=pages.settings&variant=x#/settings/browser");
 });

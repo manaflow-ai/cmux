@@ -21,12 +21,33 @@ extension HomeNativeTranscriptView {
         firstRun.setShortcuts(terminal: terminal, agent: agent, switching: switching)
     }
 
-    /// The Chief's avatar as the host resolved it (its picture, else its text: the profile's, or
-    /// 🫡 for a Chief with none, `HomeChiefAvatar.headerText`), on the header and the first-run hero.
+    /// The first-run panel's "Bring your memory from …" row (what the host found on this Mac); nil removes it.
+    public func setFirstRunMemoryOffer(_ title: String?) {
+        firstRun.setMemoryOffer(title)
+    }
+
+    /// Shows the Chief's first-open message above the first-run panel's hero: the welcome or a new
+    /// Chief's focus question, as ``ChiefIntroStore`` picks it; the bubble rises in the first time it shows.
+    /// - Parameter kind: Which intro shows.
+    public func showFirstRunIntro(_ kind: ChiefIntroKind = .welcome) {
+        firstRun.setIntro(HomeStrings.chiefIntro(kind))
+    }
+
+    /// The Chief's avatar as the host resolved it (its picture, else its profile's text, else nil:
+    /// the monogram of its name, "CH" for "Chief"), on the header and the first-run hero.
     public func setChiefAvatar(picture: NSImage?, text: String?) {
         avatarPicture = picture
         avatarText = text
-        firstRun.hero.setAvatar(picture: picture, text: text)
+        applyHeroFace()
+    }
+
+    /// The letters the header's monogram shows now (its text, else its name's initials, "CH" for
+    /// "Chief"), for another view of the same Chief (the settings card) to match it.
+    public var shownMonogram: String { transcript.shownInitials }
+
+    /// The first-run hero wears the header's face: its picture, its text, else its name's monogram.
+    func applyHeroFace() {
+        firstRun.hero.setAvatar(picture: avatarPicture, text: avatarText, name: headerTitle ?? "")
     }
 
     /// Whether the Chief pet shows (`DesignSettings.homeChiefPetEnabled`, from `home.chiefPetEnabled`):
@@ -37,18 +58,6 @@ extension HomeNativeTranscriptView {
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.followChiefPet() }
         }
-    }
-
-    /// A row the host puts on the Chief's front page under its action rows (Home's import
-    /// suggestion, `ImportSuggestionRowView`), in the panel's own layout so it never covers the
-    /// conversation; nil removes it.
-    public func setFirstRunAccessory(_ view: NSView?) {
-        firstRun.accessory = view
-    }
-
-    /// The front page's host row showed, hid or changed size: the panel fits its rows again.
-    public func firstRunAccessoryChanged() {
-        firstRun.needsLayout = true
     }
 
     /// The user's agents for the first-run panel's glance (the host maps

@@ -40,11 +40,12 @@ import Testing
         }
     }
 
-    /// An update state keeps its detail as the tooltip (the badge already shows the words).
+    /// An optional update shows no words on the header (Lawrence 2026-10-21): the tooltip names it
+    /// with its detail.
     @Test func anUpdateStateKeepsItsDetail() {
         let detail = "cmux-tui 0.9 on build-box lacks agent tabs."
         let view = Self.header(SidebarMachine(id: MachineID("box"), name: "build-box", kind: .ssh, status: .updateAvailable, detail: detail))
-        #expect(view.themedToolTip == detail)
+        #expect(view.themedToolTip == Strings.statusUpdateAvailable + " — " + detail)
         #expect(SectionHeaderRowView.statusToolTip(words: Strings.statusOffline, detail: detail, bareDot: true)
             == Strings.statusOffline + " — " + detail)
     }
@@ -106,6 +107,44 @@ import Testing
         let label = sidebar.priorityButton.accessibilityLabel() ?? ""
         #expect(label == Strings.priorityShow + ", " + Strings.priorityAttentionCount(1))
         #expect(!label.contains(Strings.priorityNeedsYou))
+    }
+
+    // MARK: Update Available button
+
+    /// Leo 2026-10-28: "Also, the update button, don't put at the top. Put on the bottom. The bottom has room. The
+    /// bottom of the sidebar area." The quiet Update Available button sits at the footer line's end, on the Search
+    /// button's line, inside the sidebar; the titlebar row keeps only the bell and +, and the spaces strip ends before it.
+    @Test(arguments: [false, true])
+    func theUpdateButtonSitsAtTheBottom(_ noFade: Bool) {
+        let design = DesignSettings()
+        design.sidebarSections.noFade = noFade
+        let sidebar = SidebarView(model: SidebarModel(sections: []), design: design)
+        sidebar.showPriority(SidebarPriorityPanel(entries: [], shown: false))
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        sidebar.layoutSubtreeIfNeeded()
+        let bellBefore = sidebar.priorityButton.frame
+        sidebar.showUpdateAvailable("Update Available")
+        sidebar.layoutSubtreeIfNeeded()
+        let update = sidebar.updateAvailableButton, bounds = sidebar.bounds
+        #expect(!update.isHidden)
+        #expect(update.accessibilityLabel() == "Update Available")
+        #expect(sidebar.priorityButton.frame == bellBefore, "the update button moved the bell")
+        // The sidebar is flipped: the bottom line is its largest y.
+        #expect(update.frame.midY > bounds.height * 0.85, "the update button is not on the bottom line: \(update.frame) in \(bounds)")
+        #expect(update.frame.maxY <= bounds.maxY && update.frame.maxX <= bounds.maxX, "the update button leaves the sidebar")
+        if !sidebar.searchButton.isHidden {
+            // Search holds the line's right end (f004cef0aa9); the update button sits just left of it, on its line.
+            #expect(abs(update.frame.midY - sidebar.searchButton.frame.midY) <= 1, "the update button is off the Search button's line")
+            #expect(abs(sidebar.searchButton.frame.minX - Metrics.space1 - update.frame.maxX) <= 0.5, "the update button is not just left of Search")
+        }
+        // Codex review: a sidebar too narrow for both never covers Search or the avatar; the update button steps out of the line.
+        sidebar.frame.size.width = 80
+        sidebar.layoutSubtreeIfNeeded()
+        if !sidebar.searchButton.isHidden {
+            #expect(update.frame == .zero || update.frame.maxX <= sidebar.searchButton.frame.minX, "the update button covers Search at 80 pt")
+        }
+        sidebar.showUpdateAvailable(nil)
+        #expect(update.isHidden)
     }
 
     // MARK: Tab row unread dot

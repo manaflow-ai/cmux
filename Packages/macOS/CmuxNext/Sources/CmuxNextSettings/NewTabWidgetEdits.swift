@@ -8,7 +8,7 @@ import os
 /// ```
 ///
 /// A widget's place does not turn it on; its own key does. Widgets left out follow in Settings'
-/// order, and a bad or repeated item is dropped with a diagnostic. The greeting stays over the
+/// order, and a bad or repeated item is dropped with a diagnostic. The headline stays over the
 /// composer, and the template dots stay where they are.
 nonisolated extension NewTabWidgetSettings {
     public static let orderPath = ["tabs", "newTabWidgets", "order"]
@@ -78,6 +78,17 @@ extension SettingsController {
         try await setSetting(descriptor, to: descriptor.defaultValue == .bool(true) ? .bool(false) : nil, by: .caller("page"))
     }
 
+    /// The New Tab page's second dot (Claude Minimal with the quick actions, webviews
+    /// newtab/tabDots.ts): turns the widget on as its Settings switch does (a widget that is on by
+    /// default leaves the file).
+    public func showNewTabWidget(_ widget: String) async throws {
+        let path = ["tabs", "newTabWidgets", widget]
+        guard let descriptor = SettingsSchema.descriptor(for: path), descriptor.kind == .toggle else {
+            throw SettingNotInSchema(key: path.joined(separator: "."))
+        }
+        try await setSetting(descriptor, to: descriptor.defaultValue == .bool(true) ? nil : .bool(true), by: .caller("page"))
+    }
+
     /// The New Tab page's drag in edit mode: the movable widgets it shows, in their new order. A
     /// widget it does not show (off) keeps its place in the saved order; the default order leaves
     /// the file.
@@ -102,7 +113,10 @@ extension SettingsController {
     public func saveNewTabTemplate(_ value: String) async {
         guard let template = NewTabTemplate(rawValue: value), template != .terminal,
               let descriptor = SettingsSchema.descriptor(for: NewTabTemplate.configPath) else { return }
-        do { try await setSetting(descriptor, to: .string(template.rawValue), by: .caller("page")) } catch {
+        // The old Composer page is no longer selectable. Normalize page writes too, so a stale
+        // caller cannot put the retired value back into cmux.json.
+        let savedTemplate: NewTabTemplate = template == .composer ? .minimal : template
+        do { try await setSetting(descriptor, to: .string(savedTemplate.rawValue), by: .caller("page")) } catch {
             Logger(subsystem: "com.cmuxterm.app.next", category: "newtab")
                 .error("new tab template write failed: \(String(describing: error), privacy: .public)")
         }

@@ -134,6 +134,7 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
       const report = await stream(name, cadence);
       console.log(`streaming-text-frames ${label}: ${JSON.stringify(report, null, 2)}`);
       expect(overLayout(report)).toEqual([]);
+      expect(report.longTasks?.duringStream ?? []).toEqual([]);
       // A frame's work is wall-clock time, so a host that starves the page can break it once (on
       // cmux16 at load 25, one run's grammar load took 850 ms, 40 times its usual 20). The work
       // budget fails when two runs in a row break it.

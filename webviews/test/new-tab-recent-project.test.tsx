@@ -343,3 +343,41 @@ test("with no recent project known yet, the folder chip holds its place until th
   await act(async () => root!.render(page([], false)));
   expect(host.querySelector(".nt-location")?.hasAttribute("data-project-pending")).toBe(false);
 });
+
+test("enabled recent chats show placeholders until the first session list settles", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  const { setDeviceChats } = await import("../src/agent-session/acpmux/newtab/deviceChats");
+  setDeviceChats([]);
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const page = (list: typeof sessions, pending: boolean) => (
+    <NewTabScreen
+      snapshot={noChat(list)}
+      omnibar={EMPTY_OMNIBAR}
+      template="threads"
+      pageWidgets={new Set(["chats"])}
+      chatsPending={pending}
+      lastAgent="claude"
+      onAsk={noop}
+      onOpen={noop}
+      onSearch={noop}
+      onShell={noop}
+      onJump={noop}
+      onOpenSession={noop}
+      onShowAll={noop}
+    />
+  );
+  await act(async () => root!.render(page([], true)));
+  expect(host.querySelector(".nt-cards[aria-busy=true]")).not.toBeNull();
+  expect(host.querySelector(".nt-chats-empty")).toBeNull();
+  await act(async () => root!.render(page(sessions, false)));
+  expect(host.querySelector(".nt-cards[aria-busy=true]")).toBeNull();
+  expect(host.querySelector(".nt-card-title")?.textContent).toBeTruthy();
+  await act(async () => root!.render(page(sessions, true)));
+  expect(host.querySelector(".nt-cards[aria-busy=true]")).toBeNull();
+  expect(host.querySelector(".nt-card-title")?.textContent).toBeTruthy();
+  await act(async () => root!.render(page([], false)));
+  expect(host.querySelector(".nt-cards[aria-busy=true]")).toBeNull();
+  expect(host.querySelector(".nt-chats-empty")).not.toBeNull();
+});

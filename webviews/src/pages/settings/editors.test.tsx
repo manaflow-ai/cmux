@@ -64,6 +64,9 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
       return has("input.token-input") ? null : "no number token field";
     case "string_map":
       return has("[data-string-map]") && has("input[data-map-new-key]") ? null : "no key and value list";
+    case "sound_rules":
+      // Per-level sound maps are set from the sidebar menus, the palette and the CLI; never a row.
+      return "a sound_rules row on the page";
   }
 }
 
@@ -97,6 +100,12 @@ describe("editors", () => {
         if (row.key === "home.chiefPetEnabled" || row.key === "home.chiefPetMascot") {
           if (!page.container.querySelector('[data-card="chief-pet"] .chief-pet-choice[data-pet="orb"]'))
             failures.push(`${row.key}: no Chief Pet card`);
+          continue;
+        }
+        // The Machines card draws appearance.machineColors as a color well on each machine's row.
+        if (row.key === "appearance.machineColors") {
+          if (!page.container.querySelector('[data-card="machines"] [data-machine-color] input[type="color"]'))
+            failures.push(`${row.key}: no machine color well`);
           continue;
         }
         // The density card draws appearance.density and the custom density keys (SectionView).
@@ -224,6 +233,46 @@ describe("editors", () => {
     expect(row().querySelector("[data-reset]")).toBeNull();
   });
 
+  test("unset browser.hibernation shows Never Discard; a written value shows Reset, which unsets it", async () => {
+    const key = "browser.hibernation";
+    page = await renderPage({ path: "/settings/browser" });
+    const row = () => rowElement(page!.container, key);
+    const select = () => row().querySelector<HTMLSelectElement>("select")!;
+    expect(select().value).toBe("");
+    expect(select().selectedOptions[0]?.textContent).toBe("Never Discard");
+    expect(row().querySelector("[data-reset]")).toBeNull();
+    await changeValue(select(), "moderate");
+    expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key, value: "moderate" }]);
+    expect(select().selectedOptions[0]?.textContent).toBe("After 30 Minutes");
+    expect(row().querySelector("[data-reset]")).not.toBeNull();
+    await changeValue(select(), "");
+    expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key }]);
+    expect(select().value).toBe("");
+    expect(row().querySelector("[data-reset]")).toBeNull();
+    // A custom timeout, then Reset: the menu shows Never Discard again, not an empty Custom… field.
+    await changeValue(select(), "__custom__");
+    const field = row().querySelector<HTMLInputElement>("input.number")!;
+    await changeValue(field, "45");
+    await fire(field, "keydown", { key: "Enter" });
+    expect(ops(page.provider, "cmux.settings.set")).toEqual([
+      { key, value: "moderate" },
+      { key, value: 45 },
+    ]);
+    expect(select().value).toBe("__custom__");
+    await click(row().querySelector("[data-reset]")!);
+    expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key }, { key }]);
+    expect(select().value).toBe("");
+    expect(select().selectedOptions[0]?.textContent).toBe("Never Discard");
+    expect(row().querySelector("input.number")).toBeNull();
+  });
+
+  test("the hidden native select behind each menu is not a Tab stop", async () => {
+    page = await renderPage({ path: "/settings/general" });
+    const mirrors = [...page.container.querySelectorAll<HTMLSelectElement>("select.ui-select-native")];
+    expect(mirrors.length).toBeGreaterThan(0);
+    for (const mirror of mirrors) expect(mirror.tabIndex).toBe(-1);
+  });
+
   test("every row reserves its Reset slot, so showing Reset moves no other control", async () => {
     page = await renderPage({ path: "/settings/privacy" });
     for (const element of page.container.querySelectorAll("[data-row-key]")) {
@@ -243,6 +292,52 @@ describe("editors", () => {
     const after = [...row().querySelector(".row-control")!.children].map((child) => child.className);
     expect(after).toEqual(before);
     expect(row().querySelector(".reset-slot button")!.hasAttribute("inert")).toBe(false);
+  });
+
+  test("Escape drops a typed address instead of saving it on blur", async () => {
+    page = await renderPage({ path: "/settings/browser" });
+    const field = () =>
+      rowElement(page!.container, "browser.newTabPage").querySelector<HTMLInputElement>("input.text")!;
+    await changeValue(field(), "https://example.org");
+    await fire(field(), "keydown", { key: "Escape" });
+    await fire(field(), "focusout");
+    expect(field().value).not.toBe("https://example.org");
+    expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
+  });
+
+  test("Reset clears an invalid address that was still being typed", async () => {
+    page = await renderPage({ path: "/settings/browser" });
+    const row = () => rowElement(page!.container, "browser.newTabPage");
+    const field = () => row().querySelector<HTMLInputElement>("input.text")!;
+    await changeValue(field(), "https://example.org");
+    await fire(field(), "keydown", { key: "Enter" });
+    await changeValue(field(), "not an address");
+    await fire(field(), "keydown", { key: "Enter" });
+    expect(row().querySelector("[role=alert]")).not.toBeNull();
+    await click(row().querySelector("[data-reset]")!);
+    expect(row().querySelector("[role=alert]")).toBeNull();
+    expect(field().value).not.toBe("not an address");
+  });
+
+  test("the self-hosted address field drops its draft on Escape and on Reset", async () => {
+    page = await renderPage({
+      path: "/settings/accounts",
+      mock: { values: { "home.server": { selfHosted: "http://mini.example.ts.net:7320" } } },
+    });
+    const row = () => rowElement(page!.container, "home.server");
+    const field = () => row().querySelector<HTMLInputElement>("input.text")!;
+    await changeValue(field(), "http://other.example.ts.net:7320");
+    await fire(field(), "keydown", { key: "Escape" });
+    await fire(field(), "focusout");
+    expect(field().value).toBe("http://mini.example.ts.net:7320");
+    expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
+    await changeValue(field(), "not an address");
+    await fire(field(), "focusout");
+    expect(row().querySelector("[role=alert]")).not.toBeNull();
+    await click(row().querySelector("[data-reset]")!);
+    expect(row().querySelector("[role=alert]")).toBeNull();
+    expect(row().querySelector("input.text")).toBeNull();
+    expect(row().querySelector<HTMLSelectElement>("select")!.value).toBe("hosted");
   });
 
   test("a refused value shows a localized error on the row, the daemon's text as detail", async () => {

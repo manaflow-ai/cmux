@@ -7,13 +7,23 @@ public nonisolated enum HostCommand: Equatable, Sendable {
     case enroll(host: String, name: String)
     /// `host doctor NAME|HOST [--fix] --json`: the checks alone, or `--fix` for the failed ones.
     case doctor(host: String, fix: Bool)
+    /// `machine doctor ID --json`: the minting end's checks of a machine that joined with a one-line
+    /// token (Labs `labs.machineJoin`). It reads the cmux access token on stdin (``needsAccount``).
+    case joinedDoctor(id: String)
 
     /// The arguments after the `cmux-tui` binary.
     public var arguments: [String] {
         switch self {
         case let .enroll(host, name): ["acp", "host", "enroll", host, "--name", name, "--json"]
         case let .doctor(host, fix): ["acp", "host", "doctor", host] + (fix ? ["--fix"] : []) + ["--json"]
+        case let .joinedDoctor(id): ["machine", "doctor", id, "--json", "--cloud-token-stdin"]
         }
+    }
+
+    /// The run reads the signed-in account's cmux access token as one line on its stdin.
+    public var needsAccount: Bool {
+        if case .joinedDoctor = self { return true }
+        return false
     }
 }
 
@@ -121,13 +131,18 @@ public struct AddMachineServices {
 /// (or doctor for Check Machine) with its checklist filling in live from the CLI's lines, then
 /// ready or failed. The card, the palette, the CLI and a reopen read the same model; the click and
 /// the key run ``perform(_:)``.
-@Observable
+@MainActor @Observable
 public final class AddMachineModel {
     public nonisolated enum Mode: Equatable, Sendable {
         /// Add Machine: the field and the Tailscale list, then enroll.
         case add
         /// Check Machine: doctor for one SSH machine the app has, with Fix.
         case check(host: String, machineID: String)
+        /// Check for a machine that joined with a one-line token (``HostCommand/joinedDoctor(id:)``).
+        /// No Fix: the minting end repairs nothing on another machine.
+        /// `rowID`: the Machines row the result is recorded under (its own `joined:` id, or the
+        /// daemon row of a joined machine the app also connects to).
+        case checkJoined(id: String, name: String, rowID: String)
     }
 
     public nonisolated enum Phase: Equatable, Sendable {
@@ -154,6 +169,9 @@ public final class AddMachineModel {
     /// The host and name of the last run (the ready title, Copy Details).
     public private(set) var runHost = ""
     public private(set) var runName = ""
+    /// The agent peer last picked from the list (already enrolled, not in the app yet): while the
+    /// field still holds its destination, Add connects it and checks it instead of enrolling.
+    public private(set) var pickedPeer: HostCandidate?
 
     @ObservationIgnored private let services: AddMachineServices
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -178,6 +196,7 @@ public final class AddMachineModel {
         machineID = nil
         self.destination = destination ?? ""
         self.name = name ?? ""
+        pickedPeer = nil
         loadCandidates()
     }
 
@@ -194,19 +213,44 @@ public final class AddMachineModel {
         doctor(fix: false)
     }
 
-    /// A candidate row was clicked: its name goes in the field.
+    /// Check opens on a joined machine (`machine doctor ID`); its result is recorded under
+    /// ``JoinedMachine/healthID(_:)``.
+    public func beginJoinedCheck(id: String, name: String, rowID: String? = nil) {
+        let check = Mode.checkJoined(id: id, name: name, rowID: rowID ?? JoinedMachine.healthID(id))
+        if phase == .running, mode == check { return }
+        cancelRun()
+        candidatesTask?.cancel()
+        mode = check
+        machineID = nil
+        runHost = id
+        runName = name
+        doctor(fix: false)
+    }
+
+    /// A candidate row was clicked: its name goes in the field. Nothing runs until Add is pressed,
+    /// an agent peer included (the person's click is the trust step).
     public func pick(_ candidate: HostCandidate) {
         guard candidate.isPickable, phase == .pick else { return }
         destination = candidate.destination
+        pickedPeer = candidate.alreadyPeer ? candidate : nil
+    }
+
+    /// The picked agent peer and its destination while the field still holds it.
+    private var peerTarget: (candidate: HostCandidate, destination: HostDestination)? {
+        guard let pickedPeer, destination == pickedPeer.destination, let parsed = services.parse(destination) else { return nil }
+        return (pickedPeer, parsed)
     }
 
     // MARK: State
 
     /// The machine's name when the Name field is empty: the short host.
-    public var defaultName: String { services.parse(destination)?.shortName ?? "" }
+    public var defaultName: String {
+        if let peerTarget { return Self.trimmed(peerTarget.candidate.peer ?? "") ?? peerTarget.destination.shortName }
+        return services.parse(destination)?.shortName ?? ""
+    }
 
     /// Whether the field holds a destination ssh can take.
-    public var canAdd: Bool { services.parse(destination) != nil }
+    public var canAdd: Bool { peerTarget != nil || services.parse(destination) != nil }
 
     /// The footer: Escape (or no key) first, Return last.
     public var buttons: [AddMachineButton] {
@@ -225,6 +269,12 @@ public final class AddMachineModel {
             [AddMachineButton(action: .copyDetails, key: nil), AddMachineButton(action: .tryAgain, key: .return)]
         case (.failed, .check):
             [AddMachineButton(action: .copyDetails, key: nil), AddMachineButton(action: .fix, key: .return)]
+        case (.running, .checkJoined):
+            [AddMachineButton(action: .cancel, key: .escape)]
+        case (.ready, .checkJoined):
+            [AddMachineButton(action: .done, key: .return)]
+        case (.failed, .checkJoined):
+            [AddMachineButton(action: .copyDetails, key: nil), AddMachineButton(action: .done, key: .return)]
         }
     }
 
@@ -288,6 +338,10 @@ public final class AddMachineModel {
     // MARK: Runs
 
     private func add() {
+        if let peerTarget {
+            addPeer(peerTarget.candidate, host: peerTarget.destination.host, name: Self.trimmed(name) ?? defaultName)
+            return
+        }
         guard let parsed = services.parse(destination) else { return }
         let host = parsed.host
         let name = Self.trimmed(name) ?? parsed.shortName
@@ -301,11 +355,18 @@ public final class AddMachineModel {
         task = Task { [weak self] in
             guard let self else { return }
             var report = await stream(.enroll(host: host, name: name))
+            // Cancel can end the stream after it has parsed a report. Do not start the
+            // app-install fallback from that retained report.
+            guard !Task.isCancelled else { return }
             if let first = report, Self.needsAppInstall(first) {
                 // The app's own install path (remote.connect, remote.install) puts the right-arch
                 // build on the host; enroll then runs again from the top.
                 installingAppBuild = true
                 checklist.run(.install)
+                guard !Task.isCancelled else {
+                    installingAppBuild = false
+                    return
+                }
                 let installed = await services.install(host, name)
                 installingAppBuild = false
                 guard !Task.isCancelled else { return }
@@ -327,14 +388,46 @@ public final class AddMachineModel {
         }
     }
 
+    /// An agent peer the app does not have: enroll already ran for it, so the app connects it under
+    /// `name` and runs doctor (by its peer name) for the checklist.
+    private func addPeer(_ candidate: HostCandidate, host: String, name: String) {
+        cancelRun()
+        candidatesTask?.cancel()
+        runHost = host
+        runName = name
+        phase = .running
+        machineID = nil
+        let services = services
+        task = Task { [weak self] in
+            guard let self else { return }
+            guard let id = services.connect(host, name) else {
+                checklist.start()
+                checklist.stop(AddMachineStrings.peerConnectFailed)
+                phase = .failed(nil)
+                return
+            }
+            machineID = id
+            let report = await stream(.doctor(host: Self.trimmed(candidate.peer ?? "") ?? host, fix: false))
+            guard !Task.isCancelled else { return }
+            guard let report else { phase = .failed(nil); return }
+            services.record(id, report)
+            phase = report.ok ? .ready(report) : .failed(report)
+        }
+    }
+
     private func doctor(fix: Bool) {
-        guard case let .check(host, machineID) = mode else { return }
+        let command: HostCommand, machineID: String
+        switch mode {
+        case let .check(host, id): (command, machineID) = (.doctor(host: host, fix: fix), id)
+        case let .checkJoined(id, _, rowID): (command, machineID) = (.joinedDoctor(id: id), rowID)
+        case .add: return
+        }
         cancelRun()
         phase = .running
         let services = services
         task = Task { [weak self] in
             guard let self else { return }
-            let report = await stream(.doctor(host: host, fix: fix))
+            let report = await stream(command)
             guard !Task.isCancelled else { return }
             guard let report else { phase = .failed(nil); return }
             services.record(machineID, report)
@@ -344,7 +437,8 @@ public final class AddMachineModel {
 
     /// Runs one command into the checklist; its report, or nil when it ended without one.
     private func stream(_ command: HostCommand) async -> HostReport? {
-        checklist.start()
+        // A joined machine's check runs other steps than enroll's: it shows the ones it sends.
+        checklist.start(steps: command.needsAccount ? [] : HostStep.known)
         var report: HostReport?
         do {
             for try await line in services.run(command) {
@@ -392,7 +486,8 @@ public final class AddMachineModel {
     static func needsAppInstall(_ report: HostReport) -> Bool {
         report.steps.contains { step in
             step.step == .install && step.state == .fail
-                && [HostStepResult.wrongPlatform, HostStepResult.notThisProgram].contains(step.reason)
+                && [HostStepResult.wrongPlatform, HostStepResult.notThisProgram,
+                    HostStepResult.peerVersionSkew].contains(step.reason)
         } && !report.steps.contains { $0.step == .reach && $0.state == .fail }
     }
 

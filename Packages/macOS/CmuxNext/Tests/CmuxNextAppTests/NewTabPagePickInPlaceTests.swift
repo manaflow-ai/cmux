@@ -13,17 +13,17 @@ import Testing
 /// beside another tab (a terminal, a browser, a chat card) went through ``LinkOpener``: to the pane
 /// on the right, else a new split, and the page's pane fell back to its old tab. The New Tab page
 /// is the tab the person opened in this pane: its pick takes the page's place there, whatever
-/// `layout.linkPlacement` says, and no pane or divider moves. The Debug toggle `links.pagesFollowPlacement`
+/// `layout.linkPlacement` says, and no pane or divider moves. The Debug toggle `newTab.picksFollowLinks`
 /// opts back into the link rule (Lawrence 2026-10-19). Serialized: the toggle is the shared store's.
 @MainActor @Suite(.serialized) struct NewTabPagePickInPlaceTests {
     /// A pane holding a terminal (surface 1) and the New Tab page (surface 2), or the page alone, with
-    /// the Debug toggle `links.pagesFollowPlacement` on (`optedIn`) or at its default.
+    /// the Debug toggle `newTab.picksFollowLinks` on (`optedIn`) or at its default.
     private static func pane(withTerminal: Bool, optedIn: Bool = false) throws -> (AppServices, PaneController, String) {
         _ = NSApplication.shared
         let store = TunableStore.shared
         store.activate(file: nil)
         store.register(AgentPaneTunables.all)
-        _ = store.set(AgentPaneTunables.pagesFollowLinkPlacement.key, optedIn ? .bool(true) : nil)
+        _ = store.set(AgentPaneTunables.newTabPicksFollowLinks.key, optedIn ? .bool(true) : nil)
         let services = AppServices(environment: AppEnvironment.current([:]))
         let surfaces: [UInt64] = withTerminal ? [1, 2] : [2]
         let snapshot = PaneSnapshot(id: PaneID(rawValue: 1), tabs: surfaces.map { TabSnapshot(surface: SurfaceID(rawValue: $0), title: "~") })
@@ -44,7 +44,7 @@ import Testing
         let (services, pane, page) = try Self.pane(withTerminal: withTerminal, optedIn: optedIn)
         defer {
             pane.teardown()
-            _ = TunableStore.shared.set(AgentPaneTunables.pagesFollowLinkPlacement.key, nil)
+            _ = TunableStore.shared.set(AgentPaneTunables.newTabPicksFollowLinks.key, nil)
         }
         var consulted = false
         services.linkOpener.placement = {
@@ -69,16 +69,16 @@ import Testing
 
     /// The Debug toggle is off unless someone turns it on.
     @Test func followingLinksIsOptIn() {
-        #expect(!AgentPaneTunables.pagesFollowLinkPlacement.defaultValue)
+        #expect(!AgentPaneTunables.newTabPicksFollowLinks.defaultValue)
     }
 
-    /// `links.pagesFollowPlacement` on: the pick goes where links go, beside the page.
+    /// `newTab.picksFollowLinks` on: the pick goes where links go, beside the page.
     @Test func optedInThePickFollowsLinkPlacement() throws {
         #expect(try Self.pickConsultsLinkPlacement(.splitRight, withTerminal: true, optedIn: true))
         let (_, pane, page) = try Self.pane(withTerminal: true, optedIn: true)
         defer {
             pane.teardown()
-            _ = TunableStore.shared.set(AgentPaneTunables.pagesFollowLinkPlacement.key, nil)
+            _ = TunableStore.shared.set(AgentPaneTunables.newTabPicksFollowLinks.key, nil)
         }
         #expect(NewTabPage.opensBeside(page, in: pane))
     }

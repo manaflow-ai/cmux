@@ -10,7 +10,7 @@ walks the states with `debug.mouse` (the synthesized pointer and clicks), `debug
 `debug.omnibar` (its `pointer` report: hover, the cursor region at a probe point, frames):
 
   1. cursor at rest: the I-beam over the text area (the text, above it, past its end), the arrow
-     over the chip, a button and the row;
+     over the chip and the row, the arrow over a button;
   2. hover: the bar and a button light under the pointer and clear when it leaves;
   3. a hover does not survive a tab switch: a tab hidden under the pointer and shown again after
      the pointer left shows no hover;
@@ -221,7 +221,7 @@ try:
     if chip:
         check(probe(center(chip))[1] == "arrow" and probe(center(chip))[0] == "control", f"arrow over the chip {probe(center(chip))}")
     if reload:
-        check(probe(center(reload)) == ("control", "arrow"), f"arrow over a button {probe(center(reload))}")
+        check(probe(center(reload)) == ("button", "arrow"), f"arrow over a button {probe(center(reload))}")
     if toolbar and reload and bar:
         gap = ((reload[0] + reload[2] + bar[0]) / 2, toolbar[1] + 1)
         check(probe(gap)[1] == "arrow", f"arrow over the toolbar row {probe(gap)}")

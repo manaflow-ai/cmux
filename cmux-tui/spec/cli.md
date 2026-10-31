@@ -16,7 +16,8 @@ cmux daemon start [START OPTIONS]
 cmux attach [START OPTIONS] [--terminal <terminal-id>]
 cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
-cmux wg hub --config <wg-quick file> --socket <unix socket>
+cmux wg hub --config <wg-quick file | -> --socket <unix socket> [--client-token-stdin]
+cmux wg dial --hub <unix socket> <host> <port>
 cmux link dial --host <install or host id> [--service daemon|ssh] [--socket <absolute path>]
 cmux link ensure --state-dir <dir> [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--handoff]
 cmux link stop --state-dir <dir>
@@ -33,7 +34,11 @@ socket. Machine connectors use it as a transport primitive. `wg hub` owns one
 in-process WireGuard tunnel and serves SOCKS5 CONNECT on an owner-only Unix
 socket so several `remote connect --wireguard-hub <socket>` clients share one
 key; it prints one `hub-ready` JSON line when listening and removes the socket
-on SIGTERM or SIGINT.
+on SIGTERM or SIGINT. With `--client-token-stdin` it reads a token as stdin's
+first line and serves only clients presenting it (`remote connect
+--wireguard-hub-token-stdin`); a client without it reaches port 22 only (`wg dial`, an ssh
+`ProxyCommand` that bridges stdio to HOST:PORT through the hub; ssh authenticates both ends).
+`--config -` reads the config from the rest of stdin.
 
 `cmux-tui __daemon-capabilities [--json]` (private, not in help) prints, with
 no daemon running, the capabilities every daemon
@@ -329,7 +334,8 @@ output modes, and exit codes. It never sends private protocol commands.
 All `-t` values are cmux selectors. They do not interpret tmux numeric indexes,
 `%pane`, `@window`, or `session:window.pane` targets. Capture/input also accept a
 full `pane_…` ID, selecting its current tab's terminal. An omitted target uses
-`current` in the selected session, not a remembered client or shell.
+`current` in the selected session (the caller's own object inside cmux), not a
+remembered client or shell.
 
 Explicit selector paths take precedence over shorthand actions. Use `name:` for
 names that collide with command words. Names, option values, key payloads, and
@@ -352,12 +358,32 @@ screen inside the selected session's workspace.
 An instance selector accepts:
 
 - a typed opaque ID such as `ws_…`, `pane_…`, or `term_…`;
+- `caller`, for a workspace, screen, pane, tab or terminal;
 - `current`;
 - an exact name.
 
+`caller` is the object the command runs in: the caller's terminal
+(`CMUX_TUI_TERMINAL_ID`) and the tab, pane, screen and workspace that hold it,
+or for an agent session (`CMUX_AGENT_SESSION`) the place of its chat that the
+app's `system.identify` reports. The CLI resolves it to ids before it sends the
+request. It fails with `selector.not_found` when no caller is known and with
+`selector.invalid` under `--socket`, `--session` or `--machine`, which name
+another session or machine.
+
+`current` is the caller's object as well when a caller is known and the
+request routes to the caller's own session, so an agent never acts on the
+workspace or pane the person is looking at. It is the session's focused object
+when no caller is known or the caller cannot be found (a shell outside cmux, a
+stale terminal id, an app that does not answer), under `--socket`, `--session`
+or `--machine`, below an explicit parent that is not the caller's, above an
+explicit id or name, and for a browser target. The daemon itself only knows
+`current` as focused. `cmux agents` keeps `current` focused and does not take
+`caller`. The MCP tools resolve `current` to the chat's own place themselves,
+use `focused` for the object the person looks at, and do not take `caller`.
+
 Names may be empty, contain Unicode or whitespace, and need not be unique.
 `name:<value>` forces name interpretation and is required for names equal to
-`current`, names containing `_`, reserved command words, and ID-shaped names.
+`current` or `caller`, names containing `_`, reserved command words, and ID-shaped names.
 An ambiguous name returns `selector.ambiguous` with every candidate ID. It
 never chooses one or changes state.
 
@@ -567,9 +593,12 @@ notification list
 notification create --title <text> --body <text> [--subtitle <text>] [--level <level>] [--terminal <term_id>]
 notification clear [--terminal <term_id>]
 notification ack --client <id> <notification-id>...
+attention request --tab <tab_…> --reason <text>
+attention clear --tab <tab_…>
 git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector>]
 git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patch]
-  [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [<path>...]
+  [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [--after-path <path>]
+  [--patch-offset <n> [--patch-revision <revision>]] [<path>...]
 git branches [TARGET] [--limit <n>]
 git files [TARGET] [--limit <n>] <query>...
 git list [TARGET] [--limit <n>]
@@ -581,6 +610,7 @@ git checkpoint list [TARGET] [--cursor <cursor>] [--limit <n>] [--candidates]
 git checkpoint pin [TARGET] <checkpoint> --pin <pin-id> --reason <text>
 git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
 git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch] [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>]
+  [--after-path <path>] [--patch-offset <n> [--patch-revision <revision>]]
 git commit [TARGET] --message <text> [--all [--include-untracked]] [--amend] [--no-verify] [--expected-head <commit>] [<path>...]
 git push [TARGET] [--remote <name>] [--branch <name>] [--set-upstream | --no-set-upstream] [--expected-head <commit>]
 git worktree create [TARGET] [--name <name>] [--base <revision>]
@@ -696,6 +726,12 @@ status and line counts, adds patches only with `--patch` (each cut at
 hunk keeps `--context-lines` unchanged lines around it, 3 by default), lists at
 most `--max-files` (500) files with the rest counted in `files_omitted`, and
 counts at most 200 untracked files, reporting the rest as `untracked_skipped`.
+`--after-path` (`after_path`) lists the files after a path, so the reply's
+`next_path` reads the next page. With `--patch` and exactly one file path,
+`--patch-offset` (`patch_offset`, a decimal byte offset; start at 0) returns a
+bounded `patch_page` of that file's whole raw patch instead of the clipped
+`patch`; a later page passes the first page's `revision` as `--patch-revision`
+(`patch_revision`). `git checkpoint diff` takes the same three flags.
 The base branch (`git status`'s `base`, the `branch` scope's merge base) is the
 one `git worktree create` recorded for the current branch
 (`branch.<branch>.cmuxBase`) while it still names a commit, else origin's
@@ -1003,6 +1039,8 @@ cmux screen group <group> update [--icon <icon>|--clear-icon] ...
 cmux tab group saved list | saved <saved> delete|reopen --pane <id>
 cmux workspace group list [--room <room>]
 cmux workspace group create --name <name> [--color <c>] [--room <room>] [--index <n>] [--collapse]
+cmux workspace group create --remote <host> [--name <name>]   # app: New Remote Group (remote.newGroup)
+cmux workspace group create --parent <group> --name <name>    # app: New Subgroup (workspaceGroup.newSubgroup)
 cmux workspace group remove --workspace <ws>
 cmux workspace group <group> update|delete|move|add ...
 ```

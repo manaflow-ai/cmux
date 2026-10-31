@@ -148,9 +148,9 @@ export const PAGES = {
           ),
       },
       {
-        // Machines > Add Server… (u3849): the palette action's own title.
-        file: `${sources}/CmuxNextActions/ServerActions.xcstrings`,
-        keys: () => ["action.server.addServer"],
+        // Machines > Add Device… (add-device-DESIGN.md): the palette action's own title, until the host lists arrive.
+        file: `${sources}/CmuxNextActions/RemoteActions.xcstrings`,
+        keys: () => ["action.device.add"],
       },
     ],
   },
@@ -254,7 +254,7 @@ export const PAGES = {
         keys: (all) =>
           all.filter(
             (key) =>
-              /^(tools|shell|code|image|media|markdown|duration|chip|message\.channel)\./.test(key) ||
+              /^(tools|shell|code|image|media|markdown|duration|chip|message\.channel|multiplayer)\./.test(key) ||
               [
                 "changes.noLineChanges",
                 "link.openPath",
@@ -272,6 +272,41 @@ export const PAGES = {
                 "message.sending",
                 "message.sent",
                 "message.delivered",
+                "message.deliveredShort",
+                "message.queued",
+                "message.notDelivered",
+                "message.notDeliveredStopped",
+                "message.notDeliveredNoAgent",
+                // The recipient chip's tooltip, the full id behind its name (MessageCard.tsx).
+                "message.recipientId",
+                // A run of messages' summary line (MessageGroupRow.tsx), which Channels draws too.
+                "messages.group.sending",
+                "messages.group.sentTo",
+                "messages.group.sent",
+              ].includes(key),
+          ),
+      },
+    ],
+  },
+  // The changelog's pull request chips draw the agent pane's link hover card (chips/LinkHoverCard.tsx,
+  // PullRequestCard.tsx, OpenInMenu.tsx), which read the pane's table; the page installs only these.
+  "changelog-pane": {
+    out: "webviews/src/pages/changelog/generated/pane-strings.json",
+    catalogs: [
+      {
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        keys: (all) =>
+          all.filter(
+            (key) =>
+              /^(prCard|header\.prBadge|header\.prReview)\./.test(key) ||
+              [
+                "chatInspector.changes.failingOnBase",
+                "header.prConflicts",
+                "header.prNoChecks",
+                "image.open",
+                "preview.cmuxBrowser",
+                "preview.copyLink",
+                "preview.openIn",
               ].includes(key),
           ),
       },
@@ -478,6 +513,10 @@ export function writeStrings({
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const check = process.argv.includes("--check");
+  // The feature tips table is build output beside the strings tables, made by every run that makes
+  // them (install, the webview and bundle builds, the gallery; gen-feature-tips.mjs).
+  const { writeFeatureTips } = await import("./gen-feature-tips.mjs");
+  const tipsFailed = writeFeatureTips({ check });
   const bestEffort = process.argv.includes("--best-effort") || (!check && process.env.CMUX_STRINGS_BEST_EFFORT === "1");
   const failed = writeStrings({
     check,
@@ -485,5 +524,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ifStale: process.argv.includes("--if-stale"),
     only: process.argv.slice(2).filter((arg) => !arg.startsWith("--")),
   });
-  process.exit(failed && !bestEffort ? 1 : 0);
+  process.exit((failed && !bestEffort) || tipsFailed ? 1 : 0);
 }

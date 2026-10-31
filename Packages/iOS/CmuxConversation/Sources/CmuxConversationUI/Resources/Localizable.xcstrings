@@ -103,6 +103,40 @@
         }
       }
     },
+    "conversation.composer.openAttachment": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attachment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイル"
+          }
+        }
+      }
+    },
+    "conversation.composer.openAttachmentHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens a preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューを開きます"
+          }
+        }
+      }
+    },
     "conversation.composer.removeAttachment": {
       "extractionState": "manual",
       "localizations": {
@@ -712,6 +746,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "編集を保存"
+          }
+        }
+      }
+    },
+    "conversation.composer.sendReply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Reply"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信を送信"
           }
         }
       }

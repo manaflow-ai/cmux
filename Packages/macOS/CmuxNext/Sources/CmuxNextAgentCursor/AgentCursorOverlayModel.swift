@@ -97,6 +97,7 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
                 drop = nil
             }
             let streamed = streamGap(event, cursor: &cursor, replay: replay)
+            host.apply(.confine(session: session, bounds: clip))
             if !animatesMovement() {
                 // Reduce Motion: the cursor appears where the input lands.
                 host.apply(.place(session: session, point: drop ?? target))

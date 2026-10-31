@@ -3,7 +3,7 @@
 // the `ready` answer carries `newTab`, as the app's new tab does.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
-import { CATALOG, CWD, manySessions, noChat, session } from "../../../gallery/fixtures/acpmux";
+import { CATALOG, CWD, fleetPeers, manySessions, noChat, session } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import { composerStatePlays } from "../composerStatePlays";
 
@@ -16,6 +16,7 @@ const OTHER_SITE_ICON =
 /// No chat yet, Claude Code starting on Medium: the model and reasoning chips both show.
 const reasoningChat = () =>
   noChat([], {
+    listedSessions: true,
     catalog: CATALOG.map((entry) =>
       entry.id === "claude" ? { ...entry, start: { model: "claude-opus-5-5", effort: "medium" } } : entry,
     ),
@@ -39,6 +40,30 @@ const RELEASE_OMNIBAR = {
     { url: "https://cmux.dev/release", title: "cmux release notes", icon: OTHER_SITE_ICON },
     { url: "https://example.com/release", title: "example release" },
   ],
+};
+
+/// The suggestions-* variants' omnibar (Leo 2026-10-24): "ff" once listed toolbar-diffviewer and
+/// app-efficiency above Ask, and the web search first. A review tab, three workspaces in the home
+/// folder and the repo's page open in a browser tab.
+const FF_OMNIBAR = {
+  tabs: [
+    { id: "tab-review", kind: "terminal", title: "All sessions", detail: "/tmp/review/review.diff" },
+    {
+      id: "tab-repo",
+      kind: "browser",
+      title: "manaflow-ai/cmux",
+      detail: "github.com/manaflow-ai/cmux",
+      icon: SITE_ICON,
+    },
+  ],
+  workspaces: [
+    { id: "workspace-chief", name: "chief-pet-default-off", detail: "~" },
+    { id: "workspace-toolbar", name: "toolbar-diffviewer", detail: "~" },
+    { id: "workspace-efficiency", name: "app-efficiency", detail: "~" },
+  ],
+  folders: [CWD],
+  commands: [],
+  history: [],
 };
 
 /// What plays, as the host pushes it (`nowPlaying`): Spotify's track with its art.
@@ -71,6 +96,32 @@ const newTab = (fields: Record<string, unknown> = {}) => ({
   },
   newSession: true,
 });
+
+// The weather widget's reading (AgentPaneNewTabWeather), read `age` ms ago.
+const weatherAt = (age: number) => ({
+  place: "Berlin",
+  temperature: 18.4,
+  high: 22.1,
+  low: 11.6,
+  code: 2,
+  unit: "celsius",
+  readAt: Date.now() - age,
+});
+
+// The machines widget's snapshot: an SSH peer acpmux lists (online) and a Cloud host an older chat
+// ran on that it no longer lists (offline).
+const ambientSnapshot = () => {
+  const snapshot = noChat(manySessions(12));
+  const [first] = snapshot.sessions;
+  return {
+    ...snapshot,
+    peers: ["build-box"],
+    peerKinds: { "build-box": "ssh" as const },
+    sessions: first
+      ? [...snapshot.sessions, { ...first, sessionId: "cloud-old", hostKind: "cloud" as const, host: "cloud-dev" }]
+      : snapshot.sessions,
+  };
+};
 
 // One page of the device chat index as the host answers `chats.page` (AllChatsList): titled
 // chats, untitled ones in several projects (named apart by their project), newest first.
@@ -160,6 +211,64 @@ async function waitForTabJump(
   );
 }
 
+/// A suggestion row as the popover draws it: its kind (`data-type`) and its title.
+type SuggestionRow = { type: string; title: string };
+
+/// Types `text` into the field and waits until the popover's rows pass `problem` (undefined when
+/// they do); at the wait's cap it fails with what `problem` last said about the rows.
+async function typedSuggestions(
+  ctx: PlayContext,
+  text: string,
+  problem: (rows: SuggestionRow[]) => string | undefined,
+): Promise<void> {
+  const rows = (): SuggestionRow[] =>
+    [...ctx.document.querySelectorAll<HTMLElement>(".nt-popover .nt-row")].map((row) => ({
+      type: row.dataset.type ?? "",
+      title: row.querySelector(".nt-row-title")?.textContent ?? "",
+    }));
+  await ctx.type(text, { selector: ".nt-field" });
+  try {
+    await ctx.waitFor(
+      () =>
+        ctx.document.querySelector<HTMLInputElement>(".nt-field")?.value === text &&
+        rows().length > 0 &&
+        problem(rows()) === undefined,
+    );
+  } catch {
+    const seen = rows();
+    throw new Error(
+      `"${text}": ${problem(seen) ?? "no rows"} (rows: ${seen.map((row) => `${row.type}:${row.title}`).join(", ")})`,
+    );
+  }
+}
+
+/// The rows' kinds, first to last, without the create rows at the end.
+const navigationTypes = (rows: SuggestionRow[]) => rows.filter((row) => row.type !== "create").map((row) => row.type);
+
+/// "ff": Ask first, no workspace that only holds "ff" inside a word, the web search last, no create row.
+function ffProblem(rows: SuggestionRow[]): string | undefined {
+  const types = navigationTypes(rows);
+  if (types[0] !== "ask") return "the first row is not Ask";
+  if (rows.some((row) => row.type === "workspace" && /toolbar-diffviewer|app-efficiency/.test(row.title)))
+    return "a workspace that only has ff inside a word shows";
+  if (types.at(-1) !== "search") return "the web search is not the last row";
+  if (rows.some((row) => row.type === "create")) return "a create row shows for text that names none";
+  return undefined;
+}
+
+/// The first two rows' kinds are `first` and `second` (one of them Ask); the other one is `title`.
+function leadProblem(first: string, second: string, title: string) {
+  return (rows: SuggestionRow[]): string | undefined => {
+    const [one, two] = rows;
+    if (one?.type !== first) return `the first row is not ${first}`;
+    if (two?.type !== second) return `the second row is not ${second}`;
+    const named = one?.type === "ask" ? two : one;
+    if (named?.title !== title) return `the ${first === "ask" ? "second" : "first"} row is not ${title}`;
+    if (navigationTypes(rows).at(-1) !== "search") return "the web search is not the last row";
+    return undefined;
+  };
+}
+
 /// Types a prompt, pastes an image and starts Now Playing, then checks that the composer's card
 /// and its field are where the empty page drew them (Leo 2026-10-19: the composer kept moving).
 async function holdsItsPlace(ctx: PlayContext): Promise<void> {
@@ -226,6 +335,7 @@ export default agentPaneEntry({
   },
   covers: [
     "agent-session/acpmux/newtab/NewTabScreen.tsx#NewTabScreen",
+    "agent-session/acpmux/newtab/AmbientWidgets.tsx#AmbientWidgets",
     "agent-session/acpmux/newtab/ChatCards.tsx",
     "agent-session/acpmux/newtab/NowPlayingPlayer.tsx#NowPlayingPlayer",
     "agent-session/acpmux/newtab/NowPlayingPlayer.tsx#NowPlayingCard",
@@ -247,23 +357,94 @@ export default agentPaneEntry({
     "ui/VirtualList.tsx#VirtualList",
   ],
   variants: withAllChats({
-    empty: {
-      note: "No chats yet. A harness is installed, so the chip names its model and nothing on the page offers Add harness.",
-      ready: newTab(),
-      snapshot: noChat(),
+    "start-refused": {
+      note: "A refused new chat keeps the typed prompt and SSH machine, with the host's reason inline.",
+      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      snapshot: noChat([], { peers: ["devbox"], peerKinds: { devbox: "ssh" } }),
+      native: { "chat.new": { nativeError: { code: "agent.start_failed", userMessage: "devbox: agent unavailable" } } },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        await ctx.click({ selector: '.nt-location .acpmux-location-picker[data-kind="computer"] button' });
+        await ctx.click({ role: "option", name: /devbox/ });
+        await ctx.type("Inspect the failed build and suggest a fix.", { selector: ".nt-field" });
+        await ctx.press("Enter");
+        await ctx.waitFor(() => galleryNativeCalls(ctx.document).some((call) => call.method === "chat.new"));
+        // Also ends on the unpatched base, so the comparison records its lost draft rather than
+        // waiting for a reason that the old action swallowed.
+        await ctx.waitFor(
+          () =>
+            !ctx.document.querySelector(".nt-field") ||
+            !!ctx.document.querySelector('[role="alert"]')?.textContent?.includes("agent unavailable"),
+        );
+      },
+    },
+    empty: {
+      note: "No chats yet. A harness is installed, so the chip names its model and nothing on the page offers Add harness.",
+      ready: newTab({ pageWidgets: ["chats"] }),
+      snapshot: noChat([], { listedSessions: true }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-chats-empty") !== null);
         if (ctx.document.querySelector(".nt-no-agent, .acpmux-add-harness"))
           throw new Error("Add harness shows on the page with a harness installed");
       },
     },
-    // The model button opens its one menu (Leo 2026-10-20), whole: the card does not clip it
-    // (Lawrence 2026-10-13). Points near its top and bottom edges hit the menu, not the page, and
-    // its More models submenu ends on Add harness….
-    "model-picker-open": {
-      note: "The New Tab model button's menu, open: the harness rail and the numbered models, never cut by the card; More models ends on Add harness….",
-      ready: newTab(),
+    "chats-loading": {
+      note: "The first session list is pending: recent chats use placeholders until it settles.",
+      ready: newTab({ pageWidgets: ["chats"] }),
       snapshot: noChat(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-cards[aria-busy=true]") !== null);
+      },
+    },
+    "inherited-project": {
+      note: "A fresh workspace inherits its last project: the machine/project controls keep their established slots and the inherited project stays selected without requiring a new pick.",
+      ready: newTab({ template: "minimal", cwd: "/Users/you", startedProject: CWD, projects: [CWD] }),
+      snapshot: noChat([], { listedSessions: true }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        const location = ctx.document.querySelector<HTMLElement>(".nt-location");
+        const project = ctx.document.querySelector<HTMLElement>(
+          ".nt-location .acpmux-location-leading > .acpmux-location-picker:first-child button",
+        );
+        if (!location || !project || !project.textContent?.includes("atlas-web"))
+          throw new Error("the inherited project is not shown in the established location slot");
+        const before = project.getBoundingClientRect();
+        if (before.width <= 0 || before.height <= 0) throw new Error("the location slot is not mounted");
+        await ctx.type("keep this project", { selector: ".nt-field" });
+        await ctx.waitFor(() => !(ctx.document.querySelector<HTMLButtonElement>(".nt-send")?.disabled ?? true));
+        const after = project.getBoundingClientRect();
+        if (Math.abs(after.left - before.left) > 1 || Math.abs(after.top - before.top) > 1)
+          throw new Error("the inherited location slot moved after input");
+      },
+    },
+    // The model button opens its one menu (Leo 2026-10-20), whole: the card does not clip it
+    // (Lawrence 2026-10-13). Points near its top and bottom edges hit the menu, not the page. On New
+    // Tab More models shows its models in place, under its row (newTabComposer.ts), then Add harness….
+    "computer-first-setup": {
+      note: "Fresh home with Labs off and only Studio Mac: the Computer menu exposes Add a computer and New Cloud Machine.",
+      ready: { ...newTab(), machineName: "Studio Mac" },
+      snapshot: noChat(),
+      native: { "cloudMachine.list": { signedIn: false, loaded: true, machines: [] } },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        await ctx.click({ selector: '.nt-location .acpmux-location-picker[data-kind="computer"] button' });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]'));
+      },
+    },
+    "machines-fleet": {
+      note: "The machine chip with 21 machines acpmux lists (`host ls`): every one, in This Mac, My machines and Cloud and VMs; in each the ones a chat can start on first, in number order, the rest greyed with their state and no pick.",
+      ready: newTab(),
+      snapshot: noChat([], { ...fleetPeers(), listedSessions: true }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        await ctx.click({ selector: '.nt-location .acpmux-location-picker[data-kind="computer"] button' });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="listbox"] [role="option"]') !== null);
+      },
+    },
+    "model-picker-open": {
+      note: "The New Tab model button's menu, open down: the harness rail and the models, never cut by the card; More models opens in place and ends on Add harness….",
+      ready: newTab(),
+      snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
         await ctx.click({ role: "button", name: "Model" });
@@ -275,11 +456,15 @@ export default agentPaneEntry({
           const x = box.left + box.width / 2;
           return [box.top + 6, box.bottom - 6].every((y) => menu.contains(ctx.document.elementFromPoint(x, y)));
         });
-        await ctx.hover({ text: "More models" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-more"));
-        const rows = ctx.document.querySelectorAll(".acpmux-quick-more [role^=menuitem]");
-        if (!rows[rows.length - 1]?.textContent?.includes("Add harness"))
-          throw new Error("the model menu's More models does not end on Add harness…");
+        // The row itself, by role: the menu's hidden width probe (QuickMenuSpacer) repeats its text
+        // later in the document, and a text target takes the last match.
+        await ctx.click({ role: "menuitem", name: "More models" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-list > .acpmux-quick-more-list"));
+        const more = ctx.document.querySelector(".acpmux-quick-list > .acpmux-quick-more-list")!;
+        if (more.querySelector('[aria-label="Add harness…"]'))
+          throw new Error("More models must contain models only; Add harness belongs in the rail");
+        if (!ctx.document.querySelector('.acpmux-quick-rail-add[aria-label="Add harness…"]'))
+          throw new Error("the model menu's harness rail must end on Add harness…");
       },
     },
     // The effort is part of the one model button (Leo 2026-10-20: "Opus 5.5  Medium"), and its
@@ -290,23 +475,98 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: reasoningChat(),
     },
+    "catalog-fast-menu": {
+      note: "Before a session reports config options: the New Tab model menu offers the model's catalog Fast mode beside Effort, as a started chat does.",
+      ready: newTab(),
+      snapshot: reasoningChat(),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-picker-button") !== null);
+        await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-fast") !== null);
+      },
+    },
     "reasoning-chip-stage": {
       note: "The Default template's stage layout before any chat: its own composer at the foot of the page, the one model button (model and effort) in the box, text at rest, the soft pill only on the hovered control.",
       ready: newTab({ template: "default" }),
       snapshot: reasoningChat(),
     },
-    // Minimal, the page as it opens by default (Leo 2026-10-20, newtab/pageWidgets.ts): the greeting
-    // and the composer, with chats on this Mac it does not list. `minimal-default` is a host that
+    // Minimal, the page as it opens by default (Leo 2026-10-20, newtab/pageWidgets.ts): the composer
+    // alone, no greeting (Leo 2026-10-22), with chats on this Mac it does not list. The optional
+    // headline is agent-pane.new-tab-headline. `minimal-default` is a host that
     // sends no template (the app's unset key); `minimal-widgets` turns the stage's widgets on.
     "minimal-default": {
-      note: "Minimal, New Tab's default layout: a quiet greeting over the composer, which keeps its folder and machine, model, effort, mic and Send. No project card, quick actions, chats or template dots: those are widgets, off by default.",
+      note: "Minimal, New Tab's default layout: the composer alone, with its folder and machine, model, effort, mic and Send, and under the page the three dots (Claude Minimal, Claude Minimal with the quick actions, Codex Minimal), the first marked. No greeting. The headline, project card, quick actions, chats and other template dots are widgets, off by default.",
       ready: newTab({ template: undefined }),
       snapshot: noChat(manySessions(12)),
       play: async (ctx: PlayContext) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-greeting") !== null);
-        const extra = ctx.document.querySelector(".nt-stage, .nt-cards, .nt-create, .nt-style");
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        const extra = ctx.document.querySelector(".nt-greeting, .nt-headline, .nt-stage, .nt-cards, .nt-create");
         if (extra) throw new Error(`the minimal page shows ${extra.className}`);
+        // The three dots only (newtab/tabDots.ts, Leo 2026-10-23), not the other styles.
+        const dots = ctx.document.querySelectorAll(".nt-style input[type=radio]").length;
+        if (dots !== 3) throw new Error(`the minimal page shows ${dots} dots, not the three`);
       },
+    },
+    "widgets-all-off": {
+      note: "All optional New Tab widgets off: the composer is the whole page.",
+      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      snapshot: noChat(manySessions(12)),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        if (ctx.document.querySelector(".nt-extras, .nt-headline, .nt-stage, .nt-create, .nt-ambient"))
+          throw new Error("optional widget rendered while all are off");
+      },
+    },
+    "widgets-all-on": {
+      note: "All optional New Tab widgets on: work-on headline, projects, actions, chats, clock, stopwatch, warm greeting and quote of the day.",
+      ready: newTab({
+        template: "minimal",
+        pageWidgets: [
+          "greeting",
+          "projects",
+          "actions",
+          "chats",
+          "styleDots",
+          "weather",
+          "machines",
+          "clock",
+          "timer",
+          "warmGreeting",
+          "quote",
+        ],
+        weather: weatherAt(60_000),
+      }),
+      snapshot: ambientSnapshot(),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-headline, .nt-stage") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-extras") !== null);
+        if (!ctx.document.querySelector(".nt-extra-clock, .nt-extra-timer, .nt-extra-warm, .nt-extra-quote"))
+          throw new Error("all-on extras missing");
+      },
+    },
+    "layout-codex-tabs-above": {
+      note: "Codex-style comparison: project and machine context sit above the composer, with the model name and a free Fast bolt together in the model picker.",
+      ready: newTab({ template: "minimal", pageWidgets: ["greeting"] }),
+      snapshot: noChat(manySessions(12)),
+    },
+    "layout-claude-chips-below": {
+      note: "Claude-style comparison: the composer stays spacious while project, machine, permission and model controls sit in the quiet row below it; paid Fast remains in the model menu.",
+      ready: newTab({ template: "default" }),
+      snapshot: noChat(manySessions(12)),
+    },
+    "layout-current-fixed": {
+      note: "Current fixed layout: the work-on headline names the project picker, real project and machine icons remain visible, and the existing glass spacing is preserved.",
+      ready: newTab({ template: "minimal", pageWidgets: ["greeting"] }),
+      snapshot: noChat(manySessions(12)),
+    },
+    // A user who had turned the greeting off before it went (`"greeting": false` in cmux.json, which
+    // the host sends as `headlineOff`): the composer stays where it sat for them, at the page's top
+    // padding, with no room kept for the headline.
+    "minimal-headline-off": {
+      note: "Minimal for someone who had turned the greeting off (greeting: false in cmux.json): the composer alone, where it sat for them before, with no room kept over it for the headline.",
+      ready: newTab({ template: undefined, pageWidgets: [], headlineOff: true }),
+      snapshot: noChat(manySessions(12)),
+      play: (ctx: PlayContext) => ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null),
     },
     "minimal-widgets": {
       note: "Minimal with the project card, quick actions, recent chats and the template dots turned on in Settings: Default's stage around the same composer.",
@@ -318,6 +578,47 @@ export default agentPaneEntry({
       play: async (ctx: PlayContext) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
         await ctx.waitFor(() => ctx.document.querySelector(".nt-style") !== null);
+      },
+    },
+    // The ambient widgets (`tabs.newTabWidgets.weather|machines`, newtab/ambient.ts): one quiet row
+    // under the composer. `minimal-ambient` has a fresh reading and an SSH peer online beside an old
+    // Cloud host; `minimal-ambient-offline` has a reading older than its refresh, drawn dimmed.
+    "minimal-ambient": {
+      note: "Minimal with Weather and Machines on: under the composer, today's weather (glyph, temperature, high and low, city) and each machine with its color, icon and an online dot (this Mac and an SSH peer online, an old Cloud host offline).",
+      ready: newTab({
+        template: "minimal",
+        pageWidgets: ["greeting", "weather", "machines"],
+        weather: weatherAt(60_000),
+      }),
+      snapshot: ambientSnapshot(),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-ambient-machine").length === 3);
+        if (ctx.document.querySelector(".nt-ambient-weather[data-stale]")) throw new Error("a fresh reading is dimmed");
+        const field = ctx.document.querySelector(".nt-field")?.getBoundingClientRect();
+        const row = ctx.document.querySelector(".nt-ambient")?.getBoundingClientRect();
+        if (!field || !row || row.top < field.bottom) throw new Error("the ambient row is not under the field");
+        if (ctx.document.querySelectorAll(".nt-ambient-machine[data-online]").length !== 2)
+          throw new Error("this Mac and the SSH peer should be online, the Cloud host offline");
+      },
+    },
+    "minimal-ambient-offline": {
+      note: "The weather could not refresh (offline): the last reading stays, dimmed; its tooltip says it is the last reading.",
+      ready: newTab({ template: "minimal", pageWidgets: ["greeting", "weather"], weather: weatherAt(3 * 60 * 60_000) }),
+      snapshot: noChat(manySessions(12)),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-ambient-weather[data-stale]") !== null);
+      },
+    },
+    "minimal-stage-foot": {
+      note: "Minimal with the project card, quick actions and recent chats on, the template dots off: the composer at the page's foot, its quiet row a few px over the page's bottom edge, as Claude Code's (Leo 2026-10-21).",
+      ready: newTab({
+        template: "minimal",
+        pageWidgets: ["greeting", "projects", "actions", "chats"],
+      }),
+      snapshot: noChat(manySessions(12)),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-foot .acpmux-composer-foot") !== null);
       },
     },
     // Minimal's widgets in the user's order (`tabs.newTabWidgets.order`) and its edit mode
@@ -342,7 +643,7 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
         await ctx.contextMenu({ selector: ".nt-env" });
         await ctx.click({ role: "menuitem", name: "Edit New Tab" });
-        // Four ✕: the greeting over the stage is a widget too, with its own frame.
+        // Four ✕: the headline over the stage is a widget too, with its own frame.
         await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-frame .nt-widget-remove").length === 4);
         await ctx.waitFor(() => ctx.document.querySelector(".nt-edit-bar") !== null);
       },
@@ -395,7 +696,7 @@ export default agentPaneEntry({
     "chats-unavailable": {
       note: "The chat index did not answer: All chats says it could not load and offers Try again.",
       ready: newTab(),
-      snapshot: noChat(),
+      snapshot: noChat([], { listedSessions: true }),
       native: {},
     },
     "calm-default": {
@@ -420,6 +721,26 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length === 5);
         if ([...ctx.document.querySelectorAll(".nt-row")].some((row) => row.textContent?.includes("Release")))
           throw new Error("the visual-only composer fixture unexpectedly contains the Release journey");
+      },
+    },
+    "attachment-menu": {
+      note: "The New Tab composer keeps the chat composer's leading + attachment control: opening it exposes the same Attach option, then Search chats and Search pages, without moving the field.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".nt-composer .acpmux-newtab-plus .acpmux-picker-button") !== null,
+        );
+        await ctx.click({ selector: ".acpmux-newtab-plus .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-newtab-plus [data-value="attach"]') !== null);
+        const input = ctx.document.querySelector<HTMLInputElement>(".nt-composer .acpmux-attach-input");
+        if (!input || !input.multiple) throw new Error("the New Tab attachment chooser is missing or single-file");
+        // The ChatGPT-style + searches (Search chats, Search pages); the page has no Search files.
+        for (const id of ["agentPane.searchChats", "history.search"])
+          if (!ctx.document.querySelector(`.acpmux-newtab-plus [data-value="${id}"]`))
+            throw new Error(`the New Tab + lost ${id}`);
+        if (ctx.document.querySelector('.acpmux-newtab-plus [data-value="files.search"]'))
+          throw new Error("the New Tab + offers Search files, which it cannot run");
       },
     },
     // The widget view (Debug Settings `newTab.widgets`, Leo 2026-10-18): soft cards under the create
@@ -492,7 +813,7 @@ export default agentPaneEntry({
       // The mock daemon answers with no harness, as acpmux does on a Mac without an agent CLI.
       ready: { ...newTab(), transport: "mock" },
       mockHarnesses: [],
-      snapshot: { ...noChat(), catalog: [] },
+      snapshot: { ...noChat([], { listedSessions: true }), catalog: [] },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-composer .acpmux-add-harness") !== null);
         if (ctx.document.querySelector(".nt-no-agent")) throw new Error("a No agent to ask line shows under the field");
@@ -504,7 +825,7 @@ export default agentPaneEntry({
       note: "hq#1925 12: suggestions open over the New terminal / browser / chat row and cover it; no text under the popover shows through.",
       ready: { ...newTab(), transport: "mock" },
       mockHarnesses: [],
-      snapshot: { ...noChat(), catalog: [] },
+      snapshot: { ...noChat([], { listedSessions: true }), catalog: [] },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-create") !== null);
         await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
@@ -537,7 +858,7 @@ export default agentPaneEntry({
     "harnesses-from-menu": {
       note: "Play: Integrate a Harness… from the palette or the File menu on this page (cx-9fqw) shows the Harnesses page here, in place, not in a second tab.",
       ready: newTab(),
-      snapshot: noChat(),
+      snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
         const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { command?(name: string): void } };
         await ctx.waitFor(() => page.cmuxAcpmuxBridge?.command !== undefined);
@@ -569,9 +890,8 @@ export default agentPaneEntry({
         });
         // The rows stay inside the list's box after a scroll too (cx-p8ul): every drawn row sits
         // within the scroller, below the field. The scroll is a measured step, so the play reports.
-        await ctx.scroll({ selector: ".nt-all-list" }, "bottom");
-        if ((ctx.document.querySelector(".nt-all-list")?.scrollTop ?? 0) === 0)
-          throw new Error("All chats did not scroll");
+        await ctx.scroll({ selector: ".nt-screen" }, "bottom");
+        if ((ctx.document.querySelector(".nt-screen")?.scrollTop ?? 0) === 0) throw new Error("New Tab did not scroll");
         const list = ctx.document.querySelector(".nt-all-list")!.getBoundingClientRect();
         const rows = [...ctx.document.querySelectorAll(".nt-all-item:not(.is-loader)")];
         if (rows.length === 0) throw new Error("All chats drew no rows");
@@ -809,12 +1129,12 @@ export default agentPaneEntry({
       },
     },
     "typed-keywords": {
-      note: "Leo 2026-10-20 (no Search | Ask switch): plain keywords. The web search leads (Return's, highlighted), Ask Claude Code one row down for a miss.",
+      note: 'Leo 2026-10-20 (no Search | Ask switch) and 2026-10-24 ("Search the web. Do you really want that first?"): plain keywords. Ask Claude Code leads (Return\'s, highlighted), the web search is the last row.',
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await ctx.type("rust serde", { selector: ".nt-field" });
-        await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="search"][aria-selected="true"]'));
+        await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="ask"][aria-selected="true"]'));
       },
     },
     "typed-question": {
@@ -832,7 +1152,7 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(3)),
     },
     "typed-tab-match": {
-      note: "Text that matches open tabs, workspaces and visited pages: a web search first (Return's, a plain word), Ask, then those rows (with their favicons, a glyph while one loads) in the popover; Down to the last row scrolls to it (dogfood 2026-10-08).",
+      note: "Text that matches open tabs, workspaces and visited pages: the Release workspace first (its exact name, Return's), Ask, then those rows (with their favicons, a glyph while one loads), the web search and the create strip in the popover; Down to the last row scrolls to it (dogfood 2026-10-08).",
       ready: newTab({
         omnibar: RELEASE_OMNIBAR,
       }),
@@ -840,9 +1160,10 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.type("release", { selector: ".nt-field" });
         await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
-        // The search, Ask, two tabs, the workspace, a page and the three create actions: eight
-        // presses from the top end on the last row, and three more wrap round to the first tab.
-        for (let step = 0; step < 8; step++) await ctx.press("ArrowDown");
+        // The workspace, Ask, then the first tab. Down to the last option (the create strip's end),
+        // then three more wrap round to the first tab.
+        const options = ctx.document.querySelectorAll('.nt-popover [role="option"]').length;
+        for (let step = 0; step < options - 1; step++) await ctx.press("ArrowDown");
         for (let step = 0; step < 3; step++) await ctx.press("ArrowDown");
         await ctx.press("Enter");
         await waitForTabJump(ctx, "tab", "tab-1");
@@ -964,6 +1285,88 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
       },
     },
+    "suggestions-ff": {
+      note: 'Leo 2026-10-24 ("Search the web. Do you really want that first?"): "ff" asks the agent first, offers no workspace that only holds ff inside a word, and keeps the web search last; nothing in the text names a create row.',
+      ready: newTab({ omnibar: FF_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typedSuggestions(ctx, "ff", ffProblem);
+        // The create actions stay one click away, as the strip under the rows.
+        const strip = ctx.document.querySelectorAll(".nt-popover .nt-create-strip-item").length;
+        if (strip !== 3) throw new Error(`the create strip shows ${strip} actions, not 3`);
+      },
+    },
+    "suggestions-url": {
+      note: "An address an open tab already shows: Switch to tab first, Ask right under it, the web search last.",
+      ready: newTab({ omnibar: FF_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typedSuggestions(ctx, "github.com/manaflow-ai/cmux", leadProblem("tab", "ask", "manaflow-ai/cmux"));
+      },
+    },
+    "suggestions-session": {
+      note: "A workspace's exact name: that workspace first, Ask right under it, the web search last.",
+      ready: newTab({ omnibar: FF_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typedSuggestions(ctx, "app-efficiency", leadProblem("workspace", "ask", "app-efficiency"));
+      },
+    },
+    "suggestions-create": {
+      note: 'Text that names a create action ("new t"): the New terminal row shows at the end of the list.',
+      ready: newTab({ omnibar: FF_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typedSuggestions(ctx, "new t", (rows) =>
+          rows.some((row) => row.type === "create" && /terminal/i.test(row.title)) ? undefined : "no New terminal row",
+        );
+      },
+    },
+    "suggestions-chat-ff": {
+      note: 'The chat order (newTab.suggestionOrder "chat"): Ask always first; "ff" lists Ask, the web search, then the three create rows (no strip).',
+      ready: newTab({ suggestionOrder: "chat", omnibar: FF_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typedSuggestions(ctx, "ff", (rows) => {
+          const types = navigationTypes(rows);
+          if (types[0] !== "ask") return "the first row is not Ask";
+          if (types.at(-1) !== "search") return "the web search is not the last row";
+          if (rows.filter((row) => row.type === "create").length !== 3)
+            return "the three create rows do not end the list";
+          return undefined;
+        });
+        if (ctx.document.querySelector(".nt-create-strip")) throw new Error("the chat order draws the create strip");
+      },
+    },
+    "suggestions-chat-url": {
+      note: "The chat order: Ask first even for an address an open tab shows; Switch to tab right under it.",
+      ready: newTab({ suggestionOrder: "chat", omnibar: FF_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typedSuggestions(ctx, "github.com/manaflow-ai/cmux", leadProblem("ask", "tab", "manaflow-ai/cmux"));
+      },
+    },
+    "suggestions-minimal-ff": {
+      note: 'The minimal order (newTab.suggestionOrder "minimal"): as the default, at most three matches and no create rows while typing; "ff" lists Ask, then the web search.',
+      ready: newTab({ suggestionOrder: "minimal", omnibar: FF_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typedSuggestions(ctx, "ff", ffProblem);
+      },
+    },
+    "suggestions-minimal-url": {
+      note: "The minimal order with an address an open tab shows: Switch to tab first, Ask under it, the web search last, no create rows.",
+      ready: newTab({ suggestionOrder: "minimal", omnibar: FF_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typedSuggestions(ctx, "github.com/manaflow-ai/cmux", (rows) => {
+          if (rows.some((row) => row.type === "create")) return "a create row shows in the minimal order";
+          if (rows.filter((row) => ["tab", "workspace", "history", "open"].includes(row.type)).length > 4)
+            return "more than the address and three matches show";
+          return leadProblem("tab", "ask", "manaflow-ai/cmux")(rows);
+        });
+      },
+    },
     "omnibar-row-kinds": {
       note: "Opened from text: the field holds it, selected, with no rows until it is edited.",
       ready: newTab({
@@ -1036,18 +1439,27 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(6)),
     },
     "template-cards-typed": {
-      note: "Cards template with keywords typed: the box keeps the mic and Send, and the suggestions (the web search first) open under the quiet row, never over its chips.",
+      note: "Cards template with keywords typed: the box keeps the mic and Send, and the suggestions (Ask first) open under the quiet row, never over its chips.",
       ready: newTab({ template: "cards" }),
       snapshot: noChat(manySessions(6)),
       play: async (ctx) => {
         await ctx.type("rust serde", { selector: ".nt-field" });
-        await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="search"]'));
+        await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="ask"]'));
       },
     },
     "template-composer": {
-      note: "Composer template (tabs.newTabTemplate): one large prompt, no chats.",
+      note: "Legacy Composer template id: saved input is migrated to Minimal, whose shared composer remains the one visible style.",
       ready: newTab({ template: "composer" }),
       snapshot: noChat(manySessions(4)),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        if (ctx.document.querySelector('.nt-screen[data-template="composer"]'))
+          throw new Error("legacy Composer id still renders the retired template");
+        if (!ctx.document.querySelector('.nt-screen[data-template="minimal"]'))
+          throw new Error("legacy Composer id did not migrate to Minimal");
+        if (ctx.document.querySelector('[data-style="composer"]'))
+          throw new Error("legacy Composer id is still selectable");
+      },
     },
     "composer-holds-its-place": {
       note: "After typing, a pasted image and Now Playing: the composer and the typed text are where the empty page drew them; the image sits under the text (Leo 2026-10-19: the composer kept moving).",
@@ -1056,7 +1468,7 @@ export default agentPaneEntry({
       play: holdsItsPlace,
     },
     "composer-template-holds-its-place": {
-      note: "Composer template after typing, a pasted image and Now Playing: the card stays where the empty page drew it, about the middle, instead of re-centering on what grew under it.",
+      note: "Legacy Composer input after typing, a pasted image and Now Playing: migration keeps the shared Minimal composer in place.",
       ready: newTab({ template: "composer", projects: [CWD] }),
       snapshot: noChat(manySessions(4)),
       play: holdsItsPlace,

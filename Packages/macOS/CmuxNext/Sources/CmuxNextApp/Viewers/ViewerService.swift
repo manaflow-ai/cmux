@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextDiff
 import CmuxNextPalette
 import typealias CmuxNextDaemon.SurfaceID
 
@@ -73,9 +74,9 @@ final class ViewerService {
 
     /// A diff tab for `directory` in `pane`; the diff host records the
     /// repository in its recents (`DiffRecents`, `cmux.diff.recents`).
-    func openDiff(_ directory: String, in pane: PaneController, focus: Bool,
+    func openDiff(_ directory: String, turn: DiffTurn? = nil, showTurn: Bool = false, in pane: PaneController, focus: Bool,
                   created: (@MainActor (SurfaceID) -> Void)? = nil) async throws {
-        try await diffViewer.openDiff(directory: directory, in: pane, focus: focus, created: created)
+        try await diffViewer.openDiff(directory: directory, turn: turn, showTurn: showTurn, in: pane, focus: focus, created: created)
     }
 
     /// The picker's folder mode for the diff viewer. `beside`: the placement of a diff opened beside
@@ -115,11 +116,12 @@ final class ViewerService {
     /// surface there (``LinkOpener`` moves it right of `pane`); a tab that already shows the file
     /// is selected where it is.
     /// `position` (a Find result): the code editor opens with the cursor there.
+    /// `asText` (Open as Text): a page cmux renders opens as its source in the code editor.
     @discardableResult
-    func openFile(_ file: URL, in pane: PaneController?, markdown: Bool, at position: FilePosition? = nil,
+    func openFile(_ file: URL, in pane: PaneController?, markdown: Bool, asText: Bool = false, at position: FilePosition? = nil,
                   placed: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
-        let refusal = if placed != nil || position != nil, let opener = fileOpener as? FilePageOpener {
-            opener.open(file, in: pane, userChose: true, at: position, placed: placed)
+        let refusal = if placed != nil || position != nil || asText, let opener = fileOpener as? FilePageOpener {
+            opener.open(file, in: pane, userChose: true, asText: asText, at: position, placed: placed)
         } else {
             fileOpener.open(file, in: pane)
         }
@@ -127,7 +129,7 @@ final class ViewerService {
             showRefusal(reason)
             return false
         }
-        let kind: ViewerRecents.Kind = markdown || PickerFilter.markdown.accepts(file.lastPathComponent) ? .markdown : .file
+        let kind: ViewerRecents.Kind = !asText && (markdown || PickerFilter.markdown.accepts(file.lastPathComponent)) ? .markdown : .file
         recents.record(file, as: kind)
         return true
     }
@@ -148,6 +150,6 @@ final class ViewerService {
     /// A refusal after the action returned (the picker answered later).
     func showRefusal(_ reason: String) {
         guard let services else { return }
-        services.refusalHUD.show(reason, in: services.windows.active?.window ?? NSApp.keyWindow)
+        services.refusalHUD.show(reason, in: services.windows.active?.window ?? services.keyWindowSource())
     }
 }

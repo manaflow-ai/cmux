@@ -14,18 +14,23 @@ reads the main-thread watchdog (`debug.hangs`) over the click. Two cases:
   - file path (`--file`): the system opens a .txt, which must show as a TextEdit document (the
     .txt handler on a fresh mini; TextEdit launches); no main-thread stall over 50 ms. Afterwards
     the note is closed, and TextEdit is quit through its quit path only when this run launched it.
+  - captured link (`--captured`, u11857): the terminal turns mouse reporting on, as Claude Code's
+    TUI does, and every row is an OSC 8 link to a Markdown file; the Cmd-click must open cmux's
+    Markdown page in a tab (not Finder, not the program), and the program gets no click.
 
 On exit it quits the app with quitEndSessions, stops the tag's cmux-tui session and kills any
 process left from the tag's bundle by exact PID.
 
-Usage: terminal-cmd-click-e2e.py --tag <tag> --app PATH [--file] [--out DIR]
+Usage: terminal-cmd-click-e2e.py --tag <tag> --app PATH [--file] [--captured] [--out DIR]
 """
-import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, time
+import argparse, glob, json, os, plistlib, re, signal, socket, subprocess, sys, tempfile, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True, help="the tagged .app bundle")
 parser.add_argument("--file", action="store_true", help="also Cmd-click a file path (launches TextEdit)")
+parser.add_argument("--captured", action="store_true",
+                    help="also Cmd-click an OSC 8 Markdown link while the terminal reports the mouse (u11857)")
 parser.add_argument("--budget-ms", type=float, default=50, help="longest main-thread stall allowed during a click")
 parser.add_argument("--out", default="/tmp")
 opts = parser.parse_args()
@@ -34,6 +39,9 @@ SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 # The bundle's executable (MacOS/ also holds the debug and preview dylibs).
 BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
+# The app's own bundle id: a fleet build of tag `a-b` is `com.cmuxterm.app.debug.a.b`.
+with open(os.path.join(APP, "Contents/Info.plist"), "rb") as info:
+    BUNDLE_ID = plistlib.load(info).get("CFBundleIdentifier") or f"com.cmuxterm.app.debug.{TAG}"
 SCRATCH = tempfile.mkdtemp(prefix=f"cmdclick-{TAG}-")
 open(os.path.join(SCRATCH, "ghostty"), "w").close()
 CONFIG = os.path.join(SCRATCH, "cmux.json")
@@ -49,12 +57,19 @@ NOTE_DIR = os.path.join(SCRATCH, "cx-7xss")
 # The note's name pads its path to a multiple of the terminal width (ending in .txt).
 NOTE_SHELL = (f'c=$(tput cols); t="{NOTE_DIR}/n"; while [ $(((${{#t}}+4)%c)) -ne 0 ]; do t="${{t}}x"; done; '
               't="$t.txt"; echo cx-7xss > "$t"')
+DOC_DIR = os.path.join(SCRATCH, "u11857")
+DOC = os.path.join(DOC_DIR, "perf-status.md")
+# Mouse reporting on (button, drag, any motion, SGR), as Claude Code's TUI sets it; then $t is a
+# row of the doc's name two terminal widths long, printed as one OSC 8 link to the doc.
+CAPTURED_SHELL = ("printf '\\033[?1000h\\033[?1002h\\033[?1003h\\033[?1006h'; "
+                  'c=$(tput cols); t="perf-status.md"; while [ ${#t} -lt $((2*c)) ]; do t="${t}-"; done; '
+                  f"t=\"$(printf '\\033]8;;file://{DOC}\\033\\\\')$t$(printf '\\033]8;;\\033\\\\')\"")
 LAUNCHED = []
 
 
 def run(*args, timeout=30):
     """The bundled CLI against the tagged app (as scripts/cmux-debug-cli.sh sets it up)."""
-    env = {**ENV, "CMUX_TAG": TAG, "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{TAG}", "CMUX_BUNDLED_CLI_PATH": CLI}
+    env = {**ENV, "CMUX_TAG": TAG, "CMUX_BUNDLE_ID": BUNDLE_ID, "CMUX_BUNDLED_CLI_PATH": CLI}
     return subprocess.run([CLI, *args], capture_output=True, text=True, timeout=timeout, env=env)
 
 
@@ -157,6 +172,31 @@ def click_check(label, pane_key, ref, shell, prefix, opened):
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"cmdclick-{label.replace(' ', '-')}.png")})
 
 
+def captured_check(pane_key, ref, term_tab):
+    """u11857: Cmd-click on an OSC 8 link to a Markdown file while the terminal reports the mouse."""
+    rpc("action.run", {"action": "palette.goToTab", "target": {"kind": "tab", "id": term_tab}})
+    if not wait(lambda: (focused_pane() or {}).get("selected_tab") == term_tab, 10):
+        row("captured link: back to the terminal", term_tab, (focused_pane() or {}).get("selected_tab"), False)
+        return
+    os.makedirs(DOC_DIR, exist_ok=True)
+    open(DOC, "w").write("# perf status\n\nu11857\n")
+    before = {p.get("pane"): p.get("selected_tab") for p in panes()}
+
+    def doc_tab():
+        # A tab the click opened (in the terminal's pane or the pane on its right) that is not a terminal.
+        for p in panes():
+            key, tab = p.get("pane"), p.get("selected_tab")
+            if tab and tab != before.get(key) and tab != term_tab and p.get("kind") != "terminal":
+                return p
+        return None
+
+    click_check("captured link", pane_key, ref, CAPTURED_SHELL, "perf-status.md", doc_tab)
+    opened = doc_tab() or {}
+    print("captured link: opened pane", json.dumps(opened)[:600], flush=True)
+    row("captured link: Markdown page", "a cmux Markdown or file page, not Finder",
+        f"kind={opened.get('kind')} title={opened.get('title')}", opened.get("kind") not in (None, "terminal", "browser"))
+
+
 app = None
 
 
@@ -238,6 +278,8 @@ def main():
         return now.get("selected_tab") not in (None, term_tab)
 
     click_check("web URL", pane_key, ref, URL_SHELL, URL_PREFIX, tab_opened)
+    if opts.captured:
+        captured_check(pane_key, ref, term_tab)
     if not opts.file:
         return
     # Back to the terminal tab for the file case.

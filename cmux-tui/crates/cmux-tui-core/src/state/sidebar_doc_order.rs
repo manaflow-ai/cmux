@@ -21,10 +21,13 @@ use super::values::local_registry_id;
 use crate::user_settings::NewWorkspacePlacement;
 
 /// This machine's workspace ids in document order, and how many of them
-/// come before this machine's section (the slot of a `Top` placement).
+/// come before this machine's section (the slot of a `Top` placement) and
+/// before the archived tail of that section's top level, where the reducer
+/// puts a new workspace (plans/cmux-next/archiving-DESIGN.md).
 pub(crate) struct DocumentOrder {
     ids: Vec<String>,
     machine_start: usize,
+    archived_start: Option<usize>,
 }
 
 /// The document order, or `None` when the store has no document.
@@ -37,6 +40,7 @@ pub(crate) fn document_order(connection: &Connection) -> anyhow::Result<Option<D
         let mut ids = Vec::new();
         let mut seen = HashSet::new();
         let mut machine_start = None;
+        let mut archived_start = None;
         let mut push = |ids: &mut Vec<String>, item: &Item| {
             if let Some(reference) = item.body.workspace()
                 && reference.session_id == local
@@ -46,10 +50,19 @@ pub(crate) fn document_order(connection: &Connection) -> anyhow::Result<Option<D
             }
         };
         for section in doc.sections() {
-            if machine_start.is_none() && section.kind.machine() == Some(local.as_str()) {
+            let own = section.kind.machine() == Some(local.as_str());
+            if machine_start.is_none() && own {
                 machine_start = Some(ids.len());
             }
             for item in doc.list(&section.id, None) {
+                if own {
+                    // The archived run is the list's tail: it starts at its first item.
+                    archived_start = match (item.archived(), archived_start) {
+                        (true, None) => Some(ids.len()),
+                        (true, start) => start,
+                        (false, _) => None,
+                    };
+                }
                 push(&mut ids, item);
                 if item.body.is_group() {
                     for member in doc.list(&section.id, Some(item.id.as_str())) {
@@ -59,7 +72,7 @@ pub(crate) fn document_order(connection: &Connection) -> anyhow::Result<Option<D
             }
         }
         let machine_start = machine_start.unwrap_or(ids.len());
-        Ok(Some(DocumentOrder { ids, machine_start }))
+        Ok(Some(DocumentOrder { ids, machine_start, archived_start }))
     })
 }
 
@@ -88,13 +101,58 @@ pub(crate) fn sort_workspaces(
     let is_active = |workspace: &Value| {
         workspace["active"].as_bool() == Some(true) || workspace["focused"].as_bool() == Some(true)
     };
+    // Above this machine's archived tail, where adopting the new workspace puts it.
+    let bottom = order.archived_start.map_or(placed.len(), |start| {
+        placed
+            .iter()
+            .position(|workspace| rank_of(workspace).is_some_and(|rank| rank >= start))
+            .unwrap_or(placed.len())
+    });
     let slot = match placement {
-        NewWorkspacePlacement::Bottom => placed.len(),
+        NewWorkspacePlacement::Bottom => bottom,
         NewWorkspacePlacement::Top => top,
         NewWorkspacePlacement::AfterCurrent => {
-            placed.iter().position(is_active).map_or(top, |index| index + 1)
+            // An archived active workspace: above the tail too.
+            placed.iter().position(is_active).map_or(top, |index| (index + 1).min(bottom))
         }
     };
     placed.splice(slot..slot, unplaced);
     *workspaces = placed;
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn ids(workspaces: &[Value]) -> Vec<&str> {
+        workspaces.iter().map(|workspace| workspace["id"].as_str().unwrap()).collect()
+    }
+
+    /// This machine's section: `a`, then the archived tail `z`; `new` is not placed yet.
+    fn listed(active: &str) -> (Vec<Value>, DocumentOrder) {
+        let order = DocumentOrder {
+            ids: vec!["a".into(), "z".into()],
+            machine_start: 0,
+            archived_start: Some(1),
+        };
+        let workspaces =
+            ["z", "new", "a"].map(|id| json!({ "id": id, "active": id == active })).to_vec();
+        (workspaces, order)
+    }
+
+    #[test]
+    fn a_new_workspace_lists_above_the_archived_tail() {
+        let (mut workspaces, order) = listed("a");
+        sort_workspaces(&mut workspaces, "id", &order, NewWorkspacePlacement::Bottom);
+        assert_eq!(ids(&workspaces), ["a", "new", "z"]);
+        // After an archived active workspace: above the tail too.
+        let (mut workspaces, order) = listed("z");
+        sort_workspaces(&mut workspaces, "id", &order, NewWorkspacePlacement::AfterCurrent);
+        assert_eq!(ids(&workspaces), ["a", "new", "z"]);
+        let (mut workspaces, order) = listed("a");
+        sort_workspaces(&mut workspaces, "id", &order, NewWorkspacePlacement::AfterCurrent);
+        assert_eq!(ids(&workspaces), ["a", "new", "z"]);
+    }
 }

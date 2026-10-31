@@ -8,11 +8,14 @@ public nonisolated struct AcpmuxRPCError: Error, Sendable, Equatable, LocalizedE
     public var code: Int?
     public var name: String?
     public var message: String
+    /// The folder named by a trust refusal, retained for the pane's Trust route.
+    public var cwd: String?
 
-    public init(code: Int? = nil, name: String? = nil, message: String) {
+    public init(code: Int? = nil, name: String? = nil, message: String, cwd: String? = nil) {
         self.code = code
         self.name = name
         self.message = message
+        self.cwd = cwd
     }
 
     init(_ error: [String: Any]) {
@@ -20,6 +23,7 @@ public nonisolated struct AcpmuxRPCError: Error, Sendable, Equatable, LocalizedE
         code = (error["code"] as? NSNumber)?.intValue
         name = data?["reason"] as? String ?? data?["code"] as? String
         message = error["message"] as? String ?? "acpmux request failed"
+        cwd = data?["cwd"] as? String
     }
 
     /// The daemon does not serve the method (an older acpmux): callers fall back to the CLI.
@@ -55,6 +59,10 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     /// Stores one secret in the Keychain (`cmux harness secret set ID KEY`): `{id, key, value}`
     /// answers `{item}` (`cmux-harness/<id>/<KEY>`), the name a profile reads as `keychain:NAME`.
     case secretSet = "_acpmux/harness/secret/set"
+    /// Sets the icon of a profile in the user's harness folder (user 12922): `{id, icon}` (an
+    /// emoji, an SF Symbol name or an agent mark id), `{id, data, ext}` (base64 png or svg bytes,
+    /// copied next to the profile) or `{id, clear: true}`. Answers `{id, path, icon}`.
+    case icon = "_acpmux/harness/icon"
 
     /// Doctor starts the harness and sends one prompt; a registry refresh fetches over HTTPS; a
     /// health check runs each harness's `--version` and may ask npm and Homebrew for the newest.
@@ -64,7 +72,7 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         // The daemon's own limit is at most 60 s (`timeoutMs`).
         case .complete: .seconds(65)
         case .registry, .health, .models: .seconds(40)
-        case .list, .add, .remove, .restore, .reload, .secretSet: .seconds(10)
+        case .list, .add, .remove, .restore, .reload, .secretSet, .icon: .seconds(10)
         }
     }
 }
@@ -82,6 +90,27 @@ extension AcpmuxEnvironment {
         }
     }
 
+    /// One `_acpmux/complete` (`params`: `prompt`, `harness`, `model`, `maxTokens`, `timeoutMs`): its
+    /// `text`, empty when the reply has none. When the named harness cannot answer here (no profile
+    /// by that id, no headless mode, its CLI not installed), `fallback` is asked instead: a profile id
+    /// differs per machine (`claude-cr`, a wrapper), so a caller names its preference and a fallback.
+    public nonisolated func completionText(params: [String: any Sendable],
+                                           fallback: [String: any Sendable]? = nil) async throws -> String {
+        let data: Data
+        do {
+            data = try await harness(.complete, params: params)
+        } catch let error as AcpmuxRPCError where fallback != nil && Self.harnessUnavailable.contains(error.name ?? "") {
+            data = try await harness(.complete, params: fallback ?? [:])
+        }
+        let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return reply?["text"] as? String ?? ""
+    }
+
+    /// `_acpmux/complete` refusals that name the harness, not the request: another harness may answer.
+    nonisolated static let harnessUnavailable: Set<String> = [
+        "complete.unknown_harness", "complete.unsupported_harness", "complete.not_installed",
+    ]
+
     /// `_acpmux/harness/health` (`refresh`: the daemon checks again). Named so a caller can default
     /// to it without an async closure literal default argument (crash_ratchet, cx-bsue).
     public nonisolated static func harnessHealth(_ environment: AcpmuxEnvironment, refresh: Bool) async throws -> Data {
@@ -94,7 +123,8 @@ extension AcpmuxEnvironment {
     public nonisolated func watchHarnesses(_ onChange: @escaping @Sendable () -> Void) -> Task<Void, Never> {
         let socketPath = socketPath
         return Task.detached {
-            let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
+            guard let endpoint = try? AcpmuxStatusClient.unixEndpoint(socketPath) else { return }
+            let connection = NWConnection(to: endpoint, using: .tcp)
             defer { connection.cancel() }
             await withTaskCancellationHandler {
                 try? await Self.readHarnessChanges(on: connection, onChange: onChange)
@@ -112,7 +142,10 @@ extension AcpmuxEnvironment {
             "params": ["protocolVersion": 1, "clientInfo": ["name": "cmux-next-harness-settings", "version": "1"],
                        "clientCapabilities": [:]],
         ]
-        let watch: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": "_acpmux/watch", "params": ["enabled": true]]
+        // We only consume harness-change notifications. Keep the initial
+        // session snapshot to one row; sending the whole watch page makes a
+        // large daemon's first reply needlessly multi-megabyte.
+        let watch: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": "_acpmux/watch", "params": ["enabled": true, "limit": 1]]
         var payload = Data()
         for request in [initialize, watch] {
             payload += try JSONSerialization.data(withJSONObject: request)

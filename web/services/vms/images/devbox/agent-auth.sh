@@ -225,6 +225,11 @@ cmux_claude_apply_auth_mode() {
       ANTHROPIC_BASE_URL=${CMUX_CODEROUTER_URL-}
       ANTHROPIC_API_KEY=$cmux_aa_placeholder
       export CLAUDE_CONFIG_DIR ANTHROPIC_BASE_URL ANTHROPIC_API_KEY
+      # Claude 2.1.299 reads onboarding from this isolated config home,
+      # not ~/.claude.json. Seed only fresh state, never personal credentials.
+      if [ ! -e "$CLAUDE_CONFIG_DIR/.claude.json" ]; then
+        python3 -I /etc/cmux/claude-onboarding.py "$CLAUDE_CONFIG_DIR/.claude.json" || return 1
+      fi
     elif [ -z "${ANTHROPIC_BASE_URL-}" ] && [ -z "${ANTHROPIC_API_KEY-}" ] && [ -n "${CMUX_CLAUDE_TEAM_BASE_URL-}" ]; then
       ANTHROPIC_BASE_URL=$CMUX_CLAUDE_TEAM_BASE_URL
       ANTHROPIC_API_KEY=${CMUX_CLAUDE_TEAM_API_KEY-}
@@ -249,18 +254,94 @@ cmux_codex_apply_auth_mode() {
     CODEX_HOME="${HOME:-/root}/.config/cmux/codex-team"
     mkdir -p "$CODEX_HOME" 2>/dev/null || return 1
     chmod 0700 "$CODEX_HOME" 2>/dev/null || return 1
-    {
-      echo 'model_provider = "cmux"'
-      echo '[model_providers.cmux]'
-      echo 'name = "cmux"'
-      printf 'base_url = "%s/v1"\n' "${CMUX_CODEROUTER_URL%/}"
-      echo 'env_key = "OPENAI_API_KEY"'
-      echo 'wire_api = "responses"'
-      echo 'requires_openai_auth = false'
-      echo 'supports_websockets = false'
-    } > "$CODEX_HOME/config.toml.tmp" 2>/dev/null || return 1
-    chmod 0600 "$CODEX_HOME/config.toml.tmp" 2>/dev/null || return 1
-    mv -f "$CODEX_HOME/config.toml.tmp" "$CODEX_HOME/config.toml" 2>/dev/null || return 1
+    # The image installs cmux's file hooks in the user's default ~/.codex
+    # home before a shared (team) launch selects this isolated CODEX_HOME.
+    # Codex 0.162 reads hooks.json from that default path but reads its
+    # hooks.state trust table from CODEX_HOME/config.toml. Carry only the
+    # cmux-owned trusted hashes across; dropping them makes every file hook
+    # show "needs review" even though the bake trusted it. Serialize the
+    # complete rewrite: two panes can launch at once during image verify.
+    # A default config that cannot be read keeps the hashes this home already
+    # has (a trusted_hash is the hook's content hash, so a kept one never
+    # trusts a hook that changed since) and logs it on stderr. In a config
+    # that reads, an entry without a string trusted_hash is a hook the user
+    # has not approved (or revoked): it is logged and left untrusted here too.
+    : > "$CODEX_HOME/config.toml.cmux-lock" 2>/dev/null || return 1
+    chmod 0600 "$CODEX_HOME/config.toml.cmux-lock" 2>/dev/null || return 1
+    (
+      flock 9 || exit 1
+      python3 -I - "$HOME/.codex/config.toml" "$CODEX_HOME/config.toml" "$HOME/.codex/hooks.json" "${CMUX_CODEROUTER_URL%/}" <<'CMUX_CODEX_COPY_HOOK_TRUST' || exit 1
+import json, os, pathlib, sys, tempfile, tomllib
+
+source, target, hooks = map(pathlib.Path, sys.argv[1:4])
+base_url = sys.argv[4]
+prefix = str(hooks) + ":"
+
+
+def trust_table(path):
+    """path's hooks.state table ({} when the file is absent)."""
+    try:
+        document = tomllib.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    hooks_table = document.get("hooks", {})
+    state = hooks_table.get("state", {}) if isinstance(hooks_table, dict) else None
+    if not isinstance(state, dict):
+        raise ValueError("hooks.state is not a table")
+    return state
+
+
+def log(message):
+    print(f"cmux: codex team home: {message}", file=sys.stderr)
+
+
+try:
+    state = trust_table(source)
+except (OSError, ValueError, UnicodeError) as error:
+    log(f"cannot read Codex hook trust from {source} ({error}); keeping the trust this home has")
+    try:
+        trusted = {key: entry["trusted_hash"] for key, entry in trust_table(target).items()
+                   if key.startswith(prefix) and isinstance(entry, dict) and isinstance(entry.get("trusted_hash"), str)}
+    except (OSError, ValueError, UnicodeError):
+        trusted = {}
+else:
+    trusted = {}
+    for key, entry in state.items():
+        if not key.startswith(prefix):
+            continue
+        digest = entry.get("trusted_hash") if isinstance(entry, dict) else None
+        if isinstance(digest, str):
+            trusted[key] = digest
+            continue
+        log(f"skipping Codex hook trust entry {json.dumps(key, ensure_ascii=False)} in {source}: it has no string trusted_hash, so it stays untrusted")
+lines = [
+    'model_provider = "cmux"',
+    "",
+    "[model_providers.cmux]",
+    'name = "cmux"',
+    f"base_url = {json.dumps(base_url + '/v1')}",
+    'env_key = "OPENAI_API_KEY"',
+    'wire_api = "responses"',
+    'requires_openai_auth = false',
+    'supports_websockets = false',
+    "",
+]
+for key, digest in trusted.items():
+    # TOML accepts UTF-8 directly; JSON's default surrogate escapes are
+    # rejected by TOML parsers for non-BMP path characters.
+    lines.extend([f"[hooks.state.{json.dumps(key, ensure_ascii=False)}]", f"trusted_hash = {json.dumps(digest)}", ""])
+content = "\n".join(lines)
+fd, temporary = tempfile.mkstemp(dir=target.parent, prefix=".config.toml.")
+try:
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as output:
+        output.write(content)
+    os.replace(temporary, target)
+finally:
+    try: os.unlink(temporary)
+    except FileNotFoundError: pass
+CMUX_CODEX_COPY_HOOK_TRUST
+    ) 9>"$CODEX_HOME/config.toml.cmux-lock" || return 1
     OPENAI_API_KEY=$cmux_aa_placeholder
     export CODEX_HOME OPENAI_API_KEY
     return 0

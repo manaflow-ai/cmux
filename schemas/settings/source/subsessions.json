@@ -59,14 +59,14 @@
         {
           "key": "agents.subsessions.maxChildren",
           "name": "subsessionsMaxChildren",
-          "note": "Open (not closed) sub-sessions one session may have at a time. A session or an ancestor can set a lower value for a subtree.",
+          "note": "Live sub-sessions (running, waiting for input, or with a harness process alive) one session may have at a time. Finished, dead and closed sub-sessions do not use a slot. A session or an ancestor can set a lower value for a subtree.",
           "title": {
             "key": "settings.agents.subsessions.maxChildren",
             "text": "Open Sub-sessions per Session"
           },
           "help": {
             "key": "settings.agents.subsessions.maxChildren.help",
-            "text": "The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place."
+            "text": "The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot."
           },
           "kind": "number",
           "range": {
@@ -83,6 +83,36 @@
             "width",
             "children",
             "parallel"
+          ]
+        },
+        {
+          "key": "agents.subsessions.maxRunning",
+          "name": "subsessionsMaxRunning",
+          "note": "Sub-sessions of one session that run a turn at the same time. More wait queued and start as running ones finish; lowering it stops none. A chat's own value (_acpmux/subsession/limits {sessionId}) and its workspace's ({workspaceId}) come before this one.",
+          "title": {
+            "key": "settings.agents.subsessions.maxRunning",
+            "text": "Running Sub-sessions per Session"
+          },
+          "help": {
+            "key": "settings.agents.subsessions.maxRunning.help",
+            "text": "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it."
+          },
+          "kind": "number",
+          "range": {
+            "min": 1,
+            "max": 1000,
+            "step": 1,
+            "unit": "count"
+          },
+          "default": 16,
+          "keywords": [
+            "subagent",
+            "sub-session",
+            "limit",
+            "running",
+            "concurrency",
+            "parallel",
+            "queue"
           ]
         },
         {

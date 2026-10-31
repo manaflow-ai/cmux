@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "handlers.refusal.noNewMessage": {
+      "comment": "Refusal of Close New Message when no New Message draft is open.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There is no new message to close."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد رسالة جديدة لإغلاقها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nema nove poruke za zatvaranje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der er ingen ny besked at lukke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es gibt keine neue Nachricht zum Schließen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ningún mensaje nuevo que cerrar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun nouveau message à fermer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non c'è nessun nuovo messaggio da chiudere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる新規メッセージはありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានសារថ្មីដើម្បីបិទទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "닫을 새로운 메시지가 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det finnes ingen ny melding å lukke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie ma nowej wiadomości do zamknięcia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há nenhuma mensagem nova para fechar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет нового сообщения, которое можно закрыть."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีข้อความใหม่ให้ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapatılacak yeni mesaj yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає нового повідомлення, яке можна закрити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có tin nhắn mới nào để đóng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可关闭的新信息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有可關閉的新訊息。"
+          }
+        }
+      }
+    },
     "handlers.refusal.browserFindClosesWithEscape": {
       "extractionState": "manual",
       "localizations": {
@@ -12184,6 +12316,268 @@
         }
       }
     },
+    "refusal.app.notDeployed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا التطبيق لا يعمل بعد. ثبّته مع هدف نشر، مثلاً: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova aplikacija još ne radi. Instalirajte je s ciljem postavljanja, na primjer: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne app kører ikke endnu. Installer den med et udrulningsmål, for eksempel: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese App läuft noch nicht. Installiere sie mit einem Bereitstellungsziel, zum Beispiel: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This app is not running yet. Install it with a deploy target, for example: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta app aún no se está ejecutando. Instálala con un destino de despliegue, por ejemplo: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette app ne tourne pas encore. Installez-la avec une cible de déploiement, par exemple : cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa app non è ancora in esecuzione. Installala con una destinazione, ad esempio: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリはまだ動いていません。デプロイ先を指定してインストールしてください。例: cmux apps install <app> --deploy self-hosted:<host>"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីនេះមិនទាន់ដំណើរការនៅឡើយទេ។ ដំឡើងវាជាមួយគោលដៅដាក់ពង្រាយ ឧទាហរណ៍៖ cmux apps install <app> --deploy self-hosted:<host>។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 앱은 아직 실행되지 않습니다. 배포 대상을 지정해 설치하세요. 예: cmux apps install <app> --deploy self-hosted:<host>"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne appen kjører ikke ennå. Installer den med et distribusjonsmål, for eksempel: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta aplikacja jeszcze nie działa. Zainstaluj ją z celem wdrożenia, na przykład: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este app ainda não está em execução. Instale-o com um destino de implantação, por exemplo: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это приложение ещё не запущено. Установите его с целью развёртывания, например: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แอปนี้ยังไม่ทำงาน ติดตั้งพร้อมเป้าหมายการปรับใช้ เช่น cmux apps install <app> --deploy self-hosted:<host>"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu uygulama henüz çalışmıyor. Bir dağıtım hedefiyle yükleyin, örneğin: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей застосунок ще не працює. Установіть його з ціллю розгортання, наприклад: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ứng dụng này chưa chạy. Hãy cài đặt với đích triển khai, ví dụ: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 App 尚未运行。请指定部署目标安装，例如：cmux apps install <app> --deploy self-hosted:<host>。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 App 尚未執行。請指定部署目標安裝，例如：cmux apps install <app> --deploy self-hosted:<host>。"
+          }
+        }
+      }
+    },
+    "refusal.app.notListed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد تطبيق بهذا المعرّف في App Store."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U App Storeu nema aplikacije s tim ID-om."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der er ingen app med det id i App Store."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im App Store gibt es keine App mit dieser ID."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No app with that id in the App Store."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ninguna app con ese id en la App Store."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune app avec cet identifiant dans l’App Store."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna app con quell’id nell’App Store."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Store にその ID のアプリはありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានកម្មវិធីដែលមានលេខសម្គាល់នោះនៅក្នុង App Store ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Store에 해당 ID의 앱이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det finnes ingen app med den ID-en i App Store."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W App Store nie ma aplikacji o tym identyfikatorze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há app com esse id na App Store."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В App Store нет приложения с таким id."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีแอปที่มี id นั้นใน App Store"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Store’da bu kimliğe sahip uygulama yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У App Store немає застосунку з таким id."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có ứng dụng nào có id đó trong App Store."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Store 中没有该 ID 的 App。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Store 中沒有該 ID 的 App。"
+          }
+        }
+      }
+    },
     "refusal.app.unknown": {
       "extractionState": "manual",
       "localizations": {
@@ -19916,6 +20310,137 @@
         }
       }
     },
+    "handlers.refusal.closeAimedAtClosedPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That pane closed. Press again to close a tab in this pane."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのペインは閉じました。このペインのタブを閉じるには、もう一度押してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم إغلاق ذلك الجزء. اضغط مرة أخرى لإغلاق علامة تبويب في هذا الجزء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taj panel je zatvoren. Pritisnite ponovo da zatvorite karticu u ovom panelu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den rude blev lukket. Tryk igen for at lukke en fane i denne rude."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Bereich wurde geschlossen. Drücke erneut, um einen Tab in diesem Bereich zu schließen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ese panel se cerró. Pulsa de nuevo para cerrar una pestaña de este panel."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce volet s’est fermé. Appuyez de nouveau pour fermer un onglet de ce volet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quel riquadro è stato chiuso. Premi di nuovo per chiudere una scheda in questo riquadro."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងនោះបានបិទហើយ។ ចុចម្ដងទៀត ដើម្បីបិទផ្ទាំងមួយនៅក្នុងផ្ទាំងនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "해당 패널이 닫혔습니다. 이 패널의 탭을 닫으려면 다시 누르세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den ruten ble lukket. Trykk igjen for å lukke en fane i denne ruten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten panel został zamknięty. Naciśnij ponownie, aby zamknąć kartę w tym panelu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esse painel foi fechado. Pressione novamente para fechar uma aba neste painel."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта панель закрыта. Нажмите ещё раз, чтобы закрыть вкладку в этой панели."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บานหน้าต่างนั้นปิดแล้ว กดอีกครั้งเพื่อปิดแท็บในบานหน้าต่างนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O bölme kapandı. Bu bölmedeki bir sekmeyi kapatmak için yeniden basın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цю панель закрито. Натисніть ще раз, щоб закрити вкладку в цій панелі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ngăn đó đã đóng. Nhấn lại để đóng một tab trong ngăn này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "该窗格已关闭。再按一次可关闭此窗格中的标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "該窗格已關閉。再按一次即可關閉此窗格中的分頁。"
+          }
+        }
+      }
+    },
     "handlers.refusal.pinnedTabKept": {
       "extractionState": "manual",
       "localizations": {
@@ -20738,7 +21263,7 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Start kann nicht geschlossen werden."
+            "value": "Home kann nicht geschlossen werden."
           }
         },
         "es": {
@@ -22139,6 +22664,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "首頁的分頁會一直留在首頁中。"
+          }
+        }
+      }
+    },
+    "refusal.app.declined": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتغير شيء: رُفض الطلب في بطاقة التأكيد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ništa nije promijenjeno: zahtjev je odbijen na kartici potvrde."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intet ændret: anmodningen blev afvist på bekræftelseskortet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nichts geändert: Die Anfrage wurde auf der Bestätigungskarte abgelehnt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing changed: the request was declined on the confirmation card."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No cambió nada: la solicitud se rechazó en la tarjeta de confirmación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rien n’a changé : la demande a été refusée sur la carte de confirmation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna modifica: la richiesta è stata rifiutata nella scheda di conferma."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更していません: 確認カードでリクエストが拒否されました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានអ្វីផ្លាស់ប្តូរទេ៖ សំណើត្រូវបានបដិសេធនៅលើកាតបញ្ជាក់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "변경된 내용 없음: 확인 카드에서 요청이 거절되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingenting endret: forespørselen ble avslått på bekreftelseskortet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nic nie zmieniono: prośbę odrzucono na karcie potwierdzenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nada mudou: o pedido foi recusado no cartão de confirmação."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ничего не изменено: запрос отклонён в карточке подтверждения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีการเปลี่ยนแปลง: คำขอถูกปฏิเสธบนการ์ดยืนยัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiçbir şey değişmedi: istek onay kartında reddedildi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нічого не змінено: запит відхилено на картці підтвердження."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có gì thay đổi: yêu cầu đã bị từ chối trên thẻ xác nhận."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未做更改：请求在确认卡片上被拒绝。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未做變更：請求在確認卡片上被拒絕。"
           }
         }
       }
@@ -29870,6 +30526,532 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "此群組尚無資料夾。群組的設定依其第一個工作區的資料夾尋找。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.neverHibernateNoSite": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This tab shows no website."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا تعرض علامة التبويب هذه أي موقع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova kartica ne prikazuje web stranicu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne fane viser intet websted."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Tab zeigt keine Website."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta pestaña no muestra ningún sitio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet onglet n’affiche aucun site."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa scheda non mostra alcun sito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このタブはWebサイトを表示していません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងនេះមិនបង្ហាញគេហទំព័រទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 탭은 웹사이트를 표시하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne fanen viser ikke et nettsted."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta karta nie wyświetla żadnej witryny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta aba não mostra nenhum site."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта вкладка не показывает сайт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บนี้ไม่ได้แสดงเว็บไซต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sekme bir web sitesi göstermiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця вкладка не показує сайт."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thẻ này không hiển thị trang web nào."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此标签页未显示网站。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此分頁未顯示網站。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.cloudGroupNotOpenHere": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "none of this cloud group's workspaces is open on this Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "keiner der Workspaces dieser Cloud-Gruppe ist auf diesem Mac geöffnet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aucun espace de travail de ce groupe cloud n’est ouvert sur ce Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد أي مساحة عمل من هذه المجموعة السحابية مفتوحة على هذا الـ Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ningún espacio de trabajo de este grupo en la nube está abierto en este Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此雲端群組的工作區在這台 Mac 上都未開啟"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此云端群组的工作区在这台 Mac 上都未打开"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 클라우드 그룹의 작업 공간 중 이 Mac에서 열린 것이 없음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このクラウドグループのワークスペースはこのMacで1つも開いていません"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nijedan radni prostor ove grupe u oblaku nije otvoren na ovom Macu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ingen af denne skygruppes arbejdsområder er åbne på denne Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nessuno spazio di lavoro di questo gruppo cloud è aperto su questo Mac"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានកន្លែងធ្វើការណាមួយនៃក្រុមពពកនេះបើកនៅលើ Mac នេះទេ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ingen av arbeidsområdene i denne skygruppen er åpne på denne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "żaden obszar roboczy tej grupy w chmurze nie jest otwarty na tym Macu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nenhum espaço de trabalho deste grupo na nuvem está aberto neste Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ни одно рабочее пространство этой облачной группы не открыто на этом Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีพื้นที่ทำงานใดของกลุ่มคลาวด์นี้เปิดอยู่บน Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bu bulut grubunun hiçbir çalışma alanı bu Mac'te açık değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "жоден робочий простір цієї хмарної групи не відкритий на цьому Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "không có không gian làm việc nào của nhóm đám mây này đang mở trên máy Mac này"
+          }
+        }
+      }
+    },
+    "handlers.refusal.dockedWorkspacesOff": {
+      "comment": "Refusal: docked workspaces (plans/cmux-next/docked-workspace-DESIGN.md).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Docked workspaces are a prototype: turn on Debug Settings > Docked workspaces first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مساحات العمل المرساة نموذج أولي: شغّل إعدادات التصحيح > Docked workspaces أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usidreni radni prostori su prototip: prvo uključite Debug Settings > Docked workspaces."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dokkede arbejdsområder er en prototype: slå først Debug Settings > Docked workspaces til."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angedockte Arbeitsbereiche sind ein Prototyp: Schalte zuerst Debug-Einstellungen > Docked workspaces ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los espacios de trabajo acoplados son un prototipo: activa primero Ajustes de depuración > Docked workspaces."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les espaces de travail ancrés sont un prototype : activez d’abord Réglages de débogage > Docked workspaces."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le aree di lavoro agganciate sono un prototipo: attiva prima Impostazioni di debug > Docked workspaces."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドックしたワークスペースは試作機能です。先にデバッグ設定 > Docked workspaces をオンにしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការដែលបានចតគឺជាគំរូសាកល្បង៖ បើក Debug Settings > Docked workspaces ជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "도킹된 작업 공간은 프로토타입입니다. 먼저 디버그 설정 > Docked workspaces를 켜세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dokkede arbeidsområder er en prototype: slå først på Debug Settings > Docked workspaces."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zadokowane obszary robocze to prototyp: najpierw włącz Ustawienia debugowania > Docked workspaces."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espaços de trabalho encaixados são um protótipo: ative primeiro Ajustes de depuração > Docked workspaces."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закреплённые рабочие пространства — прототип: сначала включите «Настройки отладки > Docked workspaces»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่ทำงานที่ด็อกเป็นต้นแบบ: เปิด Debug Settings > Docked workspaces ก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sabitlenmiş çalışma alanları bir prototiptir: önce Hata Ayıklama Ayarları > Docked workspaces seçeneğini açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закріплені робочі простори — прототип: спершу увімкніть «Налаштування налагодження > Docked workspaces»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian làm việc đã neo là bản thử nghiệm: hãy bật Cài đặt gỡ lỗi > Docked workspaces trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "停靠工作区是原型功能：请先打开调试设置 > Docked workspaces。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "停靠工作區是原型功能：請先開啟除錯設定 > Docked workspaces。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.workspaceNotDocked": {
+      "comment": "Refusal: docked workspaces (plans/cmux-next/docked-workspace-DESIGN.md).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This workspace is not docked."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مساحة العمل هذه غير مرساة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj radni prostor nije usidren."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette arbejdsområde er ikke dokket."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Arbeitsbereich ist nicht angedockt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este espacio de trabajo no está acoplado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet espace de travail n’est pas ancré."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa area di lavoro non è agganciata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースはドックされていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការនេះមិនបានចតទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 작업 공간은 도킹되어 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette arbeidsområdet er ikke dokket."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten obszar roboczy nie jest zadokowany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este espaço de trabalho não está encaixado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Это рабочее пространство не закреплено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่ทำงานนี้ไม่ได้ด็อก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu çalışma alanı sabitlenmemiş."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей робочий простір не закріплено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian làm việc này chưa được neo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此工作区未停靠。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此工作區未停靠。"
           }
         }
       }

@@ -32,6 +32,8 @@ extension DaemonStore {
     /// exactly holds the intent's result even when another event of the
     /// batch needs a resync.
     private func applyEvent(_ event: DaemonEvent, sequence: UInt64?, envelope: DaemonEventEnvelope? = nil) -> Followup {
+        // Before it applies: the workspace it names is found while the records still hold it (a close).
+        noteSnapshotTouch(event)
         let followup = applyState(event, envelope: envelope)
         if let transaction = event.clientTransactionID {
             confirm(transaction)
@@ -47,9 +49,12 @@ extension DaemonStore {
     /// Events superseded by the last snapshot are skipped.
     @discardableResult
     public func apply(batch: [DaemonEventEnvelope]) -> Followup {
+        // A staged script batch keeps the events of the workspaces it touches (DaemonStore+Stage.swift).
+        let batch = stage?.passing(batch, in: self) ?? batch
+        guard !batch.isEmpty else { return .none }
         // An observer that applies events while this batch applies is an
         // update cycle (idle-wakeups.md): counted, logged in debug builds.
-        updateCycles.run { applyBatch(batch) }
+        return updateCycles.run { applyBatch(batch) }
     }
 
     private func applyBatch(_ batch: [DaemonEventEnvelope]) -> Followup {
@@ -94,6 +99,8 @@ extension DaemonStore {
     }
 
     func advanceAppliedSequence(to sequence: UInt64) {
+        // Not past an event a stage still holds: nothing it holds counts as applied yet.
+        let sequence = stage?.cappedSequence(sequence) ?? sequence
         guard sequence > appliedSequence else { return }
         appliedSequence = sequence
         // Intents first, so waiters see the visible state without them.
@@ -295,7 +302,7 @@ extension DaemonStore {
             if agents.apply(status) { tabsBySurface[status.surface]?.setAgent(status) }
             return .none
         case .agentPresenceChanged(let presence):
-            tabsBySurface[presence.surface]?.setPresence(presence.activity == nil ? nil : presence)
+            holdPresence(presence)
             return .none
 
         case .sessionState(let item): session.apply(item, in: self); return .none
@@ -321,11 +328,30 @@ extension DaemonStore {
 }
 
 extension DaemonStore {
+    /// Applies one `agent-presence` event to its tab, or holds it until the tab is indexed: the
+    /// event can come first, and no snapshot or later tab event carries presence.
+    func holdPresence(_ presence: AgentPresence) {
+        let value = presence.activity == nil ? nil : presence
+        if let tab = tabsBySurface[presence.surface] {
+            heldPresence.removeValue(forKey: presence.surface)
+            tab.setPresence(value)
+        } else if let value {
+            if heldPresence[presence.surface] == nil, heldPresence.count >= Self.heldPresenceLimit {
+                // Past the limit nothing is a tab that is about to arrive: start over.
+                heldPresence.removeAll(keepingCapacity: true)
+            }
+            heldPresence[presence.surface] = value
+        } else {
+            heldPresence.removeValue(forKey: presence.surface)
+        }
+    }
+
     /// Drops every tab's agent presence (cx-gg84) when the store may have
     /// missed its clear: a lost connection, a daemon shutdown or dropped
     /// events. The daemon sends no presence in a snapshot; each agent's next
     /// hook event brings its presence back.
     func clearPresence() {
+        heldPresence.removeAll()
         for tab in tabsBySurface.values where tab.presence != nil {
             tab.setPresence(nil)
         }
