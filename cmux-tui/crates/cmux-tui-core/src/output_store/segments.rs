@@ -203,36 +203,31 @@ fn append_frame(
     // not leave at its current length (an earlier run, a crash) is checked
     // once: a cut frame at its end is cut off, so the frames written after
     // it stay readable.
+    let new_file =
+        || terminal_directory.join(format!("{}-{start:020}.{SUFFIX}", generation_key(generation)));
     let newest = generation_files(terminal_directory, generation).pop();
-    let file = match newest {
-        Some((file_start, path)) => {
-            let len = fs::metadata(&path)?.len();
-            if len < SEGMENT_FILE_BYTES {
-                // A file that cannot be checked (open or read error) is left
-                // as it is, and the frame goes to a new file.
-                let checked = if verified.get(&path) == Some(&len) {
-                    Some(len)
-                } else {
-                    frame_extent(&path, file_start).map(|(whole, _)| whole)
-                };
-                match checked {
-                    Some(whole) => {
-                        if whole < len {
-                            fs::OpenOptions::new().write(true).open(&path)?.set_len(whole)?;
-                        }
-                        path
-                    }
-                    None => terminal_directory
-                        .join(format!("{}-{start:020}.{SUFFIX}", generation_key(generation))),
-                }
-            } else {
-                terminal_directory
-                    .join(format!("{}-{start:020}.{SUFFIX}", generation_key(generation)))
+    // A file that cannot be checked (a stat, open or read error) is left as
+    // it is, and the frame goes to a new file.
+    let reusable = newest.and_then(|(file_start, path)| {
+        let len = fs::metadata(&path).ok()?.len();
+        if len >= SEGMENT_FILE_BYTES {
+            return None;
+        }
+        let whole = if verified.get(&path) == Some(&len) {
+            len
+        } else {
+            frame_extent(&path, file_start)?.0
+        };
+        Some((path, len, whole))
+    });
+    let file = match reusable {
+        Some((path, len, whole)) => {
+            if whole < len {
+                fs::OpenOptions::new().write(true).open(&path)?.set_len(whole)?;
             }
+            path
         }
-        None => {
-            terminal_directory.join(format!("{}-{start:020}.{SUFFIX}", generation_key(generation)))
-        }
+        None => new_file(),
     };
     let mut frame = Vec::with_capacity(FRAME_HEADER_BYTES + compressed.len());
     frame.extend_from_slice(&start.to_le_bytes());
@@ -283,6 +278,15 @@ fn frames(path: &Path) -> Vec<(u64, Vec<u8>)> {
 
 /// Stored output of `generation` at or after `after`, at most `budget`
 /// bytes. `None` when nothing stored reaches past `after`.
+///
+/// Every file of the generation takes part, not only those named at or
+/// after the cursor: a file named earlier can hold bytes after it (an older
+/// daemon resumed behind, so files overlap). Frames are taken in stream
+/// order from their headers, and only the frames the window needs are
+/// decompressed. A cursor in a range no file holds starts at the next stored
+/// byte (`start_offset` says where), as a memory read starts at the oldest
+/// kept byte; a gap after the window's first byte ends the window as
+/// truncated, and the next read starts after it.
 pub(super) fn read_after(
     directory: &Path,
     terminal_id: &TerminalPublicId,
@@ -291,64 +295,97 @@ pub(super) fn read_after(
     budget: usize,
 ) -> Option<OutputWindow> {
     let files = generation_files(&terminal_directory(directory, terminal_id), generation);
-    // The last file that starts at or before the cursor, and every later one.
-    let first = files.iter().rposition(|(start, _)| *start <= after).unwrap_or(0);
+    // (header, file index, place in its file) of every frame past the cursor.
+    let mut headers = Vec::new();
+    for (index, (_, path)) in files.iter().enumerate() {
+        let Some((frames, _)) = frame_headers(path) else { continue };
+        headers.extend(
+            frames
+                .into_iter()
+                .enumerate()
+                .filter(|(_, header)| header.end > after)
+                .map(|(place, header)| (header, index, place)),
+        );
+    }
+    headers.sort_by_key(|(header, index, place)| (header.start, *index, *place));
+    // Per file: the open handle, and the first frame that failed to decode
+    // (that frame and the ones after it in the file are not read).
+    let mut open: Vec<Option<fs::File>> = files.iter().map(|_| None).collect();
+    let mut broken: Vec<Option<usize>> = vec![None; files.len()];
     let mut window: Option<OutputWindow> = None;
-    'files: for (_, path) in files.get(first..).unwrap_or_default() {
-        for (start, bytes) in frames(path) {
-            let end = start + bytes.len() as u64;
-            if end <= after {
+    for (header, index, place) in headers {
+        if broken.get(index).copied().flatten().is_some_and(|at| place >= at) {
+            continue;
+        }
+        if let Some(window) = window.as_mut() {
+            if header.end <= window.next_offset {
+                // Already in the window (an overlapping older frame).
                 continue;
             }
-            if let Some(window) = window.as_mut() {
-                if end <= window.next_offset {
-                    // Already in the window (an overlapping older frame).
-                    continue;
-                }
-                if start > window.next_offset {
-                    // A gap (bytes lost in a crash): the window ends before
-                    // it, and the next read starts after it.
-                    window.truncated = true;
-                    break 'files;
-                }
-            }
-            let window = window.get_or_insert_with(|| OutputWindow {
-                start_offset: start.max(after),
-                next_offset: start.max(after),
-                bytes: Vec::new(),
-                truncated: false,
-            });
-            let room = budget.saturating_sub(window.bytes.len());
-            if room == 0 {
+            if header.start > window.next_offset {
+                // A gap (bytes lost in a crash or pruned): no later frame
+                // starts earlier, so the window ends before it, and the next
+                // read starts after it.
                 window.truncated = true;
-                break 'files;
+                break;
             }
-            // Bytes before the window's end (or the cursor) are skipped.
-            let skip =
-                usize::try_from(window.next_offset.saturating_sub(start)).unwrap_or(usize::MAX);
-            let piece = bytes.get(skip..).unwrap_or_default();
-            let take = piece.len().min(room);
-            window.bytes.extend_from_slice(piece.get(..take).unwrap_or(piece));
-            window.next_offset = start + (skip.min(bytes.len()) + take) as u64;
-            if take < piece.len() {
-                window.truncated = true;
-                break 'files;
+        }
+        let Some(bytes) = files
+            .get(index)
+            .zip(open.get_mut(index))
+            .and_then(|((_, path), handle)| read_frame(path, handle, &header))
+        else {
+            if let Some(at) = broken.get_mut(index) {
+                *at = Some(place);
             }
+            continue;
+        };
+        let start = header.start;
+        let window = window.get_or_insert_with(|| OutputWindow {
+            start_offset: start.max(after),
+            next_offset: start.max(after),
+            bytes: Vec::new(),
+            truncated: false,
+        });
+        let room = budget.saturating_sub(window.bytes.len());
+        if room == 0 {
+            window.truncated = true;
+            break;
+        }
+        // Bytes before the window's end (or the cursor) are skipped.
+        let skip = usize::try_from(window.next_offset.saturating_sub(start)).unwrap_or(usize::MAX);
+        let piece = bytes.get(skip..).unwrap_or_default();
+        let take = piece.len().min(room);
+        window.bytes.extend_from_slice(piece.get(..take).unwrap_or(piece));
+        window.next_offset = start + (skip.min(bytes.len()) + take) as u64;
+        if take < piece.len() {
+            window.truncated = true;
+            break;
         }
     }
     window
 }
 
+/// One frame's header and where its body sits in the file.
+struct FrameHeader {
+    start: u64,
+    /// `start` plus the raw length.
+    end: u64,
+    raw: u32,
+    body: u64,
+    compressed: u64,
+}
+
 /// The frames of a segment file read from their headers only (seeks, no
-/// decompression): (bytes of whole frames, offset after the last frame).
-/// A cut frame (a crash during a write) ends the walk.
-fn frame_extent(path: &Path, file_start: u64) -> Option<(u64, u64)> {
+/// decompression), in file order, and the bytes of whole frames. A cut
+/// frame (a crash during a write) ends the walk.
+fn frame_headers(path: &Path) -> Option<(Vec<FrameHeader>, u64)> {
     use crate::terminal_host_protocol::{wire_u32, wire_u64};
     use std::io::{Seek, SeekFrom};
     let mut file = fs::File::open(path).ok()?;
     let len = file.metadata().ok()?.len();
     let mut at = 0_u64;
-    let mut end = file_start;
+    let mut frames = Vec::new();
     let mut header = [0_u8; FRAME_HEADER_BYTES];
     while len - at >= FRAME_HEADER_BYTES as u64 {
         file.seek(SeekFrom::Start(at)).ok()?;
@@ -356,14 +393,43 @@ fn frame_extent(path: &Path, file_start: u64) -> Option<(u64, u64)> {
         let start = wire_u64(&header, 0)?;
         let compressed = u64::from(wire_u32(&header, 8)?);
         let raw = wire_u32(&header, 12)?;
-        let next = at + FRAME_HEADER_BYTES as u64 + compressed;
+        let body = at + FRAME_HEADER_BYTES as u64;
+        let next = body + compressed;
         if next > len || raw > MAX_FRAME_RAW_BYTES {
             break;
         }
-        end = end.max(start.checked_add(u64::from(raw))?);
+        let end = start.checked_add(u64::from(raw))?;
+        frames.push(FrameHeader { start, end, raw, body, compressed });
         at = next;
     }
-    Some((at, end))
+    Some((frames, at))
+}
+
+/// One frame's raw bytes (`None` when its body cannot be read or does not
+/// decompress to its raw length). `handle` keeps the file open between
+/// frames.
+fn read_frame(path: &Path, handle: &mut Option<fs::File>, header: &FrameHeader) -> Option<Vec<u8>> {
+    use std::io::{Seek, SeekFrom};
+    if handle.is_none() {
+        *handle = Some(fs::File::open(path).ok()?);
+    }
+    let file = handle.as_mut()?;
+    file.seek(SeekFrom::Start(header.body)).ok()?;
+    let mut compressed = vec![0_u8; usize::try_from(header.compressed).ok()?];
+    file.read_exact(&mut compressed).ok()?;
+    let mut bytes = Vec::with_capacity(header.raw as usize);
+    GzDecoder::new(compressed.as_slice())
+        .take(u64::from(header.raw) + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    (bytes.len() == header.raw as usize).then_some(bytes)
+}
+
+/// (bytes of whole frames, offset after the last frame) of a segment file,
+/// from its frame headers.
+fn frame_extent(path: &Path, file_start: u64) -> Option<(u64, u64)> {
+    let (frames, whole) = frame_headers(path)?;
+    Some((whole, frames.iter().map(|frame| frame.end).fold(file_start, u64::max)))
 }
 
 /// The stored stream end of every terminal and generation key (frame

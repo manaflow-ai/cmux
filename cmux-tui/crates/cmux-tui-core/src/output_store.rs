@@ -231,6 +231,23 @@ impl LogState {
         if self.pending.is_empty() { self.next_offset() } else { self.pending_start }
     }
 
+    /// Extend a window read from the segment files with the bytes memory
+    /// holds right after it, within `budget`. Nothing changes when memory
+    /// does not reach back to the window's end.
+    fn continue_window(&self, window: &mut OutputWindow, budget: usize) {
+        let room = budget.saturating_sub(window.bytes.len());
+        if room == 0 {
+            return;
+        }
+        let rest = self.memory_window(window.next_offset, room);
+        if rest.start_offset != window.next_offset || rest.bytes.is_empty() {
+            return;
+        }
+        window.bytes.extend_from_slice(&rest.bytes);
+        window.next_offset = rest.next_offset;
+        window.truncated = rest.truncated;
+    }
+
     /// Kept bytes at or after `after`, at most `budget`, from memory.
     fn memory_window(&self, after: u64, budget: usize) -> OutputWindow {
         let end = self.next_offset();
@@ -556,7 +573,8 @@ impl OutputStore {
         // segment file. A try that finds the bytes at `after` in neither
         // place saw a flush finish meanwhile; the next try's segment read
         // then has them (a pruned or cleared file is the only other cause).
-        for _ in 0..3 {
+        const TRIES: usize = 3;
+        for attempt in 1..=TRIES {
             let (generation, end, unflushed_start) = {
                 let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
                 (state.generation.clone(), state.next_offset(), state.unflushed_start())
@@ -567,6 +585,26 @@ impl OutputStore {
                 && let Some(mut window) =
                     segments::read_after(directory, terminal_id, &generation, after, budget)
             {
+                // Memory holds every byte from the first unflushed one on
+                // (and the recent tail): the window goes on from there when
+                // memory reaches back to the window's end.
+                let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+                if state.generation != generation {
+                    window.truncated |= window.next_offset < end;
+                    return Some(window);
+                }
+                state.continue_window(&mut window, budget);
+                let end = state.next_offset();
+                // Still short of the end with room left while a flush
+                // finished meanwhile (its bytes left memory after the
+                // segment read): read again, the files now hold them.
+                if window.next_offset < end
+                    && window.bytes.len() < budget
+                    && state.unflushed_start() != unflushed_start
+                    && attempt < TRIES
+                {
+                    continue;
+                }
                 window.truncated |= window.next_offset < end;
                 return Some(window);
             }
