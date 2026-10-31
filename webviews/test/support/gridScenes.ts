@@ -159,6 +159,10 @@ const card = (
     mid(title, icon),
   ]);
 
+const noticeCard = ".acpmux-host-error-card";
+// The notice card's 1 px border sits outside its padding.
+const borderedPadding = `calc(${token("cards-padding")} + 1px)`;
+
 /** Promotion is per surface and requires a fleet measurement; no surface is assumed to pass. */
 export const gridScenes: GridScene[] = [
   composer("claude-auto"),
@@ -328,6 +332,50 @@ export const gridScenes: GridScene[] = [
     ".acpmux-summary-text",
     ".acpmux-summary-card__close",
   ),
+  // The notice and error card over the composer (`.acpmux-host-error-card`: HostError.tsx's
+  // folder harness card, HarnessHealthNotice.tsx, RulesNotice.tsx). It is a card (grid.md 5.6):
+  // padding 12, radius 12, its action row 8 under the text with an 8 gap between buttons. It has
+  // no header icon and no trailing control, so it has no lead, text column or trail line. Its 1 px
+  // border sits outside the padding, so the text's top and the actions' bottom are padding + 1.
+  ...[
+    ["agent-pane.host-error", "enable", noticeCard],
+    ["agent-pane.harness-health-notice", "signed-out", `.acpmux-harness-notice ${noticeCard}`],
+  ].map(([entry, variant, root]) => ({
+    ...scene("cards.notice", entry!, variant!, root!, [
+      value("edge: padding", ":scope", "padding", token("cards-padding")),
+      from("edge: top", ":scope > p:first-child", "top", point(":scope", "top"), borderedPadding),
+      from("edge: bottom", ":scope", "bottom", point(".acpmux-host-error-actions", "bottom"), borderedPadding),
+      from(
+        "action row",
+        ".acpmux-host-error-actions > button:first-child",
+        "top",
+        point(":scope > p:last-of-type", "bottom"),
+        token("gap"),
+      ),
+      ...(variant === "signed-out"
+        ? [
+            from(
+              "actions: gap",
+              ".acpmux-host-error-actions > button:nth-child(2)",
+              "left",
+              point(".acpmux-host-error-actions > button:first-child", "right"),
+              token("gap"),
+            ),
+          ]
+        : []),
+      value("radius", ":scope", "radius", token("cards-radius")),
+    ]),
+    level: "fail" as const,
+  })),
+  {
+    ...scene("cards.notice", "agent-pane.rules-notice", "collapsed", `.acpmux-rules-notice ${noticeCard}`, [
+      value("edge: padding", ":scope", "padding", token("cards-padding")),
+      from("edge: top", ":scope > p:first-child", "top", point(":scope", "top"), borderedPadding),
+      from("edge: bottom", ":scope", "bottom", point(":scope > p:last-child", "bottom"), borderedPadding),
+      value("radius", ":scope", "radius", token("cards-radius")),
+    ]),
+    level: "fail",
+  },
   // Glance has a bare Environment and heterogeneous section bodies (ChatInspector.tsx).
   // Section roots keep a proven header absence from excusing another section's selector.
   ...[
