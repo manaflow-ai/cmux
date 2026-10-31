@@ -1,11 +1,12 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use serde_json::{Value, json};
 
 use super::super::command::RequestPlan;
-use super::super::mcp::CallFailure;
+use super::super::mcp::{CallFailure, FailureKind};
 use super::super::wire::request_value;
 use super::reply::{self, Reply};
 use super::roster::{self, AgentState};
@@ -292,6 +293,94 @@ fn quick(text: &str) -> SendRequest {
         timeout: Duration::from_secs(5),
         ..SendRequest::new("term_c1a0de00000000000000000000000001".into(), text.into())
     }
+}
+
+/// Simulate the daemon applying one write then dropping its acknowledgement.
+struct LostAckDaemon {
+    inner: FakeDaemon,
+    keys: RefCell<HashSet<String>>,
+    applied: Cell<usize>,
+    lose_on: usize,
+}
+
+impl LostAckDaemon {
+    fn new(lose_on: usize) -> Self {
+        Self {
+            inner: FakeDaemon::new(snapshot(), &[(1, "")]),
+            keys: RefCell::new(HashSet::new()),
+            applied: Cell::new(0),
+            lose_on,
+        }
+    }
+}
+
+impl Daemon for LostAckDaemon {
+    fn request(&self, session: Option<&str>, plan: RequestPlan) -> Result<Value, CallFailure> {
+        let wire = request_value(&plan).expect("valid request");
+        if wire["operation"] != "terminal.input.write" {
+            return self.inner.request(session, plan);
+        }
+        let key = plan.idempotency_key.clone().expect("each write carries a replay key");
+        if !self.keys.borrow_mut().insert(key.clone()) {
+            // The owner replays the accepted result instead of applying the bytes twice.
+            return Ok(json!({}));
+        }
+        let result = self.inner.request(session, plan)?;
+        let count = self.applied.get() + 1;
+        self.applied.set(count);
+        if count == self.lose_on {
+            return Err(CallFailure {
+                kind: FailureKind::InProgress,
+                error: json!({"code": "transport.failed", "message": "reply lost",
+                              "details": {}, "retryable": true}),
+                idempotency_key: Some(key),
+            });
+        }
+        Ok(result)
+    }
+}
+
+#[test]
+fn terminal_send_retry_replays_both_writes_after_either_lost_ack() {
+    for lost_at in [1, 2] {
+        let daemon = LostAckDaemon::new(lost_at);
+        let request = SendRequest {
+            wait: Wait::None,
+            enter_delay: Duration::ZERO,
+            idempotency_key: Some("repeat-this-send".into()),
+            ..quick("echo one")
+        };
+        let failed = send::run(&daemon, None, &request).expect_err("lost acknowledgement");
+        assert_eq!(failed.failure.idempotency_key.as_deref(), Some("repeat-this-send"));
+        assert_eq!(failed.failure.error["details"]["send_id"], "repeat-this-send");
+        assert_eq!(
+            failed.failure.error["details"]["phase"],
+            if lost_at == 1 { "paste" } else { "enter" }
+        );
+        let replay = send::run(&daemon, None, &request).expect("replayed the original send");
+        assert_eq!(replay["idempotency_key"], "repeat-this-send");
+        assert_eq!(replay["sent"], true);
+        assert_eq!(daemon.applied.get(), 2, "one paste and one Enter, exactly");
+        assert_eq!(daemon.keys.borrow().len(), 2);
+        assert_eq!(
+            daemon.inner.writes(),
+            [b"\x1b[200~echo one\x1b[201~".to_vec(), b"\r".to_vec()],
+            "each stage applies once after an uncertain reply"
+        );
+    }
+}
+
+#[test]
+fn terminal_send_generated_key_is_returned_on_a_lost_reply() {
+    let daemon = LostAckDaemon::new(1);
+    let request = SendRequest { wait: Wait::None, enter_delay: Duration::ZERO, ..quick("hello") };
+    let failed = send::run(&daemon, None, &request).expect_err("lost acknowledgement");
+    let key = failed.failure.idempotency_key.expect("whole-send recovery identity");
+    assert_eq!(failed.failure.error["details"]["send_id"], key);
+    let replay = SendRequest { idempotency_key: Some(key.clone()), ..request };
+    let finished = send::run(&daemon, None, &replay).expect("same send retried");
+    assert_eq!(finished["idempotency_key"], key);
+    assert_eq!(daemon.applied.get(), 2, "one paste and one Enter");
 }
 
 #[test]
