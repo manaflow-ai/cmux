@@ -1,0 +1,137 @@
+// With Session Info on (the host's default, AgentPaneTunables.inspector), the old summary card is gone:
+// no summary button, no card, no subagent rows and no "Open new subagents in panes" checkbox, and
+// Session Info opens on Environment. Leo, 2026-10-31, on the summary card at the top of the pane:
+// "I HATE THAT TOP BIT". #26390 switched `agent.inspector` off, so the header offered the summary
+// card instead (summary/SummaryCard.tsx, summary/SubagentStatusList.tsx); this PR turns it back on.
+// The off case is the control: it proves the selectors find the card when it is there.
+// CMUX_BROWSER_TESTS=1 bun test test/session-info-no-summary-card.test.ts
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { mkdirSync } from "node:fs";
+import path from "node:path";
+import { chromium, type Browser, type Page } from "playwright";
+import { agentPaneTheme } from "../src/gallery/theme/web";
+import { deriveTokens, GHOSTTY_DEFAULT, rgbHex } from "../src/gallery/theme/tokens";
+import { papercutPane } from "./support/papercutChat";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+
+/// Everything the summary card draws at the top of the pane.
+const SUMMARY = ".acpmux-summary-button, .acpmux-summary-card, .acpmux-summary-agents, .acpmux-summary-autoopen";
+
+await requireBrowserLane("session-info-no-summary-card.test.ts", async () => {
+  setDefaultTimeout(180_000);
+  let browser: Browser;
+  let pane: Awaited<ReturnType<typeof papercutPane>>;
+  beforeAll(async () => {
+    browser = await chromium.launch({ headless: true });
+    pane = await papercutPane(() => browser, { turns: 4, running: false });
+  });
+  afterAll(async () => {
+    await browser?.close();
+    await pane?.close();
+  });
+
+  const open = async (inspector: boolean, dark = false, scale = 1) => {
+    const page = await pane.open({ width: 900, height: 640 });
+    if (scale !== 1) {
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("Emulation.setDeviceMetricsOverride", {
+        width: 900,
+        height: 640,
+        deviceScaleFactor: scale,
+        mobile: false,
+      });
+    }
+    // The pane's theme is the host's (applyTheme), not the browser's color scheme.
+    const theme = agentPaneTheme(
+      deriveTokens({
+        ...GHOSTTY_DEFAULT,
+        background: rgbHex(dark ? 0x1e1e1e : 0xffffff),
+        foreground: rgbHex(dark ? 0xe5e5e5 : 0x1c1c1c),
+      }),
+      true,
+    );
+    await page.evaluate((theme) => window.cmuxAcpmuxBridge!.applyTheme(theme), theme);
+    await page.evaluate(
+      (inspector) => window.cmuxAcpmuxBridge!.applyHeaderState!({ inspector, version: 2 }),
+      inspector,
+    );
+    return page;
+  };
+  const visible = (page: Page, selector: string) =>
+    page.evaluate(
+      (selector) =>
+        [...document.querySelectorAll<HTMLElement>(selector)].filter((node) => {
+          const box = node.getBoundingClientRect();
+          return box.width > 0 && box.height > 0 && getComputedStyle(node).visibility !== "hidden";
+        }).length,
+      selector,
+    );
+
+  test("off (the control): the header offers the summary card, and it opens", async () => {
+    const page = await open(false);
+    try {
+      const button = page.locator("button.acpmux-summary-button");
+      await button.waitFor({ timeout: 10_000 });
+      if ((await button.getAttribute("aria-pressed")) !== "true") await button.click();
+      await page.locator(".acpmux-summary-card").first().waitFor({ timeout: 10_000 });
+      expect(await visible(page, SUMMARY)).toBeGreaterThan(0);
+      expect(await page.locator("button.acpmux-chat-inspector-toggle").count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("on: no summary card or subagent rows anywhere, and Session Info opens on Environment", async () => {
+    const page = await open(true);
+    try {
+      const toggle = page.locator("button.acpmux-chat-inspector-toggle");
+      await toggle.waitFor({ timeout: 10_000 });
+      expect(await visible(page, SUMMARY)).toBe(0);
+      if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
+      const panel = page.locator("aside.acpmux-chat-inspector");
+      await panel.locator("[data-section]").first().waitFor({ timeout: 10_000 });
+      expect(await panel.locator("[data-section]").first().getAttribute("data-section")).toBe("environment");
+      // Nothing of the card's sits above the first section, in the panel or over it.
+      const above = await page.evaluate((selector) => {
+        const first = document.querySelector<HTMLElement>("aside.acpmux-chat-inspector [data-section]")!;
+        const top = first.getBoundingClientRect().top;
+        return [...document.querySelectorAll<HTMLElement>(selector)].filter((node) => {
+          const box = node.getBoundingClientRect();
+          return box.width > 0 && box.height > 0 && box.top < top;
+        }).length;
+      }, SUMMARY);
+      expect(above).toBe(0);
+      expect(await visible(page, SUMMARY)).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  // Before (off: the summary card) and after (on: Session Info) of the pane's top, 2x, light and dark,
+  // into the fast checks artifact.
+  const out = process.env.FAST_CHECKS_OUT;
+  if (out)
+    test("stills: the top of the pane, summary card (off) and Session Info (on)", async () => {
+      mkdirSync(path.join(out, "stills"), { recursive: true });
+      for (const dark of [false, true])
+        for (const inspector of [false, true]) {
+          const page = await open(inspector, dark, 2);
+          try {
+            const control = page.locator(
+              inspector ? "button.acpmux-chat-inspector-toggle" : "button.acpmux-summary-button",
+            );
+            await control.waitFor({ timeout: 10_000 });
+            if ((await control.getAttribute("aria-pressed")) !== "true") await control.click();
+            await page
+              .locator(inspector ? "aside.acpmux-chat-inspector [data-section]" : ".acpmux-summary-card")
+              .first()
+              .waitFor({ timeout: 10_000 });
+            await page.waitForTimeout(600);
+            const name = `${inspector ? "after-session-info" : "before-summary-card"}-${dark ? "dark" : "light"}.png`;
+            await page.screenshot({ path: path.join(out, "stills", name) });
+          } finally {
+            await page.close();
+          }
+        }
+    });
+});
