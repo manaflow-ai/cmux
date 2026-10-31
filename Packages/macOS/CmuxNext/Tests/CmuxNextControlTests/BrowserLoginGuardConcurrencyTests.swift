@@ -3,6 +3,30 @@ import Foundation
 import Testing
 
 @Suite(.timeLimit(.minutes(1))) struct BrowserLoginGuardConcurrencyTests {
+    @Test func unsavedScriptAndRawAdmissionsCannotExecutePersistentCode() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let blocker = root.appendingPathComponent("not-a-directory")
+        try Data().write(to: blocker)
+        let guards = BrowserLoginGuards(file: blocker.appendingPathComponent("guards.json"))
+        #expect(await !guards.beginScript(profile: "web", origins: ["https://a.test"]))
+        #expect(await !guards.beginScript(profile: "opaque", origins: ["null"]))
+        #expect(await !guards.beginRawDevTools(tab: "raw", profile: "raw", origins: ["https://a.test"]))
+    }
+
+    @Test func rawDevToolsReservesEveryTargetInItsProfileAfterDetachAndRestart() async throws {
+        let file = BrowserPageFillLoginTests.temporaryFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let guards = BrowserLoginGuards(file: file)
+        #expect(await guards.beginRawDevTools(tab: "raw", profile: "raw", origins: ["https://a.test"]))
+        guards.rawDevToolsEnded(tab: "raw")
+        #expect(await guards.beginFill(tab: "other", profile: "raw", origins: ["https://child.test"]).admission == .scripted)
+        let restored = BrowserLoginGuards(file: file)
+        #expect(await restored.beginFill(tab: "other", profile: "raw", origins: ["https://child.test"]).admission == .scripted)
+        #expect(await restored.beginFill(tab: "other", profile: "other", origins: ["https://child.test"]).admission == .admitted)
+    }
+
     @Test func opaqueCodeAndFillsExcludeEachOtherAcrossAProfileAndRestart() async throws {
         let file = BrowserPageFillLoginTests.temporaryFile()
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }

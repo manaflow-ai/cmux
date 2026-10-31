@@ -404,3 +404,101 @@ fn a_thread_refusal_is_not_a_card_refusal() {
         ops(&h)
     );
 }
+
+#[test]
+fn a_thread_fallback_keeps_one_copy_of_each_card() {
+    let mut h = Harness::new(replying("Done.\n[next: Show me the draft]"));
+    h.brain.set_setting("replies.thread", "always").unwrap();
+    h.owner
+        .lock()
+        .unwrap()
+        .rejects
+        .push_back(Some("invalid_thread_root".into()));
+    h.connect();
+    h.say("user_local", "draft it");
+    h.settle_posts();
+    let retried: Vec<_> = cards(&h)
+        .into_iter()
+        .filter(|(key, _)| key.ends_with(":top"))
+        .collect();
+    assert_eq!(
+        retried.len(),
+        1,
+        "the fallback must not append the card again: {retried:?}"
+    );
+}
+
+#[test]
+fn a_browser_card_thread_fallback_is_edited_until_done() {
+    let mut h = Harness::new(browsing());
+    h.brain.set_setting("replies.thread", "always").unwrap();
+    h.owner
+        .lock()
+        .unwrap()
+        .rejects
+        .push_back(Some("invalid_thread_root".into()));
+    h.connect();
+    h.say("user_local", "browse");
+    h.settle_posts();
+    let top_id = h
+        .owner
+        .lock()
+        .unwrap()
+        .messages
+        .iter()
+        .find(|m| m.client_msg_id.ends_with(":browser:top"))
+        .expect("the top-level card posted")
+        .id
+        .clone();
+    assert!(ops(&h).iter().any(|(_, op)| matches!(op,
+        Op::MessageEdit { message_id, parts, .. } if message_id == &top_id
+            && parts.iter().any(|part| matches!(part, Part::Card(Card::Browser { live: false, .. }))))),
+        "the accepted fallback must receive the final edit: {:?}", ops(&h));
+}
+
+#[test]
+fn switching_to_a_targetless_desktop_clears_the_browser_target() {
+    let mut h = Harness::new(Box::new(|_, _| {
+        vec![
+            json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+            update(
+                "tool_call",
+                json!({"toolCallId": "browser", "title": "Bash", "kind": "execute",
+            "rawInput": {"command": "cmux browser right open https://example.com"}, "_meta": {"claude": {"tool": "Bash"}}}),
+            ),
+            update(
+                "tool_call_update",
+                json!({"toolCallId": "browser", "status": "completed"}),
+            ),
+            update(
+                "tool_call",
+                json!({"toolCallId": "desktop", "title": "mcp__computer_use__click", "kind": "execute",
+            "rawInput": {}, "_meta": {"claude": {"tool": "mcp__computer_use__click"}}}),
+            ),
+            update(
+                "tool_call_update",
+                json!({"toolCallId": "desktop", "status": "completed"}),
+            ),
+            json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
+        ]
+    }));
+    h.connect();
+    h.say("user_local", "use the desktop");
+    h.settle_posts();
+    let shown = cards(&h);
+    assert!(
+        matches!(
+            shown.last(),
+            Some((
+                _,
+                Card::Browser {
+                    surface: CardSurface::Computer,
+                    target: None,
+                    url: None,
+                    ..
+                }
+            ))
+        ),
+        "a desktop card must not open the previous browser: {shown:?}"
+    );
+}
