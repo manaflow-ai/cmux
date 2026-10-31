@@ -48,10 +48,16 @@ cp "$bin_dir/$EXECUTABLE" "$app/Contents/MacOS/$EXECUTABLE"
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$app/Contents/MacOS/$EXECUTABLE" 2>/dev/null || true
 for bundle in "$bin_dir"/*.bundle; do cp -R "$bundle" "$app/Contents/Resources/"; done
 cp "$sdk/lib/libcua_driver_sdk.dylib" "$app/Contents/Frameworks/"
-# The WebRTC binary target SwiftPM linked (a dynamic framework).
+# The WebRTC binary target SwiftPM linked (a dynamic framework), shipped as a plain dylib: a fleet
+# cross build re-signs every nested .framework ad hoc, which would break this bundle's seal (and
+# its Accessibility and Screen Recording grants); nested dylibs are left alone.
 webrtc="$(find "$bin_dir" -maxdepth 2 -name WebRTC.framework -type d | head -1)"
 [[ -n "$webrtc" ]] || { echo "error: WebRTC.framework not in $bin_dir" >&2; exit 1; }
-cp -R "$webrtc" "$app/Contents/Frameworks/"
+cp "$webrtc/Versions/A/WebRTC" "$app/Contents/Frameworks/libWebRTC.dylib"
+chmod 755 "$app/Contents/Frameworks/libWebRTC.dylib"
+install_name_tool -id "@rpath/libWebRTC.dylib" "$app/Contents/Frameworks/libWebRTC.dylib"
+install_name_tool -change "@rpath/WebRTC.framework/WebRTC" "@rpath/libWebRTC.dylib" "$app/Contents/MacOS/$EXECUTABLE"
+otool -L "$app/Contents/MacOS/$EXECUTABLE" | grep -q "@rpath/libWebRTC.dylib" || { echo "error: cmux-remote does not load libWebRTC.dylib" >&2; exit 1; }
 cp "$sdk/licenses/"* "$app/Contents/Resources/Licenses/"
 
 # The icon: Icon Composer document -> iconset -> icns.
@@ -97,7 +103,7 @@ plistlib.dump({
 }, open(path, "wb"))
 PY
 codesign --force --sign - "$app/Contents/Frameworks/libcua_driver_sdk.dylib"
-codesign --force --sign - "$app/Contents/Frameworks/WebRTC.framework"
+codesign --force --sign - "$app/Contents/Frameworks/libWebRTC.dylib"
 codesign --force --sign - "$app"
 mkdir -p "$out"
 asset="cmux-remote-dev-unsigned-macos-arm64.zip"

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Signs the unsigned "cmux Remote (dev).app" (build-cmux-remote-dev.sh) with an
 # Apple Development identity from this Mac's keychain (hardened runtime; the
-# dylib and WebRTC.framework get the same team signature, so library
+# dylib and libWebRTC.dylib get the same team signature, so library
 # validation holds), verifies it against the designated requirement the
 # cmux-tui daemon checks (identifier com.cmuxterm.remote.dev, cmux's team), and
 # writes the signed zip and its pin cmux-remote-dev.pin.json. Every DEV build
@@ -38,7 +38,7 @@ app="$work/cmux Remote (dev).app"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" == com.cmuxterm.remote.dev ]] ||
   { echo "error: unexpected bundle id" >&2; exit 1; }
 codesign --force --options runtime --timestamp=none --sign "$identity" "$app/Contents/Frameworks/libcua_driver_sdk.dylib"
-codesign --force --options runtime --timestamp=none --sign "$identity" "$app/Contents/Frameworks/WebRTC.framework"
+codesign --force --options runtime --timestamp=none --sign "$identity" "$app/Contents/Frameworks/libWebRTC.dylib"
 codesign --force --options runtime --timestamp=none --sign "$identity" "$app"
 team="$(codesign -dv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
 codesign --verify --strict --deep -R="identifier \"com.cmuxterm.remote.dev\" and anchor apple generic and certificate leaf[subject.OU] = \"$team\"" "$app"

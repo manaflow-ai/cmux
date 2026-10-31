@@ -46,5 +46,9 @@ codesign --verify --strict --deep "$dest" || { echo "error: the embedded cmux Re
 python3 -I "$SCRIPT_DIR/../ci/macho_minos.py" scan "$dest" --floor "${MACOSX_DEPLOYMENT_TARGET:-14.0}" ||
   { rm -rf "$dest"; echo "error: the pinned cmux Remote cannot load on macOS ${MACOSX_DEPLOYMENT_TARGET:-14.0}" >&2; exit 1; }
 mkdir -p "$(dirname "$stamp")"
+# Nothing in it may be a .framework: a fleet cross build re-signs nested frameworks ad hoc.
+if find "$dest" -name "*.framework" -type d | grep -q .; then
+  rm -rf "$dest"; echo "error: cmux Remote must ship no nested .framework (build-cmux-remote-dev.sh)" >&2; exit 1
+fi
 echo "$want" > "$stamp"
 echo "note: embedded cmux Remote (dev) sha256 $want"
