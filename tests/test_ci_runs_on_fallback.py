@@ -81,6 +81,14 @@ RESERVED_RUNNER_VARIABLES = (
     "vars.CI_DEV_COMPILE_RUNNER", "vars.CI_NIGHTLY_TRUSTED_RUNNER",
     "vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER", "vars.CI_IOS_INTERNAL_RUNNER",
 )
+# Nightly jobs that run on owned Macs only, never a Blacksmith label, on any fallback or re-run (Lawrence,
+# 2026-10-30, a7b6a61175c8: "Nightlies never use Blacksmith, ever"). Their runs-on chain ends on the owned side
+# lane after the owned nightly slot: an offline lane waits for the next nightly, which is that rule's choice.
+OWNED_ONLY_NIGHTLY_JOBS = frozenset({
+    ("nightly.yml", "sign-nightly-identity-legacy"),
+    ("nightly.yml", "verify-nightly-identity-legacy"),
+    ("nightly.yml", "generate-nightly-deltas"),
+})
 # An owned GUI or session label: one console-token or logged-in-session queue per pool, a single pool with no
 # second member (glaeda_fleet_labels.gui_label(), session_label()). GitHub never moves a job queued on it.
 OWNED_ROLE_LABEL = re.compile(r"'(glaeda-(?:[a-z]+-)*?(?:gui|session)-[a-z0-9.-]+)'")
@@ -601,7 +609,9 @@ class RunsOnFallbackTests(unittest.TestCase):
                 alternate = match.group(1) + ("alternate" if match.group(2) == "runner" else "sign_alternate")
                 if f"|| github.run_attempt > 1 && {alternate} {match.group(0)}" not in text:
                     failures.append(f"nightly.yml {job_id}: {match.group(1)}{match.group(2)} has no re-run alternative")
-        self.assertTrue({"build-sign-notarize-nightly", "sign-nightly-identity-legacy"} <= seen, seen)
+        # sign-nightly-identity-legacy no longer reads a picked Blacksmith label: it runs on owned Macs only
+        # (OWNED_ONLY_NIGHTLY_JOBS), so it has no re-run alternative to pick.
+        self.assertIn("build-sign-notarize-nightly", seen)
         self.assertEqual(failures, [], "a picked signing label needs `github.run_attempt > 1 && <alternate>` before it")
 
     def test_a_reserved_slot_always_has_a_fallback(self) -> None:
@@ -661,9 +671,26 @@ class RunsOnFallbackTests(unittest.TestCase):
             for job_id, job in (load(path).get("jobs") or {}).items():
                 for expression in EXPRESSION.findall(runs_on_text(job)):
                     for variable in RESERVED_RUNNER_VARIABLES:
-                        if terminal_reserved(expression, variable):
+                        if terminal_reserved(expression, variable) and not (
+                                (path.name, job_id) in OWNED_ONLY_NIGHTLY_JOBS and variable == "vars.CI_SIDE_LANE_RUNNER"):
                             failures.append(f"{path.name} {job_id}: terminal {variable} has no pool fallback")
         self.assertEqual(failures, [], "a reserved runner label must never be the final runs-on value")
+
+    def test_an_owned_only_nightly_job_ends_on_the_owned_side_lane(self) -> None:
+        # Each owned-only nightly job still exists and ends on the owned side lane after the owned nightly slot,
+        # never on a Blacksmith label, so the exemption above covers exactly the route a7b6a61175c8 chose.
+        jobs = load(WORKFLOWS / "nightly.yml")["jobs"]
+        for name, job_id in sorted(OWNED_ONLY_NIGHTLY_JOBS):
+            with self.subTest(job=job_id):
+                self.assertEqual(name, "nightly.yml")
+                text = runs_on_text(jobs[job_id])
+                self.assertNotIn("blacksmith", text)
+                self.assertNotIn("vars.MACOS_RUNNER", text)
+                expressions = EXPRESSION.findall(text)
+                self.assertEqual(len(expressions), 1, text)
+                alternatives = split_top(unwrap(expressions[0]), "||")
+                self.assertEqual([part.strip() for part in alternatives[-2:]],
+                                 ["vars.CI_NIGHTLY_NEXT_BUILD_RUNNER", "vars.CI_SIDE_LANE_RUNNER"], text)
 
     def test_cmux_next_fast_tier_uses_the_cascade_before_deferring_to_base_queue(self) -> None:
         fast = load(WORKFLOWS / "cmux-next.yml")["jobs"]["fast-tier"]
