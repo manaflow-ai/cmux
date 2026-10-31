@@ -66,7 +66,7 @@ public nonisolated struct RemoteHostChoice: Equatable, Sendable {
 }
 
 /// A host's first DNS label, lowercased, without a `user@`: `me@mini.tail.ts.net` is `mini`.
-private func shortName(_ host: String) -> String {
+private nonisolated func shortName(_ host: String) -> String {
     let bare = host.split(separator: "@").last.map(String.init) ?? host
     return (bare.split(separator: ".").first.map(String.init) ?? bare).lowercased()
 }

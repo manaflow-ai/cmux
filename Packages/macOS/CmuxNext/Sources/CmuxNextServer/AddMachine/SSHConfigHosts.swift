@@ -68,7 +68,7 @@ public nonisolated extension SSHConfigHosts {
 }
 
 /// An `Include` argument's files.
-private func expand(_ pattern: String, under directory: URL, home: URL) -> [String] {
+private nonisolated func expand(_ pattern: String, under directory: URL, home: URL) -> [String] {
     let path = pattern.hasPrefix("~/") ? home.appending(path: String(pattern.dropFirst(2))).path
         : pattern.hasPrefix("/") ? pattern : directory.appending(path: pattern).path
     var matches = glob_t()
@@ -78,7 +78,7 @@ private func expand(_ pattern: String, under directory: URL, home: URL) -> [Stri
 }
 
 /// A config line's keyword and the rest: `Host a b`, `Host=a b` and `Host\ta` all name `Host`.
-private func keywordAndArguments(_ line: String) -> (String, String) {
+private nonisolated func keywordAndArguments(_ line: String) -> (String, String) {
     guard let end = line.firstIndex(where: { $0 == " " || $0 == "\t" || $0 == "=" }) else { return (line, "") }
     var rest = line[end...].drop(while: { $0 == " " || $0 == "\t" })
     if rest.first == "=" { rest = rest.dropFirst() }

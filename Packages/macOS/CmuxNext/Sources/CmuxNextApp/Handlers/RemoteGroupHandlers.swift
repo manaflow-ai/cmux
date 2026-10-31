@@ -41,8 +41,8 @@ enum RemoteGroupHandlers {
         }
         // The host step lists connected machines, Tailscale peers and ~/.ssh/config aliases (slice E).
         let cli = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)).map { HostCLI(binary: $0, environment: SSHService.environment) }
-        let work = context.services.work, home = FileManager.default.homeDirectoryForCurrentUser, read = { (path: String) in try? String(blockingContentsOfFile: path, encoding: .utf8) }
-        let hosts = RemoteHostCatalog(connected: { context.services.machines.ssh.map(\.host.destination.description) }, peers: { await cli?.candidates(probe: false).flatMap { try? HostCandidate.parseList($0) } }, aliases: { (try? await work.run(.bestEffort, mayBlock: .files) { SSHConfigHosts.aliases(in: home.appending(path: ".ssh"), home: home, read: read) }) ?? [] })
+        let work = context.services.work, home = FileManager.default.homeDirectoryForCurrentUser
+        let hosts = RemoteHostCatalog(connected: { context.services.machines.ssh.map(\.host.destination.description) }, peers: { await cli?.candidates(probe: false).flatMap { try? HostCandidate.parseList($0) } }, aliases: { (try? await work.run(.bestEffort, mayBlock: .files) { SSHConfigHosts.aliases(in: home.appending(path: ".ssh"), home: home) { try? String(blockingContentsOfFile: $0, encoding: .utf8) } }) ?? [] })
         // task-owner: one warm-up read so the first ask lists every host; bounded by the CLI's deadline.
         Task(priority: WorkPriority.bestEffort.taskPriority) { await hosts.reload() }
         let otherSuggestions = registry.argumentSuggestions
