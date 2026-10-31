@@ -527,10 +527,10 @@ fn paced_old_peer(
 /// Builds c230bb58a's list guard runs back to back (`BURST`) before its pace holds.
 const OLD_BURST: u32 = 4;
 
-/// One fleet Mac's list on 2026-10-30, as an old-style peer: about 3,700 rows, 16.6 MB without
+/// One fleet Mac's list on 2026-10-30, as an old-style peer: about 3,700 rows, 33 MB without
 /// tools; the pace window at its cap.
 const OLD_ROWS: usize = 3700;
-const OLD_ROW_BYTES: usize = 4400;
+const OLD_ROW_BYTES: usize = 9000;
 const OLD_WINDOW: Duration = Duration::from_secs(15);
 
 /// Serves `peer` against a [`paced_old_peer`] until it connects: the time it took (on the

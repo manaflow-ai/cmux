@@ -712,7 +712,7 @@ mod tests {
         assert!(!fits_inline(&[INLINE_FILE_BYTES + 1], "big"));
         assert!(!fits_inline(&[1; INLINE_FILES + 1], "many"));
         assert!(!fits_inline(&[3 << 20, 3 << 20, 3 << 20, 3 << 20], "together"));
-        assert!(!fits_inline(&[3 << 20], &"x".repeat(12 << 20)), "with its text");
+        assert!(!fits_inline(&[3 << 20], &"x".repeat(28 << 20)), "with its text");
         // Every message the senders put inline fits one JSON-RPC message.
         let most = [INLINE_TOTAL_BYTES / 4; 4];
         assert!(fits_inline(&most, "t"));
