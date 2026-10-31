@@ -1,0 +1,47 @@
+{
+ "id": "newtab-first-keys-probe",
+ "priority": "P0",
+ "title": "Probe: Cmd-N, wait for the New Tab page's readiness, type at once (no Ctrl-`); count keys held by Cmd-N's hold and their delay",
+ "why": "P0 CANDIDATE new tab first keys late (STATUS, agent a539d1ff2011e6d9e): in journey cmdn-ctrlbt-type base round s1 the page reported ready at +275 ms, but Cmd-N's hold did not give it the keys (focusField failed). Without a Ctrl-` that makes a person's first keys in a new tab's page up to 4 s late. Diagnostic: always passes; the counts are in newtab-first-keys.json.",
+ "source": "coordinator 2026-10-31, agent a539d1ff2011e6d9e",
+ "budget_seconds": 255,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-newtab-probe"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo nt-${nonce}",
+   "enter": true,
+   "mark": "typed"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the app, the daemon and a frame answer (the probe's own data is in newtab-first-keys.json)",
+   "since": "typed",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "nt-${nonce}"
+    },
+    {
+     "app_text_line": "nt-${nonce}"
+    },
+    {
+     "frame_text": "nt-${nonce}"
+    }
+   ]
+  },
+  {
+   "do": "newtab_first_keys_probe",
+   "cycles": 30,
+   "text": "zq",
+   "end_timeout": 5,
+   "gap": 0.3
+  }
+ ]
+}
