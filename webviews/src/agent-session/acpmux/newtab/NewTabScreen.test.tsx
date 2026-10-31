@@ -100,7 +100,7 @@ test("New Tab exposes the chat composer attachment menu", async () => {
   const add = container.querySelector<HTMLButtonElement>(".nt-pickers .acpmux-newtab-plus .acpmux-picker-button");
   expect(add).toBeTruthy();
   await act(async () => add!.click());
-  expect(container.querySelector('.acpmux-newtab-plus [data-value="attach"]')).toBeTruthy();
+  expect(container.querySelector('.acpmux-newtab-plus [data-value="add.files"]')).toBeTruthy();
 });
 
 test("New Tab + offers Search chats and Search pages as app actions, and no Search files", async () => {
