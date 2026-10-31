@@ -1084,6 +1084,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 lastSplice = (sp.dropHead, sp.head.count, sp.dropTail, sp.tail.count)
             } else {
                 let d = deriveRows(action, state, old, t)
+                derivedRows += d.tail.count // cmux
                 phase("deriveRows")
                 if animate, sameRows(d) {
                     // Nothing to show (a status that moves no receipt, a typing change while the
@@ -1405,6 +1406,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     }
 
     private var loadedOnce = false
+    /// cmux: rows the commits derived again so far, a running count (HomeStateChangePerfTests: a change derives
+    /// only the rows of the messages it changes, not every row under my last read message).
+    private(set) var derivedRows = 0
     /// Cells follow the model without UIKit animation; small changes keep
     /// their cells (batch update), large ones reload.
     private func applyRowChanges(oldKeys: [String]) {
