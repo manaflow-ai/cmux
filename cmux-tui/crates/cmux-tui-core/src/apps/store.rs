@@ -22,6 +22,7 @@
 //! feat-cmux-next-apps-store; they move to the IR crate (with schemars) when
 //! it lands.
 
+use cmux_json::JsonSet as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -468,7 +469,7 @@ impl Supervisor {
             true,
         )?;
         if let Some((target, spec)) = checked {
-            result["instance"] = self.deploy_start(&p.app, &key, target, spec);
+            result.set("instance", self.deploy_start(&p.app, &key, target, spec));
         }
         Ok(result)
     }

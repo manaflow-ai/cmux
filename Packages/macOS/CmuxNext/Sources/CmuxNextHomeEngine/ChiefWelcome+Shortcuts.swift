@@ -29,10 +29,10 @@ extension ChiefWelcome {
         return text(goTo: registry.shortcutDisplay(for: goToAction), shortcuts: shortcuts)
     }
 
-    /// The welcome's Markdown: its introduction, Go to Workspace, other shortcuts and example requests.
+    /// The about message's Markdown: what Chief can do, Go to Workspace, other shortcuts and example requests.
     /// An unbound Go to Workspace (`goTo` nil) has no call-out.
     public static func text(goTo: String?, shortcuts: [Shortcut]) -> String {
-        var blocks = [welcomeText]
+        var blocks = [aboutText]
         if let goTo { blocks.append(HomeStrings.chiefWelcomeGoTo(goTo)) }
         if !shortcuts.isEmpty {
             let lines = shortcuts.map { "- `\($0.keys)` \($0.title)" }
