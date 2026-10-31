@@ -4,6 +4,9 @@
 // implements it over Monaco's model; tests pass a fake), and this class owns the query, the
 // matches, the active one and when the pill shows. React reads it through subscribe/getState.
 
+/** How many matches the pill collects and decorates; Replace All still replaces every one. */
+export const MATCH_LIMIT = 10_000;
+
 /** One match, in Monaco's 1-based line and column terms. */
 export interface FindRange {
   startLineNumber: number;
@@ -14,8 +17,12 @@ export interface FindRange {
 
 /** What find needs from the editor. */
 export interface FindTarget {
-  /** Every match of `query` in the document, in order (literal text, not a pattern). */
-  findMatches(query: string, matchCase: boolean): FindRange[];
+  /**
+   * The matches of `query` in the document, in order (literal text, not a pattern): the first
+   * `MATCH_LIMIT` for the pill (so a huge file cannot freeze every keystroke), or all of them with
+   * `all`, which only Replace All asks for.
+   */
+  findMatches(query: string, matchCase: boolean, all?: boolean): FindRange[];
   /**
    * Where the search starts: the start of the selection (the caret when nothing is selected), so
    * the match the pill selected stays the first candidate as the query grows a letter at a time.
@@ -120,7 +127,9 @@ export class EditorFind {
   /** Writes the replacement over every match, as one undo step. */
   replaceAll = () => {
     if (!this.state.matches.length || !this.canReplace() || !this.state.replaceOpen) return;
-    this.target?.replace?.(this.state.matches, this.state.replacement);
+    // The pill may hold only the first MATCH_LIMIT: the rest are found again for the replace.
+    const every = this.target?.findMatches(this.state.query, this.state.matchCase, true) ?? this.state.matches;
+    this.target?.replace?.(every, this.state.replacement);
     this.search({ ...this.state, active: 0 }, false);
   };
 
