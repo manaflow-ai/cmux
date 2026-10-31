@@ -121,11 +121,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageDescriptor.registerDiffRoot()
         PageDescriptor.registerFilePageRoots()
         PageDescriptor.registerAgentActivityRoot()
-        // Peer-route approvals: where this Mac's approver key lives, before any pane connects.
-        PeerApprovalsApp.install()
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment, keyWindowSource: { NSApp.keyWindow }, appActiveSource: { NSApp.isActive }, work: launchReads.work, mainWork: mainWork,
-                                   launchImages: launchReads.images, relaunchWake: launchReads.wake)
+                                   launchImages: launchReads.images, relaunchWake: launchReads.wake, peerApprover: PeerApprovalsApp.approver())
         AppProcessRoot.shared.adopt(services)
         self.services = services
         #if DEBUG
