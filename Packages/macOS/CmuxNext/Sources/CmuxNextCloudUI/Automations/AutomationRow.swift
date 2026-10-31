@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// One automation as the Automations page draws it (docs/automations-platonic-ideal.md section 8),
 /// from either source: this Mac's store (`cmux automation list --json`) or cmux Cloud

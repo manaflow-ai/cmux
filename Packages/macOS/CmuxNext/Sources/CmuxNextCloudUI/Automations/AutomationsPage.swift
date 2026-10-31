@@ -1,5 +1,5 @@
-import Foundation
-import Observation
+public import Foundation
+public import Observation
 
 /// The Automations page model (docs/automations-platonic-ideal.md section 8, option A): every
 /// automation of this Mac and of cmux Cloud in one list, grouped so failures come first and

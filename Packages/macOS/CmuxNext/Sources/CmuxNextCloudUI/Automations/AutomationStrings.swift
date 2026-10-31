@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The user-facing text of the Automations page, in Resources/Cloud.xcstrings with every app locale.
 public nonisolated struct AutomationStrings: Sendable {

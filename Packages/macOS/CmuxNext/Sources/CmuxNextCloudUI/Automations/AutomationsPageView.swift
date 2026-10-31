@@ -1,4 +1,4 @@
-import SwiftUI
+public import SwiftUI
 
 /// The Automations page (docs/automations-platonic-ideal.md section 8, option A): a list grouped
 /// Needs you / Today / Later / Paused on the left, the selected automation's detail and run
