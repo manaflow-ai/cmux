@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // The Inspector's toggle closes it (inspector/ChatInspector.tsx, inspector.css). Over the chat (the
 // overlay placement, the default) the panel used to run the pane's full height, over the chat
 // header too: the toggle at the header's end sat under the panel, so a click on it hit a
@@ -149,6 +150,45 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
         }
       });
 
+  for (const name of browsers.keys())
+    for (const { name: row, tabRow } of rows)
+      test(`${name}, ${row}: Push always keeps every header tool in the native reserved strip`, async () => {
+        current = browsers.get(name)!;
+        const page = await pane!.open({ width: 900, height: 640 });
+        try {
+          const { panel, toggle } = await openInspector(page, tabRow);
+          await toggle.click();
+          await panel.waitFor({ state: "detached" });
+          await inspectorPushAlways(page);
+          const positions = () =>
+            page.locator(".acpmux-header-tools button").evaluateAll((buttons) =>
+              buttons.map((button) => {
+                const box = button.getBoundingClientRect();
+                return { label: button.getAttribute("aria-label"), x: box.x, y: box.y, width: box.width };
+              }),
+            );
+          const closed = await positions();
+          await toggle.click();
+          await page.locator('aside.acpmux-chat-inspector[data-placement="push"][data-presence="shown"]').waitFor();
+          expect(await positions()).toEqual(closed);
+          // Native tabs cover everything left of this reserved strip. A real click at the old
+          // position must still reach the toggle after opening, including after a pane resize.
+          await page.setViewportSize({ width: 1050, height: 640 });
+          await page.waitForFunction(
+            (x) =>
+              Math.abs(document.querySelector(".acpmux-chat-inspector-toggle")!.getBoundingClientRect().x - x) < 0.5,
+            closed[0]!.x + 150,
+          );
+          const opened = await positions();
+          await page.mouse.click(opened[0]!.x + 12, opened[0]!.y + 12);
+          await panel.waitFor({ state: "detached" });
+          expect(await positions()).toEqual(opened);
+          expect(await toggle.getAttribute("aria-pressed")).toBe("false");
+        } finally {
+          await page.close();
+        }
+      });
+
   // Leo, 2026-10-22: "THIS BECAME A SIDEBAR FOR NO REASON, ALL THIS DEAD SPACE". Over the chat the
   // Inspector ran from under the header to the pane's foot (#22643), and as glass (#23477) its
   // empty foot was a slab of glass taller than its sections. It is a card as tall as its sections:
@@ -166,21 +206,28 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
           const box = panel.getBoundingClientRect();
           return {
             empty: Math.round(box.bottom - last.bottom),
+            top: box.top,
+            height: box.height,
             bottom: box.bottom,
             pane: window.innerHeight,
             scrolls: body.scrollHeight > body.clientHeight + 1,
           };
         });
       const tall = await pane!.open({ width: 1600, height: 1400 });
+      // The card's own height and top in the tall pane: its sections at rest, unclipped.
+      let natural = { top: 0, height: 0 };
       try {
         await openInspector(tall, 0);
-        const { empty, bottom, pane: height } = await measure(tall);
+        const { empty, bottom, pane: height, top, height: card } = await measure(tall);
+        natural = { top, height: card };
         expect({ deadSpace: empty <= 16, short: bottom < height - 200 }).toEqual({ deadSpace: true, short: true });
       } finally {
         await tall.close();
       }
-      // The harness's sections are about 160px tall: a 160px pane leaves them about 110.
-      const short = await pane!.open({ width: 1600, height: 160 });
+      // A pane 40px too short for the card (with its 8px inset at the foot), so its sections must
+      // scroll. Derived from the harness's sections, not a fixed height: Environment became one
+      // project row (#26199) and the sections shrank from about 160px to about 100.
+      const short = await pane!.open({ width: 1600, height: Math.floor(natural.top + natural.height + 8 - 40) });
       try {
         await openInspector(short, 0);
         const { bottom, pane: height, scrolls } = await measure(short);
@@ -190,14 +237,12 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
       }
     });
 
-  // claude-sr2, 2026-10-22 (relaying Leo): over the in-pane diff the Inspector was "again a full-height
-  // column". It was the same card, but a busy chat's sections (Tasks 175, Subagents +94) are taller
-  // than any pane, so the card always reached the pane's foot. However tall its sections, the card
-  // stops at a ceiling (at most 560px, and never more than 80% of the room under the header) and
-  // its body scrolls: it never reads as a column, over the chat or over a diff. Pushing the chat
-  // aside (a 700px pane), it is the same card: its column below the card is the chat's page.
+  // Leo, 2026-10-26: "you still haven't done the full-length thing. It's still just this constrained
+  // height for, like, no reason at all." A busy chat's card uses all the room under the header, less
+  // its inset at the foot, and only then does its body scroll: no 560px or 80% cap with room left. It is
+  // still a floating card (its own inset at the foot, never the pane's edge), over the chat or pushing.
   for (const name of browsers.keys())
-    test(`${name}: floating or pushing, the Inspector never runs the pane's height, however tall its sections`, async () => {
+    test(`${name}: floating or pushing, a busy Inspector uses the full room under the header, then scrolls`, async () => {
       current = browsers.get(name)!;
       for (const [width, placement] of [
         [1600, "overlay"],
@@ -209,16 +254,17 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
             const { panel } = await openInspector(page, 0, placement);
             // A busy chat: every section taller than the pane.
             await page.addStyleTag({ content: "aside.acpmux-chat-inspector [data-section] { min-height: 1600px; }" });
-            const { top, bottom, scrolls } = await panel.evaluate((node) => {
+            const { bottom, scrolls } = await panel.evaluate((node) => {
               const box = node.getBoundingClientRect();
               const body = node.querySelector(".acpmux-chat-inspector__body")!;
               return { top: box.top, bottom: box.bottom, scrolls: body.scrollHeight > body.clientHeight + 1 };
             });
-            const room = height - top;
-            expect({ width, height, short: bottom - top <= Math.min(560, room * 0.8) + 0.5, scrolls }).toEqual({
+            // The card's inset at the foot (inspector.css --acpmux-inspector-inset).
+            const inset = 8;
+            expect({ width, height, foot: Math.round(height - inset - bottom), scrolls }).toEqual({
               width,
               height,
-              short: true,
+              foot: 0,
               scrolls: true,
             });
           } finally {
@@ -228,7 +274,7 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
     });
 
   // Leo, 2026-10-22: "the card should just end when there's no more content to show". The ceiling
-  // (560px, 80% of the room under the header) is only a maximum: below it the card's height is its
+  // (the room under the header less its inset) is only a maximum: below it the card's height is its
   // content's, the same in a tall pane as in a short one, floating or pushing, with nothing under its
   // last section but the body's own padding, and its body does not scroll. Folding a section shrinks
   // the card with it, so no fixed or minimum height holds it open either.
@@ -238,7 +284,9 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
     panel.evaluate((node) => {
       const box = node.getBoundingClientRect();
       const body = node.querySelector(".acpmux-chat-inspector__body")!;
-      const sections = [...body.querySelectorAll(":scope > .acpmux-chat-inspector-group")];
+      const sections = [
+        ...body.querySelectorAll(":scope > .acpmux-chat-inspector-sections > .acpmux-chat-inspector-slot"),
+      ];
       const last = sections[sections.length - 1]!.getBoundingClientRect();
       return {
         top: box.top,
@@ -294,7 +342,7 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
           cards: cards.map(({ height, top, card, endsAtContent, scrolls }) => ({
             placement,
             height,
-            belowCeiling: card < Math.min(560, (height - top) * 0.8),
+            belowCeiling: card < height - top - 8,
             sameAsTallestPane: Math.abs(card - first!.card) < 0.5,
             endsAtContent,
             scrolls,
@@ -451,4 +499,38 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
         await page.close();
       }
     });
+
+  // Full length (Leo, 2026-10-26) never covers the composer: in a pane too narrow for the chat to move
+  // left for it, the card floats over the chat and stops above the composer's stack.
+  // A new chat's dock is `display: contents` (bottomStack.css): its own box is empty, so the card
+  // measures its children; the second pass forces that layout on this chat.
+  for (const name of browsers.keys())
+    for (const contents of [false, true])
+      test(`${name}: over the chat in a narrow pane, a busy Inspector stops above the composer${contents ? " (dock display: contents)" : ""}`, async () => {
+        current = browsers.get(name)!;
+        const page = await pane!.open({ width: 900, height: 900 });
+        try {
+          if (contents)
+            await page.addStyleTag({
+              content: ".acpmux-main > .acpmux-dock { display: contents !important; position: static !important; }",
+            });
+          const { panel } = await openInspector(page, 0);
+          await page.addStyleTag({ content: "aside.acpmux-chat-inspector [data-section] { min-height: 1600px; }" });
+          await page.waitForFunction(
+            () => document.querySelector("aside.acpmux-chat-inspector[data-over-chat]") !== null,
+          );
+          const { bottom, dockTop, scrolls } = await panel.evaluate((node) => {
+            const body = node.querySelector(".acpmux-chat-inspector__body")!;
+            return {
+              bottom: node.getBoundingClientRect().bottom,
+              // The composer's own box (the dock's may be empty under display: contents).
+              dockTop: document.querySelector(".acpmux-composer")!.getBoundingClientRect().top,
+              scrolls: body.scrollHeight > body.clientHeight + 1,
+            };
+          });
+          expect({ clear: bottom <= dockTop + 0.5, scrolls }).toEqual({ clear: true, scrolls: true });
+        } finally {
+          await page.close();
+        }
+      });
 });

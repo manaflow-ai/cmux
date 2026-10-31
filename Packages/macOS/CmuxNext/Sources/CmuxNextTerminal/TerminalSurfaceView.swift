@@ -135,12 +135,14 @@ public final class TerminalSurfaceView: NSView {
         MainActor.assumeIsolated {
             for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
             TerminalSecureInput.release(self)
-            if let surface {
-                lane?.close()
-                ghostty_surface_free(surface)
+            guard let surface else {
+                bridge.release()
+                return
             }
-            // Released after free: free joins the IO thread that reads the bridge.
-            bridge.release()
+            // The lane frees the surface after its chunk in flight; this never waits for it
+            // (``TerminalOutputLane/close(then:)``).
+            let teardown = TerminalSurfaceTeardown(surface: surface, bridge: bridge)
+            if let lane { lane.close(then: teardown) } else { teardown.run() }
         }
     }
 
@@ -454,10 +456,17 @@ public final class TerminalSurfaceView: NSView {
     func updateOcclusion() {
         guard let surface else { return }
         pause = WindowDrawPolicy.inputs(for: self, suspended: isRenderingSuspended, forced: mirrorDemand > 0).pause
-        guard (pause == nil) != lastOcclusionVisible else { return }
-        lastOcclusionVisible = pause == nil
+        let drawing = pause == nil
+        guard drawing != lastOcclusionVisible else { return }
+        lastOcclusionVisible = drawing
         holdPresentedFrame(volatile: pause != nil)
-        ghostty_surface_set_occlusion(surface, pause == nil)
+        ghostty_surface_set_occlusion(surface, drawing)
+        // A surface can parse a renderer-affecting OSC action (for example Copilot's OSC 11
+        // background update) before its view has ever joined a window. The visibility message
+        // normally starts the next frame, but a first display after that off-window parse can
+        // otherwise retain an empty IOSurface. Explicitly refresh the reveal edge so the state
+        // already parsed off-screen is presented (#22282, related to #16706/#18432).
+        if drawing { ghostty_surface_refresh(surface) }
     }
 
     /// A paused surface keeps the frame its layer shows, volatile until it shows again

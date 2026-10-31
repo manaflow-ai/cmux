@@ -20,10 +20,9 @@
 // 2026-10-20). The row's right-click menu has Steer, Edit message, the moves and Delete.
 //
 // Another agent's message waiting in the queue (`message`, direct.ts `queuedMessage`) is not the
-// person's prompt: its row is the message's received line (conversation/IncomingMessageCard.tsx), as
-// the transcript draws it once it runs: the sender's mark, its name as a chip that opens its chat,
-// and the message as a card under it, cut to eight lines when longer. Its actions, Steer too, sit at
-// the line's end (Leo, 2026-10-21).
+// person's prompt, and it is no row here (Leo, 2026-10-25: "I don't know why these things are queued
+// up"): the transcript draws it at once as its received card, with its actions in the card's ⋯ menu
+// (conversation/queuedMessages.ts). The rows, the fold and its count are the person's prompts alone.
 //
 // A prompt's images show as small thumbnails under its text (QueuedImages.tsx), each opening the
 // image viewer; while it is edited each has a remove control, and Save keeps only the images left
@@ -31,7 +30,7 @@
 //
 // After a failed turn acpmux pauses the queue: a note above the rows says so, with Resume.
 //
-// A long queue folds (Leo, 2026-10-14): past three queued prompts it shows the next two and one
+// A long queue folds (Leo, 2026-10-14): past three of the person's queued prompts it shows the next two and one
 // "N more queued" row, which opens the whole list in place and closes it back ("Show less"). The
 // fold is a button (aria-expanded) under the list, outside its scrolling, so ↑ from the prompt
 // reaches it first and no row runs under it. Opened, the list keeps about its folded height
@@ -47,9 +46,9 @@ import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
-import { IncomingMessageLine } from "./conversation/IncomingMessageCard";
-import { SubsessionContext, type Subsessions } from "./subagents/subsessions";
+import { lacksImageBytes, ownQueue, queuedAttachments } from "./conversation/queuedMessages";
 import { setQueueing, useQueueing } from "./queueing";
+import { AuthorChip } from "./multiplayer/Faces";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
@@ -126,7 +125,39 @@ function reveal(list: HTMLElement, row: HTMLElement) {
   if (Math.abs(to - list.scrollTop) > 0.5) list.scrollTop = to;
 }
 
-/** Shows the full prompt as a tooltip only when its one line (the button's inner text) cuts it off. */
+/// The text a row shows, whole: the prompt, or for acpmux's resume of a subagent its label, name and
+/// error. Never the resume's raw prompt, which names the agent id and tells the agent how to resume it.
+export function shownText(entry: QueuedEntry, t: Translate): string {
+  const retry = entry.retry;
+  if (!retry) return entry.prompt;
+  return [`${t("composer.queuedSubagentRetry")} ${retry.name ?? retry.agentId ?? ""}`.trim(), retry.error]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/// The most a held list may grow to: the room the pane leaves the composer's stack, that is the
+/// floating dock's max-height and the pane under its header (44px) less the transcript's least room
+/// (64px, bottomStack.css), whichever is less. Not the list's resting cap (--acpmux-queue-max): a
+/// row opened under the pointer may take the list past it, so nothing under the pointer moves.
+function heldCap(list: HTMLElement, now: number): number {
+  const view = list.ownerDocument.defaultView;
+  let cap = Infinity;
+  const dock = list.closest<HTMLElement>(".acpmux-dock");
+  const dockMax = dock ? parseFloat(view?.getComputedStyle(dock).maxHeight ?? "") : NaN;
+  if (dock && Number.isFinite(dockMax)) cap = Math.min(cap, now + dockMax - dock.getBoundingClientRect().height);
+  const main = list.closest<HTMLElement>(".acpmux-main");
+  if (main) cap = Math.min(cap, now + list.getBoundingClientRect().top - (main.getBoundingClientRect().top + 44 + 64));
+  return cap;
+}
+
+/** Row `id` of `list`, matched by its prompt id (no selector escaping: an id may hold any character). */
+function rowOf(list: HTMLElement | null | undefined, id: string): HTMLElement | undefined {
+  return [...(list?.querySelectorAll<HTMLElement>(":scope > .acpmux-queued") ?? [])].find(
+    (row) => row.dataset.promptId === id,
+  );
+}
+
+/** Shows the row's whole text as a tooltip only when its one line (the button's inner text) cuts it off. */
 function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: string) {
   const button = event.currentTarget;
   const text = button.firstElementChild ?? button;
@@ -146,7 +177,6 @@ export function ComposerQueue({
   onLost,
   onLeave,
   readImage,
-  subsessions,
   onSideChat,
 }: {
   queue: AcpmuxSnapshot["queue"];
@@ -170,8 +200,6 @@ export function ComposerQueue({
   onLeave?(): void;
   /// Reads an image a queued prompt sends by its acpmux id, as a data URL (`_acpmux/attachment`).
   readImage?(id: string): Promise<string | undefined>;
-  /// The listed chats, which an agent's message names its sender among, and how its chip opens one.
-  subsessions?: Subsessions | null;
   /// Opens a side chat that asks this prompt (as `/btw` does) and withdraws it from the queue; false
   /// when it already started. Absent where the chat opens no side chat.
   onSideChat?(id: string, prompt: string): Promise<boolean>;
@@ -191,12 +219,172 @@ export function ComposerQueue({
   };
   // Rows opened to their whole text (a row shows two lines until it is opened).
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
-  const toggle = (id: string) =>
+  // Opening or closing a row under the pointer never moves what is under the pointer (Leo,
+  // 2026-10-30: "its expansion animation makes the hovered buttons shift layout"). A row's actions
+  // sit on its last line (composerStates.css), and the list sits on the composer, so it grows and
+  // shrinks at its top: the list changes by exactly what the row did, at once and with no
+  // animation, so the row's last line, its actions and every row below stay where they were, and
+  // all of the opened text shows (no scroll). Until the pointer leaves, the list keeps that height
+  // instead of fitting its rows again; then it fits them.
+  const held = useRef(false);
+  // The pointer that pressed a row's text, read by its click.
+  const pressedBy = useRef<string>(undefined);
+  // A row the pointer just opened or closed, with its height and the list's before, for the
+  // layout effect that sizes the list once the row draws.
+  const resized = useRef<{ id: string; row: number; list: number }>(undefined);
+  // The row whose pointer toggle holds the list: the hold is that row's, and goes with it.
+  const heldId = useRef<string>(undefined);
+  // While a hold lasts: the observers that give room back when the stack around the list grows.
+  const holding = useRef<{ disconnect(): void }>(undefined);
+  /** Ends the hold now: the list fits its rows again. */
+  const release = (current: HTMLElement | null) => {
+    held.current = false;
+    heldId.current = undefined;
+    holding.current?.disconnect();
+    holding.current = undefined;
+    if (!current) return;
+    // Fit while [data-held] still turns the max-height transition off, and have the browser take
+    // the new height (a style read) before the transition comes back: the list shrinks at once,
+    // never animating down over a blank band (closing takes effect on the click).
+    current.style.removeProperty("min-height");
+    fitList(current);
+    void current.ownerDocument.defaultView?.getComputedStyle(current).maxHeight;
+    current.removeAttribute("data-held");
+  };
+  const toggle = (id: string, hovered: boolean) => {
+    // Only a hovering pointer's click holds it: a key or a touch has no pointer on the list to
+    // leave it, and must never keep the list from fitting.
+    held.current = hovered;
+    heldId.current = hovered ? id : undefined;
+    const current = list.current;
+    const row = rowOf(current, id);
+    resized.current =
+      hovered && current && row
+        ? { id, row: row.getBoundingClientRect().height, list: current.getBoundingClientRect().height }
+        : undefined;
+    if (!hovered) {
+      current?.style.removeProperty("min-height");
+      current?.removeAttribute("data-held");
+    }
     setOpen((current) => {
       const next = new Set(current);
       if (!next.delete(id)) next.add(id);
       return next;
     });
+  };
+  // The list follows the row the pointer opened or closed, by exactly its change, before the frame
+  // paints.
+  useLayoutEffect(() => {
+    const was = resized.current;
+    const current = list.current;
+    if (!was || !current) return;
+    resized.current = undefined;
+    const row = rowOf(current, was.id);
+    if (!row) return;
+    const want = Math.max(0, was.list + row.getBoundingClientRect().height - was.row);
+    // Never past the list's own cap, nor past the room the pane leaves the stack: a very long prompt
+    // in a short pane would otherwise push the composer off the pane. Past it, the list scrolls.
+    const height = Math.min(want, Math.max(was.list, heldCap(current, was.list)));
+    // No max-height transition for this change (composerStates.css [data-held]).
+    current.setAttribute("data-held", "");
+    current.style.maxHeight = `${height}px`;
+    current.style.minHeight = `${height}px`;
+    // Capped, the opened row's end (its error, its last lines) scrolls into view inside the list.
+    if (height < want - 0.5) {
+      const end = offsets(current, row).bottom - current.clientHeight;
+      if (end > current.scrollTop) current.scrollTop = end;
+    }
+  }, [open]);
+  // A hold outlives nothing it holds for: once its row leaves the queue (deleted, sent, steered,
+  // run), or a row leaving makes the held height more than the rows left need, the list fits its
+  // rows at once instead of keeping a blank band until the pointer leaves.
+  useLayoutEffect(() => {
+    const current = list.current;
+    if (!held.current || !current) return;
+    const rows = [...current.querySelectorAll<HTMLElement>(":scope > .acpmux-queued")];
+    if (!heldId.current || !rows.some((row) => row.dataset.promptId === heldId.current)) return release(current);
+    const last = current.lastElementChild;
+    const pad = parseFloat(current.ownerDocument.defaultView?.getComputedStyle(current).paddingBottom ?? "") || 0;
+    const need = last ? offsets(current, last).bottom + pad : 0;
+    if (need < parseFloat(current.style.minHeight || "0") - 0.5) release(current);
+  });
+  // A held list gives room back when the stack around it grows (a permission card or a question
+  // arrives under the pointer, the pane shortens): past the room the pane leaves the stack, or by
+  // what a part above it has had to give up since the hold began (bottomStack.css shrinks those
+  // first, so a card would otherwise sit cut to one row over a held queue), it shrinks and scrolls.
+  // While a hold lasts, a ResizeObserver on the dock, the pane, the parts above the list and their
+  // contents, and a MutationObserver for parts that arrive; both disconnect when the hold ends or
+  // the list goes.
+  useLayoutEffect(() => {
+    const current = list.current;
+    if (!held.current || !current) {
+      holding.current?.disconnect();
+      holding.current = undefined;
+      return;
+    }
+    if (holding.current || typeof ResizeObserver === "undefined") return;
+    const view = current.ownerDocument.defaultView;
+    const dock = current.closest<HTMLElement>(".acpmux-dock");
+    const main = current.closest<HTMLElement>(".acpmux-main");
+    /// The parts of the stack drawn above the list (a question, a permission card, notices).
+    const above = () =>
+      dock
+        ? [...dock.querySelectorAll<HTMLElement>(":scope > *, :scope > .acpmux-composer > *")].filter(
+            (part) =>
+              part !== current &&
+              !part.contains(current) &&
+              (part.compareDocumentPosition(current) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+          )
+        : [];
+    /// How much of its own height (to its own max-height) the stack has squeezed out of a part.
+    const squeezed = (part: HTMLElement) => {
+      const max = parseFloat(view?.getComputedStyle(part).maxHeight ?? "");
+      return Math.max(0, Math.min(part.scrollHeight, Number.isFinite(max) ? max : Infinity) - part.clientHeight);
+    };
+    // What each part had given up when the hold began: only what it gives up after is handed back,
+    // so the hold itself never moves the list under the pointer.
+    const before = new WeakMap(above().map((part) => [part, squeezed(part)]));
+    const shrinkToRoom = () => {
+      if (!held.current || !current.isConnected) return;
+      const box = current.getBoundingClientRect();
+      let room = heldCap(current, box.height);
+      for (const part of above()) room = Math.min(room, box.height - (squeezed(part) - (before.get(part) ?? 0)));
+      if (room >= box.height - 0.5) return;
+      const min = parseFloat(view?.getComputedStyle(current).getPropertyValue("--acpmux-stack-row-min") ?? "") || 34;
+      const height = `${Math.max(min, room)}px`;
+      current.style.maxHeight = height;
+      current.style.minHeight = height;
+    };
+    const observer = new (view?.ResizeObserver ?? ResizeObserver)(shrinkToRoom);
+    const watch = () => {
+      for (const part of above()) for (const box of [part, ...part.children]) observer.observe(box);
+      for (const box of [dock, main]) if (box) observer.observe(box);
+    };
+    watch();
+    // A part that arrives later (the card), or a card a part gains, is watched too and measured at once.
+    const arrivals = new (view?.MutationObserver ?? MutationObserver)(() => {
+      watch();
+      shrinkToRoom();
+    });
+    if (dock) arrivals.observe(dock, { childList: true, subtree: true });
+    holding.current = {
+      disconnect() {
+        observer.disconnect();
+        arrivals.disconnect();
+      },
+    };
+  });
+  useEffect(
+    () => () => {
+      holding.current?.disconnect();
+      holding.current = undefined;
+    },
+    [],
+  );
+  /** Fits the list to its rows, unless a row the pointer opened holds its height. */
+  const fit = (current: HTMLElement) => {
+    if (!held.current) fitList(current);
+  };
   // What the open edit holds now: a prompt that starts while it is edited hands it to the prompt.
   const draft = useRef<{ id: string; original: string; text: string }>(undefined);
   // The row a move keeps focus on, once the new order draws.
@@ -229,7 +417,9 @@ export function ComposerQueue({
       const kept = [...current].filter((id) => queue.some((entry) => entry.id === id));
       return kept.length === current.size ? current : new Set(kept);
     });
-    if (editing && !queue.some((entry) => entry.id === editing)) {
+    // The edited prompt left, or turned out to be a teammate's (its authored record came in while
+    // the editor was open): the editor closes, and what was typed goes back to the composer.
+    if (editing && !queue.some((entry) => entry.id === editing && entry.author === undefined)) {
       const open = draft.current;
       if (open?.id === editing && open.text.trim() && open.text !== open.original) onLost?.(open.text.trim(), editing);
       draft.current = undefined;
@@ -238,16 +428,27 @@ export function ComposerQueue({
     }
   }, [queue, editing, onLost]);
   // Whole rows only: the list's height, after every draw, when its width changes, and when a row's
-  // height does: an agent's message opened, or its Details, is that line's own state
-  // (IncomingMessageLine), which draws no queue again.
+  // height does (a prompt opened to its whole text, its images read).
   const watched = useRef<{ list: HTMLElement; observer: ResizeObserver; rows: ResizeObserver }>(undefined);
   const fitReadyFrame = useRef<number | undefined>(undefined);
   const wasOpen = useRef(unfolded);
   useLayoutEffect(() => {
     const current = list.current;
+    // A hold belongs to the list the pointer was on: once that list leaves (the queue emptied) no
+    // pointerleave comes, so a list drawn later starts unheld.
+    if (watched.current?.list !== current) {
+      held.current = false;
+      heldId.current = undefined;
+    }
     if (current) {
+      // Clear the collapsed list's scroll offset before measuring the opened rows. A pointer click
+      // can leave focus on a row that the browser keeps anchored while the list grows; measuring
+      // first then resetting lets that stale offset survive the max-height transition and puts a
+      // row above the list's own top edge (the short-pane queue stack regression).
+      const opening = unfolded && !wasOpen.current;
+      if (opening) current.scrollTop = 0;
       const firstFit = !current.hasAttribute("data-fit-ready");
-      fitList(current);
+      fit(current);
       if (firstFit) {
         fitReadyFrame.current = requestFitFrame(current.ownerDocument, () => {
           fitReadyFrame.current = undefined;
@@ -255,8 +456,6 @@ export function ComposerQueue({
         });
       }
     }
-    // Opening lands at the top: the header and the next prompt.
-    if (current && unfolded && !wasOpen.current) current.scrollTop = 0;
     wasOpen.current = unfolded;
     if (watched.current?.list !== current) {
       watched.current?.observer.disconnect();
@@ -267,10 +466,10 @@ export function ComposerQueue({
         const observer = new ResizeObserver(() => {
           if (current.clientWidth === width) return;
           width = current.clientWidth;
-          fitList(current);
+          fit(current);
         });
         observer.observe(current);
-        const rows = new ResizeObserver(() => fitList(current));
+        const rows = new ResizeObserver(() => fit(current));
         watched.current = { list: current, observer, rows };
       }
     }
@@ -316,8 +515,21 @@ export function ComposerQueue({
       if (!done) restore();
     }, restore);
   };
-  const shown = queue.filter((entry) => !leaving.has(entry.id));
-  if (shown.length === 0) return null;
+  // The person's prompts only: another agent's message draws in the transcript.
+  const shown = ownQueue(queue).filter((entry) => !leaving.has(entry.id));
+  // A paused queue of agent messages alone still says so, with Resume.
+  // Who each row belongs to, as last drawn. A native menu keeps the actions it opened with: one
+  // picked after a row turned out to be a teammate's (its authored record came in while the menu
+  // was open) does nothing, as the row now offers nothing.
+  const owners = (rows: readonly QueuedEntry[]) =>
+    rows.map((entry) => `${entry.id}\u0000${entry.author?.id ?? ""}`).join("\u0001");
+  const drawnOwners = useRef("");
+  const drawnRows = useRef<readonly QueuedEntry[]>([]);
+  useLayoutEffect(() => {
+    drawnOwners.current = owners(shown);
+    drawnRows.current = shown;
+  });
+  if (shown.length === 0 && !(paused && queue.length > 0)) return null;
   // Prompts sent now come first: queued prompts count from after them.
   const steering = shown.filter((entry) => entry.next).length;
   // A long queue folds to its next prompts; the rows shown are always the first ones, in order.
@@ -348,23 +560,27 @@ export function ComposerQueue({
     }, 1000);
   };
   const remove = onRemove && ((entry: QueuedEntry) => act(entry.id, () => onRemove(entry.id)));
+  // A teammate's prompt in a shared chat: shown with its author, never changed from here.
+  const theirs = (entry: QueuedEntry) => entry.author !== undefined;
+  const whileOwnersHold = (items: ContextMenuItem[]): ContextMenuItem[] => {
+    const opened = owners(shown);
+    return items.map((entry) => ({
+      ...entry,
+      onSelect: () => {
+        if (drawnOwners.current === opened) entry.onSelect();
+      },
+    }));
+  };
   const cancelEdit =
     onCancelEdit &&
     (async (entry: QueuedEntry) => {
-      if (entry.message) return;
-      const attachments = await Promise.all(
-        (entry.images ?? []).map(async (image): Promise<ComposerAttachment> => {
-          const src = image.src ?? (readImage ? await readImage(image.id) : undefined);
-          return {
-            id: image.id,
-            kind: "image",
-            name: image.name ?? "image",
-            mimeType: image.mimeType,
-            size: 0,
-            ...(src?.startsWith("data:") ? { data: src.slice(src.indexOf(",") + 1) } : {}),
-          };
-        }),
-      );
+      const attachments = await queuedAttachments(entry.images, readImage);
+      // An image that could not be read would be lost with the row: it stays queued.
+      if (lacksImageBytes(attachments)) return;
+      // Its images read, the row may have turned out to be a teammate's (or gone): then it is
+      // theirs, and nothing is taken out of the queue.
+      const now = drawnRows.current.find((row) => row.id === entry.id);
+      if (!now || theirs(now)) return;
       await act(entry.id, () => onCancelEdit(entry.id, entry.prompt, attachments));
     });
   // A side chat asks the prompt's text alone, so a prompt with images stays in the queue.
@@ -389,12 +605,26 @@ export function ComposerQueue({
     });
   const canSendNow = (entry: QueuedEntry) => Boolean(sendNow && !entry.next && !sentNow.has(entry.id));
   // A move to the place of the row shown at `index` (acpmux counts rows still leaving too); the
-  // moved row keeps focus once acpmux's new order draws.
+  // moved row keeps focus once acpmux's new order draws. Past the first or last row shown, an
+  // agent's waiting message (drawn in the transcript) may still be its neighbour in the queue: it
+  // moves one place in the whole queue then.
+  const queueIndex = (entry: QueuedEntry) => queue.findIndex((q) => q.id === entry.id);
+  // Where a move to the row shown at `index` lands in the whole queue, or undefined when it cannot:
+  // past either end, or across a teammate's prompt (each row it passes shifts one place, and a
+  // teammate's prompt is theirs to move).
+  const moveTarget = (entry: QueuedEntry, index: number): number | undefined => {
+    const target = shown[index];
+    const from = queueIndex(entry);
+    const to = target ? queueIndex(target) : from + (index < shown.indexOf(entry) ? -1 : 1);
+    if (from < 0 || to < 0 || to >= queue.length || to === from) return undefined;
+    const passed = to < from ? queue.slice(to, from) : queue.slice(from + 1, to + 1);
+    return passed.some((q) => q.author !== undefined) ? undefined : to;
+  };
   const move =
     onChange &&
     ((entry: QueuedEntry, index: number) => {
-      const to = shown[index] && queue.findIndex((q) => q.id === shown[index].id);
-      if (to === undefined || to < 0) return;
+      const to = moveTarget(entry, index);
+      if (to === undefined) return;
       // A move into the folded part opens the queue, so the moved row stays in sight.
       if (folded && index >= visible.length) unfold(true);
       refocus.current = entry.id;
@@ -411,6 +641,7 @@ export function ComposerQueue({
     focusRow(index);
   };
   const save = (entry: QueuedEntry, text: string) => {
+    if (entry.author !== undefined) return cancel(shown.indexOf(entry));
     const images = entry.images ?? [];
     const kept = images.filter((image) => !dropped.has(image.id));
     draft.current = undefined;
@@ -430,6 +661,8 @@ export function ComposerQueue({
   const rowKeyDown = (event: React.KeyboardEvent<HTMLElement>, entry: QueuedEntry, index: number) => {
     if (event.target !== event.currentTarget) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+    // A teammate's prompt is theirs to change (acpmux `queue.not_author`): its row only walks.
+    const mine = !theirs(entry);
     const done = () => {
       event.preventDefault();
       event.stopPropagation();
@@ -438,16 +671,16 @@ export function ComposerQueue({
       // ⌘↩ on a row does nothing: Send now is a click (above). It would send the prompt from the
       // composer otherwise.
       done();
-    } else if (event.key === "Enter" && plain && onChange) {
+    } else if (event.key === "Enter" && plain && onChange && mine) {
       done();
       setEditing(entry.id);
-    } else if ((event.key === "ArrowUp" || event.key === "ArrowDown") && event.altKey && move) {
+    } else if ((event.key === "ArrowUp" || event.key === "ArrowDown") && event.altKey && move && mine) {
       done();
       move(entry, index + (event.key === "ArrowUp" ? -1 : 1));
     } else if ((event.key === "ArrowUp" || event.key === "ArrowDown") && plain) {
       done();
       focusRow(index + (event.key === "ArrowUp" ? -1 : 1));
-    } else if ((event.key === "Delete" || event.key === "Backspace") && plain && remove) {
+    } else if ((event.key === "Delete" || event.key === "Backspace") && plain && remove && mine) {
       done();
       remove(entry);
       focusAfter(index);
@@ -478,44 +711,48 @@ export function ComposerQueue({
     ),
     onSelect,
   });
-  const menu = (entry: QueuedEntry, index: number): ContextMenuItem[] => [
-    ...(canSendNow(entry)
-      ? [
-          {
-            id: "steer",
-            ariaLabel: t("composer.queueSteer"),
-            label: t("composer.queueSteer"),
-            onSelect: () => sendNow?.(entry),
-          },
-        ]
-      : []),
-    ...(onChange ? [item("edit", t("composer.queueEditMessage"), "↩", () => setEditing(entry.id))] : []),
-    ...(move
-      ? [
-          {
-            ...item("up", t("composer.queueMoveUp"), "⌥↑", () => move(entry, index - 1)),
-            disabled: index === 0,
-            separatorBefore: true,
-          },
-          {
-            ...item("down", t("composer.queueMoveDown"), "⌥↓", () => move(entry, index + 1)),
-            disabled: index === shown.length - 1,
-          },
-        ]
-      : []),
-    ...(remove
-      ? [
-          {
-            ...item("delete", t("composer.queueDelete"), "⌫", () => remove(entry)),
-            destructive: true,
-            separatorBefore: true,
-          },
-        ]
-      : []),
-  ];
+  const menu = (entry: QueuedEntry, index: number): ContextMenuItem[] =>
+    theirs(entry)
+      ? []
+      : whileOwnersHold([
+          ...(canSendNow(entry)
+            ? [
+                {
+                  id: "steer",
+                  ariaLabel: t("composer.queueSteer"),
+                  label: t("composer.queueSteer"),
+                  onSelect: () => sendNow?.(entry),
+                },
+              ]
+            : []),
+          ...(onChange ? [item("edit", t("composer.queueEditMessage"), "↩", () => setEditing(entry.id))] : []),
+          ...(move
+            ? [
+                {
+                  ...item("up", t("composer.queueMoveUp"), "⌥↑", () => move(entry, index - 1)),
+                  disabled: moveTarget(entry, index - 1) === undefined,
+                  separatorBefore: true,
+                },
+                {
+                  ...item("down", t("composer.queueMoveDown"), "⌥↓", () => move(entry, index + 1)),
+                  disabled: moveTarget(entry, index + 1) === undefined,
+                },
+              ]
+            : []),
+          ...(remove
+            ? [
+                {
+                  ...item("delete", t("composer.queueDelete"), "⌫", () => remove(entry)),
+                  destructive: true,
+                  separatorBefore: true,
+                },
+              ]
+            : []),
+        ]);
   // The row's actions, as ChatGPT and Codex show them: Steer (a glyph and its word), the trash can
   // (an icon named by its tooltip), and the ⋯ menu. Plain glyphs: a soft pill on hover only.
   const actions = (entry: QueuedEntry) => {
+    if (theirs(entry)) return null;
     const side = sideChat?.(entry);
     return (
       <span className="acpmux-queued-actions">
@@ -531,7 +768,7 @@ export function ComposerQueue({
             <span>{t("composer.queueSteer")}</span>
           </button>
         )}
-        {cancelEdit && !entry.message && (
+        {cancelEdit && (
           <button
             type="button"
             className="acpmux-queued-action"
@@ -589,18 +826,6 @@ export function ComposerQueue({
       </span>
     );
   };
-  // Another agent's message: its received line, which finds its sender among the listed chats.
-  const received = (entry: QueuedEntry, message: NonNullable<QueuedEntry["message"]>) => {
-    const line = (
-      <IncomingMessageLine
-        id={`queued:${entry.id}`}
-        message={message}
-        onOpen={(sessionId) => (subsessions?.openSender ?? subsessions?.open)?.(sessionId)}
-        actions={editing !== entry.id && actions(entry)}
-      />
-    );
-    return subsessions ? <SubsessionContext.Provider value={subsessions}>{line}</SubsessionContext.Provider> : line;
-  };
   // A row's text (or its edit) and actions. A prompt sent now says "Steering" ahead of its text; a
   // queued one keeps "Queued" for assistive tech only.
   const cells = (entry: QueuedEntry, index: number) => (
@@ -613,29 +838,46 @@ export function ComposerQueue({
           onInput={(text) => (draft.current = { id: entry.id, original: entry.prompt, text })}
           onDone={(text) => (text === undefined ? cancel(index) : save(entry, text))}
         />
-      ) : entry.message ? (
-        received(entry, entry.message)
       ) : (
         <button
           type="button"
           className="acpmux-queued-text"
           data-open={open.has(entry.id) ? "" : undefined}
           aria-expanded={open.has(entry.id)}
-          onPointerEnter={(event) => titleWhenTruncated(event, entry.prompt)}
-          onClick={() => toggle(entry.id)}
+          onPointerEnter={(event) => titleWhenTruncated(event, shownText(entry, t))}
+          onPointerDown={(event) => (pressedBy.current = event.pointerType)}
+          onClick={(event) => {
+            // A mouse or pen press is a hovering pointer; a key (no press) or a touch is none.
+            const by = pressedBy.current;
+            pressedBy.current = undefined;
+            toggle(entry.id, event.detail > 0 && (by === "mouse" || by === "pen"));
+          }}
         >
           {/* WebKit does not clamp a button's own lines: the clamp is on its text. */}
           <span className="acpmux-queued-clamp">
+            {entry.author && <AuthorChip author={entry.author} inline />}
             {entry.next && (
               <span className="acpmux-queued-kind" data-kind="steer">
                 {t("composer.steering")}
               </span>
             )}
-            {entry.prompt}
+            {entry.retry ? (
+              <>
+                <span className="acpmux-queued-kind" data-kind="retry">
+                  {t("composer.queuedSubagentRetry")}
+                </span>
+                {entry.retry.name ?? entry.retry.agentId}
+                {open.has(entry.id) && entry.retry.error && (
+                  <span className="acpmux-queued-detail">{entry.retry.error}</span>
+                )}
+              </>
+            ) : (
+              entry.prompt
+            )}
           </span>
         </button>
       )}
-      {!entry.message && editing !== entry.id && actions(entry)}
+      {editing !== entry.id && actions(entry)}
       {/* Under the text, in its column. */}
       <QueuedImages
         images={
@@ -673,6 +915,9 @@ export function ComposerQueue({
         onFocus={(event) => {
           const row = (event.target as HTMLElement).closest("li");
           if (row && list.current && !pressing.current) reveal(list.current, row);
+        }}
+        onPointerLeave={(event) => {
+          if (held.current) release(event.currentTarget);
         }}
         onPointerDown={(event) => {
           pressing.current = true;
@@ -717,7 +962,7 @@ export function ComposerQueue({
             className="acpmux-queued"
             key={entry.id}
             data-prompt-id={entry.id}
-            aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown Delete"
+            aria-keyshortcuts={theirs(entry) ? undefined : "Enter Alt+ArrowUp Alt+ArrowDown Delete"}
             {...rovingTabStopProps(false, (event) => rowKeyDown(event, entry, index))}
           >
             {editing === entry.id ? (

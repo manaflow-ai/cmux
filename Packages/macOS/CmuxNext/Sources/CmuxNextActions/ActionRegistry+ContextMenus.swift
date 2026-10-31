@@ -10,20 +10,25 @@ extension ActionRegistry {
     /// facts (`impliedContext(for:)`) also enable and run its items
     /// (`ActionMenuPayload.implied`): a Files row runs the explorer's actions
     /// while a terminal has the keyboard. `arguments` go to every item's run
-    /// (a right-clicked link's `url`).
+    /// (a right-clicked link's `url`). Without `entries` the menu is the person's
+    /// arrangement (``contextMenuEntries(for:removing:)``). `customize` ends it with
+    /// Customize Menu…; nil does so for a whole menu (no `entries`), not for rows a caller
+    /// takes into another menu.
     public func makeContextMenu(
         for context: ActionMenuContext,
         target: ActionTargetRef? = nil,
         entries: [ContextMenuEntry]? = nil,
         implied: ActionContext = [],
-        arguments: [String: ActionValue] = [:]
+        arguments: [String: ActionValue] = [:],
+        customize: Bool? = nil
     ) -> NSMenu {
         let runFacts = Self.impliedContext(for: context)
         let effective = self.context.union(runFacts).union(implied)
         let menu = NSMenu()
         menu.autoenablesItems = true
-        let entries = entries ?? ContextMenuCatalog.shared.entries(for: context), labels = ContextMenuCatalog.shared.labels(for: context)
-        menuItems(entries, target: target, context: effective, implied: runFacts, arguments: arguments, labels: labels).forEach(menu.addItem)
+        let shown = entries ?? contextMenuEntries(for: context), labels = ContextMenuCatalog.shared.labels(for: context)
+        menuItems(shown, target: target, context: effective, implied: runFacts, arguments: arguments, labels: labels).forEach(menu.addItem)
+        if customize ?? (entries == nil) { appendCustomizeItem(to: menu, for: context) }
         return menu
     }
 
@@ -77,7 +82,7 @@ extension ActionRegistry {
                 if let last = items.last, !last.isSeparatorItem { items.append(.separator()) }
             case .action(let id):
                 let invocation = ActionInvocation(target: target, arguments: arguments)
-                guard let descriptor = descriptor(for: id), ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil, Self.isAvailable(descriptor, in: context),
+                guard let descriptor = descriptor(for: id), isAvailable(descriptor.id, in: context),
                       !ActionTargetVisibility.isHidden(id, invocation: invocation, in: self), let item = makeMenuItem(for: id) else { continue }
                 item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: arguments, implied: implied)
                 item.image = Self.menuIcon(descriptor.symbol)
@@ -104,8 +109,17 @@ extension ActionRegistry {
                 childItems.forEach(submenu.addItem)
                 item.submenu = submenu
                 items.append(item)
+            case .group(let group, let children):
+                // The person's own submenu (Settings > Menus): their title, no icon.
+                let childItems = menuItems(children, target: target, context: context, implied: implied, arguments: arguments, labels: labels)
+                guard childItems.contains(where: { !$0.isSeparatorItem }) else { continue }
+                let item = NSMenuItem(title: group.title, action: nil, keyEquivalent: "")
+                let submenu = NSMenu(title: group.title)
+                childItems.forEach(submenu.addItem)
+                item.submenu = submenu
+                items.append(item)
             case .choices(let id):
-                guard let descriptor = descriptor(for: id), ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil, Self.isAvailable(descriptor, in: context),
+                guard let descriptor = descriptor(for: id), isAvailable(descriptor.id, in: context),
                       let item = makeChoicesItem(for: descriptor, target: target, in: context)
                 else { continue }
                 item.image = Self.menuIcon(descriptor.symbol)

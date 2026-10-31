@@ -2,26 +2,28 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextPages
 
-/// A crashed page: reload it, unless it keeps crashing; then the pane says so and waits for the
-/// user (on the old host with its own count, on the page host with the page host's).
+/// A crashed page shows the crash notice and waits for the person's Reload, on either host: a
+/// reload by itself would build the chat again without what its page held (an open menu or
+/// popover, the caret, an IME composition, chips not yet sent), and a page never reloads unless
+/// the person asks (Leo, 2026-10-26: "why does cmux-next's browser keep refreshing and reloading?").
 extension AgentPaneView {
-    /// Reloads the page after its web content process crashed, unless it
-    /// keeps crashing; then the pane says so and waits for the user.
-    func webContentProcessDidTerminate() {
+    /// The old host's web content process ended (`termination`: WebKit's reason and pid, or an
+    /// injected end in tests): logged with its siblings (``AgentPageTerminations``), the notice, no
+    /// automatic reload.
+    func webContentProcessDidTerminate(_ termination: PageTermination = .unknown) {
         // The composer that held the session's words is gone.
         dictation.handle(.cancel)
-        if crashReloads.shouldReload(at: .now) {
-            source.load(into: webView)
-        } else {
-            showCrashNotice()
-        }
+        terminations.ended(self, termination: termination.withPid(fallback: knownWebContentPid))
+        showCrashNotice()
     }
 
-    /// The page host's crash report: the same as ``webContentProcessDidTerminate()``, with the
+    /// The page host's crash report: the same as ``webContentProcessDidTerminate(_:)``, with the
     /// reload policy kept by the page host.
     func pageCrashed(reloading: Bool) {
         dictation.handle(.cancel)
-        if !reloading { showCrashNotice() }
+        guard !reloading else { return }
+        terminations.ended(self, termination: page?.lastTermination ?? .unknown)
+        showCrashNotice()
     }
 
     private func showCrashNotice() {
@@ -57,10 +59,28 @@ extension AgentPaneView {
         }
     }
 
+    /// The page finished loading a document after its end: it lives, so the notice goes and the
+    /// chat leaves its crash group (a sibling's Reload must not reload it). The notice showed over a
+    /// working chat before this (user report 2026-10-30): a host route, a retarget or a WebKit
+    /// fallback had loaded the page again, and only Reload took the notice away.
+    func pageLoadedAgain() {
+        guard let notice = crashNotice else { return }
+        notice.removeFromSuperview()
+        crashNotice = nil
+        terminations.loadedAgain(self, session: model.sessionId)
+    }
+
+    /// The notice's Reload: the person's request for every chat that ended with this one.
     @objc private func reloadAfterCrashes() {
+        terminations.reload(from: self)
+    }
+
+    /// Takes the notice away and reloads this pane's page (a Reload the person pressed here or in
+    /// a chat that ended with this one).
+    func reloadAfterCrash() {
         crashNotice?.removeFromSuperview()
         crashNotice = nil
-        crashReloads = PageCrashReloads()
+        crashReloadCount += 1
         if let page { page.reloadAfterCrashes() } else { source.load(into: webView) }
     }
 }

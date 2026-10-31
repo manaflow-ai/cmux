@@ -2,8 +2,10 @@
 // The single permission card's answer row (PermissionCard.tsx). Leo 2026-10-25, on a card whose
 // "Always allow" was a wide row holding the whole rule, repeated as a line under Deny: "the allow
 // button, like this, it shouldn't be encompassing so much ... this other, like, thing shouldn't be
-// the same thing." The buttons are short and one size; the scope is one muted line. scopeStyle
-// draws gallery-only alternatives of that line over the shipped card; "under" is the shipped one.
+// the same thing." Then, on equal-width buttons stretched across the card: "but there's literally
+// no point having it be the same size? just make it good? incl. the symbol hints". The buttons are
+// sized to their labels with a light key hint; the scope is one muted line. scopeStyle and rowStyle
+// draw gallery-only alternatives over the shipped card; "under" and "light" are the shipped ones.
 import type { ComponentProps } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
@@ -12,7 +14,26 @@ import { PermissionCard } from "./PermissionCard";
 import { SHORTCUT_ACTIONS, ShortcutsContext } from "./shortcuts";
 
 type ScopeStyle = "under" | "labelled" | "front";
-type Props = Pick<ComponentProps<typeof PermissionCard>, "permission" | "harness"> & { scopeStyle?: ScopeStyle };
+type RowStyle = "light" | "keycap" | "hover" | "trailing";
+type Props = Pick<ComponentProps<typeof PermissionCard>, "permission" | "harness"> & {
+  scopeStyle?: ScopeStyle;
+  rowStyle?: RowStyle;
+};
+
+const rowStyles: Record<Exclude<RowStyle, "light">, string> = {
+  // The hint as a small keycap: a faint rounded box around it, Claude desktop's menu style.
+  keycap: `
+    [data-row-style="keycap"] .acpmux-permission-ask .acpmux-permission-action-shortcut { padding: 1px 4px;
+      border-radius: 4px; background: color-mix(in srgb, currentColor 12%, transparent); }`,
+  // The hint only on hover or focus: the resting row reads as three words.
+  hover: `
+    [data-row-style="hover"] .acpmux-permission-ask .acpmux-permission-action-shortcut { opacity: 0; }
+    [data-row-style="hover"] .acpmux-permission-ask button:is(:hover, :focus-visible) .acpmux-permission-action-shortcut { opacity: 1; }`,
+  // The light hint, the row grouped at the trailing edge, as a macOS dialog's buttons.
+  trailing: `
+    [data-row-style="trailing"] .acpmux-permission-ask .acpmux-permission-buttons { justify-content: flex-end; }
+    [data-row-style="trailing"] .acpmux-permission-ask .acpmux-permission-scope { text-align: end; }`,
+};
 
 const scopeStyles: Record<Exclude<ScopeStyle, "under">, string> = {
   // The line under the buttons, named: "Scope: …".
@@ -85,10 +106,11 @@ const fourOptions: AcpmuxPermission = {
   ],
 };
 
-function GalleryPermissionCard({ permission, harness, scopeStyle }: Props) {
+function GalleryPermissionCard({ permission, harness, scopeStyle, rowStyle }: Props) {
   return (
-    <div className="acpmux-shell" data-scope-style={scopeStyle} style={{ paddingTop: 12 }}>
+    <div className="acpmux-shell" data-scope-style={scopeStyle} data-row-style={rowStyle} style={{ paddingTop: 12 }}>
       {scopeStyle && scopeStyle !== "under" && <style>{scopeStyles[scopeStyle]}</style>}
+      {rowStyle && rowStyle !== "light" && <style>{rowStyles[rowStyle]}</style>}
       <div className="acpmux-main">
         <div className="acpmux-permission acpmux-asks-stack">
           <ShortcutsContext value={labels}>
@@ -129,7 +151,7 @@ export default componentEntry<Props>({
   height: 260,
   variants: {
     "long-rule": {
-      note: "Leo 2026-10-25: a long Claude session rule. Short buttons of one size; the rule is one muted line under them, cut, whole on hover.",
+      note: "Leo 2026-10-25: a long Claude session rule. Compact buttons sized to their labels, grouped at the leading edge, each with a light ⌥⌘ hint; the rule is one muted line under them, cut, whole on hover.",
       props: { permission: longRule, harness: "claude" },
       play: scopeOnce,
     },
@@ -150,6 +172,30 @@ export default componentEntry<Props>({
     "scope-front": {
       note: "Scope line variant C: in front of the buttons, between the command and the row.",
       props: { permission: longRule, harness: "claude", scopeStyle: "front" },
+    },
+    "keycap-long-rule": {
+      note: "Key hint variant B: each hint in a faint keycap box.",
+      props: { permission: longRule, harness: "claude", rowStyle: "keycap" },
+    },
+    "keycap-four-options": {
+      note: "Key hint variant B with four options.",
+      props: { permission: fourOptions, harness: "codex", rowStyle: "keycap" },
+    },
+    "hover-long-rule": {
+      note: "Key hint variant C: hints only on hover or focus.",
+      props: { permission: longRule, harness: "claude", rowStyle: "hover" },
+    },
+    "hover-four-options": {
+      note: "Key hint variant C with four options.",
+      props: { permission: fourOptions, harness: "codex", rowStyle: "hover" },
+    },
+    "trailing-long-rule": {
+      note: "Row variant D: the light hints, the row grouped at the trailing edge.",
+      props: { permission: longRule, harness: "claude", rowStyle: "trailing" },
+    },
+    "trailing-four-options": {
+      note: "Row variant D with four options.",
+      props: { permission: fourOptions, harness: "codex", rowStyle: "trailing" },
     },
   },
 });

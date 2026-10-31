@@ -15,6 +15,7 @@ import { FreestyleTlsRuleLimitRestoreError, inlineEgressFirewallRules, inlineEgr
 import { isIP } from "node:net";
 import { Effect } from "effect";
 import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
+import { freestyleCustomer } from "./freestyleCustomer";
 import { freestyleHealthInventory } from "./freestyleHealthInventory";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
 import { freestyleRequestFetch } from "./freestyleRequestTiming";
@@ -27,6 +28,7 @@ import {
   ProviderNetworkFullError,
   ProviderTlsRuleLimitError,
   type AttachTransport,
+  type ProviderCredential,
   type SSHEndpoint,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteApprovalOptions,
@@ -1307,6 +1309,7 @@ export class FreestyleProvider implements VMProvider {
               ? { maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)) }
               : {}),
             metadata: { cmux: "cloud" },
+            ...freestyleCustomer(options.customerId),
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options.network?.memberIngress ? networkId : undefined, networkRules: options.networkRules }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
             ...(tlsRules ? { tls: { rules: tlsRules } } : {}),
@@ -1415,7 +1418,7 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
-  async destroy(vmId: string): Promise<void> {
+  async destroy(vmId: string, _credential?: ProviderCredential, options?: { readonly strict?: boolean }): Promise<void> {
     return withVmSpan(
       "cmux.vm.provider.destroy",
       "provider",
@@ -1424,7 +1427,8 @@ export class FreestyleProvider implements VMProvider {
         try {
           await this.deps.client().vms.ref(vmId).delete();
         } catch (err) {
-          if (isNotFound(err)) return; // already gone; destroy is idempotent
+          // Already gone; destroy is idempotent. Strict: only Freestyle's own NOT_FOUND says so.
+          if (options?.strict ? err instanceof FreestyleApiError && err.code === "NOT_FOUND" : isNotFound(err)) return;
           throw new ProviderError("freestyle", `destroy(${vmId})`, err);
         }
       },
@@ -1575,7 +1579,8 @@ export class FreestyleProvider implements VMProvider {
       }),
       async (span) => {
         try {
-          const fs = this.deps.client(timeoutMs + EXEC_OVERHEAD_TIMEOUT_MS);
+          // A caller's signal (ExecOptions.signal) ends the request with it.
+          const fs = this.deps.client(timeoutMs + EXEC_OVERHEAD_TIMEOUT_MS, opts?.signal);
           if (opts?.stdin) {
             const r = await execWithStdin(fs, vmId, command, timeoutMs, opts.stdin);
             setSpanAttributes(span, { "cmux.exec.exit_code": r.exitCode });
@@ -1801,6 +1806,7 @@ export class FreestyleProvider implements VMProvider {
             automaticRestart: true,
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
             metadata: { cmux: "cloud" },
+            ...freestyleCustomer(options?.customerId),
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options?.network?.memberIngress ? networkId : undefined, networkRules: options?.networkRules }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
             ...(tlsRules ? { tls: { rules: tlsRules } } : {}),

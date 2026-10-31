@@ -14,21 +14,31 @@ dependencies = [
  "cmux-coderouter",
  "cmux-codex-acp",
  "cmux-git",
+ "cmux-json",
  "cmux-link",
  "cmux-local-auth",
  "cmux-panic-log",
  "cmux-sdk",
+ "cmux-server",
+ "cmux-server-core",
+ "cmux-tailnet",
  "cmux-unix-socket",
+ "cmux-wg",
  "cmux-worktree-care",
  "crossterm",
  "dirs",
+ "flate2",
  "futures",
  "futures-util",
  "getrandom 0.3.4",
  "libc",
+ "memchr",
  "notify",
+ "plist",
+ "png",
  "pulldown-cmark",
  "ratatui",
+ "rcgen",
  "regex",
  "reqwest",
  "ring",
@@ -38,8 +48,10 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "syntect",
+ "tempfile",
  "thiserror 2.0.19",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
  "tokio-util",
  "toml",
@@ -50,6 +62,7 @@ dependencies = [
  "uuid",
  "wait-timeout",
  "windows-sys 0.61.2",
+ "x25519-dalek",
  "zeroize",
 ]
 
@@ -804,6 +817,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
+ "cmux-json",
  "cmux-pty",
  "futures-util",
  "getrandom 0.3.4",
@@ -932,6 +946,7 @@ dependencies = [
 name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [
+ "cmux-json",
  "libc",
  "rquickjs",
  "serde",
@@ -942,9 +957,21 @@ dependencies = [
 name = "cmux-app-manifest"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "jsonschema",
  "regex",
  "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "cmux-automations"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -952,6 +979,7 @@ name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
  "chacha20poly1305",
+ "cmux-json",
  "getrandom 0.3.4",
  "hmac",
  "libc",
@@ -1008,6 +1036,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-json",
  "cmux-link",
  "cmux-local-auth",
  "fs4",
@@ -1038,7 +1067,7 @@ dependencies = [
 [[package]]
 name = "cmux-codex-acp"
 version = "0.1.0"
-source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=6e476aa8220e18aad1eaeaabd59659b53f7eca31#6e476aa8220e18aad1eaeaabd59659b53f7eca31"
+source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=ffa7aa863bcdb3f995b0c4b96ea2349e817fed1a#ffa7aa863bcdb3f995b0c4b96ea2349e817fed1a"
 dependencies = [
  "serde_json",
 ]
@@ -1048,6 +1077,7 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-json",
  "core-foundation 0.10.1",
  "core-foundation-sys",
  "jsonschema",
@@ -1089,8 +1119,8 @@ dependencies = [
  "bzip2",
  "openh264-sys2",
  "rustls",
+ "rustls-native-certs",
  "sha2 0.10.9",
- "webpki-roots 1.0.10",
 ]
 
 [[package]]
@@ -1122,6 +1152,7 @@ name = "cmux-git"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "sha2 0.10.9",
  "wait-timeout",
 ]
 
@@ -1160,6 +1191,7 @@ dependencies = [
 name = "cmux-host"
 version = "0.1.0"
 dependencies = [
+ "cmux-json",
  "cmux-server",
  "cmux-server-core",
  "flate2",
@@ -1172,6 +1204,13 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "cmux-json"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -1326,6 +1365,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-rd-link"
+version = "0.1.0"
+dependencies = [
+ "cmux-transport",
+ "libc",
+ "snow",
+]
+
+[[package]]
 name = "cmux-rd-proto"
 version = "0.1.0"
 dependencies = [
@@ -1363,6 +1411,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-build-identity",
+ "cmux-json",
  "cmux-link",
  "cmux-pty",
  "cmux-relay",
@@ -1448,6 +1497,7 @@ name = "cmux-server"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-json",
  "cmux-server-core",
  "flate2",
  "futures-util",
@@ -1473,12 +1523,14 @@ name = "cmux-server-core"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-json",
  "hmac",
  "proptest",
  "ring",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "time",
 ]
 
 [[package]]
@@ -1489,6 +1541,18 @@ dependencies = [
  "cmux-sdk",
  "crossterm",
  "ratatui",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-tailnet"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "libc",
+ "reqwest",
+ "rustls",
+ "serde",
  "serde_json",
 ]
 
@@ -1522,6 +1586,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
+ "cmux-json",
  "cmux-remote",
  "cmux-remote-protocol",
  "cmux-tui-core",
@@ -1572,10 +1637,14 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-agent-pane-policy",
+ "cmux-api-compat",
+ "cmux-automations",
  "cmux-build-identity",
+ "cmux-chat-index",
  "cmux-config",
  "cmux-holder",
  "cmux-host",
+ "cmux-json",
  "cmux-link",
  "cmux-panic-log",
  "cmux-process",
@@ -1590,9 +1659,11 @@ dependencies = [
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
  "cmux-unix-socket",
+ "cmux-vnc",
  "cmux-wg",
  "crossbeam-channel",
  "crossterm",
+ "flate2",
  "futures-util",
  "getrandom 0.3.4",
  "ghostty-vt",
@@ -1633,6 +1704,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-json",
  "serde_json",
  "tungstenite",
 ]
@@ -1643,6 +1715,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-cloud-wire",
+ "cmux-json",
  "serde",
  "serde_json",
  "url",
@@ -1666,6 +1739,7 @@ dependencies = [
  "cmux-git",
  "cmux-history",
  "cmux-holder",
+ "cmux-json",
  "cmux-kitty-media",
  "cmux-layout-reducer",
  "cmux-link",
@@ -1685,6 +1759,7 @@ dependencies = [
  "cmux-unix-socket",
  "flate2",
  "fs4",
+ "futures-util",
  "getrandom 0.3.4",
  "ghostty-vt",
  "jsonschema",
@@ -1702,6 +1777,7 @@ dependencies = [
  "sha2 0.10.9",
  "socket2",
  "tokio",
+ "tokio-tungstenite",
  "tungstenite",
  "uds_windows",
  "url",
@@ -1715,6 +1791,7 @@ name = "cmux-tui-hooks"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cmux-json",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",
@@ -1809,6 +1886,16 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "tempfile",
+]
+
+[[package]]
+name = "cmux-vnc"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "flate2",
+ "getrandom 0.3.4",
+ "num-bigint",
 ]
 
 [[package]]
@@ -3635,6 +3722,7 @@ dependencies = [
  "reqwest",
  "rustls",
  "rustls-pki-types",
+ "rustls-platform-verifier",
  "serde",
  "serde_bytes",
  "strum",
@@ -3644,7 +3732,7 @@ dependencies = [
  "tokio-websockets",
  "tracing",
  "url",
- "webpki-roots 1.0.10",
+ "webpki-roots",
  "ws_stream_wasm",
 ]
 
@@ -6775,7 +6863,6 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tungstenite",
- "webpki-roots 0.26.11",
 ]
 
 [[package]]
@@ -7462,15 +7549,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb"
 dependencies = [
  "rustls-pki-types",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "0.26.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
-dependencies = [
- "webpki-roots 1.0.10",
 ]
 
 [[package]]

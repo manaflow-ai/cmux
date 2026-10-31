@@ -114,9 +114,9 @@ extension CEFRuntime {
             evaluationAnswered(token: token, CEFEvaluationResult(status: status, text: value))
         case .pageDragEnter(let browser, let pathsJSON):
             if let tab = tabsByBrowser[browser], let entered = tab.pageFilesDragged { entered(CEFTab.dragPaths(pathsJSON)) }
-        case .fileDialog(_, let dialogID, _, _, _):
-            // Only after the host turned choosers on (setFileDialogs): until a handler answers, cancel, so a page never waits.
-            _ = shim?.fileDialogAnswer(dialogID, 0, nil)
+        case .fileDialog(let browser, let dialogID, let mode, _, let defaultPath):
+            // Only while an agent's file offer stands (`CEFRuntime+FileDialogs`).
+            answerFileDialog(dialogID, mode: mode, defaultPath: defaultPath, tab: tabsByBrowser[browser])
         case .devToolsResult(let browser, let messageID, let success, let json):
             let key = CEFDevToolsKey(browser: browser, message: messageID)
             let result: Result<String, any Error> = success ? .success(json) : .failure(BrowserTabError.javaScript(json))
@@ -314,7 +314,7 @@ extension CEFRuntime {
     func devTools(_ browser: Int32, method: String, params: [String: Any] = [:],
                   timeout: Duration = CEFRuntime.devToolsTimeout) async throws -> String {
         guard let shim else { throw BrowserTabError.closed }
-        // Chromium answers some methods inside ExecuteDevToolsMethod, before a
+        // Chromium answers some methods inside the shim call (SendDevToolsMessage), before a
         // waiter exists; without this the result was dropped and the call
         // timed out after `timeout` (every device emulation lost 5 s on
         // Emulation.setEmitTouchEventsForMouse).

@@ -7,6 +7,7 @@
 use super::*;
 
 use crate::{route_account, routes};
+use cmux_json::JsonSet as _;
 
 impl Hub {
     /// A new chat's named route exists and serves its harness family.
@@ -67,18 +68,15 @@ impl Hub {
             bindings.chats.clear();
         }
         // A profile's own route (the `cmux` harness) replaces a family or
-        // global binding; a chat or workspace binding still wins.
-        let bound = routes::bound_route(&bindings, session.unwrap_or_default(), workspace, &family);
-        let profile_route = profile.env.get(routes::PROFILE_ROUTE_KEY).cloned();
-        // Your own endpoint (byo_endpoint.rs) names its provider itself: a
-        // family or global binding never rewrites it.
-        let own_endpoint = crate::byo_endpoint::Kind::of_env(&profile.env).is_some();
-        let Some((id, scope)) = (match (bound, profile_route) {
-            (Some((id, scope)), _) if matches!(scope, "chat" | "workspace") => Some((id, scope)),
-            (_, Some(id)) => Some((id, "profile")),
-            (_, None) if own_endpoint => None,
-            (bound, None) => bound,
-        }) else {
+        // global binding; a chat or workspace binding still wins; your own
+        // endpoint is never rewritten by a family or global one.
+        let Some((id, scope)) = routes::spawn_route(
+            &bindings,
+            session.unwrap_or_default(),
+            workspace,
+            &family,
+            &profile.env,
+        ) else {
             return Ok(None);
         };
         let route = routes::find(dir.as_deref(), &id).map_err(|e| {
@@ -196,6 +194,11 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
     ) -> Result<(), RpcError> {
+        // A shutdown began: no agent starts here any more, and the one it left running is the
+        // next daemon's to adopt (`shutdown.rs`). The binding is written; nothing moved yet.
+        if self.shutting_down() {
+            return Err(super::shutdown::shutting_down_error());
+        }
         session.route_switch.store(false, Ordering::SeqCst);
         if session.child.lock().await.is_none() {
             return Ok(());
@@ -314,6 +317,19 @@ fn is_chief(meta: &SessionMeta) -> bool {
         || meta.harness.starts_with("optchat-compact-")
 }
 
+/// Whether another route can solve a failed turn: auth, limits, an overloaded or full
+/// provider (`is_capacity_error`, with or without its status code), server errors, an
+/// unreachable proxy. A capacity error retries in place too (`auto_resume.rs`); the route's
+/// diagnostics, probe and `autoFallback` still see it.
+fn is_route_failure(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    super::turn_errors::is_limit_error(message)
+        || super::turn_errors::is_capacity_error(message)
+        || ["500", "502", "connection refused", "unreachable", "timed out", "agent process closed"]
+            .iter()
+            .any(|w| lower.contains(w))
+}
+
 impl Hub {
     /// A failed turn on a bound route (ROUTES R3): name the route, offer its
     /// first fallback that serves this harness (`fallback: {routeId, name}`),
@@ -326,21 +342,7 @@ impl Hub {
         session: &Arc<Session>,
         message: &str,
     ) -> Option<Value> {
-        let lower = message.to_lowercase();
-        let route_class = super::turn_errors::is_limit_error(message)
-            || [
-                "500",
-                "502",
-                "503",
-                "529",
-                "connection refused",
-                "unreachable",
-                "timed out",
-                "agent process closed",
-            ]
-            .iter()
-            .any(|w| lower.contains(w));
-        if !route_class {
+        if !is_route_failure(message) {
             return None;
         }
         let (dir, state) = routes::places(&*self.config.read().await);
@@ -368,7 +370,7 @@ impl Hub {
         });
         let mut out = json!({"route": {"routeId": id, "name": route.name()}});
         if let Some(next) = next {
-            out["fallback"] = json!({"routeId": next.id, "name": next.name()});
+            out.set("fallback", json!({"routeId": next.id, "name": next.name()}));
             if route.file.auto_fallback
                 && routes::set_binding(&state, &format!("chat:{}", session.id), Some(&next.id))
                     .is_ok()
@@ -380,7 +382,7 @@ impl Hub {
                     json!({"from": id, "to": next.id, "when": "after-turn", "reason": "fallback"}),
                 );
                 session.route_switch.store(true, Ordering::SeqCst);
-                out["fallback"]["applied"] = json!(true);
+                out.set_path(&["fallback", "applied"], json!(true));
             }
         }
         Some(out)
@@ -396,5 +398,26 @@ pub(crate) fn route_error(e: &routes::RouteError) -> RpcError {
     match e.reason() {
         Some(reason) => base.with_data(json!({"reason": reason})),
         None => base,
+    }
+}
+
+#[cfg(test)]
+mod route_failure_tests {
+    use super::is_route_failure;
+
+    #[test]
+    fn overloads_with_or_without_a_status_are_route_failures() {
+        for m in [
+            "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}",
+            "Selected model is at capacity. overloaded",
+            "API Error: 529 overloaded_error",
+            "API Error: 503 no non-exhausted claude accounts available",
+            "You've reached your usage limit for this account",
+            "API Error: 500 Internal server error",
+            "connection refused",
+        ] {
+            assert!(is_route_failure(m), "{m}");
+        }
+        assert!(!is_route_failure("simulated internal error"));
     }
 }

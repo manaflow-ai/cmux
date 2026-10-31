@@ -67,6 +67,8 @@ PATH_OWNERS = {
     # workflow's runs-on against .github/runners.json.
     "scripts/ci/runner_routing_table.py": frozenset(("ci",)),
 
+    # test_ci_upload_artifact_retention.py reads its allowlist.
+    "tests/upload_artifact_retention_allowlist.json": frozenset(("ci",)),
     ".github/workflows/ci-health-report.yml": frozenset(("ci",)),
     ".github/workflows/ci-queue-janitor.yml": frozenset(("ci",)),
     ".github/workflows/required-checks-drift.yml": frozenset(("ci",)),

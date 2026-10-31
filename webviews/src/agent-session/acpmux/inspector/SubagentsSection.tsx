@@ -9,18 +9,29 @@
 // running lines' icons share one shimmer that sweeps down them (ui/wave.ts); the ended ones stay
 // still. The live counts sit in the section's head ("3 running · 40 done", `subagentCounts`). Leo
 // 2026-10-21: the row of identical avatars it replaces opened nothing anyone could tell apart.
-import { useState } from "react";
+import { memo, useState } from "react";
 import { formatDuration } from "../conversation/turns";
-import { useT, type Translate } from "../i18n";
+import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { waveIndices } from "../../../ui/wave";
 import { Icon } from "../icons/Icon";
+import { rowIconSize } from "../icons/iconSize";
+const ROW_ICON = rowIconSize(12);
+
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
+import { isRepeatedAgentKind } from "../subagents/AgentIdentity";
+import { subagentProgress } from "../subagents/subagentProgress";
 import { nestAgents } from "../subagents/AgentsPill";
-import { elapsed, running, useNow } from "../subagents/SubagentGroup";
+import { Avatar, elapsed, running, useNow } from "../subagents/SubagentGroup";
+import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
-import { subagentStatus, subagentStatusLabel, type SubagentStatus } from "../summary/SubagentStatusList";
-import { orderedSessions, sessionStatus, sessionStateLabel } from "./ChildSessionRows";
+import { retrying } from "../subagents/retryState";
+import { subagentStateText, subagentStatus, type SubagentStatus } from "../summary/SubagentStatusList";
+import { orderedSessions, sessionStatus, sessionStateText } from "./ChildSessionRows";
+import "./SubagentsSection.css";
+import { InspectorFold } from "./InspectorSection";
+import { AgentMark } from "../../shared/AgentMark";
+import { TonedIcon } from "../subagents/TonedIcon";
 
 /// Running lines shown before "Show more", as Claude Code desktop's panel caps its list.
 export const SUBAGENTS_SHOWN = 5;
@@ -64,14 +75,21 @@ function endedCounts(t: Translate, lines: readonly Line[]): string {
 /// One line of the list: a subagent or a started chat, as AgentLine draws it.
 type Line = {
   key: string;
+  identity: string;
+  agent?: Subagent;
   name: string;
   detail?: string;
+  progress?: string;
   status: SubagentStatus;
   state: string;
+  /// acpmux retries it: its line shows the turning ring (retryState.ts).
+  working?: boolean;
   time?: string;
   /// Its whole task, for the hover card.
   task?: string;
   icon: string;
+  /// The harness whose mark it draws (the agent's own, else the chat's for its own subagents).
+  mark?: string;
   depth: number;
   /// When it ended (or, for a chat, was made): the ended list's order.
   at: number;
@@ -82,12 +100,60 @@ const live = (status: SubagentStatus) => status === "running" || status === "wai
 /// The ended list's order: a failed one first, then a stopped one, then the done ones.
 const ENDED_RANK: Record<SubagentStatus, number> = { failed: 0, stopped: 1, done: 2, running: 3, waiting: 3 };
 
+// Streaming rows/views recreate the folded agents. Compare only the bounded preview's visual
+// inputs so those snapshots do not render its Avatars or hash their tones again. Avatar's harness
+// context and AgentMark's theme subscription still update independently through this memo boundary.
+const EndedAvatars = memo(
+  function EndedAvatars({ items }: { items: readonly Line[]; count: number }) {
+    return (
+      <span className="acpmux-chat-inspector-subagents__avatars" aria-hidden="true">
+        {items.map((item) => (
+          <span key={item.key} data-agent-tone={agentTone(item.identity)}>
+            {item.agent ? (
+              <Avatar agent={item.agent} />
+            ) : (
+              <span className="cv-subagent-avatar" data-state={item.status}>
+                {item.mark ? (
+                  <AgentMark
+                    agent={item.mark}
+                    size={14}
+                    fallback={<TonedIcon name={item.icon} size={14} tone={agentTone(item.identity)} />}
+                  />
+                ) : (
+                  <TonedIcon name={item.icon} size={14} tone={agentTone(item.identity)} />
+                )}
+              </span>
+            )}
+          </span>
+        ))}
+      </span>
+    );
+  },
+  (before, after) =>
+    before.count === after.count &&
+    before.items.length === after.items.length &&
+    before.items.every((item, index) => {
+      const next = after.items[index]!;
+      return (
+        item.key === next.key &&
+        item.identity === next.identity &&
+        item.status === next.status &&
+        item.working === next.working &&
+        item.icon === next.icon &&
+        item.mark === next.mark &&
+        item.agent?.state === next.agent?.state &&
+        item.agent?.harness === next.agent?.harness
+      );
+    }),
+);
+
 export function SubagentsSection({
   agents,
   waiting,
   onOpen,
   sessions = NO_SESSIONS,
   onOpenSession,
+  harness,
 }: {
   agents: readonly Subagent[];
   waiting: ReadonlySet<string>;
@@ -96,8 +162,12 @@ export function SubagentsSection({
   /// The chats the agent started, and how one opens.
   sessions?: readonly StartedSession[];
   onOpenSession?: (sessionId: string) => void;
+  /// The chat's harness: its own subagents (Claude's Agent calls) draw its mark (Leo, 2026-10-29:
+  /// "surely you can just at least say, you know, one of these is Codex, one of these is Claude").
+  harness?: string;
 }) {
   const t = useT();
+  const language = usePaneLanguage();
   const now = useNow(agents.some(running));
   const [more, setMore] = useState(false);
   const [endedOpen, setEndedOpen] = useState(false);
@@ -105,13 +175,22 @@ export function SubagentsSection({
     const status = subagentStatus(agent, waiting);
     return {
       key: `agent:${agent.id}`,
+      identity: agent.id,
+      agent,
       name: agent.name,
-      detail: live(status) ? (agent.action ?? agent.kind) : agent.kind,
+      progress: subagentProgress(t, language, agent).join(" · "),
+      detail: live(status)
+        ? (agent.action ?? (isRepeatedAgentKind(agent.kind) ? undefined : agent.kind))
+        : isRepeatedAgentKind(agent.kind)
+          ? undefined
+          : agent.kind,
       status,
-      state: t(subagentStatusLabel(agent, waiting)),
+      state: subagentStateText(t, agent, waiting),
+      working: Boolean(retrying(agent)),
       time: formatDuration(elapsed(agent, now)),
       task: agent.task,
       icon: "agent.session",
+      mark: agent.harness ?? harness,
       depth,
       at: agent.endedAt ?? agent.startedAt,
       open: onOpen && (() => onOpen(agent.id)),
@@ -119,10 +198,12 @@ export function SubagentsSection({
   };
   const sessionLine = (child: StartedSession): Line => ({
     key: `session:${child.sessionId}`,
+    identity: child.sessionId,
     name: child.title,
     status: sessionStatus(child),
-    state: t(sessionStateLabel(child)),
+    ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child)),
     icon: "agent.chat",
+    mark: child.harness,
     depth: 0,
     at: child.createdAt ?? 0,
     open: onOpenSession && (() => onOpenSession(child.sessionId)),
@@ -154,10 +235,14 @@ export function SubagentsSection({
       <AgentLine
         name={item.name}
         detail={item.detail}
+        progress={item.progress}
         status={item.status}
         state={item.state}
+        working={item.working}
         time={item.time}
         icon={item.icon}
+        mark={item.mark}
+        tone={agentTone(item.identity)}
         depth={item.depth}
         onOpen={item.open}
         wave={inWave ? wave[index] : undefined}
@@ -165,7 +250,12 @@ export function SubagentsSection({
           <span className="acpmux-agent-card">
             <span className="acpmux-agent-card__name">{item.name}</span>
             <span className="acpmux-agent-card__state" data-status={item.status}>
-              {[item.state, item.time, item.status === "running" || item.status === "waiting" ? item.detail : undefined]
+              {[
+                item.state,
+                item.time,
+                item.progress,
+                item.status === "running" || item.status === "waiting" ? item.detail : undefined,
+              ]
                 .filter(Boolean)
                 .join(" · ")}
             </span>
@@ -183,16 +273,11 @@ export function SubagentsSection({
         </ul>
       )}
       {runningLines.length > SUBAGENTS_SHOWN && (
-        <button
-          type="button"
-          className="acpmux-chat-inspector-fold acpmux-chat-inspector-subagents__more"
-          aria-expanded={more}
-          onClick={() => setMore(!more)}
-        >
+        <InspectorFold className="acpmux-chat-inspector-subagents__more" open={more} onToggle={() => setMore(!more)}>
           {more
             ? t("chatInspector.subagents.less")
             : t("chatInspector.subagents.more", { n: runningLines.length - SUBAGENTS_SHOWN })}
-        </button>
+        </InspectorFold>
       )}
       {endedLines.length > 0 && (
         <>
@@ -202,11 +287,9 @@ export function SubagentsSection({
             aria-expanded={endedOpen}
             onClick={() => setEndedOpen(!endedOpen)}
           >
-            <span className="acpmux-lineage__icon" data-state={endedLines[0]!.status}>
-              <Icon name={endedLines[0]!.icon} size={14} />
-            </span>
+            <EndedAvatars items={endedLines.slice(0, 4)} count={endedLines.length} />
             <span className="acpmux-summary-text">{endedCounts(t, endedLines)}</span>
-            <Icon name={endedOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />
+            <Icon name={endedOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
           </button>
           {endedOpen && (
             <ul className="acpmux-summary-list acpmux-chat-inspector-scroll acpmux-chat-inspector-subagents__list">

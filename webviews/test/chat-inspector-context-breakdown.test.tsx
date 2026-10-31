@@ -170,15 +170,75 @@ test("the composer ring keeps Claude's breakdown details and uses a compact tool
   await act(async () => root!.render(<ContextRing used={171_500} size={400_000} breakdown={BREAKDOWN} />));
   const pop = await open();
   expect(pop.classList.contains("acpmux-context-pop--breakdown")).toBe(true);
-  expect(rowNames(pop)[0]).toBe("Messages");
-  expect(pop.querySelector(".acpmux-context-bar")).toBeNull();
+  expect(pop.querySelector(".acpmux-context-card-parts")?.textContent).toContain("Messages");
+  expect(pop.querySelector(".acpmux-context-card-bar")).not.toBeNull();
   await act(async () => root!.unmount());
   root = createRoot(container);
   await act(async () => root!.render(<ContextRing used={60_000} size={200_000} />));
   const plain = await open();
   expect(plain.querySelector(".acpmux-context-breakdown")).toBeNull();
   expect(plain.classList.contains("acpmux-context-pop--compact")).toBe(true);
-  expect(plain.querySelector(".acpmux-context-card-compact-percent")?.textContent).toContain("30%");
-  expect(plain.querySelector(".acpmux-context-card-compact-tokens")?.textContent).toContain("60K");
-  expect(plain.querySelector(".acpmux-context-bar")).toBeNull();
+  expect(plain.querySelector(".acpmux-context-card-line")?.textContent).toContain("30%");
+  expect(plain.querySelector(".acpmux-context-card-line")?.textContent).toContain("60K");
+  expect(plain.querySelector(".acpmux-context-card-bar")).not.toBeNull();
+});
+
+// Leo, 2026-10-28: "You don't have the compact session." Compact in Session Info's Context and the
+// ring's card: only where the App hands a compact (the agent lists /compact and the chat can be sent
+// to), off while a turn runs.
+const compactButton = (container: ParentNode) =>
+  [...container.querySelectorAll<HTMLButtonElement>(".acpmux-chat-inspector-context__actions button")].find(
+    (button) => button.textContent === "Compact",
+  );
+
+test("Session Info's Context offers Compact only with a compact, and sends it on a click", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  await act(async () => root!.render(<ContextSection usage={{ used: 94_000, size: 200_000 }} percent={47} />));
+  expect(container.querySelector(".acpmux-chat-inspector-context__actions")).toBeNull();
+  const sent: string[] = [];
+  await act(async () =>
+    root!.render(
+      <ContextSection usage={{ used: 94_000, size: 200_000 }} percent={47} onCompact={() => sent.push("compact")} />,
+    ),
+  );
+  const button = compactButton(container)!;
+  expect(button.disabled).toBe(false);
+  await act(async () => button.click());
+  expect(sent).toEqual(["compact"]);
+});
+
+test("Session Info's Compact is off while a turn runs", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const sent: string[] = [];
+  await act(async () =>
+    root!.render(
+      <ContextSection
+        usage={{ used: 94_000, size: 200_000 }}
+        percent={47}
+        breakdown={BREAKDOWN}
+        onCompact={() => sent.push("compact")}
+        working
+      />,
+    ),
+  );
+  const button = compactButton(container)!;
+  expect(button.disabled).toBe(true);
+  await act(async () => button.click());
+  expect(sent).toEqual([]);
+});
+
+test("the composer ring's card shows Compact again when the App hands one, and sends it", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const sent: string[] = [];
+  await act(async () =>
+    root!.render(<ContextRing used={60_000} size={200_000} onCompact={() => sent.push("compact")} />),
+  );
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-context-ring")!.click());
+  const compact = document.querySelector<HTMLButtonElement>(".acpmux-context-card-compact")!;
+  expect(compact.textContent).toBe("Compact");
+  await act(async () => compact.click());
+  expect(sent).toEqual(["compact"]);
 });

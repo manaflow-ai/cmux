@@ -2,15 +2,16 @@
 // showing more models" and "this should just show the effort too right? and then the effort tells
 // you what you're already currently on?". His started Claude chat's model menu listed nine numbered
 // rows, Opus 5.5 twice: Claude Code's `opus` alias (which it names "Opus 5.5") and the pinned
-// release the chat runs, `claude-opus-5-5`. The menu now shows the running model and the top picks
-// (at most four rows, numbered 1 to 4), each model once, and everything else under More models,
+// release the chat runs, `claude-opus-5-5`. The menu follows the harness's own list,
+// else its newest models per family, each once, and keeps everything else under More models,
 // which in a started chat opens the full picker.
-// The Effort row names the level the chat is on and its submenu checks it; the Fast mode row says
-// whether it is on. The real composer, catalog and menu, in JSDOM.
+// Inline effort segments name the level the chat is on; the Fast mode row says whether it is on.
+// The real composer, catalog and menu, in JSDOM.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
+import { openEffort } from "./support/effortDropdown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -217,6 +218,8 @@ const chipButton = () => host.querySelector<HTMLButtonElement>('[data-menu="Mode
 const menus = () => [...doc().querySelectorAll<HTMLElement>(".acpmux-quick-menu")];
 const menu = () => menus()[0];
 const label = (row: Element) => row.querySelector(".acpmux-menu-label")?.textContent?.trim() ?? "";
+/// A model row's effort levels: its side dropdown, opened.
+const effortFor = (row: HTMLElement) => openEffort(row.ownerDocument, label(row));
 /// The model rows the menu itself shows (not its submenus').
 const modelRows = () => [...menu()!.querySelectorAll<HTMLElement>('.acpmux-quick-item[role="menuitemradio"]')];
 const rowText = (row: Element) => row.textContent?.replace("✓", "").trim() ?? "";
@@ -226,29 +229,17 @@ async function open() {
   await settle();
 }
 
-async function openSub(name: string) {
-  const trigger = [...menu()!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
-    label(item).startsWith(name),
-  );
-  expect(
-    trigger,
-    `${name} row in ${[...menu()!.querySelectorAll("[role^=menuitem]")].map(rowText).join(", ")}`,
-  ).toBeDefined();
-  await act(async () => trigger!.click());
-  await settle();
-  return menus().at(-1)!;
-}
-
 for (const [title, harness, family] of [
   ["the catalog's Claude Code", "claude", "claude"],
   ["a Claude profile the catalog does not map", "claude-sr2", "claude-sr2"],
 ] as const)
   describe(`Leo's started chat on ${title}`, () => {
-    test("shows at most four models, the running one among them, each once; the rest are under More models", async () => {
+    test("shows the harness menu, each model once; the rest are under More models", async () => {
       await mount({ harness, family });
       await open();
       const shown = modelRows().map(label);
-      expect(shown.length, shown.join(", ")).toBeLessThanOrEqual(4);
+      expect(shown).toContain("Opus 5.5");
+      expect(new Set(shown).size).toBe(shown.length);
       expect(shown, "the running model is shown").toContain("Opus 5.5");
       const checked = menu()!.querySelector('.acpmux-quick-item[role="menuitemradio"][aria-checked="true"]');
       expect(checked && label(checked)).toBe("Opus 5.5");
@@ -263,7 +254,7 @@ for (const [title, harness, family] of [
       const every = [
         ...host.querySelectorAll<HTMLElement>('.acpmux-mp-models [role="option"][data-key^="model:"]'),
       ].map(label);
-      expect(every.length, "More models lists more than the menu shows").toBeGreaterThan(shown.length);
+      expect(every.length, "More models retains every harness menu choice").toBeGreaterThanOrEqual(shown.length);
       for (const name of shown) expect(every, every.join(", ")).toContain(name);
       expect(
         every.filter((name) => name === "Opus 5.5"),
@@ -280,34 +271,68 @@ for (const [title, harness, family] of [
       expect(keysShown).toEqual(
         rows.map((row, index) => (row.getAttribute("aria-checked") === "true" ? "✓" : String(index + 1))),
       );
-      expect(keysShown.every((key) => key === "✓" || Number(key) <= 4)).toBe(true);
+      expect(keysShown.every((key) => key === "✓" || Number(key) <= rows.length)).toBe(true);
     });
   });
 
-test("the Effort row names the level the chat is on, and its submenu checks it", async () => {
+for (const harnessFixed of [false, true]) {
+  test(`relevant models are not truncated in a ${harnessFixed ? "started chat" : "harness rail"}`, async () => {
+    const { createRoot } = await import("react-dom/client");
+    const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+    const choices = Array.from({ length: 8 }, (_, index) => ({ id: `choice-${index}`, name: `Choice ${index}` }));
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <ModelPicker
+          catalog={[
+            {
+              id: "test-harness",
+              name: "Test harness",
+              models: choices,
+              top: ["choice-0", "choice-1", "choice-2", "choice-3", "choice-4", "choice-5"],
+            },
+          ]}
+          harness="test-harness"
+          harnessFixed={harnessFixed}
+          model="choice-7"
+          label="Choice 7"
+          efforts={[]}
+          recents={[{ harness: "test-harness", model: "choice-6" }]}
+          onLand={() => undefined}
+          onEffort={() => undefined}
+          quick={{}}
+        />,
+      ),
+    );
+    await open();
+    expect(modelRows().map(label)).toEqual(choices.slice(0, 6).map((choice) => choice.name));
+    expect(menu()!.textContent).toContain("More models");
+    expect(modelRows().map(label)).not.toContain("Choice 6");
+    expect(modelRows().map(label)).not.toContain("Choice 7");
+  });
+}
+
+test("the current model's inline effort control checks the level the chat is on", async () => {
   await mount({ harness: "claude", family: "claude", effort: "high" });
   await open();
-  const effortRow = [...menu()!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
-    label(item).startsWith("Effort"),
-  )!;
-  expect(effortRow.querySelector(".acpmux-quick-value")?.textContent).toBe("High");
-  const levels = await openSub("Effort");
-  const checked = levels.querySelector('[role="menuitemradio"][aria-checked="true"]');
-  expect(checked && label(checked)).toBe("High");
+  const model = modelRows().find((row) => label(row) === "Opus 5.5")!;
+  const checked = (await effortFor(model)).find((item) => item.getAttribute("aria-checked") === "true");
+  expect(checked).not.toBeNull();
+  expect((checked!.querySelector(".acpmux-menu-label")?.textContent ?? "").trim()).toBe("High");
 });
 
-test("the Fast mode row says whether it is on", async () => {
+test("the Fast mode switch shows whether it is on", async () => {
   const { sent } = await mount({ harness: "claude", family: "claude", fast: true });
   await open();
   const fast = () => menu()!.querySelector<HTMLElement>('.acpmux-quick-fast[role="menuitemcheckbox"]')!;
   expect(fast().getAttribute("aria-checked")).toBe("false");
-  expect(fast().querySelector(".acpmux-quick-value")?.textContent).toBe("Off");
+  expect(fast().querySelector(".acpmux-quick-fast-toggle")).not.toBeNull();
   await act(async () => fast().click());
   await settle();
   expect(sent).toEqual([{ id: "fast-mode", value: "on" }]);
   if (!menu()) await open();
   expect(fast().getAttribute("aria-checked")).toBe("true");
-  expect(fast().querySelector(".acpmux-quick-value")?.textContent).toBe("On");
+  expect(fast().querySelector(".acpmux-menu-label")?.textContent).toBe("Fast mode");
 });
 
 // Codex review at 87da5d12: a profile that declares no levels for `opus` (efforts: []) left the chat
@@ -337,8 +362,8 @@ test("a sibling no-effort model does not hide Effort for the running model", asy
     declared: { opus: { efforts: [] } },
   });
   await open();
-  const effortRow = [...menu()!.querySelectorAll<HTMLElement>("[role=menuitem]")].find((item) =>
-    label(item).startsWith("Effort"),
-  );
-  expect(effortRow?.querySelector(".acpmux-quick-value")?.textContent).toBe("High");
+  const model = modelRows().find((row) => label(row) === "Fable 5.1")!;
+  const checked = (await effortFor(model)).find((item) => item.getAttribute("aria-checked") === "true");
+  expect(checked).not.toBeNull();
+  expect((checked!.querySelector(".acpmux-menu-label")?.textContent ?? "").trim()).toBe("High");
 });

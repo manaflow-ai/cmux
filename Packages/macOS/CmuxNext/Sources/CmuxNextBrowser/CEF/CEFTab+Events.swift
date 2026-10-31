@@ -104,7 +104,7 @@ extension CEFTab {
             emit(.close)
         case .navigationReroute(_, let url, _): if let url = URL(string: url) { emit(.rerouteStore(url)) }
         case .localFileHandoff(_, let url): if let url = URL(string: url) { emit(.openLocalFile(url)) }
-        case .externalURL(_, let url, true): if let url = URL(string: url) { BrowserExternalApps.shared.open(url, from: committedURL, ask: enqueuePrompt) }
+        case .externalURL(_, let url, let userGesture): if let url = URL(string: url) { BrowserExternalApps.shared.open(url, from: committedURL, userGesture: userGesture, ask: enqueuePrompt) }
         case .keyUnhandled(_, let keyCode, let shift):
             if keyCode == 0x1B {
                 emit(.unhandledEscape)
@@ -179,6 +179,10 @@ extension CEFTab {
 
     public func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue {
         guard let browserID, !isClosed else { throw BrowserTabError.closed }
+        // `runtime` is `unowned`, so it is read once here, while it is known alive, and held for the
+        // calls below: an isolated-world evaluate is four round trips, and re-reading it after one
+        // of them would trap once the runtime's last owner went (see `CEFMediaBridge.run`).
+        let runtime = self.runtime
         // No DevTools session for the tab's own scripts (fork API 29): its renderer stays shareable.
         if runtime.forkFeatures.rendererPaths {
             let result = try await runtime.evaluate(browserID, world: world == .isolated ? "cmux" : "", script: script,

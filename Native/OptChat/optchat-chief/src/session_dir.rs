@@ -199,7 +199,12 @@ pub fn settings_json(setup: &SessionSetup, paths: &Paths, deny: &[&str]) -> Valu
         // project settings are the ones a turn is sure to read.
         "autoMemoryEnabled": false,
         "disableAllHooks": true,
-        "cleanupPeriodDays": TURN_TRANSCRIPT_DAYS,
+        // No `cleanupPeriodDays` here (PROJECT_SETTINGS_RETENTION_FREE):
+        // Claude Code's retention sweep reads the merged settings and walks
+        // every project of the store it runs on, and turns and subagents run
+        // on the user's own ~/.claude, so a short value here deleted the
+        // user's other chats' transcripts. The host's TurnRetention prunes
+        // exactly the Chief's own projects instead.
     })
 }
 
@@ -263,8 +268,12 @@ pub const TURN_DENIED_TOOLS: [&str; 25] = [
 /// which always loads; cmux MCP has no conversation or Chief tools (v2_tools
 /// EXCLUDED). Every other cmux MCP tool is denied in the turn's settings
 /// and stays reachable through the `cmux` CLI on its own host. Names:
-/// `agents_*` and `render` (cmux mcp agent tools).
-pub const CHIEF_CMUX_TOOLS: [&str; 13] = [
+/// `agents_*` and `render` (cmux mcp agent tools). `agents_chat_send`,
+/// `agents_chat_read` and `agents_chat_state` reach the agent chats the user
+/// started in the app (#25571): a send is the Chief's agent message, under
+/// the daemon's agent message policy, and starts a turn in that chat, a
+/// restored chat no tab has shown yet included.
+pub const CHIEF_CMUX_TOOLS: [&str; 16] = [
     "agents_snapshot",
     "agents_workspace_create",
     "agents_workspace_select",
@@ -278,6 +287,9 @@ pub const CHIEF_CMUX_TOOLS: [&str; 13] = [
     "render",
     "agents_terminal_list",
     "agents_terminal_send",
+    "agents_chat_send",
+    "agents_chat_read",
+    "agents_chat_state",
 ];
 
 /// The turn presets' env that keeps only acpmux's `cmux` MCP server
@@ -513,9 +525,19 @@ fn pending_denials(dir: &Path) -> Option<Vec<String>> {
 /// calls spawn first (cx-7ssql: ToolSearch before spawn cost 2.5 s).
 pub const TURN_SETTINGS_ENV: [(&str, &str); 1] = [("ENABLE_TOOL_SEARCH", "true")];
 
-/// Days Claude Code keeps a turn session's transcript in the isolated
-/// configuration (the memory is the record; these only help debugging).
+/// Days a turn session's transcript is kept (the memory is the record;
+/// these only help debugging): Claude Code's retention in the isolated
+/// configuration, and the host's own TurnRetention of the turn project in
+/// the user's Claude home.
 pub const TURN_TRANSCRIPT_DAYS: u64 = 2;
+
+/// Settings keys no Chief project settings file (turn, subagent, compactor
+/// slot) may carry: Claude Code applies them to the whole store the
+/// session runs on, which is the user's own Claude home, so they would
+/// reach every other project in it. `cleanupPeriodDays` in a Chief turn's
+/// project settings deleted the user's other chats' transcripts after 2
+/// days (cmux#27740's investigation, 110 of 213 acpmux Claude chats).
+pub const PROJECT_SETTINGS_STORE_WIDE_KEYS: [&str; 1] = ["cleanupPeriodDays"];
 
 /// `bin/chief`: runs this executable with the host's env baked in, because
 /// the harness runs tools in the acpmux daemon's environment, not the host's.
@@ -577,8 +599,9 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         setup.chiefs_tool,
     );
     write_if_changed(&paths.session.join("AGENTS.md"), agents.as_bytes())?;
+    // The Mac host never runs the Cloud mode; it would take Claude's files.
     match setup.tools {
-        Tools::Mcp => {
+        Tools::Mcp | Tools::Cloud(_) => {
             let text = system_text(setup.instructions.as_deref(), &Tools::Mcp);
             write_if_changed(&paths.session.join("CLAUDE.md"), text.as_bytes())?;
         }
@@ -643,7 +666,8 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     // Each pack's CLI and git with the Chief's own login when it has one
     // (toolpacks.rs; the GitHub pack's gh as before).
     remove_if_present(&paths.bin.join("git-credential-chief"))?;
-    let shims = crate::toolpacks::wrappers(&packs);
+    let mut shims = crate::toolpacks::wrappers(&packs);
+    shims.extend(crate::toolpacks::script_wrappers(&paths.home, &packs));
     // A pack turned off or removed takes its wrapper with it.
     for entry in std::fs::read_dir(&paths.bin)?.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -738,7 +762,7 @@ pub fn write_subagent(paths: &Paths, setup: &SessionSetup, text: &str) -> io::Re
         settings.as_bytes(),
     )?;
     match setup.tools {
-        Tools::Mcp => remove_if_present(&dir.join("AGENTS.md")),
+        Tools::Mcp | Tools::Cloud(_) => remove_if_present(&dir.join("AGENTS.md")),
         Tools::Cli(_) => write_if_changed(&dir.join("AGENTS.md"), text.as_bytes()),
     }
 }

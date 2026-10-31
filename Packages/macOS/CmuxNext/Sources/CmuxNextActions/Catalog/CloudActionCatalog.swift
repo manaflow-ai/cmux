@@ -7,7 +7,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 id: "newCloudWorkspace",
                 title: String(localized: "action.newCloudWorkspace", defaultValue: "New Cloud Workspace", bundle: .module),
                 keywords: ["vm", "remote", "create"], defaultShortcut: Shortcut("y", modifiers: [.command, .shift]),
-                category: .cloud, symbol: "cloud", surfaces: [.keyboard, .menu, .contextMenu],
+                category: .cloud, symbol: "cloud", surfaces: [.keyboard, .menu, .contextMenu], targets: [.machine],
                 cliName: "cloud new-workspace", mainMenu: .file
             ),
             ActionDescriptor(
@@ -15,6 +15,11 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.newCloudMachine", defaultValue: "New Cloud Machine…", bundle: .module),
                 keywords: ["vm", "remote", "create"],
                 category: .cloud, symbol: "server.rack", surfaces: [.palette, .keyboard, .menu, .contextMenu],
+                // All optional: `cmux cloud new-machine --persistent --size medium --name lane-vm-1
+                // --bootstrap lane --bootstrap-script FILE` makes a lane host in one call.
+                arguments: [CatalogArgument.nameString.optional, CatalogArgument.newMachineSizeString, CatalogArgument.persistentBool,
+                            CatalogArgument.bootstrapString, CatalogArgument.bootstrapScriptString, CatalogArgument.machineConfigString,
+                            CatalogArgument.repoString],
                 cliName: "cloud new-machine", mainMenu: .file
             ),
             ActionDescriptor(
@@ -157,16 +162,26 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.publicKeyString], targets: [.machine],
                 cliName: "cloud prepare-scp"
             ),
-            ActionDescriptor(id: "cloudTunnelAttach", title: "Attach Cloud Tunnel Network", keywords: ["cloud", "tunnel", "network"], category: .cloud, symbol: "link", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud tunnel-attach"),
-            ActionDescriptor(id: "cloudTunnelDetach", title: "Detach Cloud Tunnel Network", keywords: ["cloud", "tunnel", "network"], category: .cloud, symbol: "scissors", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud tunnel-detach"),
-            ActionDescriptor(id: "cloudTunnelRotateKey", title: "Rotate Cloud Tunnel Key", keywords: ["cloud", "tunnel", "key"], category: .cloud, symbol: "key", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.publicKeyString], cliName: "cloud tunnel-rotate-key"),
-            ActionDescriptor(id: "cloudNetworkList", title: "List Cloud Networks", keywords: ["cloud", "network", "vpc"], category: .cloud, symbol: "network", surfaces: [.palette, .contextMenu], cliName: "cloud network-list"),
-            ActionDescriptor(id: "cloudFirewallList", title: "List Cloud Firewall Rules", keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield", surfaces: [.palette, .contextMenu], cliName: "cloud firewall-list"),
-            ActionDescriptor(id: "cloudFirewallGet", title: "Get Cloud Firewall Rule", keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield.checkered", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud firewall-get"),
-            ActionDescriptor(id: "cloudFirewallCreate", title: "Create Cloud Firewall Rule", keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield.lefthalf.filled", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud firewall-create"),
-            ActionDescriptor(id: "cloudFirewallDelete", title: "Delete Cloud Firewall Rule", keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield.slash", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString, CatalogArgument.confirmBool], cliName: "cloud firewall-delete", destructive: true),
-            ActionDescriptor(id: "cloudDomainList", title: "List Cloud Domains", keywords: ["cloud", "domain", "dns", "verify"], category: .cloud, symbol: "globe", surfaces: [.palette], cliName: "cloud domain-list"),
-            ActionDescriptor(id: "cloudPublicationList", title: "List Cloud Publications", keywords: ["cloud", "domain", "publication", "tls"], category: .cloud, symbol: "globe.americas", surfaces: [.palette], cliName: "cloud publication-list"),
+            ActionDescriptor(id: "cloudTunnelAttach", title: String(localized: "action.cloudTunnelAttach", defaultValue: "Attach Cloud Tunnel Network", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "tunnel", "network"], category: .cloud, symbol: "link", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud tunnel-attach"),
+            ActionDescriptor(id: "cloudTunnelDetach", title: String(localized: "action.cloudTunnelDetach", defaultValue: "Detach Cloud Tunnel Network", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "tunnel", "network"], category: .cloud, symbol: "scissors", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud tunnel-detach"),
+            ActionDescriptor(id: "cloudTunnelRotateKey", title: String(localized: "action.cloudTunnelRotateKey", defaultValue: "Rotate Cloud Tunnel Key", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "tunnel", "key"], category: .cloud, symbol: "key", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.publicKeyString], cliName: "cloud tunnel-rotate-key"),
+            ActionDescriptor(id: "cloudNetworkList", title: String(localized: "action.cloudNetworkList", defaultValue: "List Cloud Networks", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "network", "vpc"], category: .cloud, symbol: "network", surfaces: [.palette, .contextMenu], cliName: "cloud network-list"),
+            ActionDescriptor(id: "cloudFirewallList", title: String(localized: "action.cloudFirewallList", defaultValue: "List Cloud Firewall Rules", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield", surfaces: [.palette, .contextMenu], cliName: "cloud firewall-list"),
+            ActionDescriptor(id: "cloudFirewallGet", title: String(localized: "action.cloudFirewallGet", defaultValue: "Get Cloud Firewall Rule", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield.checkered", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud firewall-get"),
+            ActionDescriptor(id: "cloudFirewallCreate", title: String(localized: "action.cloudFirewallCreate", defaultValue: "Create Cloud Firewall Rule", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield.lefthalf.filled", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud firewall-create"),
+            ActionDescriptor(id: "cloudFirewallDelete", title: String(localized: "action.cloudFirewallDelete", defaultValue: "Delete Cloud Firewall Rule", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield.slash", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString, CatalogArgument.confirmBool], cliName: "cloud firewall-delete", destructive: true),
+            ActionDescriptor(id: "cloudDomainList", title: String(localized: "action.cloudDomainList", defaultValue: "List Cloud Domains", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "domain", "dns", "verify"], category: .cloud, symbol: "globe", surfaces: [.palette], cliName: "cloud domain-list"),
+            ActionDescriptor(id: "cloudPublicationList", title: String(localized: "action.cloudPublicationList", defaultValue: "List Cloud Publications", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "domain", "publication", "tls"], category: .cloud, symbol: "globe.americas", surfaces: [.palette], cliName: "cloud publication-list"),
+            // A machine port as an API behind a key (#25594): publish it protected, mint a key, answer both.
+            ActionDescriptor(
+                id: "cloudProvisionAPI",
+                title: String(localized: "action.cloudProvisionAPI", defaultValue: "Provision API on Machine…", table: "ActionCatalog", bundle: .module),
+                keywords: ["cloud", "api", "endpoint", "publish", "port", "key", "url"], category: .cloud, symbol: "square.and.arrow.up",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.portInt, CatalogArgument.apiKeyNameString], targets: [.machine],
+                cliName: "cloud provision-api"
+            ),
+            ActionDescriptor(id: "cloudAPIKeyList", title: String(localized: "action.cloudAPIKeyList", defaultValue: "List Cloud API Keys", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "api", "key", "publication"], category: .cloud, symbol: "key", surfaces: [.palette], arguments: [CatalogArgument.pathString], cliName: "cloud api-key-list"),
+            ActionDescriptor(id: "cloudAPIKeyRevoke", title: String(localized: "action.cloudAPIKeyRevoke", defaultValue: "Revoke Cloud API Key", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "api", "key", "revoke", "publication"], category: .cloud, symbol: "key.slash", surfaces: [.palette], arguments: [CatalogArgument.pathString, CatalogArgument.apiKeyString, CatalogArgument.confirmBool], cliName: "cloud api-key-revoke", destructive: true),
             // Read only: a CLI or agent run answers the app's own machine list (the sidebar's
             // Cloud machines) as `result`; a person's run shows the Cloud sidebar.
             ActionDescriptor(
@@ -177,15 +192,24 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "cloudNewTerminal",
-                title: String(localized: "action.cloudNewTerminal", defaultValue: "New Terminal on Machine", bundle: .module),
+                // It makes a workspace (with a terminal), so its title says so; `--workspace <id>` adds
+                // a terminal tab to that workspace of the machine instead. The CLI name stays for scripts.
+                title: String(localized: "action.cloudNewTerminal", defaultValue: "New Terminal Workspace on Machine", bundle: .module),
                 keywords: ["vm", "cloud tree"], category: .cloud, symbol: "apple.terminal", surfaces: [.contextMenu],
-                targets: [.machine], cliName: "cloud new-terminal-on-machine"
+                arguments: [CatalogArgument.cloudWorkspaceString], targets: [.machine], cliName: "cloud new-terminal-on-machine"
             ),
             ActionDescriptor(
                 id: "cloudOpenMachine",
                 title: String(localized: "action.cloudOpenMachine", defaultValue: "Open Machine", bundle: .module),
                 keywords: ["vm", "cloud tree"], category: .cloud, symbol: "server.rack", surfaces: [.contextMenu],
                 targets: [.machine], cliName: "cloud open-machine"
+            ),
+            ActionDescriptor(
+                id: "cloudOpenDesktop",
+                title: String(localized: "action.cloudOpenDesktop", defaultValue: "Open Desktop", bundle: .module),
+                keywords: ["vm", "cloud tree", "desktop", "display", "screen", "vnc", "computer use"], category: .cloud,
+                symbol: "display", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.desktopViewerChoice],
+                targets: [.machine], cliName: "cloud open-desktop"
             ),
             ActionDescriptor(
                 id: "cloudRenameMachine",
@@ -239,12 +263,48 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 symbol: "arrow.up.left.and.arrow.down.right", surfaces: [.contextMenu],
                 arguments: [CatalogArgument.sizeChoice], targets: [.machine], cliName: "cloud resize-machine"
             ),
+            // `cmux cloud enroll-machine --target machine:<id> --name lane-vm-1`: ssh from this Mac
+            // through the app's tunnel, and an acpmux peer (CloudMachineEnrollment).
+            ActionDescriptor(
+                id: "cloudEnrollMachine",
+                title: String(localized: "action.cloudEnrollMachine", defaultValue: "Enroll Machine as Agent Host", bundle: .module),
+                keywords: ["vm", "cloud", "ssh", "acpmux", "agent", "host", "peer", "lane", "enroll"], category: .cloud,
+                symbol: "key.horizontal", surfaces: [.palette, .contextMenu], requires: [.cloudWorkspace],
+                arguments: [CatalogArgument.nameString.optional, CatalogArgument.sshKeyString], targets: [.machine],
+                cliName: "cloud enroll-machine"
+            ),
+            // `cmux cloud apply-machine-config --target machine:<id> [--machine-config FILE]`: env, secret
+            // names and setup from `.cmux/machine.toml` (CloudMachineConfig).
+            ActionDescriptor(
+                id: "cloudApplyMachineConfig",
+                title: String(localized: "action.cloudApplyMachineConfig", defaultValue: "Apply Machine Config", bundle: .module),
+                keywords: ["vm", "cloud", "env", "environment", "setup", "secrets", "config", "toml"], category: .cloud,
+                symbol: "gearshape.2", surfaces: [.palette, .contextMenu], requires: [.cloudWorkspace],
+                arguments: [CatalogArgument.machineConfigString], targets: [.machine], cliName: "cloud apply-machine-config"
+            ),
+            // `cmux cloud deliver-secrets --target machine:<id>`: values of the declared secret names, over the
+            // machine's daemon link (CloudMachineSecrets), or of `--names` to an own machine over ssh
+            // (SSHMachineSecrets); `cmux cloud secret set` stores them (Rust CLI).
+            ActionDescriptor(
+                id: "cloudDeliverSecrets",
+                title: String(localized: "action.cloudDeliverSecrets", defaultValue: "Deliver Secrets to Machine", bundle: .module),
+                keywords: ["vm", "cloud", "secrets", "env", "keychain", "config"], category: .cloud,
+                symbol: "lock.rectangle.stack", surfaces: [.palette, .contextMenu], requires: [.cloudWorkspace],
+                arguments: [CatalogArgument.secretRepoString, CatalogArgument.secretNamesString], targets: [.machine], cliName: "cloud deliver-secrets"
+            ),
             ActionDescriptor(
                 id: "cloudSetIdlePause",
                 title: String(localized: "action.cloudSetIdlePause", defaultValue: "Pause When Idle…", bundle: .module),
                 keywords: ["vm", "cloud tree", "idle", "auto-pause", "pause", "sleep", "timeout"], category: .cloud,
                 symbol: "moon.zzz", surfaces: [.contextMenu],
                 arguments: [CatalogArgument.idlePauseChoice], targets: [.machine], cliName: "cloud set-idle-pause"
+            ),
+            ActionDescriptor(
+                id: "cloudSetNetworkAccess",
+                title: String(localized: "action.cloudSetNetworkAccess", defaultValue: "Internet Access…", bundle: .module),
+                keywords: ["vm", "network", "internet", "egress", "allowlist", "firewall", "offline", "sandbox"], category: .cloud,
+                symbol: "globe", surfaces: [.contextMenu],
+                arguments: [CatalogArgument.networkAccessChoice], targets: [.machine], cliName: "cloud set-network-access"
             ),
             ActionDescriptor(
                 id: "palette.cloud.deleteSnapshot",
@@ -291,14 +351,27 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             "cloudTunnelAttach", "cloudTunnelDetach", "cloudTunnelRotateKey", "cloudNetworkList",
             "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete",
             "cloudDomainList", "cloudPublicationList", "cloudListMachines",
+            "cloudProvisionAPI", "cloudAPIKeyList", "cloudAPIKeyRevoke",
             // A CLI or agent run answers with the result: the machine's facts, the command's
             // output, the new machine's or workspace's id (CloudHandlers+Results.swift).
             "palette.cloud.status", "palette.cloud.ports", "palette.cloud.tools", "palette.cloud.handoff",
             "palette.cloud.snapshot", "palette.cloud.promoteTemplate", "cloudExec", "newCloudMachine", "cloudNewTerminal",
-            "cloudSetupGitHub",
+            // The new terminal tab's ids (`surface_id`), so a script can type into it next.
+            "cloudSSH",
+            "cloudSetupGitHub", "cloudEnrollMachine",
+            // Each answers its machine's id (and the workspace's) once the server is done, so a CLI
+            // caller hears a failure instead of OK, and can name the result in the next command.
+            "palette.cloud.fork", "palette.cloud.restore", "newCloudWorkspace", "cloudRenameMachine", "cloudKillMachine",
+            "cloudResizeMachine", "cloudApplyMachineConfig", "cloudDeliverSecrets",
+            // The stored policy's mode and whether the server applied it (a PUT can take a while).
+            "cloudSetNetworkAccess",
         ]
         for index in actions.indices where waitsForResult.contains(actions[index].id) {
             actions[index].waitsForResult = true
+        }
+        // What each one does and returns, for `action describe` and the MCP tools (CloudActionDescriptions).
+        for index in actions.indices {
+            actions[index].description = actions[index].description ?? CloudActionDescriptions.text[actions[index].id]
         }
         return actions
     }

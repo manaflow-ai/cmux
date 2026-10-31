@@ -104,7 +104,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "macScreen.open",
-                title: String(localized: "action.macScreen.open", defaultValue: "New Mac Screen Tab", bundle: .module),
+                title: String(localized: "action.macScreen.open", defaultValue: "Screen Sharing", bundle: .module),
                 keywords: ["mac", "screen", "remote", "control", "screen sharing", "vnc", "pair", "share this mac"],
                 category: .tab, symbol: "display", surfaces: [.palette, .menu, .contextMenu],
                 targets: [.pane], cliName: "tab new-mac-screen", mainMenu: .file
@@ -174,7 +174,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "tab.restart",
                 title: String(localized: "action.tab.restart", defaultValue: "Restart Shell Here", bundle: .module),
-                keywords: ["tab", "terminal", "restart", "relaunch", "respawn", "dead", "lost", "shell"], category: .tab,
+                keywords: ["tab", "terminal", "restart", "relaunch", "respawn", "dead", "lost", "shell", "recover", "reconnect", "stuck", "ssh"], category: .tab,
                 symbol: "arrow.clockwise", surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab restart"
             ),
             ActionDescriptor(
@@ -393,13 +393,13 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.copyIdentifiers",
-                title: String(localized: "action.palette.copyIdentifiers", defaultValue: "Copy Identifiers", bundle: .module),
-                keywords: ["id", "ref"], category: .tab, symbol: "number.circle", surfaces: [.palette, .contextMenu],
+                title: String(localized: "action.palette.copyIdentifiers", defaultValue: "Copy IDs", bundle: .module),
+                keywords: ["id", "ref", "identifiers"], category: .tab, symbol: "number.circle", surfaces: [.palette, .contextMenu],
                 targets: [.tab], cliName: "tab copy-identifiers"
             ),
-            // A PNG of the tab's content, never changing focus or selection
-            // (ScreenshotHandlers): Copy menu, palette and automation. Automation gets no
-            // browser tab's pixels here: the browser host's guarded capture masks its secrets.
+            // A PNG of the tab's content as on screen, never changing focus or selection
+            // (ScreenshotHandlers): Copy menu, palette and automation. An agent's or a
+            // script's capture comes back with every browser page and agent chat masked.
             ActionDescriptor(
                 id: "tab.screenshot",
                 title: String(localized: "action.tab.screenshot", defaultValue: "Screenshot Tab", bundle: .module),

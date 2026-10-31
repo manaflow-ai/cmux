@@ -16,6 +16,9 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var badge: Int?
     /// The window shows this item (Home, a pinned workspace).
     public var isActive: Bool
+    /// A pinned workspace in the sidebar's multi-selection, not the shown one: drawn with the secondary
+    /// selection fill, as its list row would be. The region sets it (`SidebarRegionView.selectedWorkspaces`).
+    public var isSecondarySelected = false
     /// The reference no longer resolves (a closed workspace): drawn dimmed.
     public var isMissing: Bool
     /// Not drawn at all (a hidden app, D55); the item stays in the layout.
@@ -35,6 +38,13 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var textOnly = false
     /// A workspace in Pinned drawn as a row: a pin leads it, before its icon and title.
     public var leadingPin = false
+    /// The open workspace a workspace tile names: its row shows a workspace row's hover more
+    /// button and close x (`SidebarItemRowView+HoverActions`). Nil for every other item.
+    public var workspace: WorkspaceID?
+    /// The open workspace's own row, as the workspace list maps it (`SidebarMapping.row`): a pinned
+    /// workspace row opens the list's workspace hover card from it, the card a list row shows. Nil for
+    /// every other item.
+    public var workspaceRow: SidebarWorkspace?
     /// The blue unread dot instead of a count, in every look (Home's unread conversations): a row
     /// draws a workspace row's dot on the trailing column, an icon look dots its glyph in the same blue.
     public var unreadDot = false
@@ -137,6 +147,7 @@ extension SidebarBuiltIn {
         case .customize: "paintbrush"
         case .searchChats: "magnifyingglass"
         case .chief: "sparkles"
+        case .automations: "clock.badge.checkmark"
         }
     }
 
@@ -156,6 +167,7 @@ extension SidebarBuiltIn {
         case .customize: .theme
         case .searchChats: .search
         case .chief: .agentChief
+        case .automations: .automation
         }
     }
 
@@ -180,6 +192,7 @@ extension SidebarBuiltIn {
         case .customize: SectionStrings.customize
         case .searchChats: SectionStrings.searchChats
         case .chief: SectionStrings.chief
+        case .automations: SectionStrings.automations
         }
     }
 

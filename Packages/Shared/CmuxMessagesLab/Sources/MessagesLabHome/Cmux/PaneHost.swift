@@ -74,6 +74,9 @@ final class HostView: NSView {
     /// cmux: Reply to Selection's quote over the message box (HostView+QuoteCard.swift); nil when none shows.
     var quoteCard: ReplyQuoteCardView?
     private(set) var demo: MessagesWindowView?
+    /// cmux: the Chief chat's zoom (MessagesLabHomeView.zoom): this view is laid out at its pane's size over the
+    /// zoom and drawn magnified by it; its bitmaps render at the window's scale times it (PaneHost+Scale.swift).
+    var contentZoom: CGFloat = 1
     weak var controller: ChatController? { didSet { scrollView.document.controller = controller } }
     /// MessagesLab b6760b6: the window's update observer and the window place the rows last read
     /// (PaneHost+WindowPlace.swift).
@@ -303,6 +306,9 @@ extension FieldChrome {
     func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil) {
         field.wantsLayer = true
         if let layer = field.layer {
+            // NSGlassEffectView rounds its glass internally, independently of its backing
+            // layer. Keep the added hairline on the same curve instead of boxing the glass.
+            if layer.cornerRadius != field.cornerRadius { layer.cornerRadius = field.cornerRadius }
             let width: CGFloat = light && edge != nil ? 1 : 0
             if layer.borderWidth != width { layer.borderWidth = width }
             if let edge, light { layer.borderColor = edge.cgColor }
@@ -593,6 +599,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func dispatch(_ a: Action) {
         guard let store else { return }
+        if case .reply(let ref) = a, intents?.canInteract(with: ref.messageId) == false { return }
         thread.note(a)
         forgetQuote(for: a)
         // MessagesLab bd65bbf (Host.dispatch): a keystroke goes first. Engine jobs due now
@@ -816,7 +823,13 @@ final class ChatController: NSObject, NSTextViewDelegate {
             // cmux: the bytes come from HomeStore (Host.swift opened a fixture asset).
             // cmux: a video plays or pauses in its bubble (opening it in an
             // app is in the context menu); other attachments open.
-            case let .attachment(a) where a.kind == "video": intents?.toggleVideo(hit.row.ref, a.id)
+            // cmux: its expand button (shown once it played) opens the large viewer (the user, 2026-10-30).
+            case let .attachment(a) where a.kind == "video":
+                if intents?.videoState(hit.row.ref) != .poster, HomeVideo.expandRect(body: hit.body).insetBy(dx: -4, dy: -4).contains(p) {
+                    intents?.openVideo(hit.row.ref, a.id)
+                } else {
+                    intents?.toggleVideo(hit.row.ref, a.id)
+                }
             case let .attachment(a): intents?.openAttachment(hit.row.ref.messageId, a.id)
             // cmux: a plain click on a bubble (no selection made) leaves the field ready to type
             // (Lawrence 2026-10-18: Home focused means the message box has the keyboard).
@@ -830,14 +843,18 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     /// Real Messages (MessagesLab 7f1a811): a double-click on a bubble selects
     /// the word under the cursor; the picker is press and hold.
+    /// cmux: a double-click on a video opens it in the large viewer (the user, 2026-10-30: "i want to
+    /// double click it and see it bigger").
     func doubleClicked(_ p: CGPoint) {
-        guard demo?.hit(p) != nil else { return }
+        guard let hit = demo?.hit(p) else { return }
+        if case let .attachment(a) = hit.row.part, a.kind == "video" { intents?.openVideo(hit.row.ref, a.id); return }
         if selection.selectWord(at: p) { window?.makeFirstResponder(host.scrollView.document) }
     }
 
     // MARK: Tapback picker
 
     func showPicker(for hit: MessagesWindowView.Hit) {
+        guard intents?.canInteract(with: hit.row.ref.messageId) != false else { return }
         closePicker()
         let mine = hit.row.reactions.first { $0.senderId == store?.state.me }?.kind
         let p = TapbackPickerView(ref: hit.row.ref, selected: mine) { [weak self] kind in
@@ -883,4 +900,17 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func windowDidResize() { host.needsLayout = true }
 
     // The display change (colour space and scale): PaneHost+Scale.swift (followDisplay).
+}
+
+extension NSView {
+    /// cmux: the Chief chat's zoom (HostView.contentZoom) of the host this view is in, 1 outside one. A view's length
+    /// in its window also carries a canvas camera's scale, so a bitmap's scale reads the zoom here, not from `convert`.
+    var enclosingContentZoom: CGFloat {
+        var view = superview
+        while let v = view {
+            if let host = v as? HostView { return host.contentZoom }
+            view = v.superview
+        }
+        return 1
+    }
 }

@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import CoreGraphics
 import Testing
 
@@ -13,6 +14,7 @@ import Testing
 /// gesture decides its owner through its momentum; a wheel decides per notch. `none` is the rule
 /// before it: sideways over a pane pans the strip, rows scroll over their gaps or with Command.
 @MainActor
+@Suite(.closesItsWindows)
 struct LayoutScrollModifierTests {
     final class Panes: LayoutPaneContentProvider {
         /// Each pane's content view, as the layout asked for it.
@@ -167,6 +169,7 @@ struct LayoutScrollModifierTests {
 
     @Test func aPlainSidewaysSwipeOverATerminalPaneNeverMovesTheStrip() throws {
         let w = Window(modifier: .command)
+        defer { w.window.closeAfterTest() }
         let before = try #require(w.root.frame(of: "p2"))
         #expect(w.gesture(at: try w.center("p2"), dx: -20) == 0, "the pane under the pointer gets every event")
         w.settle()
@@ -175,6 +178,7 @@ struct LayoutScrollModifierTests {
 
     @Test func aCommandSidewaysSwipeOverTheSamePaneMovesTheStrip() throws {
         let w = Window(modifier: .command)
+        defer { w.window.closeAfterTest() }
         let before = try #require(w.root.frame(of: "p2"))
         #expect(w.gesture(at: try w.center("p2"), dx: -20, commandAt: Set(0...7)) == 8, "the layout takes the gesture and its coast")
         w.settle()
@@ -184,6 +188,7 @@ struct LayoutScrollModifierTests {
 
     @Test func aPlainVerticalScrollOverAPaneInAnOverflowingColumnScrollsThePane() throws {
         let w = Window(modifier: .command)
+        defer { w.window.closeAfterTest() }
         let before = try #require(w.root.frame(of: "top"))
         #expect(w.gesture(at: try w.center("top"), dy: -20) == 0)
         #expect(w.scroll(at: try w.center("top"), dy: -1, units: .line) == false, "a wheel notch too")
@@ -193,6 +198,7 @@ struct LayoutScrollModifierTests {
 
     @Test func aCommandVerticalScrollOverAPaneScrollsTheRows() throws {
         let w = Window(modifier: .command)
+        defer { w.window.closeAfterTest() }
         let before = try #require(w.root.frame(of: "top"))
         #expect(w.gesture(at: try w.center("top"), dy: -30, commandAt: Set(0...7)) == 8)
         w.settle()
@@ -203,6 +209,7 @@ struct LayoutScrollModifierTests {
 
     @Test func aPlainVerticalScrollOverTheGapBetweenRowsScrollsTheRows() throws {
         let w = Window(modifier: .command)
+        defer { w.window.closeAfterTest() }
         let before = try #require(w.root.frame(of: "top"))
         #expect(w.gesture(at: try w.rowGap(), dy: -30) == 8, "chrome with no pane under it is the layout's")
         w.settle()
@@ -211,6 +218,7 @@ struct LayoutScrollModifierTests {
 
     @Test func pressingCommandMidGestureDoesNotTakeAPaneGesture() throws {
         let w = Window(modifier: .command)
+        defer { w.window.closeAfterTest() }
         let before = try #require(w.root.frame(of: "p2"))
         #expect(w.gesture(at: try w.center("p2"), dx: -20, commandAt: Set(1...7)) == 0, "the first event gave it to the pane")
         w.settle()
@@ -219,6 +227,7 @@ struct LayoutScrollModifierTests {
 
     @Test func releasingCommandMidGestureKeepsTheLayoutsGestureAndMomentum() throws {
         let w = Window(modifier: .command)
+        defer { w.window.closeAfterTest() }
         let before = try #require(w.root.frame(of: "p2"))
         #expect(w.gesture(at: try w.center("p2"), dx: -20, commandAt: [0]) == 8, "the first event gave it to the layout")
         w.settle()
@@ -229,6 +238,7 @@ struct LayoutScrollModifierTests {
     /// released between them changes nothing (PL-motion-core review 2026-10-24).
     @Test func commandAtTheTouchDecidesEvenWhenReleasedBeforeTheGestureBegins() throws {
         let w = Window(modifier: .command)
+        defer { w.window.closeAfterTest() }
         let p2 = try w.center("p2")
         let before = try #require(w.root.frame(of: "p2"))
         w.scroll(at: p2, phase: .mayBegin, command: true)
@@ -241,6 +251,7 @@ struct LayoutScrollModifierTests {
 
     @Test func commandPressedAfterTheTouchDoesNotTakeThePanesGesture() throws {
         let w = Window(modifier: .command)
+        defer { w.window.closeAfterTest() }
         let p2 = try w.center("p2")
         let before = try #require(w.root.frame(of: "p2"))
         w.scroll(at: p2, phase: .mayBegin)
@@ -255,6 +266,7 @@ struct LayoutScrollModifierTests {
     /// rows do not overflow pans the strip, as a Command vertical wheel notch does.
     @Test func aCommandVerticalSwipeOverAColumnWithoutRowsPansTheStrip() throws {
         let w = Window(modifier: .command)
+        defer { w.window.closeAfterTest() }
         let before = try #require(w.root.frame(of: "p2"))
         #expect(w.gesture(at: try w.center("p2"), dy: -20, commandAt: Set(0...7)) == 8, "the layout takes the gesture and its coast")
         w.settle()
@@ -265,6 +277,7 @@ struct LayoutScrollModifierTests {
 
     @Test func aWheelNotchDecidesPerNotch() throws {
         let w = Window(modifier: .command)
+        defer { w.window.closeAfterTest() }
         let p2 = try w.center("p2")
         // A mouse's Shift+wheel arrives as a discrete horizontal notch.
         #expect(w.scroll(at: p2, dx: -1, units: .line) == false, "a plain notch is the pane's")
@@ -274,6 +287,7 @@ struct LayoutScrollModifierTests {
 
     @Test func aCommandVerticalWheelOverAColumnWithoutRowsPansTheStrip() throws {
         let w = Window(modifier: .command)
+        defer { w.window.closeAfterTest() }
         let before = try #require(w.root.frame(of: "p2"))
         #expect(w.scroll(at: try w.center("p2"), dy: -1, units: .line, command: true), "a one-wheel mouse still pans the columns")
         w.settle()
@@ -282,6 +296,7 @@ struct LayoutScrollModifierTests {
 
     @Test func aPlainScrollDoesNotMoveFocusWithFocusFollowsMouseOff() throws {
         let w = Window(modifier: .command, focusFollowsMouse: false)
+        defer { w.window.closeAfterTest() }
         w.gesture(at: try w.center("p2"), dx: -20)
         w.gesture(at: try w.center("p2"), dy: -20)
         w.scroll(at: try w.center("p2"), dy: -1, units: .line)
@@ -290,6 +305,7 @@ struct LayoutScrollModifierTests {
 
     @Test func aPlainScrollFocusesThePaneWithFocusFollowsMouseOn() throws {
         let w = Window(modifier: .command, focusFollowsMouse: true)
+        defer { w.window.closeAfterTest() }
         w.gesture(at: try w.center("p2"), dx: -20)
         #expect(w.model.focusedPane == "p2")
     }
@@ -303,6 +319,7 @@ struct LayoutScrollModifierTests {
         let root = LayoutRootView(model: model, contentProvider: provider)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 700), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.contentView = root
         root.layoutSubtreeIfNeeded()
         let seed: [PaneID: CGRect] = ["a": CGRect(x: 0, y: 0, width: 600, height: 700), "b": CGRect(x: 600, y: 0, width: 600, height: 700)]
@@ -334,6 +351,7 @@ struct LayoutScrollModifierTests {
     /// the modifier keys), keeps every event, its zero-delta start included, and gets its end.
     @Test func aCommandTouchOwnsTheWholeGestureAndTellsThePaneContent() throws {
         let w = Window(modifier: .command)
+        defer { w.window.closeAfterTest() }
         let top = try w.center("top")
         let content = try #require(w.provider.views["top"])
         #expect(content.isDescendant(of: w.root))
@@ -354,6 +372,7 @@ struct LayoutScrollModifierTests {
 
     @Test func aPlainGestureOverAPaneIsNotTakenFromItsContent() throws {
         let w = Window(modifier: .command)
+        defer { w.window.closeAfterTest() }
         let top = try w.center("top")
         let content = try #require(w.provider.views["top"])
         #expect(!w.scroll(at: top, phase: .mayBegin))
@@ -362,9 +381,9 @@ struct LayoutScrollModifierTests {
         #expect(!w.scroll(at: top, phase: .ended))
     }
 
-    /// One column whose rows overflow and a strip that fits: Command + a sideways swipe has nothing
-    /// to move that way, but it began where the layout scrolls, so it stays the layout's (the pane
-    /// never saw its start, and a web page must not go Back or Forward on it).
+    /// One column whose rows overflow and a strip that fits: Command + a sideways swipe stays the
+    /// layout's (the pane never saw its start, and a web page must not go Back or Forward on it);
+    /// the strip only rubber-bands and springs back.
     @Test func aCommandSwipeWithNothingToMoveItsWayStaysTheLayoutsAndMovesNothing() throws {
         let rows = [LayoutRow(id: "r1", height: 750, root: .leaf("top")),
                     LayoutRow(id: "r2", height: 750, root: .leaf("bottom"))]
@@ -380,6 +399,7 @@ struct LayoutScrollModifierTests {
         root.context.reduceMotionOverride = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.contentView = root
         root.layoutSubtreeIfNeeded()
         root.driver.isManual = true
@@ -392,12 +412,15 @@ struct LayoutScrollModifierTests {
         #expect(Self.scroll(root, at: point, dx: -10, momentum: .begin), "nor its coast")
         #expect(Self.scroll(root, at: point, momentum: .end))
         #expect(!root.ownsCurrentScrollGesture)
+        for _ in 0..<600 { if !root.advanceFrame(1.0 / 120) { break } }
         #expect(root.frame(of: "top") == frame, "nothing moved")
     }
 
-    /// Nothing to scroll at all (one column, no rows): Command + scroll is the pane's, so a web
-    /// page goes Back or Forward on it, Chromium and WebKit alike.
-    @Test func aCommandSwipeWhereTheLayoutHasNothingToScrollIsThePanes() throws {
+    /// Nothing to scroll at all (one column, no rows, the strip fits): Command + scroll is still the
+    /// layout's, from a Chromium page's window as from the layout's own (a terminal), so a browser
+    /// pane never goes Back or Forward on it and the strip only rubber-bands (Lawrence 2026-10-28,
+    /// browser focus mode included; CommandScrollColumnsTests).
+    @Test func aCommandSwipeWhereTheStripFitsIsTheLayoutsFromAPageWindowToo() throws {
         let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns([
             LayoutColumn(id: "c1", width: 1, root: .leaf("a")),
         ]))], activeScreenID: "s", focusedPane: "a")
@@ -407,15 +430,21 @@ struct LayoutScrollModifierTests {
         let root = LayoutRootView(model: model, contentProvider: provider)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.contentView = root
         root.layoutSubtreeIfNeeded()
         let frame = try #require(root.frame(of: "a"))
         let point = root.convert(CGPoint(x: frame.midX, y: frame.midY), to: nil)
-        #expect(!Self.scroll(root, at: point, phase: .mayBegin, command: true))
-        #expect(!Self.scroll(root, at: point, dx: -20, phase: .began, command: true))
-        #expect(!root.ownsCurrentScrollGesture)
-        #expect(!Self.scroll(root, at: point, dx: -20, phase: .changed, command: true))
-        #expect(!Self.scroll(root, at: point, phase: .ended, command: true))
+        let page = Self.pageWindow()
+        Self.attach(page, to: window, over: root.convert(frame, to: nil))
+        defer { window.removeChildWindow(page); page.close() }
+        #expect(Self.scroll(root, from: page, at: point, phase: .mayBegin, command: true))
+        #expect(Self.scroll(root, from: page, at: point, dx: -20, phase: .began, command: true))
+        #expect(root.ownsCurrentScrollGesture)
+        #expect(Self.scroll(root, from: page, at: point, dx: -20, phase: .changed, command: true))
+        #expect(Self.scroll(root, from: page, at: point, phase: .ended, command: true))
+        #expect(Self.scroll(root, at: point, dx: -20, phase: .began, command: true), "the layout's own window: the layout's")
+        #expect(Self.scroll(root, at: point, phase: .ended, command: true))
     }
 
     /// Multi-view: two layouts in one window, each with its own monitor. Both see a touch; the one
@@ -424,6 +453,7 @@ struct LayoutScrollModifierTests {
     @Test func aTouchOverAnotherLayoutInTheWindowDoesNotStopThisOnesNextGestureDeciding() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 800))
         window.contentView = container
         let providers = [Panes(), Panes()]
@@ -509,6 +539,7 @@ struct LayoutScrollModifierTests {
     /// page's even where the layout's own point would be chrome.
     @Test func aPlainScrollFromAPageWindowIsThePagesEvenOverChrome() throws {
         let w = Window(modifier: .command)
+        defer { w.window.closeAfterTest() }
         let gap = try w.rowGap()
         func event(_ phase: CGScrollPhase, dy: Int32 = 0, command: Bool = false) -> NSEvent {
             let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: dy, wheel2: 0, wheel3: 0)!
@@ -567,21 +598,29 @@ struct LayoutScrollModifierTests {
         }
     }
 
-    /// A scroll area in one column claims a Command gesture only over itself: over a pane outside
-    /// every area, where the strip fits and no rows overflow, the layout has nothing to scroll, so
-    /// the gesture is the pane's (a web page swipes Back or Forward on it), as the wheel is.
-    @Test func aCommandGestureOutsideEveryScrollAreaWhereNothingElseScrollsIsThePanes() throws {
+    /// Over a page outside every scroll area, where the strip fits and no rows overflow, a Command
+    /// gesture is still the layout's (the strip rubber-bands), as the wheel is: a browser pane never
+    /// swipes Back or Forward on it (Lawrence 2026-10-28).
+    @Test func aCommandGestureOutsideEveryScrollAreaIsTheLayoutsFromAPageWindowToo() throws {
         let w = try AreaWindow()
+        defer { w.window.closeAfterTest() }
         let q = try w.center("q")
-        #expect(!Self.scroll(w.root, at: q, phase: .mayBegin, command: true), "the touch goes on to the pane")
-        #expect(!w.root.ownsCurrentScrollGesture)
-        #expect(!Self.scroll(w.root, at: q, dx: -20, phase: .began, command: true))
-        #expect(!Self.scroll(w.root, at: q, dx: -20, phase: .changed, command: true))
-        #expect(!w.root.ownsCurrentScrollGesture)
-        #expect(!Self.scroll(w.root, at: q, phase: .ended, command: true))
-        #expect(!Self.scroll(w.root, at: q, dy: -30, phase: .began, command: true), "up and down alike")
-        #expect(!Self.scroll(w.root, at: q, phase: .ended, command: true))
-        #expect(!Self.scroll(w.root, at: q, dx: -1, units: .line, command: true), "the wheel agrees")
+        let page = Self.pageWindow()
+        Self.attach(page, to: w.window, over: w.root.convert(try #require(w.root.frame(of: "q")), to: nil))
+        defer { w.window.removeChildWindow(page); page.close() }
+        func scroll(at point: CGPoint, dx: Int32 = 0, dy: Int32 = 0, phase: CGScrollPhase? = nil,
+                    units: CGScrollEventUnit = .pixel, command: Bool) -> Bool {
+            Self.scroll(w.root, from: page, at: point, dx: dx, dy: dy, phase: phase, units: units, command: command)
+        }
+        #expect(scroll(at: q, phase: .mayBegin, command: true), "the page never sees the touch")
+        #expect(w.root.ownsCurrentScrollGesture)
+        #expect(scroll(at: q, dx: -20, phase: .began, command: true))
+        #expect(scroll(at: q, dx: -20, phase: .changed, command: true))
+        #expect(scroll(at: q, phase: .ended, command: true))
+        #expect(scroll(at: q, dy: -30, phase: .began, command: true), "up and down alike")
+        #expect(scroll(at: q, phase: .ended, command: true))
+        #expect(scroll(at: q, dx: -1, units: .line, command: true), "the wheel agrees")
+        #expect(!scroll(at: q, dx: -1, units: .line, command: false), "a plain notch is the page's")
         // Over the area itself, which can move toward its end, Command + scroll is the layout's.
         let p1 = try w.center("p1")
         #expect(Self.scroll(w.root, at: p1, dx: -20, phase: .began, command: true))
@@ -594,6 +633,7 @@ struct LayoutScrollModifierTests {
     /// page: a plain scroll over the gap between rows scrolls the rows.
     @Test func aScrollOverADividerCatcherPanelIsTheLayouts() throws {
         let w = Window(modifier: .command)
+        defer { w.window.closeAfterTest() }
         let gap = try w.rowGap()
         let top = try #require(w.root.frame(of: "top"))
         let page = Self.pageWindow(), catcher = DividerMousePanel()
@@ -609,6 +649,7 @@ struct LayoutScrollModifierTests {
         #expect(try #require(w.root.frame(of: "top")).minY < top.minY - 30, "the rows scrolled")
         // Under `none` the catcher is the layout's too: its gap scrolls the rows.
         let none = Window(modifier: .noModifier)
+        defer { none.window.closeAfterTest() }
         let noneGap = try none.rowGap(), noneTop = try #require(none.root.frame(of: "top"))
         let noneCatcher = DividerMousePanel()
         Self.attach(noneCatcher, to: none.window, over: CGRect(x: noneGap.x - 40, y: noneGap.y - 12, width: 80, height: 24))
@@ -655,6 +696,7 @@ struct LayoutScrollModifierTests {
     @Test(arguments: [LayoutScrollModifier.command, .noModifier])
     func aCanvasPanOwnsItsGestureOnlyUntilItEnds(modifier: LayoutScrollModifier) throws {
         let w = try CanvasWindow(modifier: modifier)
+        defer { w.window.closeAfterTest() }
         let point = w.emptyCanvas
         let start = try #require(w.root.frame(of: "a"))
         #expect(Self.scroll(w.root, at: point, dx: -20, phase: .began))
@@ -688,6 +730,7 @@ struct LayoutScrollModifierTests {
     /// scroll from it pans the canvas.
     @Test func aPlainScrollFromAPageWindowIsThePagesOverEmptyCanvas() throws {
         let w = try CanvasWindow(modifier: .command)
+        defer { w.window.closeAfterTest() }
         let point = w.emptyCanvas
         let start = try #require(w.root.frame(of: "a"))
         let fromPage = { (event: NSEvent) in w.root.handleScrollEvent(event, at: point, fromPageWindow: true) == nil }
@@ -708,6 +751,7 @@ struct LayoutScrollModifierTests {
     /// gesture that is over).
     @Test func noneKeepsAStripPanWhoseRestComesFromAPageWindow() throws {
         let w = Window(modifier: .noModifier)
+        defer { w.window.closeAfterTest() }
         let p2 = try w.center("p2")
         let strip = try #require(w.root.screenViews["s"])
         #expect(w.scroll(at: p2, dx: -20, phase: .began))
@@ -743,6 +787,7 @@ struct LayoutScrollModifierTests {
         root.context.reduceMotionOverride = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.contentView = root
         root.layoutSubtreeIfNeeded()
         root.driver.isManual = true
@@ -766,6 +811,7 @@ struct LayoutScrollModifierTests {
 
     @Test func noneLetsAPlainSidewaysSwipeOverAPaneMoveTheStrip() throws {
         let w = Window(modifier: .noModifier)
+        defer { w.window.closeAfterTest() }
         let before = try #require(w.root.frame(of: "p2"))
         #expect(w.gesture(at: try w.center("p2"), dx: -20) == 8)
         w.settle()
@@ -774,6 +820,7 @@ struct LayoutScrollModifierTests {
 
     @Test func noneKeepsAPlainVerticalScrollOverAPaneWithThePaneAndCommandScrollsRows() throws {
         let w = Window(modifier: .noModifier)
+        defer { w.window.closeAfterTest() }
         let before = try #require(w.root.frame(of: "top"))
         #expect(w.gesture(at: try w.center("top"), dy: -30) == 0)
         #expect(w.gesture(at: try w.center("top"), dy: -30, commandAt: Set(0...7)) == 8)
@@ -783,6 +830,7 @@ struct LayoutScrollModifierTests {
 
     @Test func noneKeepsAPlainVerticalWheelOverAColumnWithoutRowsWithThePane() throws {
         let w = Window(modifier: .noModifier)
+        defer { w.window.closeAfterTest() }
         #expect(w.scroll(at: try w.center("p2"), dy: -1, units: .line, command: true) == false)
     }
 }

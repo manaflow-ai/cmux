@@ -67,10 +67,14 @@ public final class SettingsController {
     @ObservationIgnored private var lastSource: LoadInputs?
     @ObservationIgnored let managedReader: any ManagedPreferenceReader
     @ObservationIgnored let managedWatchFiles: [URL]
+    /// Fill keys no layer sets (``SettingsBuildDefaults``); the launch read's unless given.
+    @ObservationIgnored let buildDefaults: SettingsBuildDefaults
     @ObservationIgnored var managedWatchers: [ConfigFileWatcher] = []
     @ObservationIgnored var statusTarget: (url: URL, context: ManagedStatusReport.Context)?
     @ObservationIgnored var lastStatusBody: JSONValue?
     @ObservationIgnored private var loadWaiters: [LoadWaiter] = []
+    /// ``onEveryLoad(_:)``'s calls, in the order they were added.
+    @ObservationIgnored private var loadHooks: [@MainActor () -> Void] = []
     /// The launch's read (`readAtLaunch`), adopted by the first load.
     @ObservationIgnored private var launchRead: LaunchRead?
     /// Writes `setSetting` validated and made, by dotted key (tests check
@@ -96,10 +100,12 @@ public final class SettingsController {
         fileURL: URL = CmuxConfigFile.defaultURL(),
         managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
         managedWatchFiles: [URL] = ManagedPreferenceLocation.watchedFiles(),
-        launch: LaunchRead? = nil
+        launch: LaunchRead? = nil,
+        buildDefaults: SettingsBuildDefaults? = nil
     ) {
         self.file = CmuxConfigFile(url: fileURL)
         self.launchRead = launch
+        self.buildDefaults = buildDefaults ?? launch?.buildDefaults ?? .none
         self.applier = SettingsApplier(design: design, registry: registry)
         self.managedReader = managedReader
         self.managedWatchFiles = managedWatchFiles
@@ -159,6 +165,13 @@ public final class SettingsController {
         }
     }
 
+    /// Runs `body` in every later load itself, before it changes ``snapshot`` or ``loadCount``, on the
+    /// main actor: nothing can read the new settings first. For a check that must never lag a load (a
+    /// consent grant the Labs switch gates); everything else observes ``snapshot``. Ends with the controller.
+    public func onEveryLoad(_ body: @escaping @MainActor () -> Void) {
+        loadHooks.append(body)
+    }
+
     private func resumeWaiter(_ token: UUID) {
         guard let index = loadWaiters.firstIndex(where: { $0.token == token }) else { return }
         loadWaiters.remove(at: index).continuation.resume()
@@ -180,6 +193,18 @@ public final class SettingsController {
     public func setShortcut(_ shortcut: Shortcut?, for id: ActionID) async throws {
         let value: JSONValue = shortcut.map { .string(ShortcutBindingFormat.configString(SettingsApplier.stroke(for: $0))) } ?? .null
         try await set(value, at: ["shortcuts", "bindings", id.rawValue])
+    }
+
+    /// Writes `keys` (each one key or a two-key chord) as `id`'s binding:
+    /// one key, a chord, or `{"any": [...]}` for several (a repeated key
+    /// counts once); none unbinds it.
+    public func setShortcuts(_ keys: [[Shortcut]], for id: ActionID) async throws {
+        let bindings = keys.map { key in
+            key.count == 2 ? ShortcutBinding.chord(SettingsApplier.stroke(for: key[0]), SettingsApplier.stroke(for: key[1]))
+                : .stroke(SettingsApplier.stroke(for: key[0]))
+        }.reduce(into: [ShortcutBinding]()) { if !$0.contains($1) { $0.append($1) } }
+        let binding = bindings.count > 1 ? ShortcutBinding.alternates(bindings) : bindings.first ?? .unbound
+        try await set(ShortcutBindingFormat.configValue(binding), at: ["shortcuts", "bindings", id.rawValue])
     }
 
     /// Removes the override for `id`, restoring its default shortcut.
@@ -265,14 +290,14 @@ public final class SettingsController {
     }
 
     private func loadOnce() async {
-        let (file, reader, team, lastGood) = (file, managedReader, teamPolicy, fileRoot)
+        let (file, reader, team, lastGood, builds) = (file, managedReader, teamPolicy, fileRoot, buildDefaults)
         let valid = Self.validValues
         adopt(await Task.detached {
             let managed = reader.read()
             let source: Result<String, any Error>
             do { source = .success(try await file.source()) } catch { source = .failure(error) }
             return Self.loaded(source, managed: managed, team: team, lastGood: lastGood, valid: valid,
-                               configDirectory: file.url.deletingLastPathComponent())
+                               configDirectory: file.url.deletingLastPathComponent(), buildDefaults: builds)
         }.value)
     }
 
@@ -285,7 +310,7 @@ public final class SettingsController {
         }
         let source = Result { try CmuxConfigFile.source(at: file.url) }
         adopt(Self.loaded(source, managed: managedReader.read(), team: teamPolicy, lastGood: fileRoot, valid: Self.validValues,
-                          configDirectory: file.url.deletingLastPathComponent()))
+                          configDirectory: file.url.deletingLastPathComponent(), buildDefaults: buildDefaults))
     }
 
     /// The launch's first load, read before the controller exists so the
@@ -294,15 +319,18 @@ public final class SettingsController {
     public nonisolated struct LaunchRead: Sendable {
         fileprivate let loaded: Loaded
         public let fileURL: URL
+        let buildDefaults: SettingsBuildDefaults
         public var snapshot: CmuxConfigSnapshot { loaded.snapshot }
     }
 
     public static func readAtLaunch(
-        fileURL: URL, managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader()
+        fileURL: URL, managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
+        buildDefaults: SettingsBuildDefaults = .none
     ) -> LaunchRead {
         let source = Result { try CmuxConfigFile.source(at: fileURL) }
         return LaunchRead(loaded: loaded(source, managed: managedReader.read(), team: .none, lastGood: .object([:]), valid: validValues,
-                                         configDirectory: fileURL.deletingLastPathComponent()), fileURL: fileURL)
+                                         configDirectory: fileURL.deletingLastPathComponent(), buildDefaults: buildDefaults),
+                          fileURL: fileURL, buildDefaults: buildDefaults)
     }
 
     fileprivate typealias Loaded = (inputs: LoadInputs, effective: EffectiveSettings, snapshot: CmuxConfigSnapshot)
@@ -313,7 +341,7 @@ public final class SettingsController {
     /// Parses the file's text and merges the managed layers.
     private nonisolated static func loaded(_ read: Result<String, any Error>, managed: ManagedPreferences, team: TeamPolicyLayer,
                                            lastGood: JSONValue, valid: (densities: Set<String>, metrics: Set<String>),
-                                           configDirectory: URL) -> Loaded {
+                                           configDirectory: URL, buildDefaults: SettingsBuildDefaults) -> Loaded {
         var source = ""
         var problem: String?
         var root = lastGood
@@ -327,7 +355,8 @@ public final class SettingsController {
         // Managed layers always merge, over the last good file when this one
         // is unreadable, so MDM forced values apply even while the user's
         // file is broken (spec/enterprise.md 5.2).
-        let effective = EffectiveSettings.merge(file: root, managed: managed, team: team)
+        var effective = EffectiveSettings.merge(file: root, managed: managed, team: team)
+        effective.root = buildDefaults.filling(effective.root)
         var snapshot = CmuxConfigSnapshot.parse(
             effective.root, validDensities: valid.densities, validMetrics: valid.metrics, configDirectory: configDirectory
         )
@@ -337,6 +366,7 @@ public final class SettingsController {
     }
 
     private func adopt(_ loaded: Loaded) {
+        loadHooks.forEach { $0() }
         if loaded.inputs != lastSource || loadCount == 0 {
             lastSource = loaded.inputs
             // A file change ends a preview: the loaded values apply.
@@ -352,6 +382,12 @@ public final class SettingsController {
             let policy = ManagedPreferences.disabledFeatures(in: effective.policy)
             applier.registry.disabledFeatures = policy.features
             if let problem = policy.problem { diagnostics.append(problem) }
+            // Settings > Menus: the person's right-click menu arrangements (ContextMenusSetting).
+            var menuProblems: [SettingsDiagnostic] = []
+            let menus = ContextMenusSetting.parse(effective.root, diagnostics: &menuProblems)
+            applier.registry.contextMenuLayouts = menus.layouts
+            applier.registry.showsCustomizeMenuItem = menus.showsCustomizeItem
+            diagnostics += menuProblems
             file.managedGuard.update(effective.managedKeys)
             reportManagedStatus(managed: loaded.inputs.managed, team: loaded.inputs.team, effective: effective)
         }

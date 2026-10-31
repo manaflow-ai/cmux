@@ -1,11 +1,15 @@
+import CmuxNextCompat
 import Darwin
 import Foundation
 
 /// Renderer and helper process failures: the tab-level record from CEF and
 /// the process-level record from `CEFChildProcessMonitor`.
 extension CEFRuntime {
-    func recordRendererExit(_ exit: BrowserProcessExit, tab: CEFTab) {
-        logger.error("renderer ended reason=\(exit.reason.rawValue, privacy: .public) code=\(exit.code ?? 0) tab=\(tab.id.rawValue, privacy: .public)")
+    func recordRendererExit(_ exit: BrowserProcessExit, tab: CEFTab, pressure: MemoryPressureLevel, reloads: Bool) {
+        // The tab shows the crash notice; it reloads by itself only once after a memory end
+        // (`BrowserExitRecovery`), else when the person presses Reload.
+        let shown = tab.host.visibleTab === tab
+        logger.error("renderer ended reason=\(exit.reason.rawValue, privacy: .public) code=\(exit.code ?? 0) tab=\(tab.id.rawValue, privacy: .public) shown=\(shown) pressure=\(pressure.rawValue, privacy: .public); \(reloads ? "reloads once by itself (memory)" : "no automatic reload", privacy: .public)")
         crashLog.append(BrowserCrashRecord(processType: "renderer", reason: exit.reason, code: exit.code,
                                            tab: tab.id, source: .engine))
     }

@@ -8,6 +8,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextChiefViews
 import CmuxNextCompat
+import CmuxNextDaemonRecovery
 import CmuxNextDesign
 import CmuxNextFeed
 import CmuxNextFloating
@@ -35,9 +36,9 @@ enum TunableCatalog {
         ChiefViewsPage.tunables +
         DesignTunables.all + [IconFamily.tunable.descriptor] + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
             + [AgentPaneTunables.inspector.descriptor]
-            + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
-            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserImportTunables.all + NavigationTunables.all + BrowserResizeTunables.all + BrowserPageTunables.all + AccountTunables.all
-            + TitlebarHistoryTunables.all + HibernationTunables.all
+            + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + DaemonTunables.all + FeedTunables.all
+            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + ChiefPetTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserImportTunables.all + NavigationTunables.all + BrowserResizeTunables.all + BrowserPageTunables.all + AccountTunables.all
+            + TitlebarHistoryTunables.all + HibernationTunables.all + CloudTunables.all
             + HangFileTunables.all + HostPressureTunables.all
             + BrowserHostTunables.all
     }
@@ -82,6 +83,7 @@ final class DebugSettingsService: InternalPageProvider {
         guard isAvailable else { return }
         let store = TunableStore.shared
         store.register(TunableCatalog.all)
+        BrowserResizeTunables.registerRenames(store)
         let launch = services.environment.launch
         let url = Self.fileURL(environment: ProcessInfo.processInfo.environment, tag: launch.tag,
                                bundleID: launch.bundleID, build: launch.build)
@@ -136,7 +138,8 @@ final class DebugSettingsService: InternalPageProvider {
             let page = webPage(model: model)
             windowPage = page
             let controller = DebugSettingsWindowController(model: model, content: page,
-                                                           onFind: page.map { page in { _ = page.send(command: "focusSearch") } })
+                                                           onFind: page.map { page in { _ = page.send(command: "focusSearch") } },
+                                                           activeLook: services.activeLook)
             controller.onClose = { [weak self] in
                 guard let self else { return }
                 windowPage?.close()

@@ -7,7 +7,7 @@ nonisolated extension SidebarLayout {
     /// A fold is view state the sidebar owns (plans/cmux-next/state-ownership-DESIGN.md), so it never
     /// waits for the daemon and never lays the whole list out: its cost is the group's rows, not the
     /// list's. Nil when the fold cannot be spliced and the list must be laid out again: a filter, a
-    /// drag gap or excluded item, Group by Folder, inline tabs, or a group this layout does not draw.
+    /// drag gap or excluded item, Group by Folder, or a group this layout does not draw.
     ///
     /// - Parameters:
     ///   - group: The group as the model holds it (its members; `isCollapsed` is ignored).
@@ -26,7 +26,7 @@ nonisolated extension SidebarLayout {
     mutating func fold(_ group: SidebarGroup, collapsed: Bool, in section: SidebarSection, metrics base: SidebarLayoutMetrics,
                        options o: SidebarLayoutOptions) -> Bool {
         guard o.filterMatches == nil, o.gap == nil, gapY == nil, o.excludedGroup == nil, o.excludedItem == nil,
-              !o.showWorkspaceTabs, !o.grouping.isGrouped, !o.hidesWorkspaces,
+              !o.grouping.isGrouped, !o.hidesWorkspaces,
               let headerIndex = position(of: .group(group.id)) else { return false }
         // The chat history's blocks sit at places the full layout leaves (`pinnedChatsY`, `earlierChatsY`); a splice
         // moves the rows but not those places, so with history shown the list is laid out again.
@@ -34,8 +34,10 @@ nonisolated extension SidebarLayout {
         // A nested group or a group holding subgroups (remote-groups-DESIGN.md slice 2): its block holds other groups'
         // rows, so the full layout places them.
         // A group holding workspaces marked Done draws them behind its "Done (N)" row (`foldingDone`): laid out again.
-        // So does one longer than the row limit (its "Show N more" row).
+        // So does one holding archived workspaces (its "Archived (N)" row), and one longer than the row limit (its
+        // "Show N more" row).
         guard group.parent == nil, !(o.foldsDone && group.workspaces.contains { $0.taskStatus == .done }),
+              !(o.foldsArchived && group.workspaces.contains(where: \.isArchived)),
               o.rowLimit == 0 || group.members.count <= o.rowLimit + 1,
               !section.nodes.contains(where: { if case let .group(child) = $0 { child.parent == group.id } else { false } }) else { return false }
         let m = base.resolved(for: o)
@@ -44,7 +46,7 @@ nonisolated extension SidebarLayout {
         // The group's block: its header and the member rows right after it.
         var end = headerIndex + 1
         while end < rows.count, rows[end].group == group.id, !rows[end].key.isGroupHeader { end += 1 }
-        let oldEnd = Self.blockEnd(header: header, last: end > headerIndex + 1 ? rows[end - 1] : nil, collapsed: header.isCollapsed, metrics: m)
+        let oldEnd = Self.blockEnd(header: header, last: end > headerIndex + 1 ? rows[end - 1] : nil, metrics: m)
 
         let shown = group.workspaces.filter { !o.excludedWorkspaces.contains($0.id) }
         let shownIDs = Set(shown.map(\.id))
@@ -55,6 +57,9 @@ nonisolated extension SidebarLayout {
             }
         }
         guard members.count == header.childCount else { return false } // the members changed too: a structural change
+        // A group of one member named as the group draws that member's row in the header's place
+        // (`SidebarLayout+SoleMember`), not a header over member rows: laid out again.
+        guard Self.soleMember(group, members, hasSubgroups: false, options: o) == nil else { return false }
         let machineLabel = Self.machineLabel(section, options: o)
         let parent = header.siblingIndex
         var built: [SidebarRow] = []
@@ -68,7 +73,7 @@ nonisolated extension SidebarLayout {
                 key: .workspace(ws.id), y: y, height: h, section: section.id,
                 group: group.id, siblingIndex: childIndex, parentIndex: parent,
                 isLastInGroup: last, isCollapsed: false, childCount: 0,
-                groupColor: group.color, tabDisclosure: nil, content: content
+                groupColor: group.color, content: content
             ))
             built[built.count - 1].depth = memberDepth
             y += h + m.rowSpacing
@@ -104,7 +109,7 @@ nonisolated extension SidebarLayout {
                 }
             }
         }
-        let newEnd = Self.blockEnd(header: header, last: built.last, collapsed: collapsed, metrics: m)
+        let newEnd = Self.blockEnd(header: header, last: built.last, metrics: m)
         var folded = header
         folded.isCollapsed = collapsed
         setRow(folded, at: headerIndex)
@@ -131,10 +136,10 @@ nonisolated extension SidebarLayout {
         return layout
     }
 
-    /// Where the list goes on after a group's block (`make`): an open group adds its bottom padding.
-    private static func blockEnd(header: SidebarRow, last: SidebarRow?, collapsed: Bool, metrics m: SidebarLayoutMetrics) -> CGFloat {
-        let after = (last ?? header).maxY + m.rowSpacing
-        return collapsed ? after : after + m.groupBottomPadding
+    /// Where the list goes on after a group's block (`make`): one row spacing under its last row, open or
+    /// folded (no padding under a group, Leo 2026-10-21).
+    private static func blockEnd(header: SidebarRow, last: SidebarRow?, metrics m: SidebarLayoutMetrics) -> CGFloat {
+        (last ?? header).maxY + m.rowSpacing
     }
 }
 

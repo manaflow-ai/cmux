@@ -18,11 +18,15 @@ public struct ControlPageFacts {
     /// A store page tab's title, as its strip names it (a Files tab names
     /// its file); nil when unknown.
     public var title: @MainActor (TabModel) -> String?
+    /// The browser tabs of other panes a pane's strip also lists (`browser.page.mirror`), in strip order.
+    public var mirroredTabs: @MainActor (PaneModel) -> [String]
 
     public init(appOnlyTabs: @escaping @MainActor (PaneModel) -> [ControlPageTabInfo] = { _ in [] },
-                title: @escaping @MainActor (TabModel) -> String? = { _ in nil }) {
+                title: @escaping @MainActor (TabModel) -> String? = { _ in nil },
+                mirroredTabs: @escaping @MainActor (PaneModel) -> [String] = { _ in [] }) {
         self.appOnlyTabs = appOnlyTabs
         self.title = title
+        self.mirroredTabs = mirroredTabs
     }
 }
 
@@ -201,6 +205,7 @@ enum ControlTopologyMapper {
                 var pane = pane
                 pane.selectedTabID = selectedTab(slot.pane)
                 pane.pageTabs = pages.appOnlyTabs(slot.pane)
+                pane.mirroredTabIDs = pages.mirroredTabs(slot.pane)
                 guard !slot.pageTabs.isEmpty else { return pane }
                 guard pane.tabs.count == slot.pageTabs.count else { aligned = false; return pane }
                 pane.tabs = zip(pane.tabs, slot.pageTabs).map { tab, model in
@@ -227,7 +232,8 @@ enum ControlTopologyMapper {
                   screen.panes.count == paneSlots.count else { return false }
             for paneIndex in paneSlots.indices {
                 guard let pane = screen.panes[checked: paneIndex], let slot = paneSlots[checked: paneIndex],
-                      pane.selectedTabID == selectedTab(slot.pane), pane.pageTabs == pages.appOnlyTabs(slot.pane) else { return false }
+                      pane.selectedTabID == selectedTab(slot.pane), pane.pageTabs == pages.appOnlyTabs(slot.pane),
+                      pane.mirroredTabIDs == pages.mirroredTabs(slot.pane) else { return false }
                 guard !slot.pageTabs.isEmpty else { continue }
                 guard pane.tabs.count == slot.pageTabs.count else { return false }
                 for tabIndex in slot.pageTabs.indices {
@@ -306,6 +312,7 @@ enum ControlTopologyMapper {
             }
         )
         info.pageTabs = pages.appOnlyTabs(model)
+        info.mirroredTabIDs = pages.mirroredTabs(model)
         return info
     }
 

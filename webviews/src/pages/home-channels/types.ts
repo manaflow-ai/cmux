@@ -3,6 +3,11 @@
 // conversation owner plus the Cloud owners) into these shapes. The page keeps a window of it as
 // view state; it is never a second store. Times are milliseconds since 1970.
 
+/** The owner's parts per message (cmux-conversation and home-core `MAX_PARTS`): a protocol bound on
+ * one message, never on a send. A send with more files goes as several messages
+ * (`messageGroups`), so any number of files attaches. cap-allow: route */
+export const MESSAGE_PARTS = 16;
+
 export const HomeOps = {
   inbox: "cmux.home.inbox",
   page: "cmux.home.page",
@@ -19,6 +24,10 @@ export const HomeOps = {
   updateThread: "cmux.home.updateThread",
   pin: "cmux.home.pin",
   markUnread: "cmux.home.markUnread",
+  /** The person views a conversation or stopped (`{conversation, viewing}`): the Cloud owner's
+   * viewing presence (`cloud-conversation-presence-v1`). A local conversation, or a daemon
+   * without the capability, sends nothing; the answer is `{sent}`. */
+  view: "cmux.home.view",
   /** What this host can do with attachments ({local, cloud}); absent op: nothing. */
   attachmentSupport: "cmux.home.attachmentSupport",
   /** One step of an attachment upload (begin, chunk, commit, cancel), the owner's chunked upload. */
@@ -418,6 +427,10 @@ export interface HomeEventBatch {
   /** Conversations whose open window must be refetched (a gap, a resubscribe). */
   stale?: string[];
   typing?: { conversation: string; participant: string; on: boolean }[];
+  presence?: { conversation: string; participants: { participant: string; viewing: boolean }[] }[];
+  /** Presence frames may have been lost (a stream overflow): every viewer set is unknown until the
+   * owner's next whole set. */
+  presenceLost?: boolean;
   /** Running replies, in order (applied before this batch's messages). */
   drafts?: HomeDraftItem[];
   /** My own list state changes (pins, marks), in order. */
@@ -564,10 +577,12 @@ export interface HomeRunChange {
   steps: HomeRunStep[];
 }
 
-/** `cmux.home.runs`: the newest runs of a conversation, or the runs of these reply keys. */
+/** `cmux.home.runs`: runs of these reply keys, or a page of newest runs before `beforeStartedAt`. */
 export interface HomeRunList {
   runs: HomeRun[];
   hasMore: boolean;
+  /** This owner returned every retained run answering the requested message ids. */
+  answersComplete?: boolean;
 }
 
 /** `cmux.home.run`: one run and its steps written after `afterRev`, oldest write first. */

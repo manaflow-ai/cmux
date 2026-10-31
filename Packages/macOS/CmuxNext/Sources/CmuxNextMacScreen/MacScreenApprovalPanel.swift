@@ -94,9 +94,10 @@ public final class MacScreenApprovalPrompt {
         }
     }
 
-    private func settle(_ id: String, hub: DeviceHub) {
+    func settle(_ id: String, hub: DeviceHub) {
         settled.insert(id)
-        current = nil
+        // Keep the old request until update observes the transition to no request. Clearing it
+        // here made update's nil == nil guard skip closing the last request's panel.
         update(hub.pendingRequests)
     }
 
@@ -107,7 +108,10 @@ public final class MacScreenApprovalPrompt {
 
     private func setPanelVisible(_ visible: Bool) {
         guard visible, current != nil else {
-            panel?.orderOut(nil)
+            // Closed, not only ordered out: its content holds this prompt, so an ordered-out panel
+            // stayed in the app's window list for good. The next request makes a fresh one.
+            panel?.close()
+            panel = nil
             return
         }
         let panel = self.panel ?? makePanel()

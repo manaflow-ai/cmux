@@ -4,12 +4,13 @@ import AVFoundation
 import Foundation
 import Network
 import Testing
+import CmuxNextTestSupport
 
 /// ask-76f83a7020 (Leo: "id like to be able to watch .mp4s direclty in cmux next"): a web .mp4
 /// whose server sends it as a generic file, as raw.githubusercontent.com sends the nightly reel
 /// (`application/octet-stream`, `nosniff`), plays in the WebKit tab at its own address instead of
 /// downloading. Runs a real WebKit page against a local server that answers range requests.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct RemoteVideoPageTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2))) struct RemoteVideoPageTests {
     @Test func aVideoSentAsAGenericFilePlaysInTheTab() async throws {
         let server = try await VideoServer.start(video: try await Self.makeVideo())
         defer { server.stop() }
@@ -66,6 +67,38 @@ import Testing
         try await Self.until("c loads") { await title() == .string("c") }
         _ = try await page.evaluate("document.forms[0].submit(); true", world: .page, gesture: .agent)
         try await Self.until("the posted video downloads") { intents.downloaded }
+    }
+
+    /// A local .mp4 opened in a WebKit tab (the CEF tab hands it off here) plays, and does not end
+    /// in WebKit's "Plug-in handled load" error page. Fails on a tab that cancels the navigation.
+    @Test func aLocalVideoPlaysInTheWebKitTab() async throws {
+        let video = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cn-local-video-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
+        try FileManager.default.createDirectory(at: video, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: video) }
+        let file = video.appendingPathComponent("clip.mp4")
+        try await Self.makeVideo().write(to: file)
+
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.orderFrontRegardless()
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        let engine = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory(), downloadsDirectory: video)
+        let page = engine.makeWebKitTab()
+        defer { page.close() }
+        window.contentView = page.contentView
+
+        page.load(file)
+        try await Self.until("the local video plays") {
+            let time = try? await page.evaluate("document.querySelector('video')?.currentTime ?? 0", world: .page, gesture: .agent)
+            if case .number(let seconds)? = time { return seconds > 0 }
+            return false
+        }
+        #expect(page.state.url == file, "the tab shows \(page.state.url?.absoluteString ?? "nothing")")
     }
 
     @Test func onlyWebVideosPlayInTheTab() throws {

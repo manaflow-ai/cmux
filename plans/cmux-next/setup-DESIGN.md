@@ -36,7 +36,14 @@ prints one JSON object, with or without `--json`.
   `check` and `apply` are the commands that do it today; `person` is what
   only the person can do. One read gives an agent the whole map, including
   tasks setup does not run yet.
-- `cmux setup status`: the read-only check of every task setup runs.
+- `cmux setup status`: the read-only check of every task setup runs. Each
+  check keeps its task-specific fields and also has `check_status` (`ok`,
+  `needs_action`, or `failed`) and `recovery`. `recovery` is the existing
+  structured `user_action` or exact `fix` command; when several nested peers
+  or clients need work it is an array of those exact actions. Nested machine,
+  harness, and MCP failures therefore remain visible to an agent instead of
+  collapsing into a task-level `ok`. A missing safe command stays `null` with
+  the original error, rather than guessing a credential, account, or repair.
 - `cmux setup <task> ... [--dry-run]`: check, then change only what is not
   already right. The result is
 
@@ -109,8 +116,8 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
     "undo": null, "user_action": {"kind": "oauth", ...}}
    ```
 
-   A harness is `ok` when it is installed and nothing says it is signed
-   out (`signed_in` is `null` when cmux cannot see the sign-in, such as
+   A harness is `ok` when it is installed and no check reports sign-out or
+   a verification error (`signed_in` is `null` when cmux cannot see the sign-in, such as
    Claude Code's keychain login; its first chat asks if it must). Signed
    out is `needs_user` with kind `oauth` and `cmux harness login ID`, or
    the profile's own login command (`codex login`) for a harness not
@@ -122,6 +129,23 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    adapter, offered everywhere) counts only when named or configured; no
    harness at all is `needs_user` to install one. `cmux setup status`
    adds a `harness` check with the same rows.
+   Harness rows also expose `auth_status` and `recovery` (the same action as
+   `user_action`, or null). `auth_status` is `detected` for existing sign-in or
+   provider-configuration evidence, `signed_out` for the existing check's explicit
+   sign-out or expired credential, `needs_action` when a provider/check error
+   prevents verification, `unknown` when the check is deliberately unavailable,
+   or `not_installed`.
+   `detected` does **not** prove a token is fresh or belongs to the expected account.
+   No expiry or wrong-account conclusion is inferred from missing files or errors.
+   An explicit provider/check error keeps `signed_in: null`, makes the task
+   `needs_user`, and names a `check` action: `cmux harness doctor ID --no-prompt
+   --json` for the configured profile, or `cmux setup harness ID` for an unsaved
+   shipped example. The person/agent inspects `auth_detail` and the profile's
+   provider settings first. This diagnostic sends no model prompt and is never
+   executed automatically. Unknown Keychain/disabled-launch cases keep their
+   existing behavior. Expiry and expected-account verification still require
+   provider evidence; this report neither refreshes credentials nor switches accounts.
+
 3. `machine SSH_TARGET [--name NAME]`. It reads the peers
    from the running acpmux daemon (or acpmux's config without one; it never
    starts a daemon to check) and matches the peer by `--name`, or without

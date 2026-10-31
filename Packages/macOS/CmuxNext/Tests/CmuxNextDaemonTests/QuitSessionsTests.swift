@@ -120,8 +120,8 @@ struct QuitSessionsTests {
 
     /// End Sessions, Keep Layout on a daemon with
     /// `end-terminals-keep-layout-v1`: every terminal ends, the next owner
-    /// keeps both panes and the split ratio with dead tabs, and
-    /// `relaunchKeptTabs` restarts a shell in each IN PLACE (`restart-tab`: the
+    /// keeps both panes and the split ratio with dead tabs parked until shown, and
+    /// the show restarts a shell in each IN PLACE (`restart-tab`: the
     /// same tab and terminal ids, no tab added, moved or closed), in the
     /// directory the store recorded, without changing the layout. A pinned
     /// cmux-tui without the capabilities skips the check.
@@ -166,8 +166,13 @@ struct QuitSessionsTests {
             #expect(keptTabs.count == 2 && keptTabs.allSatisfy(\.dead), "\(keptTabs)")
             #expect(keptTabs.allSatisfy { $0.relaunch?.cwd != nil }, "the store's keep-layout records: \(keptTabs.map(\.relaunch))")
             #expect(Self.shape(kept) == Self.shape(before))
+            // Kept shells start on their workspace's first show (`relaunch.onShow`), not at
+            // connect: a session with hundreds of workspaces nobody opens took a PTY for each (a913).
+            #expect(keptTabs.allSatisfy { $0.relaunch?.onShow == true }, "\(keptTabs.map(\.relaunch))")
             let first = try await next.relaunchKeptTabs()
-            #expect(first.relaunched == 2 && first.failures.isEmpty, "\(first.failures)")
+            #expect(first.relaunched == 0 && first.failures.isEmpty, "a kept shell started at connect: \(first.failures)")
+            // The show (`DaemonService.wakeParkedTabs`): one `restart-tab` per parked tab.
+            for tab in keptTabs { _ = try await next.request(RestartTabRequest(surface: tab.surface)) }
             // `restart-tab` answers when its worker started: attach only once the tree events
             // report both kept tabs running (before that the tab has no surface to attach to).
             let keptIDs = keptTabs.compactMap(\.tabResourceID)
@@ -183,8 +188,10 @@ struct QuitSessionsTests {
             let generation = await next.identity?.generation
             let second = try #require(after.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
                 .first { $0.tabResourceID == keptIDs.last })
-            let output = try await Self.run(#"echo "kept:$PWD""#, in: second, endpoint: endpoint,
-                                            generation: generation, until: "/other")
+            // Wait on a marker the shell computes after the echo: the prompt's OSC 7 cwd report
+            // also contains "/other", and the typed command line itself contains "kept:".
+            let output = try await Self.run(#"echo "kept:$PWD"; echo kept-done-$((40+2))"#, in: second, endpoint: endpoint,
+                                            generation: generation, until: "kept-done-42")
             #expect(output.range(of: #"kept:/\S*/other"#, options: .regularExpression) != nil, "\(output)")
             let again = try await next.relaunchKeptTabs()
             #expect(again.relaunched == 0 && again.failures.isEmpty, "a second relaunch restarted a running tab: \(again.failures)")

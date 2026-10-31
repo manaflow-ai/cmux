@@ -51,7 +51,7 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
   it("runs each turn in its own VM on the tailnet, posts the streamed reply with no Cloud credits, deletes the VM, and gives the next turn the earlier reply", async () => {
     const cloud = fakeCloud((prompt, n) => (n === 1 ? "The launch code word is TANGERINE." : prompt.includes("TANGERINE") ? "You told me before: TANGERINE." : "I do not remember."))
     // No credits granted: this route is not charged to them.
-    const { token, chief } = await enabledChief("chief-cc-owner", "cc")
+    const { token, user, chief } = await enabledChief("chief-cc-owner", "cc")
     expect((await send(token, chief.main_conversation, "c1", "pick a code word for the launch")).ok).toBe(true)
     const [first] = await replies(token, chief.main_conversation, chief.id, 1)
     expect(first.parts[0].text).toBe("The launch code word is TANGERINE.")
@@ -63,6 +63,8 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     expect(cloud.made).toHaveLength(2)
     for (const m of cloud.made) expect(m.body).toMatchObject({ snapshotId: "sh-test-chief-cc", idleTimeoutSeconds: 300, automaticRestart: false, firewall: { rules: [{ action: "allow", destination: { public: true } }] } })
     for (const m of cloud.made) expect(m.body.slug).toMatch(/^cmuxnp-test-ccb-[0-9a-f]{12}$/)
+    // Each turn VM is tagged with the Chief's owner as its Freestyle customer.
+    for (const m of cloud.made) expect(m.body.customer).toEqual({ customerId: user })
     expect(cloud.deleted.sort()).toEqual(["vm-test1", "vm-test2"])
     // Each VM joins with its own one-use key, given on stdin only (never in the command line).
     expect(cloud.boots.map((x) => x.stdin)).toEqual(cloud.keys)
@@ -85,6 +87,16 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     // Neither the tailnet key nor the turn token reaches a reply or a run.
     const all = JSON.stringify([await history(token, chief.main_conversation), runs, run])
     for (const secret of [...cloud.keys, ...cloud.started.map((s) => s.input.token)]) expect(all).not.toContain(secret)
+  })
+
+  it("starts the tailnet key request with the VM create, not after it (the setup calls that do not depend on each other overlap)", async () => {
+    const cloud = fakeCloud(() => "ok", undefined, undefined, { create: 250, key: 250 })
+    const { token, chief } = await enabledChief("chief-cc-setup-overlap", "cc")
+    expect((await send(token, chief.main_conversation, "o1", "hello")).ok).toBe(true)
+    await replies(token, chief.main_conversation, chief.id, 1)
+    const at = (n: string) => cloud.events.find((e) => e.name === n)!.at
+    // Serial setup would start the key request only after the create ended (250 ms later).
+    expect(at("key:start")).toBeLessThan(at("create:end"))
   })
 
   it("opens the public Internet (IPv4 and IPv6, DNS) to the agent by default: applied after the VM joins, before the turn starts", async () => {
@@ -324,7 +336,7 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
         }
       }
     )
-    const { token, chief } = await enabledChief("chief-cc-sandbox", "cc")
+    const { token, user, chief } = await enabledChief("chief-cc-sandbox", "cc")
     expect((await send(token, chief.main_conversation, "v1", "make two sandboxes")).ok).toBe(true)
     await replies(token, chief.main_conversation, chief.id, 1)
     expect(seen.a.status).toBe(200)
@@ -332,6 +344,7 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     expect(seen.c.status).toBe(429)
     const sandbox = cloud.made.find((m) => m.id === seen.a.body.vm.id)!
     expect(sandbox.body.metadata).toMatchObject({ cmux_chief_sandbox: chief.id })
+    expect(sandbox.body.customer).toEqual({ customerId: user })
     expect(sandbox.body.ttlSeconds).toBeLessThanOrEqual(12 * 3600)
     expect(seen.exec).toMatchObject({ status: 200, body: { exit: 0, stdout: "hello\n" } })
     expect(cloud.execs.map(({ vm, command }) => ({ vm, command }))).toContainEqual({ vm: seen.a.body.vm.id, command: "echo hello" })

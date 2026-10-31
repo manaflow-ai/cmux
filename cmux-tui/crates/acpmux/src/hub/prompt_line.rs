@@ -38,28 +38,54 @@ fn message(text: &str, client: &str, provenance: Option<&Value>) -> Option<(Stri
             let words = field("msgId").and_then(|id| rendered_body(text, &id)).unwrap_or(text);
             Some((name, words.to_owned()))
         }
+        // `[NAME] verdict or first sentence` (`lane_reports.rs`); legacy report titles work too.
+        Some(super::lane_reports::KIND) => name_prefixed(text),
         Some(super::digest::DIGEST_KIND) => {
             let messages = provenance?.get("messages")?.as_array()?;
-            let mut senders: Vec<&str> = Vec::new();
-            for from in messages.iter().filter_map(|m| m.get("from")?.as_str()).map(str::trim) {
-                if !from.is_empty() && !senders.contains(&from) {
-                    senders.push(from);
-                }
-            }
-            let name = match senders.len() {
-                0 => return None,
-                n if n > 3 => format!("{} +{}", senders[..3].join(", "), n - 3),
-                _ => senders.join(", "),
-            };
+            let name = senders(messages.iter().filter_map(|m| m.get("from")?.as_str()))?;
             Some((name, format!("{} messages", messages.len())))
         }
+        // `[inbox digest] N messages …` (`inbox_digest.rs`): its senders, as a turn of them reads.
+        Some(super::digest::inbox_digest::KIND) => {
+            let parts = provenance?.get("parts")?.as_array()?;
+            let name = senders(parts.iter().filter_map(|m| m.get("fromName")?.as_str()))?;
+            Some((name, format!("inbox digest of {} messages", parts.len())))
+        }
         Some(_) => None,
-        None if client.starts_with("acpmux-cli#") || client.starts_with("acpmux-peer#") => {
+        // `acpmux send` at a shell, through a peer, or with `--no-wait` through this daemon's
+        // outbox (`server/outbox.rs`, which connects as `acpmux-outbox`).
+        None if ["acpmux-cli#", "acpmux-peer#", "acpmux-outbox#"]
+            .iter()
+            .any(|c| client.starts_with(c)) =>
+        {
             name_prefixed(text)
         }
         None if client == "adopt" => cross_session(text),
         None => None,
     }
+}
+
+/// The senders of a turn of several messages, each once, in order: "a, b, c +2". `None` when
+/// none is named.
+fn senders<'a>(names: impl Iterator<Item = &'a str>) -> Option<String> {
+    let mut senders: Vec<&str> = Vec::new();
+    for from in names.map(str::trim) {
+        if !from.is_empty() && !senders.contains(&from) {
+            senders.push(from);
+        }
+    }
+    match senders.len() {
+        0 => None,
+        n if n > 3 => senders.get(..3).map(|first| format!("{} +{}", first.join(", "), n - 3)),
+        _ => Some(senders.join(", ")),
+    }
+}
+
+/// The sender's own words in another agent's message: inside the envelope cmux wraps a cmux
+/// agent message in (`rendered_body`), else the whole text (`inbox_digest.rs`).
+pub(super) fn agent_words<'a>(text: &'a str, provenance: Option<&Value>) -> &'a str {
+    let msg_id = provenance.and_then(|p| p.get("msgId")).and_then(Value::as_str);
+    msg_id.and_then(|id| rendered_body(text, id)).unwrap_or(text)
 }
 
 /// The sender's words in a message as cmux renders it for the agent (`agent_message_prompt.rs`
@@ -150,6 +176,21 @@ mod tests {
     }
 
     #[test]
+    fn lane_reports_read_the_verdict_without_parsing_the_legacy_title() {
+        let p = json!({"kind": "lane_report", "from": "lane-id", "fromName": "review-1", "turn": 4, "state": "idle"});
+        for title in [
+            "BLOCK at 123456789abc · 2 P2 · turn 4, idle",
+            "Fixed the crash. · turn 4, idle",
+            "lane report: turn 4 ended, idle.",
+        ] {
+            assert_eq!(
+                prompt_line(&format!("[review-1] {title}\nMore"), "acpmux", Some(&p)),
+                format!("review-1: {title}")
+            );
+        }
+    }
+
+    #[test]
     fn a_session_message_reads_as_its_short_name() {
         let p = json!({"kind": "subsession_message", "from": "s1", "fromName": "claude-sr2/tests", "fromShortName": "tests", "to": "s2"});
         assert_eq!(prompt_line("\n  All green\nok", "acpmux-cli#1", Some(&p)), "tests: All green");
@@ -175,6 +216,11 @@ mod tests {
             "coord-deputy: Merged #1"
         );
         assert_eq!(prompt_line("[Grid fix]\n\nDone", "acpmux-peer#7", None), "Grid fix: Done");
+        // `acpmux send --no-wait` reaches the chat through the daemon's outbox.
+        assert_eq!(
+            prompt_line("[sub-lane] Tests pass\nok", "acpmux-outbox#01a189", None),
+            "sub-lane: Tests pass"
+        );
         // Not a sender: the interruption note, cmux's header, a sentence, a bare name, another client.
         for (text, client) in [
             ("[Request interrupted by user for tool use]", "acpmux-cli#1"),

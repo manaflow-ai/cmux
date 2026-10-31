@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2. */
+/* cmux-tui mux protocol 12, IR 440934d902c97a5d430e2f5c26ae15e96ab11f89fa383c70cf209c01f3abd2cb. */
 
 
 import type * as T from "./types.js";
@@ -454,6 +454,14 @@ export interface CloudConversationOpRequest extends CmuxRequestBase {
 export type CloudConversationOpResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
+export interface CloudConversationPresenceRequest extends CmuxRequestBase {
+  cmd: "cloud-conversation-presence";
+  "conversation": string;
+  "viewing": boolean;
+}
+export type CloudConversationPresenceResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
 export interface CloudConversationRunRequest extends CmuxRequestBase {
   cmd: "cloud-conversation-run";
   "after_seq"?: (bigint) | null;
@@ -540,6 +548,7 @@ export type CloudHostReplicaStatusResult = T.JsonValue;
 /** Protocol v12; authority: local-admin. */
 export interface CloudInboxListRequest extends CmuxRequestBase {
   cmd: "cloud-inbox-list";
+  "cursor"?: (string) | null;
   "include_archived"?: boolean;
   "limit"?: (number) | null;
 }
@@ -876,6 +885,7 @@ export type ConversationRunAppendResult = {
 /** Protocol v12; authority: local-admin. */
 export interface ConversationRunsRequest extends CmuxRequestBase {
   cmd: "conversation-runs";
+  "answers"?: (Array<string>) | null;
   "before_started_at"?: (bigint) | null;
   "conversation": string;
   "limit"?: (number) | null;
@@ -1773,6 +1783,7 @@ export interface NewPaneRightRequest extends CmuxRequestBase {
   "pane_id"?: (string) | null;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
+  "side"?: (T.ColumnSide) | null;
   "tab_id"?: (string) | null;
   "terminal_id"?: (string) | null;
   "url"?: (string) | null;
@@ -2917,6 +2928,7 @@ export type CmuxRequest =
   | CloudConversationHistoryRequest
   | CloudConversationLiveRequest
   | CloudConversationOpRequest
+  | CloudConversationPresenceRequest
   | CloudConversationRunRequest
   | CloudConversationRunsRequest
   | CloudConversationSnapshotRequest
@@ -3476,6 +3488,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-conversation-presence": {
+    request: CloudConversationPresenceRequest;
+    result: CloudConversationPresenceResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversation-presence-v1";
     stream: null;
   };
   "cloud-conversation-run": {

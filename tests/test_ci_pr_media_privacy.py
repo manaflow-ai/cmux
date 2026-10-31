@@ -20,6 +20,8 @@ from unittest import mock
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+from nightly_workflow_text import nightly_text  # noqa: E402
 spec = importlib.util.spec_from_file_location("pr_media_privacy", ROOT / "scripts/ci/pr_media_privacy.py")
 assert spec and spec.loader
 privacy = importlib.util.module_from_spec(spec)
@@ -514,17 +516,14 @@ class FeatWriterCase(unittest.TestCase):
         self.addCleanup(environment.stop)
         self.pr_media = load_script("pr_media_feat_writer_test", ROOT / "scripts/pr-media.py")
         self.puts: list[str] = []
-        real_run = subprocess.run
 
-        def run(argv, *args, **kwargs):
-            if argv[:2] != ["gh", "api"]:
-                return real_run(argv, *args, **kwargs)
-            if "PUT" in argv:
-                self.puts.append(argv[4].split("/contents/", 1)[1].split("?", 1)[0])
-                return subprocess.CompletedProcess(argv, 0, stdout="{}", stderr="")
-            return subprocess.CompletedProcess(argv, 1, stdout="", stderr="gh: Not Found (HTTP 404)")
+        # The branch write itself (a git commit and push, tests/test_pr_media.py covers it) is recorded here
+        # instead: these tests are about what reaches it.
+        def put(store, files, message, expect=None):
+            self.puts.extend(files)
+            return "0" * 40
 
-        patched = mock.patch.object(self.pr_media.subprocess, "run", side_effect=run)
+        patched = mock.patch.object(self.pr_media.MediaBranch, "put", put)
         patched.start()
         self.addCleanup(patched.stop)
 
@@ -612,13 +611,16 @@ class WriterInventoryTests(unittest.TestCase):
     CHECKS_ITSELF = {"scripts/pr-media.py"}
     # Writes only through scripts/pr-media.py, which checks.
     THROUGH_PR_MEDIA_PY = {"scripts/cmux-next/media/publish.py", "scripts/cmux-next/media/reel.py",
+                           "scripts/cmux-next/media/whats-new-clips.py",
                            ".github/workflows/cmux-next-media.yml", ".github/workflows/nightly.yml",
                            ".github/actions/pr-media-publish/action.yml"}
     # Remove files or rewrite the retention index; they add no capture.
     REMOVES_ONLY = {"scripts/ci/pr_media_privacy.py", "scripts/ci/prune_pr_media.py",
                     ".github/workflows/pr-media-prune.yml"}
     # Name the branch or pr-media.py's file names for links; write nothing.
-    NOT_WRITERS = {"scripts/gallery-matrix/report.ts", "scripts/gallery-matrix/compare.test.ts"}
+    # Name pr-media URLs and push words but write nothing there (release-notes.py reads clip URLs).
+    NOT_WRITERS = {"scripts/gallery-matrix/report.ts", "scripts/gallery-matrix/compare.test.ts",
+                   "scripts/cmux-next/release-notes.py"}
     SKIP_SUFFIXES = (".md", ".json", ".xcstrings", ".txt", ".png", ".gif", ".mp4", ".webp", ".jpg", ".svg")
 
     @classmethod
@@ -637,6 +639,9 @@ class WriterInventoryTests(unittest.TestCase):
                 text = (ROOT / path).read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 continue
+            if path == ".github/workflows/nightly.yml":
+                # With its moved step scripts (scripts/ci/nightly-steps/) put back inline.
+                text = nightly_text()
             if cls.MEDIA.search(text) and (cls.DIRECT.search(text) or cls.VIA_TOOL.search(text)):
                 found[path] = text
         return found

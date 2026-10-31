@@ -18,6 +18,9 @@ public struct SidebarDocDrag {
     public var drop: ([String], SidebarDocTarget) -> Void
     /// The adopt ref (`session_id`, `workspace_id`, `workspace_key`) of a workspace the document does not place yet.
     public var adoptRef: (WorkspaceID) -> [String: String]?
+    /// Whether another window lists this open workspace (the App's window registry): a Pinned or custom group
+    /// holding it belongs to that window and is not drawn here (#25776). Without a window: every open one.
+    public var listedElsewhere: (SidebarDocWorkspaceRef) -> Bool = { _ in true }
 
     public init(item: @escaping (SidebarRowKey) -> String?, section: @escaping (SectionID) -> String?,
                 begin: @escaping ([String]) -> [String: SidebarDocAcceptance], drop: @escaping ([String], SidebarDocTarget) -> Void,
@@ -54,15 +57,17 @@ public struct SidebarDocDrag {
 
     /// The drag geometry over `layout`'s rows (the list as drawn without
     /// the dragged rows and the gap): one slot per workspace, group and
-    /// section row; tab and folder rows take no drop.
+    /// section row; folder rows take no drop.
     public func geometry(_ layout: SidebarLayout, width: CGFloat, acceptance: [String: SidebarDocAcceptance],
                          blocks: [String: SidebarRegionLayout] = [:]) -> (SidebarDragGeometry, [String: SidebarRow]) {
         var slots: [SidebarDragGeometry.Slot] = []
         var rows: [String: SidebarRow] = [:]
         // The group header open at each depth, so a subgroup's slot names the group it sits in.
         var headerAtDepth: [Int: GroupID] = [:]
-        for row in layout.rows {
+        for case var row in layout.rows {
             guard let section = section(row.section) else { continue }
+            // A group's one row is its group's slot, as its header was: a drop goes before, into or after the group.
+            if let header = row.standingHeader { row = header }
             let frame = CGRect(x: 0, y: row.y, width: width, height: row.height)
             switch row.key {
             case .workspace, .group, .item:
@@ -91,11 +96,6 @@ public struct SidebarDocDrag {
             case .block(let id):
                 // A block's items: tiles and rows of its own arrangement, at their base frames.
                 if let block = blocks[id] { slots += blockSlots(block, at: row.y) }
-            case .tab(let owner, _):
-                // A workspace's tab rows are part of its row: the drag's midpoint rule takes the middle of both.
-                if let last = slots.last, last.kind == .row, item(.workspace(owner)) == last.item {
-                    slots[slots.count - 1].frame.size.height = max(last.frame.height, row.maxY - last.frame.minY)
-                }
             case .folder, .status, .doneFold, .showMore:
                 continue
             }

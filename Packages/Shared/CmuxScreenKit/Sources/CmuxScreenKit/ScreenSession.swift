@@ -34,6 +34,14 @@ public final class ScreenSession {
         public var decodeMs: Double?
         /// The codec and decoder ("H264 HW"), or the busiest RFB encoding.
         public var encoding = "-"
+        /// The frame rate the Mac streams at (60, or up to 120 when both
+        /// displays can); nil from a Mac that does not say (stream only).
+        public var targetFps: Int?
+        /// A screen stream's totals since it started (WebRTC's inbound video):
+        /// frames that arrived, were decoded, and were dropped before showing.
+        public var framesReceived: Double = 0
+        public var framesDecoded: Double = 0
+        public var framesDropped: Double = 0
     }
 
     public let title: String
@@ -76,6 +84,17 @@ public final class ScreenSession {
     @ObservationIgnored public var onStreamDisplays: (([CGSize], Int) -> Void)?
     /// "Direct" or "Relay" once WebRTC picks a path.
     public private(set) var streamPath = "WebRTC"
+    /// What the screen stream's Mac accepts beyond the first protocol, from
+    /// its `caps` message (empty for an older host, RFB and the demo);
+    /// cleared on each connect.
+    public private(set) var hostCapabilities: Set<String> = []
+    /// The host's `caps` list, from the running stream's viewer.
+    package func receiveCapabilities(_ capabilities: [String]) {
+        hostCapabilities = Set(capabilities)
+    }
+
+    /// The Mac takes pixel scrolling (``scrollPixels(dx:dy:)``).
+    public var supportsPixelScroll: Bool { hostCapabilities.contains(ScreenHostMessage.pixelScrollCapability) }
     /// The stream dropped and is coming back on its own.
     public private(set) var isReconnecting = false
     /// The connection stalled (ICE disconnected): no picture is coming,
@@ -99,6 +118,17 @@ public final class ScreenSession {
     /// An app's own identifier for what this session opened (a saved host),
     /// so it can keep the session's preferences afterwards.
     @ObservationIgnored public var hostID: UUID?
+    /// The most frames per second the display showing this session refreshes
+    /// at (`NSScreen.maximumFramesPerSecond`), told to a screen stream's Mac
+    /// on connect and whenever it changes: with Auto or Smooth Motion the
+    /// Mac streams at up to 120 fps when its own display can too. Nil (an
+    /// app that never sets it) keeps the stream at 60.
+    @ObservationIgnored public var displayMaximumFrameRate: Int? {
+        didSet {
+            guard let fps = displayMaximumFrameRate, fps != oldValue else { return }
+            stream?.setDisplayFrameRate(fps)
+        }
+    }
     /// The remote pointer in framebuffer pixels.
     @ObservationIgnored public private(set) var pointer = CGPoint(x: 100, y: 100)
 
@@ -234,6 +264,14 @@ public final class ScreenSession {
         if let reconnectStarted { viewer.openTimeout = Self.attemptTimeout(elapsed: Date().timeIntervalSince(reconnectStarted)) }
         relayErrors = []
         isStalled = false
+        stats.targetFps = nil
+        hostCapabilities = []
+        viewer.onCapabilities = { [weak self, weak viewer] capabilities in
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                self.receiveCapabilities(capabilities)
+            }
+        }
         viewer.onStall = { [weak self, weak viewer] stalled in
             Task { @MainActor in
                 guard let self, self.stream === viewer else { return }
@@ -249,10 +287,12 @@ public final class ScreenSession {
             Task { @MainActor in self?.relayErrors.append(error) }
         }
         viewer.onVideo = { [weak self] box in Task { @MainActor in self?.onVideoTrack?(box) } }
-        viewer.onDisplays = { [weak self] message in
+        viewer.onDisplays = { [weak self, weak viewer] message in
             Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
                 let sizes = (message.displays ?? []).map { CGSize(width: $0.w, height: $0.h) }
-                self?.onStreamDisplays?(sizes, message.current ?? 0)
+                if let fps = message.fps, self.stats.targetFps != fps { self.stats.targetFps = fps }
+                self.onStreamDisplays?(sizes, message.current ?? 0)
             }
         }
         viewer.onPath = { [weak self] path in Task { @MainActor in self?.streamPath = path } }
@@ -270,6 +310,8 @@ public final class ScreenSession {
                 reconnectAttempts = 0
                 reconnectStarted = nil
                 isReconnecting = false
+                // The display's rate first: the Mac then sets up the quality at the agreed rate.
+                if let fps = displayMaximumFrameRate { viewer.setDisplayFrameRate(fps) }
                 viewer.setQuality(preferences.quality)
                 phase = .connected(VNCServerInfo(width: 0, height: 0, name: name, nativeFormat: .bgrx,
                                                  protocolMinor: 8, securityType: 0))
@@ -368,6 +410,9 @@ public final class ScreenSession {
             next.kilobytesPerSecond = (video.bytesReceived - lastBytes) / 1024 / max(now - lastTime, 0.001)
             next.latencyMs = video.rttMs
             next.encoding = [video.codec, video.decoder == "VideoToolbox" ? "HW" : video.decoder].compactMap { $0 }.joined(separator: " ")
+            next.framesReceived = video.framesReceived
+            next.framesDecoded = video.framesDecoded
+            next.framesDropped = video.framesDropped
             stats = next
             lastBytes = video.bytesReceived
             lastTime = now
@@ -403,6 +448,7 @@ public final class ScreenSession {
         // deallocation can take seconds): never on the main actor.
         if let stream { Task.detached { stream.close() } }
         stream = nil
+        stats.targetFps = nil
         if !silently { phase = .ended }
     }
 
@@ -481,6 +527,27 @@ public final class ScreenSession {
         Task { await client.button(button, down: down) }
     }
 
+    /// A modified click (⌘-click, ⌥-click): each modifier key goes down
+    /// before the click and up after it, in reverse order.
+    public func click(_ button: VNCButtons = .left, modifiers: [VNCKeysym]) {
+        guard !modifiers.isEmpty else { return click(button) }
+        if stream != nil {
+            for modifier in modifiers { key(modifier, down: true) }
+            click(button)
+            for modifier in modifiers.reversed() { key(modifier, down: false) }
+            return
+        }
+        guard let client else { return }
+        perf?.input(button == .right ? "right-click" : "click")
+        // One task keeps the keys and the button in order.
+        Task {
+            for modifier in modifiers { await client.key(modifier, down: true) }
+            await client.button(button, down: true)
+            await client.button(button, down: false)
+            for modifier in modifiers.reversed() { await client.key(modifier, down: false) }
+        }
+    }
+
     public func click(_ button: VNCButtons = .left) {
         if let stream {
             perf?.input(button == .right ? "right-click" : "click")
@@ -501,12 +568,28 @@ public final class ScreenSession {
         if let stream, dx != 0 || dy != 0 {
             perf?.input("scroll")
             let (x, y) = normalized(pointer)
-            stream.send(ScreenInput(t: "scroll", x: x, y: y, dx: dx, dy: dy))
+            stream.send(Self.scrollInput(x: x, y: y, dx: dx, dy: dy, pixels: false))
             return
         }
         guard let client, dx != 0 || dy != 0 else { return }
         perf?.input("scroll")
         Task { await client.scroll(dx: dx, dy: dy) }
+    }
+
+    /// Smooth scrolling at the pointer, in pixels of the streamed frame
+    /// (positive: content moves right and down, as under the fingers). Only
+    /// to a Mac that takes it (``supportsPixelScroll``); otherwise nothing
+    /// is sent, so scroll by lines with ``scroll(dx:dy:)``.
+    public func scrollPixels(dx: Int, dy: Int) {
+        guard let stream, supportsPixelScroll, dx != 0 || dy != 0 else { return }
+        perf?.input("scroll")
+        let (x, y) = normalized(pointer)
+        stream.send(Self.scrollInput(x: x, y: y, dx: dx, dy: dy, pixels: true))
+    }
+
+    /// A scroll message: wheel lines, or pixels (`u: "px"`).
+    public nonisolated static func scrollInput(x: Double, y: Double, dx: Int, dy: Int, pixels: Bool) -> ScreenInput {
+        ScreenInput(t: "scroll", x: x, y: y, dx: dx, dy: dy, u: pixels ? ScreenInput.pixelUnit : nil)
     }
 
     public func type(_ text: String, modifiers: [VNCKeysym] = []) {

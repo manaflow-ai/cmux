@@ -97,7 +97,7 @@ enum DurableTabLink {
     /// (``LinkOpener``: Home's is the pane on its right), when that is an
     /// existing pane: where a tab whose own pane and workspace are gone goes.
     private static func fallbackPane(from source: PaneController, services: AppServices) -> (daemon: DaemonService, pane: String)? {
-        guard case .pane(let id) = services.linkOpener.target(from: source) else { return nil }
+        guard let id = LinkOpener.existingPane(of: services.linkOpener.target(from: source)) else { return nil }
         let controller = id == source.layoutPaneID ? source : source.workspace?.panes[id]
         guard let controller, let pane = controller.pane.resourceID?.rawValue else { return nil }
         return (controller.daemon, pane)
@@ -110,7 +110,7 @@ enum DurableTabLink {
             // `tabListRevision`: the tracked read hears the tab appear (AppServices.locateTab).
             for await found in ObservationStream({
                 for daemon in services.machines.daemons { _ = daemon.store.tabListRevision }
-                return services.locateTab(id) != nil
+                return services.locateTabOnAnyMachine(id) != nil
             }) where found {
                 return true
             }

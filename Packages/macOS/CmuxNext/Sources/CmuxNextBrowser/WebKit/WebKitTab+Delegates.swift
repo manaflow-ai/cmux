@@ -3,6 +3,9 @@ public import Foundation
 public import WebKit
 import CmuxNextCompat
 import CmuxNextDesign
+import os
+
+private let processLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "webkit")
 
 // MARK: - Navigation
 
@@ -36,13 +39,16 @@ extension WebKitTab: WKNavigationDelegate {
 
         if !Self.isWebScheme(url) {
             decisionHandler(.cancel, preferences)
-            // Other apps open only from a click in the main frame, never from
-            // a script or a redirect.
-            if isUserLinkClick, navigationAction.targetFrame?.isMainFrame ?? true {
-                BrowserExternalApps.shared.open(url, from: navigationAction.sourcePage, ask: enqueuePrompt)
+            // The shared opener admits cmux's sign-in return without a
+            // gesture, with app-opening consent. Other links need a click.
+            if navigationAction.targetFrame?.isMainFrame ?? true {
+                BrowserExternalApps.shared.open(url, from: navigationAction.sourcePage, userGesture: isUserLinkClick, ask: enqueuePrompt)
             }
             return
         }
+        // An Open Desktop page is a Cloud machine's screen, reachable only from a Chromium tab over
+        // the app's Cloud tunnel; in WebKit it would be this Mac's own loopback.
+        if BrowserNavigationGuard.isCloudDesktop(url) { return decisionHandler(.cancel, preferences) }
         // A local Markdown file shows in cmux's markdown page, not as text (LocalFileHandoff).
         if navigationAction.targetFrame?.isMainFrame ?? true, url.isHandedOff(by: .webkit) { emit(.openLocalFile(url)); return decisionHandler(.cancel, preferences) }
         if cancelsFormResubmission(navigationAction, decisionHandler: { decisionHandler(.cancel, preferences) }) { return }
@@ -161,8 +167,27 @@ extension WebKitTab: WKNavigationDelegate {
         apply(.failed(id, failure))
     }
 
-    /// WebKit gives no reason; the sad tab says the page crashed.
+    /// The public callback, for a WebKit without the reason SPI below: no reason, so the sad tab
+    /// says the page crashed.
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        webContentProcessEnded(BrowserProcessExit(reason: .crashed))
+    }
+
+    /// WebKit's reason (`_WKProcessTerminationReason`, SPI): when the delegate answers this, WebKit
+    /// calls it instead of ``webViewWebContentProcessDidTerminate(_:)``. ExceededMemoryLimit is out
+    /// of memory; ExceededCPULimit and RequestedByClient are a stop from outside the page; Crash
+    /// (which also covers WebKit ending every page after its GPU process failed too often) crashed.
+    @objc(_webView:webContentProcessDidTerminateWithReason:)
+    public func webView(_ webView: WKWebView, webContentProcessDidTerminateWithReason reason: Int) {
+        let mapped: BrowserProcessExit.Reason = switch reason {
+        case 0: .outOfMemory
+        case 1, 2: .killed
+        default: .crashed
+        }
+        webContentProcessEnded(BrowserProcessExit(reason: mapped))
+    }
+
+    private func webContentProcessEnded(_ exit: BrowserProcessExit) {
         // No commit or finish is coming, so the page area goes back to
         // WebKit's own background rather than keeping none for good.
         // Unconditionally, not through `pageDidFinish`: a crash can leave
@@ -171,7 +196,21 @@ extension WebKitTab: WKNavigationDelegate {
         pageBaseHold.cancel()
         setDrawsPageBackground(true)
         removeStandIn()
-        apply(.processExited(BrowserProcessExit(reason: .crashed)))
+        // A page the system ended for memory reloads by itself once, now when on screen, else
+        // when next shown (`BrowserExitRecovery`); any other end shows the sad tab and waits.
+        let pressure = memoryPressure()
+        let owed = exitRecovery.processEnded(exit, pressure: pressure, now: .now)
+        let tabID = id.rawValue
+        processLogger.error("web content process ended tab=\(tabID, privacy: .public) reason=\(exit.reason.rawValue, privacy: .public) pressure=\(pressure.rawValue, privacy: .public) \(owed ? "reloads once by itself (memory)" : "no automatic reload", privacy: .public)")
+        apply(.processExited(exit))
+        if owed, webView.window?.isVisible == true, !webView.isHiddenOrHasHiddenAncestor { reloadOwedAfterExit() }
+    }
+
+    /// Takes the one automatic reload a memory end owes (`exitRecovery`), if the sad tab still shows.
+    func reloadOwedAfterExit() {
+        guard state.processExit != nil, exitRecovery.takeReload(now: .now) else { return }
+        processLogger.error("web content process ended tab=\(self.id.rawValue, privacy: .public): reloading once after a memory end")
+        startReload()
     }
 
 
@@ -294,6 +333,12 @@ extension WebKitTab: WKUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping @MainActor ([URL]?) -> Void
     ) {
+        // Files an agent offered (`browser.page.upload`) answer first; `[]` (a chooser they cannot fill) cancels.
+        if let offered = agentFiles.answer(multiple: parameters.allowsMultipleSelection,
+                                           folder: parameters.allowsDirectories, save: false) {
+            completionHandler(offered.isEmpty ? nil : offered)
+            return
+        }
         // The one file-input path (WebFileInputAnswering) every WebKit view shares: in the app the made-ahead panel.
         // A tab whose engine is gone ends the input as a cancel.
         guard let engine else {

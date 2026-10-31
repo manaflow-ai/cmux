@@ -72,9 +72,13 @@ public final class TerminalHostView: NSView {
     }
 
     /// The accessory's height, 0 while there is none or it is hidden.
-    private var accessoryHeight: CGFloat {
+    private var accessoryHeight: CGFloat { accessoryHeight(forHostHeight: bounds.height) }
+
+    /// The accessory's height in a host `height` points tall (at most all of it): a pane's spring measures
+    /// it against the size the host will rest at, not the size it has now (a composer taller than a short pane).
+    private func accessoryHeight(forHostHeight height: CGFloat) -> CGFloat {
         guard let bottomAccessory, !bottomAccessory.isHidden else { return 0 }
-        return min(bounds.height, ceil(bottomAccessory.fittingSize.height))
+        return min(height, ceil(bottomAccessory.fittingSize.height))
     }
 
     /// The part of the host the terminal shows in: all of it, less the accessory's strip.
@@ -160,15 +164,24 @@ public final class TerminalHostView: NSView {
         needsLayout = true
     }
 
-    /// Builds the restart button once the shell has ended and the App gave an action.
+    /// Builds the restart button once the shell has ended, or cmux lost its
+    /// link to it (Recover), and the App gave an action.
     private func syncRestartButton() {
-        if restartButton == nil, shownStatus == .exited, restartAction != nil {
+        let offered = shownStatus == .exited || shellStall == .linkLost
+        if restartButton == nil, offered, restartAction != nil {
             let button = TerminalRestartButton()
             addOverlay(button)
             restartButton = button
         }
         restartButton?.onRestart = restartAction
-        restartButton?.show(shownStatus)
+        restartButton?.show(shownStatus, stall: shellStall)
+    }
+
+    /// The restart button's title while shown ("Restart Shell Here" or
+    /// "Recover"), nil while hidden (diagnostics and tests).
+    var restartButtonTitle: String? {
+        guard let restartButton, !restartButton.isHidden else { return nil }
+        return restartButton.shownTitle
     }
 
     /// Above the status banner, as the find bar is.
@@ -204,6 +217,7 @@ public final class TerminalHostView: NSView {
     func showShellStall(_ stall: TerminalShellStall?) {
         shellStall = stall
         banner.show(shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: stall)
+        syncRestartButton()
         needsLayout = true
     }
 
@@ -268,7 +282,7 @@ public final class TerminalHostView: NSView {
     /// The size the surface takes in a host of `hostSize` points: less the accessory's strip and a legacy
     /// scroller's.
     func surfaceSize(forHostSize hostSize: CGSize) -> CGSize {
-        CGSize(width: max(0, hostSize.width - scroller.reservedWidth), height: max(0, hostSize.height - accessoryHeight))
+        CGSize(width: max(0, hostSize.width - scroller.reservedWidth), height: max(0, hostSize.height - accessoryHeight(forHostHeight: hostSize.height)))
     }
 
     /// The surface's size and edge while its pane's layout spring runs; nil at rest.
@@ -374,7 +388,8 @@ public final class TerminalHostView: NSView {
     /// `GhosttyRuntime.backgroundColor`. Where the window is see-through
     /// (translucent, glass, or over art) the window root paints the one
     /// sheet and the host stays clear, as the panes around it do, unless the
-    /// terminal's theme differs from theirs: its background then lies over
+    /// terminal's colors differ from theirs (its own theme, or the terminal theme
+    /// beside an App Theme's panes): its background then lies over
     /// the glass at the window's tint (`WindowBackdrop.tintOpacity`). The user's terminal
     /// background (`appearance.surfaces.terminal`) replaces all of these;
     /// the surfaces then draw a transparent default background.
@@ -399,7 +414,10 @@ public final class TerminalHostView: NSView {
         }
         let around = superview?.themeTokens.surfaceBackground.withAlpha(1)
         let own = tokens.surfaceBackground.withAlpha(1)
-        layer?.backgroundColor = theme == nil || own == around ? nil : own.withAlpha(backdrop.tintOpacity).cgColor
+        // An App Theme colors the panes around while this terminal keeps the terminal theme: its
+        // background lies over the glass too, or its text would draw on the App Theme's tint.
+        let ownColors = theme != nil || scope.store.appTheme != nil
+        layer?.backgroundColor = !ownColors || own == around ? nil : own.withAlpha(backdrop.tintOpacity).cgColor
     }
 }
 

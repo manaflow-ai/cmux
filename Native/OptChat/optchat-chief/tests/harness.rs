@@ -431,7 +431,7 @@ fn chief_zoom_and_date_answer_from_the_live_memory() {
 /// keeps `mux.parent` only.
 #[test]
 fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not() {
-    use optchat_chief::acpmux::{CHIEF_ROLE_TAG, CHIEF_TAG};
+    use optchat_chief::acpmux::{CHIEF_PARTICIPANT_TAG, CHIEF_ROLE_TAG, CHIEF_TAG};
     let mut h = harness_with(settings);
     h.connect();
     h.say("user_local", "hello");
@@ -441,7 +441,14 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
         let tags = &inner.specs[0].tags;
         assert_eq!(tags.get(CHIEF_TAG).map(String::as_str), Some("h0me"));
         assert_eq!(tags.get(CHIEF_ROLE_TAG).map(String::as_str), Some("turn"));
-        assert_eq!(tags.len(), 2);
+        // The Chief's participant id, which acpmux stamps as `fromChief` (#27935).
+        assert_eq!(
+            tags.get(CHIEF_PARTICIPANT_TAG).map(String::as_str),
+            Some(cmux_chief::rules::AGENT_MUX)
+        );
+        // Plus its names on an approval card (approval_display_tags.rs), never `mux.parent`.
+        assert_eq!(tags.len(), 5);
+        assert!(!tags.contains_key(cmux_chief::rules::PARENT_TAG));
     }
     let dir = tempfile::tempdir().unwrap();
     let agents = FakeAgents::new(Box::new(|_, _| {
@@ -854,6 +861,61 @@ fn the_session_settings_files_are_private_and_the_copy_is_gated() {
     assert!(!copy_user_env_allowed(Some("0")));
     assert_eq!(copy_user_env_allowed(None), cfg!(target_os = "macos"));
     assert_eq!(copy_user_env_allowed(Some("1")), cfg!(target_os = "macos"));
+}
+
+/// No Chief project settings file carries a key Claude Code applies to the
+/// whole store: turns, subagents and compactor slots run on the user's own
+/// Claude home, and `cleanupPeriodDays: 2` in a turn's project settings made
+/// every Chief turn delete the user's other chats' transcripts older than 2
+/// days (Claude Code's retention sweep walks every project of the store).
+/// The isolated configuration, a store of the Chief's own, keeps its
+/// retention.
+#[test]
+fn chief_project_settings_never_set_the_stores_retention() {
+    use optchat_chief::compactor::compactor_settings_with;
+    use optchat_chief::session_dir::{
+        PROJECT_SETTINGS_STORE_WIDE_KEYS, SessionSetup, claude_settings, write, write_subagent,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let paths = optchat_chief::paths::Paths::new(&dir.path().join("mux"));
+    paths.create().unwrap();
+    let setup = SessionSetup {
+        exe: "/x/optchat-chief".into(),
+        env: Default::default(),
+        instructions: None,
+        tools: Tools::Mcp,
+        user_env: Default::default(),
+        profile_tool: false,
+        chiefs_tool: false,
+    };
+    write(&paths, &setup).unwrap();
+    write_subagent(&paths, &setup, "subagent").unwrap();
+    let read = |path: std::path::PathBuf| -> Value {
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
+    };
+    let mut project: Vec<(String, Value)> = Vec::new();
+    for cwd in [&paths.session, &paths.subagent] {
+        for name in ["settings.json", "settings.local.json"] {
+            let file = cwd.join(".claude").join(name);
+            project.push((file.display().to_string(), read(file)));
+        }
+    }
+    for ttl in [CacheTtl::OneHour, CacheTtl::FiveMinutes] {
+        for ours in [false, true] {
+            project.push((
+                format!("compactor slot ({ttl:?}, {ours})"),
+                compactor_settings_with(ttl, ours),
+            ));
+        }
+    }
+    for (what, settings) in &project {
+        for key in PROJECT_SETTINGS_STORE_WIDE_KEYS {
+            assert!(settings.get(key).is_none(), "{what} sets {key}: {settings}");
+        }
+    }
+    let isolated = read(paths.claude_config.join("settings.json"));
+    assert_eq!(isolated, claude_settings());
+    assert!(isolated["cleanupPeriodDays"].as_u64().is_some());
 }
 
 /// Taelin: "opus 5.5 medium is the one I use, it scores better". Turns run

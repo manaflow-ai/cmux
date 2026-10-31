@@ -123,6 +123,11 @@ extension Motion {
         CATransaction.commit()
     }
 
+    /// Writes the model value with no implicit action. A `set` brackets this and its `add` in one
+    /// outer transaction: on its own each commits to the render server, and with no
+    /// transaction already open (a socket or timer turn) a frame could show the new model value before
+    /// the animation that starts from the old one: a dialog flashed in at full opacity for one frame,
+    /// then faded in from zero (debug.dialog_strip, 1 open in 5).
     static func setModel(_ layer: CALayer, _ keyPath: String, _ value: Any) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -240,6 +245,9 @@ extension MotionGate {
     @discardableResult
     public func set(_ layer: CALayer, _ keyPath: String, to value: Any, spring token: MotionSpring, from: Any? = nil) -> CAAnimation? {
         let start = from ?? presentationValue(layer, keyPath)
+        // One commit for the model value and its animation (see `Motion.setModel`).
+        CATransaction.begin()
+        defer { CATransaction.commit() }
         Motion.setModel(layer, keyPath, value)
         guard animatesMovement, let start else {
             layer.removeAnimation(forKey: keyPath)
@@ -289,6 +297,9 @@ extension MotionGate {
     @discardableResult
     public func set(_ layer: CALayer, _ keyPath: String, to value: Any, fade token: MotionFade, from: Any? = nil) -> CAAnimation? {
         let start = from ?? presentationValue(layer, keyPath)
+        // One commit for the model value and its animation (see `Motion.setModel`).
+        CATransaction.begin()
+        defer { CATransaction.commit() }
         Motion.setModel(layer, keyPath, value)
         let duration = self.duration(token)
         guard duration > 0, let start else {
@@ -311,6 +322,9 @@ extension MotionGate {
     @discardableResult
     func set(_ layer: CALayer, _ keyPath: String, to value: Any, duration: TimeInterval, from: Any? = nil) -> CAAnimation? {
         let start = from ?? presentationValue(layer, keyPath)
+        // One commit for the model value and its animation (see `Motion.setModel`).
+        CATransaction.begin()
+        defer { CATransaction.commit() }
         Motion.setModel(layer, keyPath, value)
         guard duration > 0, let start else {
             layer.removeAnimation(forKey: keyPath)
@@ -378,6 +392,27 @@ extension MotionGate {
         step.repeatCount = .infinity
         step.isRemovedOnCompletion = false
         return step
+    }
+
+    /// Steps a layer's `contents` through `frames`, each shown for its own `delays` seconds (an
+    /// uploaded GIF's own timing, so no token sets it), looping, or nil when loops are off or there
+    /// is one frame (the layer keeps its first frame). Runs in the render server like `spinAnimation`.
+    public func clipAnimation(_ frames: [CGImage], delays: [TimeInterval]) -> CAAnimation? {
+        let total = delays.reduce(0, +)
+        guard animatesLoops, frames.count >= 2, delays.count == frames.count, total > 0 else { return nil }
+        let clip = CAKeyframeAnimation(keyPath: "contents")
+        clip.values = frames
+        var start: TimeInterval = 0
+        // Discrete: one key time per frame's start, and 1 to close the last frame.
+        clip.keyTimes = delays.map { delay in
+            defer { start += delay }
+            return NSNumber(value: start / total)
+        } + [1]
+        clip.calculationMode = .discrete
+        clip.duration = total
+        clip.repeatCount = .infinity
+        clip.isRemovedOnCompletion = false
+        return clip
     }
 
     /// Unmeasured progress: a segment (anchored at its left edge) crosses a

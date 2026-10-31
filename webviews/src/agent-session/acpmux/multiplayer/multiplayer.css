@@ -1,0 +1,156 @@
+/* The people in a shared chat (Faces.tsx). */
+.cv-face {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-radius: 50%;
+  font-family: var(--cv-font);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0;
+  color: var(--agent-page-bg, #fff);
+  user-select: none;
+}
+.cv-face > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* The author over a prompt: the bubble's trailing edge, the size of "From the Chief". */
+.cv-author {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-bottom: 4px;
+  padding-right: 4px;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: 18px;
+  color: var(--cv-text-muted);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+/* In a queued prompt's row, ahead of its text, on its line. */
+.cv-author--inline {
+  display: inline-flex;
+  vertical-align: bottom;
+  max-width: 40%;
+  margin: 0 6px 0 0;
+  padding: 0;
+  gap: 4px;
+}
+.cv-author__name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.cv-author__name--hidden,
+.cv-typing__words--hidden,
+.cv-presence__label {
+  /* Clipped whole and out of the flow: its box's height draws nothing. */
+  position: absolute;
+  width: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Who else is here, in the header: faces overlap with the header's color between them. */
+.cv-presence {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  font-size: var(--text-detail);
+  color: var(--cv-text-muted);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-presence__person {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.cv-presence[data-look="stack"] .cv-presence__person + .cv-presence__person {
+  margin-left: -6px;
+}
+.cv-presence[data-look="stack"] .cv-face {
+  box-shadow: 0 0 0 1.5px var(--agent-page-bg, transparent);
+}
+.cv-presence[data-look="names"] {
+  gap: 8px;
+}
+.cv-presence__more {
+  margin-left: 4px;
+}
+
+/* Who is typing, over the composer, on the composer card's edge (the column's gutter). */
+.cv-typing {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 20px;
+  margin: 0 var(--cv-inset, 0px);
+  padding: 0 12px 4px;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  color: var(--cv-text-muted);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-typing__faces {
+  display: inline-flex;
+}
+.cv-typing__faces > .cv-face + .cv-face {
+  margin-left: -4px;
+}
+.cv-typing__words {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* Three dots in a wave, each rising after the one before: motion like a spinner's, never a pulse. */
+.cv-typing__dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.cv-typing__dots > i {
+  width: 4px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: currentColor;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-typing__dots > i {
+    animation: cv-typing-wave 1.2s ease-in-out infinite;
+  }
+  .cv-typing__dots > i:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+  .cv-typing__dots > i:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+}
+@keyframes cv-typing-wave {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-4px);
+  }
+}
+
+/* "Answered by Ana" after a receipt. */
+.cv-answered-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+}

@@ -258,4 +258,36 @@ struct AgentReplyPullRequestsTests {
         #expect(pullRequests.answer(whole[whole.count - 1]).reading == false)
         #expect(Self.calls(gh) == batches)
     }
+
+    /// A cache-only answer (the Inspector's Changes polling many links) starts no read, even for
+    /// a link never read or gone stale; only a registration or a card's own ask reads.
+    @Test func aCacheOnlyAnswerStartsNoRead() async throws {
+        let gh = try Self.rig()
+        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh),
+                                                  freshness: .zero, retry: .zero)
+        let none = pullRequests.answer(Self.url, read: false)
+        #expect(none.pullRequest == nil)
+        #expect(none.reading == false)
+        #expect(Self.calls(gh) == 0)
+        #expect(await pullRequests.read(Self.url)?.number == 7)
+        #expect(Self.calls(gh) == 1)
+        // Stale at once (freshness zero), yet a cache-only answer reads nothing.
+        #expect(pullRequests.answer(Self.url, read: false).pullRequest?.number == 7)
+        #expect(Self.calls(gh) == 1)
+    }
+
+    /// An answer says when the read that gave it began, which is no later than when it finished:
+    /// a read that began before the chat closed a pull request cannot reopen its row, however long
+    /// the batch it rode in took.
+    @Test func anAnswerSaysWhenItsReadBegan() async throws {
+        let gh = try Self.rig()
+        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh))
+        let before = Date().timeIntervalSince1970
+        #expect(await pullRequests.read(Self.url)?.number == 7)
+        let answer = pullRequests.answer(Self.url, read: false)
+        let readFrom = try #require(answer.readFrom)
+        let fetchedAt = try #require(answer.fetchedAt)
+        #expect(readFrom >= before)
+        #expect(readFrom <= fetchedAt)
+    }
 }

@@ -8,6 +8,8 @@
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
 import { createMockPair } from "../../protocol/adapters/mock";
 import { updatable } from "./harnesses";
+import { MockTeams } from "./mockTeams";
+import { mockContextMenus, setMockMenuLayout } from "./mockMenus";
 import { recentAfterPick } from "./fontPickerModel";
 import { ProtocolError, ProtocolErrorCode } from "../../protocol/errors";
 import { Session, type EventSourceContext } from "../../protocol/session";
@@ -23,10 +25,14 @@ import {
   type ChannelSwitch,
   type ChannelsState,
   type AccountsState,
+  type DevicesJoinState,
   type DevicesRelay,
+  type CloudEnvironmentsRun,
+  type CloudEnvironmentsState,
   type DevicesRun,
   type DevicesRunResult,
   type DevicesState,
+  type MenuLayout,
   type HarnessesRun,
   type HarnessesState,
   type IntegrationsRun,
@@ -39,6 +45,7 @@ import {
   type MutationResult,
   type SettingsClient,
   type SnapshotResult,
+  type ThemeOverride,
   type WorkspaceBackground,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
@@ -59,6 +66,8 @@ export type MockOptions = {
   connected?: boolean;
   /** Ops that fail with this code, to test read failures. */
   failing?: Partial<Record<string, string>>;
+  /** Whether the native action registry accepts an invocation. */
+  actionRan?: boolean;
   /** The loaded settings file's path (the host lists' `settings_file`). */
   settingsFile?: string;
   /** The theme file the mock picker returns for `cmux.settings.theme.import`. */
@@ -67,6 +76,30 @@ export type MockOptions = {
   museumArt?: MuseumArtResult[];
   /** Workspaces with a background of their own, or following the app's (`value` null). */
   workspaceBackgrounds?: WorkspaceBackground[];
+  /** Colors the Ghostty config sets itself (the host lists' `theme_overrides`). */
+  themeOverrides?: ThemeOverride[];
+  /** This Mac joined to a team (the host lists' `devices_join`); absent: not joined. */
+  devicesJoin?: DevicesJoinState;
+};
+
+/** This Mac joined to a team with the one-line join, both consent switches off. */
+export const mockDevicesJoin: DevicesJoinState = {
+  title: "This Mac on Your Team",
+  joined: "Joined to Example Team as studio",
+  help: "Your team's machines reach this Mac through the mesh. They cannot see or control it until you allow it here.",
+  error: null,
+  busy: false,
+  known: true,
+  revoke_all: null,
+  switches: [
+    { surface: "screen", title: "Screen sharing", help: "Your team's machines can see this screen", on: false },
+    {
+      surface: "control",
+      title: "Control",
+      help: "Your team's machines can move the pointer and type here",
+      on: false,
+    },
+  ],
 };
 
 export const mockDomains: Domains = {
@@ -145,6 +178,7 @@ export class MockSettingsProvider {
   importable: GhosttyTheme | null = null;
   private readonly importTokens = new Map<string, GhosttyTheme>();
   private readonly chatFolders: ListRow["folders"];
+  private actionRan: boolean;
   private readonly failing: Partial<Record<string, string>>;
   private readonly values = new Map<string, unknown>();
   private readonly managed: Map<string, { value: unknown } & ManagedInfo>;
@@ -169,8 +203,11 @@ export class MockSettingsProvider {
     this.diagnostics = options.diagnostics ?? [];
     this.domains = options.domains === undefined ? mockDomains : options.domains;
     this.failing = options.failing ?? {};
+    this.actionRan = options.actionRan ?? true;
     this.connected = options.connected ?? true;
     if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
+    if (options.themeOverrides) this.host = { ...this.host, theme_overrides: options.themeOverrides };
+    if (options.devicesJoin) this.host = { ...this.host, devices_join: options.devicesJoin };
     this.importable = options.importable ?? null;
     this.museumArt = options.museumArt ?? [];
     for (const background of options.workspaceBackgrounds ?? [])
@@ -193,7 +230,7 @@ export class MockSettingsProvider {
       "cmux.settings.preview.end": () => ({}),
       "cmux.settings.sound.play": () => ({}),
       "cmux.settings.host.lists": () => this.host,
-      "cmux.settings.accounts.state": () => this.accounts,
+      "cmux.settings.accounts.state": () => this.accountsState(),
       "cmux.settings.server.restart": () => ({}),
       "cmux.settings.server.pair": () => ({}),
       "cmux.settings.mobile.allow_again": () => {
@@ -216,6 +253,18 @@ export class MockSettingsProvider {
           this.setHost({ ...this.host, devices: { ...devices, rows: devices.rows.filter((r) => r.id !== params.id) } });
         return {};
       },
+      "cmux.settings.devices.join_consent": (params) => {
+        const join = this.host.devices_join;
+        if (join)
+          this.setHost({
+            ...this.host,
+            devices_join: {
+              ...join,
+              switches: join.switches.map((s) => (s.surface === params.surface ? { ...s, on: params.on === true } : s)),
+            },
+          });
+        return {};
+      },
       "cmux.settings.devices.full_access": (params) => {
         const devices = this.host.devices;
         if (devices)
@@ -228,6 +277,17 @@ export class MockSettingsProvider {
               ),
             },
           });
+        return {};
+      },
+      "cmux.settings.machines.vm_host": (params) => {
+        this.setHost({
+          ...this.host,
+          machines: this.host.machines.map((r) =>
+            r.id === params.id && r.vm_host
+              ? { ...r, vm_host: { ...r.vm_host, on: params.on === true, error: null } }
+              : r,
+          ),
+        });
         return {};
       },
       "cmux.settings.mobile.remove_phone": (params) => {
@@ -249,8 +309,31 @@ export class MockSettingsProvider {
         this.wentBack = params.build as string;
         return {};
       },
+      "cmux.settings.channels.update_machine": (params) => {
+        this.updatedMachines.push(params.id as string);
+        return {};
+      },
       "cmux.settings.agents.state": () => this.agents.state,
       "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
+      "cmux.settings.context_menus.set": (params) => {
+        const menus = this.host.context_menus;
+        if (menus)
+          this.setHost({
+            ...this.host,
+            context_menus: setMockMenuLayout(
+              menus,
+              params.menu as string,
+              (params.layout as MenuLayout | null) ?? null,
+            ),
+          });
+        return {};
+      },
+      "cmux.settings.context_menus.show_item": (params) => {
+        const menus = this.host.context_menus;
+        if (menus)
+          this.setHost({ ...this.host, context_menus: { ...menus, show_customize_item: params.show === true } });
+        return {};
+      },
       "cmux.settings.voice_input.set": (params) => {
         if (this.host.voice_input) this.setHost({ ...this.host, voice_input: { on: params.on === true } });
         return {};
@@ -345,6 +428,12 @@ export class MockSettingsProvider {
         }
       },
       "cmux.settings.theme.accepts": (params) => ({ accepts: String((params as { text: string }).text).includes(":") }),
+      "cmux.settings.theme.overrides.release": () => {
+        const files = new Set((this.host.theme_overrides ?? []).map((override) => override.file)).size;
+        this.setHost({ ...this.host, theme_overrides: [] });
+        return { files };
+      },
+      "cmux.settings.theme.overrides.open": () => ({}),
       "cmux.settings.file.reveal": () => ({}),
       // The registry buttons SettingsSchema.actions(in:) lists for these sections.
       "cmux.settings.section.actions": (params) =>
@@ -405,6 +494,8 @@ export class MockSettingsProvider {
       "cmux.settings.accounts.run": (params) => this.runAccounts(params as AccountsRun),
       "cmux.settings.devices.state": () => this.devices,
       "cmux.settings.devices.run": (params) => this.runDevices(params as unknown as DevicesRun),
+      "cmux.settings.environments.state": () => this.environments,
+      "cmux.settings.environments.run": (params) => this.runEnvironments(params as unknown as CloudEnvironmentsRun),
       "cmux.settings.harnesses.state": () => this.harnesses,
       "cmux.settings.harnesses.run": (params) => {
         const run = params as HarnessesRun;
@@ -457,12 +548,13 @@ export class MockSettingsProvider {
         ) {
           throw new ProtocolError("cmux.page.action_refused", `action ${String(params.action)} is not allowed here`);
         }
+        if (!this.actionRan) return { ran: false };
         this.runProfileAction(
           params.action as string,
           (params.args ?? {}) as Params,
           params.target as string | undefined,
         );
-        return {};
+        return { ran: true };
       },
     };
     const native = new Set([
@@ -472,10 +564,13 @@ export class MockSettingsProvider {
       "cmux.settings.host.lists",
       "cmux.settings.devices.remove",
       "cmux.settings.devices.full_access",
+      "cmux.settings.devices.join_consent",
+      "cmux.settings.machines.vm_host",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
       "cmux.settings.channels.state",
       "cmux.settings.channels.go_back",
+      "cmux.settings.channels.update_machine",
       "cmux.settings.agents.state",
       "cmux.settings.agents.run",
       "cmux.chief.profile.list",
@@ -489,6 +584,8 @@ export class MockSettingsProvider {
       "cmux.settings.harnesses.run",
       "cmux.settings.devices.state",
       "cmux.settings.devices.run",
+      "cmux.settings.environments.state",
+      "cmux.settings.environments.run",
       "cmux.settings.integrations.state",
       "cmux.settings.integrations.run",
       "cmux.settings.theme.set",
@@ -544,6 +641,7 @@ export class MockSettingsProvider {
     });
     provide("cmux.settings.harnesses.changed", (ctx) => this.track(this.harnessesChanged, ctx));
     provide("cmux.settings.devices.changed", (ctx) => this.track(this.devicesChanged, ctx));
+    provide("cmux.settings.channels.machines.changed", (ctx) => this.track(this.machinesChanged, ctx));
   }
 
   /** Settings > Devices as the app serves it (texts already localized). */
@@ -556,6 +654,73 @@ export class MockSettingsProvider {
   setDevices(devices: DevicesState): void {
     this.devices = devices;
     for (const ctx of this.devicesChanged) ctx.emit(devices);
+  }
+
+  /** Settings > Accounts > Cloud Environments as the app's model serves it. */
+  environments: CloudEnvironmentsState = {
+    available: true,
+    loading: false,
+    error: null,
+    environments: [
+      {
+        id: "env_00000000000000000001",
+        name: "web",
+        repo: "manaflow-ai/cmux@feat-cmux-next",
+        setup_script: "cd web && bun install",
+        status: "ready",
+        error: null,
+        log_tail: null,
+      },
+      {
+        id: "env_00000000000000000002",
+        name: "api",
+        repo: "octo/api",
+        setup_script: "make deps",
+        status: "failed",
+        error: "setup exited 3",
+        log_tail: "lockfile mismatch",
+      },
+    ],
+  };
+  /** Every Cloud Environments gesture the page sent, in order (tests). */
+  environmentRuns: CloudEnvironmentsRun[] = [];
+
+  private runEnvironments(run: CloudEnvironmentsRun): { error?: string | null } {
+    this.environmentRuns.push(run);
+    const rows = this.environments.environments;
+    switch (run.action) {
+      case "refresh":
+        return {};
+      case "save":
+        if (!run.name.trim()) return { error: "Name must be 1-80 characters." };
+        this.environments = {
+          ...this.environments,
+          environments: [
+            ...rows,
+            {
+              id: `env_${String(rows.length + 1).padStart(20, "0")}`,
+              name: run.name,
+              repo: run.repo || null,
+              setup_script: run.setup_script ?? "",
+              status: "unbuilt",
+              error: null,
+              log_tail: null,
+            },
+          ],
+        };
+        return {};
+      case "build":
+        this.environments = {
+          ...this.environments,
+          environments: rows.map((row) =>
+            row.id === run.id ? { ...row, status: "building", error: null, log_tail: null } : row,
+          ),
+        };
+        return {};
+      case "delete":
+        this.environments = { ...this.environments, environments: rows.filter((row) => row.id !== run.id) };
+        return {};
+    }
   }
 
   /** What the app's devices model does to the state (enough for the page and the gallery). A
@@ -651,10 +816,19 @@ export class MockSettingsProvider {
 
   /** Settings > Updates' channels; null: the host has no updater. */
   channels: ChannelsState | null = mockChannels;
+  private readonly machinesChanged = new Set<EventSourceContext>();
+
+  /** Replaces the Channels card's row of other machines and tells the page, like the app's push. */
+  setMachines(machines: ChannelsState["machines"]): void {
+    if (this.channels) this.channels = { ...this.channels, machines };
+    for (const ctx of this.machinesChanged) ctx.emit(machines ?? null);
+  }
   /** The way back the host answers with (Nightly's: the fixture runs a Dev build). */
   channelSwitch: ChannelSwitch | null = null;
   /** The build the card's Go Back asked for. */
   wentBack: string | null = null;
+  /** The machines the card's Update buttons asked for, in order. */
+  updatedMachines: string[] = [];
   /** Custom Chief pictures by Chief id (`chief.profile.avatar.get`); a Chief without one reads null. */
   chiefAvatars = new Map<string, Params>();
 
@@ -827,6 +1001,7 @@ export class MockSettingsProvider {
     },
     // A DEV build: the home.voiceInput tunable exists, on as Leo set it.
     voice_input: { on: true },
+    context_menus: mockContextMenus(),
     browser_profiles: [
       { id: "p-default", name: "Default", color: null, icon: null, is_default: true, source: null },
       { id: "p-work", name: "Work", color: "green", icon: null, is_default: false, source: "Google Chrome · Work" },
@@ -927,6 +1102,14 @@ export class MockSettingsProvider {
   };
   /** Accounts gestures the page sent (secrets included, so tests can check they were sent once). */
   readonly accountRuns: AccountsRun[] = [];
+  /** The Teams part (roles, details, create, rename, delete); tests edit its teams and flags. */
+  readonly teams = new MockTeams();
+
+  /** The Accounts part with the Teams part while signed in, unless a test set `teamList` itself. */
+  private accountsState(): AccountsState {
+    if (this.accounts.teamList !== undefined || !this.accounts.teams) return this.accounts;
+    return { ...this.accounts, teamList: this.teams.state() };
+  }
 
   /** What the app's AccountsModel does to the state (enough for the page's tests). */
   private runAccounts(run: AccountsRun): { error?: string } {
@@ -961,6 +1144,20 @@ export class MockSettingsProvider {
         ...this.accounts,
         teams: { ...teams, options: teams.options.map((team) => ({ ...team, active: team.id === run.team })) },
       };
+      if (run.team) this.teams.active = run.team;
+    } else if (run.action.startsWith("team.")) {
+      error = this.teams.run(run) ?? undefined;
+      // The Active Team menu lists the same teams and follows a create or delete.
+      if (this.accounts.teams) {
+        const active = this.teams.active;
+        this.accounts = {
+          ...this.accounts,
+          teams: {
+            ...this.accounts.teams,
+            options: this.teams.teams.map((team) => ({ id: team.id, name: team.name, active: team.id === active })),
+          },
+        };
+      }
     } else if (run.action === "remove") {
       this.accounts = rows((row) => ({ ...row, linked: row.linked.filter((account) => account.id !== run.account) }));
     } else if (run.action === "cmux.signOut" || run.action === "cmux.cancelSignIn") {
@@ -968,7 +1165,7 @@ export class MockSettingsProvider {
     } else if (run.action === "cmux.signIn") {
       this.accounts = { ...this.accounts, cmux: mockCmuxAccount.signingIn };
     }
-    for (const ctx of this.accountsChanged) ctx.emit(this.accounts);
+    for (const ctx of this.accountsChanged) ctx.emit(this.accountsState());
     return error ? { error } : {};
   }
 
@@ -1028,6 +1225,10 @@ export class MockSettingsProvider {
   }
 
   /** Simulates the daemon going away or coming back. */
+  setActionRan(actionRan: boolean): void {
+    this.actionRan = actionRan;
+  }
+
   setConnected(connected: boolean): void {
     this.connected = connected;
     for (const ctx of this.connection) ctx.emit({ connected });

@@ -3,6 +3,7 @@ import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import CmuxNextFocus
@@ -13,6 +14,7 @@ import CmuxNextFocus
 /// coordinator moved focus to the new pane in the same apply, but the layout view mirrored that
 /// only on its observation's next turn, so the old pane's ring stayed for frames, vanished, and
 /// the ring faded in on the new pane. The ring now follows the focus in the apply that lands it.
+@Suite(.closesItsWindows)
 @MainActor struct SplitFocusRingTests {
     private static func tree(split: Bool) -> DaemonTree {
         let first = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~")])
@@ -44,10 +46,16 @@ import CmuxNextFocus
     @Test func theRingMovesToTheSplitsNewPaneInTheApplyThatMountsIt() throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        // The ring marks focus only with `appearance.focusIndicator` border or both (the default is tabs).
+        // The ring marks focus only with `appearance.focusIndicator` border or both (the default is tabs)
+        // and with `focusRing.enabled` on: focus outlines are opt-in since #23745 (the default is off).
         let indicator = DesignSettings.shared.focusIndicator
+        let ring = DesignSettings.shared.focusRing
         DesignSettings.shared.focusIndicator = .both
-        defer { DesignSettings.shared.focusIndicator = indicator }
+        DesignSettings.shared.focusRing.enabled = true
+        defer {
+            DesignSettings.shared.focusIndicator = indicator
+            DesignSettings.shared.focusRing = ring
+        }
         let store = services.daemon.store
         store.connectionState = .connected(try Self.connected())
         store.apply(snapshot: Self.tree(split: false))

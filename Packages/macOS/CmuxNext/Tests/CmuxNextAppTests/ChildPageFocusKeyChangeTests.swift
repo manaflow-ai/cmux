@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextBrowser
 import CmuxNextFocusUI
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ import Testing
 /// the keys) without first handing the keys to the cmux window, and the cmux window takes the keys
 /// back only from another key window. Drives `ChildPageFocus` with a key-window recorder and pages
 /// whose grant makes their page window key, as CEF's `SetFocus` does.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct ChildPageFocusKeyChangeTests {
     /// The app's key window, with every change counted.
     final class Keys: KeyWindowSwitching {
@@ -71,6 +72,7 @@ struct ChildPageFocusKeyChangeTests {
 
     @Test func focusingAnotherPageMakesOneKeyChange() {
         let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
         world.focus.focus(world.a)
         #expect(world.keys.changes == ["pageA"])
         world.focus.focus(world.b)
@@ -81,6 +83,7 @@ struct ChildPageFocusKeyChangeTests {
 
     @Test func focusingThePageThatHasFocusMakesNoKeyChange() {
         let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
         world.focus.focus(world.a)
         world.focus.focus(world.a)
         #expect(world.keys.changes == ["pageA"])
@@ -90,6 +93,7 @@ struct ChildPageFocusKeyChangeTests {
     /// AppKit's didBecomeKey runs inside the grant; a re-apply there must not grant again (ping-pong).
     @Test func aReapplyInsideTheGrantDoesNotGrantAgain() {
         let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
         world.duringGrant = { [weak world] in
             guard let world else { return }
             world.focus.focus(world.b)
@@ -100,8 +104,24 @@ struct ChildPageFocusKeyChangeTests {
         #expect(world.focusCalls.count == 1)
     }
 
+    /// Focus leaves the page inside its grant (the model moved on to a terminal): the page blurs and
+    /// the cmux window takes the keys back, grant or not.
+    @Test func reclaimInsideTheGrantAfterThePageBlurredTakesTheKeysBack() {
+        let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
+        world.duringGrant = { [weak world] in
+            guard let world else { return }
+            world.focus.blurPage()
+            world.reclaim()
+        }
+        world.focus.focus(world.b)
+        #expect(world.keys.changes == ["pageB", "cmux"], "the keys stayed on the blurred page: \(world.keys.changes)")
+        #expect(world.focus.page == nil)
+    }
+
     @Test func reclaimMakesNoKeyChangeWhenTheCmuxWindowIsKey() {
         let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
         world.keys.makeKey(world.cmux)
         world.reclaim()
         world.reclaim()
@@ -110,13 +130,63 @@ struct ChildPageFocusKeyChangeTests {
 
     @Test func reclaimMakesNoKeyChangeWhileNoWindowIsKey() {
         let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
         world.reclaim()
         #expect(world.keys.changes.isEmpty, "an inactive app's window took the keys")
+    }
+
+    /// Cmd-N on a Chromium New Tab page: the page readied in its provisional pane and took the keys,
+    /// then moved to its real pane, whose present gave the cmux window the keys. The re-apply found
+    /// the page focused and granted nothing: no caret, typing went to the cmux window.
+    @Test func aPageThatLostTheKeysToTheCmuxWindowIsGrantedAgain() {
+        let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
+        world.focus.focus(world.a)
+        world.keys.makeKey(world.cmux) // the page window was presented again
+        #expect(world.focus.keysReturned(to: world.cmux))
+        #expect(world.focus.page == nil)
+        world.focus.focus(world.a) // the model re-applies its target
+        #expect(world.keys.changes == ["pageA", "cmux", "pageA"], "the page never got the keys back: \(world.keys.changes)")
+        #expect(world.focusCalls.map { "\($0.0)\($0.1)" } == ["atrue", "afalse", "atrue"])
+    }
+
+    @Test func keysReturnedChangesNothingWhileThePageWindowIsKey() {
+        let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
+        world.focus.focus(world.a)
+        #expect(!world.focus.keysReturned(to: world.cmux))
+        #expect(world.focus.page === world.a)
+        #expect(world.focusCalls.count == 1)
+    }
+
+    @Test func keysReturnedChangesNothingWithNoFocusedPage() {
+        let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
+        world.keys.makeKey(world.cmux)
+        #expect(!world.focus.keysReturned(to: world.cmux))
+        #expect(world.focusCalls.isEmpty)
+    }
+
+    /// A key change inside the grant is the grant's own: no blur and no second grant (ping-pong).
+    @Test func keysReturnedInsideTheGrantChangesNothing() {
+        let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
+        var returned: Bool?
+        world.duringGrant = { [weak world] in
+            guard let world else { return }
+            world.keys.makeKey(world.cmux)
+            returned = world.focus.keysReturned(to: world.cmux)
+        }
+        world.focus.focus(world.a)
+        #expect(returned == false)
+        #expect(world.focus.page === world.a)
+        #expect(world.focusCalls.count == 1)
     }
 
     /// Focus leaves the page for a target in the cmux window (a terminal): one change, back to cmux.
     @Test func leavingThePageMakesOneKeyChange() {
         let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
         world.focus.focus(world.a)
         world.focus.blurPage()
         world.reclaim()

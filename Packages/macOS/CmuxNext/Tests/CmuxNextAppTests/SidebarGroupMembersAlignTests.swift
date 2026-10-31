@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-21, on a group's rows sitting ~12 pt right of the rows above them, with the selected
@@ -10,7 +11,7 @@ import Testing
 /// by its header and its members' line, which runs in the list's inset beside the rows, never over
 /// them or pushing them in (his 2026-10-03 rule: "a thin colored vertical line ties members together,
 /// with no extra indent").
-@MainActor @Suite(.serialized) struct SidebarGroupMembersAlignTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarGroupMembersAlignTests {
     static let group = GroupID("g-coordinator")
     static let looseID = WorkspaceID("ws-loose")
     static let leadID = WorkspaceID("ws-lead")
@@ -63,9 +64,11 @@ import Testing
             let looseText = list.convert(loose.title.frame, from: loose).minX
             #expect(memberText == looseText, "\(id.rawValue): title starts at \(memberText), ungrouped at \(looseText)")
         }
-        // The header bar starts at its members' rail, just left of the rows (Lawrence 2026-10-23), its name on their text column.
+        // The header bar starts at its members' rail, just left of the rows (Lawrence 2026-10-23), its name on their text
+        // column, and keeps `groupEdgePadding` from the list's edge (Lawrence 2026-10-25, b5400e7e342f4: "groups headers and
+        // rails need more left padding"), as the rail does (`SidebarGroupLineLayoutTests`).
         let header = try #require(list.rowViews[.group(Self.group)] as? GroupHeaderRowView)
-        #expect(header.frame.minX == loose.frame.minX - SidebarStyle.groupRailReach,
+        #expect(header.frame.minX == max(loose.frame.minX - SidebarStyle.groupRailReach, SidebarStyle.groupEdgePadding),
                 "header starts at \(header.frame.minX), rows at \(loose.frame.minX)")
     }
 

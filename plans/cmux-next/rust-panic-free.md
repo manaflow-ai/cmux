@@ -170,8 +170,15 @@ python3 ../scripts/cmux-next/rust_panic_ratchet.py --clippy-json /tmp/c.jsonl [-
   package and bins with `required-features`.
 - Run `--update-baseline` only from a Linux clippy run (rbx, Testbox):
   macOS compiles other `cfg` paths and would lower the Linux counts.
-- Lower the baseline with `--update-baseline` in the commit that removes
-  hits. It refuses to run while the ratchet is red and never raises a count.
+- Lower the deny-lint baseline with `--update-baseline` in the commit that removes
+  hits. It refuses to run while the ratchet is red and never raises a deny count.
+  Tracked-lint baselines may be raised only from a successful authoritative Linux
+  measurement; the PR must record the reason and run link.
+- When enabling this guard on an existing CI path, a reviewed rollout rebaseline may
+  record pre-existing deny hits measured on Linux with the current base merged.
+  The PR must list every changed count and measurement SHA/run, and link the
+  follow-up fixes that lower the deny counts. This exception does not change the
+  normal comparison or the lowering-only `--update-baseline` command.
 
 Why not `[workspace.lints.clippy] unwrap_used = "deny"` (the first plan):
 Cargo applies the workspace table to every target of every member that
@@ -275,3 +282,28 @@ Status per crate: section 9 (updated with each landing).
 ## 9. Status
 
 Landing 1 (this page, the ratchet and its CI step): every crate at its section 2 count; 12 crates at deny.
+
+Re-baseline 2026-10-29 (the ratchet step was red Oct 23-29, so lanes landed
+~700 new deny hits unchecked). Every new slice, array, string-slice and
+expect hit was removed (about 290; cmux-holder, cmux-flow-trace, cmux-process
+and cmux-git now at deny). The one deliberate raise: `indexing_slicing` in
+acpmux, cmux-tui, cmux-tui-core, cmux-server, cmux-server-core,
+cmux-browser-host, cmux-host and cmux-tui-cloud-conversations, for
+string-key indexing of `serde_json::Value` (`v["key"]`). A read returns
+`Null` and never panics. A write panics only if the value is neither an object
+nor null; most of the ~217 new writes are on values built by `json!({..})`,
+but they were sampled, not all reviewed. Clippy cannot tell these from slice indexing, so they are counted.
+Next step for them: a non-panicking `set` helper, then lower the counts.
+22 crates at deny.
+
+JSON writes 2026-10-29: the leaf crate `cmux-json` adds `JsonSet::set` and
+`set_path` (null becomes an object; any other non-object is left unchanged and
+`set` returns `false`). acpmux's `no_panic::JsonExt` is now that trait. About
+1,010 production `v["key"] = x` writes in 17 crates moved to it, and
+`v["key"].as_array_mut()`/`take()` sites use `get_mut`. `indexing_slicing`
+went down by 972: acpmux 1021 to 697, cmux-tui 1141 to 833, cmux-tui-core
+1058 to 853, cmux-browser-host 211 to 140, cmux-tui-cloud-conversations 55 to
+25, cmux-tui-cdp 14 to 5, cmux-server 65 to 58, cmux-server-core 30 to 25,
+cmux-host 1 to 0, and 1 to 3 each in 8 small crates. Use `v.set("key", x)`
+for new writes; the rest of these counts are reads (`v["key"]`, which
+return `Null`) and slice indexing.

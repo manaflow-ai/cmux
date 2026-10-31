@@ -1,8 +1,10 @@
-import React, { useCallback, useEffect, useId, useRef, useState } from "react";
+import { composerPickerEntries } from "./composerPickerEntries";
+import React, { useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
 import type { QuickMenuExtras } from "./QuickModelMenu";
 import { sessionModels } from "./modelCatalog";
+import { modelChipFallback } from "./agents";
 import {
   isDefaultChoice,
   loadResolvedDefaults,
@@ -13,14 +15,14 @@ import {
 import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot } from "./model";
 import type { SpeedSection } from "./EffortPicker";
-import { type SpeedTiers } from "./FastToggle";
 import { pendingSpeed } from "./pendingSpeed";
+import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker, pickerFaceHarness } from "./ModelPicker";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
+import { OnNewTab } from "./newTabComposer";
 import { extraConfigOptions } from "./agentOptions";
-import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
-import { topModelsFor } from "./topModels";
+import type { CatalogRefreshState, ModelCombo } from "./modelPickerLayout";
 import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
 import { catalogRow } from "./catalogRow";
@@ -33,7 +35,13 @@ import {
   isEffortOption,
   isFastModeOption,
 } from "./heldOptions";
-import { type KeptStartMode, type StartMode, useStartMode } from "./startMode";
+import {
+  type KeptStartMode,
+  type StartMode,
+  useFullAccessManaged,
+  useFullAccessProbe,
+  useStartMode,
+} from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { catalogProfiles } from "./pickerProfiles";
 import { useModelCatalogState } from "./modelCatalogHost";
@@ -47,6 +55,8 @@ import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { registerPicker } from "./pickerOpeners";
+import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
+import { useScrollEdges } from "./summary/scrollEdges";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
 import { useEscapingPopup } from "../../ui/popupHost";
 import { usePopupHost } from "../../ui/UiProvider";
@@ -75,6 +85,11 @@ export const PICKER_LABELS = {
   plan: "picker.plan",
   build: "picker.build",
   fullAccessWarning: "picker.fullAccessWarning",
+  /// A full-access row while MDM or a team policy keeps full access off (#23322).
+  fullAccessManaged: "picker.fullAccessManaged",
+  /// The chip of a chat whose acpmux policy answers every prompt (approve-all) in a mode that asks.
+  approvesAll: "picker.approvesAll",
+  approvesAllDetail: "picker.approvesAllDetail",
   /// `{percent}` is the share of the context window used.
   context: "picker.context",
 } as const satisfies Record<string, StringKey>;
@@ -184,6 +199,9 @@ type Props = {
   /** A mode pick before the chat has a session is held (a New Tab's start, a harness switch
    * running): only then is a pending chat's start mode a live menu, else an inert chip. */
   holdsModePick?: boolean;
+  /** The chips belong to a page with no chat yet (a New Tab): no prompt has gone, so the harness
+   * is never fixed there, even once the page's deferred chat has started behind it. */
+  startsChat?: boolean;
 };
 
 export type ComposerPermissionGrant = {
@@ -222,14 +240,16 @@ export function ComposerPickers({
   catalogRefresh,
   pickerCatalog,
   holdsModePick = false,
+  startsChat = false,
 }: Props) {
   const t = useT();
+  const lastFastValue = useRef<{ scope: string; value: string } | undefined>(undefined);
   // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts).
   // The model button is the row's one model control (Leo 2026-10-20): it names the model and its
   // effort ("Opus 5.5  Medium") and opens the compact menu, which carries Effort, More models,
   // Account and, when the model advertises a free inline toggle, Fast mode. Paid or otherwise
   // non-toggleable Fast remains in the model menu.
-  const { showContextUsage, harnessSwitch } = useComposerSettings();
+  const { showContextUsage, harnessSwitch, reasoningSlider, reasoningSliderStyle } = useComposerSettings();
   const chatAccounts = useChatAccounts();
   const summary = snapshot.summary;
   // The rail lists the harnesses set up here (Leo 2026-10-11): one whose launcher check failed (not
@@ -242,32 +262,21 @@ export function ComposerPickers({
   // (Leo 2026-10-22: "why did you guys even remove the fucking harness model picker"), its other
   // harnesses Fork to rows. Debug Settings' "Allow switching harness in a started chat"
   // (`harnessSwitch`) keeps the whole rail and its switch.
-  const locked = !harnessSwitch && !!summary?.harness && ((summary.turnCount ?? 0) > 0 || snapshot.rows.length > 0);
-  const allEntries: ModelPickerProps["catalog"] = pickerCatalog
-    ? [
-        ...pickerCatalog.harnesses
-          .filter(
-            (entry) =>
-              !entry.unavailable || entry.probeFailed || (entry.acpmuxHarness ?? entry.id) === summary?.harness,
-          )
-          .map((entry) => ({
-            id: entry.acpmuxHarness ?? entry.id,
-            name: entry.name,
-            models: entry.models,
-            ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
-            pickable: entry.pickable && entry.acpmuxHarness !== null,
-            ...(topModelsFor(entry.id) ? { top: topModelsFor(entry.id) } : {}),
-          })),
-        // The chat folder's own profiles are acpmux's alone; the model catalog never lists them.
-        ...snapshot.catalog.filter((entry) => entry.folder),
-      ]
-    : snapshot.catalog;
+  // A message, not the session's start row: the deferred chat a New Tab pick or typed prompt starts
+  // behind the page draws its start row before any prompt (Leo 2026-10-31: "IM SAYING I CANT
+  // FUCKING SEE ANY HARNESS"), and a New Tab never fixes the harness.
+  const locked =
+    !startsChat &&
+    !harnessSwitch &&
+    !!summary?.harness &&
+    ((summary.turnCount ?? 0) > 0 || snapshot.rows.some((row) => row.kind !== "sessionStart"));
+  const allEntries = composerPickerEntries(snapshot, pickerCatalog);
   // A harness acpmux has not listed yet (the first open after launch) keeps the whole list rather
   // than an empty picker. A chat that can fork keeps every harness: the picker offers the others as
   // Fork to, never as a switch in place (Leo 2026-10-22: "can expose as fork").
   const ownEntries = locked && !fork ? allEntries.filter((entry) => entry.id === summary?.harness) : [];
   const pickerEntries = ownEntries.length > 0 ? ownEntries : allEntries;
-  // The profiles each catalog harness folded into its one entry: its accounts in the model menu.
+  // Installed launch configurations are separate from route-backed accounts in the model menu.
   const profiles = pickerCatalog ? catalogProfiles(snapshot.catalog, pickerCatalog.harnesses) : undefined;
   const switchHarness = locked ? undefined : onHarness;
   // An agent's own default remains an internal sentinel. The picker omits it
@@ -402,7 +411,7 @@ export function ComposerPickers({
           onPick: (value) => onEffort(effort?.id ?? "effort", value === "on" ? "ultracode" : "xhigh"),
         }
       : undefined;
-  const fastOption = snapshot.summary?.configOptions?.find(isFastModeOption) ?? pendingSpeed(snapshot);
+  const fastOption = snapshot.summary?.configOptions?.find(isFastModeOption) ?? pendingSpeed(snapshot, catalogModel);
   const fastOn =
     fastOption?.options.find((option) => /^(on|true|enabled)$/i.test(option.value)) ?? fastOption?.options[1];
   const fastOff =
@@ -416,37 +425,19 @@ export function ComposerPickers({
           offValue: fastOff.value,
           onLabel: fastOn.name ?? fastOn.value,
           offLabel: fastOff.name ?? fastOff.value,
+          values: fastOption.options.map((option) => option.value),
+          lastOnValue:
+            fastOption.currentValue && fastOption.currentValue !== fastOff.value ? fastOption.currentValue : undefined,
           onPick: (value: string) => onEffort(fastOption.id, value),
         }
       : undefined;
-  // The catalog marks models whose Fast tier is a free, easy inline toggle. Paid or otherwise
-  // non-toggleable Fast modes stay inside the model menu, regardless of harness name.
-  const inlineFast =
-    catalogModel?.inlineFast === true ||
-    (catalogModel?.serviceTiers?.length ?? 0) > 0 ||
-    snapshot.catalog.some(
-      (entry) =>
-        entry.id === summary?.harness &&
-        entry.models.some(
-          (model) => model.id === runningModel && (model.inlineFast === true || (model.serviceTiers?.length ?? 0) > 0),
-        ),
-    );
   // Fast mode is offered where the running model honors it, or while it is still on.
   const fastOffered =
     fastMode !== undefined && (catalogModel?.fast !== false || fastMode.currentValue !== fastMode.offValue);
-  // The bolt: every tier the option offers past off.
-  const speedTiers: SpeedTiers | undefined =
-    inlineFast && fastOption && fastMode && fastOffered
-      ? {
-          current: fastOption.currentValue,
-          off: fastMode.offValue,
-          tiers: fastOption.options.map((option) => option.value).filter((value) => value !== fastMode.offValue),
-          names: Object.fromEntries(fastOption.options.map((option) => [option.value, option.name ?? option.value])),
-          onPick: fastMode.onPick,
-        }
-      : undefined;
-  // A Codex chip with no composer to draw the bolt (a bare gallery row) keeps Fast mode in its menu.
-  const bolted = speedTiers !== undefined;
+  const fastCurrentValue = fastMode?.currentValue;
+  const fastOffValue = fastMode?.offValue;
+  // Fast mode is a row in the model menu for every harness. The picker owns the toggle;
+  // the composer never renders a separate lightning button.
   const model = models.find((choice) => choice.id === summary?.model);
   const effortName = efforts.find((choice) => choice.id === effort?.currentValue)?.name;
   // Recents follow what the session actually runs, whichever control changed it,
@@ -505,6 +496,10 @@ export function ComposerPickers({
   const land = (pickedModel: string, pickedEffort?: string) => {
     // Any new pick replaces a combo still waiting on its effort.
     pending.current = undefined;
+    const pickEffort = (value: string) => {
+      if (presession && harness) setHeldPick({ harness, value });
+      onEffort(effort?.id ?? HELD_EFFORT_ID, value);
+    };
     if (harness && remembers) rememberPick({ harness, model: pickedModel }, folder ?? summary?.cwd);
     if (pickedModel !== shown) {
       pending.current =
@@ -512,13 +507,13 @@ export function ComposerPickers({
           ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
           : undefined;
       onModel(pickedModel);
-      if (pickedEffort && presession) onEffort(effort?.id ?? HELD_EFFORT_ID, pickedEffort);
+      if (pickedEffort && presession) pickEffort(pickedEffort);
     } else if (
       pickedEffort &&
       pickedEffort !== currentEffort &&
       (effort ? efforts.some((choice) => choice.id === pickedEffort) : presession)
     )
-      onEffort(effort?.id ?? HELD_EFFORT_ID, pickedEffort);
+      pickEffort(pickedEffort);
   };
   // A typed combo ("gpt medium fast", ModelPicker): its model and effort land as a pick does, and
   // fast mode turns on once the agent reports the model and offers it. A combo for another harness
@@ -538,6 +533,10 @@ export function ComposerPickers({
       if (!switchHarness) return;
       crossing.current = { ...picked, from: summary?.sessionId };
       if (remembers) rememberPick({ harness: picked.harness, model: picked.model }, folder ?? summary?.cwd);
+      // The chip's held level follows the pick to its harness: the combo's own, or none (a level an
+      // earlier pick held there would name an effort this combo does not send).
+      if (picked.effort) setHeldPick({ harness: picked.harness, value: picked.effort });
+      else setHeldPick((held) => (held?.harness === picked.harness ? undefined : held));
       // The effort and Fast ride the switch, so a prompt sent right after the pick (it queues on the
       // switch) runs its first turn on the whole combo; the effect below only fills in what the new
       // session still reports otherwise.
@@ -617,12 +616,43 @@ export function ComposerPickers({
   // A new chat draws its chips for the harness its first prompt starts: the one named, else the
   // picker's first installed, pickable one, the one the model picker's face draws (a bundled
   // harness acpmux does not have can come first in `pickerEntries`); else the catalog's first.
-  const chipHarness = harness ?? pickerFaceHarness(pickerEntries) ?? pickerEntries[0]?.id;
+  // A chat the pane opened that acpmux has not attached yet (its loading state): the chat list's row
+  // names its harness, model and effort. It is no new chat, so the chips never stand in the picker's
+  // first harness or its default model (#28884: a loading Opus 5.5 chat read "Sonnet 4.5 Medium").
+  // A New Tab's chips (newTabStart: a summary with no session id) stay its own while the page waits
+  // for a picked chat to attach; only a pane with no summary for its chat is opening one.
+  const opening =
+    !switching &&
+    snapshot.sessionId !== undefined &&
+    (summary === undefined || (summary.sessionId !== "" && summary.sessionId !== snapshot.sessionId));
+  const openingEntry = opening ? snapshot.sessions.find((entry) => entry.sessionId === snapshot.sessionId) : undefined;
+  const chipHarness =
+    harness ??
+    openingEntry?.harness ??
+    (opening ? undefined : (pickerFaceHarness(pickerEntries) ?? pickerEntries[0]?.id));
+  // Preserve an on tier only for this chat and option. ComposerPickers stays mounted when
+  // the person switches chats, so a plain/off chat must not inherit another chat's tier.
+  const fastScope = `${summary?.sessionId ?? `new:${chipHarness ?? ""}`}\u0000${chipHarness ?? ""}\u0000${fastOption?.id ?? ""}`;
+  const rememberedFastValue = lastFastValue.current?.scope === fastScope ? lastFastValue.current.value : undefined;
+  useEffect(() => {
+    if (fastCurrentValue === undefined || fastCurrentValue === fastOffValue) return;
+    lastFastValue.current = { scope: fastScope, value: fastCurrentValue };
+  }, [fastScope, fastCurrentValue, fastOffValue]);
   const chipEntry = pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === chipHarness);
   const unreported = shown === undefined && chipHarness !== undefined && (!summary?.sessionId || switching);
   // A fresh chat on this Mac whose session has not reported its model yet names the one its New Tab
   // started it on (cx-e2aa, cx-21jvw). A resumed or remote chat may run another: it waits.
-  const fresh = (summary?.turnCount ?? 0) === 0 && !summary?.host && summary?.hostKind !== "cloud";
+  // A chat still opening is fresh only when its listed row says nothing was sent in it yet (a New
+  // Tab's chat acpmux started before its first prompt) and it runs on this Mac.
+  const fresh = opening
+    ? openingEntry?.unsent === true && !openingEntry.host && !openingEntry.peer && openingEntry.hostKind !== "cloud"
+    : (summary?.turnCount ?? 0) === 0 && !summary?.host && summary?.hostKind !== "cloud";
+  // An opened chat that ran before draws the model and effort its listed row names, else the
+  // neutral placeholders until its session reports; never a prediction made for a new chat. The
+  // row's model is the truth for an unsent one too (a pick after its New Tab started it).
+  const opensListed = opening && !fresh;
+  const listedModel =
+    opening && openingEntry?.model && !isDefaultChoice({ id: openingEntry.model }) ? openingEntry.model : undefined;
   // Before a fresh chat's session reports, the default this harness last resolved to, else the model
   // catalog's default for it, else the first model it lists (defaultModel: its last session's).
   const predictedId =
@@ -657,9 +687,23 @@ export function ComposerPickers({
       ownName ??
       modelIdName(shown, t))
     : undefined;
+  // Named as a reported model is: only the exact catalog row, else a name read off the id.
+  const listedName =
+    listedModel &&
+    (kinRows(listedModel).find((row) => row?.id === listedModel || row?.release === listedModel)?.name ??
+      modelIdName(listedModel, t));
   // Before the session reports, the predicted model's name holds the chip's width (cx-ncc.58).
+  const harnessOnly = modelChipFallback(
+    snapshot.catalog.find((entry) => entry.id === chipHarness),
+    models,
+  );
   const modelName =
-    defaulted || unreported ? (starting ?? resolvedName ?? t(PICKER_LABELS.model)) : (runningName ?? starting);
+    listedName ??
+    (opensListed
+      ? (harnessOnly ?? t(PICKER_LABELS.model))
+      : defaulted || unreported
+        ? (starting ?? resolvedName ?? harnessOnly ?? t(PICKER_LABELS.model))
+        : (runningName ?? starting ?? harnessOnly));
   // Until the session reports its options (a new chat, an agent still starting), the effort chip
   // draws what this harness's chats last showed (chipMemory.ts) and the access chip acpmux's
   // start-mode answer (startMode.ts), never grey bars; the session's values then replace them in
@@ -672,10 +716,16 @@ export function ComposerPickers({
   const effortValue = effort && (effortDefaulted ? defaultEffort : effort.currentValue);
   const effortChoice = efforts.find((choice) => choice.id === effortValue);
   const ultracodeOn = ultracode !== undefined && ultracode.current === ultracode.on;
-  const lastChips = awaiting && chipHarness ? loadLastChips()[chipHarness] : undefined;
+  // Another chat's chips are no guess for an opened chat that ran before (opensListed).
+  const lastChips = awaiting && chipHarness && !opensListed ? loadLastChips()[chipHarness] : undefined;
   // A harness no chat has shown here yet (a fresh profile, the New Tab's first chat) names the
   // level acpmux starts it on (`_acpmux/harnesses` start).
-  const startEffort = awaiting ? snapshot.catalog.find((entry) => entry.id === chipHarness)?.start?.effort : undefined;
+  // An opened chat that ran before names the level its listed row reports, never a start level.
+  const startEffort = !awaiting
+    ? undefined
+    : opensListed
+      ? openingEntry?.effort
+      : snapshot.catalog.find((entry) => entry.id === chipHarness)?.start?.effort;
   const startEffortKey = startEffort ? LEVEL_KEYS[startEffort] : undefined;
   const pendingEffort = lastChips?.effort ?? (startEffortKey ? t(startEffortKey) : undefined);
   // The button names a level, never the word Reasoning (Leo 2026-10-20): the listed level, else the
@@ -707,7 +757,7 @@ export function ComposerPickers({
       ? (catalogModel ??
         catalogRow(
           pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === chipHarness)?.models,
-          shown ?? predictedId,
+          shown ?? listedModel ?? predictedId,
         ))
       : undefined;
   const heldLevels =
@@ -719,11 +769,11 @@ export function ComposerPickers({
   // model, hub/start_defaults.rs), so the chip names it from the first frame and acpmux's answer
   // replaces it only when it differs (Lucas 2026-10-24).
   const heldValue =
-    (heldPick?.harness === chipHarness ? heldPick.value : undefined) ??
+    (heldPick && heldPick.harness === chipHarness ? heldPick.value : undefined) ??
     startEffort ??
     heldLevels.find((choice) => choice.name === lastChips?.effort)?.id ??
-    heldOption?.currentValue ??
-    (snapshot.catalog.length === 0
+    (opensListed ? undefined : heldOption?.currentValue) ??
+    (snapshot.catalog.length === 0 && !opensListed
       ? heldLevels.find((choice) => choice.id === heldModel?.defaultEffort)?.id
       : undefined);
   // The held chip steps down as the reported one does: "Med" in a narrow row (composerRowFit.ts).
@@ -736,6 +786,34 @@ export function ComposerPickers({
   const local = fresh && snapshot.origin !== "remote" && snapshot.origin !== "peer";
   const asksStart = awaiting && local && modes.length === 0;
   const startAnswer = useStartMode(chipHarness, folder ?? summary?.cwd, asksStart);
+  // A chat this Mac's acpmux runs: not a peer's, a remote host's or the cloud's. A peer's chat comes
+  // over this Mac's own connection; its summary or its listed row names the peer (the attach's
+  // detail names none: server/peer_forward.rs adds `peer` to the reply, not to the session).
+  const listedPeer = summary?.sessionId
+    ? snapshot.sessions.find((session) => session.sessionId === summary.sessionId)?.peer
+    : undefined;
+  const onThisMac =
+    snapshot.origin !== "remote" &&
+    snapshot.origin !== "peer" &&
+    !summary?.peer &&
+    !listedPeer &&
+    !summary?.host &&
+    summary?.hostKind !== "cloud";
+  // A local chat whose menu has a full-access row learns whether full access is managed off, and
+  // again on `_acpmux/start_mode_changed` (#23322).
+  // The Options chip's choices count too: a harness can offer full access only as a config option
+  // (review 48).
+  const extraOptions = extraConfigOptions(summary);
+  useFullAccessProbe(
+    chipHarness,
+    folder ?? summary?.cwd,
+    !asksStart &&
+      onThisMac &&
+      (modes.some((choice) => unrestricted(choice.id)) ||
+        extraOptions.some((option) => option.options.some((choice) => unrestricted(choice.value)))),
+  );
+  // This Mac's daemon said full access is managed off: it bounds only the chats it runs (review 37).
+  const fullAccessManaged = useFullAccessManaged() && onThisMac;
   // Before acpmux has ever answered for this harness here (a first New Tab), the chip names the
   // harness's highest permission level, the level acpmux starts a chat in when the person chose
   // none (hub/start_mode.rs); acpmux's answer, which carries a saved choice, then replaces it.
@@ -853,6 +931,7 @@ export function ComposerPickers({
             pending.current = undefined;
             onEffort(effort.id, value);
           },
+          ...(reasoningSlider ? { slider: true, sliderStyle: reasoningSliderStyle } : {}),
         }
       : heldLevels.length > 1 && chipHarness && !profileDeclaresNoEffort
         ? {
@@ -863,6 +942,7 @@ export function ComposerPickers({
               setHeldPick({ harness: chipHarness, value });
               onEffort(heldOption?.id ?? "effort", value);
             },
+            ...(reasoningSlider ? { slider: true, sliderStyle: reasoningSliderStyle } : {}),
           }
         : undefined;
   // Accounts are this Mac's acpmux routes: a chat on another machine has none here.
@@ -870,14 +950,14 @@ export function ComposerPickers({
     chatAccounts && summary?.sessionId && !summary.host && summary.hostKind !== "cloud"
       ? { sessionId: summary.sessionId, accounts: chatAccounts }
       : undefined;
-  // Claude Code's Fast mode is one checkbox row of the menu, after Account (Leo 2026-10-20, as Claude
-  // Code's). On is any tier past off; a click turns it off, or on at the option's first tier. Codex
-  // has the bolt instead.
+  // Fast mode is one checkbox row in the menu, after Account. On is any tier past off;
+  // a click turns it off, or on at the option's first tier.
   const quickFast: QuickMenuExtras["fast"] =
-    fastMode && fastOffered && !bolted
+    fastMode && fastOffered
       ? {
-          checked: fastMode.currentValue !== undefined && fastMode.currentValue !== fastMode.offValue,
-          onChange: (on) => fastMode.onPick(on ? fastMode.onValue : fastMode.offValue),
+          checked: fastModeIsOn(fastMode),
+          onChange: (on) =>
+            fastMode.onPick(on ? nextFastModeValue(fastMode, rememberedFastValue, fastMode.values) : fastMode.offValue),
         }
       : undefined;
   const quick: QuickMenuExtras = {
@@ -905,6 +985,9 @@ export function ComposerPickers({
           harness={harness}
           model={shown}
           label={modelName ?? t(PICKER_LABELS.model)}
+          sessionAuth={signIn?.sessionAuth}
+          onSessionLogin={signIn?.loginSession}
+          onSessionAuthRefresh={signIn?.recheckSession}
           {...(modelChip ? { chip: modelChip } : {})}
           switching={snapshot.switching?.phase === "failed" ? undefined : snapshot.switching}
           efforts={efforts}
@@ -924,8 +1007,7 @@ export function ComposerPickers({
           onAddAgent={onAddAgent}
           harnessFixed={locked}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
-          fastMode={bolted ? undefined : fastMode}
-          {...(speedTiers ? { speed: speedTiers } : {})}
+          {...(fastMode ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } } : {})}
           catalogRefresh={catalogRefresh}
           harnessNotes={
             snapshot.switching?.phase === "failed"
@@ -974,9 +1056,12 @@ export function ComposerPickers({
           current={mode?.id ?? (pendingAccessModes.length > 0 ? shownStart?.modeId : undefined)}
           sessionId={summary?.sessionId}
           warning={t(PICKER_LABELS.fullAccessWarning)}
+          managed={fullAccessManaged}
+          managedReason={t(PICKER_LABELS.fullAccessManaged)}
           help={t(PICKER_LABELS.modeHelp)}
           refusedReason={t(PICKER_LABELS.modeRefused)}
           permissionAccess={permissionAccess}
+          approvesAll={summary?.enforcement?.policy === "approve-all"}
           onMode={onMode}
           {...(pendingMenu
             ? { heading: t(pendingMenu.heading ?? PICKER_LABELS.mode), numbered: pendingMenu.numbered }
@@ -1015,7 +1100,12 @@ export function ComposerPickers({
       )}
       {/* A custom harness's other settings: each config option no chip above owns, picked like the
           effort level. Codex's collaboration mode stays on its command/mode paths. */}
-      <AgentOptionsMenu options={extraConfigOptions(summary)} onPick={(configId, value) => onEffort(configId, value)} />
+      <AgentOptionsMenu
+        options={extraOptions}
+        managed={fullAccessManaged}
+        managedReason={t(PICKER_LABELS.fullAccessManaged)}
+        onPick={(configId, value) => onEffort(configId, value)}
+      />
     </div>
   );
   return chips;
@@ -1063,9 +1153,12 @@ function AccessMenu({
   current,
   sessionId,
   warning,
+  managed,
+  managedReason,
   help,
   refusedReason,
   permissionAccess,
+  approvesAll = false,
   onMode,
   heading,
   numbered = true,
@@ -1075,16 +1168,24 @@ function AccessMenu({
   current?: string;
   sessionId?: string;
   warning: string;
+  /// Full access is managed off for this chat (`useFullAccessManaged`, this Mac's chats only).
+  managed: boolean;
+  managedReason: string;
   help: string;
   refusedReason: string;
   permissionAccess?: ComposerPermissionAccess;
+  /// acpmux's policy for the chat answers every permission prompt (approve-all, `enforcement`), so
+  /// the chat acts without asking whatever its harness mode is (cmux#27847).
+  approvesAll?: boolean;
   onMode(modeId: string): void | Promise<unknown>;
-  /// The menu's heading, as the harness's own menu titles it ("Mode", "How should actions be approved?").
+  /// The harness menu's mode supplies the icon layout even though its explanatory heading is not drawn.
   heading?: string;
   /// Rows show their number keys, as Claude Code's mode menu does (the keys pick either way).
   numbered?: boolean;
 }) {
   const t = useT();
+  // On New Tab the menu opens down, with no key hints (newTabComposer.ts).
+  const newTab = useContext(OnNewTab);
   const [open, setOpen] = useState(false);
   // Right-click and automation open it by its label (pickerOpeners.ts).
   useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
@@ -1100,13 +1201,24 @@ function AccessMenu({
   // disable bypass mode): the chip goes back to the mode in force and their rows are disabled.
   const [refused, setRefused] = useState<{ sessionId?: string; ids: readonly string[] }>({ ids: [] });
   const refusedIds = refused.sessionId === sessionId ? refused.ids : [];
+  // MDM or a team policy keeps full access off (#23322, `managed`): its rows are disabled and say so.
+  const blocked = (id: string) => refusedIds.includes(id) || (managed && unrestricted(id));
   // A chat that has not reported its mode (one acpmux has not started) names none, not the first,
   // and every mode, the first included, is a pick.
   const value = optimisticMode ?? current ?? "";
-  const currentMode = modes.find((choice) => choice.id === value);
+  const reportedMode = modes.find((choice) => choice.id === value);
+  // A harness mode that asks under a policy that answers every prompt (approve-all) acts without
+  // asking: the chip says full access, not the harness's Manual (cmux#27847). The menu still marks
+  // the harness's own mode, the one a pick changes.
+  // Plan stops edits in the harness itself, not by asking: it keeps its own name.
+  const answeredForYou = approvesAll && reportedMode !== undefined && !unrestricted(value) && !isPlan(value);
+  const currentMode: ModeChoice | undefined = answeredForYou
+    ? { id: value, name: t(PICKER_LABELS.approvesAll), icon: "shield-alert" }
+    : reportedMode;
+  const fullAccess = answeredForYou || unrestricted(value);
   const grants = permissionAccess?.grants ?? [];
   const pick = (next: string) => {
-    if (refusedIds.includes(next)) return;
+    if (blocked(next)) return;
     setOptimistic({ sessionId, modeId: next });
     setOpen(false);
     void settle(() => onMode(next)).then((applied) => {
@@ -1118,7 +1230,9 @@ function AccessMenu({
       }));
     });
   };
-  const tooltip = `${label}: ${currentMode?.name ?? label}\n${help}`;
+  const tooltip = answeredForYou
+    ? `${label}: ${currentMode?.name ?? label}\n${t(PICKER_LABELS.approvesAllDetail, { mode: reportedMode.name })}\n${help}`
+    : `${label}: ${currentMode?.name ?? label}\n${help}`;
   // A numbered menu (Claude Code's) draws no icon column, as Claude Code's mode menu does; the
   // button keeps the mode's symbol.
   const iconless = numbered && heading !== undefined;
@@ -1126,11 +1240,15 @@ function AccessMenu({
   if (
     refusedIds.length > 0 &&
     grants.length === 0 &&
-    modes.every((choice) => choice.id === value || refusedIds.includes(choice.id))
+    // A full-access row managed off, the current one included, keeps the menu: it stays, disabled
+    // and saying why (reviews 37 and 48).
+    modes.every(
+      (choice) => !(managed && unrestricted(choice.id)) && (choice.id === value || refusedIds.includes(choice.id)),
+    )
   ) {
     return (
       <span
-        className={`acpmux-mode acpmux-access acpmux-access-fixed${unrestricted(value) ? " acpmux-unrestricted" : ""}`}
+        className={`acpmux-mode acpmux-access acpmux-access-fixed${fullAccess ? " acpmux-unrestricted" : ""}`}
         data-fit-title={currentMode?.name ?? label}
         data-fit-title-unit="access"
         /* tooltip-allow: the chip is its shield alone; the tooltip says what it is and why it is fixed */
@@ -1145,7 +1263,7 @@ function AccessMenu({
   }
   return (
     <span
-      className={`acpmux-mode acpmux-access${unrestricted(value) ? " acpmux-unrestricted" : ""}`}
+      className={`acpmux-mode acpmux-access${fullAccess ? " acpmux-unrestricted" : ""}`}
       // A narrow row shows the glyph alone; the row's fit names the mode in a tooltip then (composerRowFit.ts).
       data-fit-title={currentMode?.name ?? label}
       data-fit-title-unit="access"
@@ -1165,7 +1283,7 @@ function AccessMenu({
           <ChevronIcon />
         </MenuButton>
         <MenuPopup
-          side="top"
+          side={newTab ? "bottom" : "top"}
           align="start"
           className="acpmux-access-menu"
           // ui-allow: 1 to 9 pick the mode in that place while the menu is open, as in Claude's mode menu.
@@ -1178,19 +1296,14 @@ function AccessMenu({
             else pick(choice.id);
           }}
         >
-          {heading && modes.length > 0 && (
-            <div className="acpmux-access-heading" aria-hidden="true">
-              {heading}
-            </div>
-          )}
           {modes.length > 0 && (
             <MenuRadioGroup value={value} onValueChange={pick}>
               {modes.map((choice, index) => (
                 <MenuRadioItem
                   key={choice.id}
                   value={choice.id}
-                  disabled={refusedIds.includes(choice.id)}
-                  shortcut={numbered && index < 9 ? String(index + 1) : undefined}
+                  disabled={blocked(choice.id)}
+                  shortcut={numbered && !newTab && index < 9 ? String(index + 1) : undefined}
                   className={`acpmux-access-item${unrestricted(choice.id) ? " acpmux-unrestricted" : ""}${iconless ? " acpmux-access-item-iconless" : ""}`}
                 >
                   {!iconless && (
@@ -1208,7 +1321,10 @@ function AccessMenu({
                     ) : (
                       <span className="acpmux-menu-label">{choice.name}</span>
                     )}
-                    {refusedIds.includes(choice.id) ? (
+                    {managed && unrestricted(choice.id) ? (
+                      // Managed off outranks an earlier refusal: the organization's bound is the reason now.
+                      <span className="acpmux-menu-description">{managedReason}</span>
+                    ) : refusedIds.includes(choice.id) ? (
                       <span className="acpmux-menu-description">{refusedReason}</span>
                     ) : choice.description || unrestricted(choice.id) ? (
                       <span className="acpmux-menu-description">{choice.description ?? warning}</span>
@@ -1524,12 +1640,16 @@ export function Picker({
   // No room above or below its button in the pane: past the window's edge (popupHost.ts).
   const host = usePopupHost();
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
+  // Marks the menu's edges that rows scroll past (data-fade-top, data-fade-bottom); the composer's
+  // + styles them as the shared scroll-edge fade (styles.css). It stops when the menu unmounts.
+  const edges = useScrollEdges();
   const attach = useCallback(
     (node: HTMLDivElement | null) => {
       menu.current = node;
+      edges(node);
       if (host) setShown(node);
     },
-    [host],
+    [host, edges],
   );
   useEscapingPopup(host, shown, () => trigger.current, {
     side: "top",
@@ -1541,6 +1661,9 @@ export function Picker({
   const rows = sections.flatMap((section, s) => section.choices.map((choice) => ({ section: s, choice })));
   // A live update can shrink the list under the highlight.
   const selected = Math.min(active, Math.max(rows.length - 1, 0));
+  useEffect(() => {
+    if (open && rows.length) scrollActiveMenuRow(menu.current, `${menuId}-${selected}`);
+  }, [open, rows.length, menuId, selected]);
 
   useEffect(() => {
     if (!open) return;

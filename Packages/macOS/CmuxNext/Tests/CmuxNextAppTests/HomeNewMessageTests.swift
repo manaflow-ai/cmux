@@ -3,6 +3,7 @@ import CmuxHomeCore
 import CmuxNextDesign
 @testable import CmuxNextHome
 @testable import MessagesLabSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// New Message is a page, as in Messages (Lawrence 2026-10-19: "it makes a modal but iMessage
@@ -10,7 +11,7 @@ import Testing
 /// whose text becomes tokens (Return, comma, Tab; Backspace removes the last), live suggestions,
 /// red tokens for nobody, the existing conversation of exactly those people, a "New Message" row
 /// at the top of the list, and a blank page whose first send makes the conversation.
-@MainActor
+@MainActor @Suite(.closesItsWindows)
 struct HomeNewMessageTests {
     static let me = ParticipantID("me")
     static let ada = HomeContact(id: ParticipantID("ada"), name: "Ada Lovelace", source: .team)
@@ -297,6 +298,79 @@ struct HomeNewMessageTests {
         #expect(Set(labels).count == 3)
     }
 
+    // MARK: Sections, New Chief and telling Chiefs apart (user 2026-10-27)
+
+    /// Before anything is typed, To: lists the Chiefs and the team in their own sections, with a
+    /// New Chief row after the Chiefs: Down reaches it and Return makes a Chief.
+    @Test func theIdleListHasChiefAndTeamSectionsAndANewChiefRow() {
+        let field = Self.field()
+        let unii = HomeContact(id: ParticipantID("agent_unii"), name: "Unii", source: .agent)
+        field.idleSuggestions = { [Self.chief, unii, Self.ada, Self.grace] }
+        var made = 0
+        field.onNewChief = { made += 1 }
+        field.refreshSuggestions()
+        #expect(field.suggestions.rows == [
+            .header(HomeConversationStrings.chiefsSection), .recipient(.contact(Self.chief)), .recipient(.contact(unii)), .newChief,
+            .header(HomeConversationStrings.teamSection), .recipient(.contact(Self.ada)), .recipient(.contact(Self.grace)),
+        ])
+        #expect(field.suggestions.items == [.contact(Self.chief), .contact(unii), .contact(Self.ada), .contact(Self.grace)])
+        for _ in 0..<3 { field.handle(#selector(NSResponder.moveDown(_:))) }
+        #expect(field.suggestions.highlightedRow == .newChief)
+        field.handle(#selector(NSResponder.insertNewline(_:)))
+        #expect(made == 1)
+        #expect(field.draft.recipients.isEmpty, "New Chief adds no token")
+        field.handle(#selector(NSResponder.moveDown(_:)))
+        field.handle(#selector(NSResponder.insertNewline(_:)))
+        #expect(field.draft.recipients == [.contact(Self.ada)], "Down after New Chief reaches the team")
+    }
+
+    /// With no teammates the Team section offers an invite instead of hiding.
+    @Test func anEmptyTeamOffersAnInvite() {
+        let field = Self.field()
+        field.idleSuggestions = { [Self.chief] }
+        var invited = 0
+        field.onNewChief = {}
+        field.onInvite = { invited += 1 }
+        field.refreshSuggestions()
+        #expect(field.suggestions.rows == [
+            .header(HomeConversationStrings.chiefsSection), .recipient(.contact(Self.chief)), .newChief,
+            .header(HomeConversationStrings.teamSection), .invite,
+        ])
+        for _ in 0..<3 { field.handle(#selector(NSResponder.moveDown(_:))) }
+        #expect(field.suggestions.highlightedRow == .invite, "Down skips the Team header")
+        field.handle(#selector(NSResponder.insertNewline(_:)))
+        #expect(invited == 1)
+    }
+
+    /// Headers are not rows a click or Return can pick.
+    @Test func aHeaderIsNeverPicked() {
+        let field = Self.field()
+        field.idleSuggestions = { [Self.chief, Self.ada] }
+        field.refreshSuggestions()
+        #expect(!field.suggestions.tableView(field.suggestions.table, shouldSelectRow: 0))
+        #expect(field.suggestions.tableView(field.suggestions.table, shouldSelectRow: 1))
+    }
+
+    /// Two Chiefs named "Chief" on this Mac were two identical "Chief · This Mac" rows: rows that
+    /// read the same also show when each was last active, else a number.
+    @Test func twoChiefsThatReadTheSameAreToldApart() throws {
+        let one = HomeContact(id: ParticipantID("agent_one"), name: "Chief", source: .agent)
+        let two = HomeContact(id: ParticipantID("agent_two"), name: "Chief", source: .agent)
+        let three = HomeContact(id: ParticipantID("agent_three"), name: "Chief", source: .agent)
+        let list = HomeRecipientSuggestionsView(frame: NSRect(x: 0, y: 0, width: 380, height: 300))
+        list.look = { recipient in
+            guard case .contact(let contact) = recipient, contact.source == .agent else { return HomeRecipientLook() }
+            let activity: String? = contact == one ? "Active 2h ago" : contact == two ? "Active yesterday" : "Active yesterday"
+            return HomeRecipientLook(avatar: .chiefDefault, tag: "This Mac", activity: activity)
+        }
+        list.show([.contact(one), .contact(two), .contact(three), .contact(Self.ada)], highlightFirst: false)
+        let labels = try (0..<4).map { try #require(list.tableView(list.table, viewFor: nil, row: $0)?.accessibilityLabel()) }
+        #expect(Set(labels).count == 4, "\(labels)")
+        #expect(labels[0].contains("Active 2h ago"))
+        #expect(labels[1].contains("Active yesterday"))
+        #expect(labels[3] == "Ada Lovelace, \(HomeConversationStrings.sourceTeam)", "a unique row stays short")
+    }
+
     @Test func plusListsEveryoneNotChosenYet() {
         let field = Self.field()
         field.choose(.contact(Self.ada))
@@ -344,6 +418,28 @@ struct HomeNewMessageTests {
         #expect(sidebar.list.entries.map(\.id).contains(HomeSidebarView.draftRowID.rawValue))
         sidebar.setDraftRow(nil)
         #expect(!sidebar.list.entries.map(\.id).contains(HomeSidebarView.draftRowID.rawValue))
+    }
+
+    /// The user, 2026-10-30: "on hover on new message should be x button". Only the draft row
+    /// carries the x; its click asks the page to discard the draft; without a draft no row has one.
+    @Test func theDraftRowAloneCarriesAnXThatAsksThePageToDiscardTheDraft() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 600), styleMask: [.borderless], backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
+        let sidebar = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
+        window.contentView = sidebar
+        var closes = 0
+        sidebar.onCloseDraft = { closes += 1 }
+        sidebar.update(HomeSidebarModel(rows: [Self.row("other", [Self.alan.id])], pins: HomePins(), me: Self.me))
+        #expect(sidebar.list.closableID == nil)
+        sidebar.setDraftRow(HomeNewMessageDraft.rowTitle)
+        #expect(sidebar.list.closableID == HomeSidebarView.draftRowID.rawValue)
+        #expect(sidebar.list.closeTitle == HomeConversationStrings.closeNewMessage)
+        sidebar.list.onClose("other")
+        #expect(closes == 0, "a conversation's row has no x")
+        sidebar.list.onClose(HomeSidebarView.draftRowID.rawValue)
+        #expect(closes == 1)
+        sidebar.setDraftRow(nil)
+        #expect(sidebar.list.closableID == nil)
     }
 
     // MARK: The blank page's first send

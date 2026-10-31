@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-21: "new space plus button needs to be right next to the last space too". The
 /// "+" (shown on hover) sits right after the last space's dot, with the same gap the dots have
 /// between each other, at every bar width and space count; it follows the last dot as spaces are
 /// added or removed and never leaves the bar.
-@MainActor @Suite(.serialized) struct ProfileBarPlusPlacementTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ProfileBarPlusPlacementTests {
     struct Case: CustomTestStringConvertible, Sendable {
         let count: Int
         let width: CGFloat

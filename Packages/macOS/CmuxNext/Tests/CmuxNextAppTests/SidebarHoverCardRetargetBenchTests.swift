@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Darwin
 import QuartzCore
 import Testing
@@ -12,7 +13,7 @@ import CmuxNextWakeupsTestSupport
 /// the open card to that row (`HoverCardPanel.present(sliding:)`), and each slide rebuilt the card
 /// on the main thread before the row's hover fill could draw. A retarget is one pointer move plus
 /// the frame that draws it; it must fit inside half a 60 Hz frame however long the history is.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarHoverCardRetargetBenchTests {
     /// Rows of the history each fake workspace has (the reader's limit is 100).
     static let historyDepth = 100
@@ -139,6 +140,13 @@ struct SidebarHoverCardRetargetBenchTests {
         return sorted[min(sorted.count - 1, Int((Double(sorted.count - 1) * p).rounded()))]
     }
 
+    /// The 8 ms budget is held only with `CMUX_HOVER_RETARGET_BENCH=1`, the opt-in of the other
+    /// benches (`CMUX_PANE_BENCH`, `CMUX_DRAG_BENCH`): on a shared GUI runner of the PR test job the
+    /// main thread's CPU per retarget follows the host's load (17.7 ms p95 against 8 on a busy mini
+    /// with no change in the code), so there the test checks only that the card follows the rows
+    /// and prints the timing.
+    static let holdsTheBudget = ProcessInfo.processInfo.environment["CMUX_HOVER_RETARGET_BENCH"] == "1"
+
     /// One card retarget (the pointer onto the next row with a card open) costs under half a
     /// 60 Hz frame of main thread, scaled to the runner, and the card follows every row.
     @Test func aRetargetWithACardOpenFitsInsideHalfAFrame() async throws {
@@ -152,6 +160,7 @@ struct SidebarHoverCardRetargetBenchTests {
         print(String(format: "HOVER-RETARGET-BENCH steps=%d cpu_ms p50 %.2f p95 %.2f max %.2f | cards %d | %@",
                      ms.count, p50, p95, ms.max() ?? 0, shown.count, calibration.summary))
         #expect(shown.count >= 16, "the card followed only \(shown.count) of 18 rows")
+        guard Self.holdsTheBudget else { return print("HOVER-RETARGET-BENCH budget not held: set CMUX_HOVER_RETARGET_BENCH=1") }
         if let reason = calibration.skipReason { return print("HOVER-RETARGET-BENCH skipped the budget: \(reason)") }
         let budget = calibration.budget(8)
         #expect(p95 < budget, "a hover card retarget took \(p95) ms p95 of main thread, over 8 ms scaled to \(budget) ms")

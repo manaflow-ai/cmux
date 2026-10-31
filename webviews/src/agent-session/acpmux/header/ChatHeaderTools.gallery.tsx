@@ -1,13 +1,19 @@
 // l10n-allow-file: gallery fixtures (sample chat actions), not shipped UI.
-import { createElement } from "react";
+import { createElement, Fragment } from "react";
 import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
+import { avatarRows } from "./avatarRow";
+import { cloudMachineRows } from "../cloudMachineMenu";
+import { translate } from "../i18n";
 import type { ChatMenuItem } from "./ChatHeaderTools";
 import { PanelToggle } from "./PanelToggle";
 import type { QuickAction } from "./quickActions";
+import type { NativeRowToolsHost } from "./useNativeRowTools";
+import { NeedsYouButton } from "../needsYou/NeedsYou";
 
 type HeaderToolsProps = {
+  treatment?: { size: number; gap: number };
   onTerminal: (mode: "toggle" | "open") => void;
   onSplitDown?: (mode: "toggle" | "open") => void;
   onBrowser: (mode: "toggle" | "open") => void;
@@ -21,6 +27,8 @@ type HeaderToolsProps = {
   onPreview?: (url: string | undefined, mode: "toggle" | "open") => void;
   onCustomize?: (list: readonly QuickAction[]) => void;
   summary: ReactNode;
+  inbox?: ReactNode;
+  nativeRowTools?: NativeRowToolsHost;
   menu: () => ChatMenuItem[];
   onMenuOpen?: () => Promise<unknown>;
   onMergePullRequest?: (pullRequest: { number: number; url: string }) => Promise<{ queued: boolean }>;
@@ -44,9 +52,11 @@ const menuRows = (): ChatMenuItem[] => [
   "separator",
   { key: "sideChat", label: "New side chat", icon: "agent.chat.new", onSelect: () => undefined },
   { key: "fork", label: "Fork", icon: "agent.fork", onSelect: () => undefined },
+  { key: "forkTo", label: "Fork to…", icon: "agent.fork", onSelect: () => undefined },
+  "separator",
   {
     key: "continue",
-    label: "Continue in",
+    label: "Hand off to…",
     icon: "agent.handoff",
     children: [
       { key: "codex", label: "Codex", onSelect: () => undefined },
@@ -62,6 +72,7 @@ const menuRows = (): ChatMenuItem[] => [
       { key: "copyLink", label: "Copy link", shortcutAction: "palette.copySurfaceLink", onSelect: () => undefined },
       { key: "copyResponse", label: "Copy last response", onSelect: () => undefined },
       { key: "copyMarkdown", label: "Copy as Markdown", onSelect: () => undefined },
+      { key: "saveMarkdown", label: "Save as Markdown…", onSelect: () => undefined },
     ],
   },
   "separator",
@@ -116,8 +127,65 @@ const groupedControls: Play = async (ctx) => {
   const lefts = tools.map((button) => button.getBoundingClientRect().left);
   if (lefts.slice(1).some((left, index) => Math.round(left - lefts[index]!) !== 26))
     throw new Error("header buttons are not on one 26px pitch");
-  const glyphs = new Set(tools.map((button) => button.querySelector("svg")?.getAttribute("width")));
+  const glyphs = new Set(tools.map((button) => button.querySelector("[data-icon]")?.getBoundingClientRect().width));
   if (glyphs.size !== 1) throw new Error(`header glyphs come in several sizes: ${[...glyphs].join(", ")}`);
+};
+
+// Three complete treatments, kept in the gallery. Only the compact treatment ships; alternatives
+// change fixture geometry rather than adding another product preference or toolbar row.
+const groupTreatment =
+  (size: number, gap: number): Play =>
+  async (ctx) => {
+    const tools = ctx.document.querySelector<HTMLElement>(".acpmux-header-tools")!;
+    if (ctx.document.defaultView!.getComputedStyle(tools).gap !== `${gap}px`)
+      throw new Error("the group must render at its selected spacing");
+    for (const button of tools.querySelectorAll<HTMLElement>(".acpmux-header-tool")) {
+      const box = button.getBoundingClientRect();
+      if (box.width !== size || box.height !== size) throw new Error("the buttons must render at their selected size");
+    }
+    await ctx.hover({ role: "button", name: "Terminal" });
+  };
+
+// Plain icons (Leo 2026-10-25: "why do the icons have their own background border situation instead of
+// just being, you know, good"; 2026-10-31: "AND THE FUCKING BACKGROUND ON THIS FUCKING BUILD ON THESE
+// BUTTONS STILL ISN'T FUCKING REMOVESD"): with the right-side panel and Terminal's split open, Terminal
+// hovered and the chat menu open, no header tool draws a fill, a border or a shadow, pressed or not. A
+// pressed one reads as on by its lit ink alone, hovered or not, as the App's pane toolbar toggles do (Leo,
+// 2026-10-26: "why is the button not toggled?" / "i literally meant the ui depicting it as toggled or not").
+const plainIcons: Play = async (ctx) => {
+  const { setHeaderState } = await import("./headerState");
+  setHeaderState({ lit: ["splitRight"] });
+  await ctx.waitFor(() => ctx.document.querySelector('[data-quick-action="terminal"][aria-pressed="true"]'));
+  await ctx.hover({ role: "button", name: "Chat summary" });
+  const panel = ctx.find({ selector: '.acpmux-summary-button[aria-pressed="true"]' });
+  const view = ctx.document.defaultView!;
+  const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools .acpmux-header-tool")];
+  const clear = (color: string) => /^rgba\(.*,\s*0\)$|^transparent$/.test(color);
+  if (!clear(view.getComputedStyle(panel).backgroundColor))
+    throw new Error("the open panel toggle draws a plate on hover");
+  const litInk = view.getComputedStyle(panel).color;
+  await ctx.hover({ role: "button", name: "Terminal" });
+  await openMenu(ctx);
+  await ctx.hover({ role: "menuitem", name: "Rename" });
+  const menuButton = ctx.find({ role: "button", name: "Chat actions" });
+  if (!menuButton.hasAttribute("data-popup-open")) throw new Error("the chat menu closed on pointer exit");
+  // The open menu's trigger takes the text's ink, unlike a tool at rest (Browser is not pressed here).
+  const restInk = view.getComputedStyle(ctx.find({ selector: '[data-quick-action="browser"]' })).color;
+  await ctx.waitFor(() => view.getComputedStyle(menuButton).color !== restInk);
+  for (const tool of tools) {
+    const style = view.getComputedStyle(tool);
+    const name = tool.getAttribute("aria-label");
+    const pressed = tool.getAttribute("aria-pressed") === "true";
+    if (!clear(style.backgroundColor)) throw new Error(`header tool ${name} draws a fill: ${style.backgroundColor}`);
+    if (pressed && style.color !== litInk) throw new Error(`header tool ${name} is pressed without the lit ink`);
+    if (["top", "right", "bottom", "left"].some((side) => style.getPropertyValue(`border-${side}-width`) !== "0px"))
+      throw new Error(`header tool ${name} draws a border`);
+    if (style.boxShadow !== "none") throw new Error(`header tool ${name} draws a shadow: ${style.boxShadow}`);
+  }
+  const on = ctx.find({ selector: '.acpmux-summary-button[aria-pressed="true"]' });
+  const off = ctx.find({ selector: '[data-quick-action="browser"]' });
+  if (view.getComputedStyle(on).color === view.getComputedStyle(off).color)
+    throw new Error("the open panel's toggle has the same ink as a tool at rest");
 };
 
 // The App found the chat branch's pull request: open, 3 of 5 checks passed, one failing (cx-tcwj).
@@ -254,7 +322,7 @@ const keyboardMenu: Play = async (ctx) => {
 
 const keyboardSubmenu: Play = async (ctx) => {
   await openMenu(ctx);
-  await ctx.focus({ role: "menuitem", name: "Continue in" });
+  await ctx.focus({ role: "menuitem", name: "Hand off to…" });
   await ctx.press("ArrowRight");
   await ctx.waitFor(() => ctx.document.querySelectorAll('[role="menu"]').length === 2);
   await ctx.press("Escape");
@@ -267,6 +335,32 @@ const keyboardSubmenu: Play = async (ctx) => {
     );
   });
 };
+
+const copySubmenu: Play = async (ctx) => {
+  await openMenu(ctx);
+  await ctx.focus({ role: "menuitem", name: "Copy" });
+  await ctx.press("ArrowRight");
+  await ctx.waitFor(() => ctx.document.querySelectorAll('[role="menu"]').length === 2);
+};
+
+// A Cloud chat's machine rows (cloudMachineMenu.ts), placed as the App places them: before Archive's group.
+const noop = () => undefined;
+const noCall = async () => undefined;
+const noStop = async () => true;
+const noLive = () => ({ session: undefined, running: false });
+const galleryT = translate;
+const withMachine = (machine: ChatMenuItem[]): ChatMenuItem[] => {
+  const rows = menuRows();
+  const archive = rows.findIndex((row) => row !== "separator" && row.key === "archive");
+  return [...rows.slice(0, archive), ...machine, "separator", ...rows.slice(archive)];
+};
+
+const inbox = (
+  <NeedsYouButton
+    items={[]}
+    actions={{ answer: async () => undefined, goTo: () => undefined, ask: async () => undefined }}
+  />
+);
 
 const base: HeaderToolsProps = {
   onTerminal: () => undefined,
@@ -288,6 +382,7 @@ export default componentEntry<HeaderToolsProps>({
   anchors: [{ selector: ".acpmux-header-tools" }],
   covers: [
     "agent-session/acpmux/header/ChatHeaderTools.tsx#ChatHeaderTools",
+    "agent-session/acpmux/header/HeaderIcon.tsx#HeaderIcon",
     "agent-session/acpmux/header/PullRequestChip.tsx#PullRequestChip",
     "agent-session/acpmux/header/PullRequestMerge.tsx#PullRequestMerge",
     "agent-session/acpmux/header/WorktreePill.tsx#WorktreePill",
@@ -295,15 +390,31 @@ export default componentEntry<HeaderToolsProps>({
     "agent-session/acpmux/header/WorktreeRemove.tsx#WorktreeRemove",
     "agent-session/acpmux/header/PanelToggle.tsx#PanelToggle",
   ],
-  load: () => import("./ChatHeaderTools").then((module) => module.ChatHeaderTools),
+  load: () =>
+    import("./ChatHeaderTools").then(
+      (module) =>
+        ({ treatment, ...props }: HeaderToolsProps) =>
+          createElement(
+            Fragment,
+            null,
+            treatment
+              ? createElement(
+                  "style",
+                  null,
+                  `.acpmux-header-tools,.acpmux-header-tool-group{gap:${treatment.gap}px}.acpmux-header-tools .acpmux-header-tool{width:${treatment.size}px;height:${treatment.size}px}`,
+                )
+              : null,
+            createElement(module.ChatHeaderTools, props),
+          ),
+    ),
   // The pane's own stylesheets, as the app ships them (build-agent-pane-web.sh): its theme variables,
   // the shared popup surface, then the header's rules. With header.css alone every popup was
-  // see-through in the gallery and the "Continue in" submenu bug did not show as it does in the app.
+  // see-through in the gallery and the "Hand off to…" submenu bug did not show as it does in the app.
   styles: () => Promise.all([import("../styles.css"), import("../../../ui/popupSurface.css"), import("./header.css")]),
   checks: {
     popupLayer: {
       value: true,
-      reason: "The chat menu and its Continue in submenu must each be the top, unclipped, opaque layer.",
+      reason: "The chat menu and its Hand off to… submenu must each be the top, unclipped, opaque layer.",
     },
     anchorMovePx: {
       value: 0,
@@ -315,6 +426,60 @@ export default componentEntry<HeaderToolsProps>({
     },
   },
   variants: {
+    "native-row-off": {
+      note: "The default web toolbar: Summary, Needs You, quick actions and the chat menu remain web controls.",
+      props: { ...base, inbox },
+    },
+    "native-row-tools": {
+      note: "Native row tools opt-in: Summary and quick-action icons move to the native host. Needs You keeps its web button and anchored rich list; the chat menu stays web. No default changes.",
+      props: {
+        ...base,
+        inbox,
+        nativeRowTools: {
+          enabled: true,
+          callNative: async () => undefined,
+          panel: { id: "summary", label: "Summary", toggled: false, run: () => undefined },
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => !ctx.document.querySelector("[data-quick-action], .acpmux-header-panel-toggle"));
+        ctx.find({ selector: ".acpmux-needs-you-button" });
+        ctx.find({ role: "button", name: "Chat actions" });
+      },
+    },
+    "unified-compact": {
+      note: "Chosen: one 24px target on a 26px pitch, 16px SF Symbols in the app, overflow last. The selected panel glyph uses accent ink; only the hovered button changes its hover ink. Fits the shared 28px tab row.",
+      props: {
+        ...base,
+        hasChanges: true,
+        onChanges: () => undefined,
+        summary: panelToggle(true),
+        treatment: { size: 24, gap: 2 },
+      },
+      play: groupTreatment(24, 2),
+    },
+    "unified-roomy": {
+      note: "Alternative: 28px targets on a 32px pitch. Easier to acquire, but consumes more tab-strip room and pushes narrow panes into a separate header sooner.",
+      props: {
+        ...base,
+        hasChanges: true,
+        onChanges: () => undefined,
+        summary: panelToggle(true),
+        treatment: { size: 28, gap: 4 },
+      },
+      play: groupTreatment(28, 4),
+    },
+    "unified-tight": {
+      note: "Alternative: 24px targets without gaps. Saves width, but leaves less separation for adjacent terminal and browser actions.",
+      props: {
+        ...base,
+        hasChanges: true,
+        onChanges: () => undefined,
+        summary: panelToggle(true),
+        treatment: { size: 24, gap: 0 },
+      },
+      play: groupTreatment(24, 0),
+    },
     idle: {
       note: "The complete tab header: Terminal, Browser, summary, and chat actions (New tab, Files and Split Down are in it).",
       props: base,
@@ -332,7 +497,7 @@ export default componentEntry<HeaderToolsProps>({
       play: panelsOpen,
     },
     "panel-open": {
-      note: "The right-side panel is open: its toggle, first of the icons, is pressed and its glyph's column filled.",
+      note: "Session Info is open: its toggle uses the text ink and selected glyph without a box, matching every other header control.",
       props: { ...base, summary: panelToggle(true) },
     },
     "panel-icon-list": {
@@ -346,6 +511,11 @@ export default componentEntry<HeaderToolsProps>({
     "panel-icon-session": {
       note: "Panel icon option: the session speech-bubble glyph, shown for comparison with the list control.",
       props: { ...base, summary: panelToggle(false, "agent.session") },
+    },
+    "plain-icons": {
+      note: "Plain icons: the panel and Terminal's split open, Terminal hovered, the chat menu open; no tool draws a box, and the open panel's toggle is lit by its ink.",
+      props: { ...base, summary: panelToggle(true) },
+      play: plainIcons,
     },
     "browser-preview": {
       note: "The chat's last turn named a local page: Browser opens it beside the chat and its tooltip names it; there is no separate Preview button.",
@@ -451,15 +621,98 @@ export default componentEntry<HeaderToolsProps>({
       props: base,
       play: openMenu,
     },
+    "menu-avatar": {
+      height: 860,
+      note: "A chat with an agent session and an uploaded avatar: Set Avatar… and Remove Avatar end the chat menu's tab rows, before Archive and Close (header/avatarRow.ts).",
+      props: {
+        ...base,
+        menu: () => {
+          const rows = menuRows();
+          const archive = rows.findIndex((row) => row !== "separator" && row.key === "archive");
+          const avatar = avatarRows(
+            { sessionId: "session-1", hasAvatar: true },
+            { set: () => undefined, remove: () => undefined },
+          );
+          return [...rows.slice(0, archive), ...avatar, "separator", ...rows.slice(archive)];
+        },
+      },
+      play: openMenu,
+    },
+    "menu-cloud-machine-running": {
+      height: 860,
+      note: "A chat on a running Cloud machine (Labs > Preview features): Pause Machine sits before the tools rows (cloudMachineMenu.ts).",
+      props: {
+        ...base,
+        menu: () =>
+          withMachine(
+            cloudMachineRows(
+              { id: "vm_1", name: "dev-vm-2", stage: "ready" },
+              false,
+              galleryT,
+              noCall,
+              noop,
+              noLive,
+              noStop,
+            ),
+          ),
+      },
+      play: openMenu,
+    },
+    "menu-cloud-machine-working": {
+      height: 860,
+      note: "The same while its turn runs: the row says it stops the turn first.",
+      props: {
+        ...base,
+        menu: () =>
+          withMachine(
+            cloudMachineRows(
+              { id: "vm_1", name: "dev-vm-2", stage: "ready" },
+              true,
+              galleryT,
+              noCall,
+              noop,
+              noLive,
+              noStop,
+            ),
+          ),
+      },
+      play: openMenu,
+    },
+    "menu-cloud-machine-paused": {
+      height: 860,
+      note: "A chat on a paused Cloud machine: Resume Machine.",
+      props: {
+        ...base,
+        menu: () =>
+          withMachine(
+            cloudMachineRows(
+              { id: "vm_1", name: "dev-vm-2", stage: "paused" },
+              false,
+              galleryT,
+              noCall,
+              noop,
+              noLive,
+              noStop,
+            ),
+          ),
+      },
+      play: openMenu,
+    },
     "keyboard-menu": {
       note: "Enter opens the menu, ArrowDown highlights a row, and Escape returns focus to Chat actions.",
       props: base,
       play: keyboardMenu,
     },
     "keyboard-submenu": {
-      note: "Continue in opens with ArrowRight; Escape closes the submenu and then the parent menu.",
+      note: "Hand off to… opens with ArrowRight; Escape closes the submenu and then the parent menu.",
       props: base,
       play: keyboardSubmenu,
+    },
+    "menu-copy-submenu": {
+      height: 860,
+      note: "Copy opens with ArrowRight: Copy as Markdown puts the whole chat on the clipboard, and Save as Markdown… writes the same Markdown to a file the person picks.",
+      props: base,
+      play: copySubmenu,
     },
     "quick-chat": {
       note: "Quick Chat has no tab to split, so only the summary and chat actions remain.",

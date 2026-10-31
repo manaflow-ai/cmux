@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSettings
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -15,7 +16,7 @@ import Testing
 /// where each pane is outlined (Panes, Card Outlined), the first tab starts on the outline's left
 /// line, the line drawn right under it. The trailing end follows the same rule: the "…" button
 /// keeps as much room to the trailing edge as above it.
-@MainActor @Suite(.serialized) struct PaneChromeEvenInsetTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PaneChromeEvenInsetTests {
     private func load(_ style: ChromeStyle?, density: Density) {
         let appearance: JSONValue = style.map { .object(["chromeStyle": .string($0.rawValue)]) } ?? .object([:])
         let snapshot = CmuxConfigSnapshot.parse(.object(["appearance": appearance]), validDensities: SettingsApplier.validDensities,
@@ -81,8 +82,8 @@ import Testing
         let toolbar = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 120, height: PaneChromeMetrics.current.resolvedStripHeight(scale: 2)))
         toolbar.show(more: true, lit: false)
         toolbar.layoutSubtreeIfNeeded()
-        // Where "…" rests once shown (it slides in from the leading side as the bar is hovered).
-        let more = toolbar.moreFrame(revealed: true)
+        // The fixed trailing slot, at rest and throughout the hover fade.
+        let more = toolbar.moreFrame()
         let trailing = toolbar.bounds.maxX - more.maxX, top = more.minY
         #expect(top > 0)
         #expect(abs(trailing - top) <= 0.01, "\(density): \(trailing) pt after \"…\", \(top) pt above it")

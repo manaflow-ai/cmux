@@ -22,7 +22,6 @@ public import Observation
 /// per `refreshInterval`, from the lanes' states and titles only (a new step changes nothing).
 @Observable @MainActor
 public final class RemoteMachinesSidebar {
-    public static let shared = RemoteMachinesSidebar()
     /// Rows shown per page of an unfolded group; Show More adds one.
     public static let pageSize = 10
     /// The longest a lane change waits before the groups show it.
@@ -106,6 +105,9 @@ public final class RemoteMachinesSidebar {
     @ObservationIgnored private let refresh = DemandTimer(owner: "sidebar.remoteMachines")
     /// The peer list read in flight.
     @ObservationIgnored private var peerRead: Task<Void, Never>?
+    /// Bumped by each push (`peerStateChanged`): a read in flight then may answer from before it, so
+    /// its answer is dropped and the list read again.
+    @ObservationIgnored private var peerPushes = 0
 
     public init(lanes: AgentLaneStore = .shared) {
         self.lanes = lanes
@@ -137,6 +139,44 @@ public final class RemoteMachinesSidebar {
         olderReads = [:]
     }
 
+    /// The app's own acpmux pushed peer `peer`'s link state (`AgentTurnStateFeed.peerStateChanged`),
+    /// or its watch (re)opened (`peer` nil). A listed peer's header follows at once and a repeat
+    /// changes nothing; an unknown peer, an offline for one already down (it may be removed), or a
+    /// reopened watch reads the list again (one read at a time, as a rebuild does). Nothing runs
+    /// before `bind` or after `stop()`. A read in flight when any push lands (one that changes nothing
+    /// shown too: the read may have sampled the link between two pushes) is read again after it.
+    public func peerStateChanged(peer: String?, state: String?) {
+        guard laneWatch != nil else { return }
+        peerPushes += 1
+        switch Self.push(peer: peer, state: state, onto: peers) {
+        case .same: return
+        case .read: askForPeers()
+        case .list(let next):
+            peers = next
+            rebuild()
+        }
+    }
+
+    /// What one pushed link state does to the listed peers.
+    nonisolated enum PeerPush: Equatable {
+        /// Nothing: a repeat, or a state of the same colour (only `connected` is up).
+        case same
+        /// The list with that peer's link moved.
+        case list([AcpmuxPeerList.Peer])
+        /// Read the list again: an unknown peer, an offline for one already down, or no peer.
+        case read
+    }
+
+    nonisolated static func push(peer: String?, state: String?, onto peers: [AcpmuxPeerList.Peer]?) -> PeerPush {
+        guard let peer, let state, var list = peers, let i = list.firstIndex(where: { $0.name == peer }),
+              state != "offline" || list[i].connected else { return .read }
+        let connected = state == "connected"
+        guard list[i].connected != connected else { return .same }
+        let old = list[i]
+        list[i] = AcpmuxPeerList.Peer(name: old.name, connected: connected, resources: old.resources, url: old.url)
+        return .list(list)
+    }
+
     /// The rows now, every group in order. Read inside an observation scope, so a group, fold or
     /// page change re-yields.
     public func rows() -> [SidebarTransientItem] {
@@ -144,12 +184,6 @@ public final class RemoteMachinesSidebar {
         let shown = SidebarTunables.laneFixture.value && expanded.isEmpty && pages.isEmpty ? ["linux-box"] : expanded
         return Self.rows(machines: machines, expanded: shown, pages: pages, resources: SidebarTunables.remoteMachineResources.value,
                          olderShown: olderShown, older: older, displayName: { [host] in host?.displayName($0) })
-    }
-
-    /// The rows the sidebar draws: remote chats as plain rows, not a block of machine groups.
-    /// Read inside an observation scope, so a change re-yields.
-    public func mergedRows() -> [SidebarTransientItem] {
-        Self.mergedRows(machines: machines, displayName: { [host] in host?.displayName($0) })
     }
 
     /// Runs a click on one of the rows; false for any other item. A header folds or unfolds its
@@ -249,14 +283,18 @@ public final class RemoteMachinesSidebar {
     }
 
     /// One bounded `_acpmux/peers` (the daemon answers from memory, never asking a peer),
-    /// unless a read is in flight; a changed answer arms `refresh`.
+    /// unless a read is in flight; a changed answer arms `refresh`. An answer a pushed change
+    /// overtook (`peerPushes` moved while it was in flight) is dropped and the list read again.
     private func askForPeers() {
         guard peerRead == nil, let read = host?.peers else { return }
-        // task-owner: this instance; one read, bounded by its 2 s deadline, cancelled by `stop()`
+        let pushes = peerPushes
+        // task-owner: this instance; one read at a time, each bounded by its 2 s deadline, cancelled by `stop()`;
+        // a follow-up only when a push came during it (pushes come only on a state change, so a burst ends)
         peerRead = Task { [weak self] in
             let next = await read()
             guard let self, !Task.isCancelled else { return }
             peerRead = nil
+            guard pushes == peerPushes else { return askForPeers() }
             if next != peers {
                 peers = next
                 // Through the same gate as a lane change: still one rebuild per refreshInterval.
@@ -304,24 +342,6 @@ public final class RemoteMachinesSidebar {
         if chats.contains(where: { $0.activity == .waiting }) { return .waiting }
         if chats.contains(where: { $0.activity == .working }) { return .working }
         return .idle
-    }
-
-    /// The live chats of every reachable machine as plain rows, newest first, one page at most. A row
-    /// carries only its machine's name as a caption; a machine has no row of its own, and an offline
-    /// one shows nothing. Clicking a row opens its chat (same ids as an unfolded group's chat).
-    @MainActor
-    static func mergedRows(machines: [Machine], displayName: (String) -> String?) -> [SidebarTransientItem] {
-        var previous: [LayoutItemRef] = [.app("cmux/app-store"), SidebarTransientItem.channels.item.ref, SidebarLayoutDocument.homeRef,
-                                         .builtIn(.home)]
-        let chats = machines.filter(\.online).flatMap { machine in machine.chats.map { (machine.peer, $0) } }
-        return chats.sorted { ($0.1.since, $1.0) > ($1.1.since, $0.0) }.prefix(pageSize).map { peer, chat in
-            var info = SidebarItemInfo(title: chat.title, symbol: "bubble.left", brand: chat.harness)
-            info.activity = chat.activity
-            info.caption = displayName(peer) ?? peer
-            let item = SidebarTransientItem(id: LayoutItemID(sessionPrefix + chat.id), info: info, after: previous)
-            previous = [item.item.ref]
-            return item
-        }
     }
 
     @MainActor

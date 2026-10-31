@@ -32,8 +32,7 @@ public final class AgentActivityHostView: NSView {
         configuration.userContentController.addScriptMessageHandler(bridge, contentWorld: .page, name: AgentActivityBridge.handlerName)
         // The shared web theme (`window.cmuxTheme`, `--cmux-*`), as on every cmux page: the
         // bootstrap, then the app's colors for the first frame; the view's scope follows on load.
-        configuration.userContentController.addUserScript(
-            WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        WebTheme.installUserScripts(on: configuration.userContentController)
         configuration.userContentController.addUserScript(
             WKUserScript(source: Self.theme(.app).applyScript, injectionTime: .atDocumentStart,
                          forMainFrameOnly: true))
@@ -83,7 +82,8 @@ public final class AgentActivityHostView: NSView {
     fileprivate func applyTheme(reload: Bool = false) {
         themeFollower.rebind()
         if reload { appliedTheme = nil }
-        let theme = Self.theme(themeScope)
+        // In this view's scope: see-through or opaque follows its workspace's picture (#28867).
+        let theme = performWithTheme { Self.theme(themeScope) }
         if theme.payloadJSON != appliedTheme {
             appliedTheme = theme.payloadJSON
             webView.evaluateJavaScript(theme.applyScript, completionHandler: nil)

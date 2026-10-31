@@ -33,7 +33,7 @@ export const KNOWN_PROGRAMS = [
  * Programs the lock may carry but does not require yet: their release does not
  * exist, so they are pinned only once it does (cloud-automation.md section 2.2).
  */
-export const OPTIONAL_PROGRAMS = ["cmux-cua", "chrome-for-testing", "cmux-browser-host"] as const;
+export const OPTIONAL_PROGRAMS = ["cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop"] as const;
 export type ProgramName = (typeof KNOWN_PROGRAMS)[number] | (typeof OPTIONAL_PROGRAMS)[number];
 
 /** Role names a program or a lock role may use (vm-image.md 4.3, cloud-automation.md 2.1). */
@@ -792,8 +792,13 @@ export function percentile(values: readonly number[], p: number): number {
 }
 
 /** Snapshot and VM names: branch bakes carry cmuxnp-dev-; only an explicit promotion may not. */
-export function imageResourceName(options: { promotion: boolean; tag: string; date: string; sha: string }): string {
+/** The image prefix the production Worker boots (backend/apps/api/src/cloud-driver.ts ENV_IMAGE_PREFIX.production). */
+export const PROD_IMAGE_PREFIX = "cmuxnp-prod-vmimg-";
+
+export function imageResourceName(options: { promotion: boolean; prodCopy?: boolean; tag: string; date: string; sha: string }): string {
   if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(options.tag)) throw new Error(`tag ${options.tag} must be [a-z0-9-], at most 41 chars`);
+  if (options.prodCopy && options.promotion) throw new Error("--prod-copy and --promotion name the snapshot differently; pass one");
+  if (options.prodCopy) return `${PROD_IMAGE_PREFIX}${options.tag}`;
   if (options.promotion) return `cmux-vm-${options.date}-${options.sha.slice(0, 10)}`;
   return `cmuxnp-dev-vmimg-${options.tag}`;
 }

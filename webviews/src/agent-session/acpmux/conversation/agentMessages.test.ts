@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixtures.
 // Tool calls that message another agent draw as message cards (agentMessages.ts): Claude Code's
 // SendMessage, and the cmux-sessions MCP server's send_to_session (#21858) under the names a
-// harness gives MCP tools.
+// harness gives MCP tools, and the acpmux MCP server's acpmux_send (acpmux_mcp.rs).
 import { expect, test } from "bun:test";
 import { agentMessage } from "./agentMessages";
 
@@ -33,6 +33,24 @@ test("send_to_session, as Claude Code and other harnesses name MCP tools", () =>
   expect(agentMessage(call("mcp__cmux-sessions__send_to_session", { text: "y" }))).toBeUndefined();
 });
 
+test("acpmux_send, as harnesses name it behind the cmux server or on its own", () => {
+  for (const title of ["mcp__cmux__acpmux_send", "mcp__acpmux__send", "acpmux_send", "cmux.acpmux_send"])
+    expect(agentMessage(call(title, { to: "build-box/lane-a", text: "Rebase on main." }))).toEqual({
+      channel: "agent",
+      to: "build-box/lane-a",
+      text: "Rebase on main.",
+    });
+  // Codex nests an MCP call's arguments under {server, tool, arguments}.
+  expect(
+    agentMessage(
+      call("cmux", { server: "cmux", tool: "acpmux_send", arguments: { to: "lane-b", text: "Done.", steer: false } }),
+    ),
+  ).toEqual({ channel: "agent", to: "lane-b", text: "Done." });
+  // Another server's send, or no recipient: an ordinary tool row.
+  expect(agentMessage(call("mcp__gmail__send", { to: "x", text: "y" }))).toBeUndefined();
+  expect(agentMessage(call("mcp__cmux__acpmux_send", { text: "y" }))).toBeUndefined();
+});
+
 test("a send's delivery: sending, sent, queued, delivered or failed, from its state and result", async () => {
   const { messageDelivery } = await import("./agentMessages");
   const done = (output?: string) => ({ status: "completed", output });
@@ -54,6 +72,26 @@ test("a send's delivery: sending, sent, queued, delivered or failed, from its st
   // tell-coordinator's receipt.
   expect(messageDelivery(done("delivered to leoli-24 (id 9defc4d0ed87)\n"))).toBe("delivered");
   expect(messageDelivery(done("error: no session named grid\n"))).toBe("failed");
+});
+
+test("Chief tell outcomes expose refusals while keeping done, queued and noop successful", async () => {
+  const { messageDelivery, notDeliveredReason } = await import("./agentMessages");
+  const done = (output: string) => ({ status: "completed", output });
+  expect(messageDelivery(done("outcome: queued. Queued for delivery to a1"))).toBe("queued");
+  expect(messageDelivery(done("outcome: done. sent"))).toBe("sent");
+  expect(messageDelivery(done("outcome: noop. a1 already has this message (key k); it was not sent again"))).toBe(
+    "sent",
+  );
+  const cancelled = 'outcome: refused. a1 was cancelled; control(action: "restart") brings it back';
+  expect(messageDelivery(done(cancelled))).toBe("failed");
+  expect(notDeliveredReason({ output: cancelled })).toBe("stopped");
+  const deleted = "outcome: refused. a1 finished and its cloud VM vm-1 was deleted after its work was pushed";
+  expect(messageDelivery(done(deleted))).toBe("failed");
+  expect(notDeliveredReason({ output: deleted })).toBe("noAgent");
+  // A tell's own text can contain the word "refused" without turning an echoed
+  // message into a refusal receipt.
+  const text = "Please tell me why this was refused";
+  expect(messageDelivery(done(text), { channel: "agent", text, to: "a1" })).toBe("sent");
 });
 
 test("a subagent's agentId resolves to its description; an unknown id reads short", async () => {
@@ -159,4 +197,17 @@ test("a short message never erases its receipt's words, and a recipient named li
     ),
   ).toBe("queued");
   expect(messageDelivery(done("Message not delivered to not"), say("hi", "not"))).toBe("failed");
+});
+
+test("Chief tell keeps the entire message and only recognizes its own tool", () => {
+  const message = "Please verify the result. ".repeat(30) + "Keep this last sentence.";
+  for (const name of ["tell", "optchat.tell", "mcp__optchat__tell"])
+    expect(agentMessage(call(name, { id: "a1", message }))).toEqual({ channel: "agent", to: "a1", text: message });
+  expect(agentMessage(call("optchat", { server: "optchat", tool: "tell", arguments: { id: "a1", message } }))).toEqual({
+    channel: "agent",
+    to: "a1",
+    text: message,
+  });
+  expect(agentMessage(call("mcp__other__tell", { id: "a1", message }))).toBeUndefined();
+  expect(agentMessage(call("tell", { message }))).toBeUndefined();
 });

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2.
+// cmux-tui mux protocol 12, IR 440934d902c97a5d430e2f5c26ae15e96ab11f89fa383c70cf209c01f3abd2cb.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -657,6 +657,16 @@ pub type CloudConversationOpResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationPresenceRequest {
+    pub conversation: String,
+    pub viewing: bool,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationPresenceResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudConversationRunRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub after_seq: Optional<u64>,
@@ -769,6 +779,8 @@ pub type CloudHostReplicaStatusResult = T::JsonValue;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CloudInboxListRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cursor: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub include_archived: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1241,6 +1253,8 @@ pub struct ConversationRunAppendResult {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationRunsRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub answers: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub before_started_at: Optional<u64>,
     pub conversation: String,
@@ -2553,6 +2567,8 @@ pub struct NewPaneRightRequest {
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub shell_args: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub side: Optional<T::ColumnSide>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub tab_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -4344,6 +4360,10 @@ impl CmuxClient {
         self.execute(&CLOUD_CONVERSATION_OP_METADATA, &request)
     }
 
+    pub fn cloud_conversation_presence(&mut self, request: CloudConversationPresenceRequest) -> Result<CloudConversationPresenceResult> {
+        self.execute(&CLOUD_CONVERSATION_PRESENCE_METADATA, &request)
+    }
+
     pub fn cloud_conversation_run(&mut self, request: CloudConversationRunRequest) -> Result<CloudConversationRunResult> {
         self.execute(&CLOUD_CONVERSATION_RUN_METADATA, &request)
     }
@@ -4505,6 +4525,9 @@ impl CmuxClient {
     }
 
     pub fn conversation_runs(&mut self, request: ConversationRunsRequest) -> Result<ConversationRunsResult> {
+        if !request.answers.is_missing() {
+            self.require_capability_field("conversation-runs", "conversation-run-answers-v1")?;
+        }
         self.execute(&CONVERSATION_RUNS_METADATA, &request)
     }
 
@@ -5019,6 +5042,10 @@ impl CmuxClient {
         if !request.shell_args.is_missing() {
             self.require_protocol_field("new-pane-right", 12)?;
             self.require_capability_field("new-pane-right", "terminal-shell-args-v1")?;
+        }
+        if !request.side.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "column-left-v1")?;
         }
         if !request.tab_id.is_missing() {
             self.require_protocol_field("new-pane-right", 12)?;

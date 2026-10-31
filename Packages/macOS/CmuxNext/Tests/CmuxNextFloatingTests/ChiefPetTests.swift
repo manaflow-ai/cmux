@@ -2,12 +2,13 @@ import AppKit
 @testable import CmuxNextFloating
 import Foundation
 import Observation
+import CmuxNextTestSupport
 import Testing
 
 /// The Chief pet: a non-activating panel over every app and Space that keeps
 /// its spot per screen, stays fully on screen, tells a click from a drag, and
 /// shows only while it is turned on.
-@MainActor @Suite(.serialized) struct ChiefPetTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ChiefPetTests {
     @Observable final class Flag {
         var on: Bool
         init(_ on: Bool) { self.on = on }
@@ -58,6 +59,7 @@ import Testing
 
     @Test func panelFloatsOverEveryAppWithoutTakingFocus() {
         let panel = ChiefPetPanel(defaults: Self.defaults())
+        defer { panel.close() }
         #expect(panel.styleMask.contains(.nonactivatingPanel))
         #expect(!panel.canBecomeKey)
         #expect(!panel.canBecomeMain)
@@ -76,9 +78,13 @@ import Testing
     /// every main window.
     @Test func petNoticesAndReplyBoxStayOutWhileCmuxIsHidden() {
         let panel = ChiefPetPanel(defaults: Self.defaults())
+        defer { panel.close() }
         #expect(!panel.canHide)
-        #expect(!ChiefPetBubblePanel().canHide)
+        let bubble = ChiefPetBubblePanel()
+        defer { bubble.close() }
+        #expect(!bubble.canHide)
         let reply = ChiefPetReplyPanel()
+        defer { reply.close() }
         #expect(!reply.canHide)
         #expect(!reply.hidesOnDeactivate)
     }
@@ -113,6 +119,7 @@ import Testing
 
     @Test func clickRunsOnClickAndDoesNotMove() {
         let panel = ChiefPetPanel(defaults: Self.defaults())
+        defer { panel.close() }
         panel.setFrameOrigin(CGPoint(x: 200, y: 200))
         var clicks = 0
         var drags = 0
@@ -126,6 +133,7 @@ import Testing
 
     @Test func dragMovesThePanelWithThePointerAndIsNotAClick() {
         let panel = ChiefPetPanel(defaults: Self.defaults())
+        defer { panel.close() }
         panel.setFrameOrigin(CGPoint(x: 200, y: 200))
         var clicks = 0
         var drags = 0
@@ -147,11 +155,12 @@ import Testing
 
     @Test func everySettingIdIsAMascot() {
         // HomeChiefPetSetting.mascots (CmuxNextSettings) lists the same ids.
-        #expect(ChiefPetMascot.allCases.map(\.rawValue) == ["orb", "orb-spark", "orb-hood", "machine", "machine-cyan", "machine-blue", "moon", "moon-blue", "fox"])
+        #expect(ChiefPetMascot.allCases.map(\.rawValue) == ["orb", "orb-spark", "orb-hood", "machine", "machine-cyan", "machine-blue", "moon", "moon-blue", "fox", "mochi"])
     }
 
     @Test func pressOnTheRailBackgroundDragsButIsNoClick() {
         let panel = ChiefPetPanel(defaults: Self.defaults())
+        defer { panel.close() }
         panel.setFrameOrigin(CGPoint(x: 200, y: 200))
         var clicks = 0
         panel.onClick = { clicks += 1 }
@@ -163,6 +172,7 @@ import Testing
 
     @Test func composeOnTheRailOpens() throws {
         let panel = ChiefPetPanel(defaults: Self.defaults())
+        defer { panel.close() }
         var clicks = 0
         panel.onClick = { clicks += 1 }
         panel.pet.layoutSubtreeIfNeeded()
@@ -179,6 +189,7 @@ import Testing
         let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
                                             actions: ChiefPetActions(open: { _ in }, send: { _, _ in true },
                                                                      openSettings: { settings += 1 }, hide: { hides += 1 }))
+        defer { controller.closeForTest() }
         controller.sync(true)
         let panel = try #require(controller.panel)
         let menu = panel.contextMenu()
@@ -198,6 +209,7 @@ import Testing
         var canHide = false
         let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
                                             actions: ChiefPetActions(open: { _ in }, send: { _, _ in true }, canHide: { canHide }))
+        defer { controller.closeForTest() }
         controller.sync(true)
         let panel = try #require(controller.panel)
         #expect(panel.contextMenu().items.map(\.isEnabled) == [true, false])
@@ -253,6 +265,7 @@ import Testing
 
     @Test func dragReportsEveryMoveBeforeItEnds() {
         let panel = ChiefPetPanel(defaults: Self.defaults())
+        defer { panel.close() }
         panel.setFrameOrigin(CGPoint(x: 200, y: 200))
         var moves: [CGPoint] = []
         var ended = 0
@@ -269,8 +282,8 @@ import Testing
         let defaults = Self.defaults()
         let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
                                             actions: ChiefPetActions(open: { _ in }, send: { _, _ in true }))
+        defer { controller.closeForTest() }
         controller.sync(true)
-        defer { controller.sync(false) }
         controller.arrive(ChiefPetNotice(id: 1, tab: "t", surface: nil, title: "Done", detail: "Build finished", kind: .done))
         let panel = try #require(controller.panel)
         let bubble = try #require(controller.bubble)
@@ -304,6 +317,7 @@ import Testing
         let defaults = Self.defaults()
         let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
                                             actions: ChiefPetActions(open: { _ in }, send: { _, _ in true }))
+        defer { controller.closeForTest() }
         controller.start(enabled: { flag.on })
         for _ in 0..<100 { await Task.yield() }
         #expect(controller.panel == nil, "off: no panel is made")
@@ -322,5 +336,16 @@ import Testing
         // Made once: its spot and state are kept while it is hidden.
         #expect(controller.panel === made)
         controller.sync(false)
+    }
+}
+
+extension ChiefPetController {
+    /// A test's teardown: turns the pet off and closes its panels. Off only orders them out (the
+    /// app keeps them for the next show), so a test that stopped there left them open for the
+    /// suites after it (`.closesItsWindows`).
+    func closeForTest() {
+        sync(false)
+        let windows: [NSWindow?] = [panel, bubble, replyPanel]
+        for window in windows.compactMap(\.self) { window.close() }
     }
 }

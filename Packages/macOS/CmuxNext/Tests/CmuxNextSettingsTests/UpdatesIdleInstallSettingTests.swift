@@ -2,16 +2,16 @@ import CmuxNextSettings
 import Testing
 
 /// `updates.idleInstallMaxWaitSeconds` and `updates.idleInstallQuietSeconds`: a nightly installs a
-/// downloaded update by itself after 60 quiet seconds, and never waits more than 15 minutes.
+/// downloaded update by itself after 60 quiet seconds, and never waits more than 10 minutes.
 /// Only the person sets them; they show on the Updates: Advanced card.
 struct UpdatesIdleInstallSettingTests {
     private static func parse(_ updates: [String: JSONValue]) -> CmuxConfigSnapshot {
         CmuxConfigSnapshot.parse(.object(["updates": .object(updates)]), validDensities: [], validMetrics: [])
     }
 
-    @Test func fifteenMinutesAndSixtySecondsWhenUnset() {
+    @Test func tenMinutesAndSixtySecondsWhenUnset() {
         let snapshot = Self.parse([:])
-        #expect(snapshot.updates.idleInstallMaxWaitSeconds == 900)
+        #expect(snapshot.updates.idleInstallMaxWaitSeconds == 600)
         #expect(snapshot.updates.idleInstallQuietSeconds == 60)
         #expect(snapshot.diagnostics.isEmpty)
     }

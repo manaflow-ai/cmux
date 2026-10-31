@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 public import Foundation
@@ -166,9 +167,15 @@ extension AgentPaneView {
     /// report from a message's More button (`popUp`) opens that message's menu under the button now.
     func receiveContextMenuReport(_ body: Any?) {
         if let anchor = AgentPaneContextMenu.popUpAnchor(report: body) {
+            // After the page's message returns, from a run-loop callout, never a main-actor Task: a
+            // menu that tracks inside a main-queue job holds the main queue until it closes, and the
+            // click that closes it then waits for everything queued meanwhile (Leo, 2026-10-29).
+            if let seq = (body as? [String: Any])?["forkDestinations"] as? Int {
+                MainRunLoopBlock.perform { [weak self] in self?.popUpForkMenu(through: seq, anchor: anchor) }
+                return
+            }
             let target = AgentPaneMessageTarget(report: body)
-            // task-owner: one menu per More press, after the page's message returns; it ends when the menu closes
-            Task { @MainActor [weak self] in self?.popUpMessageMenu(target: target, anchor: anchor) }
+            MainRunLoopBlock.perform { [weak self] in self?.popUpMessageMenu(target: target, anchor: anchor) }
             return
         }
         messageMenuTarget = AgentPaneMessageTarget(report: body)
@@ -198,6 +205,25 @@ extension AgentPaneView {
         menu.popUp(positioning: nil, at: NSPoint(x: left, y: view.isFlipped ? bottom : view.bounds.height - bottom), in: view)
     }
 
+    func popUpForkMenu(through seq: Int? = nil, anchor: CGRect? = nil) {
+        let view: NSView = page?.focusView ?? webView
+        guard view.window != nil else { return }
+        let menu = AgentForkMenu.menu { [weak self] destination in
+            var params = ["placement": destination.rawValue]
+            if let seq { params["throughSeq"] = String(seq) }
+            self?.runMessageAction(seq == nil ? "chat.forkTo" : "chat.fork", params)
+        }
+        menu.themeRows(in: themeScope.fullStrength)
+        guard let anchor else {
+            menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+            return
+        }
+        let zoom: CGFloat = page.map { CGFloat(Double(DesignSettings.shared.uiScale) * $0.additionalZoom) }
+            ?? webView.pageZoom * webView.magnification
+        let bottom = anchor.maxY * zoom + 2
+        menu.popUp(positioning: nil, at: NSPoint(x: anchor.minX * zoom, y: view.isFlipped ? bottom : view.bounds.height - bottom), in: view)
+    }
+
     /// The pane's menu for `target` and `selection` in `menu`, which holds WebKit's items (none for More).
     private func fillContextMenu(_ menu: NSMenu, target: AgentPaneMessageTarget?, selection: String?) {
         let chatMenu = target == nil && selection == nil ? model.chatMenuItems?() ?? [] : []
@@ -207,6 +233,7 @@ extension AgentPaneView {
             fork: { [weak self] seq in self?.fork(through: seq) },
             retry: { [weak self] row in self?.runMessageAction("chat.retryPrompt", ["rowId": row]) },
             edit: { [weak self] text in self?.runMessageAction("chat.editPrompt", ["text": text]) },
+            quoteReply: { [weak self] markdown in self?.runMessageAction("chat.quoteReply", ["markdown": markdown]) },
             open: { [weak self] url in self?.openLink(url) },
             linkItems: { LinkMenu().linkItems(for: $0) },
             pathItems: { [weak self] path in self?.pathMenuItems(path) },
@@ -235,6 +262,10 @@ extension AgentPaneView {
     /// the user's gesture, as a native permission shortcut is.
     private func fork(through seq: Int) {
         AgentPanePersonInput.record(model.transport.gestures)
-        evaluateScript("window.cmuxAcpmuxActions?.['chat.fork']?.({ throughSeq: \(seq) });")
+        if NSEvent.modifierFlags.contains(.option) {
+            popUpForkMenu(through: seq)
+        } else {
+            runMessageAction("chat.fork", ["throughSeq": String(seq)])
+        }
     }
 }

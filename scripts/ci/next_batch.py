@@ -39,6 +39,7 @@ from typing import Any, Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import base_red_excuse  # noqa: E402
+import gh_pages  # noqa: E402
 import merge_main_resolver as mmr  # noqa: E402
 import next_batch_groups as groups  # noqa: E402
 
@@ -96,7 +97,20 @@ HEAVY_CHECKS = frozenset({
     "cmux app scheme compile (Debug)",
     "cmux-next daemon tests",
     "cmux-next generated files",
+    "cmux-next generated files (shared build)",
     "wait for the same-tree cmux-tui",
+})
+# cmux-next.yml's base tier dispatch (cmux-next-base-tier-kick.yml) and the jobs it carries: a
+# feat-cmux-next push no longer runs them (cmuxterm-hq#5424).
+BASE_TIER_TITLE = "cmux-next base tier · "
+# How many base tier runs a job's newest verdict is looked for in (a run whose tree was not
+# published yet skips the tree jobs; its same-tree run, a later run, carries them).
+BASE_TIER_LOOKBACK = 6
+BASE_TIER_JOBS = frozenset({
+    "cmux app scheme compile (Debug)",
+    "cmux-next daemon tests",
+    "cmux-next generated files",
+    "cmux-next crash ends the app",
 })
 # One job, many static checks. Its last step lists each red one; the queue
 # compares those, not the job, with the base (one base red never hides another).
@@ -126,18 +140,23 @@ WEB_GENERATED = (
     "webviews/src/pages/diff/generated/locales/*",
     "webviews/src/pages/diff/generated/localeLoaders.ts",
 )
+def settings_exports() -> tuple[str, ...]:
+    """scripts/cmux-next/settings-exports.txt, the one list of what the settings export writes, so
+    the settings half of SWIFT_GENERATED cannot drift from it. Its own copy was already short by
+    docs/mdm/cmux-example.mobileconfig, which made that export look rebuildable anywhere (review
+    of #23915)."""
+    text = (TOOLS_ROOT / "scripts/cmux-next/settings-exports.txt").read_text(encoding="utf-8")
+    listed = [line.split("#", 1)[0].strip() for line in text.splitlines()]
+    return tuple(path for path in listed if path)
+
+
 # Written by Swift tests under CMUX_UPDATE_*; only a mini can rebuild them.
 SWIFT_GENERATED = (
     "plans/cmux-next/action-surfaces.json",
     "plans/cmux-next/actions.md",
     "plans/cmux-next/links.json",
     "plans/cmux-next/daemon-capabilities.json",
-    "schemas/settings/settings-schema.json",
-    "docs/mdm/com.manaflow.cmux.json",
-    "docs/mdm/com.manaflow.cmux.plist",
-    "docs/mdm/com.manaflow.cmux.intune.plist",
-    "docs/mdm/managed-preferences.md",
-    "schemas/settings-export/settings-schema.sources.sha256",
+    *settings_exports(),
     "Packages/macOS/CmuxNext/ci-target-graph.json",
 )
 # cmux-tui/bindings/codegen/generate.py output.
@@ -252,11 +271,12 @@ class GitHub:
         branch (main), and feat-cmux-next-only workflows like this one are not
         there; the id works for every registered workflow."""
         if not self.workflow_ids:
-            listed = self.gh("api", "--paginate", f"repos/{self.repo}/actions/workflows?per_page=100",
-                             "--jq", ".workflows[] | [.id, .path] | @tsv").stdout
-            for line in listed.splitlines():
-                workflow_id, _, path = line.partition("\t")
-                self.workflow_ids[path.rsplit("/", 1)[-1]] = int(workflow_id)
+            # One bounded page per call (scripts/ci/gh_pages.py): the gh quota wrapper refuses an
+            # unbounded paginating call.
+            listed = gh_pages.items(lambda url: json.loads(self.gh("api", url).stdout),
+                                    f"repos/{self.repo}/actions/workflows")
+            for workflow in listed:
+                self.workflow_ids[workflow["path"].rsplit("/", 1)[-1]] = int(workflow["id"])
         return str(self.workflow_ids.get(name, name))
 
     def runs(self, workflow: str, query: str) -> list[dict]:
@@ -1307,8 +1327,11 @@ class Controller:
 
     def job_log(self, job_id: int | str) -> str | None:
         # The job's log, readable while the rest of its run still goes.
-        got = self.gh.gh("api", "--allow-escape-sequences", f"repos/{self.args.repo}/actions/jobs/{job_id}/logs",
-                         check=False)
+        # A gh too old for the escape flag is asked once more without it; any other failure stays None.
+        route = f"repos/{self.args.repo}/actions/jobs/{job_id}/logs"
+        got = self.gh.gh("api", base_red_excuse.ESCAPE_FLAG, route, check=False)
+        if got.returncode != 0 and base_red_excuse.escape_flag_unknown(got.stderr):
+            got = self.gh.gh("api", route, check=False)
         return got.stdout if got.returncode == 0 else None
 
     def expand_job(self, name: str, job_id: int | str, job: dict | None = None) -> set[str]:
@@ -1318,10 +1341,23 @@ class Controller:
         if job is None:
             return {name}
         log = self.job_log(job_id)
-        if log is None:
+        if log is None or not log.strip():
+            # A test job's unreadable or empty log: nothing can show it is the base's, so it is this job's
+            # own (fails closed). Any other job keeps its bare name, as before.
+            if (base_red_excuse.test_reds.is_test_red(base_red_excuse.test_reds.Result(), name)
+                    or name in base_red_excuse.NO_VERDICT_JOBS):
+                return {f"{name}: log unreadable (job {job_id}, never a base red)"}
             return {name}
+        if base_red_excuse.no_verdict(log) is not None:
+            # A compile check with no verdict compiled nothing: keyed by this job's id, it is never the base's.
+            return {f"{name}: no compile verdict (job {job_id}, never a base red)"}
         steps, tests, errors = base_red_excuse.signature(job, log)
-        crashes = base_red_excuse.crash_signals(log)
+        # A crash or a run cut short is never the base's (scripts/ci/test_reds.py): keyed by
+        # this job's id, no base failure can match it, whatever the base shows.
+        own = base_red_excuse.test_reds.read(log)
+        if base_red_excuse.test_reds.is_test_red(own, name) and (own.crashes or own.truncated):
+            return {f"{name}: {why} (job {job_id}, never a base red)" for why in own.crashes + own.truncated[:1]}
+        crashes = base_red_excuse.crash_signals(log)  # a non-test job's (a test job's crash returned above)
         if not tests and not errors and not crashes:
             # Only failed steps (a timeout, unparsed output): nothing to compare, as
             # base_red_excuse.judge refuses. The bare name matches only a base job just as opaque.
@@ -1432,7 +1468,52 @@ class Controller:
         runs = self.gh.runs(HEAVY_WORKFLOW, f"head_sha={base_sha}&event=push&per_page=10")
         done = [run for run in runs if run["status"] == "completed" and run["head_branch"] == BASE]
         self.base_failures = set(self.failed_jobs(done[0]["id"], OUTRIGHT_RED, detail=True)) if done else set()
+        # The base tier's jobs fall back to its newest run only where the base's own push run gave them no
+        # verdict: with coalescing off, or a push that kept its scheme compile, the exact base decides.
+        judged = self.judged_jobs(done[0]["id"]) if done else set()
+        self.base_failures |= {red for red in self.base_tier_failures() if red.split(":", 1)[0] not in judged}
         return self.base_failures
+
+    def judged_jobs(self, run_id: int) -> set[str]:
+        """The jobs of a run that ended with a verdict (passed or failed outright)."""
+        jobs = self.gh.api(f"repos/{self.args.repo}/actions/runs/{run_id}/jobs?per_page=100&filter=latest")["jobs"]
+        return {job["name"] for job in jobs if (job.get("conclusion") or "") in OUTRIGHT_RED | {"success"}}
+
+    def base_tier_failures(self) -> set[str]:
+        """Outright reds of the base's newest base tier verdict for each of its jobs (cmuxterm-hq#5424).
+
+        A feat-cmux-next push leaves daemon tests, generated files and the Debug scheme compile to
+        a `cmux-next base tier · <sha>` dispatch at most every 15 minutes, so the base's push run has
+        no verdict for them. For each job, the newest completed base tier run that ran it to a verdict
+        (passed or failed outright) stands in, named with its commit and age. A run that skipped the
+        job (its cmux-tui tree was not published yet, so its same-tree run carries it) is passed over
+        for that job, so it never hides an older red. A red the base head fixed shows as inherited.
+        """
+        runs = self.gh.runs(HEAVY_WORKFLOW, f"branch={BASE}&event=workflow_dispatch&status=completed&per_page=50")
+        # A cancelled base tier run (the kick cancels superseded ones before a Mac job starts) has no verdict:
+        # it never counts toward the lookback.
+        tiers = [run for run in runs if (run.get("display_title") or "").startswith(BASE_TIER_TITLE)
+                 and run.get("conclusion") not in ("skipped", "cancelled")][:BASE_TIER_LOOKBACK]
+        failed: set[str] = set()
+        pending = set(BASE_TIER_JOBS)
+        for tier in tiers:
+            jobs = self.gh.api(f"repos/{self.args.repo}/actions/runs/{tier['id']}/jobs?per_page=100&filter=latest")["jobs"]
+            tested = tier["display_title"][len(BASE_TIER_TITLE):]
+            for job in jobs:
+                name, conclusion = job.get("name") or "", job.get("conclusion") or ""
+                if name not in pending or conclusion not in OUTRIGHT_RED | {"success"}:
+                    continue
+                pending.discard(name)
+                reds = self.expand_job(name, job["id"], job) if conclusion in OUTRIGHT_RED else set()
+                failed |= reds
+                log(f"base tier verdict for {name} from {tier.get('html_url') or tier['id']} at {tested[:12]} "
+                    f"(created {tier.get('created_at', '?')}; the newest for it, not necessarily the base head): "
+                    f"{', '.join(sorted(reds)) or 'passed'}")
+            if not pending:
+                break
+        if pending:
+            log(f"no base tier verdict in the newest {len(tiers)} base tier runs for: {', '.join(sorted(pending))}")
+        return failed
 
     def stop_base_probe(self) -> None:
         """A batch that ends before its probe does cancels the probe's run."""
@@ -1593,13 +1674,9 @@ class Controller:
             return validation
         sha = stack.head
         changed = self.git("diff", "--name-only", base_sha, sha).splitlines()
-        pin = ""
         tree = touches_tree(changed, self.worktree)
         if tree:
-            pin = f"cmux-tui-pin-{sha[:12]}"
-            self.push(sha, pin)
-            if not self.local:  # the job token's push starts no workflow
-                self.gh.dispatch(TUI_WORKFLOW, pin)
+            log(f"{name}: no helper publisher ref; the fleet build bundles its own daemon")
         dispatched = now()
         self.gh.dispatch(HEAVY_WORKFLOW, branch)
         heavy = self.find_run(HEAVY_WORKFLOW, branch, lambda item: item["head_sha"] == sha, dispatched)
@@ -1624,8 +1701,6 @@ class Controller:
             validation.heavy_passed = self.passed_heavy_jobs(heavy["id"])
         if lane_runs:
             self.finish_group_lanes(validation, lane_runs)
-        if pin:
-            self.delete_branch(pin)
         validation.seconds = int(time.monotonic() - started)
         log(f"{name}: {'green' if validation.green else 'red'} in {validation.seconds}s")
         return validation

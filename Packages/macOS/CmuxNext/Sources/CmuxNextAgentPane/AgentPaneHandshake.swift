@@ -23,9 +23,9 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
 
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
-        case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptTicket, harness, adopt, surface,
-             linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, githubRepository, harnesses, wake,
-             workspaceContext
+        case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptTicket, harness, model, peer, adopt, surface,
+             linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, localMachineName, githubRepository, harnesses, wake,
+             workspaceContext, sandboxState, cloudMachineID, cloudAccount, cloudCredentialRecoveryAvailable
     }
 
     public var protocolVersion: Int
@@ -64,6 +64,10 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// The harness a new chat starts on before `prompt` is sent. Pages that
     /// predate it ignore it (the chat starts on the default harness).
     public var harness: String?
+    /// The model a new chat starts on before its first prompt.
+    public var model: String?
+    /// A validated acpmux peer selected by the New Agent Chat action.
+    public var peer: String?
     /// An outside chat the page resumes on connect. Pages that predate it
     /// ignore it and open an empty chat, so the version stays the same.
     public var adopt: AgentPaneAdopt?
@@ -104,14 +108,26 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// The past turns of the device-wide chat a new chat opened for (cx-khns1): the page shows
     /// them read-only until the chat has a session. Pages that predate it ignore it.
     public var pastTurns: [AgentPanePastTurn]?
+    /// Provider VM ID resolved by the native tab host, never a daemon registry UUID.
+    public var cloudMachineID: String?
+    /// Account and team that own this Cloud chat; absence never proves deletion.
+    public var cloudAccount: [String?]?
+    /// True only when this Cloud backend supports credential delivery.
+    public var cloudCredentialRecoveryAvailable: Bool?
     /// This Mac's name (System Settings > General > Sharing), for the composer's location row.
     /// Pages that predate it ignore it.
     public var machineName: String?
+    /// This Mac's name, always, even when ``machineName`` names the machine a seeded chat runs on
+    /// (a peer or a Cloud machine): the environment picker's This Mac row. Pages that predate it ignore it.
+    public var localMachineName: String?
     /// The local workspace's GitHub `origin`, used to link bare issue references in prose.
     public var githubRepository: String?
     /// What a hidden chat's released page held that acpmux does not (``AgentPaneWakeState``): the
     /// page built when it shows again puts it back. Handed out once. Pages that predate it ignore it.
     public var wake: AgentPaneWakeState?
+    /// This app answers `sandbox.state` (``AgentPaneSandboxRuns``, hq#3367): the page reads the tab's
+    /// Sandboxed send only when it is set. Pages that predate it ignore it.
+    public var sandboxState: Bool? = true
 
     public init(transport: Transport, connection: AcpmuxConnection? = nil, sessionId: String? = nil, newSession: Bool? = nil) {
         protocolVersion = Self.currentVersion

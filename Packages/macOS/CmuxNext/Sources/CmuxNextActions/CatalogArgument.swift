@@ -130,6 +130,21 @@ nonisolated enum CatalogArgument {
                        isRequired: false)
     }
 
+    /// `file open --as-text`: a page cmux renders (HTML, SVG, Markdown) opens as its source in the
+    /// code editor (Open as Text); other files open as they always do.
+    static var asTextBool: ActionArgument {
+        ActionArgument(name: "asText", title: String(localized: "argument.asText", defaultValue: "As Text", bundle: .module),
+                       kind: .bool, isRequired: false)
+    }
+
+    /// `cloud new-terminal-on-machine --workspace <id>`: a workspace on the Cloud machine's own
+    /// daemon (the `workspace_id` an earlier run answered). Plain text: `.target(.workspace)`
+    /// resolves this Mac's workspaces, not a Cloud machine's.
+    static var cloudWorkspaceString: ActionArgument {
+        ActionArgument(name: "workspace", title: String(localized: "argument.workspace", defaultValue: "Workspace", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     static var contentsString: ActionArgument {
         ActionArgument(name: "contents", title: String(localized: "argument.contents", defaultValue: "Contents", bundle: .module), kind: .string)
     }
@@ -154,8 +169,75 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "port", title: String(localized: "argument.port", defaultValue: "Port", bundle: .module), kind: .int(1...65535))
     }
 
+    /// `cloud provision-api --name <name>`: what the new API key is called; "API key" without one.
+    static var apiKeyNameString: ActionArgument {
+        ActionArgument(name: "name", title: String(localized: "argument.name", defaultValue: "Name", bundle: .module), kind: .string,
+                       isRequired: false)
+    }
+
+    /// `cloud api-key-revoke --key <id>`: the API key id `cloud api-key-list` answers.
+    static var apiKeyString: ActionArgument {
+        ActionArgument(name: "key", title: String(localized: "argument.apiKey", defaultValue: "API Key", bundle: .module), kind: .string)
+    }
+
     static var sizeChoice: ActionArgument {
         ActionArgument(name: "size", title: String(localized: "argument.size", defaultValue: "Size", bundle: .module), kind: .enumeration([choice("small"), choice("medium"), choice("large"), choice("xlarge")]))
+    }
+
+    /// `cloud enroll-machine --ssh-key FILE`: this Mac's ssh public key (default `~/.ssh/id_ed25519.pub`).
+    static var sshKeyString: ActionArgument {
+        ActionArgument(name: "sshKey", title: String(localized: "argument.sshKey", defaultValue: "SSH Public Key", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// `cloud new-machine --size small|medium|large|xlarge`: plain text, not a choice, so New Cloud
+    /// Machine stays one menu item and one palette row (a choice argument becomes a submenu).
+    static var newMachineSizeString: ActionArgument {
+        ActionArgument(name: "size", title: String(localized: "argument.size", defaultValue: "Size", bundle: .module), kind: .string, isRequired: false)
+    }
+
+    /// `cloud new-machine --persistent`: the new machine's idle auto-pause is Off from its create.
+    static var persistentBool: ActionArgument {
+        ActionArgument(name: "persistent", title: String(localized: "argument.persistent", defaultValue: "Persistent", bundle: .module),
+                       kind: .bool, isRequired: false)
+    }
+
+    /// `cloud new-machine --bootstrap none|lane` (with `--bootstrap-script FILE`): the setup the
+    /// new machine runs; `lane` also gives it its lane host name (leo-workspace machines/lane-vms.md).
+    static var bootstrapString: ActionArgument {
+        ActionArgument(name: "bootstrap", title: String(localized: "argument.bootstrap", defaultValue: "Bootstrap", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// `--machine-config FILE`: a `.cmux/machine.toml` on this Mac (CloudMachineConfig).
+    static var machineConfigString: ActionArgument {
+        ActionArgument(name: "machineConfig", title: String(localized: "argument.machineConfig", defaultValue: "Machine Config", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// `cloud new-machine --repo OWNER/NAME[@REF]`: the GitHub repository the machine clones.
+    static var repoString: ActionArgument {
+        ActionArgument(name: "repo", title: String(localized: "argument.repo", defaultValue: "Repository", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// The bootstrap script file on this Mac (the CLI makes a relative path absolute).
+    static var bootstrapScriptString: ActionArgument {
+        ActionArgument(name: "bootstrapScript", title: String(localized: "argument.bootstrapScript", defaultValue: "Bootstrap Script", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// `cloud deliver-secrets --repo OWNER/NAME`: whose repo-scoped secrets the machine gets.
+    static var secretRepoString: ActionArgument {
+        ActionArgument(name: "repo", title: String(localized: "argument.secretRepo", defaultValue: "Repository", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// `cloud deliver-secrets --names A,B`: the secret names an own machine (SSH or an acpmux peer) gets;
+    /// a Cloud machine's come from its machine config.
+    static var secretNamesString: ActionArgument {
+        ActionArgument(name: "names", title: String(localized: "argument.secretNames", defaultValue: "Secret Names", bundle: .module),
+                       kind: .string, isRequired: false)
     }
 
     /// The idle auto-pause choice (`cloudSetIdlePause`): Off, or the minutes
@@ -189,6 +271,12 @@ nonisolated enum CatalogArgument {
 
     static var keepBool: ActionArgument {
         ActionArgument(name: "keep", title: String(localized: "argument.keep", defaultValue: "Keep After Close", bundle: .module), kind: .bool)
+    }
+
+    /// Pin/Unpin's state: true pins, false unpins; left out, the action toggles.
+    static var pinnedBool: ActionArgument {
+        ActionArgument(name: "pinned", title: String(localized: "argument.pinned", defaultValue: "Pinned", bundle: .module), kind: .bool,
+                       isRequired: false)
     }
 
     static var onBool: ActionArgument {
@@ -311,6 +399,21 @@ nonisolated enum CatalogArgument {
             + [ActionEnumCase(value: "off", title: String(localized: "argument.value.fitOff", defaultValue: "Turn Off", bundle: .module))]
         return ActionArgument(name: "fit", title: String(localized: "argument.fit", defaultValue: "Aspect Ratio or Width", bundle: .module), kind: .string,
                               suggestions: ActionSuggestions(source: "browserFit", pinned: pinned))
+    }
+
+    /// How Open Desktop shows a Cloud machine's screen (`cloudOpenDesktop`): `web`, its noVNC
+    /// page in a Chromium tab (the default); `native`, the remote view pane straight to the
+    /// machine's VNC server over the app's Cloud tunnel; or `rd`, the pane showing the machine's
+    /// `cmux-rd` host (H.264) over its daemon link.
+    static var desktopViewerChoice: ActionArgument {
+        var cases = [ActionEnumCase(value: "web", title: String(localized: "argument.value.viewerWeb", defaultValue: "Browser", bundle: .module))]
+        #if DEBUG
+        // The remote view pane is development-only (RemoteViewAvailability).
+        cases.append(ActionEnumCase(value: "native", title: String(localized: "argument.value.viewerNative", defaultValue: "Native", bundle: .module)))
+        cases.append(ActionEnumCase(value: "rd", title: String(localized: "argument.value.viewerRd", defaultValue: "Video Stream", bundle: .module)))
+        #endif
+        return ActionArgument(name: "viewer", title: String(localized: "argument.viewer", defaultValue: "Viewer", bundle: .module),
+                              kind: .enumeration(cases), isRequired: false)
     }
 
     /// A device title from the daemon's list, or none (`browserDevice`).

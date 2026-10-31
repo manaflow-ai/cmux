@@ -6,6 +6,7 @@
 .cv-subsession__raw {
   margin-inline-start: 24px;
   min-width: 0;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-subsession__under {
   margin: -3px 0 4px 22.5px;
@@ -48,14 +49,36 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  cursor: pointer;
+  cursor: default;
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-subsession__toggle:hover,
 .cv-subsession__toggle:focus-visible {
   color: var(--cv-text);
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+/* A sent message's first line after the row's words (SentMessageLine.tsx). */
+.cv-sent__preview {
+  margin-inline-start: 8px;
+}
+
+/* The target of a sent message, when its chat is listed: opens it beside this one. */
+.cv-sent__target {
+  all: unset;
+  cursor: default;
+  color: var(--cv-text);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+}
+.cv-sent__target:hover {
+  text-decoration-color: currentColor;
+}
+.cv-sent__target:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  border-radius: 3px;
 }

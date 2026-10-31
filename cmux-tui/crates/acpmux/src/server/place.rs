@@ -12,13 +12,27 @@ use crate::placement::{Candidate, Work};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
 
-/// `{"work": "agent"|"build"}` → `placement::place`'s verdict.
+/// `{"work": "agent"|"build", "offInteractive": bool}` → `placement::place`'s verdict. With
+/// `offInteractive` (a command-line `new` on a machine a person works at, `cli/place.rs`), the
+/// machines the registry marks interactive (`placement::interactive`), this one included, are
+/// not candidates.
 pub(super) async fn place(hub: &Hub, params: &Value) -> Value {
     let work = match params.get("work").and_then(Value::as_str) {
         Some("build") => Work::Build,
         _ => Work::Agent,
     };
-    pick(hub, work).await
+    let off_interactive = params.get("offInteractive").and_then(Value::as_bool) == Some(true);
+    let mut candidates = candidates(hub).await;
+    let registry = crate::placement::load_registry();
+    if off_interactive {
+        candidates = off_interactive_hosts(candidates, registry.as_ref());
+    }
+    crate::placement::place(&candidates, registry.as_ref(), work)
+}
+
+/// `candidates` without the machines the registry marks interactive.
+fn off_interactive_hosts(candidates: Vec<Candidate>, registry: Option<&Value>) -> Vec<Candidate> {
+    candidates.into_iter().filter(|c| !crate::placement::interactive(registry, &c.name)).collect()
 }
 
 /// This machine as a candidate, with its health read now.
@@ -32,6 +46,12 @@ async fn this_machine(hub: &Hub) -> Candidate {
 
 /// This machine and every connected peer, weighed for `work`.
 pub(super) async fn pick(hub: &Hub, work: Work) -> Value {
+    let candidates = candidates(hub).await;
+    crate::placement::place(&candidates, crate::placement::load_registry().as_ref(), work)
+}
+
+/// This machine and every connected peer, with their last readings.
+async fn candidates(hub: &Hub) -> Vec<Candidate> {
     let mut candidates = vec![this_machine(hub).await];
     candidates.extend(
         hub.peers()
@@ -45,7 +65,7 @@ pub(super) async fn pick(hub: &Hub, work: Work) -> Value {
                 })
             }),
     );
-    crate::placement::place(&candidates, crate::placement::load_registry().as_ref(), work)
+    candidates
 }
 
 /// A sub-session's `host` (`start_session`, `server/subsessions.rs`). A
@@ -128,9 +148,10 @@ mod tests {
     }
 
     /// The sub-session's `auto` is the engine's verdict on this machine:
-    /// placed with `new --host auto`'s words, or refused with the host's reason.
+    /// placed with `new --host auto`'s words, past its room with a warning, or
+    /// refused when its role forbids the work.
     #[test]
-    fn a_sub_session_is_placed_here_only_when_the_engine_finds_room() {
+    fn a_sub_session_is_placed_here_unless_its_role_forbids_the_work() {
         let reg = json!({"machines": {"box": {"lanes": {"build": false, "reserved_gb": 8,
             "per_lane_gb": 4, "free_gb_floor": 20, "disk_per_lane_gb": 5, "max_lanes": 6}}}});
         let v = crate::placement::place(&here(health(40, 2)), Some(&reg), Work::Agent);
@@ -150,14 +171,18 @@ mod tests {
             e.message
         );
         assert_eq!(e.data.as_ref().unwrap()["reason"], "subsessions.no_room");
-        // Out of RAM: (10 - 8) / 4 is under one lane.
-        let v = crate::placement::place(&here(health(10, 0)), Some(&reg), Work::Agent);
-        let e = placed_here(&v).unwrap_err();
-        assert!(
-            e.message.contains("not placed on box: no room: RAM is the limit"),
-            "{}",
-            e.message
-        );
+        // Out of RAM ((10 - 8) / 4 is under one lane) or at its lane cap: it
+        // starts here all the same, and says so. Load and caps only warn.
+        for (ram, live, limit) in [(10, 0, "RAM"), (40, 6, "lanes")] {
+            let v = crate::placement::place(&here(health(ram, live)), Some(&reg), Work::Agent);
+            let placed = placed_here(&v).unwrap();
+            assert!(
+                placed.starts_with("placed on box: ")
+                    && placed.contains(&format!("no room: {limit} is the limit"))
+                    && placed.contains("only warn"),
+                "{placed}"
+            );
+        }
         // Not a lane host.
         let v = crate::placement::place(
             &here(health(40, 0)),
@@ -166,5 +191,26 @@ mod tests {
         );
         let e = placed_here(&v).unwrap_err();
         assert!(e.message.contains("not a lane host"), "{}", e.message);
+    }
+
+    /// A command-line `new` on a machine a person works at weighs only the others: this one and
+    /// every interactive peer drop out, the fleet hosts stay.
+    #[test]
+    fn off_interactive_drops_the_machines_people_work_at() {
+        let reg = json!({"machines": {
+            "mac": {"roles": ["leo-mac"], "lanes": {"max_lanes": 4}},
+            "air": {"aliases": ["laptop"], "roles": ["attended"], "lanes": {"max_lanes": 3}},
+            "desk": {"interactive": true, "lanes": {}},
+            "lane": {"roles": ["session-host"], "lanes": {"max_lanes": 12}}}});
+        let c =
+            |name: &str, local: bool| Candidate { name: name.into(), local, health: Value::Null };
+        let kept = off_interactive_hosts(
+            vec![c("mac", true), c("laptop", false), c("desk", false), c("lane", false)],
+            Some(&reg),
+        );
+        assert_eq!(kept.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["lane"]);
+        let v = crate::placement::place(&kept, Some(&reg), Work::Agent);
+        assert_eq!(v["pick"], "lane");
+        assert_eq!(v["local"], false);
     }
 }

@@ -29,6 +29,8 @@ impl Hub {
         }
         // The git watch follows the chats clients hold (`git_watch.rs`).
         self.git_watch_wake();
+        // Its `attached` and `shown` change no event carries (`list_guard.rs`).
+        self.events.changed();
     }
 
     /// An attached client starts or stops showing the chat.
@@ -40,6 +42,7 @@ impl Hub {
         } else {
             session.hidden.fetch_add(1, Ordering::SeqCst);
         }
+        self.events.changed();
     }
 
     /// Some attached client shows the chat, so a turn ending now is seen.

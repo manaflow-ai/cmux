@@ -21,7 +21,7 @@ optchat-chief usage backfill [--force] [--mux-home DIR]   convert old traces int
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
 optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?, \"date\"?} (host stopped)
-optchat-chief settings [show | set cache.ttl 5m|1h | set replies.thread auto|always|never | set show.afterReport true|false
+optchat-chief settings [show | set cache.ttl 5m|1h | set replies.thread auto|always|never | set show.afterReport true|false | set trace.full true|false
                        | set cloud.autoPauseIdleSeconds N] [--mux-home DIR]
                                                            per-Chief settings (none of them makes the Chief ask before it acts)
 optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR] [--append-after-live]
@@ -142,6 +142,16 @@ fn main() -> std::process::ExitCode {
     // argument as its value.
     let append_after_live = args.iter().any(|a| a == "--append-after-live");
     args.retain(|a| a != "--append-after-live");
+    // `memory import-from ... --stop-host`: also a boolean (a bare flag would take the next word).
+    for a in args.iter_mut() {
+        if a == "--stop-host" {
+            *a = "--stop-host=1".to_owned();
+        }
+        // `memory import-from detect --exports`: a boolean too.
+        if a == "--exports" {
+            *a = "--exports=1".to_owned();
+        }
+    }
     let mut flags = Flags::parse(&args);
     // `memory search --json` (and only there: `trace` and `stats` read their
     // own `--json` from the raw arguments). The verb may follow options.
@@ -172,8 +182,9 @@ fn main() -> std::process::ExitCode {
         }
         Some(
             tool @ ("zoom" | "date" | "spawn" | "tell" | "peers" | "react" | "reply" | "send"
-            | "stop" | "sleep" | "transcript" | "control" | "profile" | "chiefs"
-            | "escalate-auth" | "escalate_auth"),
+            | "stop" | "sleep" | "watch" | "remember" | "transcript" | "control"
+            | "profile" | "chiefs" | "escalate-auth" | "escalate_auth" | "cloud-workspace"
+            | "cloud_workspace"),
         ) => {
             let socket = flags
                 .value("socket")
@@ -306,6 +317,9 @@ fn main() -> std::process::ExitCode {
                             use optchat_chief::chief_settings::{CACHE_TTL, parse_ttl};
                             match key {
                                 CACHE_TTL => s.cache_ttl = Some(parse_ttl(value)?),
+                                optchat_chief::chief_settings::TRACE_FULL => {
+                                    s.trace_full = optchat_chief::chief_settings::parse_bool(value)?
+                                }
                                 optchat_chief::chief_settings::CLOUD_AUTO_PAUSE_IDLE_SECONDS => {
                                     s.cloud_auto_pause_idle_secs =
                                         optchat_chief::chief_settings::parse_idle_secs(value)?

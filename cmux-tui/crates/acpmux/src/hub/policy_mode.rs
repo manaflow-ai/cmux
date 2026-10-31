@@ -123,6 +123,26 @@ pub(super) fn claude_spawn_mode(
     policy_mode(policy, "claude", &offered)
 }
 
+/// The modes a new chat a remote connection started on the Codex bridge settles in, the start
+/// first (`server/remote_guard.rs` `settle_web_session_mode`). A chat an enrolled peer of this
+/// host started (`peer`) under deny-all (`policy`: the chat's narrower policy) settles in the
+/// policy's own `read-only` (`policy_mode`) when the harness offers it: its sandbox refuses every
+/// write and the network, and deny-all refuses every escalation out of it, where in `ask`
+/// deny-all refuses every command Codex asks about, reads included. Anything else, the Web and
+/// a paired device included, settles in the bridge's asking modes
+/// (`web_modes::BRIDGE_ASKING_MODES`).
+pub(crate) fn bridge_settle_modes(
+    peer: bool,
+    policy: Option<PermissionPolicy>,
+    offered: &[String],
+) -> Vec<String> {
+    const READ_ONLY: &str = "read-only";
+    if peer && policy == Some(PermissionPolicy::DenyAll) && offered.iter().any(|m| m == READ_ONLY) {
+        return vec![READ_ONLY.to_owned()];
+    }
+    crate::web_modes::BRIDGE_ASKING_MODES.iter().map(|m| (*m).to_owned()).collect()
+}
+
 /// `meta`'s config options with the `mode` option set to `mode`, or `None` when it has none.
 fn with_mode_option(meta: &SessionMeta, mode: &str) -> Option<Value> {
     let mut options = meta.config_options.clone()?;
@@ -135,6 +155,15 @@ fn with_mode_option(meta: &SessionMeta, mode: &str) -> Option<Value> {
 }
 
 impl Hub {
+    /// [`bridge_settle_modes`] for `session`, which an enrolled peer started when `peer`: its
+    /// narrower policy (its own, else a deny-all default) and the modes its harness offers.
+    pub(crate) async fn bridge_settle_modes(&self, session: &Session, peer: bool) -> Vec<String> {
+        let default = self.config.read().await.permission_policy;
+        let meta = session.meta();
+        let offered = super::start_mode::offered_ids(&meta);
+        bridge_settle_modes(peer, narrow_policy(&meta, default), &offered)
+    }
+
     /// `session`'s policy mode when its policy is narrower than approve-all (module docs):
     /// `Some(None)` when the harness offers no mode that asks, `None` when the policy does not
     /// choose the mode.
@@ -500,6 +529,27 @@ mod tests {
             (PermissionPolicy::DenyAll, "read-only"),
         ] {
             assert_eq!(policy_mode(policy, "codex", &codex).as_deref(), Some(mode), "{policy}");
+        }
+    }
+
+    /// A remote start on the bridge settles in `read-only` only for an enrolled peer under
+    /// deny-all, and in `ask` from anyone else, under any other policy, or when the harness offers
+    /// no `read-only`.
+    #[test]
+    fn a_remote_bridge_start_settles_in_read_only_only_for_a_peer_under_deny_all() {
+        let codex = ids(&["ask", "read-only", "agent", "agent-full-access"]);
+        let deny_all = Some(PermissionPolicy::DenyAll);
+        assert_eq!(bridge_settle_modes(true, deny_all, &codex), ids(&["read-only"]));
+        assert_eq!(bridge_settle_modes(false, deny_all, &codex), ids(&["ask"]));
+        assert_eq!(bridge_settle_modes(true, deny_all, &ids(&["ask", "agent"])), ids(&["ask"]));
+        assert_eq!(bridge_settle_modes(true, deny_all, &[]), ids(&["ask"]));
+        for policy in [
+            None,
+            Some(PermissionPolicy::Ask),
+            Some(PermissionPolicy::ApproveReads),
+            Some(PermissionPolicy::ApproveEdits),
+        ] {
+            assert_eq!(bridge_settle_modes(true, policy, &codex), ids(&["ask"]), "{policy:?}");
         }
     }
 

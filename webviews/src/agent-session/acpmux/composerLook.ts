@@ -2,15 +2,15 @@
 // anyways"): one composer, two layouts of the same controls. `claude`, the default, is today's
 // composer, Claude Code's (with the plain footer, the mode, model and effort in the quiet row under
 // the box). `codex` lays them out as Codex desktop does: one row inside the box under the prompt, +
-// and the mode on the left, the model and effort, the mic and Send on the right, and on New Tab the
-// folder and computer strip a tray tucked under the box's top edge (composerLocation.css,
-// newtab/screen.css). Dots pick it: on New Tab the page's three (newtab/tabDots.ts: Claude Minimal,
+// and the mode on the left, the context ring, the model and effort, the mic and Send on the right,
+// and the look dots in that row's empty middle (Leo 2026-10-30: "the bypass/context/model picker
+// stuff should literally be inside the composer box"; "no just codex"). On New Tab the folder and computer strip stay in Codex's tray
+// (composerLocation.css, newtab/screen.css). Dots pick it: on New Tab the page's three (newtab/tabDots.ts: Claude Minimal,
 // Claude Minimal with the quick actions, Codex Minimal), in a chat two on hover in the composer's
 // bottom area (LookSwitch.tsx). The choice is the
 // viewer's, kept in localStorage across chats, panes and launches (in step by the `storage` event),
 // as the transcript's wrap choice is (conversation/blockWrap.ts).
 import { useSyncExternalStore } from "react";
-import { useComposerSettings } from "./composerSettings";
 
 export const COMPOSER_LOOKS = ["claude", "codex"] as const;
 export type ComposerLook = (typeof COMPOSER_LOOKS)[number];
@@ -82,11 +82,9 @@ export function useComposerLook(): ComposerLook {
   return useSyncExternalStore(subscribe, current, current);
 }
 
-/// Whether the mode, model and effort sit in the quiet row under the box (Claude's look with the
-/// plain footer, ComposerFoot.tsx) rather than in the box's own row (Codex's look, or the plain
-/// footer off).
+/// Whether the mode, model and effort sit in the quiet row under the box (Claude's look,
+/// ComposerFoot.tsx) rather than in the box's own row (Codex's look, Leo 2026-10-30: "the
+/// bypass/context/model picker stuff should literally be inside the composer box").
 export function useQuietRow(): boolean {
-  const { plainFooter } = useComposerSettings();
-  const look = useComposerLook();
-  return plainFooter && look === "claude";
+  return useComposerLook() !== "codex";
 }

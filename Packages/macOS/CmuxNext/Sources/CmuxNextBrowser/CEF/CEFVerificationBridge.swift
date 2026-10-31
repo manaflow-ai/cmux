@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import os
 
@@ -59,18 +60,25 @@ final class CEFVerificationBridge {
     }
 
     private func run(_ calls: [(String, [String: Any])], _ browser: Int32, tab: CEFTab) {
+        // `CEFTab.runtime` is `unowned`, so it is read here, on the caller's turn while the runtime
+        // is known alive, and held for the Task. `[weak tab]` guards the tab and never the runtime
+        // behind it: a Task still draining after the runtime was destroyed read a dangling
+        // `tab.runtime` and trapped in `swift_unownedRetainStrong`, which aborts the process in
+        // `swift_abortRetainUnowned` rather than failing one call, so a test job that hit it stopped
+        // reporting part-way through. Same shape as `CEFFirstPaintBridge.attach`.
+        let runtime = tab.runtime
         Task { [weak tab] in
             for (method, params) in calls {
                 guard let tab, tab.browserID == browser else { return }
                 do {
-                    let result = try await tab.runtime.devTools(browser, method: method, params: params)
+                    let result = try await runtime.devTools(browser, method: method, params: params)
                     // The ready call is a one-shot: off every later document.
                     if params["source"] as? String == Self.readySource, let identifier = Self.scriptIdentifier(result) {
-                        _ = try await tab.runtime.devTools(browser, method: "Page.removeScriptToEvaluateOnNewDocument",
-                                                          params: ["identifier": identifier])
+                        _ = try await runtime.devTools(browser, method: "Page.removeScriptToEvaluateOnNewDocument",
+                                                       params: ["identifier": identifier])
                     }
                 } catch {
-                    tab.runtime.logger.info("verification detector: \(method, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                    runtime.logger.info("verification detector: \(method, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 }
             }
         }
@@ -85,9 +93,9 @@ final class CEFVerificationBridge {
 
     /// A `Runtime.bindingCalled` of the detector's binding from the main frame's world: emits the
     /// report. False for every other message.
-    func handle(_ json: String) -> Bool {
-        guard json.contains("\"Runtime.bindingCalled\""), json.contains("\"\(VerificationPageScripts.channel)\""),
-              let data = json.data(using: .utf8),
+    func handle(_ head: DevToolsMessageHead) -> Bool {
+        guard head.method == "Runtime.bindingCalled", head.contains("\"\(VerificationPageScripts.channel)\""),
+              let data = head.json.data(using: .utf8),
               let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               message["method"] as? String == "Runtime.bindingCalled",
               let params = message["params"] as? [String: Any], params["name"] as? String == VerificationPageScripts.channel

@@ -10,6 +10,7 @@ import { Lexer, lexer, type Token, walkTokens } from "marked";
 import { turnRows } from "../diff";
 import type { AcpmuxSnapshot } from "../model";
 import { menuPartAt, type MenuPart } from "./menuParts";
+import { retryHelps, sendCause } from "../sendFailure";
 
 export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
 
@@ -140,7 +141,8 @@ export function messageMenuTarget(
     row.kind === "user" ? { text: row.text } : { text: plainText(row.text), markdown: row.text };
   if (forkSeq !== undefined) target.forkSeq = forkSeq;
   if (forkSeq !== undefined && sideChat) target.sideChat = true;
-  if (row.kind === "user" && row.failed) target.retryRowId = row.id;
+  // A prompt too large to send is refused the same way again: no Retry, Edit takes an attachment out.
+  if (row.kind === "user" && row.failed && retryHelps(sendCause(row.delivery))) target.retryRowId = row.id;
   const links = webLinks(row.text);
   if (links.length > 0) target.links = links;
   return target;
@@ -244,6 +246,14 @@ export const hasMessageMenuHost = () => menuHandler() !== undefined;
 /// More (…) on row `rowId`'s action row: asks the host for the menu a right-click on that message
 /// opens, with the same report, shown under `anchor`. False when the row is not a message or no
 /// host shows the menu.
+export function openForkMenu(throughSeq: number, anchor?: Element): boolean {
+  const handler = menuHandler();
+  if (!handler) return false;
+  const { left, top, right, bottom } = (anchor ?? document.body).getBoundingClientRect();
+  handler.postMessage({ forkDestinations: throughSeq, popUp: { left, top, right, bottom } });
+  return true;
+}
+
 export function openMessageMenu(rowId: string, anchor: Element): boolean {
   const message = source?.(rowId);
   const handler = menuHandler();

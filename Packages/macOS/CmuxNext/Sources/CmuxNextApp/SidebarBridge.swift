@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextBridge
@@ -69,6 +70,14 @@ final class SidebarBridge {
         container.sidebarView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         groupFlow.wireEditor()
         SidebarWorkspacePins.wire(self)
+        // The Chief dropped beside the sidebar comes off it, as Remove from Sidebar does (Leo 2026-10-21), in a band,
+        // a group or a machine list.
+        container.sidebarView.removesOnDragOut = { [weak model] id in
+            (model?.layout.item(LayoutItemID(id)) ?? model?.listedItem(LayoutItemID(id)))?.ref == .builtIn(.chief)
+        }
+        container.sidebarView.onDragOutRemove = { [weak services] id in
+            _ = services?.registry.perform("sidebar.item.removeEverywhere", invocation: ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: id), origin: .user))
+        }
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
         container.sidebarView.customization = services.sidebarCustomization
@@ -143,15 +152,20 @@ final class SidebarBridge {
                 newTabPages: pages, muted: muted,
                 top: .make(layout, machines: machines, room: windowState.profileID.rawValue), pageFace: services.sidebarPageFace,
                 tabTitle: Self.tabTitle(services), rows: feed.laneRowSource,
-                groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig())
+                groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(),
+                harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none })
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
-            return ((PendingWorkspaceRows.shared.listing(listed, in: windowState.id, machines: machines), services.sidebarCustomization.rowDecorations), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
-                    SidebarRows.visibleLayout(layout.document, window: windowState.id, machines: machines, registry: registry.value))
+            // The document projection these rows were built from (`SidebarRows.layoutCatchingUp`).
+            return ((PendingWorkspaceRows.shared.listing(listed, in: windowState.id, machines: machines), services.sidebarCustomization.rowDecorations,
+                     SidebarDocStore.current?.shownChanges), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
+                    SidebarRows.visibleLayout(layout.document, window: windowState.id, profile: windowState.profileID, machines: machines, registry: registry.value, showAppStore: services.settings?.snapshot.previewFeatures == true))
         }) { [weak self] value in
-            let ((sections, decorations), launching, failed, profiles, active, shown) = value
+            let ((sections, decorations, shownAt), launching, failed, profiles, active, shown) = value
             guard let self else { return }
             self.showProfiles(profiles, active: active, launching: launching)
-            self.show(SidebarSection.decorated(feed.fill(sections), decorations), layout: shown, launching: launching, failed: failed, creating: PendingWorkspaceRows.shared.rows(in: windowState.id))
+            self.show(SidebarSection.decorated(feed.fill(sections), decorations), shownAt: shownAt, layout: shown, launching: launching, failed: failed,
+                      creating: PendingWorkspaceRows.shared.rows(in: windowState.id))
+            services.windows.retryDeferredPlacements() // before pending stand-ins are forgotten
             // A workspace the window lists shows its own row from here on (cx-9a7wx). No create waits: no walk of every row.
             guard !PendingWorkspaceRows.shared.rows.isEmpty else { return }
             PendingWorkspaceRows.shared.forget(in: windowState.id, listed: Set(sections.flatMap(\.workspaces).map(\.id.rawValue)),
@@ -176,7 +190,7 @@ final class SidebarBridge {
                               hidesHome: Self.hidesHome(layout.document), selection: windowState.selection,
                               newTabPages: Self.newTabPages(agentTabs, in: machines.local.store), muted: notifications.preferences.mutedWorkspaces,
                               top: SidebarTopProjection.make(layout, machines: machines, room: key.rawValue), pageFace: services.sidebarPageFace,
-                              tabTitle: Self.tabTitle(services))
+                              tabTitle: Self.tabTitle(services), harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none })
             }
         }
         let state = windowState, model = model
@@ -191,8 +205,8 @@ final class SidebarBridge {
         // One selection: the shown page's top item, else the shown workspace.
         sameTurn.observe({ SidebarNavigation.selectedItem(page: state.page, workspace: state.workspaceID,
                                                           creationRow: state.cloudCreation.flatMap { creations.creation($0)?.rowID },
-                                                          layout: layout.document, room: state.profileID.rawValue,
-                                                          refs: WorkspaceLayoutRefs(machines: machines), home: services.home.dockedHomeID,
+                                                          layout: SidebarRows.visibleLayout(layout.document, showAppStore: services.settings?.snapshot.previewFeatures == true), room: state.profileID.rawValue,
+                                                          refs: WorkspaceLayoutRefs(machines: machines), home: services.home.dockedHomeID(in: state),
                                                           channels: services.home.dockShowsChannels) }) { [weak self] selected in
             self?.selectionHold.offer(selected) // a new workspace's waits for its row (cx-8g3sn)
         }
@@ -217,31 +231,36 @@ final class SidebarBridge {
             model.profiles = saved.sidebarProfiles
             model.activeProfileID = saved.sidebarActiveProfileID
         }
+        let shownAt = SidebarDocStore.current?.shownChanges
         let (sections, launching, failed) = Self.liveSections(services.machines, registry: windows.registry, window: state, creations: services.cloud.creations,
                                                               hidesHome: Self.hidesHome(services.sidebarLayout.document),
                                                               newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store),
                                                               muted: services.notifications.preferences.mutedWorkspaces,
                                                               top: .make(services.sidebarLayout, machines: services.machines, room: state.profileID.rawValue),
                                                               tabTitle: Self.tabTitle(services),
-                                                              groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig())
-        show(sections, layout: SidebarRows.visibleLayout(services.sidebarLayout.document, window: state.id, machines: services.machines,
-                                                         registry: windows.registry.value), launching: launching, failed: failed)
+                                                              groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(),
+                harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none })
+        show(sections, shownAt: shownAt, layout: SidebarRows.visibleLayout(services.sidebarLayout.document, window: state.id, profile: state.profileID, machines: services.machines,
+                                                         registry: windows.registry.value, showAppStore: services.settings?.snapshot.previewFeatures == true), launching: launching, failed: failed)
     }
 
     /// Shows `live` with loading sections filled from the seed, and the
     /// band's `layout` in the same turn, then saves it.
-    private func show(_ live: [SidebarRowSection], layout: SidebarLayoutDocument, launching: Bool, failed: Set<MachineID>,
+    private func show(_ live: [SidebarRowSection], shownAt: UInt64?, layout: SidebarLayoutDocument, launching: Bool, failed: Set<MachineID>,
                       creating: [PendingWorkspaceRows.Row] = []) {
         var sections = seed.merge(live, launching: launching, failed: failed)
         // After the merge, so a reconnecting machine's saved rows stand in first (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
         let hadDocDrag = model.docDrag != nil
         model.docDrag = SidebarDocWiring.docMachines(services.machines).drag() // the sidebar document's drag half, nil keeps the older resolver
+        if let id = state?.id { model.docDrag?.listedElsewhere = WorkspaceLayoutRefs(machines: services.machines).listedElsewhere(window: id, registry: services.windows.registry) }
         model.ungroupedFirst = model.docDrag == nil && !usesMixedOrder
         if model.layout != layout { model.layout = layout }
         // A pass that lists what the rows show already (a daemon reorder the personal or document order hides, a store
         // snapshot laid over again) sets no sections: no arrange and compare of every row in the main thread's frame.
-        rows.show(sections, creating: (creating, NewWorkspacePlacements.home(services.machines)), unlessShown: hadDocDrag == (model.docDrag != nil))
+        let elsewhere = model.docDrag.flatMap { drag in SidebarDocStore.current?.shown?.bandGroupsListedElsewhere(drag: drag) }
+        rows.show(sections, shownAt: shownAt, creating: (creating, NewWorkspacePlacements.home(services.machines)), unlessShown: hadDocDrag == (model.docDrag != nil),
+                  elsewhere: elsewhere, showAppStore: services.settings?.snapshot.previewFeatures == true)
         selectionHold.flush()
         organizationQueue.drain(loaded: usesPersonalOrganization, local: services.machines.local, run: handle, refuse: refuseOrganization)
         groupFlow.openPendingEditor()
@@ -285,16 +304,16 @@ final class SidebarBridge {
                              groupConfig: WorkspaceGroupConfig = WorkspaceGroupConfig(),
                              workspaceFilter: @escaping (WorkspaceModel) -> Bool = {
                                  AgentLaneStore.shared.keepsWorkspace($0, turns: AgentTurnStateStore.shared)
-                             }) -> ([SidebarRowSection], Bool, Set<MachineID>) {
+                             }, harnessIcons: @escaping () -> HarnessIconLookup = { .none }) -> ([SidebarRowSection], Bool, Set<MachineID>) {
         var sections = Self.sections(machines, members: registry.members(of: window.id), profile: window.profileID, hidesHome: hidesHome,
                                      selection: window.selection, newTabPages: newTabPages, muted: muted, top: top, pageFace: pageFace,
-                                     tabTitle: tabTitle, rows: rows, workspaceFilter: workspaceFilter)
+                                     tabTitle: tabTitle, rows: rows, workspaceFilter: workspaceFilter, harnessIcons: harnessIcons)
         // cmux.json `workspaceGroups.byCwd`: a configured group's color and icon.
         sections = WorkspaceGroupConfigLook(config: groupConfig, machines: machines).applying(to: sections)
         if let creations { sections = CloudCreationRows.adding(creations.shown(in: window.id), to: sections) }
         if machines.local.store.isProvisional { sections = SidebarRowSection.stale(sections) }
-        // Debug Settings: sample rows with 1 to 7 pending items, to compare the row badges.
-        if SidebarTunables.rowBadgePreview.value { sections += SidebarRowSection.rowBadgePreview() }
+        // Debug Settings: sample rows to compare the row badges and the row names.
+        sections += SidebarRowSection.debugPreviews()
         let failed = Set(machines.cloud.filter { $0.daemon.startup.isUnavailable }.map { MachineID($0.daemon.machineID) })
         return (sections, isLaunching(machines.local, registry: registry), failed)
     }
@@ -316,11 +335,11 @@ final class SidebarBridge {
                          pageFace: @escaping PageFace = { _, _, _ in nil }, tabTitle: TabTitle? = nil, rows: SidebarMapping.RowSource? = nil,
                          workspaceFilter: @escaping (WorkspaceModel) -> Bool = {
                              AgentLaneStore.shared.keepsWorkspace($0, turns: AgentTurnStateStore.shared)
-                         }) -> [SidebarRowSection] {
+                         }, harnessIcons: @escaping () -> HarnessIconLookup = { .none }) -> [SidebarRowSection] {
         let visible = WindowProfiles.visible(members, profile: profile, machines: machines)
         let filtered = SidebarRowSection.filter(sections(machines, profile: profile, hidesHome: hidesHome, selection: selection(), newTabPages: newTabPages,
                                                          muted: muted, pageFace: pageFace, tabTitle: tabTitle, rows: rows,
-                                                         workspaceFilter: workspaceFilter),
+                                                         workspaceFilter: workspaceFilter, harnessIcons: harnessIcons),
                                                 members: Set(ClosingWorkspaces.shared.survivors(visible)))
         return top.apply(to: filtered, machines: machines)
     }
@@ -330,7 +349,7 @@ final class SidebarBridge {
     /// The page face of a browser workspace's front tab, given the work tab it
     /// yields its name to (`AppServices.sidebarPageFace`).
     typealias PageFace = (WorkspaceModel, TabModel, TabModel?) -> SidebarMapping.PageFace?
-    /// A tab's name in the sidebar's tab rows, as its strip names it.
+    /// A tab's name in the sidebar (a row's title, its hover card), as its strip names it.
     typealias TabTitle = (TabModel) -> String
 
     /// The tabs that show the New Tab page, named "New Tab" and badged as a page.
@@ -338,7 +357,7 @@ final class SidebarBridge {
         RestoredNewTabPages.ids(in: store, tabs: tabs)
     }
 
-    /// The strip's title rule (`TabTitleResolver`) for the sidebar's tab rows.
+    /// The strip's title rule (`TabTitleResolver`) for the sidebar's tab names.
     static func tabTitle(_ services: AppServices) -> TabTitle {
         let titles = TabTitleResolver(services: services)
         return { titles.title($0) }
@@ -357,7 +376,7 @@ final class SidebarBridge {
                          pageFace: @escaping PageFace = { _, _, _ in nil }, tabTitle: TabTitle? = nil, rows: SidebarMapping.RowSource? = nil,
                          workspaceFilter: @escaping (WorkspaceModel) -> Bool = {
                              AgentLaneStore.shared.keepsWorkspace($0, turns: AgentTurnStateStore.shared)
-                         }) -> [SidebarRowSection] {
+                         }, harnessIcons: @escaping () -> HarnessIconLookup = { .none }) -> [SidebarRowSection] {
         let showsUnread = DesignSettings.shared.attention.showsOnSidebar
         let selectedTab = { (pane: PaneModel) in selection().selection(in: pane.id) }
         let groupIcon = IconAssetImages.shared.sidebarIcon(owner: machines.local)
@@ -366,7 +385,8 @@ final class SidebarBridge {
                                                hidesHomeWorkspace: hidesHome, showsUnread: showsUnread, muted: muted, selectedTab: selectedTab,
                                                newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser, pageFace: pageFace,
                                                tabTitle: tabTitle, notificationText: machines.local.store.notificationText(for:),
-                                               iconAsset: groupIcon, rowSource: rows, workspaceFilter: workspaceFilter)
+                                               iconAsset: groupIcon, rowSource: rows, workspaceFilter: workspaceFilter,
+                                               harnessIcons: harnessIcons)
         for session in machines.cloud {
             let header = CloudCreationRows.machine(session, compatibility: machines.compatibility(of: session.daemon), limits: machines.cloudLimits)
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
@@ -417,7 +437,17 @@ final class SidebarBridge {
 
     func contextMenu(for target: SidebarContextTarget) -> NSMenu? {
         switch target {
-        case .layoutItem(let id): layoutItemMenu(id)?.themeRows(in: container.themeScope.fullStrength)
+        // A pinned workspace's tile has its row's menu: name, colors, Unpin (a tile's
+        // generic item menu had no colors, 2026-10-21), then the tile's Show/Hide Label.
+        case .layoutItem(let id):
+            if let workspace = pinnedWorkspaceID(ofItem: id),
+               let ref = (model.layout.item(id) ?? model.listedItem(id))?.ref,
+               let (_, owner) = WorkspaceLayoutRefs(machines: services.machines).workspace(for: ref) {
+                SidebarContextMenus.menu(for: .workspaces([workspace]), model: model, services: services, scope: container.themeScope.fullStrength,
+                                         trailing: tileRows(id), workspaceMachineID: owner.machineID)
+            } else {
+                layoutItemMenu(id)?.themeRows(in: container.themeScope.fullStrength)
+            }
         case .layoutSection(let id): layoutSectionMenu(id)?.themeRows(in: container.themeScope.fullStrength)
         default: SidebarContextMenus.menu(for: target, model: model, services: services, scope: container.themeScope.fullStrength)
         }

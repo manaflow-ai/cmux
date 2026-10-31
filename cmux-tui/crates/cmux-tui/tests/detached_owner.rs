@@ -162,6 +162,42 @@ fn cmux_next_ensure_rejects_an_invalid_reap_grace() {
     }
 }
 
+/// A test harness names its own pid (`--exit-with-pid`): the owner ensure
+/// spawns for it stops once that process exits (a crash, a time limit, a
+/// cancelled job) instead of running on detached for hours.
+#[test]
+fn an_owner_ensured_with_exit_with_pid_stops_when_that_process_exits() {
+    /// Killed when the test ends however it ends.
+    struct Starter(std::process::Child);
+    impl Drop for Starter {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let fixture = EnsureFixture::new("exitwith");
+    let mut starter = Starter(Command::new("sleep").arg("120").spawn().unwrap());
+    let starter_pid = starter.0.id().to_string();
+    let output =
+        fixture.command("ensure").args(["--exit-with-pid", &starter_pid]).output().unwrap();
+    let started = parse_success("ensure", &output);
+    assert_eq!(started["status"], "started", "{started}");
+    let pid = started["pid"].as_u64().expect("owner pid") as u32;
+    let command_line = owner_command_line(u64::from(pid));
+    assert!(
+        command_line.contains(&format!("--exit-with-pid {starter_pid}:")),
+        "owner argv lacks the watched pid: {command_line}"
+    );
+    assert_eq!(fixture.run("status")["pid"].as_u64(), Some(u64::from(pid)));
+
+    starter.0.kill().unwrap();
+    starter.0.wait().unwrap();
+    assert!(owner_exits(&fixture, pid), "the owner outlived the process it was started for");
+
+    let output = fixture.command("ensure").args(["--exit-with-pid", "1"]).output().unwrap();
+    assert!(!output.status.success(), "ensure accepted --exit-with-pid 1");
+}
+
 /// cx-t1ok: a state dir deleted and created again at the same path is a new
 /// home. The owner of the deleted state still serves the session socket, so
 /// ensure must refuse it, not report its stale state as the requested one.
@@ -171,6 +207,18 @@ fn cmux_next_ensure_refuses_the_owner_of_a_recreated_state_dir() {
     let fixture = EnsureFixture::new("recreated");
     let first = fixture.run("ensure");
     assert_eq!(first["status"], "started", "{first}");
+    // A client stays connected to the first owner, as a person's app would: an owner whose
+    // state dir is gone and that has no client stops (headless/lost_paths.rs, #29349), and
+    // then a new owner is right. Held, the first owner keeps serving the socket, which is the
+    // case ensure must refuse (cx-lcxo2x). An answered request proves it registered.
+    let mut client =
+        std::os::unix::net::UnixStream::connect(first["socket"].as_str().unwrap()).unwrap();
+    client.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+    std::io::Write::write_all(&mut client, b"{\"id\":1,\"cmd\":\"identify\"}\n").unwrap();
+    let answered = std::io::BufRead::lines(std::io::BufReader::new(&client))
+        .map_while(Result::ok)
+        .any(|line| line.contains("\"id\":1"));
+    assert!(answered, "the first owner never answered identify");
 
     // The owner still writes in its state dir, so removing it in place can
     // race a new file (ENOTEMPTY). Move it away first: the path is then free
@@ -182,6 +230,7 @@ fn cmux_next_ensure_refuses_the_owner_of_a_recreated_state_dir() {
     fs::create_dir_all(&state).unwrap();
 
     let output = fixture.command("ensure").output().unwrap();
+    drop(client);
     assert!(
         !output.status.success(),
         "ensure reused the owner of the deleted state dir: {}",

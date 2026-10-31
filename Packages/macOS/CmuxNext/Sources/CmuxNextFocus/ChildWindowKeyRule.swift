@@ -3,7 +3,8 @@
 /// keys back from a key Chromium page window (`reclaimKeyFromPageWindow`).
 /// Pure, so the input model runs the same rule as the applier. The rule is
 /// `cmux-focus-core`'s `child_window`; these are its value types.
-public nonisolated enum ChildWindowKeyRule {
+public nonisolated struct ChildWindowKeyRule {
+    public nonisolated init() {}
     /// The key window's relation to this cmux window.
     public enum Parent: Equatable, Sendable, Codable {
         /// A child window of this cmux window.

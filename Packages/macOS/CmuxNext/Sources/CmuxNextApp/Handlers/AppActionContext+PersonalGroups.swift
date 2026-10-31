@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextSettings
 import CmuxNextSidebar
 
 /// Workspace groups when the home session serves personal state
@@ -34,6 +35,29 @@ extension AppActionContext {
         return personal.workspace(session: qualified.session, key: qualified.key)?.group
     }
 
+    /// The targeted group as a notification sound level (``group(_:)``'s target rules).
+    func soundGroup(_ invocation: ActionInvocation) throws -> NotificationSoundScope.Group {
+        let group = try group(invocation)
+        return .init(id: group.id.rawValue, name: group.name)
+    }
+
+    /// The personal groups workspace `id` sits in, innermost first (its notification sound levels).
+    func soundGroups(ofWorkspace id: String) -> [NotificationSoundScope.Group] {
+        guard usesPersonalGroups, let workspace = services.machines.daemons.lazy.flatMap(\.store.workspaces).first(where: { $0.id == id }) else { return [] }
+        var groups: [NotificationSoundScope.Group] = [], next = personalGroupID(of: workspace)
+        // Depth-bounded: a malformed parent loop cannot spin here.
+        while let id = next, groups.count < 16, let group = personal.group(id) {
+            groups.append(.init(id: id.rawValue, name: group.name))
+            next = group.parent
+        }
+        return groups
+    }
+
+    /// The agent names of this Mac's tabs (chat harnesses, hook-reported agents), for per-agent sounds.
+    var soundAgentKinds: [String] {
+        store.workspaces.flatMap { $0.screens.flatMap(\.panes).flatMap(\.tabs) }.compactMap { $0.agentSession?.harness ?? $0.agent?.agent }
+    }
+
     /// Workspaces of every session in personal group `id`.
     func workspaces(inPersonalGroup id: WorkspaceGroupID) -> [WorkspaceModel] {
         services.machines.daemons.flatMap(\.store.workspaces).filter { personalGroupID(of: $0) == id }
@@ -46,9 +70,13 @@ extension AppActionContext {
         let resource = home.store.personalStateID(session: qualified.session, key: key)
         let life = PersonalGroupLife(machines: services.machines), placement = PersonalSidebarPlanner.Placement(session: qualified.session, key: key, resource: resource)
         // The group it leaves empty goes too (cx-rcby).
-        let resync = { [weak services] in services?.windows.active?.sidebar.resync() }
-        life.commit("set-personal-workspace", ending: life.emptied(by: [placement], into: nil),
-                    recheck: { life.emptied(by: [placement], into: nil) }, failed: { resync() }) {
+        let failed: @MainActor (ActionWorkFailure) -> Void = { [weak services] failure in
+            services?.windows.active?.sidebar.resync()
+            services?.registry.reportFailure(of: "removeWorkspaceFromGroup", failure)
+        }
+        let ending = life.emptied(by: [placement], into: nil)
+        life.commit("set-personal-workspace", ending: ending,
+                    recheck: { ending.filter(life.isEmptyUnpinned) }, failed: failed) {
             try await $0.state.placePersonalWorkspace(session: qualified.session, key: key, resource: resource, group: .clear)
         }
     }

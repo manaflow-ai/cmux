@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ComposerAttachment } from "../attachments";
+import { appendAttachments } from "./attachmentIntake";
 import { holdWebSwap } from "../../../pages/shared/webSwap";
 
 /// Where the host keeps each chat's unsent chips (AgentPaneDraftAttachments.swift), so reopening
@@ -17,8 +18,37 @@ export type KeptAttachments = {
 export const KEPT_ATTACHMENTS_SETTLE_MS = 300;
 
 /// The chips a chat keeps: a shell run's chip stays with its page (its output fills when the prompt goes).
+/// A video's poster and frames stay too: the host reads them again when the chip comes back
+/// (composer/videoAttachments.ts), so a draft write never carries them.
 export function keptChips(attachments: readonly ComposerAttachment[]): ComposerAttachment[] {
-  return attachments.filter((chip) => !chip.shellRun);
+  return attachments.flatMap((chip) => {
+    if (chip.shellRun) return [];
+    if (!chip.video) return [chip];
+    const { video: _video, ...kept } = chip;
+    return [kept];
+  });
+}
+
+/// Each chat's handoffs still going (keepElsewhere), so the next waits for them.
+const handoffs = new Map<string, Promise<void>>();
+
+/// Adds `chips` to chat `chat`'s kept chips: a file whose read ended after the composer left that
+/// chat (attachmentIntake.ts `elsewhere`). A batch's chips are ready at their own times, so one
+/// chat's handoffs go one after another: each reads what the last wrote, never over it.
+export function keepElsewhere(store: KeptAttachments, chat: string, chips: ComposerAttachment[]): Promise<void> {
+  const next = (handoffs.get(chat) ?? Promise.resolve())
+    .then(() => store.read(chat))
+    .catch(() => [])
+    .then((kept) => store.write(chat, appendAttachments(kept, chips)))
+    .then(
+      () => undefined,
+      () => undefined,
+    );
+  handoffs.set(chat, next);
+  void next.then(() => {
+    if (handoffs.get(chat) === next) handoffs.delete(chat);
+  });
+  return next;
 }
 
 type Pending = { sessionId: string; chips: ComposerAttachment[]; timer: ReturnType<typeof setTimeout> };

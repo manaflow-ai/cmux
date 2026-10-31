@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+import CmuxNextWakeups
 public import CmuxNextDesign
 import Observation
 
@@ -41,6 +42,21 @@ public final class LayoutRootView: NSView {
     var ownerDecidedAtTouch = false
     /// What focus-follows-mouse reads besides the model (`LayoutRootView+ScrollFocus`).
     let scrollFocusSignals: ScrollFocusSignals
+    /// Asks a web page whether it keeps a Command scroll (`layout.pagesHandleCommandScroll`); nil:
+    /// every Command scroll is the layout's.
+    let pageCommandScroll: (any PageCommandScrollArbiter)?
+    /// The Command scroll from a page window held while its page is asked (`LayoutRootView+PageScroll`).
+    var pageProbe: PageProbe?
+    /// The task that asks the page for ``pageProbe``; tests await it.
+    var pageProbeTask: Task<Void, Never>?
+    /// Stops waiting for the page at ``pageProbeDeadline``, on the layout's injected clock.
+    let pageProbeTimer: DemandTimer
+    /// How long a held Command scroll waits for its page's answer before the columns take it. A
+    /// page that is not stuck answers within a frame or two.
+    let pageProbeDeadline: Duration = .milliseconds(120)
+    var pageProbeGeneration: UInt64 = 0
+    /// The last wheel answer of a page window, reused for the notches of one spin.
+    var wheelPageAnswer: WheelPageAnswer?
     /// The pane the pointer was last over (`layout.focusFollowsMouse` hover): focus moves
     /// only when the pointer enters another pane, so a keyboard move is not undone by a
     /// small pointer twitch inside the pane it left.
@@ -107,6 +123,10 @@ public final class LayoutRootView: NSView {
     /// its spring owns), in that event's dispatch: the App's input dispatch context times it as the layout's
     /// (`key.scroll_frame target=layout`). Never called for an event that goes on to a pane.
     public var onScrollTaken: (() -> Void)?
+    /// Called after every motion frame has placed the panes (a pan, a coast or a spring step), so a
+    /// view drawn over them from a snapshot of their places (the modifier-hold shortcut chips) can
+    /// follow. Runs on the frame's turn: keep it to a flag or a coalesced refresh.
+    public var onFramePlaced: (() -> Void)?
     /// Whether a split or a pane close holds the terminals' grids now (``onTerminalGridHold``).
     public var holdsTerminalGrids: Bool { !context.gridHoldScreens.isEmpty }
 
@@ -128,15 +148,20 @@ public final class LayoutRootView: NSView {
     }
 
     /// `contentProvider` is held weakly; the App keeps it alive.
-    /// `scrollbarClock` runs the strip scrollbar's `auto` fade-out deadline;
-    /// tests inject a manual clock.
+    /// `scrollbarClock` runs the strip scrollbar's `auto` fade-out deadline and the wait for a
+    /// page's Command scroll answer; tests inject a manual clock.
     /// `scrollFocusSignals` feeds focus-follows-mouse (`layout.focusFollowsMouse`);
     /// tests inject fixed values.
+    /// `pageCommandScroll` asks a web page whether it keeps a Command scroll
+    /// (`layout.pagesHandleCommandScroll`); nil gives every Command scroll to the layout.
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
                 scrollbarClock: any Clock<Duration> = ContinuousClock(),
-                scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals()) {
+                scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals(),
+                pageCommandScroll: (any PageCommandScrollArbiter)? = nil) {
         self.model = model
         self.scrollFocusSignals = scrollFocusSignals
+        self.pageCommandScroll = pageCommandScroll
+        self.pageProbeTimer = DemandTimer(owner: "layout.page-command-scroll", clock: scrollbarClock)
         self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock)
         super.init(frame: .zero)
         wantsLayer = true
@@ -224,6 +249,14 @@ public final class LayoutRootView: NSView {
     /// columns placed before and after the strip (one logical line).
     public var navigationFrames: [PaneID: CGRect] {
         guard let active = model.activeScreenID, let view = screenViews[active] else { return [:] }
+        return view.navigationFrames
+    }
+
+    /// ``navigationFrames`` of the screen that holds `pane`, active or not: a hidden screen view keeps
+    /// its geometry at the root's size, so what opens beside a pane on a screen the person switched
+    /// away from reads that screen's layout (RightColumn).
+    public func navigationFrames(ofScreenContaining pane: PaneID) -> [PaneID: CGRect] {
+        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id] else { return [:] }
         return view.navigationFrames
     }
 
@@ -331,13 +364,15 @@ public final class LayoutRootView: NSView {
             } else {
                 isNew = true
                 view = ScreenContentView(screenID: screen.id, layout: screen.layout, context: context)
-                view.frame = bounds
                 view.isHidden = !isActive
+                // In the window before its first frame: the frame reconciles the screen, which takes
+                // its panes' hosts, so a pane the old screen shows moves inside the window, never out.
                 if overlayPlane.isHome {
                     addSubview(view, positioned: .below, relativeTo: overlayPlane)
                 } else {
                     addSubview(view)
                 }
+                view.frame = bounds
                 screenViews[screen.id] = view
                 screenFrames[screen.id] = AnimatedFrame(bounds, alpha: isActive ? 1 : 0)
             }
@@ -396,7 +431,11 @@ public final class LayoutRootView: NSView {
             }
         }
 
+        // A drag's pages whose panes moved to a surviving screen hear its end when that screen lands;
+        // the rest (gone with their screen) hear it now.
+        var carried: [PaneResizeGestureListener] = []
         for (id, view) in leaving {
+            carried += view.takeResizeGestureListeners()
             view.tearDown()
             view.removeFromSuperview()
             screenViews[id] = nil
@@ -410,6 +449,18 @@ public final class LayoutRootView: NSView {
             }
         }
 
+        for listener in carried {
+            guard let page = listener.view else { continue }
+            if let home = screenViews.values.first(where: { page.isDescendant(of: $0) }) {
+                home.adoptResizeGestureListeners([listener])
+            } else {
+                page.paneResizeGestureDidChange(active: false)
+            }
+        }
+        // A released resize drag: its layout is in the screens now (`ScreenContentView+ResizeGesture`).
+        for view in screenViews.values where view.resizeGesture == .releasing {
+            view.resizeGestureModelSynced(gestureActive: snapshot.gestureActive)
+        }
         updateVisibility()
         overlayIsStale = true
         flushOverlaySync()
@@ -424,9 +475,17 @@ public final class LayoutRootView: NSView {
     // MARK: Frames
 
     func advanceFrame(_ dt: Double) -> Bool {
+        defer { onFramePlaced?() }
+        // A released resize drag whose layout the observation has not applied yet: apply it before this
+        // frame, so the frame that ends the drag for the pane contents is the release's (`ScreenContentView+ResizeGesture`).
+        if !model.isGestureActive, screenViews.values.contains(where: { $0.resizeGesture == .releasing }) {
+            syncWithModel()
+            // Nothing new to apply: the screens already show the model.
+            for view in screenViews.values where view.resizeGesture == .releasing { view.resizeGestureModelSynced(gestureActive: false) }
+        }
         // Reduce Motion (or the no-animation switch) turned on mid-flight: the final layout now, no more frames.
         if context.reduceMotion {
-            for view in screenViews.values where view.hasMotion { view.settleMotion() }
+            for view in screenViews.values where view.hasMotion || view.resizeGesture == .landing { view.settleMotion() }
             for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
             applyScreenFrames()
             updateVisibility()
@@ -570,7 +629,13 @@ public final class LayoutRootView: NSView {
             self.eventMonitor = nil
         }
         driver.detach()
-        if !live { for view in screenViews.values { view.settleMotion() } }
+        if !live {
+            for view in screenViews.values {
+                view.settleMotion()
+                // No frames run while parked or away: a resize drag's pages lay out now (`ScreenContentView+ResizeGesture`).
+                view.finishResizeGesture()
+            }
+        }
         if !live, let planeHost {
             planeHost.releasePlane(overlayPlane)
             self.planeHost = nil

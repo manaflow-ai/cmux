@@ -1,32 +1,29 @@
 // The Inspector's Environment (Claude Code desktop's): where a running chat runs, the one place
 // that says so. The machine by its own name and kind (this Mac, an SSH machine, a Cloud machine),
-// never "This computer", with Save; then every folder the chat worked in (chatFolders.ts): its own
-// folder with its parent, then each project its tool calls touched, whose full path a hover shows;
-// the GitHub repository; the branch and the worktree. Then Remote Control, when the App offers it.
-// Every row does something: a folder opens in the Files tree beside the chat, the repository and
-// the branch are links to GitHub, which the pane opens in the browser as it opens a reply's link.
-import { useMemo, useState, type ReactNode } from "react";
+// never "This computer", with Save; then the chat's project (chatFolders.ts), named by its
+// repository, whose full path only a hover shows; the GitHub repository; the branch. Then Remote
+// Control, when the App offers it. A chat in a temporary or internal folder (a harness's scratchpad)
+// has no project row and no Save: only its machine. Every row does something: the project opens in
+// the Files tree beside the chat, the repository and the branch are links to GitHub, which the pane
+// opens in the browser as it opens a reply's link.
+import { useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { machineColor } from "../machineColor";
 import type { SavedEnvironmentDraft } from "../environments";
-import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
-import { homePath, projectLabel } from "../sessionList";
-import { chatFolders } from "./chatFolders";
+import type { AcpmuxSnapshot } from "../model";
+import { homePath } from "../sessionList";
+import { chatProject } from "./chatFolders";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
 const ROW_ICON = rowIconSize(12);
-const NO_ROWS: readonly AcpmuxRow[] = [];
 
-/// The folder's name, then its parent folder, home-abbreviated: `atlas-web` · `~/src`.
-function splitFolder(path: string): { name: string; parent?: string } {
-  const trimmed = path.replace(/\/+$/, "");
-  const cut = trimmed.lastIndexOf("/");
-  const parent = cut > 0 ? homePath(trimmed.slice(0, cut)) : undefined;
-  return { name: projectLabel(trimmed), parent: parent && parent !== trimmed ? parent : undefined };
-}
+/// How the project row reads. `name` (shipped): the repository's name alone, the branch its own row.
+/// Gallery alternatives: `branch`, the branch as a chip in the project's row, with no branch row;
+/// `parent`, the name with its parent folder after it (the path text Leo asked not to see).
+export type ProjectRowLook = "name" | "branch" | "parent";
 
 /// Where the session runs, as the composer's computer chip names it (ComposerContext computerId):
 /// a peer or a Cloud host is another machine, else it is this Mac by its name. With no name known
@@ -44,19 +41,21 @@ export function machineOf(
 }
 
 /// What Save keeps of the chat's environment (environments.ts, the New Tab page's saved
-/// environments): this Mac or the SSH machine, and the chat's folder, named after the folder. A
-/// Cloud machine's chat has none: a saved environment is this Mac or an SSH machine.
+/// environments): this Mac or the SSH machine, and the chat's folder, named after its project. Only
+/// a chat in a project has one: a chat in a temporary or internal folder (chatFolders.ts) saves
+/// nothing useful, and a Cloud machine's chat has none (a saved environment is this Mac or an SSH
+/// machine).
 export function environmentToSave(
   summary: Summary | undefined,
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>,
+  repository?: string,
 ): SavedEnvironmentDraft | undefined {
   const machine = machineOf(summary, undefined, peerKinds);
-  if (!summary || machine.kind === "cloud") return undefined;
-  const folder = summary.cwd;
-  const name = folder ? projectLabel(folder) : machine.name;
-  if (!name) return undefined;
-  if (machine.kind === "ssh") return { name, kind: "ssh", host: summary.peer, ...(folder ? { folder } : {}) };
-  return { name, kind: "local", ...(folder ? { folder } : {}) };
+  const project = chatProject(summary, repository);
+  const folder = summary?.cwd;
+  if (!summary || !folder || !project || machine.kind === "cloud") return undefined;
+  if (machine.kind === "ssh") return { name: project.name, kind: "ssh", host: summary.peer, folder };
+  return { name: project.name, kind: "local", folder };
 }
 
 /// A row that does something when it is clicked (`onClick`, or `href`: a web address the pane opens
@@ -115,54 +114,58 @@ export function EnvironmentSection({
   machineName,
   peerKinds,
   repository,
-  rows = NO_ROWS,
   remoteControl,
   onSave,
   onOpenFolder,
+  projectLook = "name",
 }: {
   summary?: Summary;
   machineName?: string;
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
   /// The chat folder's GitHub repository, `owner/name`.
   repository?: string;
-  /// The chat's rows, whose tool calls name the other folders it worked in.
-  rows?: readonly AcpmuxRow[];
   /// Remote Control's state and switch, when the App offers it for this chat.
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   /// Saves this machine and folder as a reusable environment, when the App offers it.
   onSave?: () => Promise<unknown> | void;
   /// Opens a folder in the Files tree beside the chat (a chat on this Mac).
   onOpenFolder?: (path: string) => void;
+  projectLook?: ProjectRowLook;
 }) {
   const t = useT();
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const pending = useRef(false);
   const machine = machineOf(summary, machineName, peerKinds);
-  const cwd = summary?.cwd;
   const branch = summary?.branch;
-  const worktree = summary?.worktree && summary.worktree !== cwd ? summary.worktree : undefined;
-  const folders = useMemo(() => chatFolders(rows, cwd, Boolean(branch)), [rows, cwd, branch]);
+  const project = chatProject(summary, repository);
   const repositoryUrl = repository ? `https://github.com/${repository}` : undefined;
   const branchUrl =
     repositoryUrl && branch
       ? `${repositoryUrl}/tree/${branch.split("/").map(encodeURIComponent).join("/")}`
       : undefined;
-  const save = onSave
-    ? () => {
-        void Promise.resolve(onSave()).then(
-          () => setSaved(true),
-          () => undefined,
-        );
-      }
-    : undefined;
-  const folderRow = (path: string, icon: string, withParent: boolean) => {
-    const { name, parent } = splitFolder(path);
-    return (
-      <Row key={path} icon={icon} title={path} onClick={onOpenFolder && (() => onOpenFolder(path))}>
-        <span className="acpmux-chat-inspector-row__name">{name}</span>
-        {withParent && parent && <span className="acpmux-chat-inspector-row__detail">{parent}</span>}
-      </Row>
-    );
-  };
+  // Save keeps a project: a chat in a scratch folder has nothing worth keeping.
+  const save =
+    onSave && project
+      ? async () => {
+          if (pending.current || saved) return;
+          pending.current = true;
+          setSaving(true);
+          setFailed(false);
+          try {
+            await onSave();
+            setSaved(true);
+          } catch {
+            // The host can return internal transport details; keep the visible failure display-safe.
+            setFailed(true);
+          } finally {
+            pending.current = false;
+            setSaving(false);
+          }
+        }
+      : undefined;
+  const parent = project && homePath(project.path.slice(0, project.path.lastIndexOf("/")) || "/");
   return (
     <ul className="acpmux-chat-inspector-list" data-section="environment">
       <li className="acpmux-chat-inspector-row" data-machine={machine.kind}>
@@ -177,31 +180,46 @@ export function EnvironmentSection({
           <button
             type="button"
             className="acpmux-chat-inspector-link acpmux-chat-inspector-row__end"
-            disabled={saved}
+            disabled={saved || saving}
+            aria-busy={saving}
             onClick={save}
           >
             {t(saved ? "artifact.saved" : "chatInspector.environment.save")}
           </button>
         )}
       </li>
-      {folders.map((path, index) =>
-        folderRow(path, index === 0 && path === summary?.worktree ? "git.worktree" : "folder", index === 0),
+      {failed && (
+        <li className="acpmux-chat-inspector-note" role="alert">
+          {t("environment.saveFailed", { reason: t("error.requestFailed") })}
+        </li>
+      )}
+      {project && (
+        <Row
+          icon={project.worktree ? "git.worktree" : "folder"}
+          title={project.path}
+          onClick={onOpenFolder && (() => onOpenFolder(project.path))}
+        >
+          <span className="acpmux-chat-inspector-row__name">{project.name}</span>
+          {projectLook === "parent" && parent && <span className="acpmux-chat-inspector-row__detail">{parent}</span>}
+          {projectLook === "branch" && branch && (
+            <span className="acpmux-chat-inspector-row__detail acpmux-chat-inspector-row__end">{branch}</span>
+          )}
+        </Row>
       )}
       {repository && (
         <Row icon="brand.github" href={repositoryUrl}>
           <span className="acpmux-chat-inspector-row__name">{repository}</span>
         </Row>
       )}
-      {branch && (
+      {branch && !(projectLook === "branch" && project) && (
         <Row icon="git.branch" href={branchUrl}>
           <span className="acpmux-chat-inspector-row__name">{branch}</span>
         </Row>
       )}
-      {worktree && !folders.includes(worktree) && folderRow(worktree, "git.worktree", true)}
       {remoteControl && (
         <li className="acpmux-chat-inspector-row">
           <Icon name="device.phone" size={ROW_ICON} row />
-          <label className="acpmux-chat-inspector-switch">
+          <label className="acpmux-chat-inspector-switch" title={t("chatInspector.environment.remoteControl.help")}>
             <span className="acpmux-chat-inspector-row__name">{t("chatInspector.environment.remoteControl")}</span>
             <input
               type="checkbox"

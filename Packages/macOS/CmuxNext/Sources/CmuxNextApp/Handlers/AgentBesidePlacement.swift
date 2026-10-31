@@ -104,11 +104,10 @@ enum AgentBesidePlacement {
                 // Keyboard focus stays in the chat, now in its dock; a person's click focuses the tab.
                 // Not when the person acted since the run began: their focus stays where they put it.
                 if (chatHadFocus || content.focusedPane?.pane === anchor) && !personActed() {
-                    let chatID = chat.id
                     let listed = Task { @MainActor () -> Bool in
                         // The store lists the chat in its new dock pane (the window's controller may come later;
                         // focus goes by the pane's id, which the window applies when it shows the pane).
-                        for await moved in ObservationStream({ services.locateTab(chatID).map { $0.1 !== anchor } ?? false }) where moved {
+                        for await moved in ObservationStream({ services.locateTab(model: chat).map { $0.1 !== anchor } ?? false }) where moved {
                             return true
                         }
                         return false
@@ -119,9 +118,9 @@ enum AgentBesidePlacement {
                     }
                     let moved = await listed.value
                     bound.cancel()
-                    if moved, let pane = services.locateTab(chatID)?.1, let clicked {
+                    if moved, let pane = services.locateTab(model: chat)?.1, let clicked {
                         focus(surface, returningTo: LayoutPaneID(pane.id), in: clicked, generation: intent, services: services)
-                    } else if moved, let pane = services.locateTab(chatID)?.1 {
+                    } else if moved, let pane = services.locateTab(model: chat)?.1 {
                         // Not a view change of the run: the run moved the focused chat out of its
                         // pane, and focus follows the chat back to where the person had it (as
                         // FocusCoordinator.followMovedTab does for a person's move). Programmatic, so
@@ -139,13 +138,13 @@ enum AgentBesidePlacement {
             // Home's pinned dock alone takes no tab: the daemon made it in a new column right of
             // the dock (`pinned-dock-alone-v1`), so there is nothing to move.
             let away = services.paneController(for: anchor)?.paneKey
-            if services.locateTab(tab.id).map({ $0.1 !== anchor }) == true {
+            if services.locateTab(model: tab).map({ $0.1 !== anchor }) == true {
                 moved = true
                 if let clicked { focus(surface, returningTo: from, awayFrom: away, in: clicked, generation: intent, services: services) }
                 await revealMoved(tab.id, from: anchor, services: services)
                 return nil
             }
-            let after = newColumn(beside: anchor, in: services.daemon(for: anchor).store)
+            let after = services.daemon(for: anchor).store.scrollingColumn(holding: anchor)
             moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services) { done.resume(returning: $0) }
             }
@@ -172,17 +171,6 @@ extension AgentBesidePlacement {
         if let chat { services.linkOpener.returnFocus(of: surface, to: chat, in: content) }
         content.expectFocus(on: surface, awayFrom: pane, generation: generation)
     }
-
-    /// The column a tab beside `chat` follows: the chat's own scrolling column, so the new column
-    /// opens right of the chat, where the chat keeping focus keeps it in view. The daemon's
-    /// default is after the last column, past the panes already beside the chat and off screen
-    /// (cx-u1yn). Nil for a chat in a docked column or on a screen without columns.
-    static func newColumn(beside chat: PaneModel, in store: DaemonStore) -> DaemonColumnID? {
-        guard let screen = store.workspace(containing: chat.handle)?.screens.first(where: { $0.panes.contains { $0 === chat } }),
-              let column = screen.columns.first(where: { $0.layout.paneIDs.contains(chat.handle) }),
-              column.dock == nil else { return nil }
-        return column.id
-    }
 }
 
 extension AgentBesidePlacement {
@@ -191,8 +179,9 @@ extension AgentBesidePlacement {
     /// the viewport (after the last column, as beside a chat docked left) stayed out of view (cx-27j7).
     @MainActor static func revealMoved(_ id: String, from anchor: PaneModel, services: AppServices) async {
         guard let content = services.paneController(for: anchor)?.workspace else { return }
+        let machineID = services.daemon(for: anchor).machineID
         let listed = Task { @MainActor () -> Bool in
-            for await moved in ObservationStream({ services.locateTab(id).map { $0.1 !== anchor } ?? false }) where moved { return true }
+            for await moved in ObservationStream({ services.locateTab(id, onMachine: machineID).map { $0.1 !== anchor } ?? false }) where moved { return true }
             return false
         }
         let bound = DemandTimer(owner: "AgentBesidePlacement.reveal")
@@ -201,7 +190,7 @@ extension AgentBesidePlacement {
         }
         let moved = await listed.value
         bound.cancel()
-        if moved, let pane = services.locateTab(id)?.1 { content.layoutModel.revealColumn(containing: LayoutPaneID(pane.id)) }
+        if moved, let pane = services.locateTab(id, onMachine: machineID)?.1 { content.layoutModel.revealColumn(containing: LayoutPaneID(pane.id)) }
     }
 }
 

@@ -1,20 +1,22 @@
 /* The composer's Milkdown prompt (MarkdownField.tsx), drawn as the plain textarea it replaces
-   (.acpmux-composer-field): 15px on 22px lines, no chrome. Formatting shows only where the
-   user formats. Theme tokens only. */
+   (.acpmux-composer-field): the chat font size and line height, no chrome. Formatting shows
+   only where the user formats. Theme tokens only. */
 .acpmux-md-field {
   position: relative;
-  /* Keep long drafts inside the composer: it grows to 40% of the pane, never less than eight
-     lines, and leaves the transcript and location shelf anchored while the draft grows (Leo,
-     2026-10-24: "I think we can afford to expand the composer text area a bit more than we do right
-     now. When there's lots of text."). A short pane still gives up height (bottomStack.css). */
-  max-height: max(calc(var(--text-body--line-height, 22px) * 8 + var(--cmux-control-height, 23px)), 40vh);
+  /* Goldilocks after #24984: the old cap was eight body lines plus the control row, then
+     31bbb2fd6d4 let 40vh win. Lawrence found that growth too big; twelve lines is the compromise,
+     with 40vh still limiting unusually tall panes. Short panes still give up height (bottomStack.css). */
+  max-height: min(
+    calc(var(--text-content--line-height) * var(--acpmux-composer-max-lines, 12) + var(--cmux-control-height, 23px)),
+    40vh
+  );
   overflow-y: auto;
   /* A long draft scrolls in this box alone (Leo 2026-10-20: reaching the top or the bottom must
      not shift anything): no chaining into the transcript, no bounce. */
   overscroll-behavior: contain;
   padding: calc(15px * var(--cmux-interface-scale, 1)) calc(16px * var(--cmux-interface-scale, 1)) calc(8px * var(--cmux-interface-scale, 1));
-  font-size: var(--text-title, 15px);
-  line-height: var(--text-title--line-height, 22px);
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height);
   color: var(--agent-text);
 }
 /* A long draft's soft edges (Leo 2026-10-21), the transcript's (.acpmux-scroll, conversation.css):
@@ -121,9 +123,10 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   vertical-align: 1px;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-md {
-  min-height: var(--text-title--line-height, 22px);
+  min-height: var(--text-content--line-height);
   outline: none;
   white-space: pre-wrap;
   word-break: break-word;
@@ -148,7 +151,7 @@
   border-radius: 4px;
   background: color-mix(in srgb, var(--agent-text) 9%, transparent);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 13px;
+  font-size: var(--cv-code-size, calc(var(--text-content) * 13 / 14));
 }
 .acpmux-md pre {
   padding: 8px 10px;
@@ -156,16 +159,22 @@
   background: color-mix(in srgb, var(--agent-text) 6%, transparent);
   overflow-x: auto;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 13px;
-  line-height: 19px;
+  font-size: var(--cv-codeblock-size, calc(var(--text-content) * 12 / 14));
+  line-height: var(--cv-codeblock-line-height, calc(var(--text-content) * 20 / 14));
 }
 .acpmux-md pre code {
+  font-size: inherit;
   padding: 0;
   background: none;
 }
-.acpmux-md ul,
-.acpmux-md ol {
+.acpmux-md ul {
   padding-left: 22px;
+}
+/* A number hangs left of its item, and WebKit puts about 1.2em between it and the text. The
+   editor scrolls and clips at its own edge, so this padding is all the room a number has: 22px
+   cut the left of "1." (Austin 2026-10-20). 3em holds "10." in SF and in DejaVu Sans (the gallery runner). */
+.acpmux-md ol {
+  padding-left: 3em;
 }
 .acpmux-md li > p {
   margin: 0;
@@ -178,7 +187,7 @@
 .acpmux-md h1,
 .acpmux-md h2,
 .acpmux-md h3 {
-  font-size: 15px;
+  font-size: inherit;
   font-weight: 600;
 }
 .acpmux-md hr {
@@ -203,6 +212,17 @@
 .acpmux-md p {
   margin-top: 0;
   margin-bottom: 0;
+}
+/* The draft never widens the composer (https://github.com/manaflow-ai/cmux/issues/28672): a run of
+   spaces, a long word or a URL wraps inside the text column, and no line's content can ask the box
+   for more width. `anywhere` (the deprecated `word-break: break-word` above names it too) also lets
+   the field's min-content width drop to one character, so a grid or flex parent never sizes the
+   field to its longest unbroken run; the field is a vertical scroller with no width of its own. */
+.acpmux-md {
+  overflow-wrap: anywhere;
+}
+.acpmux-md-field {
+  min-width: 0;
 }
 
 /*
@@ -269,8 +289,108 @@
   border: 2px solid var(--agent-accent);
   pointer-events: none;
 }
+/* A selected numbered item: around its number, inside the editor's edge. */
+.acpmux-md ol > li.ProseMirror-selectednode::after {
+  left: calc(2px - 3em);
+}
 .acpmux-md img.ProseMirror-separator {
   display: inline !important;
   border: none !important;
   margin: 0 !important;
+}
+
+/* Attachments are atoms in the editable line, as in Messages. */
+.acpmux-md-inline {
+  display: inline-block;
+  vertical-align: bottom;
+  margin: 2px 2px;
+  border-radius: var(--acpmux-attach-radius, 8px);
+  user-select: none;
+}
+.acpmux-md-inline-chip {
+  position: relative;
+  display: inline-flex;
+  /* Never on its content's baseline: a thumbnail's would leave a descender's gap under the chip. */
+  vertical-align: top;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 40px;
+  height: calc(var(--cmux-control-height, 24px) * 2);
+  border-radius: inherit;
+  background: var(--agent-control);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong);
+  color: var(--agent-muted);
+  overflow: hidden;
+}
+/* Settings' strip view (ComposerBox attachmentView): the strip alone shows the attachments; each keeps
+   its place in the text, so the inline view shows it there again and the prompt goes the same. */
+.acpmux-composer-box[data-attachment-view="strip"] .acpmux-md .acpmux-md-inline {
+  display: none;
+}
+/* A file placed in the text: its name on the chip, as the strip's link chip has it. */
+.acpmux-md-inline-chip[data-kind="file"] {
+  gap: 4px;
+  max-width: 180px;
+  height: 28px;
+  padding: 0 24px 0 8px;
+  color: var(--agent-text);
+  font-size: inherit;
+}
+.acpmux-md-inline-chip[data-kind="file"] .acpmux-md-inline-remove {
+  top: 6px;
+}
+.acpmux-md-inline-chip[data-state="loading"],
+.acpmux-md-inline-chip[data-state="failed"] {
+  width: 64px;
+}
+/* An image, a PDF, a video or a file: the strip's own chip (composerAttachments.css). A thumbnail or
+   a video's poster is as tall as two control rows so it sits in a line of text; an image that could
+   not be drawn keeps the strip's tile, which has room for its note, Retry and ×. */
+.acpmux-md-inline-chip[data-chip="strip"] .acpmux-attachment-image:not(.acpmux-attachment-image-failed) {
+  --acpmux-attach-height: calc(var(--cmux-control-height, 24px) * 2);
+}
+.acpmux-md-inline-chip[data-chip="strip"] {
+  min-width: 0;
+  height: auto;
+  background: none;
+  box-shadow: none;
+  overflow: visible;
+  color: var(--agent-text);
+}
+.acpmux-md-inline-retry {
+  padding: 0 8px;
+  border: 0;
+  background: none;
+  color: var(--agent-text);
+  font-size: inherit;
+  text-decoration: underline;
+}
+.acpmux-md-inline-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  background: color-mix(in srgb, var(--acpmux-composer-bg) 82%, transparent);
+  box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
+  color: var(--agent-text);
+}
+.acpmux-md-inline-chip:hover .acpmux-md-inline-remove,
+.acpmux-md-inline-chip:focus-within .acpmux-md-inline-remove,
+.acpmux-md-inline-chip[data-state="failed"] .acpmux-md-inline-remove {
+  opacity: 1;
+}
+.acpmux-md-inline-remove:hover {
+  background: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-bg));
+}
+.acpmux-md-inline-remove:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
 }

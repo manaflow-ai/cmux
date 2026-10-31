@@ -57,7 +57,7 @@ impl Found {
     }
 }
 
-fn truthy(v: Option<&String>) -> bool {
+fn truthy(v: Option<&str>) -> bool {
     v.is_some_and(|v| !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false"))
 }
 
@@ -100,7 +100,7 @@ pub fn find(env: &BTreeMap<String, String>) -> Found {
     let home = custom.map(PathBuf::from).unwrap_or_else(|| user_home.join(".claude"));
     let mut found = Found { home: home.clone(), custom_home: custom.is_some(), ..Found::default() };
     for (key, words) in PROVIDER_KEYS {
-        if truthy(env.get(key)) {
+        if truthy(env.get(key).map(String::as_str)) {
             found.sources.push(words.to_owned());
             found.env_keys.push(key.to_owned());
         }
@@ -121,6 +121,17 @@ pub fn find(env: &BTreeMap<String, String>) -> Found {
         if let Some(senv) = json.get("env").and_then(|e| e.as_object()) {
             let has = |k: &str| {
                 senv.get(k).is_some_and(|v| {
+                    // Provider switches select a credential source only when enabled,
+                    // with the same semantics as the process environment above.
+                    if PROVIDER_KEYS.iter().any(|(key, _)| *key == k) {
+                        return match v {
+                            serde_json::Value::String(value) => truthy(Some(value)),
+                            serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {
+                                truthy(Some(&v.to_string()))
+                            }
+                            _ => false,
+                        };
+                    }
                     v.as_str().is_some_and(|s| !s.is_empty()) || v.is_boolean() || v.is_number()
                 })
             };
@@ -229,11 +240,47 @@ pub fn is_sign_in_failure(message: &str) -> bool {
         || m.contains("authentication_failed")
 }
 
+/// Whether `message` says a credential expired: "OAuth token has expired", "the token is
+/// expired", "credential expired", "expired API key". One matcher for every place that tells an
+/// expired sign-in from a missing one (a failed auth check, a failed turn), so the two never
+/// drift. Only a statement that one expired counts: "invalid token expiry", "the credential
+/// expires in 30 days" and a bare "session expired" do not.
+pub fn is_expired_credential(message: &str) -> bool {
+    // A constant pattern; the unit test proves it compiles.
+    static EXPIRED: std::sync::LazyLock<Option<regex::Regex>> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(
+            r"(?i)\b(?:tokens?|credentials?|api keys?|logins?|sign-ins?)(?:\s+(?:has|have|is|are|was|were))?\s+expired\b|\bexpired\s+(?:(?:oauth|access|refresh|auth|authentication|session)\s+)?(?:tokens?|credentials?|api keys?|logins?|sign-ins?)\b",
+        )
+        .ok()
+    });
+    EXPIRED.as_ref().is_some_and(|re| re.is_match(message))
+}
+
+/// Whether `message` says Claude's OAuth token was revoked ("Failed to authenticate: OAuth token
+/// revoked", "OAuth token has been revoked"), and not that the provider was unreachable. A
+/// fresh Cloud VM's first `claude -p` failed once this way and the same call 2 s later ran
+/// (cmux#28111): the chat's first send is retried once on it (`hub/auto_resume/first_send.rs`).
+/// An expired or missing sign-in is not this.
+pub fn is_revoked_token(message: &str) -> bool {
+    let m = message.to_lowercase();
+    (m.contains("oauth token revoked") || m.contains("token has been revoked"))
+        && !crate::hub::turn_errors::says_unreachable(message)
+}
+
+/// Whether [`explain`] rewrites `original`: a sign-in failure it has not explained yet, and not
+/// one that says the provider was unreachable ("HTTP 503: OAuth token has expired"), which
+/// stays as the agent said it, so its turn is retried and typed as the outage it is.
+fn explains(original: &str) -> bool {
+    is_sign_in_failure(original)
+        && !crate::hub::turn_errors::says_unreachable(original)
+        && !original.starts_with("Claude is not signed in here")
+}
+
 /// The explanation for a Claude agent's sign-in failure, or None when this
 /// session is not a Claude agent acpmux started (or the text says another
 /// thing). `original` is Claude's own text, kept at the end.
 pub fn explain(session_id: &str, original: &str) -> Option<String> {
-    if !is_sign_in_failure(original) || original.starts_with("Claude is not signed in here") {
+    if !explains(original) {
         return None;
     }
     let agent_env =
@@ -328,4 +375,34 @@ fn compose(agent: &Found, terminal: &Found, shell: Option<&str>, original: &str)
     out.push_str(&fix);
     out.push_str(&format!(" (Claude said: {})", original.trim()));
     out
+}
+
+#[cfg(test)]
+mod tests {
+    /// A sign-in failure is explained; one that says the provider was unreachable is not.
+    #[test]
+    fn an_outage_that_names_a_token_is_not_explained_as_a_sign_in() {
+        assert!(super::explains("Not logged in · Please run /login"));
+        assert!(super::explains("API Error: 401 OAuth token has expired"));
+        assert!(!super::explains("HTTP 503: OAuth token has expired"));
+        assert!(!super::explains("connection error: Not logged in"));
+        assert!(!super::explains("Claude is not signed in here. Not logged in"));
+    }
+
+    /// Only a revoked token is one: not an expired or missing sign-in, nor an outage.
+    #[test]
+    fn a_revoked_token_is_told_from_other_sign_in_failures() {
+        use super::is_revoked_token as revoked;
+        assert!(revoked("Failed to authenticate: OAuth token revoked"));
+        assert!(revoked("Failed to authenticate: oauth TOKEN REVOKED"));
+        assert!(revoked(
+            r#"API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth token has been revoked. Please obtain a new token or refresh your existing token."}}"#
+        ));
+        assert!(!revoked("API Error: 401 OAuth token has expired"));
+        assert!(!revoked("Not logged in · Please run /login"));
+        assert!(!revoked("Invalid API key · Fix external API key"));
+        assert!(!revoked("HTTP 503 service unavailable: OAuth token revoked"));
+        assert!(!revoked("stream disconnected: OAuth token has been revoked"));
+        assert!(!revoked("the revoked token list was refreshed"));
+    }
 }

@@ -2,6 +2,7 @@
 //! as its child and owns sign-in and the acpmux endpoint.
 //!
 //! stdin carries JSON lines from the app:
+//! - `{"type":"network_changed"}`: the Mac woke; re-register signaling and refresh live endpoints.
 //! - `{"type":"token","token":"<Stack access token>"}`: the access token to use
 //!   from now on. The app sends one at start and answers every `need_token`
 //!   (hostd asks whenever it needs one and its token is under a minute from
@@ -81,6 +82,8 @@ impl std::fmt::Debug for Secret {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Inbound {
+    /// The Mac woke: refresh signaling and endpoints without dropping live links.
+    NetworkChanged,
     Token {
         token: String,
     },
@@ -181,6 +184,10 @@ pub enum Event {
         approval_key: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         registered_at_ms: Option<i64>,
+        /// The pre-approval from the Mac's pairing code the phone presented with its
+        /// signature (the app checks and burns it; hostd only forwards it). Absent without one.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pair_token: Option<String>,
     },
     /// A paired phone signed out and asks the Mac to forget it.
     Unpaired { phone_device_id: String },
@@ -236,6 +243,7 @@ pub fn spawn_stdin_reader() -> Supplied {
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             match Inbound::parse(&line) {
+                Some(Inbound::NetworkChanged) => crate::netwatch::changed(),
                 Some(Inbound::Token { token }) => {
                     token_tx.send_replace(Some(token));
                 }
@@ -335,6 +343,7 @@ mod tests {
             Inbound::parse(r#"{"type":"browser_gone","tab":"s4"}"#),
             Some(Inbound::BrowserGone { tab: "s4".into() })
         );
+        assert_eq!(Inbound::parse(r#"{"type":"network_changed"}"#), Some(Inbound::NetworkChanged));
         assert_eq!(Inbound::parse(r#"{"type":"nope"}"#), None);
         assert_eq!(Inbound::parse("not json"), None);
     }
@@ -368,18 +377,26 @@ mod tests {
             r#"{"type":"phone_up","session_id":"s","phone_device_id":"p","transport":"wireguard","path":"turn-tls"}"#
         );
         assert_eq!(serde_json::to_string(&Event::NeedToken).unwrap(), r#"{"type":"need_token"}"#);
-        let request = |registered_at_ms| Event::PairRequest {
+        let request_with = |registered_at_ms, pair_token| Event::PairRequest {
             phone_device_id: "p".into(),
             name: "n".into(),
             identity_key: "04".into(),
             approval_key: "04".into(),
             registered_at_ms,
+            pair_token,
         };
+        let request = |registered_at_ms| request_with(registered_at_ms, None);
         assert_eq!(
             serde_json::to_string(&request(Some(1_791_961_929_681))).unwrap(),
             r#"{"type":"pair_request","phone_device_id":"p","name":"n","identity_key":"04","approval_key":"04","registered_at_ms":1791961929681}"#
         );
         assert!(!serde_json::to_string(&request(None)).unwrap().contains("registered_at_ms"));
+        assert!(!serde_json::to_string(&request(None)).unwrap().contains("pair_token"));
+        let scanned = request_with(None, Some("AbC-dEf_0123456789".into()));
+        assert_eq!(
+            serde_json::to_string(&scanned).unwrap(),
+            r#"{"type":"pair_request","phone_device_id":"p","name":"n","identity_key":"04","approval_key":"04","pair_token":"AbC-dEf_0123456789"}"#
+        );
         assert_eq!(serde_json::to_string(&Event::Removed).unwrap(), r#"{"type":"removed"}"#);
         assert_eq!(
             serde_json::to_string(&Event::NeedBrowser {
