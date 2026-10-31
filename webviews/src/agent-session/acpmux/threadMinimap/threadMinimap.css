@@ -28,6 +28,11 @@
 .acpmux-minimap__rail {
   position: absolute;
   margin: 0;
+  /* Keep rail hover transforms and highlight opacity in their own compositing surface. The
+     transcript scroller has an edge mask; without a stable boundary Chromium can re-raster the
+     masked transcript whenever the rail's lit ticks or glass card changes (#25766). */
+  isolation: isolate;
+  will-change: transform;
   animation: acpmux-minimap-in var(--cmux-motion-micro) cubic-bezier(0.23, 1, 0.32, 1);
 }
 .acpmux-minimap__strip {
@@ -102,6 +107,19 @@
   outline: none;
   contain: layout paint;
 }
+.acpmux-minimap__tick:focus-visible {
+  /* shared agent-session styles suppress generic button outlines with !important; this rail owns
+     its compact focus treatment and marks the control with data-focus-ring="tick". */
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--cmux-focus-ring-color, var(--agent-text)) !important;
+  outline-offset: -1.5px;
+  border-radius: var(--acpmux-inspector-row-radius, 4px);
+}
+@media (prefers-contrast: more) {
+  .acpmux-minimap__tick:focus-visible {
+    outline: var(--cmux-focus-ring-width, 2px) solid var(--cmux-focus-ring-color, var(--agent-text)) !important;
+    outline-offset: 2px;
+  }
+}
 .acpmux-minimap__bar,
 .acpmux-minimap__dot {
   position: absolute;
@@ -121,15 +139,17 @@
 /* The ticks' entrance (Leo 2026-10-25: "the animation ... those sort of lines pop up. There should
    be a little bit more easing"): each new tick grows out from the rail's edge on the hover's spring
    and fades in ease-out over the micro step, staggered down the rows on screen by their place in the
-   rail's room (--acpmux-minimap-row from --acpmux-minimap-first, over --acpmux-minimap-rows), so the
-   whole rail is in by the micro step plus TICK_STAGGER (72 ms), under 200 ms. It runs once per mounted
-   tick and stops at its end; it holds no timer and nothing to clean up. A scrolled-past row has a
-   negative place and starts at once. None under Reduce Motion (the system's, the app's motion gate,
-   or the rail's own check). The full-height map (ScrollMap.tsx) keeps its marks still. */
+   rail's room (--acpmux-minimap-place, the row's place in the list's view as the tick mounted, over
+   --acpmux-minimap-rows; no per-scroll value the list's rows inherit), so the
+   whole rail is in by the micro step plus TICK_STAGGER (72 ms), under 200 ms. Only the initial visible
+   ticks and newly appended prompts enter (data-entering); virtualization remounts draw immediately. It
+   stops at its end; it holds no timer and nothing to clean up. A scrolled-past row has a negative place
+   and starts at once. None under Reduce Motion (the system's, the app's motion gate, or the rail's own
+   check). The full-height map (ScrollMap.tsx) keeps its marks still. */
 .acpmux-minimap__tick {
   --acpmux-minimap-stagger: clamp(
     0ms,
-    calc((var(--acpmux-minimap-row, 0) - var(--acpmux-minimap-first, 0)) * 72ms / var(--acpmux-minimap-rows, 1)),
+    calc(var(--acpmux-minimap-place, 0) * 72ms / var(--acpmux-minimap-rows, 1)),
     72ms
   );
 }
@@ -137,11 +157,11 @@
    Motion on with the rail mounted stops the entrance for every tick added after (the rail's own
    `data-reduce` is read only at mount, hover and focus). */
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-minimap__rail:not(.acpmux-scrollmap) .acpmux-minimap__bar {
+  .acpmux-minimap__rail:not(.acpmux-scrollmap) :where(.acpmux-minimap__tick[data-entering]) .acpmux-minimap__bar {
     animation: acpmux-minimap-tick-in var(--cmux-motion-micro) cubic-bezier(0.25, 1, 0.5, 1) var(--acpmux-minimap-stagger) backwards;
     animation: acpmux-minimap-tick-in var(--cmux-motion-micro) var(--acpmux-minimap-spring) var(--acpmux-minimap-stagger) backwards;
   }
-  .acpmux-minimap__rail:not(.acpmux-scrollmap) .acpmux-minimap__dot {
+  .acpmux-minimap__rail:not(.acpmux-scrollmap) :where(.acpmux-minimap__tick[data-entering]) .acpmux-minimap__dot {
     animation: acpmux-minimap-dot-in var(--cmux-motion-micro) ease-out var(--acpmux-minimap-stagger) backwards;
   }
 }
@@ -329,7 +349,7 @@
   border-radius: 4px;
   background: none;
   color: var(--agent-muted);
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-minimap__bookmark:hover {
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
@@ -441,7 +461,7 @@
    tick starts at the rail's edge; a reply's is shorter, dimmer and set in 4 px. The bar behind
    them is the view; it moves by transform on the scroll's frame. */
 .acpmux-scrollmap {
-  cursor: pointer;
+  cursor: default;
   touch-action: none;
 }
 .acpmux-scrollmap__view {
@@ -508,4 +528,17 @@
 .acpmux-minimap__entry {
   flex: none;
   display: block;
+}
+/* On the right edge (railSide.ts: Settings > Agent Chat > Prompt Rail Side, or the rail's right-click
+   menu) the rail is the left one mirrored (design/session-rail.md): its narrow-pane hover strip sits at
+   the pane's right edge, and its ticks start at that edge and grow toward the text. The compact rail
+   mirrors its list (the rail itself keeps its box and data attributes); the full-height map mirrors
+   whole. Only x flips: rows and the pointer's y are as on the left. */
+.acpmux-minimap__strip[data-side="right"] {
+  left: auto;
+  right: 0;
+}
+.acpmux-minimap__rail[data-side="right"] .acpmux-minimap__list,
+.acpmux-scrollmap[data-side="right"] {
+  transform: scaleX(-1);
 }

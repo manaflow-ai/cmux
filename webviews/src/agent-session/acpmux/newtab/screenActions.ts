@@ -4,6 +4,7 @@ import type { AllChatsPage } from "./AllChatsList";
 import type { NewTabScreenActions } from "./NewTabScreen";
 import { savedEnvironmentHost } from "../environments";
 import { rememberStartedProject } from "./startedProject";
+import { translate } from "../i18n";
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
@@ -23,9 +24,11 @@ export function newTabScreenActions(deps: {
   inputReady?(token: string): void;
   /// A folder the user picked on the page goes through the host first (startFolder.tsx): `start`
   /// runs only with a folder it took; the home folder is asked about once.
-  requestFolder?(cwd: string, start: (folder: string) => void): void;
+  requestFolder?(cwd: string, start: (folder: string) => void, cancel?: () => void): void;
   /// false: the page's chats run on another machine, whose folders are never this Mac's default.
   startsHere?(): boolean;
+  /// Captures the page/selection owning this attempt, before any asynchronous work.
+  startScope?(allowReconnect: boolean): () => boolean;
 }): NewTabScreenActions {
   const { callNative, cwd } = deps;
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
@@ -33,63 +36,75 @@ export function newTabScreenActions(deps: {
   return {
     onAsk(harness, text, picked, model, noProject, attachments, saved) {
       const peer = saved?.peer;
+      const queuedStart = !!harness && !peer && !noProject;
+      const current = deps.startScope?.(queuedStart) ?? (() => true);
+      const cancelled = () => new Error(translate("switch.cancelled"));
       remember(harness);
       // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
       // refusal then holds it with the send's gesture (holdPrompt), so Trust sends it. Sending
       // after `chat.new` settled lost it: the switch had stopped on the refusal with nothing
       // queued ("Not sent").
-      const start = (folder?: string) => {
-        // Keep the New Tab visible while a folder confirmation or worktree request is pending.
-        // Leaving before the host accepts the folder briefly mounted the empty chat hero, which
-        // read as a flash before the first prompt landed.
-        deps.leave();
-        // On another machine the prompt waits for its chat: a start that fails there must not
-        // send it to a new chat on this Mac.
-        if (peer) {
-          const send = () =>
-            text || attachments?.length
-              ? callNative("chat.send", { text, ...(attachments?.length ? { attachments } : {}) })
-              : undefined;
-          // `chat.new` resolves to the chat it started; none (a refused or held start): no send.
-          ignore(
-            callNative("chat.new", {
-              harness,
-              ...(folder ? { cwd: folder } : {}),
-              ...(model ? { model } : {}),
-              peer,
-            }).then((started) => (started ? send() : undefined)),
-          );
-          return;
-        }
-        // The person picked this project (or kept the default) and sent: once the chat has started
-        // there (`chat.new` resolves to it), the next New Tab starts here (newtab/startedProject.ts).
-        // A refused or failed start, no project, or nothing sent leaves the default as it was.
-        const remembers = (text || attachments?.length) && deps.startsHere?.() !== false;
-        ignore(
-          callNative("chat.new", {
+      return new Promise<void>((resolve, reject) => {
+        const start = (folder?: string) => {
+          if (!current()) return reject(cancelled());
+          // The screen owns its draft and machine pick until the start succeeds. A rejected start
+          // must not unmount it; its caller displays the refusal beside the unchanged field.
+          const opened = callNative("chat.new", {
             harness,
             ...(folder ? { cwd: folder } : noProject ? { noProject: true } : {}),
             ...(model ? { model } : {}),
-          }).then((started) => {
-            if (started && remembers) rememberStartedProject(folder, callNative);
-          }),
-        );
-        // Attachments pasted or dropped on the page go with the first prompt, or alone.
-        if (attachments?.length) ignore(callNative("chat.send", { text, attachments }));
-        else if (text) ignore(callNative("chat.send", { text }));
-      };
-      // The page seeds its project with the inherited folder (`~` in a fresh workspace): that is no
-      // pick, so the chat starts in its start folder (the host named it). A real pick goes through
-      // the host first (cx-nn3e).
-      // Do not work in a project: no folder at all, so the host starts it in its private folder.
-      // A saved SSH environment's folder is the machine's own: this Mac's folder checks don't apply.
-      // A saved local one's folder is checked even when it is the tab's own.
-      if (noProject) start();
-      else if (peer) start(picked);
-      else if (picked && (picked !== cwd || saved)) {
-        if (deps.requestFolder) deps.requestFolder(picked, start);
-        else start(picked);
-      } else start(deps.chatCwd);
+            ...(peer ? { peer } : {}),
+          });
+          const message = { text, ...(attachments?.length ? { attachments } : {}) };
+          const asks = !!text || !!attachments?.length;
+          if (!queuedStart) {
+            opened
+              .then(async (started) => {
+                if (!current()) throw cancelled();
+                if (!started) throw new Error(translate("switch.noSession"));
+                if (!peer && asks && deps.startsHere?.() !== false) rememberStartedProject(folder, callNative);
+                // The send names this start's session; a later selected chat cannot take it.
+                if (asks) {
+                  let taken = false;
+                  const accepted = () => {
+                    if (taken || !current()) return;
+                    taken = true;
+                    deps.leave();
+                  };
+                  // Until acpmux takes it, a failed send preflight still belongs to this field.
+                  await callNative("chat.send", { ...message, expectedSessionId: started, accepted });
+                  accepted();
+                } else deps.leave();
+              })
+              .then(resolve, reject);
+            return;
+          }
+          // Keep the local send in the same turn as the harness switch: its queue owns the prompt
+          // while Trust is pending. Awaiting the start before sending would lose that queue.
+          const sent = asks ? callNative("chat.send", message) : Promise.resolve();
+          const accepted = opened.then((started) => {
+            if (!current()) throw cancelled();
+            if (started) {
+              if (asks && deps.startsHere?.() !== false) rememberStartedProject(folder, callNative);
+              deps.leave();
+            } else if (!asks) throw new Error(translate("switch.noSession"));
+          });
+          Promise.all([accepted, sent]).then(() => resolve(), reject);
+        };
+        // The page seeds its project with the inherited folder (`~` in a fresh workspace): that is no
+        // pick, so the chat starts in its start folder (the host named it). A real pick goes through
+        // the host first (cx-nn3e).
+        // Do not work in a project: no folder at all, so the host starts it in its private folder.
+        // A saved SSH environment's folder is the machine's own: this Mac's folder checks don't apply.
+        // A saved local one's folder is checked even when it is the tab's own.
+        if (noProject) start();
+        else if (peer) start(picked);
+        else if (picked && (picked !== cwd || saved)) {
+          if (deps.requestFolder)
+            deps.requestFolder(picked, start, () => reject(new Error(translate("switch.cancelled"))));
+          else start(picked);
+        } else start(deps.chatCwd);
+      });
     },
     savedEnvironments: savedEnvironmentHost(callNative),
     onOpen: (url) => {

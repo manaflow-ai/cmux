@@ -199,7 +199,11 @@ impl Hub {
                 client: client.to_owned(),
                 text: text.clone(),
                 control,
-                continues: super::carried_turn::Continues { from, trust_gate },
+                continues: super::carried_turn::Continues {
+                    from,
+                    trust_gate,
+                    reports: super::lane_reports::reports_only(opts.provenance.as_ref()),
+                },
             };
             now.sent.insert(prompt_id.clone(), sent);
             now.step.remove(&prompt_id) || opts.steer_now
@@ -232,7 +236,18 @@ impl Hub {
         // An inbox notice (`inbox.rs`): only while no prompt waits and the turn is under its cap,
         // and in once the agent's writer took it.
         let inbox_notice = super::inbox::is_notice(opts.provenance.as_ref());
-        let held = || super::inbox::notice_held(session);
+        // Another agent's steer, checked again as it is written: a chat that became a review box
+        // since (a `review.` tag) takes it as a turn of its own after the review (`inbox.rs`).
+        let agent_steer = !opts.send_now
+            && super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref())
+                .is_some();
+        let held = || {
+            if inbox_notice {
+                super::inbox::notice_held(session)
+            } else {
+                super::inbox::review_box(session)
+            }
+        };
         let answer = agent_prompt_hook(
             session,
             &child,
@@ -242,7 +257,7 @@ impl Hub {
             bound || inbox_notice,
             fence.as_ref(),
             inbox_notice,
-            inbox_notice.then_some(&held as &(dyn Fn() -> bool + Send + Sync)),
+            (inbox_notice || agent_steer).then_some(&held as &(dyn Fn() -> bool + Send + Sync)),
             || {
                 if inbox_notice {
                     self.inbox_prompt_written(session, &prompt_id);

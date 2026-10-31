@@ -13,12 +13,18 @@ import Testing
         var density: SidebarDensity
         var minimal: SidebarMinimalMode
         var width: CGFloat
-        var testDescription: String { "\(density.rawValue)/minimal-\(minimal.rawValue)/\(Int(width))pt" }
+        /// `sidebar.textSize` (Lawrence msg 17752): Home and pinned rows stay on one column at every text size.
+        var textSize: SidebarTextSize = .standard
+        var testDescription: String { "\(density.rawValue)/minimal-\(minimal.rawValue)/\(Int(width))pt/text-\(textSize.rawValue)" }
     }
 
-    nonisolated static let cases: [Case] = SidebarDensity.allCases.flatMap { density in
-        [SidebarMinimalMode.off, .both].flatMap { minimal in [200, 260].map { Case(density: density, minimal: minimal, width: $0) } }
-    }
+    nonisolated static let cases: [Case] = SidebarTextSize.allCases.flatMap { textSize in
+        SidebarDensity.allCases.flatMap { density in
+            [SidebarMinimalMode.off, .both].flatMap { minimal in
+                [200, 260].map { Case(density: density, minimal: minimal, width: $0, textSize: textSize) }
+            }
+        }
+    } + [Case(density: .compact, minimal: .off, width: 181, textSize: .larger)]
 
     static let home = LayoutItem(id: LayoutItemID("itm_align_home"), ref: .builtIn(.home))
     static let pinned = LayoutItem(id: LayoutItemID("itm_align_pin"), ref: .workspace("local:ws-align-pin"))
@@ -81,7 +87,7 @@ import Testing
     /// on its column (`SidebarIconColumnTests` checks the centers; Leo 2026-10-28: "the alignment").
     @Test(arguments: cases)
     func everyRowsLeadingGlyphSitsInTheIconSlot(_ c: Case) throws {
-        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
+        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
             let (list, window) = Self.list(width: c.width)
             defer { window.close() }
             let home = try Self.item(list, Self.home.id), pin = try Self.item(list, Self.pinned.id)
@@ -100,7 +106,7 @@ import Testing
     /// Home's label, a pinned row's title and the title of a workspace row with an icon start at one text column.
     @Test(arguments: cases)
     func titlesAfterALeadingGlyphStartAtOneColumn(_ c: Case) throws {
-        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
+        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
             let (list, window) = Self.list(width: c.width)
             defer { window.close() }
             let home = try Self.item(list, Self.home.id), pin = try Self.item(list, Self.pinned.id)

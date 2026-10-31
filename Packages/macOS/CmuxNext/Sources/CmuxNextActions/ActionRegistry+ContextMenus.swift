@@ -10,20 +10,25 @@ extension ActionRegistry {
     /// facts (`impliedContext(for:)`) also enable and run its items
     /// (`ActionMenuPayload.implied`): a Files row runs the explorer's actions
     /// while a terminal has the keyboard. `arguments` go to every item's run
-    /// (a right-clicked link's `url`).
+    /// (a right-clicked link's `url`). Without `entries` the menu is the person's
+    /// arrangement (``contextMenuEntries(for:removing:)``). `customize` ends it with
+    /// Customize Menu…; nil does so for a whole menu (no `entries`), not for rows a caller
+    /// takes into another menu.
     public func makeContextMenu(
         for context: ActionMenuContext,
         target: ActionTargetRef? = nil,
         entries: [ContextMenuEntry]? = nil,
         implied: ActionContext = [],
-        arguments: [String: ActionValue] = [:]
+        arguments: [String: ActionValue] = [:],
+        customize: Bool? = nil
     ) -> NSMenu {
         let runFacts = Self.impliedContext(for: context)
         let effective = self.context.union(runFacts).union(implied)
         let menu = NSMenu()
         menu.autoenablesItems = true
-        let entries = entries ?? ContextMenuCatalog.shared.entries(for: context), labels = ContextMenuCatalog.shared.labels(for: context)
-        menuItems(entries, target: target, context: effective, implied: runFacts, arguments: arguments, labels: labels).forEach(menu.addItem)
+        let shown = entries ?? contextMenuEntries(for: context), labels = ContextMenuCatalog.shared.labels(for: context)
+        menuItems(shown, target: target, context: effective, implied: runFacts, arguments: arguments, labels: labels).forEach(menu.addItem)
+        if customize ?? (entries == nil) { appendCustomizeItem(to: menu, for: context) }
         return menu
     }
 
@@ -101,6 +106,15 @@ extension ActionRegistry {
                 let item = NSMenuItem(title: folder.title, action: nil, keyEquivalent: "")
                 item.image = Self.menuIcon(folder.symbol)
                 let submenu = NSMenu(title: folder.title)
+                childItems.forEach(submenu.addItem)
+                item.submenu = submenu
+                items.append(item)
+            case .group(let group, let children):
+                // The person's own submenu (Settings > Menus): their title, no icon.
+                let childItems = menuItems(children, target: target, context: context, implied: implied, arguments: arguments, labels: labels)
+                guard childItems.contains(where: { !$0.isSeparatorItem }) else { continue }
+                let item = NSMenuItem(title: group.title, action: nil, keyEquivalent: "")
+                let submenu = NSMenu(title: group.title)
                 childItems.forEach(submenu.addItem)
                 item.submenu = submenu
                 items.append(item)
