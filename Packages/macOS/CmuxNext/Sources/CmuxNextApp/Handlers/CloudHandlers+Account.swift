@@ -521,7 +521,12 @@ extension CloudHandlers {
                 let expected = pending.reserve()
                 // task-owner: the reserved generation owns the replay; a later intent, sign-out or team change cancels it.
                 Task { @MainActor in
-                    await pending.perform(expected: expected, signIn: { await cloud.auth.signIn() }, resume: {
+                    // The machine list loads after sign-in; a machine action replayed before it lands finds no machine.
+                    await pending.perform(expected: expected, signIn: {
+                        guard await cloud.auth.signIn() else { return false }
+                        _ = await cloud.refresh(ifOlderThan: .seconds(30))
+                        return true
+                    }, resume: {
                         guard let registry, cloud.isSignedIn else { return }
                         resumeAfterSignIn(id, invocation, in: registry)
                     })
