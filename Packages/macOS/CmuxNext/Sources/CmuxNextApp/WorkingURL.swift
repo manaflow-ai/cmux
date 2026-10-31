@@ -40,7 +40,7 @@ extension PaneController {
     /// dev server, else a blank tab. `opener` opens it (the strip pane, for
     /// a browser asked for from the docked agent chat); nil is this pane.
     func newBrowserTabFromSelectedTab(engine: String?, in opener: PaneController? = nil, background: Bool = false,
-                                      background: background, placementOwner: Bool = false,
+                                      placementOwner: Bool = false,
                                       then: (@MainActor (SurfaceID) -> Void)? = nil) {
         let opener = opener ?? self
         switch currentContent {

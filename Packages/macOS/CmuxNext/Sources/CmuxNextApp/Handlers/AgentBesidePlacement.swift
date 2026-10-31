@@ -145,10 +145,12 @@ enum AgentBesidePlacement {
                 await revealMoved(tab.id, from: anchor, services: services)
                 return nil
             }
-            // Decide against the right column as it exists now. This is deliberately measured
-            // after the tab is listed: an earlier open may have just landed, and two concurrent
-            // opens must not both decide to split the same pane (LinkOpener.turns handles the
-            // callers that go through LinkOpener; this path also re-measures its source).
+            // Hold the same turn as links and dock tools until this move lands. In particular,
+            // two header clicks must not both split below the one pane they initially saw.
+            let finish = await withCheckedContinuation { (ready: CheckedContinuation<@MainActor () -> Void, Never>) in
+                services.linkOpener.turns.serially(beside: LayoutPaneID(anchor.id)) { done in ready.resume(returning: done) }
+            }
+            defer { finish() }
             let source = controller ?? services.paneController(for: anchor)
             let measured = source.map { LinkOpener.rightColumn(beside: $0) } ?? RightColumnPlacement.Column()
             let kind: RightColumnPlacement.Kind? = tab.kind == .browser ? .browser : (tab.kind == .pty ? .terminal : nil)
