@@ -7,7 +7,7 @@ import Foundation
 /// Which Cloud machine a `cloud.startChat` send runs on (Leo, 2026-10-30: "like the initial 0 to 1
 /// chat auto it sends to cloud"). Never the team's first connected machine, which on a shared
 /// account is often someone's busy lane VM: a machine this person owns that is free (no chat open
-/// on it, or one named for chats, ``chatsName``), else a new one named for chats. Lane-pool VMs
+/// on it, or one named for chats, ``AgentPaneCloudStart/chatsName``), else a new one named for chats. Lane-pool VMs
 /// (`fs-lane-N`, `lane-vm-N`) are never picked. A retry of the same send stays on the machine its
 /// first try took (``Destinations``), so it never opens a second chat with the prompt elsewhere.
 extension CloudStartChat {
@@ -25,25 +25,7 @@ extension CloudStartChat {
         var chats: Int?
     }
 
-    /// The name a machine made for chats gets, and how a machine is marked as one for chats.
-    static let chatsName = "cloud-chats"
-
-    static func isMarkedForChats(_ name: String) -> Bool {
-        let name = name.lowercased()
-        return name == chatsName || (name.hasPrefix(chatsName + "-") && name.dropFirst(chatsName.count + 1).allSatisfy(\.isNumber))
-    }
-
-    /// A lane-pool VM's name: `fs-lane-N` or `lane-vm-N` (leo-workspace machines/lane-vms.md).
-    static func isLanePool(_ name: String) -> Bool {
-        let name = name.lowercased()
-        for prefix in ["fs-lane-", "lane-vm-"] where name.hasPrefix(prefix) {
-            let number = name.dropFirst(prefix.count)
-            if !number.isEmpty, number.allSatisfy(\.isNumber) { return true }
-        }
-        return false
-    }
-
-    /// The machine a first send takes, by id; nil: make one (``chatsName``). Only this person's
+    /// The machine a first send takes, by id; nil: make one (``AgentPaneCloudStart/chatsName``). Only this person's
     /// (`user`; a machine the server names no creator for counts when an earlier send of this app
     /// ran on it, `used`), never a lane-pool VM, and only one that can take work now or after an
     /// idle resume. Among those: one marked for chats first, then a free one (connected with no
@@ -58,10 +40,10 @@ extension CloudStartChat {
             machine.connected ? machine.chats == 0 : (machine.status == .paused && machine.pauseReason == .idle)
         }
         let eligible = candidates.filter { machine in
-            mine(machine) && !isLanePool(machine.title) && !(machine.slug.map(isLanePool) ?? false)
+            !machine.status.isChanging && mine(machine) && !AgentPaneCloudStart.isLanePool(machine.title) && !(machine.slug.map(AgentPaneCloudStart.isLanePool) ?? false)
                 && (machine.connected || machine.status.isLive || (machine.status == .paused && machine.pauseReason == .idle))
         }
-        let marked = { (machine: Candidate) in isMarkedForChats(machine.title) || (machine.slug.map(isMarkedForChats) ?? false) }
+        let marked = { (machine: Candidate) in AgentPaneCloudStart.isMarkedForChats(machine.title) || (machine.slug.map(AgentPaneCloudStart.isMarkedForChats) ?? false) }
         let ranked = eligible.filter { marked($0) || free($0) }.enumerated().sorted { a, b in
             let (x, y) = (a.element, b.element)
             if marked(x) != marked(y) { return marked(x) }
@@ -69,11 +51,6 @@ extension CloudStartChat {
             return a.offset < b.offset
         }
         return ranked.first?.element.id
-    }
-
-    /// The name a new machine for chats gets: ``chatsName``, else `cloud-chats-N`, unique among `taken`.
-    static func newMachineName(taken: some Sequence<String>) -> String {
-        CloudMachine.defaultName(taken: taken, base: chatsName, numbered: { "\(chatsName)-\($0)" })
     }
 
     /// The machine each recent send (its ``AgentPaneCloudStart/key``) ran on, newest last, at most
@@ -263,7 +240,7 @@ extension CloudStartChat {
                 ? session.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).filter { $0.agentSession != nil }.count
                 : nil
             return Candidate(id: session.machineID, title: session.machine.title, slug: session.machine.slug, createdBy: session.machine.createdBy,
-                             status: session.machine.status, pauseReason: session.machine.pauseReason, connected: connected, chats: chats)
+                             status: session.machine.shownStatus, pauseReason: session.machine.pauseReason, connected: connected, chats: chats)
         }
         let destination = Self.destination(for: pin, destinations: destinations, candidates: candidates, user: cloud.auth.user?.id,
                                            used: destinations.machines(of: account)) { id in
@@ -278,7 +255,7 @@ extension CloudStartChat {
             let request = Self.createRequest(for: start, sizedFor: await pick(), team: account.last ?? nil)
             try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
             // The account is checked again once the server answered, before the machine joins the list.
-            let created = try await cloud.createMachine(name: Self.newMachineName(taken: machines.cloud.map(\.machine.title)),
+            let created = try await cloud.createMachine(name: AgentPaneCloudStart.newMachineName(taken: machines.cloud.map(\.machine.title)),
                                                         startedByPerson: invocation.origin == .user, request: request) {
                 try Self.checkAccount(account, now: cloud.account, listCurrent: true)
             }
