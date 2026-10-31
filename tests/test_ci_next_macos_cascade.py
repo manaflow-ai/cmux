@@ -1831,7 +1831,8 @@ class NightlyFirstOnAStaleSnapshot(unittest.TestCase):
     RUNS = " fast-tier swift-canary cmux-scheme-compile release-compile "
 
     def shot(self, minutes_old: float, reserved_small: int = 1) -> dict:
-        shot = snapshot(minutes_old=minutes_old, small=3, oldest={"small": 20})
+        # A moving 6 vCPU queue (oldest 2 min when the snapshot was made): only the reservation holds it.
+        shot = snapshot(minutes_old=minutes_old, small=3, oldest={"small": 2})
         shot["pools"][SMALL]["reserved_queued"] = reserved_small
         return shot
 
@@ -1839,7 +1840,7 @@ class NightlyFirstOnAStaleSnapshot(unittest.TestCase):
         late = cascade.QUEUE_SNAPSHOT_MINUTES + 10
         self.assertIsNone(cascade.seen(self.shot(late), NOW), "too old for counts")
         held = cascade.reserved_from(self.shot(late), NOW)
-        self.assertEqual(held, cascade.Seen(waits={}, age=float(late), reserved={SMALL: 1}, stale=True))
+        self.assertEqual(held, cascade.Seen(waits={SMALL: 2.0}, age=float(late), reserved={SMALL: 1}, stale=True))
         self.assertIsNone(cascade.reserved_from(self.shot(late, reserved_small=0), NOW), "nothing reserved")
         self.assertIsNone(cascade.reserved_from(self.shot(cascade.RESERVED_SNAPSHOT_MINUTES + 1), NOW))
         self.assertIsNone(cascade.reserved_from({"generated_at": "not a time", "pools": {}}, NOW))
@@ -1887,6 +1888,51 @@ class NightlyFirstOnAStaleSnapshot(unittest.TestCase):
         self.assertIsNone(placement.route_wait(SIDE, runners, held))
         fresh = cascade.Seen(waits={}, owned={SIDE: 12.0})
         self.assertEqual(placement.route_wait(SIDE, runners, fresh), 12.0)
+
+
+class LateSnapshotStall(unittest.TestCase):
+    """Blacksmith is a stall-aware overflow only (rulebook, routing order: Linux, owned Macs, Blacksmith last).
+    On 2026-10-31 from about 04:00Z every cmux-next placement found no snapshot under 15 minutes ("no pool
+    snapshot under 15 min old to count Blacksmith's queue") and sent swift test, daemon tests, the fast tier
+    and the Release compile to blacksmith-6vcpu-macos-26 blind (run 41175923956), while the 06:17Z snapshot
+    showed it with 166 queued and its oldest job waiting 179 min. A snapshot up to RESERVED_SNAPSHOT_MINUTES
+    old still shows a queue that was already stalled when it was made (late_waits())."""
+
+    def read(self, shot: dict):
+        pool = mock.Mock()
+        pool.GitHub.return_value.snapshot.return_value = shot
+        with mock.patch.object(cascade.Api, "in_flight", return_value={LARGE: 0, SMALL: 12}):
+            return cascade.read(env(ROUTE_TOKEN="t", SNAPSHOT_TOKEN="s", GITHUB_REPOSITORY="manaflow-ai/cmux"),
+                                pool, now=NOW, log=lambda _: None)
+
+    def test_a_late_snapshot_keeps_jobs_off_a_stalled_6_vcpu(self):
+        live, waiting, seen = self.read(snapshot(cascade.QUEUE_SNAPSHOT_MINUTES + 10, oldest={"small": 179},
+                                                 small=166))
+        self.assertIsNone(waiting, "too old for the counts")
+        self.assertTrue(seen.stale)
+        self.assertEqual(seen.waits, {SMALL: 179.0})
+        result = cascade.place(env(CASCADE_RUNS=" fast-tier "), (), live, waiting, seen, saturated=True)
+        self.assertEqual(result.jobs, none_placed(), result.why)
+        self.assertIn(SMALL, result.fresh_stall)
+        self.assertIn("has waited 179 min", result.why)
+        # A feed's compile stays off it too, as with a fresh reading (fresh_stalled()).
+        feed = env(CASCADE_RUNS=" cmux-scheme-compile ", FRESH_JOBS="cmux-scheme-compile")
+        self.assertEqual(cascade.place(feed, (), live, None, seen).jobs, none_placed())
+
+    def test_a_late_snapshot_of_a_moving_queue_keeps_the_last_resort(self):
+        live, waiting, seen = self.read(snapshot(cascade.QUEUE_SNAPSHOT_MINUTES + 10, oldest={"small": 2}, small=3))
+        self.assertEqual(seen.waits, {SMALL: 2.0}, "the snapshot's own figure, without its 25-min age")
+        result = cascade.place(env(CASCADE_RUNS=" fast-tier "), (), live, waiting, seen, saturated=True)
+        self.assertEqual(result.jobs, none_placed(**{SMALL: ("fast-tier",)}), result.why)
+
+    def test_the_late_window(self):
+        stalled = {"oldest": {"small": 179}, "small": 1}
+        self.assertEqual(cascade.late_waits(snapshot(2, **stalled), NOW), {}, "fresh: seen() reads it, age added")
+        self.assertEqual(cascade.late_waits(snapshot(cascade.RESERVED_SNAPSHOT_MINUTES + 1, **stalled), NOW), {})
+        self.assertEqual(cascade.late_waits(snapshot(20, oldest={"small": 179}), NOW), {}, "no queue, no wait")
+        self.assertEqual(cascade.late_waits(None, NOW), {})
+        self.assertEqual(cascade.late_waits({"generated_at": "not a time", "pools": {}}, NOW), {})
+        self.assertIsNone(cascade.stale_seen(snapshot(cascade.RESERVED_SNAPSHOT_MINUTES + 1, **stalled), NOW))
 
 
 class DeadEndRoute(unittest.TestCase):

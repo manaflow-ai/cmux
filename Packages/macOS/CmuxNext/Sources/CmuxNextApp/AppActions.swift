@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentLanes
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -62,7 +63,6 @@ enum AppActions {
         SidebarHiddenSections.bind(into: registry, context: context)
         SidebarPriorityFeed.bind(into: registry, context: context)
         SidebarGroupByActions.bind(into: registry, context: context)
-        SidebarWorkspaceTabsToggle.bind(into: registry, context: context)
         SidebarMinimalToggle.bind(into: registry, context: context)
         MatchTerminalBackgroundToggle.bind(into: registry, context: context)
         SidebarDensityActions.bind(into: registry, context: context)
@@ -92,6 +92,7 @@ enum AppActions {
         HintHandlers.bind(into: registry, context: context)
         MusicHandlers.bind(into: registry, context: context)
         VoiceRoomHandlers.bind(into: registry, context: context)
+        ChiefScreenShareActions(share: context.services.chiefScreenShare, registry: registry).bind()
         NowPlayingCardHandlers.bind(into: registry, context: context)
         PictureInPictureHandlers.bind(into: registry, context: context)
         StatsPageTab.bind(into: registry, context: context)

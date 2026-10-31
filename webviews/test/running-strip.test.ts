@@ -7,7 +7,7 @@
 //   line's hover: summary.css's opaque --acpmux-menu-hover at a 7px radius, inside the tray's 2px
 //   padding.)
 // - Hovering a line that opens something fills the whole line, its stop button included, out to
-//   the tray's own edges (one inset, never a pill inside the strip), with the hand cursor; the
+//   the tray's own edges (one inset, never a pill inside the strip), with the arrow cursor; the
 //   line's button draws no second fill.
 // - A line with nothing to open has no hover at all.
 //
@@ -82,7 +82,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
     }
   });
 
-  test("hover fills the whole line to the tray's edges, its stop button inside, with the hand", async () => {
+  test("hover fills the whole line to the tray's edges, its stop button inside, with the arrow", async () => {
     const page = await open(true);
     try {
       await page.hover(".acpmux-agent-line__button");
@@ -109,7 +109,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       expect(geometry.left).toBeCloseTo(0, 1);
       expect(geometry.right).toBeCloseTo(0, 1);
       expect(geometry.stopInside).toBe(true);
-      expect(geometry.cursor).toBe("pointer");
+      expect(geometry.cursor).toBe("default");
       // On the stop button the line keeps its one fill; the button only brightens.
       await page.hover(".acpmux-chat-inspector-stop");
       expect(await filled(page)).toEqual(["acpmux-agent-line"]);

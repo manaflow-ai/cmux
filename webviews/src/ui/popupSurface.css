@@ -28,6 +28,9 @@
   --ui-popup-close: var(--cmux-motion-quick, 80ms);
   /* A dialog's grow-in: a critically damped spring's shape (the native `appear` spring), no overshoot. */
   --ui-dialog-ease: cubic-bezier(0.2, 0.9, 0.3, 1);
+  /* The dialog's grow-in and its backdrop's fade-in take the standard step. A New Tab sets it to 0s
+     (newtab/noEntry.css), as it does --ui-popup-open. */
+  --ui-dialog-open: var(--cmux-motion-standard, 180ms);
 }
 
 /* appearance.borders none (data-borders on the root, applyAgentTheme) clears the rim in place, as it
@@ -72,10 +75,10 @@
 :where(.ui-dialog) {
   transition:
     opacity var(--ui-popup-open) ease-out,
-    scale var(--cmux-motion-standard, 180ms) var(--ui-dialog-ease);
+    scale var(--ui-dialog-open) var(--ui-dialog-ease);
 }
 :where(.ui-backdrop) {
-  transition: opacity var(--cmux-motion-standard, 180ms) ease-out;
+  transition: opacity var(--ui-dialog-open) ease-out;
 }
 :where(.ui-dialog, .ui-backdrop)[data-starting-style],
 :where(.ui-dialog, .ui-backdrop)[data-ending-style] {

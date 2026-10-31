@@ -3,18 +3,17 @@ import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDesign
 import CmuxNextImportCards
+import CmuxNextSettings
 import Foundation
 
-/// The browser-data import offer (Lawrence 2026-10-09: no onboarding window
-/// and no import flow; the browser offers its own import). The first time
-/// in a launch that a person's browser tab finishes a page, a small glass
-/// card at the bottom of it offers to import bookmarks, history and
-/// passwords from the most used browser on this Mac. Import opens the
-/// Import from Browser window with those kinds checked, into the tab's
-/// profile; Not Now ends the offer for good, and so does any import that
-/// brought data over (`BrowserImportOfferState`). It reads no browser data
-/// itself: the installed browsers come from Launch Services, so it never
-/// raises a privacy prompt. Automation launches (`CMUX_NEXT_NO_ACTIVATE`)
+/// The Import Cookies banner (Lawrence 2026-10-31). The first time in a launch
+/// that a person's browser tab finishes a page, a glass card at its bottom
+/// offers to import cookies from the most used browser on this Mac. Import
+/// opens Import from Browser with cookies checked, into the tab's profile;
+/// nothing is read before that click. Not Now closes it for this launch; Don't
+/// Show Again turns `browser.import.cookieBanner` off (``CookieBannerSwitch``);
+/// imported cookies end it (`BrowserImportOfferState`). It reads no browser
+/// data itself: the installed browsers come from Launch Services. Automation launches (`CMUX_NEXT_NO_ACTIVATE`)
 /// never see it unless `CMUX_NEXT_BROWSER_IMPORT_OFFER=1`.
 @MainActor
 final class BrowserImportOfferService {
@@ -32,7 +31,7 @@ final class BrowserImportOfferService {
 
     static let forceKey = "CMUX_NEXT_BROWSER_IMPORT_OFFER"
     /// The kinds Import checks in the Import from Browser window.
-    static let kinds: Set<ImportDataKind> = [.bookmarks, .history, .passwords]
+    static let kinds: Set<ImportDataKind> = [.cookies]
 
     /// Finds the installed browsers' apps (any thread); tests pass their own.
     private let locate: @Sendable () -> [(browser: ImportBrowser, app: URL)]
@@ -47,9 +46,13 @@ final class BrowserImportOfferService {
         state = BrowserImportOfferState.load(from: defaults)
     }
 
+    /// Whether the settings and the import record let the banner show (the launch aside):
+    /// browser import on, `browser.import.cookieBanner` on, and no cookies imported yet.
+    var isOffered: Bool { services?.browserImportEnabled != false && banner?.isOn != false && !state.imported }
+
     private var enabled: Bool {
-        // `browser.import.enabled` off: no offer, whatever the launch.
-        guard services?.browserImportEnabled != false else { return false }
+        // `browser.import.enabled` or `browser.import.cookieBanner` off: no offer, whatever the launch.
+        guard isOffered else { return false }
         return enabledOverride ?? (ProcessInfo.processInfo.environment[Self.forceKey] == "1" || services?.environment.noActivate == false)
     }
 
@@ -85,7 +88,7 @@ final class BrowserImportOfferService {
         shownOn = chrome
         let offer = BrowserCookieImportOffer(icons: [first.icon], title: BrowserImportOfferStrings.title(browser: first.browser.displayName),
                                              detail: BrowserImportOfferStrings.detail, importTitle: BrowserImportOfferStrings.importData,
-                                             notNowTitle: BrowserImportOfferStrings.notNow)
+                                             notNowTitle: BrowserImportOfferStrings.notNow, neverTitle: BrowserImportOfferStrings.dontShowAgain)
         let target = BrowserProfileRecord.wireID(for: chrome.tab.profileID)
         // A window toast (a recovered draft, an undo) sits at the bottom too: the card rises above it
         // instead of waiting (an inactive window keeps its toasts, so waiting could last the launch).
@@ -97,8 +100,8 @@ final class BrowserImportOfferService {
     /// Import brings the data into it.
     func answer(_ choice: BrowserCookieImportChoice, profile: String? = nil) {
         switch choice {
-        case .notNow, .never:
-            update { $0.dismissed = true }
+        case .notNow: break  // closed for this launch only: the next launch offers it again
+        case .never: banner?.set(false)
         case .importCookies:
             // A card left from before browser import was turned off opens and detects nothing.
             guard services?.browserImportEnabled != false else { return }
@@ -107,6 +110,26 @@ final class BrowserImportOfferService {
             onboarding.show(step: .importData, importKinds: Self.kinds, importTarget: profile)
             // The person asked to import: finding their browsers now is theirs, not a launch-time read.
             onboarding.controller?.model.importer.detect()
+        }
+    }
+
+    /// `browser.import.cookieBanner` (``CookieBannerSwitch``); nil before settings load (a test).
+    private var banner: CookieBannerSwitch? { services?.settings.map(CookieBannerSwitch.init) }
+
+    /// Show Import Cookies Banner (palette, CLI, MCP): turns it on again and shows it on the person's
+    /// browser tab on screen. It reads no browser data: Import on the card is still the person's click.
+    func showNow() {
+        banner?.set(true)
+        shownThisLaunch = false
+        guard let entry = services?.cache.browsers.values.first(where: { $0.chrome.window != nil && !$0.chrome.isHiddenOrHasHiddenAncestor }),
+              services?.browserImportEnabled == true, page(entry).isPersonal else { return }
+        findBrowsers { [weak self, weak entry] found in if let self, let entry { show(on: entry.chrome, browsers: found) } }
+    }
+
+    /// Off, the card on screen goes; on again, the next finished page may offer it this launch.
+    func followBannerSetting(_ settings: SettingsController) -> Task<Void, Never> {
+        CookieBannerSwitch(settings: settings).follow { [weak self] on, before in
+            if !on { self?.shownOn?.hideCookieImportOffer() } else if before == false { self?.shownThisLaunch = false }
         }
     }
 
@@ -124,10 +147,11 @@ final class BrowserImportOfferService {
         update { $0.recordImport(summary.counts) }
     }
 
-    /// `debug.browser_import_offer reset`: back to a fresh Mac's state.
+    /// `debug.browser_import_offer reset`: back to a fresh Mac's state, the setting on again.
     func reset() {
         update { $0 = BrowserImportOfferState() }
         shownThisLaunch = false
+        banner?.set(true)
     }
 
     private func update(_ change: (inout BrowserImportOfferState) -> Void) {

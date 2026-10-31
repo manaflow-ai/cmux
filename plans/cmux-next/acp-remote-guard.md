@@ -60,6 +60,20 @@ target, and `_acpmux/harnesses` reports per profile what a remote device may sta
 sessions whose current mode asks (cmux-next-ios/SECURITY.md, round 2). Tests:
 `tests/remote_guard_codex_bridge.rs`.
 
+#### Update 2026-10-31: any agent on the person's own Cloud VM
+
+Leo, 2026-10-30, after showing ChatGPT's "Where should this chat run? On your computer / In the
+cloud": "we should just have it". A Cloud VM the signed-in person owns is a disposable sandbox of
+their own, so D10's refusal does not apply there. The app's chats on a Cloud machine do not reach
+this guard: they go through that machine's cmux-tui (`agent-session-start`, which talks to acpmux
+over its unix socket). On a Cloud VM with no team evidence and the caller's `vm_kind: "owner"`
+(the Cloud API's answer on the link, never the guest's own record), that start now skips the
+refused-family check and the asking-mode settle, so Codex and opencode start in their own
+default mode, still with policy `ask` (`agent-session-start-owner-cloud-v1`). The app's wire then
+names `ownerCloud: true` in `initialize` while the link's owner answer holds, and the composer
+lets those chats send (`remoteEditing.ts`). A Mac, an SSH host, a team VM, a remote browser and
+a paired device keep everything below. The acpmux Web rules (`REFUSED_FAMILIES`) are unchanged.
+
 #### Codex and opencode are refused (D10, 2026-10-06)
 
 Decision (coordinator, 2026-10-06, secure by default): a remote connection never drives Codex or opencode. D10 allows a remote client to edit through a harness only in a mode that asks before EVERY edit and EVERY command, writes inside the workspace included, and the investigation below found no such mode in either harness. The modes accepted before (Codex `read-only`, opencode `plan`) do not ask either, so they were removed too.
