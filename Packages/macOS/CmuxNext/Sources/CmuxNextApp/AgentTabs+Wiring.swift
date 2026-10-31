@@ -220,12 +220,12 @@ extension AgentTabStore {
         // A pane may outlive the Cloud teardown. Clear the action handler as soon as sign-out
         // begins so an already-open page cannot call a recovery action that native recovery rejects.
         services.cloud.willSignOut.append { [weak tabs] in tabs?.cloudCredentialTransfer = nil }
-        // A chat in a plain split (chat | terminal) gets a tab in the pane already on its right; the
-        // side pane (AgentSidePanes) reuses only a pane it made, so it would make a third split.
+        // A chat opens on the right as a link does (LinkOpener, RightColumnPlacement): a split right of
+        // the chat, else one split below what is already there (a plain split's terminal included), else a tab in the lower pane.
         // A pane of another machine holds no chat of this Mac's acpmux: nothing opens there.
         tabs.openRight = { [weak services, weak tabs] chat, session in
             guard let services, let tabs, let (_, pane) = services.locateTabOnAnyMachine(chat), let source = services.paneController(for: pane) else { return false }
-            return services.linkOpener.open(from: source, fromChat: true) { target, placed in
+            return services.linkOpener.open(from: source) { target, placed in
                 guard target.daemon.isLocal else { return false }
                 return tabs.openTab(in: target, session: session, select: placed == nil) { [weak services, weak tabs] key in
                     // task-owner: one creation reply; ends after tree arrival, cancellation or the mirror deadline
@@ -239,12 +239,6 @@ extension AgentTabStore {
                 }
             }
         }
-        tabs.rightPaneTab = { [weak services] chat in
-            guard let services, let (_, pane) = services.locateTab(chat), let source = services.paneController(for: pane),
-                  let id = services.linkOpener.existingRight(of: source),
-                  let right = source.workspace?.panes[id], right.daemon === source.daemon else { return nil }
-            return right.selectedTab?.id ?? right.pane.tabs.first?.id
-        }
         tabs.lookup = { [weak services] key in
             guard let services, let (tab, _) = services.locateTabOnAnyMachine(key), let record = tab.agentSession else { return nil }
             return (record: record, store: services.machines.daemon(forTab: tab).store)
@@ -253,9 +247,20 @@ extension AgentTabStore {
             guard let services, let (tab, pane) = services.locateTabOnAnyMachine(key) else { return nil }
             return (pane: pane.handle, daemon: services.machines.daemon(forTab: tab))
         }
-        tabs.paneWidth = { [weak services] key in
-            guard let services, let (_, pane) = services.locateTabOnAnyMachine(key) else { return nil }
-            return services.paneController(for: pane)?.view.bounds.width
+        tabs.rightColumn = { [weak services] key in
+            guard let services, let (_, pane) = services.locateTab(key), let source = services.paneController(for: pane) else { return .init() }
+            return LinkOpener.rightColumn(beside: source)
+        }
+        tabs.serially = { [weak services] chat, turn in
+            guard let services, let (_, pane) = services.locateTab(chat), let source = services.paneController(for: pane) else { turn({}); return true }
+            return services.linkOpener.turns.serially(beside: source.layoutPaneID, turn)
+        }
+        tabs.locatePane = { [weak services] chat, key in
+            // The chat's own workspace only (review of the #28044 carry at d495c86e: a first match across
+            // every window could take a same-keyed pane of another daemon or workspace).
+            guard let services, let (_, pane) = services.locateTab(chat), let source = services.paneController(for: pane),
+                  let found = source.workspace?.paneController(key: key) else { return nil }
+            return (pane: found.pane.handle, daemon: found.daemon)
         }
         tabs.selectInPane = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTabOnAnyMachine(key) else { return }

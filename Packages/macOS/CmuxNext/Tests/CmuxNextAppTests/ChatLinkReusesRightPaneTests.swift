@@ -8,7 +8,8 @@ import Testing
 /// Leo 2026-10-30, of an agent chat that opened a chat (and links) beside a page already open on its right:
 /// "stupid animation to open up a tab in the main pane THEN opening up a right pane and animating that + stupid
 /// to not reuse the existing opened fucking right pane", and "IT'S THE FUCKING SINGLE MAIN TO OTHER FUCKING".
-/// What a chat opens goes to the pane already on its right, found up front so the tab is made there directly.
+/// What a chat opens goes to the column already on its right, never a new pane beside it: since #28989 (Leo's
+/// "go split instead of just adding a third column") that is RightColumnPlacement's split below or lower pane.
 struct ChatLinkReusesRightPaneTests {
     private static let chatDock = DockColumn(edge: .left, role: .agentChat)
 
