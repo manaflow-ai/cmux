@@ -127,7 +127,7 @@ nonisolated extension CredentialVault {
     }
 }
 
-/// The method bodies and their params (internal: the public surface is ``CredentialVault/controlMethods(ask:approve:)``).
+/// The method bodies and their params (internal: the public surface is ``CredentialVault/controlMethods(ask:approve:enabled:)``).
 nonisolated enum VaultControl {
     typealias EntryRequest = CredentialVault.EntryRequest
     typealias EntryAnswer = CredentialVault.EntryAnswer
@@ -142,15 +142,21 @@ nonisolated enum VaultControl {
         let caller: @Sendable (ControlCall) throws -> CredentialVault.Caller = { call in try Self.caller(call.params) }
         let gate = ApprovalGate(approve: approve, now: now)
         let deadline = ControlMethod.Deadline.fixed(CredentialVault.requestDeadline)
+        func guarded(_ name: String, _ body: @escaping @Sendable (ControlCall) async throws -> JSONValue) -> ControlMethod {
+            .async(name) { call in
+                guard enabled() else { throw ControlError(code: "vault.disabled", message: CredentialVaultStrings.disabled) }
+                return try await body(call)
+            }
+        }
         return [
-            .async("vault.list") { _ in
+            guarded("vault.list") { _ in
                 return ["secrets": .array(try run { try vault.list() }.sorted { $0.key < $1.key }.map { json(name: $0.key, $0.value) })]
             },
-            .async("vault.audit") { call in
+            guarded("vault.audit") { call in
                 let limit = min(max(call.params["limit"]?.intValue ?? 50, 1), CredentialVault.auditKeep)
                 return ["records": .array(try run { try vault.audit(limit: limit) }.map(json))]
             },
-            .async("vault.set") { call in
+            guarded("vault.set") { call in
                 let name = try text(call.params, "name")
                 guard let value = call.params["value"]?.stringValue else { throw missingParam("vault.set", "value") }
                 let scope = try scope(call.params)
@@ -174,7 +180,7 @@ nonisolated enum VaultControl {
                 let replaced = try run { try vault.set(name, value: value, scope: stored, note: note, by: by, onlyNew: onlyNew) }
                 return ["stored": .string(name), "replaced": .bool(replaced)]
             }.withDeadline(deadline),
-            .async("vault.scope") { call in
+            guarded("vault.scope") { call in
                 let name = try text(call.params, "name")
                 guard let scope = try scope(call.params) else { throw missingParam("vault.scope", "scope") }
                 let by = try caller(call)
@@ -185,7 +191,7 @@ nonisolated enum VaultControl {
                 try run { try vault.setScope(name, scope: scope, by: by) }
                 return ["name": .string(name), "scope": .array(scope.map { .string($0.rawValue) })]
             }.withDeadline(deadline),
-            .async("vault.remove") { call in
+            guarded("vault.remove") { call in
                 let name = try text(call.params, "name")
                 let by = try caller(call)
                 if by.consumer == .user, call.connection != .inProcess {
@@ -195,7 +201,7 @@ nonisolated enum VaultControl {
                 let existed = try run { try vault.remove(name, by: by) }
                 return ["removed": .string(name), "existed": .bool(existed)]
             }.withDeadline(deadline),
-            .async("vault.resolve") { call in
+            guarded("vault.resolve") { call in
                 guard let items = call.params["names"]?.arrayValue, !items.isEmpty else { throw missingParam("vault.resolve", "names") }
                 let names = try items.map { item in
                     guard let name = item.stringValue else { throw ControlError.invalidParams(CredentialVaultStrings.namesMustBeStrings) }
@@ -225,7 +231,7 @@ nonisolated enum VaultControl {
                 }
                 throw error(.needsApproval(names))
             }.withDeadline(deadline),
-            .async("vault.request") { call in
+            guarded("vault.request") { call in
                 let name = try text(call.params, "name")
                 guard CredentialVault.isValidName(name) else { throw error(.invalidName(name)) }
                 let reason = try optionalText(call.params, "reason").flatMap(CredentialVault.oneLine)

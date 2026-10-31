@@ -38,6 +38,7 @@ public final class CredentialVaultBoard {
     /// Reads the index again; the task ends once the board shows it.
     @discardableResult
     public func reload() -> Task<Void, Never> {
+        guard enabled() else { invalidate(); return Task {} }
         started = true
         generation += 1
         let generation = generation, vault = vault
@@ -45,6 +46,7 @@ public final class CredentialVaultBoard {
         return Task { [weak self] in
             let result = await Task.detached(priority: .userInitiated) { Result { try vault.list() } }.value
             guard let self, generation == self.generation else { return }
+            guard self.enabled() else { self.invalidate(); return }
             switch result {
             case .success(let entries):
                 self.entries = entries
@@ -58,9 +60,20 @@ public final class CredentialVaultBoard {
         }
     }
 
+    /// Discards a read admitted before switching off, and makes the next enabled read fresh.
+    private func invalidate() {
+        guard started || loaded || !entries.isEmpty || failure != nil else { return }
+        generation += 1
+        started = false
+        entries = [:]
+        loaded = false
+        failure = nil
+    }
+
     /// The host lists' `credential_vault`: `{loaded, error, secrets: [{name, scope, note, uses,
     /// updated_ms, last_used_ms, last_used_by}]}` by name. The first read starts here.
     public var hostJSON: JSONValue {
+        guard enabled() else { invalidate(); return .null }
         if !started { reload() }
         return [
             "loaded": .bool(loaded),
@@ -96,6 +109,7 @@ public final class CredentialVaultPageRoute: PageProvider {
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+        guard enabled() else { throw PageError(code: "vault.disabled", message: CredentialVaultStrings.disabled) }
         let action = op.hasPrefix(Self.prefix) ? String(op.dropFirst(Self.prefix.count)) : ""
         guard ["add", "replace", "remove", "scope"].contains(action) else { throw PageError.unknownOp(op) }
         // One call per real click or key in Settings: a scripted call riding the same event is refused.
