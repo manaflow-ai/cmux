@@ -104,6 +104,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onSearchWeb: (@MainActor (String) -> Void)?
     /// Runs an action advertised by the host's omnibar.
     @ObservationIgnored public var onAppAction: ((String) -> Void)?
+    /// `newTab.actionStates`: the states of catalog actions a query shows; an id it leaves out shows no row.
+    @ObservationIgnored public var onActionStates: (([String]) -> [String: AgentPaneOmnibar.ActionState])?
     /// The chat header's tab actions and tab state (``AgentPaneHeaderHooks``).
     @ObservationIgnored public var header: AgentPaneHeaderHooks?
     /// The header's tools in the pane's tab row (``AgentPaneTabRow``, `ChromeTunables.tabRowTools`).
@@ -489,6 +491,12 @@ public final class AgentPaneModel {
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)
             return AgentPaneReply.success()
+        case .actionStates(let ids):
+            // Only ids of this page's catalog: the page cannot probe other actions.
+            guard let catalog = newTab?.omnibar.actions, let onActionStates else { return Self.unsupported("newTab.actionStates") }
+            let known = Set(catalog.map(\.id))
+            let states = onActionStates(ids.filter(known.contains))
+            return AgentPaneReply.success(["states": states.mapValues { ["enabled": $0.enabled, "title": $0.title] as [String: Any] }])
         case .editShortcut(let kind): guard let onEditShortcut else { return Self.unsupported("shortcut.edit") }; onEditShortcut(kind); return AgentPaneReply.success()
         case .dictation(let command):
             guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }

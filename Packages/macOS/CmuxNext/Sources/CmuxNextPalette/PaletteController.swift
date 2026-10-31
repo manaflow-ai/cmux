@@ -25,6 +25,8 @@ public final class PaletteController {
     public var sources: PaletteSources
     /// Additional rows the app hides from the registry page based on live Labs/debug state.
     public var hiddenActionIDs: (() -> Set<ActionID>)?
+    /// ``commandCatalog()``'s kept rows (``PaletteCommandCatalog``).
+    let commandCatalog = PaletteCommandCatalog()
 
     public private(set) var isVisible = false
     /// Called synchronously when the panel opens (true) or closes (false),

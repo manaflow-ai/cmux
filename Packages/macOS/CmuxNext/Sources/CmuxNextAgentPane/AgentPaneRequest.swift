@@ -159,6 +159,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case cloudCredentialTransfer(AgentPaneCloudCredentialTransferRequest)
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
+    /// The new-tab omnibar asks whether the action rows a query shows run now, and their current titles
+    /// (`newTab.actionStates {ids}`; at most ``AgentPaneOmnibar/maximumStateIDs`` ids).
+    case actionStates([String])
     /// The chat header's tools and "..." menu: run app action `id` (one of
     /// ``AgentPaneModel/headerActions``) on this chat's tab, a split in `cwd`
     /// when given. `toggle` (a quick action's `mode: "toggle"`, acpmux

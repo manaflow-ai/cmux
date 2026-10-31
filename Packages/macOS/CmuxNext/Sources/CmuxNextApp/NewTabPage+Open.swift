@@ -103,9 +103,8 @@ extension NewTabPage {
         fillPaletteActions(services)
     }
 
-    /// Lists the Commands palette's actions (~30 ms on the main thread) for the New Tab pages that
-    /// show without them, on the frame after the one that shows the page, so Cmd-T never waits for
-    /// them. The web pages take them in place (``AgentPaneView/refreshNewTabActions(_:)``).
+    /// Gives the web New Tab pages that show without it the palette's catalog on the frame after the one that shows the
+    /// page (its first build never lands on Cmd-T); they take it in place (``AgentPaneView/refreshNewTabActions(_:)``).
     static func fillPaletteActions(_ services: AppServices) {
         closeFrame.scheduleFrame {
             closeFrame.scheduleFrameFromMain { [weak services] in
@@ -113,7 +112,7 @@ extension NewTabPage {
                 let tabs = services.agentTabs
                 let views = tabs.newTabPages.keys.compactMap { tabs.views[$0] }.filter { $0.model.newTab?.omnibar.actions.isEmpty == true }
                 guard !views.isEmpty else { return }
-                let actions = paletteActions(services)
+                let actions = paletteActions(services, catalog: true)
                 for view in views { view.refreshNewTabActions(actions) }
             }
         }

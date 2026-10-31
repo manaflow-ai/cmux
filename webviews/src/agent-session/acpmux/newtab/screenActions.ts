@@ -1,6 +1,7 @@
 // The new tab screen's actions as host requests (plans/cmux-next/new-tab.md section 5). An agent
 // row starts the chat in this page; everything else asks the host to replace the tab.
 import type { AllChatsPage } from "./AllChatsList";
+import type { ActionStates } from "./screenModel";
 import type { NewTabScreenActions } from "./NewTabScreen";
 import { savedEnvironmentHost } from "../environments";
 import { rememberStartedProject } from "./startedProject";
@@ -126,6 +127,10 @@ export function newTabScreenActions(deps: {
     },
     onJump: (target, id) => ignore(callNative("tab.jump", { target, id })),
     onAction: (id) => ignore(callNative("app.action", { id })),
+    loadActionStates: (ids) =>
+      (callNative("newTab.actionStates", { ids }) as Promise<{ states?: ActionStates } | undefined>).then(
+        (reply) => reply?.states,
+      ),
     onOpenSession(sessionId) {
       deps.selectSession(sessionId);
     },

@@ -208,6 +208,19 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
     public static let maximumEntries = 40
     /// Bound for the action rows: every Commands palette action fits (hundreds), a runaway list does not.
     public static let maximumActions = 2000
+    /// Bound for one `newTab.actionStates` request: the action rows one query shows (the page shows 3).
+    public static let maximumStateIDs = 8
+
+    /// Whether a catalog action runs now, and its current title (a toggle reads as the change it makes).
+    public struct ActionState: Codable, Sendable, Equatable {
+        public var enabled: Bool
+        public var title: String
+
+        public init(enabled: Bool, title: String) {
+            self.enabled = enabled
+            self.title = title
+        }
+    }
 
     public var tabs: [Tab]
     public var workspaces: [Workspace]

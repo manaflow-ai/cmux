@@ -519,6 +519,7 @@ final class AgentTabStore {
             guard let self else { return }
             newTabPages[resolve(provisional)]?.handler.action(id)
         }
+        model.onActionStates = { [weak self] ids in self.flatMap { $0.newTabPages[$0.resolve(provisional)]?.handler.actionStates(ids) } ?? [:] }
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
         model.onGit = { [weak self] request in
             guard let link = self?.gitLink?(self?.resolve(provisional) ?? provisional) else { throw AgentPaneGitFailure.notConnected }

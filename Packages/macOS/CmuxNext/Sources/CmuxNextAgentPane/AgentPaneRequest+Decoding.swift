@@ -347,6 +347,11 @@ extension AgentPaneRequest {
         case "app.action":
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 { self = .appAction(id) }
             else { self = .unsupported(method) }
+        case "newTab.actionStates":
+            // The ids a query shows: a few, each an action id the page got in its catalog (checked by the model).
+            if let ids = params?["ids"] as? [String], ids.count <= AgentPaneOmnibar.maximumStateIDs,
+               ids.allSatisfy({ !$0.isEmpty && $0.count <= 128 }) { self = .actionStates(ids) }
+            else { self = .unsupported(method) }
         case "pane.action":
             if params?["id"] as? String == AgentPaneModel.previewAction {
                 self = Self.preview(params, method: method)

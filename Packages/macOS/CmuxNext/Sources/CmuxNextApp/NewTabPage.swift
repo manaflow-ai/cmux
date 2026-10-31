@@ -33,8 +33,8 @@ struct NewTabPageHandler {
     var browseProject: () async -> String? = { nil }
     /// Returns recent projects, optionally filtered by the picker's query.
     var listProjects: (String?) async -> [String] = { _ in [] }
-    /// Runs a host-owned action advertised by the omnibar.
-    var action: (String) -> Void = { _ in }
+    /// Runs a host-owned action advertised by the omnibar; `actionStates`: whether its shown rows run now, and their titles.
+    var action: (String) -> Void = { _ in }, actionStates: ([String]) -> [String: AgentPaneOmnibar.ActionState] = { _ in [:] }
 }
 
 enum NewTabPage {
@@ -46,9 +46,6 @@ enum NewTabPage {
     static let newActions: [AgentPaneTabKind: ActionID] = [
         .terminal: "newSurface", .browser: "openBrowser", .agent: "palette.newAgentChat",
     ]
-
-    /// The page's initially selected kind: Agent chat, ready for the first prompt.
-    static func kind(selectedID: String?, selectedKind: TabKind?) -> AgentPaneTabKind { .agent }
 
     /// `~/code/app` for a folder under the home folder, as the bar shows it.
     static func abbreviated(_ path: String, home: String = NSHomeDirectory()) -> String {
@@ -66,16 +63,16 @@ enum NewTabPage {
         }
         let commands = services.history.commands.entries().prefix(AgentPaneOmnibar.maximumEntries).compactMap(\.title)
         // Every Commands palette (Cmd-Shift-P) action, from the palette's own rows (one source).
-        let actions = paletteActions ? Self.paletteActions(services) : []
+        let actions = paletteActions ? Self.paletteActions(services, catalog: true) : []
         return AgentPaneOmnibar(
             tabs: tabs, workspaces: workspaces, folders: folders, projects: folders, actions: actions, commands: Array(commands), history: Array(history)
         )
     }
 
-    /// Every Commands palette (Cmd-Shift-P) action as the bar lists it, from the palette's own rows.
-    static func paletteActions(_ services: AppServices) -> [AgentPaneOmnibar.Action] {
+    /// The Commands palette rows the bar lists: the web page's catalog (no availability; `newTab.actionStates`), else decided rows.
+    static func paletteActions(_ services: AppServices, catalog: Bool = false) -> [AgentPaneOmnibar.Action] {
         BenchSpans.measure("newTab.paletteActions") {
-            services.palette.commandEntries().map {
+            (catalog ? services.palette.commandCatalog() : services.palette.commandEntries()).map {
                 AgentPaneOmnibar.Action(id: $0.id.rawValue, title: $0.title, detail: $0.section, keywords: $0.keywords,
                                         keycaps: $0.keycaps.isEmpty ? nil : $0.keycaps)
             }
@@ -190,7 +187,7 @@ enum NewTabPage {
         // A page on another machine offers that machine's folders only (cx-k21v).
         if let remote = machine.remoteFolders { (bar.folders, bar.projects) = (remote, remote) }
         return AgentPaneNewTab(
-            kind: kind(selectedID: selectedID, selectedKind: selected?.kind),
+            kind: .agent, // initially selected: Agent chat, ready for the first prompt
             // The source tab's folder is what the page's chat or terminal starts in; the field
             // itself always starts empty, with its placeholder (never `~` or a URL).
             hotkeys: hotkeys, cwd: machine.cwd,
@@ -254,7 +251,9 @@ enum NewTabPage {
             action: { [weak services] id in
                 // As the palette runs its row: an action that needs arguments asks for them there.
                 services?.palette.runCommand(ActionID(rawValue: id), relativeTo: services?.windows.active?.window)
-            }
+            },
+            actionStates: { [weak services] ids in (services?.palette.commandStates(Set(ids.map(ActionID.init(rawValue:)))) ?? [:])
+                .reduce(into: [:]) { $0[$1.key.rawValue] = .init(enabled: $1.value.isEnabled, title: $1.value.title) } }
         )
     }
 

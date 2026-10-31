@@ -49,6 +49,7 @@ import {
   inlineCompletion,
   needsYouCards,
   recentChatCards,
+  actionCandidates,
   screenRows,
   inStrip,
   shellEntry,
@@ -57,6 +58,7 @@ import {
   type ScreenRow,
 } from "./screenModel";
 import { RowGlyph } from "./RowGlyph";
+import { type LoadActionStates, useActionStates, useHeldRows } from "./actionStates";
 import { WidgetCards } from "./WidgetCards";
 import { NewTabHeadline } from "./NewTabHeadline";
 import {
@@ -129,6 +131,8 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// A Commands palette action row (Cmd-Shift-P's actions, `omnibar.actions`): the host runs it as
   /// the palette would (`app.action`).
   onAction?(id: string): void;
+  /// Whether a query's action candidates run now, and their titles (`newTab.actionStates`).
+  loadActionStates?: LoadActionStates;
   onOpenSession(sessionId: string): void;
   /// A device chat card (acpmux chat index, the sidebar's All chats): the host's Open Chat path.
   onOpenChat?(key: string): void;
@@ -627,9 +631,15 @@ export function NewTabScreen(props: Props) {
     ],
     [props.onCreate, harness],
   );
+  const listing = touched && !shell && commandQuery === undefined;
+  const candidates = useMemo(
+    () => (listing ? actionCandidates(text.trim(), omnibar).map((action) => action.id) : []),
+    [listing, text, omnibar],
+  );
+  const actionStates = useActionStates(candidates, props.loadActionStates);
   const suggested = useMemo(
     () =>
-      touched && !shell && commandQuery === undefined
+      listing
         ? screenRows(text, {
             omnibar,
             home,
@@ -637,11 +647,15 @@ export function NewTabScreen(props: Props) {
             ...(ask ? { ask } : {}),
             createNames: { terminal: nt("create.terminal"), browser: nt("create.browser"), chat: nt("create.chat") },
             ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
+            ...(actionStates.states ? { actionStates: actionStates.states } : {}),
           })
         : [],
-    [touched, shell, text, omnibar, home, ask, creates, commandQuery, props.suggestionOrder, nt],
+    [listing, text, omnibar, home, ask, creates, props.suggestionOrder, nt, actionStates.states],
   );
-  const rows = text !== dismissed ? suggested : [];
+  // A query's rows are drawn once its action rows' states are in; until then the rows drawn last stay.
+  const rows = useHeldRows(text !== dismissed ? suggested : [], actionStates.ready);
+  // Return pressed before they are in picks from the query's rows, not from the rows still drawn.
+  const submitWhenReady = useRef(false);
   // New tabs or pages from the host can shorten the rows under a highlight.
   // A highlighted row that went away (its tab closed) hands Return back to the top row.
   const kept = selected === undefined ? -1 : rows.findIndex((row) => rowKey(row) === selected);
@@ -925,6 +939,11 @@ export function NewTabScreen(props: Props) {
     }
     askChat(harness, prompt, project, chipModel);
   };
+  useEffect(() => {
+    if (!actionStates.ready || !submitWhenReady.current) return;
+    submitWhenReady.current = false;
+    submit();
+  });
   submitNow.current = submit;
   // One create per page: a double click, or a click while the terminal spawns, opens one tab.
   const created = useRef(false);
@@ -1135,7 +1154,8 @@ export function NewTabScreen(props: Props) {
       // Shift-Return adds a line, as in the chat composer: the field keeps its own newline.
     } else if (event.key === "Enter") {
       event.preventDefault();
-      submit();
+      if (actionStates.ready) submit();
+      else submitWhenReady.current = true;
     } else if (event.key === "Escape") {
       // The first Escape closes the suggestions, the next leaves the field; the text stays.
       event.preventDefault();

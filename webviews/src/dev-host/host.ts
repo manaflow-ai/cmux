@@ -185,6 +185,13 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
     case "newTab.setTemplate":
     case "newTab.editWidgets":
     case "nowPlaying.command":
+    case "newTab.actionStates": {
+      // The dev host runs every action: each asked id is enabled, with no title of its own (the catalog's shows).
+      const ids = Array.isArray(request.params?.ids)
+        ? (request.params.ids as unknown[]).filter((id) => typeof id === "string")
+        : [];
+      return { ok: true, value: { states: Object.fromEntries(ids.map((id) => [id, { enabled: true, title: "" }])) } };
+    }
     case "newTab.touched":
     case "newTab.warm":
     case "shortcut.edit":

@@ -17,6 +17,29 @@ extension PaletteController {
         }
     }
 
+    /// Every row the Commands palette lists, as a catalog: catalog title, section, keywords and keycaps, with no
+    /// availability or state (``PaletteCommandCatalog``). Built once per binding change, so a surface that lists it
+    /// on every open (the New Tab page) builds nothing; its shown rows ask ``commandStates(_:)``.
+    public func commandCatalog() -> [PaletteCommandEntry] {
+        commandCatalog.entries(registry, hidden: hiddenActionIDs?() ?? []) {
+            let provider = makeRegistryProvider()
+            provider.decidesRows = false
+            return provider.makeItems().compactMap { item in
+                guard let id = item.actionID else { return nil }
+                return PaletteCommandEntry(id: id, title: item.title, section: item.section.title, keywords: item.keywords,
+                                           keycaps: item.keycaps ?? [], symbol: item.symbol)
+            }
+        }
+    }
+
+    /// The rows of `ids` as the palette decides them now: whether each runs, and its current title. An id the
+    /// palette does not list here is left out (the surface shows no row for it). The same code decides the
+    /// palette's own rows, so a surface never offers a row the palette would show dimmed.
+    public func commandStates(_ ids: Set<ActionID>) -> [ActionID: RegistryPaletteProvider.RowState] {
+        captureContext()
+        return makeRegistryProvider().states(of: ids)
+    }
+
     /// Runs the Commands palette row for `id` as if it were picked there.
     ///
     /// A row that just runs (most actions) runs without showing the palette. A row that needs

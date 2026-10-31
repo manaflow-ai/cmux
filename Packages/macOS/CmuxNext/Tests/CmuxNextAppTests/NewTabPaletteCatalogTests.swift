@@ -61,6 +61,25 @@ struct NewTabPaletteCatalogTests {
         #expect(after != before, "keycaps stayed \(String(describing: before)) after the shortcut changed")
         #expect(after?.contains("J") == true, "keycaps \(String(describing: after)) do not show the new key")
     }
+
+    /// A shown row's state is decided when the page asks, by the code that decides the palette's own rows: a row
+    /// turned off by its gate is reported disabled, and a row the palette does not list (hidden) is left out.
+    @Test func theShownRowsStatesAreThePalettesDecision() {
+        let (services, registry) = Self.services()
+        let gate = PaletteCatalogGate()
+        registry.bind("newWindow", isEnabled: { gate.open }) {}
+        ActionTargetTitles.setPaletteTitle("newWindow", in: registry) { gate.open ? "New Window" : "New Window (off)" }
+        services.palette.hiddenActionIDs = { ["splitRight"] }
+        let on = services.palette.commandStates(["newWindow", "splitRight"])
+        #expect(on["newWindow"]?.isEnabled == true)
+        #expect(on["splitRight"] == nil, "a row the palette hides was given a state")
+        gate.open = false
+        let off = services.palette.commandStates(["newWindow"])
+        #expect(off["newWindow"]?.isEnabled == false)
+        #expect(off["newWindow"]?.title == "New Window (off)")
+        // The palette's own list agrees: it leaves out the row it shows dimmed.
+        #expect(!services.palette.commandEntries().contains { $0.id == "newWindow" })
+    }
 }
 
 /// Observable state a row's availability reads (``NewTabPaletteCatalogTests``).

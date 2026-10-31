@@ -50,6 +50,14 @@ export const MAX_COMPLETIONS = 3;
 const MIN_COMPLETION_LENGTH = 3;
 /// Commands palette actions shown under the matches.
 export const MAX_ACTION_ROWS = 3;
+/// Actions a query asks the host about (`newTab.actionStates`): the best matches, so a match that cannot run now
+/// leaves room for the next one. The host takes at most 8 ids (AgentPaneOmnibar.maximumStateIDs).
+export const MAX_ACTION_CANDIDATES = 8;
+
+/// Whether a catalog action runs now, and its current title, as the host decides it (`newTab.actionStates`).
+export type ActionState = { enabled: boolean; title: string };
+/// The states the host gave for a query's candidates; an id it left out is not a row here.
+export type ActionStates = Readonly<Record<string, ActionState>>;
 /// Chat cards under the field.
 export const CHAT_CARD_COUNT = 3;
 
@@ -89,6 +97,9 @@ export function screenRows(
     /// The create actions' names in the pane's language (English when unset).
     createNames?: Partial<Record<CreateKind, string>>;
     order?: SuggestionOrder;
+    /// The host's states of this query's action candidates (``actionCandidates``): only enabled ones are rows,
+    /// with the host's title. Without them no action row shows; the screen waits for them before it draws a query.
+    actionStates?: ActionStates;
   },
 ): ScreenRow[] {
   const rows = navigationRows(text, context);
@@ -111,7 +122,13 @@ export function inStrip(row: ScreenRow): boolean {
 
 function navigationRows(
   text: string,
-  context: { omnibar: OmnibarContext; home?: string; ask?: ScreenAsk; order?: SuggestionOrder },
+  context: {
+    omnibar: OmnibarContext;
+    home?: string;
+    ask?: ScreenAsk;
+    order?: SuggestionOrder;
+    actionStates?: ActionStates;
+  },
 ): ScreenRow[] {
   const intent = classifyNewTabInput(text, context.home ? { home: context.home } : {});
   // A pairing link offers nothing: no search, no Ask, no address, no create row (they carry the text).
@@ -133,16 +150,16 @@ function navigationRows(
     ranked(rest).slice(0, Math.min(cap, MAX_SUGGESTIONS - lead.length - search.length));
   // No agent to ask: a question or a word is searched, an address still opens first.
   if (!ask.length) {
-    if (!top) return [...search, ...fit(search), ...actionRows(query, context.omnibar)];
-    return [top, ...fit([top]), ...actionRows(query, context.omnibar), ...search];
+    if (!top) return [...search, ...fit(search), ...actionRows(query, context.omnibar, context.actionStates)];
+    return [top, ...fit([top]), ...actionRows(query, context.omnibar, context.actionStates), ...search];
   }
   const lead = top ? (order === "chat" ? [...ask, top] : [top, ...ask]) : ask;
-  return [...lead, ...fit(lead), ...actionRows(query, context.omnibar), ...search];
+  return [...lead, ...fit(lead), ...actionRows(query, context.omnibar, context.actionStates), ...search];
 }
 
-/// The Commands palette actions the text names, best match first (the palette's order breaks
-/// ties): a title or keyword starting with it, or for 3+ characters containing it.
-export function actionRows(query: string, omnibar: OmnibarContext, limit = MAX_ACTION_ROWS): ScreenRow[] {
+/// The catalog actions the text names, best match first (the palette's order breaks ties): a title or keyword
+/// starting with it, or for 3+ characters containing it. These are the ids a query asks the host about.
+export function actionCandidates(query: string, omnibar: OmnibarContext, limit = MAX_ACTION_CANDIDATES) {
   const actions = omnibar.actions ?? [];
   if (!actions.length || !query) return [];
   return actions
@@ -150,10 +167,25 @@ export function actionRows(query: string, omnibar: OmnibarContext, limit = MAX_A
     .filter((entry) => entry.score >= 2 || (entry.score > 0 && query.length >= SUBSTRING_MATCH_LENGTH))
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .slice(0, limit)
-    .map(({ action }): ScreenRow => ({
+    .map(({ action }) => action);
+}
+
+/// The action rows of `query`: its candidates the host says run now, with the host's title, at most `limit`.
+/// None without `states` (the screen never draws a query's rows before its states are in).
+export function actionRows(
+  query: string,
+  omnibar: OmnibarContext,
+  states: ActionStates | undefined,
+  limit = MAX_ACTION_ROWS,
+): ScreenRow[] {
+  if (!states) return [];
+  return actionCandidates(query, omnibar)
+    .filter((action) => states[action.id]?.enabled === true)
+    .slice(0, limit)
+    .map((action): ScreenRow => ({
       type: "action",
       id: action.id,
-      title: action.title,
+      title: states[action.id]?.title || action.title,
       ...(action.detail ? { detail: action.detail } : {}),
       ...(action.keycaps ? { keycaps: action.keycaps } : {}),
     }));

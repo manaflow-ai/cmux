@@ -26,6 +26,10 @@ public final class RegistryPaletteProvider: PaletteProvider {
     public var argumentSwatches: PaletteArgumentSwatches?
     /// Palette-internal actions that should not list themselves.
     public var hiddenIDs: Set<ActionID> = ["commandPalette"]
+    /// False for a catalog (``PaletteController/commandCatalog()``): every palette-visible row is listed with its
+    /// catalog title and symbol, and no row's availability, title or state closure runs, so the list depends only
+    /// on the registry's bindings. A shown row asks for its state (``states(of:)``).
+    public var decidesRows = true
     /// Opens the shortcut recorder for an action (the Actions menu's Edit
     /// Keyboard Shortcut…); nil hides that command.
     public var editShortcut: (@MainActor (ActionID) -> Void)?
@@ -71,27 +75,20 @@ public final class RegistryPaletteProvider: PaletteProvider {
         }
         for entry in registry.entries {
             let descriptor = entry.descriptor
-            guard descriptor.isPaletteVisible, !hiddenIDs.contains(descriptor.id), registry.isAvailable(descriptor.id) else { continue }
-            // An override is decided when its row runs (`PaletteEffect.deferred`), never on open:
-            // Rename Tab and Rename Workspace read every tab and workspace, an action page builds
-            // its page. Declining there (nothing to rename) falls back to the action itself.
             let override = effectOverrides[descriptor.id]
-            guard entry.isBound || override != nil || includeUnbound else { continue }
-            // A row whose run would refuse for the focused object (a chat control that chat lacks) says so here.
-            let paletteReason = override == nil ? registry.action(for: descriptor.id)?.paletteUnavailableReason?() : nil
-            let isEnabled = override != nil || (registry.canPerform(descriptor.id) && paletteReason == nil)
+            guard let row = decidesRows ? decide(entry) : listed(entry) else { continue }
+            let isEnabled = row.isEnabled
             let fallback = defaultEffect(for: descriptor)
             let effect = override.map { decide in PaletteEffect.deferred { decide() ?? fallback } } ?? fallback
             let actionID = descriptor.id
             var item = PaletteItem(
                 id: "action:\(actionID.rawValue)",
-                // A toggle that opts in (`ActionTargetTitles.setPaletteTitle`) reads as the change it makes.
-                title: registry.action(for: actionID)?.paletteTitle?() ?? descriptor.title,
+                title: row.title,
                 // A disabled row says why (Chromium without a CEF runtime).
-                subtitle: isEnabled ? nil : registry.unavailableReason(for: actionID) ?? paletteReason,
+                subtitle: isEnabled ? nil : registry.unavailableReason(for: actionID) ?? row.reason,
                 accessory: entry.isBound || override != nil ? nil : unbound,
                 // A toggle that opts in (`ActionTargetTitles.setPaletteState`) shows a check while it is on.
-                symbol: registry.action(for: actionID)?.paletteState?() == true ? "checkmark.circle.fill" : descriptor.symbol,
+                symbol: decidesRows && registry.action(for: actionID)?.paletteState?() == true ? "checkmark.circle.fill" : descriptor.symbol,
                 keycaps: registry.shortcutKeycaps(for: actionID),
                 section: section(descriptor.category),
                 keywords: descriptor.keywords,
@@ -125,6 +122,49 @@ public final class RegistryPaletteProvider: PaletteProvider {
         }
         let arranged = Self.arranged(items, tiers: tiers)
         return curatesEmptyRoot ? curatedRootItems(arranged) : arranged
+    }
+
+    /// A row as the palette decides it now: listed, enabled and titled for the focused object.
+    public struct RowState: Equatable, Sendable {
+        /// Whether the row runs now (the palette shows a disabled row dimmed).
+        public var isEnabled: Bool
+        /// The row's title now: a toggle that opts in (`ActionTargetTitles.setPaletteTitle`) reads as the change it makes.
+        public var title: String
+        /// Why the row cannot run for the focused object, when the action says so.
+        var reason: String?
+    }
+
+    /// The rows of `ids` decided now; an id the palette does not list here (not palette-visible, hidden, not
+    /// available in this context, or unbound) is left out. The palette's own rows are decided by the same code.
+    public func states(of ids: Set<ActionID>) -> [ActionID: RowState] {
+        var out: [ActionID: RowState] = [:]
+        for entry in registry.entries where ids.contains(entry.descriptor.id) {
+            if let row = decide(entry) { out[entry.descriptor.id] = row }
+        }
+        return out
+    }
+
+    /// Whether `entry` is a row at all, independent of state (``decidesRows`` false).
+    private func listed(_ entry: ActionEntry) -> RowState? {
+        let descriptor = entry.descriptor
+        guard descriptor.isPaletteVisible, !hiddenIDs.contains(descriptor.id),
+              entry.isBound || effectOverrides[descriptor.id] != nil || includeUnbound else { return nil }
+        return RowState(isEnabled: true, title: descriptor.title)
+    }
+
+    /// The row of `entry` decided now: listed in this context, enabled, and its current title.
+    private func decide(_ entry: ActionEntry) -> RowState? {
+        let descriptor = entry.descriptor
+        guard listed(entry) != nil, registry.isAvailable(descriptor.id) else { return nil }
+        // An override is decided when its row runs (`PaletteEffect.deferred`), never on open:
+        // Rename Tab and Rename Workspace read every tab and workspace, an action page builds
+        // its page. Declining there (nothing to rename) falls back to the action itself.
+        let override = effectOverrides[descriptor.id]
+        // A row whose run would refuse for the focused object (a chat control that chat lacks) says so here.
+        let reason = override == nil ? registry.action(for: descriptor.id)?.paletteUnavailableReason?() : nil
+        let isEnabled = override != nil || (registry.canPerform(descriptor.id) && reason == nil)
+        return RowState(isEnabled: isEnabled, title: registry.action(for: descriptor.id)?.paletteTitle?() ?? descriptor.title,
+                        reason: reason)
     }
 
     /// Decided when the row runs (`PaletteEffect.deferred`): an action
