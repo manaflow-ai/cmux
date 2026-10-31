@@ -1,0 +1,203 @@
+{
+  "version": 1,
+  "build": "4115755828101",
+  "notes": "notes/4115755828101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27360,
+      "title": "ci: cmux-tui clippy runs with --keep-going, so one run lists every crate's errors",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28338,
+      "title": "cmux-next: session registration resyncs on a same-process reconnect, and a seen refusal does not show again",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28540,
+      "title": "Session rail: the preview card opens in one commit, and the rail's hover, wheel and click are measured at 3,000 prompts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28568,
+      "title": "ci: every compile job declares its warm source (.github/warm-sources.json)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28101,
+      "title": "cmux-vm bake: fail apt update on any failed index, not later on the first locked pin",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27776,
+      "title": "iOS: the team drawer and Jump to latest settle at once with Reduce Motion on",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27871,
+      "title": "cmux-next tours: no directional focus right after a pane close",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28664,
+      "title": "fix(ci): base-red classifier ignores echoed step scripts and reads xcresult failures",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28239,
+      "title": "acpmux: a chat opened on screen reads ahead of agent work",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28032,
+      "title": "fix(webview): keep motion off layout properties",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27768,
+      "title": "composer: a file's upload never waits for a sibling image's preview",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28066,
+      "title": "acpmux tests: the two fake-systemctl tests run one at a time (ETXTBSY flake)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28249,
+      "title": "ci: keep cmux-next fast tier off dead side queues",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27072,
+      "title": "NEXT: test an iPhone upload over 100 MiB end to end",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28214,
+      "title": "ci(cmux-tui): skip docs-only publishes while preserving artifact lookup",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28600,
+      "title": "ci: the routing table fails a macOS job pinned to one fixed label",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28282,
+      "title": "carry of #27891: share headless coordinator initialization across replies",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28193,
+      "title": "cmux-wg: size the tunnel socket's receive buffer so loopback transfers stop stalling 1 s",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28292,
+      "title": "Agent chat: scrolling up after a restart reaches the turns before a long current turn",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27894,
+      "title": "ci(nightly-next): the Ghostty helper takes an idle owned Mac while the app build holds the dedicated builder",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27801,
+      "title": "acpmux: a DEV build's daemon stops once its app is gone, also when its binary is rebuilt (carries #23279)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28526,
+      "title": "cmux-next: classic upgrade checks wait for placements to land, not for 0.5 s of quiet (#28425)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27675,
+      "title": "feat(api): add PlatformMachines snapshot deletion",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28594,
+      "title": "ci(cmux-next swift test): a stall is no finish AND idle processes; a cut-short run counts what it finished",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28560,
+      "title": "cmux NEXT palette: an open builds each provider's rows once; palette root count and open latency base reds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28543,
+      "title": "carry of #26324: fix(agent-pane): retain New Tab draft and machine on start failure",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28360,
+      "title": "fix(next): ProcessBox never reads the pid of a process that has not launched; a child that never reads stdin no longer crashes PhoneProcess",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28305,
+      "title": "cmux NEXT: a recovered draft's toast shows once, not at every launch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28497,
+      "title": "cmux NEXT: a subagent's pane is named after the subagent, not its parent chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28206,
+      "title": "fix(terminal): closing a pane never waits on main for its output lane (P0 deadlock)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28564,
+      "title": "acpmux: a Claude chat's log keeps raw assistant and user lines without their bodies (Claude logs −12 to −36%)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27998,
+      "title": "feat(api): route hosted MCP comments through approved agent gateway",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
