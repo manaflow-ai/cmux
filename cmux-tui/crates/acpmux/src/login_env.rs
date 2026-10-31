@@ -604,9 +604,10 @@ fn vertex_allowed(key: &str, value: &str, profile: Option<&BTreeMap<String, Stri
 ///   VERTEX_REGION_* (not secret); with only a profile's switch, the
 ///   non-secret ones of those.
 /// - Codex: OPENAI_*, CODEX_*.
-/// - Every child: a name delivered in `~/.config/cmux/machine-secrets.env`
-///   (`cmux cloud deliver-secrets`), which the person sent to this machine
-///   for its shells and agents. Its value is never cached.
+/// - Not here: a name delivered in `~/.config/cmux/machine-secrets.env`
+///   passes only on the local spawn paths (`pairs_for`), never through this
+///   rule, so nested-session restoration (`nested_overrides`), `${env:VAR}`
+///   references and remote-origin launches never gain it.
 ///
 /// Known limit: the family comes from the profile (`config::derive_family`),
 /// and any local client can add a profile (an agent through ACPMUX_SOCKET).
@@ -644,7 +645,7 @@ pub fn allowed_with(
     // An exact name the person added always comes in; a prefix they added,
     // like the version-manager prefixes, never brings in a secret
     // (MISE_GITHUB_TOKEN, NVM_AUTH_HEADER).
-    if extra_exact(key) || delivered(key) || COMMON.contains(&key) || key == "SSL_CERT_DIR" {
+    if extra_exact(key) || COMMON.contains(&key) || key == "SSL_CERT_DIR" {
         return true;
     }
     if (COMMON_PREFIXES.iter().any(|p| key.starts_with(p)) || extra_prefix(key))
@@ -695,6 +696,7 @@ const INTERNAL: [&str; 5] = [
 /// some family (its Bedrock or Vertex condition aside), or read by the daemon.
 fn storable(key: &str, value: &str) -> bool {
     INTERNAL.contains(&key)
+        || delivered(key)
         || allowed(key, value, None)
         || allowed(key, value, Some("codex"))
         || ["ANTHROPIC_", "CLAUDE_", "DISABLE_", "AWS_", "GOOGLE_", "CLOUDSDK_", "GCLOUD_"]
@@ -717,7 +719,13 @@ fn pairs_for(
     family: Option<&str>,
     profile: Option<&BTreeMap<String, String>>,
 ) -> Vec<(String, String)> {
-    pairs().into_iter().filter(|(k, v)| allowed_with(k, v, family, profile)).collect()
+    // A name delivered to this machine (`cmux cloud deliver-secrets`) goes to
+    // every local child: the person sent it for this machine's shells and
+    // agents. Remote-origin launches never call this (`apply_remote_tokio`).
+    pairs()
+        .into_iter()
+        .filter(|(k, v)| allowed_with(k, v, family, profile) || delivered(k))
+        .collect()
 }
 
 /// Login values of the keys `config::scrub_nested_claude_env` removes (a
@@ -1250,7 +1258,22 @@ fn startup_files() -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod machine_file_tests {
-    use super::{delivered_names_in, machine_files_stamp_in, startup_files};
+    use super::{DELIVERED, allowed, delivered_names_in, machine_files_stamp_in, startup_files};
+
+    /// A delivered name is not on the allow-list itself: only the local
+    /// spawn paths (`pairs_for`) add it, so nested-session restoration and
+    /// remote-origin launches, which go through `allowed`, never get it.
+    #[test]
+    fn delivered_names_stay_off_the_allow_list() {
+        let before = std::mem::replace(
+            &mut *DELIVERED.write().unwrap(),
+            vec!["CLAUDE_CODE_OAUTH_TOKEN".into(), "DEMO_KEY".into()],
+        );
+        assert!(!allowed("DEMO_KEY", "dummy", None));
+        assert!(!allowed("DEMO_KEY", "dummy", Some("codex")));
+        assert!(!allowed("CLAUDE_CODE_OAUTH_TOKEN", "dummy", None));
+        *DELIVERED.write().unwrap() = before;
+    }
 
     /// Only the names of a delivered file, in the receiver's format; a link
     /// or a missing file names nothing.
