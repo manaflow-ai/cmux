@@ -3,6 +3,7 @@ import CmuxMobileBrowserStream
 import CmuxMobileModel
 import CmuxMobileTransport
 import CmuxTabsKit
+import Darwin
 import Foundation
 import Testing
 import UIKit
