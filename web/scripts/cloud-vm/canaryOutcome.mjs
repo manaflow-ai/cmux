@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from "node:timers/promises";
+
 /**
  * Classifies the response captured by the Cloud VM edge canary.
  *
@@ -60,4 +62,35 @@ export function edgeCanaryProblems({
     problems.push(`claude turn through the edge did not answer: ${claudeTail ?? ""}`);
   }
   return problems;
+}
+
+/**
+ * Freestyle can briefly miss a newly installed forwarding-DNS answer even
+ * after the same guest has successfully reached the edge. Retry only that
+ * resolver failure; HTTP/authentication failures remain visible immediately.
+ * @param {(signal?: AbortSignal) => Promise<unknown>} run one guest request attempt
+ * @param {string} host the guest alias whose DNS failure may be retried
+ * @param {{ attempts?: number, delayMs?: number, signal?: AbortSignal }} options retry budget and cancellation
+ */
+export async function retryGuestEdgeRequest(
+  run,
+  host,
+  { attempts = 4, delayMs = 1_000, signal } = {},
+) {
+  if (!Number.isInteger(attempts) || attempts < 1) throw new RangeError("guest edge retry attempts must be positive");
+  let result;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    signal?.throwIfAborted();
+    result = await run(signal);
+    if (!guestEdgeDnsFailure(result, host) || attempt + 1 >= attempts) return result;
+    if (delayMs > 0) await sleep(delayMs, undefined, { signal });
+  }
+  return result;
+}
+
+/** Returns whether a guest response contains the resolver miss for its alias. */
+function guestEdgeDnsFailure(result, host) {
+  if (!result || typeof host !== "string" || host === "") return false;
+  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  return output.includes(`Could not resolve host: ${host}`);
 }
