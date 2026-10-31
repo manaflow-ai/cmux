@@ -6,6 +6,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -182,6 +183,77 @@ class JobLogEndpoint(unittest.TestCase):
     def test_raw_log_tabs_preserve_the_entire_error(self):
         text = "2026-10-30T12:00:00.000Z ##[error]\tnew\tcompile failure"
         self.assertEqual(excuse.lines_of(text), ["##[error]\tnew\tcompile failure"])
+
+
+# A `gh` on PATH: it records its argv, and with FAKE_GH=old answers the escape flag the way gh 2.45 does
+# (exit 1, "unknown flag: --allow-escape-sequences" then its usage, nothing read); FAKE_GH=http fails every
+# call with an HTTP error; FAKE_GH=other-flag refuses some other flag. Otherwise it prints the log.
+FAKE_GH = """#!/usr/bin/env python3
+import os, sys
+args = sys.argv[1:]
+with open(os.environ["FAKE_GH_CALLS"], "a") as calls:
+    calls.write(" ".join(args) + "\\n")
+mode = os.environ.get("FAKE_GH", "")
+if mode == "old" and "--allow-escape-sequences" in args:
+    sys.stderr.write("unknown flag: --allow-escape-sequences\\n\\nUsage:  gh api <endpoint> [flags]\\n")
+    sys.exit(1)
+if mode == "http":
+    sys.stderr.write("gh: Not Found (HTTP 404)\\n")
+    sys.exit(1)
+if mode == "other-flag":
+    sys.stderr.write("unknown flag: --hostname-x\\nunknown flag: --allow-escape-sequences\\n")
+    sys.exit(1)
+print("2026-10-30T12:00:00.000Z \\x1b[31mred\\x1b[0m log")
+"""
+
+
+class OldGhWithoutEscapeFlag(unittest.TestCase):
+    """2026-10-30: #28397 asked every job log read for --allow-escape-sequences, which gh 2.45 refuses as an
+    unknown flag, so no log could be read on such a host and no red there could be compared with the base."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        gh = Path(self.dir.name) / "gh"
+        gh.write_text(FAKE_GH)
+        gh.chmod(0o755)
+        self.calls = Path(self.dir.name) / "calls"
+        self.calls.write_text("")
+        env = {"PATH": f"{self.dir.name}{os.pathsep}{os.environ.get('PATH', '')}", "FAKE_GH_CALLS": str(self.calls)}
+        patch = unittest.mock.patch.dict(os.environ, env)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def read(self, mode):
+        os.environ["FAKE_GH"] = mode
+        return excuse.GitHub().log(REPO, {"id": 7, "run_id": 10})
+
+    def asked(self):
+        return self.calls.read_text().splitlines()
+
+    def test_an_old_gh_is_asked_again_without_the_flag(self):
+        self.assertIn("red", self.read("old"))
+        route = f"repos/{REPO}/actions/jobs/7/logs"
+        self.assertEqual(self.asked(), [f"api --allow-escape-sequences {route}", f"api {route}"])
+
+    def test_a_new_gh_is_asked_once_with_the_flag(self):
+        self.assertIn("\x1b[31mred", self.read(""))
+        self.assertEqual(self.asked(), [f"api --allow-escape-sequences repos/{REPO}/actions/jobs/7/logs"])
+
+    def test_any_other_failure_still_refuses_with_no_retry(self):
+        for mode in ("http", "other-flag"):
+            with self.subTest(mode=mode):
+                self.calls.write_text("")
+                with self.assertRaises(excuse.Refused):
+                    self.read(mode)
+                self.assertEqual(len(self.asked()), 1)
+
+    def test_only_the_flag_itself_on_the_first_line_counts(self):
+        self.assertTrue(excuse.escape_flag_unknown("unknown flag: --allow-escape-sequences\n\nUsage: gh api"))
+        for said in ("", "gh: Not Found (HTTP 404)", "unknown flag: --paginate-x",
+                     "HTTP 502\nunknown flag: --allow-escape-sequences",
+                     "unknown flag: --allow-escape-sequences-x"):
+            self.assertFalse(excuse.escape_flag_unknown(said), said)
 
 
 class Excusing(unittest.TestCase):
@@ -384,10 +456,85 @@ class Excusing(unittest.TestCase):
 
     def test_a_job_with_no_tip_suite_gets_no_extra_lookup(self):
         self.gh.base_runs = []
-        self.gh.jobs[1]["name"] = SCHEME
+        self.gh.jobs[1]["name"] = "cmux-next Release compile (Xcode 26)"
         with self.assertRaisesRegex(excuse.Refused, "no completed"):
             self.judge()
         self.assertFalse([route for route in self.gh.routes if "event=workflow_dispatch" in route])
+
+    def base_tier_setup(self, name, *, verdict="failure", in_window=False):
+        # cmuxterm-hq#5424: a feat-cmux-next push no longer runs the base Mac tier (daemon tests, generated
+        # files, the Debug scheme compile); a `cmux-next base tier · <sha>` dispatch runs it at most once
+        # every 15 minutes on the tip, so most base runs, pushes and DEV daily runs, have no verdict for it.
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=name, step="Run the suites")}
+        self.gh.logs[1] = log(name, "Run the suites", ISSUE)
+        noise = []
+        for offset in range(excuse.BASE_JOB_READS + 5):
+            run_id = 3000 + offset
+            self.gh.jobs[run_id] = dict(failed_job(run_id, run_id, BASE_SHA, name=name), conclusion="skipped",
+                                        steps=[])
+            noise.append({"id": run_id, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                          "status": "completed", "conclusion": "success",
+                          "display_title": "cmux NEXT DEV daily · " + BASE_SHA})
+        tested = "e" * 40
+        tier = {"id": 40, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "head_sha": "f" * 40,
+                "status": "completed", "conclusion": verdict, "display_title": "cmux-next base tier · " + tested,
+                "created_at": "2026-10-30T12:00:00Z", "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/40"}
+        self.gh.jobs[4] = dict(failed_job(4, 40, tested, name=name, step="Run the suites"), conclusion=verdict)
+        self.gh.logs[4] = log(name, "Run the suites", ISSUE, OTHER)
+        self.gh.base_runs = noise + ([copy.deepcopy(tier)] if in_window else [])
+        plain = self.gh.json
+
+        def json(route, *, paginate=False):
+            if "/actions/workflows/7/runs?" in route and "event=workflow_dispatch" in route:
+                self.gh.routes.append(route)
+                return {"workflow_runs": [copy.deepcopy(noise[0]), copy.deepcopy(tier)]}
+            return plain(route, paginate=paginate)
+
+        self.gh.json = json
+
+    def test_the_base_tier_run_is_the_base_verdict_for_its_jobs(self):
+        for name in ("cmux-next daemon tests", "cmux-next generated files", SCHEME):
+            with self.subTest(job=name):
+                self.setUp()
+                self.base_tier_setup(name)
+                text = "\n".join(self.judge())
+                self.assertIn(f"excused '{name}'", text)
+                # It says which commit and when the verdict is from: one base tier run covers the landings
+                # of up to 15 minutes, so it is often not the base tip's.
+                self.assertIn("run 40 at eeeeeeeeee (the newest feat-cmux-next verdict for it, 2026-10-30T12:00:00Z)",
+                              text)
+                self.assertNotIn(f"repos/{REPO}/actions/runs/3000/jobs?filter=latest&per_page=100", self.gh.routes)
+
+    def test_suites_that_never_run_the_job_are_skipped_unread_in_the_window(self):
+        # 45 DEV daily runs ahead of the base tier run in the window: none is read, so the job-list budget
+        # still reaches the base tier run and the dispatch fallback is not needed.
+        self.base_tier_setup(SCHEME, in_window=True)
+        text = "\n".join(self.judge())
+        self.assertIn(f"excused '{SCHEME}'", text)
+        self.assertFalse([route for route in self.gh.routes if "/runs/30" in route and "/jobs?" in route])
+        self.assertFalse([route for route in self.gh.routes if "event=workflow_dispatch" in route])
+
+    def test_a_suite_runs_verdict_for_a_shared_job_still_counts(self):
+        # Review of this change: tip suite runs also run checks and web bundles. A newer green verdict in a
+        # tip daemon suite run must stand over an older red push run, or a regression would be excused.
+        name = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=name, step="Run the suites")}
+        self.gh.logs[1] = log(name, "Run the suites", ISSUE)
+        suite = {"id": 21, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "completed",
+                 "conclusion": "success", "display_title": "cmux-next tip daemon suite · " + BASE_SHA}
+        push = {"id": 20, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                "conclusion": "failure", "display_title": "cmux-next · " + BASE_SHA}
+        self.gh.jobs[5] = dict(failed_job(5, 21, BASE_SHA, name=name), conclusion="success")
+        self.gh.jobs[6] = failed_job(6, 20, BASE_SHA, name=name, step="Run the suites")
+        self.gh.logs[6] = log(name, "Run the suites", ISSUE)
+        self.gh.base_runs = [suite, push]
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 21"):
+            self.judge()
+
+    def test_a_green_base_tier_run_still_blocks(self):
+        self.base_tier_setup("cmux-next daemon tests", verdict="success")
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 40"):
+            self.judge()
 
     def test_a_setup_refusal_is_never_excused(self):
         self.gh.jobs[1]["steps"] = [{"name": "Set up job", "status": "completed", "conclusion": "success"},
@@ -451,15 +598,30 @@ class Excusing(unittest.TestCase):
 
         self.gh.json = json_with_checks
 
-    def test_a_red_ci_status_is_judged_by_the_failed_jobs_of_its_run(self):
+    def red_ci_status(self):
         self.gh.jobs[3] = {"id": 3, "run_id": 10, "head_sha": HEAD, "name": "ci-status", "status": "completed",
                            "conclusion": "failure", "steps": [{"name": "Report", "conclusion": "failure"}]}
         self.with_checks([{"id": 3, "name": "ci-status", "status": "completed", "conclusion": "failure",
                            "app": {"slug": "github-actions"},
                            "details_url": f"https://github.com/{REPO}/actions/runs/10/job/3"}])
+
+    def test_a_red_ci_status_is_judged_by_the_failed_jobs_of_its_run(self):
+        # ci.yml's ci-status needs `macos`, a called workflow: its jobs are 'macos / <job>'.
+        for job_id in (1, 2):
+            self.gh.jobs[job_id]["name"] = f"macos / {SWIFT}"
+        self.red_ci_status()
         lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
-        self.assertIn(SWIFT, "\n".join(lines))
+        self.assertIn(f"macos / {SWIFT}", "\n".join(lines))
         self.assertNotIn("'ci-status'", "\n".join(lines))
+
+    def test_a_red_ci_status_whose_failed_jobs_are_all_outside_its_needs_blocks(self):
+        # The run's only red job is not under ci-status's needs (ci.yml's pr-red-checks, say), so it did not turn
+        # ci-status red: its own verdict did. A base-red job outside it must not carry it.
+        self.red_ci_status()
+        with self.assertRaisesRegex(excuse.Refused, "no failed job under its needs"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
+        with self.assertRaisesRegex(excuse.Refused, "no failed job under its needs"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
 
     def test_a_red_ci_status_with_no_other_failed_job_blocks(self):
         self.gh.jobs[1]["conclusion"] = "success"
@@ -603,6 +765,41 @@ class Excusing(unittest.TestCase):
         self.gh.base_runs.append({"id": 19, "event": "push", "conclusion": "success"})
         self.assertIn("run 20", "\n".join(self.judge()))
 
+    def contract_with(self, edit):
+        contract = copy.deepcopy(excuse.rollups())
+        edit(contract["routed"]["Guard status"]["routes"])
+        patch = unittest.mock.patch.object(excuse, "_ROLLUPS", contract)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_a_route_the_workflow_adds_is_judged_from_the_contract(self):
+        # A needed job the workflow adds (here workflow-guard-new on linux_guard_new) is read from the contract,
+        # with no list in this script to update.
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        self.contract_with(lambda routes: routes.update(
+            {"workflow-guard-new": {"route": "linux_guard_new", "exact": [], "prefixes": ["workflow-guard-new / "]}}))
+        name = "nightly-guards / Guard status"
+        for job_id, child in ((5, 3), (6, 4)):
+            self.gh.jobs[job_id]["name"] = "nightly-guards / workflow-guard-new / lint"
+            self.gh.logs[child] = log(name, "Check routed guard jobs", "workflow-guard-new: failure (route linux_guard_new=true)")
+        self.assertIn("workflow-guard-new / lint", "\n".join(self.judge_guard()))
+
+    def test_a_route_job_the_contract_does_not_name_is_refused(self):
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        self.contract_with(lambda routes: routes.pop("workflow-guard-tests"))
+        with self.assertRaisesRegex(excuse.Refused, "unknown routed job workflow-guard-tests"):
+            self.judge_guard()
+
+    def test_an_unconditional_job_reported_with_a_route_is_refused(self):
+        # workflow-guard-submodule-forward-only has no `if:`: its report never names a route.
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        name = "nightly-guards / Guard status"
+        self.gh.jobs[5]["name"] = self.gh.jobs[6]["name"] = "nightly-guards / workflow-guard-submodule-forward-only"
+        self.gh.logs[3] = log(name, "Check routed guard jobs",
+                              "workflow-guard-submodule-forward-only: failure (route linux_guard_tests=true)")
+        with self.assertRaisesRegex(excuse.Refused, "does not map"):
+            self.judge_guard()
+
     def test_a_guard_status_does_not_match_an_unrelated_routed_job(self):
         name = "nightly-guards / Guard status"
         head = failed_job(3, 10, HEAD, name=name, step="Check routed guard jobs")
@@ -627,6 +824,103 @@ def crashed(job, signal, unfinished, frames, *extra):
                f"##[error]no \"Test run with\" summary line (crash, kill or truncation); {len(unfinished)} tests "
                f"started and never finished: {'; '.join(unfinished)}",
                f"##[error]the test helper died on signal {signal}; crashed thread: {frames}")
+
+
+CI_YML = """
+on: {pull_request: {}}
+jobs:
+  changes: {runs-on: x, steps: []}
+  web: {needs: [changes], uses: ./.github/workflows/ci-web.yml}
+  fast-guards: {name: CI fast guards, runs-on: x, steps: []}
+  outside: {needs: [web], runs-on: x, steps: []}
+  ci-status: {needs: [web, fast-guards], runs-on: x, steps: []}
+"""
+GUARDS_YML = """
+on:
+  workflow_call:
+    inputs:
+      linux_guard_tests: {type: string}
+jobs:
+  workflow-guard-submodule-forward-only: {name: workflow-guard-submodule-forward-only, runs-on: x, steps: []}
+  workflow-guard-tests:
+    if: ${{ inputs.linux_guard_tests == 'true' }}
+    name: workflow-guard-tests / ${{ matrix.group }}
+    strategy: {matrix: {group: [a]}}
+    runs-on: x
+    steps: []
+  guard-status:
+    name: Guard status
+    needs: [workflow-guard-submodule-forward-only, workflow-guard-tests]
+    runs-on: x
+    steps: []
+"""
+
+
+class RollupsFromNeeds(unittest.TestCase):
+    """The rollups (ci-status, Guard status) and the jobs under them come from the workflows' `needs:`."""
+
+    def derive(self, ci=CI_YML, guards=GUARDS_YML):
+        with tempfile.TemporaryDirectory() as root:
+            for file, text in (("ci.yml", ci), ("ci-guards.yml", guards)):
+                if text is not None:
+                    (Path(root) / file).write_text(text)
+            return excuse.derive_rollups(Path(root))
+
+    def test_the_committed_contract_is_the_workflows(self):
+        import yaml  # noqa: F401,PLC0415 - deriving reads YAML; a host without it must not pass this silently
+        self.assertEqual(json.loads(excuse.ROLLUPS_FILE.read_text()), excuse.derive_rollups(),
+                         "run: python3 scripts/ci/base_red_excuse.py --write-rollups")
+
+    def test_needs_are_followed_and_named_as_actions_names_them(self):
+        got = self.derive()
+        self.assertEqual(got["run"]["ci-status"]["under"], {
+            "changes": {"exact": ["changes"], "prefixes": []},
+            "fast-guards": {"exact": ["CI fast guards"], "prefixes": []},
+            "web": {"exact": [], "prefixes": ["web / "]}})
+        self.assertEqual(got["routed"]["Guard status"]["routes"], {
+            "workflow-guard-submodule-forward-only": {
+                "route": None, "exact": ["workflow-guard-submodule-forward-only"], "prefixes": []},
+            "workflow-guard-tests": {"route": "linux_guard_tests", "exact": [], "prefixes": ["workflow-guard-tests / "]}})
+
+    def test_any_shape_it_does_not_know_is_refused(self):
+        tests_if = "if: ${{ inputs.linux_guard_tests == 'true' }}"
+        cases = {
+            "a missing workflow": (dict(ci=None), "unreadable"),
+            "a missing rollup job": (dict(ci=CI_YML.replace("ci-status:", "ci-verdict:")), "no job ci-status"),
+            "an unknown need": (dict(ci=CI_YML.replace("needs: [web, fast-guards]", "needs: [web, nope]")),
+                                "not jobs of its workflow"),
+            "needs that are not a list": (dict(ci=CI_YML.replace("needs: [web, fast-guards]", "needs: {web: 1}")),
+                                          "not jobs of its workflow"),
+            "a rollup with no needs": (dict(ci=CI_YML.replace("needs: [web, fast-guards], ", "")), "needs no job"),
+            "a name with an expression inside": (dict(
+                ci=CI_YML.replace("name: CI fast guards", 'name: "CI ${{ matrix.x }} guards"')), "not a fixed name"),
+            "an expression before the last part": (dict(guards=GUARDS_YML.replace(
+                "workflow-guard-tests / ${{ matrix.group }}", '"workflow-guard-tests / ${{ matrix.group }} / x"')),
+                "not a fixed name"),
+            "a route if of another shape": (dict(guards=GUARDS_YML.replace(
+                tests_if, "if: ${{ inputs.linux_guard_tests == 'true' || github.event_name == 'push' }}")),
+                "not one route input"),
+            "a route input not declared": (dict(guards=GUARDS_YML.replace(
+                tests_if, "if: ${{ inputs.linux_guard_other == 'true' }}")), "not one route input"),
+            "a routed workflow with another trigger": (dict(
+                guards=GUARDS_YML.replace("on:\n", "on:\n  push: {}\n")), "called only"),
+            "unparseable YAML": (dict(guards=GUARDS_YML + "\n  : [\n"), "unreadable"),
+        }
+        for why, (files, said) in cases.items():
+            with self.subTest(why), self.assertRaisesRegex(excuse.Refused, said):
+                self.derive(**files)
+
+    def test_a_missing_or_malformed_contract_refuses_every_rollup(self):
+        for text in (None, "{", "[]", '{"run": {}, "routed": {}}',
+                     '{"run": {"ci-status": {"under": {"x": {"exact": "x", "prefixes": []}}}}, "routed": {}}'):
+            with self.subTest(text=text), tempfile.TemporaryDirectory() as root:
+                path = Path(root) / "rollups.json"
+                if text is not None:
+                    path.write_text(text)
+                with unittest.mock.patch.object(excuse, "ROLLUPS_FILE", path), \
+                        unittest.mock.patch.object(excuse, "_ROLLUPS", None), \
+                        self.assertRaisesRegex(excuse.Refused, "no rollup red is excused"):
+                    excuse.is_aggregate("ci-status")
 
 
 class CrashIsNeverABaseRed(unittest.TestCase):
@@ -676,6 +970,42 @@ class CrashIsNeverABaseRed(unittest.TestCase):
         self.gh.logs[2] = log(SWIFT, TEST_STEP, ISSUE)
         with self.assertRaisesRegex(excuse.Refused, "palettePagesReleaseTheRegistry"):
             self.judge()
+
+
+class EchoedStepScriptIsNoEvidence(unittest.TestCase):
+    """The runner echoes each step's script before it runs, so the script's own text (an `echo "::error::..."`
+    branch, a grep for test names) is in every run's log. 2026-10-30: cmux#28145's kit job at c39d28ef failed two
+    iOS simulator tests that base run 41138142557 passed, and was excused because both logs echo the same
+    `::error::` lines of the xcodebuild step's script."""
+
+    KIT = "CmuxMobileKit tests (macOS swift test, iOS simulator)"
+    STEP = "xcodebuild test (iOS simulator)"
+    FIXTURES = ROOT / "tests/fixtures/test_reds"
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, self.KIT, self.STEP),
+                        2: failed_job(2, 20, BASE_SHA, self.KIT, self.STEP)}
+        self.gh.logs = {1: (self.FIXTURES / "ios-kit-head-run-41079430021.log").read_text(),
+                        2: (self.FIXTURES / "ios-kit-base-run-41138142557.log").read_text()}
+
+    def test_the_28145_kit_red_is_not_excused_by_the_echoed_script(self):
+        with self.assertRaisesRegex(excuse.Refused, "HomeRetryTests.failedHomeLoadRetriesTheFeedOnTheExistingLink"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+    def test_echoed_script_lines_are_not_error_lines(self):
+        _, tests, errors = excuse.signature(self.gh.jobs[2], self.gh.logs[2])
+        self.assertEqual(tests, {"TerminalSurfaceFramePacingTests.busyOutputDrawsAtMostOneFramePerDisplayRefresh()"})
+        self.assertEqual(errors, set(), "every `::error::` in this log is the step script's echo")
+
+    def test_an_error_only_the_echo_names_cannot_excuse_a_head_error(self):
+        echo = ["##[group]Run make", 'echo "::error::Python is required"', "shell: /bin/bash -e {0}", "##[endgroup]"]
+        name = "cmux-next fast tier"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name, "Install"), 2: failed_job(2, 20, BASE_SHA, name, "Install")}
+        self.gh.logs[1] = log(name, "Install", *echo, "##[error]Python is required")
+        self.gh.logs[2] = log(name, "Install", *echo, "##[error]Could not find a version for foo")
+        with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next run 20: Python is required"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
 
 
 class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):

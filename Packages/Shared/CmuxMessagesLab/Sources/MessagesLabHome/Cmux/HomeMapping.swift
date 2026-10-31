@@ -49,7 +49,7 @@ enum HomeMapping {
         return { root in
             if let hit = mapped.entries[root] { return hit }
             let entry = found.value(for: root).map { (id($0, aliases: aliases), projectedParts($0, summary: summary, media: media, links: links).owners) }
-            mapped.entries[root] = .some(entry)
+            mapped.entries.updateValue(entry, forKey: root) // a miss (nil) is cached too
             return entry
         }
     }
@@ -388,15 +388,6 @@ enum HomeMapping {
 
     static func title(_ summary: ConversationSummary?, me: ParticipantID) -> String {
         summary?.displayTitle(me: me) ?? ""
-    }
-
-    /// The other participant's initials (the header avatar); a group shows
-    /// the title's.
-    static func initials(_ summary: ConversationSummary?, me: ParticipantID) -> String {
-        let others = (summary?.participants ?? []).filter { $0.id != me }
-        if others.count == 1, let other = others.first { return other.initials }
-        let words = title(summary, me: me).split(separator: " ").prefix(2).compactMap(\.first)
-        return String(words).uppercased()
     }
 
     /// The loaded window's place in the history: (messages before it, total).

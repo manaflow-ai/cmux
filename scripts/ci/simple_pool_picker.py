@@ -405,9 +405,11 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
             owned.append(Pool(label, len(online), len(online) - idle, queued, free=free,
                                xcode_app=owned_xcode_app(label, env.get("CMUX_CI_XCODE_APP_PR", ""))))
     age = snapshot_age(snapshot)
+    gone = dead_macos_26(snapshot)
     counts = {label: {"running": count(label, "running"), "queued": count(label, "queued"),
                       "reserved": count(label, "reserved_queued"),
-                      "stalled": blacksmith_stalled(count(label, "queued"), count(label, "oldest_queued_minutes"), age)}
+                      "stalled": blacksmith_stalled(count(label, "queued"), count(label, "oldest_queued_minutes"), age)
+                      or label in gone}
               for label in BLACKSMITH}
     blacksmith = tuple(Pool(label, CAPACITY[label], **counts[label],
                             xcode_app=env.get("CMUX_CI_XCODE_APP_MACOS_15", "") if label == BLACKSMITH[2] else "")
@@ -492,6 +494,15 @@ def blacksmith_dead(snapshot: Mapping[str, Any] | None, label: str, now: Any = N
     started = moment(starts.get(label))
     return started is None or (generated - started).total_seconds() / 60 >= BLACKSMITH_DEAD_MINUTES
 
+
+
+def dead_macos_26(snapshot: Mapping[str, Any] | None, now: Any = None) -> set[str]:
+    """The Blacksmith macOS 26 labels (BLACKSMITH's first two) the snapshot shows dead (blacksmith_dead()), or none
+    when it shows both dead: with no label showing life it says nothing to choose by. A dead label counts as
+    stalled (Pool.stalled): the stall rule alone reads a dead label whose queue was cleared as free slots."""
+    labels = set(BLACKSMITH[:2])
+    out = {label for label in labels if blacksmith_dead(snapshot, label, now)}
+    return set() if out >= labels else out
 
 
 def blacksmith_stalled(queued: int, oldest_queued_minutes: float, age: float = 0.0) -> bool:
