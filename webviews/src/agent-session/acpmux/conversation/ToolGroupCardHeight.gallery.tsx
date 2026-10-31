@@ -1,5 +1,6 @@
 // l10n-allow-file: deterministic tool-group geometry fixture.
 import { componentEntry } from "../../../gallery/format";
+import { useLayoutEffect } from "react";
 import { activity, tool } from "../../../gallery/fixtures/acpmux";
 import { VirtualTranscript } from "../App";
 
@@ -17,7 +18,15 @@ const rows = [
 function ToolGroupCardHeightGallery() {
   // The card arm is intentionally gallery-only; production uses the shipped flat rows. Keep the
   // fixture's root arm explicit so this test measures the bordered card rather than plain rows.
-  document.documentElement.dataset.toolStepsLook = "card";
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    const previous = root.dataset.toolStepsLook;
+    root.dataset.toolStepsLook = "card";
+    return () => {
+      if (previous === undefined) delete root.dataset.toolStepsLook;
+      else root.dataset.toolStepsLook = previous;
+    };
+  }, []);
   return (
     <div className="acpmux-shell">
       <VirtualTranscript

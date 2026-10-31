@@ -3,16 +3,11 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("agent-pane-tool-group-card-height.test.ts", async () => {
   setDefaultTimeout(120_000);
-  try {
-    await (await chromium.launch({ headless: true })).close();
-  } catch {
-    console.warn("agent-pane-tool-group-card-height: skipping (run `bunx playwright install chromium`)");
-    return;
-  }
+  if (!(await probeEngineOrSkip("agent-pane-tool-group-card-height", "chromium", chromium))) return;
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -59,6 +54,7 @@ await requireBrowserLane("agent-pane-tool-group-card-height.test.ts", async () =
       const last = steps.at(-1)!;
       const transcript = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
       return {
+        count: steps.length,
         cardHeight: card.height,
         contentHeight: last.bottom - card.top,
         trailing: card.bottom - last.bottom,
@@ -67,6 +63,7 @@ await requireBrowserLane("agent-pane-tool-group-card-height.test.ts", async () =
       };
     });
     expect(Number.parseFloat(geometry.border)).toBeGreaterThan(0);
+    expect(geometry.count).toBe(2);
     expect(geometry.cardHeight).toBeGreaterThan(0);
     expect(geometry.trailing).toBeLessThanOrEqual(1.5);
     expect(Math.abs(geometry.cardHeight - geometry.contentHeight)).toBeLessThanOrEqual(1.5);
