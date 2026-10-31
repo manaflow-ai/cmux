@@ -212,9 +212,10 @@ impl<B: Backend> Server<B> {
 
     /// A `tab_move` that names its destination pane but not that pane's screen and
     /// workspace, or no index, gets them: a pane is in one screen of one workspace, and a
-    /// moved tab goes after the pane's last tab. Agents looked the move up in the docs and
-    /// then the pane's parents before every move (tests/tool-evals r13d: 2 to 3 steps).
-    /// Only the destination workspace named: its focused pane.
+    /// moved tab goes last (the daemon clamps an index past the end). Agents looked the
+    /// move up in the docs and then the pane's parents before every move (tests/tool-evals
+    /// r13d: 2 to 3 steps). Only the destination workspace named: its active screen and
+    /// pane (`current` under a named workspace is its active child, not the caller's).
     pub(super) fn tab_move_destination<'a>(
         &self,
         tool: &v2_tools::V2Tool,
@@ -225,54 +226,49 @@ impl<B: Backend> Server<B> {
             return Ok(Cow::Borrowed(arguments));
         }
         let mut filled = arguments.clone();
+        filled.entry("index").or_insert(json!(u32::MAX));
+        if !filled.contains_key("destination_pane") {
+            if filled.contains_key("destination_workspace") {
+                filled.entry("destination_screen").or_insert(json!("current"));
+                filled.insert("destination_pane".into(), json!("current"));
+            }
+            return Ok(Cow::Owned(filled));
+        }
+        if filled.contains_key("destination_screen") && filled.contains_key("destination_workspace")
+        {
+            return Ok(Cow::Owned(filled));
+        }
+        // The lookups run in the move's session: the call's, else the one the tab names.
+        let session = arguments.get("session").cloned().or_else(|| {
+            let tab = arguments.get("tab").and_then(Value::as_str)?;
+            Some(json!(tab.rsplit_once(':')?.0))
+        });
         let scope = |id: &str, value: &Value| {
             let mut lookup = Map::new();
-            if let Some(session) = arguments.get("session") {
+            if let Some(session) = &session {
                 lookup.insert("session".into(), session.clone());
             }
             lookup.insert(id.into(), value.clone());
             lookup
         };
-        if !filled.contains_key("destination_pane") {
-            let Some(workspace) = filled.get("destination_workspace").cloned() else {
-                return Ok(Cow::Borrowed(arguments));
-            };
-            let mut list = scope("workspace", &workspace);
-            list.insert("limit".into(), json!(500));
-            let panes = self.read(v2_tools::find("pane_list"), &list)?;
-            let items = panes.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
-            let pane = items
-                .iter()
-                .find(|pane| pane.get("focused").and_then(Value::as_bool) == Some(true))
-                .or_else(|| items.first())
-                .and_then(|pane| pane.get("id").cloned());
-            let Some(pane) = pane else { return Ok(Cow::Borrowed(arguments)) };
-            filled.insert("destination_pane".into(), pane);
-        }
         let pane = filled.get("destination_pane").cloned().unwrap_or(Value::Null);
-        if !filled.contains_key("destination_screen")
-            || !filled.contains_key("destination_workspace")
-        {
-            let record = self.read(v2_tools::find("pane_get"), &scope("pane", &pane))?;
-            let Some(screen) = record.get("screen_id").cloned() else {
+        let record = self.read(v2_tools::find("pane_get"), &scope("pane", &pane))?;
+        let (Some(id), Some(screen)) =
+            (record.get("id").cloned(), record.get("screen_id").cloned())
+        else {
+            return Ok(Cow::Borrowed(arguments));
+        };
+        // The pane's own id: a destination field is sent as written, so `current`, a
+        // prefix or `<session>:` would reach the daemon unresolved.
+        filled.insert("destination_pane".into(), id);
+        if !filled.contains_key("destination_workspace") {
+            let record = self.read(v2_tools::find("screen_get"), &scope("screen", &screen))?;
+            let Some(workspace) = record.get("workspace_id").cloned() else {
                 return Ok(Cow::Borrowed(arguments));
             };
-            if !filled.contains_key("destination_workspace") {
-                let record = self.read(v2_tools::find("screen_get"), &scope("screen", &screen))?;
-                let Some(workspace) = record.get("workspace_id").cloned() else {
-                    return Ok(Cow::Borrowed(arguments));
-                };
-                filled.insert("destination_workspace".into(), workspace);
-            }
-            filled.entry("destination_screen").or_insert(screen);
+            filled.insert("destination_workspace".into(), workspace);
         }
-        if !filled.contains_key("index") {
-            let mut list = scope("pane", &pane);
-            list.insert("limit".into(), json!(500));
-            let tabs = self.read(v2_tools::find("tab_list"), &list)?;
-            let count = tabs.get("items").and_then(Value::as_array).map_or(0, Vec::len);
-            filled.insert("index".into(), json!(count));
-        }
+        filled.entry("destination_screen").or_insert(screen);
         Ok(Cow::Owned(filled))
     }
 

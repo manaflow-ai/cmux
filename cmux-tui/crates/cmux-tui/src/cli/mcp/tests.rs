@@ -1861,30 +1861,41 @@ fn a_record_works_where_its_id_goes() {
     assert_eq!(add["request"]["params"]["device"], device, "{add}");
 }
 
-/// A tab moved to a pane needs only the pane: its screen and workspace are looked up and
-/// the tab goes last, where the daemon refused the move without all four (tests/tool-evals
-/// r13d: a docs lookup and two reads before each move).
+/// A tab moved to a pane needs only the pane: its own id, screen and workspace are looked
+/// up and the tab goes last, where the daemon refused the move without all four
+/// (tests/tool-evals r13d: a docs lookup and two reads before each move). A workspace
+/// alone moves it to that workspace's active pane.
 #[test]
 fn a_tab_moves_to_a_pane_named_alone() {
     let pane = "pane_00000000000000000000000000000007";
     let screen = "screen_00000000000000000000000000000008";
     let workspace = "ws_00000000000000000000000000000009";
-    let record =
-        json!({"id": pane, "screen_id": screen, "workspace_id": workspace, "focused": true});
+    let record = json!({"id": pane, "screen_id": screen, "workspace_id": workspace});
     let fake = Fake { resource_result: Some(record), ..Fake::default() };
     let mut server = Server::new(fake, None);
     let tab = "tab_00000000000000000000000000000001";
-    let result = server
-        .call(&json!({"name": "tab_move", "arguments": {"tab": tab, "destination_pane": pane}}))
-        .expect("a tool result");
-    assert_ne!(result["isError"], true, "{result}");
+    for arguments in [
+        json!({"tab": tab, "destination_pane": "pane_000000000000000000000000000000"}),
+        json!({"tab": tab, "destination_workspace": workspace}),
+    ] {
+        let result = server.call(&json!({"name": "tab_move", "arguments": arguments}));
+        let result = result.expect("a tool result");
+        assert_ne!(result["isError"], true, "{result}");
+    }
     let sent = server.backend.sent.borrow();
-    let moved = sent.iter().find(|s| s["request"]["operation"] == "tab.move");
-    let moved = moved.unwrap_or_else(|| panic!("{sent:?}"));
-    let params = &moved["request"]["params"];
-    assert_eq!(params["destination_screen"], screen, "{moved}");
-    assert_eq!(params["destination_workspace"], workspace, "{moved}");
-    assert_eq!(params["index"], 1, "after the pane's one tab: {moved}");
+    let moves: Vec<&Value> =
+        sent.iter().filter(|s| s["request"]["operation"] == "tab.move").collect();
+    assert_eq!(moves.len(), 2, "{sent:?}");
+    // A pane named by a prefix goes as its own id, with its parents; the tab goes last.
+    let first = &moves[0]["request"]["params"];
+    assert_eq!(first["destination_pane"], pane, "{}", moves[0]);
+    assert_eq!(first["destination_screen"], screen, "{}", moves[0]);
+    assert_eq!(first["destination_workspace"], workspace, "{}", moves[0]);
+    assert_eq!(first["index"], u32::MAX, "{}", moves[0]);
+    // A workspace alone: its active screen and pane.
+    let second = &moves[1]["request"]["params"];
+    assert_eq!(second["destination_screen"], "current", "{}", moves[1]);
+    assert_eq!(second["destination_pane"], "current", "{}", moves[1]);
 }
 
 /// A history read answers the scrollback as lines of plain text, unstyled, where the
