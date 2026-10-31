@@ -88,6 +88,17 @@ impl WsShutdown {
         let _ = state.wait_for(|stopping| *stopping).await;
     }
 
+    /// The close code a connection closes with now: 1012 (service restart) only while the
+    /// daemon restarts. Read when the close is sent, never taken from which signal a select saw
+    /// first. A normal stop also closes clients (`closing`), and a connection can also end by
+    /// itself as the daemon stops (its serve loop ends once its reader stopped), so the signal
+    /// a select happened to see says nothing about why the daemon stops. The restart latch
+    /// (`requested`) is set before any listener closes a client, and a normal stop never sets
+    /// it (`daemon.rs`).
+    pub(super) fn close_code_restart(&self) -> bool {
+        self.is_requested()
+    }
+
     pub(super) async fn requested(&self) {
         let mut state = self.requested.subscribe();
         let _ = state.wait_for(|stopping| *stopping).await;
@@ -141,10 +152,10 @@ pub(super) async fn write<S>(
 ) where
     S: Sink<Frame> + Unpin,
 {
-    let restarting = tokio::select! {
+    tokio::select! {
         biased;
-        () = shutdown.normal() => false,
-        () = shutdown.closing() => true,
+        () = shutdown.normal() => {},
+        () = shutdown.closing() => {},
         () = async {
             loop {
                 let line = tokio::select! {
@@ -157,9 +168,9 @@ pub(super) async fn write<S>(
                     break;
                 }
             }
-        } => false,
-    };
-    close(&mut sink, restarting).await;
+        } => {},
+    }
+    close(&mut sink, shutdown.close_code_restart()).await;
 }
 
 pub(super) async fn close<S: Sink<Frame> + Unpin>(sink: &mut S, restarting: bool) {

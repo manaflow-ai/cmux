@@ -46,6 +46,8 @@ OWN_REPOSITORY = {
     "cmux-tui/build-support/notices/fetch_crates.py": "fetches into a fresh `git init` cache directory",
     "scripts/ci/macos-cross.sh": "fetches into a directory it just ran `git init` in",
     "scripts/cmux-next/base-autofix-changed.sh": "fetches into a scratch `git init --bare` repository it just made",
+    "scripts/cmux-next/base_autofix_pushed_exports.py":
+        "remote_history fetches into a scratch `git init --bare` repository it just made, then deletes it",
     "scripts/cmux-next/build-cua-driver-sdk.sh": "fetches into its own `git init` work directory",
     "scripts/cmux-next/generate-third-party-notices.sh": "fetches into fresh `git init` cache directories",
     "scripts/cmux-next/notices/ghosttykit_repin.py": "fetches into a fresh `git init` cache directory",

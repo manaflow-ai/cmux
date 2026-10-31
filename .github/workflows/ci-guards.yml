@@ -1006,6 +1006,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_checks_base_only.py
 
+      - name: Validate the advisory UI review section check
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ui_review_advisory.py
+
       - name: Validate gh-call attribution lines make no extra API call
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_gh_call_log.py
@@ -1636,6 +1640,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_ghostty_helper_cache.py
 
+      - name: Validate the nightly OptChat Chief cache repair
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_chief_cache_repair.py
+
       - name: Validate the nightly web bundles build before the Release build
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_web_bundles_order.py
@@ -1691,6 +1699,7 @@ jobs:
           python3 tests/test_ci_nightly_off_blacksmith.py
           python3 tests/test_ci_nightly_no_hosted_mac.py
           python3 tests/test_ci_runs_on_fallback.py
+          python3 tests/test_ci_warm_sources.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
           python3 tests/test_ci_killpg_tolerates_eperm.py
 

@@ -59,6 +59,8 @@ export interface AttachParams {
   sessionId: string;
   /** False attaches without showing the chat (`hub/seen.rs`); default true. */
   visible?: (boolean | null);
+  /** Wait for restart-time log restoration before answering; false serves the page immediately. */
+  waitLogs?: (boolean | null);
 }
 
 export type AttachResult = {

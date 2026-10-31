@@ -565,7 +565,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     // MARK: Parity
 
     public func checkpoints() async throws -> [AgentCheckpoint] {
-        throw AgentFeatureUnavailable("Checkpoints are kept by the cmux app on \(summary.macName), and the phone link doesn't carry them yet. Open Changes on the Mac to restore one.")
+        throw AgentFeatureUnavailable("Checkpoints are kept by cmux on \(summary.macName). Open Changes on the Mac to restore one.")
     }
 
     public func restore(_ checkpoint: AgentCheckpoint) async throws -> String {
@@ -622,7 +622,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         switch error.reason {
         case "source_busy": "Wait for the agent to finish (no turn running, nothing queued or waiting) before continuing elsewhere."
         case "checkpoint_required": "Save a repository checkpoint first."
-        case "permission.person_required": "Confirm this on your Mac. The phone can't start a continuation by itself yet."
+        case "permission.person_required": "Confirm this on your Mac to continue."
         default: error.message
         }
     }
@@ -703,7 +703,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         if let error = error as? AcpmuxConnection.RPCError {
             switch error.reason {
             case "permission.person_required":
-                return "This iPhone can't approve on the Mac yet. Allow it in the Mac's Settings → Mobile, or approve on the Mac."
+                return "Allow this iPhone in the Mac's Settings → Mobile, or approve on the Mac."
             case "trust.pending", "trust.untrusted": return "Trust this folder on your Mac first."
             case "remote.lasting_grant_refused": return "From an iPhone you can allow once or deny. Allow for this chat on the Mac."
             case "remote.full_access_required": return "Full access is off for this iPhone. Turn it on in Settings > Devices on the Mac."
