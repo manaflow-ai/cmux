@@ -11,7 +11,7 @@ public import Foundation
 /// own ids can be its text (Claude keys answers by question text), so the feed
 /// sees positional ids (`q0`, `o0`) and an answer maps back by position onto the
 /// same request. A question outside those bounds is not a choice.
-public struct AgentQuestionFeedChoice: Equatable, Sendable {
+public nonisolated struct AgentQuestionFeedChoice: Equatable, Sendable {
     public let question: AgentQuestion
 
     public static let maxQuestions = 4

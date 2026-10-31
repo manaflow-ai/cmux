@@ -10,9 +10,9 @@ public import Foundation
 ///   With a `choice` (the question as a feed choice, every question and option whole) it posts as
 ///   a `choice` request the person answers inline; without one it posts as a notice naming the
 ///   agent and its question, answered in the chat.
-public struct AcpmuxFeedPost {
+public nonisolated struct AcpmuxFeedPost {
     /// A question as a feed choice (CmuxNextAgentQuestion `AgentQuestionFeedChoice`).
-    public struct Choice {
+    public nonisolated struct Choice {
         public var title: String
         public var body: String
         public var prompt: [String: Any]
