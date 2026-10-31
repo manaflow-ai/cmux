@@ -20,6 +20,12 @@
   white-space: nowrap;
   user-select: none;
 }
+/* The line lays out as flex, where the tool rows' icon's -1.5px end margin (a no-op in their grid)
+   would pull the words 1.5px left of every tool row's: the words start at the slot plus the gap,
+   24px, as theirs do (design/chat-transcript.md "One icon column"). */
+.cv-agentmsg__line > .cv-agentmsg__icon {
+  margin-right: 0;
+}
 .cv-agentmsg.is-failed .cv-agentmsg__icon {
   color: var(--agent-status-failure);
 }

@@ -58,6 +58,9 @@ const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
   descendant: "message.from.descendant",
 };
 
+/// A harness logo's size in the sender's glyph slot (see SenderName).
+const SENDER_LOGO_SIZE = 12;
+
 /// The sender's mark and name at a received line's start (and a waiting group's sender head,
 /// PendingMessagesCard.tsx): the name opens the sender's chat when there is one to open.
 export function SenderName({ message, onOpen }: { message: IncomingMessage; onOpen(sessionId: string): void }) {
@@ -79,7 +82,10 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
       {chief.text}
     </span>
   ) : (
-    <AgentMark agent={harness} size={14} fallback={<Bot size={16} />} />
+    // A logo fills its whole box while the envelope and the bot leave a margin in their 16px one:
+    // at 12px its ink is the stroke glyphs' (about 12px), so a sender's logo and a send's envelope
+    // read as one size in the shared glyph slot (transcript-icon-column.test.ts).
+    <AgentMark agent={harness} size={SENDER_LOGO_SIZE} fallback={<Bot size={16} />} />
   );
   // "Open chief-ui (huge-blue)": the chat the name opens, and the other machine it runs on.
   const openTitle = sender.host

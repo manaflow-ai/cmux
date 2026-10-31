@@ -2652,12 +2652,15 @@ pre.cv-math-source {
    ui is all quite inconsistent"): one plate under the whole line on hover, its name, preview,
    chevron and actions in it; the preview takes the line's room, so every line's chevron ends at the
    same place; the actions show only on hover or focus, over the preview's tail, never moving it. */
+/* No inline padding: the sender's mark sits in the tool rows' glyph slot at the row's left edge and
+   the chevron ends at its right edge, as every tool row's do (design/chat-transcript.md "One icon
+   column"; Leo, 2026-10-31: "the alignment i feel like we might as well"). The hover plate is the
+   row's own box (the transcript row clips paint, so it can't bleed past the column). */
 .cv-received > .cv-disclosure__line {
   position: relative;
   height: var(--cv-disclosure-line-height);
   min-height: 0;
   color: var(--cv-activity-text);
-  padding-inline: var(--ds-space-1);
   border-radius: 6px;
   white-space: nowrap;
   user-select: none;
@@ -2687,8 +2690,8 @@ pre.cv-math-source {
 .cv-received__hover {
   position: absolute;
   inset-block: 0;
-  /* Before the chevron (12px) and the line's inset. */
-  inset-inline-end: calc(var(--ds-space-1) + 12px + var(--ds-space-1));
+  /* Before the chevron (12px), one small gap clear of it. */
+  inset-inline-end: calc(12px + var(--ds-space-1));
   display: inline-flex;
   align-items: center;
   padding-inline-start: var(--ds-space-2);
@@ -2710,7 +2713,10 @@ pre.cv-math-source {
   margin-inline-start: 0;
 }
 /* The sender at the line's start (IncomingMessageCard.tsx SenderName): its harness mark, then its
-   name, which opens its chat. The name's hover highlight is its own, never the row's. */
+   name, which opens its chat. The name's hover highlight is its own, never the row's. The mark takes
+   the tool rows' glyph slot (--cv-glyph-slot wide at the row's left edge, glyph centered, then the
+   8px gap), so a sender's logo and a send's envelope share one center line and the name starts where
+   every tool row's words do: the slot plus the gap, 24px (grid.md 5.5; transcript-icon-column.test.ts). */
 .cv-received__sender {
   display: inline-flex;
   flex: none;
@@ -2718,14 +2724,15 @@ pre.cv-math-source {
   max-width: 45%;
   min-width: 0;
   height: var(--cv-message-line);
-  gap: var(--ds-space-1);
-  padding-inline-start: var(--ds-space-1);
+  gap: var(--ds-space-2);
 }
 .cv-received__mark {
   display: inline-flex;
   flex: none;
-  width: 16px;
+  align-items: center;
   justify-content: center;
+  width: var(--cv-glyph-slot);
+  height: var(--cv-glyph-line);
   color: var(--cv-text-muted);
 }
 .cv-received__from {
