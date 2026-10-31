@@ -3,6 +3,7 @@ import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
 import { isRetryContinuation, subagentRetryNotice, type SubagentRetryNotice } from "./subagents/retryState";
 import { isModelRouterKind } from "./routerKinds";
 import type { SwitchPort } from "./harnessSwitch";
+import { OlderPageDelay } from "./conversation/olderPageDelay";
 import { answeredBy, participant, promptAuthor, type Participant } from "./multiplayer/participants";
 import type {
   AcpmuxActivity,
@@ -79,6 +80,7 @@ import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
+import { inboxText, type InboxMessage } from "./conversation/inboxNotice";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
@@ -301,6 +303,9 @@ const SESSION_INFO_KIND = "session_info_update";
 const SESSION_START_ROW = "session-start";
 /// A record that opens a turn: older pages split before one, so each holds whole turns. A steer
 /// joins the running turn, so it opens none.
+/// The snapshot's `earlierPrompts` when there are none: one list, so the rail's memo holds.
+const NO_EARLIER_PROMPTS: readonly AcpmuxRow[] = [];
+
 const startsTurn = (event: EventRecord) =>
   event.dir === "mux" && event.kind === "user_message" && event.msg?.steer !== true;
 
@@ -1834,6 +1839,10 @@ export class AcpmuxDirectClient {
   private foldingBelow: number | undefined;
   /// After a failed older page the next waits until then, so a reader near the top does not retry every frame.
   private olderRetryAt = 0;
+  private readonly olderDelay = new OlderPageDelay();
+  /// Invalidates an older-page request when its socket goes away. A late reply from that socket must
+  /// not restart the backoff after the reconnect has installed a new client connection.
+  private olderPagingEpoch = 0;
   /// The daemon's harness list or a harness's models changed (`_acpmux/harnesses_changed`: a
   /// profile written, live model lists refreshed); the catalog re-reads (catalog.ts
   /// followHarnessChanges).
@@ -2027,6 +2036,7 @@ export class AcpmuxDirectClient {
           reject(new Error(translate("error.closedBeforeConnect")));
           return;
         }
+        this.cancelOlderPaging();
         this.handoff.disconnect();
         // acpmux drops a connection's attaches with it; the next attach watches them again.
         this.offerChildren.reset(false);
@@ -2319,6 +2329,7 @@ export class AcpmuxDirectClient {
     this.nativeSeed = undefined;
     this.nativeNext = undefined;
     this.olderRetryAt = 0;
+    this.olderDelay.cancel();
     // Nothing is drawn, so nothing drawn came from a kept tail: the next open says for itself.
     this.drewKeptTail = false;
     this.peerCopy = undefined;
@@ -2341,6 +2352,7 @@ export class AcpmuxDirectClient {
     for (const { timers } of this.deliveries.values()) timers.forEach(clearTimeout);
     this.deliveries.clear();
     this.firstSeq = undefined;
+    this.promptIndex = undefined;
     this.lastSeq = 0;
     this.clockOffset = undefined;
     this.summary = undefined;
@@ -3889,6 +3901,8 @@ export class AcpmuxDirectClient {
       if (!replaced) this.events = this.events.filter((event) => event.seq >= oldest);
       this.turnOpener = undefined;
       this.historyExhausted = false;
+      // The prompt index was read for the held history that just went: read it again.
+      this.promptIndex = undefined;
       this.usageFromSeq = Infinity;
       this.forkedAtSeq = undefined;
       this.usage = undefined;
@@ -5094,9 +5108,11 @@ export class AcpmuxDirectClient {
             ? { text: incoming.message.text, incoming, resend: raw }
             : incoming?.kind === "notice"
               ? { text: incoming.text, incoming }
-              : incoming?.kind === "hidden"
-                ? { text: "", incoming }
-                : { text: incoming?.kind === "prompt" ? incoming.text : raw };
+              : incoming?.kind === "inbox"
+                ? { text: inboxText(incoming.notice), incoming }
+                : incoming?.kind === "hidden"
+                  ? { text: "", incoming }
+                  : { text: incoming?.kind === "prompt" ? incoming.text : raw };
         const untyped = taskResult !== undefined || (incoming !== undefined && incoming.kind !== "prompt");
         // Its queued line, if the result waited, gives way to this prompt's.
         if (received) this.rows.delete(`received-${received.offerId}`);
@@ -5822,6 +5838,7 @@ export class AcpmuxDirectClient {
       catalog: [],
       commands: this.commands,
       canLoadOlder: this.seqHistoryLeft() || this.nativeBefore() !== undefined,
+      ...(this.shownEarlierPrompts().length ? { earlierPrompts: this.shownEarlierPrompts() } : {}),
       historyFrom: this.firstSeq,
       missingSession: this.selectedSessionId ? undefined : this.missingSession,
       unavailable: this.unavailableNow(),
@@ -6836,6 +6853,31 @@ export class AcpmuxDirectClient {
       text: body,
       replyId: `m-${crypto.randomUUID()}`,
     });
+  }
+  /// A thread of the chat's inbox (acpmux `_acpmux/inbox_thread`), oldest first, for an inbox
+  /// notice's line the person opened (conversation/InboxNoticeCard.tsx). It marks nothing read: the
+  /// person reading it is not the agent.
+  async inboxThread(threadId: string): Promise<InboxMessage[]> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || !threadId) throw new Error(translate("error.notOpen"));
+    const reply = (await this.request("_acpmux/inbox_thread", { sessionId, threadId }, 15_000)) as {
+      messages?: unknown;
+    } | null;
+    const messages = Array.isArray(reply?.messages) ? reply.messages : [];
+    return messages
+      .flatMap((m): InboxMessage[] => {
+        const r = m as Record<string, unknown> | null;
+        if (!r || typeof r.text !== "string") return [];
+        return [
+          {
+            from: typeof r.from === "string" ? r.from : "",
+            text: r.text,
+            ...(typeof r.promptId === "string" && { promptId: r.promptId }),
+            ...(typeof r.at === "number" && { at: r.at }),
+          },
+        ];
+      })
+      .reverse();
   }
   /// An offer the reducer draws: offers of one group share one card, in the order they came.
   private addOffer(offer: AcpmuxSessionOffer, at: number): void {
@@ -8013,25 +8055,111 @@ export class AcpmuxDirectClient {
   harnessEnable(folder: string, id: string): Promise<unknown> {
     return this.request("_acpmux/harness_enable", { folder, id });
   }
+  /// The chat's every prompt older than its open page, read once per chat from acpmux's prompt
+  /// index (`_acpmux/events` `promptIndex`, `hub/paging.rs` `prompt_index`): seq, promptId and the
+  /// start of the text, in one reply however long the chat. A daemon without the index reads the
+  /// bounded `user_message` page the request also names, which covers what it holds.
+  private promptIndex?: { sessionId: string; generation: number; rows?: AcpmuxRow[] };
+  /// `shownEarlierPrompts`' last answer, by what it was read from.
+  private earlierShown?: { rows: AcpmuxRow[]; before: number; list: readonly AcpmuxRow[] };
+
+  /// The indexed prompts older than every held row (the snapshot's `earlierPrompts`). The first ask
+  /// for a chat with older history starts the index's one read.
+  private shownEarlierPrompts(): readonly AcpmuxRow[] {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || !this.seqHistoryLeft() || !this.firstSeq) return NO_EARLIER_PROMPTS;
+    const index = this.promptIndex;
+    if (!index || index.sessionId !== sessionId || index.generation !== this.selectionGeneration) {
+      this.readPromptIndex(sessionId, this.firstSeq);
+      return NO_EARLIER_PROMPTS;
+    }
+    if (!index.rows) return NO_EARLIER_PROMPTS;
+    // The turn opener drawn above the held page is held: only prompts before it are earlier.
+    const before = Math.min(this.firstSeq, this.turnOpener?.seq ?? Infinity);
+    const kept = this.earlierShown;
+    if (kept && kept.rows === index.rows && kept.before === before) return kept.list;
+    let end = index.rows.length;
+    while (end > 0 && Number(index.rows[end - 1]!.id.slice(5)) >= before) end -= 1;
+    const list = end === index.rows.length ? index.rows : index.rows.slice(0, end);
+    this.earlierShown = { rows: index.rows, before, list };
+    return list;
+  }
+
+  private readPromptIndex(sessionId: string, before: number): void {
+    const generation = this.selectionGeneration;
+    const entry: { sessionId: string; generation: number; rows?: AcpmuxRow[] } = { sessionId, generation };
+    this.promptIndex = entry;
+    void this.typed("_acpmux/events", {
+      sessionId,
+      beforeSeq: before,
+      promptIndex: true,
+      kinds: ["user_message"],
+      limit: 5000,
+      maxBytes: OLDER_PAGE_BYTES,
+    })
+      .then((result: any) => {
+        if (this.closed || this.promptIndex !== entry) return;
+        entry.rows = records(result?.events)
+          .filter(startsTurn)
+          .map((event): AcpmuxRow => {
+            const promptId = typeof event.msg?.promptId === "string" ? event.msg.promptId : undefined;
+            return {
+              id: `user-${event.seq}`,
+              version: 1,
+              at: event.at,
+              kind: "user",
+              text: String(event.msg?.text ?? "").slice(0, 240),
+              ...(promptId ? { promptId } : {}),
+            };
+          });
+        this.emit();
+      })
+      .catch(() => {
+        // Without the index the rail grows as pages load, as it did before it.
+        if (this.promptIndex === entry) entry.rows = [];
+      });
+  }
+
+  /// Pages history in until the record at `seq` is held: a click on the rail's tick of a prompt
+  /// older than the held rows (`earlierPrompts`). Each step is `loadOlder`, with its guards; a step
+  /// that moves nothing, or another chat, ends it.
+  async loadThrough(seq: number): Promise<void> {
+    const generation = this.selectionGeneration;
+    for (let pages = 0; pages < 200; pages++) {
+      const from = this.firstSeq;
+      if (generation !== this.selectionGeneration || from === undefined || from <= seq || !this.seqHistoryLeft())
+        return;
+      await this.loadOlder();
+      if (this.firstSeq === from) return;
+    }
+  }
+
   /// Pages older transcript events in without reattaching, so the live summary,
   /// queue and permission stay as they are. A page that lands after the
   /// selection changed belongs to another session and is dropped.
   loadOlder(): Promise<void> {
+    if (!this.canPageOlder()) return Promise.resolve();
     if (this.loadingOlder) return this.loadingOlder;
     // An ask inside the back-off after a failed page waits it out, then reads. One that returned
     // at once read nothing, and the transcript that asked at the very top had no scroll left to
     // ask again with: a 720-turn chat stopped paging for good (Leo 2026-10-21).
     const wait = this.olderRetryAt - Date.now();
     const generation = this.selectionGeneration;
+    const pagingEpoch = this.olderPagingEpoch;
     const read =
       wait > 0
-        ? new Promise<void>((resolve) => setTimeout(resolve, wait)).then(() =>
-            !this.closed && generation === this.selectionGeneration ? this.fetchOlder() : undefined,
-          )
-        : this.fetchOlder();
+        ? this.olderDelay
+            .wait(wait)
+            .then((ready) =>
+              ready && this.canPageOlder(pagingEpoch) && generation === this.selectionGeneration
+                ? this.fetchOlder(pagingEpoch)
+                : undefined,
+            )
+        : this.fetchOlder(pagingEpoch);
     const loading = read
       .catch((error: unknown) => {
-        this.olderRetryAt = Date.now() + 2_000;
+        if (this.canPageOlder(pagingEpoch) && generation === this.selectionGeneration)
+          this.olderRetryAt = Date.now() + 2_000;
         throw error;
       })
       .finally(() => {
@@ -8039,6 +8167,14 @@ export class AcpmuxDirectClient {
       });
     this.loadingOlder = loading;
     return loading;
+  }
+  private canPageOlder(epoch = this.olderPagingEpoch): boolean {
+    return !this.closed && epoch === this.olderPagingEpoch && this.socket?.readyState === WebSocket.OPEN;
+  }
+  private cancelOlderPaging(): void {
+    this.olderPagingEpoch += 1;
+    this.olderDelay.cancel();
+    this.olderRetryAt = 0;
   }
   /// Whether the log holds records older than the held ones.
   private seqHistoryLeft(): boolean {
@@ -8053,7 +8189,8 @@ export class AcpmuxDirectClient {
     return next !== undefined && next > 0 ? next : undefined;
   }
 
-  private async fetchOlder(): Promise<void> {
+  private async fetchOlder(pagingEpoch = this.olderPagingEpoch): Promise<void> {
+    if (!this.canPageOlder(pagingEpoch)) return;
     if (this.selectedSessionId && !this.seqHistoryLeft() && this.nativeBefore() !== undefined)
       return this.fetchNativeOlder();
     if (!this.selectedSessionId || !this.firstSeq || this.firstSeq <= 1 || this.historyExhausted) return;
@@ -8077,6 +8214,7 @@ export class AcpmuxDirectClient {
       more && pages < OLDER_PAGES_PER_ASK && (pages < OLDER_MIN_PAGES_PER_ASK || !found);
       pages++
     ) {
+      if (!this.canPageOlder(pagingEpoch)) return;
       const result = await this.typed("_acpmux/events", {
         sessionId,
         beforeSeq: before,
@@ -8084,7 +8222,12 @@ export class AcpmuxDirectClient {
         maxBytes: OLDER_PAGE_BYTES,
         kinds: ["transcript"],
       });
-      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+      if (
+        !this.canPageOlder(pagingEpoch) ||
+        generation !== this.selectionGeneration ||
+        this.selectedSessionId !== sessionId
+      )
+        return;
       // The held transcript's older end moved while this read was out (a kept tail the attach
       // page did not continue): these records sit above a transcript the chat no longer holds. The
       // ask brings nothing, and the transcript asks again (App.tsx checkOlder).
@@ -8378,6 +8521,7 @@ export class AcpmuxDirectClient {
     this.cancelTrustStart?.();
 
     for (const gone of this.resendWaits.keys()) gone();
+    this.cancelOlderPaging();
     const hold = this.snapshotHold;
     if (hold) clearTimeout(hold.timer);
     this.snapshotHold = undefined;
