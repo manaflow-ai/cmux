@@ -3,6 +3,7 @@
 import CmuxNextDaemon
 import CmuxNextRemote
 import CmuxNextServer
+import CmuxNextWakeups
 import Foundation
 import Testing
 
