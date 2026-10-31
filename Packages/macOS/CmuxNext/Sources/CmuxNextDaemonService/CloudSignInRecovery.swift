@@ -9,7 +9,7 @@ public import CmuxNextCloud
 public struct CloudSignInRecovery {
     /// Actions whose signed-out reason gets no recovery: running them after a sign-in means
     /// nothing (Sign Out) or the sign-in already chose for them (Switch Active Team).
-    public static let exempt: Set<ActionID> = ["palette.auth.signOut", "openTeamPicker"]
+    public nonisolated static let exempt: Set<ActionID> = ["palette.auth.signOut", "openTeamPicker"]
 
     /// One pending replay, shared with New Cloud Machine's: a later intent, a sign-out or a
     /// team change drops the earlier one (``CloudSignedOutCreationContinuation``).
