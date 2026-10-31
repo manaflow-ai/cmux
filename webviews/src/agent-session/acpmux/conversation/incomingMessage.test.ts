@@ -749,3 +749,86 @@ test("a card drops a signature naming its sender that a record still has", () =>
   expect(unsigned("[WIP] MERGED", "agent-message-style")).toBe("[WIP] MERGED");
   expect(unsigned("[lane-b] MERGED", "lane-a")).toBe("[lane-b] MERGED");
 });
+
+test("lane report provenance becomes an incoming message with collapsed details", () => {
+  expect(
+    incomingPrompt("[builder] SHIP at abcdef123456 · no findings · turn 2, idle", {
+      _meta: {
+        provenance: {
+          kind: "lane_report",
+          from: "lane-7",
+          fromName: "builder",
+          details: { session: "gcp/builder", commits: ["abcdef1234567890", "fedcba6543210000"] },
+        },
+      },
+    }),
+  ).toEqual({
+    kind: "message",
+    message: {
+      name: "builder",
+      sessionId: "lane-7",
+      report: true,
+      details: { session: "gcp/builder", commits: ["abcdef1234567890", "fedcba6543210000"] },
+      text: "SHIP at abcdef123456 · no findings · turn 2, idle",
+      raw: "[builder] SHIP at abcdef123456 · no findings · turn 2, idle",
+    },
+  });
+});
+
+test("lane report without metadata remains a normal incoming message", () => {
+  expect(
+    incomingPrompt("[builder] turn 3 ended, idle", { _meta: { provenance: { kind: "lane_report", from: "builder" } } }),
+  ).toMatchObject({
+    kind: "message",
+    message: {
+      name: "builder",
+      sessionId: "builder",
+      report: true,
+      text: "[builder] turn 3 ended, idle",
+      raw: "[builder] turn 3 ended, idle",
+    },
+  });
+});
+
+test("hub lane reports retain their sender, report identity and structured details", () => {
+  const text = "[review-7] SHIP at 123456789abc · no findings · turn 1, idle";
+  const details = { sessionId: "lane-7", commits: ["123456789abc"] };
+  expect(
+    incomingPrompt(text, {
+      _meta: { provenance: { kind: "lane_report", from: "lane-7", fromName: "review-7", details } },
+    }),
+  ).toEqual({
+    kind: "message",
+    message: {
+      name: "review-7",
+      sessionId: "lane-7",
+      report: true,
+      details,
+      text: "SHIP at 123456789abc · no findings · turn 1, idle",
+      raw: text,
+    },
+  });
+});
+
+test("hub inbox notices keep thread identity and participants without inventing a sender session", () => {
+  const text = "[inbox] New messages from other agents in 1 thread.";
+  expect(
+    incomingPrompt(text, {
+      _meta: {
+        provenance: {
+          kind: "inbox_notice",
+          threads: [{ threadId: "from:review/pr:7", from: ["review", "builder"] }, null],
+        },
+      },
+    }),
+  ).toEqual({
+    kind: "message",
+    message: {
+      name: "inbox",
+      text: "New messages from other agents in 1 thread.",
+      raw: text,
+      noticeThreads: [{ id: "from:review/pr:7", sender: "review, builder" }],
+    },
+  });
+  expect(incomingPrompt(text, { client: "app" })).toBeUndefined();
+});

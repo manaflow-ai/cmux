@@ -353,6 +353,18 @@ pub fn registry_lanes(hosts: &[(Vec<String>, Value)], name: &str) -> Option<Valu
     hosts.iter().find(|(names, _)| names.contains(&short)).map(|(_, l)| l.clone())
 }
 
+/// The disk `name` (by name or alias) keeps free, in bytes: its registry `lanes.free_gb_floor`,
+/// else the default every lane host is sized with. `session move --host auto` passes over a
+/// host whose free disk, less the move's size, is under it.
+pub fn disk_floor(registry: Option<&Value>, name: &str) -> u64 {
+    let lanes = lane_hosts(registry)
+        .and_then(|hosts| registry_lanes(&hosts, name))
+        .filter(Value::is_object)
+        .map(|l| Lanes::from_registry(&l))
+        .unwrap_or_default();
+    (lanes.free_gb_floor * GB) as u64
+}
+
 /// fleet-registry.json: `FLEET_REGISTRY`, else the copy `reach --install`
 /// renders, else the leo-workspace checkout.
 pub fn registry_path() -> Option<PathBuf> {
@@ -496,14 +508,24 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
         let any_yes = weighed.iter().any(|w| {
             w.refused.is_none() && w.lanes.build == Build::Yes && w.room.is_some_and(|r| r >= 1.0)
         });
-        for w in weighed.iter_mut().filter(|w| w.refused.is_none()) {
+        for w in weighed.iter_mut() {
+            // A role that takes no builds refuses one whatever its load, so that is the reason
+            // it gives, not a load that passes: a sub-session told "over its budget" waited for
+            // the load to drop and was refused again (cx-b0utmu). It takes no overloaded build.
+            if w.lanes.build == Build::No && (w.refused.is_none() || w.load) {
+                w.refused = Some("no builds here (lanes.build is false)".into());
+                w.load = false;
+                continue;
+            }
+            if w.refused.is_some() {
+                continue;
+            }
             match w.lanes.build {
-                Build::Yes => {}
+                Build::Yes | Build::No => {}
                 Build::Fallback if !any_yes => {}
                 Build::Fallback => {
                     w.refused = Some("builds only when no build host has room".into())
                 }
-                Build::No => w.refused = Some("no builds here (lanes.build is false)".into()),
             }
         }
     }

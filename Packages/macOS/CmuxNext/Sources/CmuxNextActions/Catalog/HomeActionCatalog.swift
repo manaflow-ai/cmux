@@ -182,6 +182,16 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
+            // The New Message draft's x (shown on its list row while the pointer is over it, as in
+            // Messages), Escape in an empty To: field, the palette, `cmux home close-new-message`
+            // and MCP: one path that discards the draft, its page and its row.
+            ActionDescriptor(
+                id: "home.closeNewMessage", title: t("action.home.closeNewMessage", "Close New Message"),
+                keywords: ["home", "message", "new message", "draft", "close", "discard", "cancel", "compose"],
+                category: .window, symbol: "xmark.circle", surfaces: [.palette, .keyboard],
+                cliName: "home close-new-message",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
             ActionDescriptor(
                 id: "home.invite", title: t("action.home.invite", "Invite to cmux-next…"),
                 keywords: ["home", "invite", "email", "people", "team", "message", "join"],
@@ -292,7 +302,9 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 keywords: ["home", "group", "add", "people", "members", "invite", "person", "conversation"],
                 category: .window, symbol: "person.badge.plus", surfaces: [.palette, .keyboard],
                 arguments: [Self.conversation,
-                            ActionArgument(name: "people", title: t("argument.home.people", "People (comma-separated)"), kind: .string)],
+                            ActionArgument(name: "people", title: t("argument.home.groupMembers", "Members"), kind: .string,
+                                           suggestions: ActionSuggestions(source: ActionSuggestions.homeMembers, pinned: [],
+                                                                          allowsMultiple: true))],
                 cliName: "home add-members",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
@@ -337,7 +349,9 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 id: "home.createGroup", title: t("action.home.createGroup", "New Group Chat…"),
                 keywords: ["home", "group", "chat", "chief", "chiefs", "agents", "people", "new", "create", "imessage", "conversation"],
                 category: .window, symbol: "person.3", surfaces: [.palette, .keyboard],
-                arguments: [ActionArgument(name: "members", title: t("argument.home.members", "Members (comma-separated)"), kind: .string),
+                arguments: [ActionArgument(name: "members", title: t("argument.home.groupMembers", "Members"), kind: .string,
+                                           suggestions: ActionSuggestions(source: ActionSuggestions.homeMembers, pinned: [],
+                                                                          allowsMultiple: true)),
                             ActionArgument(name: "title", title: t("argument.home.message.title", "Group Name"), kind: .string,
                                            isRequired: false),
                             Self.replies(isRequired: false)],
