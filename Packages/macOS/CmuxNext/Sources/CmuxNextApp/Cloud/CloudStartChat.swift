@@ -124,13 +124,13 @@ struct CloudStartChat {
         // The copy may take long: a chat whose account changed meanwhile opens nowhere, and this
         // Mac's tab stays.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
+        _ = await loginPassed
         report(.init(name: "opening", folder: folderName, machine: name, size: size))
         return try await open(start, tab: tab, on: machine, cwd: remoteChat)
     }
 
     /// Opens the chat on `machine` in `cwd` and closes this Mac's tab: the chat is the machine's now.
     private func open(_ start: AgentPaneCloudStart, tab: TabModel, on machine: CloudMachineSession, cwd: String?) async throws -> String {
-        _ = await loginPassed
         let context = AppActionContext(services: services)
         let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
         let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(start.seed(cwd: cwd)),
