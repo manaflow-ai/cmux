@@ -246,7 +246,9 @@ struct PinnedPageTests {
     }
 
     /// The app's services on a fresh same-tree daemon, ready once restore made its first terminal.
-    static func withApp(_ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
+    /// `heldKeyReplay`: where a creation hold's keys run again (the app's own unless a test passes another).
+    static func withApp(heldKeyReplay: @escaping HeldKeyReplay = { event, _, _ in NSApp?.sendEvent(event) },
+                        _ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-pinned-\(UUID().uuidString.prefix(8))")
         var reaped = false
@@ -257,7 +259,7 @@ struct PinnedPageTests {
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
         let owner = AppTestDaemonOwner(launcher)
         _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
+        let services = AppServices(environment: AppEnvironment.current([:]), heldKeyReplay: heldKeyReplay)
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         services.daemon.start {
