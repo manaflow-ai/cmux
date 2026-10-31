@@ -383,8 +383,7 @@ enum TabLifecycle {
             // creation it focuses closes, never the old pane's tab (CancelledCreation).
             if let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelCreation(tab: id) {
                 trace.mark(.creationCancelled, input: input)
-                ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window)
-                return content.showCancelledCreation() // the focus leaves the closed split's stand-in in this turn
+                ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window); return content.showCancelledCreation()
             }
             // A press aimed at a pane the last close emptied (made before the frame showing the
             // focus elsewhere was presented, or a repeat of the held key that emptied it) closes

@@ -147,8 +147,9 @@ final class CloseUndoToasts {
     /// One gesture over tabs of several panes (a pane's close others): one
     /// question and one toast decision over every closing tab (cx-lb4al).
     static func close(_ parts: [(pane: PaneController, ids: [StripTabID])]) {
-        // A tab still being created is cancelled now, before any question or toast (CancelledCreation).
-        for part in parts { part.pane.close(part.ids.filter { part.pane.daemon.store.creations.isPending(tab: $0.rawValue) }) }
+        // A tab still being created is cancelled now and leaves the gesture: no question, read or daemon close for it (CancelledCreation).
+        let pending = Set(parts.flatMap { part in part.ids.filter { part.pane.daemon.store.creations.isPending(tab: $0.rawValue) } })
+        for part in parts { part.pane.close(part.ids.filter(pending.contains)) }
         // A tab already closing left the store's visible records with its close intent, so a
         // second close of it (before the daemon answered the first) finds nothing to close.
         // A page's own close of its tab, after a close of several tabs waited for it, joins that close.
@@ -156,7 +157,7 @@ final class CloseUndoToasts {
         // A close of a tab whose page was deciding (the page's own close after it decided, a close
         // button): that decision is over; the close below starts a new one if the page decides again.
         for part in parts { for id in part.ids { undoToasts?.pageClosing.end(id.rawValue) } }
-        let parts = (undoToasts?.pageDecidedCloses.absorb(parts) ?? parts).filter { !$0.ids.isEmpty }
+        let parts = (undoToasts?.pageDecidedCloses.absorb(parts) ?? parts).map { (pane: $0.pane, ids: $0.ids.filter { !pending.contains($0) }) }.filter { !$0.ids.isEmpty }
         guard let first = parts.first?.pane else { return }
         let user = isUserClose, services = first.services, daemon = first.daemon
         let tabs = parts.flatMap { part in part.ids.compactMap(part.pane.tab) }
