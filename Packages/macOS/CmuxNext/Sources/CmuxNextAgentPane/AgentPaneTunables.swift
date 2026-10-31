@@ -161,12 +161,15 @@ public nonisolated struct AgentPaneTunables {
         default: true, code: "AgentPaneTunables.chromium")
     /// The Inspector at the right of every agent chat, Chief included (cx-ncc.101; Leo 2026-10-20):
     /// Environment, Context, Connectors, Changes, Servers, Subagents, Background tasks and Outputs,
-    /// with a header toggle that shows and hides it. Off by default; on replaces the summary card.
+    /// with a header toggle that shows and hides it. On by default; off brings back the summary card.
+    /// It is the shipped Session Info, not a dev-only surface: #26390 switched it off with those, which
+    /// put the old summary card back in every build (Leo, 2026-10-31: "omfg we already previouls
+    /// yfucking built that shit").
     /// Listed in TunableCatalog on its own line, outside `all`, so it does not churn with that list.
     public static let inspector = Tunable<Bool>.toggle(
         "agent.inspector", PageTunables.section, "Session Info",
         help: "A header toggle opens Session Info at the right of the chat: its environment, context, pull requests, subagents, background tasks and outputs.",
-        default: false, code: "AgentPaneTunables.inspector")
+        default: true, code: "AgentPaneTunables.inspector")
 
     /// Leo 2026-10-15: "Terminal: maybe not a toggle. Clicking the terminal button adds another
     /// terminal on the right each time." On, the chat header's Terminal opens a split on every
