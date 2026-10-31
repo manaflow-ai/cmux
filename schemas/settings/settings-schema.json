@@ -88091,7 +88091,7 @@
         "local",
         "cloud"
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "privacy",
       "agent_settable" : false,
       "choices" : [
         {
