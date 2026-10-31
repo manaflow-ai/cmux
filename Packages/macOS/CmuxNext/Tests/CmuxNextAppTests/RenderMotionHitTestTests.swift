@@ -179,6 +179,9 @@ struct RenderMotionHitTestTests {
 
     /// A hit test mid-spring costs O(moving hosts): p99 under 0.1 ms over 1000 presses.
     @Test func aHitTestMidSpringStaysUnderABudget() async throws {
+      // Scratch measurement (never merge): 5 independent rounds in one step, each with its own fixture and budget check.
+      for round in 1...5 {
+        print("HIT-TEST-BUDGET round \(round)")
         try await Render.withMotion {
             let fixture = Screen(Self.three, focused: "a")
             defer { fixture.close() }
@@ -208,5 +211,6 @@ struct RenderMotionHitTestTests {
             print("HIT-TEST-BUDGET p50=\(p50) p95=\(p95) p99=\(p99) max=\(samples[samples.count - 1])")
             #expect(p99 <= .microseconds(100), "hit test p99 \(p99)")
         }
+      }
     }
 }
