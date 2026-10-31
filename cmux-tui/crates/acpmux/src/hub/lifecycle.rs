@@ -256,8 +256,9 @@ impl Hub {
                             "session name {n:?} is taken"
                         )));
                     }
-                    // Named by the person: no generated title (`titles.rs`).
-                    meta.title_source = Some(super::titles::NAMED.to_owned());
+                    // The name is a handle (a lane's): the chat is still titled (`titles.rs`).
+                    meta.title_source = Some(super::titles::LAUNCHED.to_owned());
+                    meta.name_given = true;
                     n
                 }
                 // A pooled harness was started under its name: keep it.

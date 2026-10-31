@@ -61,7 +61,7 @@ import Testing
         let pageFrame = try #require(strip.cells[TabID(page.id)]?.layer.frame, "the page's tab is not in the strip")
 
         // The page opens a terminal (NewTabPage.replace): it reads the page's slot first...
-        let placed = NewTabSlot.placing(replacing: page.id, services: services, then: nil)
+        let placed = NewTabSlot.placing(replacing: page.id, onMachine: MachineRegistry.localID, services: services, then: nil)
         // ...the daemon makes the terminal at the end of the pane, and the app selects it.
         store.apply(snapshot: Self.tree([1, 2, 3, 4]))
         let made = SurfaceID(rawValue: 4)

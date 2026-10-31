@@ -1604,6 +1604,7 @@
                   "ports"
                 ]
               },
+              "vm_kind": "owner",
               "revision": "7"
             },
             "stream": "cloud:team_t0000000000000000001",
@@ -1654,6 +1655,7 @@
                   "ports"
                 ]
               },
+              "vm_kind": "owner",
               "revision": "7"
             },
             "stream": "cloud:team_t0000000000000000001",
@@ -1704,6 +1706,7 @@
                   "ports"
                 ]
               },
+              "vm_kind": "team",
               "revision": "4"
             },
             "stream": "cloud:team_t0000000000000000001",
@@ -1711,7 +1714,7 @@
           }
         }
       ],
-      "note": "A paused machine is not an error: the result says state paused (contract 1.7)."
+      "note": "A paused machine is not an error: the result says state paused (contract 1.7). vm_kind team: a shared-team machine, or a caller who is not its creator (only the exact value owner grants owner privileges)."
     },
     {
       "name": "machine.connect_info.not_bound",
@@ -1768,7 +1771,8 @@
               "services": [
                 "daemon",
                 "ssh"
-              ]
+              ],
+              "vm_kind": "owner"
             },
             "transaction": "tx_0011",
             "idempotency_key": "",
@@ -1793,7 +1797,8 @@
               "services": [
                 "daemon",
                 "ssh"
-              ]
+              ],
+              "vm_kind": "owner"
             },
             "transaction": "tx_0012",
             "idempotency_key": "",
