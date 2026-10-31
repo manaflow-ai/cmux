@@ -44,7 +44,7 @@ extension AgentPaneComposerSetting {
 
     /// Debug Settings' plain footer look, model menu and harness switch as the pages last got them,
     /// and whether a change is being pushed (``push(to:)`` then sends every page the event again).
-    @MainActor private static var lookShown = Look(plainFooter: false, modelMenu: .compact, harnessPlacement: .left, harnessSwitch: false,
+    @MainActor private static var lookShown = Look(plainFooter: false, modelMenu: .compact, harnessPlacement: .symbols, harnessSwitch: false,
                                                    escapeDoublePress: true)
     @MainActor private static var lookChanging = false
     @MainActor private static var lookObservation: Task<Void, Never>?

@@ -37,15 +37,7 @@ impl Briefs {
 
     pub(crate) fn claim(&self, id: &str, key: Option<&str>) -> Option<Value> {
         let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(row) = rows.get(id).cloned() {
-            return Some(row);
-        }
-        if let Some(key) = key
-            && let Some(row) = rows
-                .values()
-                .find(|row| row.get("idempotencyKey").and_then(Value::as_str) == Some(key))
-                .cloned()
-        {
+        if let Some(row) = Self::taken(&rows, id, key) {
             return Some(row);
         }
         let mut row = json!({"briefId": id, "status": "starting"});
@@ -55,6 +47,21 @@ impl Briefs {
         rows.insert(id.to_owned(), row);
         self.save(&rows);
         None
+    }
+
+    /// The brief already taken under `id` or `key`, claiming nothing: what a retry of it
+    /// answers before any check on where a new lane may start.
+    pub(crate) fn existing(&self, id: &str, key: Option<&str>) -> Option<Value> {
+        Self::taken(&self.rows.lock().unwrap_or_else(|e| e.into_inner()), id, key)
+    }
+
+    fn taken(rows: &BTreeMap<String, Value>, id: &str, key: Option<&str>) -> Option<Value> {
+        rows.get(id).cloned().or_else(|| {
+            let key = key?;
+            rows.values()
+                .find(|row| row.get("idempotencyKey").and_then(Value::as_str) == Some(key))
+                .cloned()
+        })
     }
 
     fn save(&self, rows: &BTreeMap<String, Value>) {
