@@ -4035,6 +4035,9 @@ jobs:
         env:
           ENABLED: ${{ vars.CI_SIGN_OWNED }}
           PICK_ON_RERUN: "1"
+          # Drain the mini that frees up soonest even past the 2 min horizon, never Blacksmith first
+          # (signing_runner.py DRAIN_ANYWAY; Leo, 2026-10-30).
+          DRAIN_ANYWAY: "1"
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           # actions: read, to count the signing jobs already holding an owned Mac (at most one at once).
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
