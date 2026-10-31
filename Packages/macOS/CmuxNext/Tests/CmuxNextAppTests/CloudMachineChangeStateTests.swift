@@ -530,7 +530,7 @@ struct CloudMachineChangeStateTests {
         ]
         for (record, header, words) in expected {
             let session = Self.session(status: record)
-            let machine = CloudCreationRows.machine(session, compatibility: nil)
+            let machine = CloudCreationRows.machine(session, compatibility: nil, updates: DaemonUpdateBoard())
             #expect(machine.status == header, "\(record)")
             #expect(!machine.status.needsAttention)
             #expect(SectionHeaderRowView.statusText(machine.status, hostGroup: false) == words)
@@ -544,11 +544,11 @@ struct CloudMachineChangeStateTests {
     @Test func aFailedChangeShowsOnTheHeader() {
         let session = Self.session(status: .paused)
         session.machine.lastChangeFailure = .init(code: "cloud.provider.unavailable", message: "no capacity")
-        let header = CloudCreationRows.machine(session, compatibility: nil)
+        let header = CloudCreationRows.machine(session, compatibility: nil, updates: DaemonUpdateBoard())
         #expect(header.status == .paused, "the machine went back to paused")
         #expect(header.detail?.contains(CloudStrings.changeFailed("no capacity")) == true)
         session.machine.lastChangeFailure = nil
-        #expect(CloudCreationRows.machine(session, compatibility: nil).detail == nil)
+        #expect(CloudCreationRows.machine(session, compatibility: nil, updates: DaemonUpdateBoard()).detail == nil)
         session.disconnect()
     }
 
@@ -594,7 +594,7 @@ struct CloudMachineChangeStateTests {
         // CloudService.deleteMachine once the server took the Kill.
         session.retainForDeleteTransition()
         #expect(session.stage == .deleting)
-        #expect(CloudCreationRows.machine(session, compatibility: nil).status == .deleting)
+        #expect(CloudCreationRows.machine(session, compatibility: nil, updates: DaemonUpdateBoard()).status == .deleting)
         #expect(!session.isPermanentlyDisconnected)
         // A provider failure can put the record back to running. The retained session must still
         // be connectable; only a list omission permanently disconnects it.
@@ -629,7 +629,7 @@ struct CloudMachineChangeStateTests {
     @Test func aFailedMachineSaysTheRecordsErrorOnce() {
         let session = Self.session(status: .failed)
         session.machine.lastChangeFailure = .init(code: "cloud.provider.unavailable", message: "no capacity")
-        let header = CloudCreationRows.machine(session, compatibility: nil)
+        let header = CloudCreationRows.machine(session, compatibility: nil, updates: DaemonUpdateBoard())
         #expect(header.detail?.components(separatedBy: "no capacity").count ?? 0 <= 2, "the reason is not repeated")
         session.disconnect()
     }
