@@ -12,7 +12,10 @@
 //! newest 2000 rows of a SQLite one), so a search ends at most one chat's read past it: `partial`
 //! says the time ran out, and
 //! `nextCursor` (null when every chat was read) goes on from the last chat read. A chat whose
-//! store cannot be read is skipped and counted in `unreadable`.
+//! store cannot be read (gone, not readable, too large, not JSON) is skipped and counted in
+//! `unreadable`; a Claude Code or Codex transcript is read as `_acpmux/chat_transcript` reads it,
+//! where a line that does not parse is left out and an error mid-file ends the read with the
+//! turns before it.
 //!
 //! What was said is user data (C5): like the rest of `_acpmux/chat*`, only the local unix socket
 //! gets it (`chats.rs` refuses every other origin before this runs).

@@ -86,11 +86,12 @@ pub(crate) fn fold_lines(path: &Path, from: u64, fold: impl FnMut(&[u8])) -> io:
     fold_reader(BufReader::new(file), from, fold)
 }
 
-/// `fold_lines` over at most the newest `max` bytes the file holds when it is opened: a bigger
-/// file is read from `max` bytes before its end, its first (partial) line skipped, and what is
-/// appended while it is read waits for the next read. So one read is bounded however large the
-/// file is or however fast it grows.
-pub(crate) fn fold_newest_lines(path: &Path, max: u64, fold: impl FnMut(&[u8])) -> io::Result<u64> {
+/// Calls `fold` for each complete line of at most the newest `max` bytes the file holds when it
+/// is opened: a bigger file is read from `max` bytes before its end, its first (partial) line
+/// skipped, and what is appended while it is read is not read. So one read is bounded however
+/// large the file is or however fast it grows. A whole read, not a resumable one: it gives no
+/// offset to read on from (that is `fold_lines`).
+pub(crate) fn fold_newest_lines(path: &Path, max: u64, fold: impl FnMut(&[u8])) -> io::Result<()> {
     let mut file = File::open(path)?;
     let len = file.metadata()?.len();
     // From the byte before the cut: when that byte ends a line, only it is skipped.
@@ -104,7 +105,7 @@ pub(crate) fn fold_newest_lines(path: &Path, max: u64, fold: impl FnMut(&[u8])) 
         loop {
             let buf = reader.fill_buf()?;
             if buf.is_empty() {
-                return Ok(offset + skipped);
+                return Ok(());
             }
             let (used, ends) = match buf.iter().position(|byte| *byte == b'\n') {
                 Some(at) => (at + 1, true),
@@ -118,7 +119,7 @@ pub(crate) fn fold_newest_lines(path: &Path, max: u64, fold: impl FnMut(&[u8])) 
         }
         offset += skipped;
     }
-    fold_reader(reader, offset, fold)
+    fold_reader(reader, offset, fold).map(|_| ())
 }
 
 fn fold_reader(
@@ -217,13 +218,13 @@ pub(crate) fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 mod tests {
     use super::*;
 
-    fn folded(path: &Path, max: u64) -> (Vec<String>, u64) {
+    fn folded(path: &Path, max: u64) -> Vec<String> {
         let mut lines = Vec::new();
-        let end = fold_newest_lines(path, max, |line| {
+        fold_newest_lines(path, max, |line| {
             lines.push(String::from_utf8_lossy(line).into_owned());
         })
         .expect("read");
-        (lines, end)
+        lines
     }
 
     #[test]
@@ -234,14 +235,16 @@ mod tests {
         std::fs::write(&path, "first line\nsecond\nthird\n").expect("write");
         let all = |lines: &[&str]| lines.iter().map(|l| (*l).to_owned()).collect::<Vec<_>>();
         // Small enough to hold it all: every line.
-        assert_eq!(folded(&path, 1024), (all(&["first line", "second", "third"]), 24));
+        assert_eq!(folded(&path, 1024), all(&["first line", "second", "third"]));
         // The cut falls inside "second": that line is skipped, not read in part.
-        assert_eq!(folded(&path, 10), (all(&["third"]), 24));
+        assert_eq!(folded(&path, 10), all(&["third"]));
         // The cut falls on the start of "third": that line is whole and read.
-        assert_eq!(folded(&path, 6), (all(&["third"]), 24));
-        // A trailing partial line waits for the next read.
+        assert_eq!(folded(&path, 6), all(&["third"]));
+        // A trailing partial line (still being written) is not read.
         std::fs::write(&path, "a\nb\npartial").expect("write");
-        assert_eq!(folded(&path, 1024), (all(&["a", "b"]), 4));
+        assert_eq!(folded(&path, 1024), all(&["a", "b"]));
+        // The cut falls inside a last line that has no end yet: no line at all.
+        assert_eq!(folded(&path, 3), Vec::<String>::new());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

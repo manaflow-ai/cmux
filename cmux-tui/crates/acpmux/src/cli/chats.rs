@@ -335,7 +335,7 @@ pub fn list_text(page: &Value, now_ms: i64) -> String {
 async fn search_all(client: &Client, mut params: Value, limit: usize) -> Result<Value> {
     let limit = limit.max(1);
     let mut hits: Vec<Value> = Vec::new();
-    let mut unreadable = 0;
+    let (mut unreadable, mut scanned) = (0, 0);
     loop {
         params.set("limit", json!(limit - hits.len()));
         let mut page = client.request("_acpmux/chats_search", params.clone()).await?;
@@ -344,6 +344,7 @@ async fn search_all(client: &Client, mut params: Value, limit: usize) -> Result<
             hits.extend(found);
         }
         unreadable += page.get("unreadable").and_then(Value::as_u64).unwrap_or(0);
+        scanned += page.get("scanned").and_then(Value::as_u64).unwrap_or(0);
         let done = page.get("ready").and_then(Value::as_bool) != Some(true)
             || page.get("enabled").and_then(Value::as_bool) == Some(false);
         match next {
@@ -353,6 +354,7 @@ async fn search_all(client: &Client, mut params: Value, limit: usize) -> Result<
             next => {
                 page.set("hits", Value::Array(hits));
                 page.set("unreadable", json!(unreadable));
+                page.set("scanned", json!(scanned));
                 page.set("nextCursor", json!(next));
                 page.set("partial", json!(false));
                 return Ok(page);

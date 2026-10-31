@@ -49,10 +49,15 @@ impl Needle {
     }
 }
 
-/// `word` lowercased one character at a time, as [`Folded`] lowers the text it is looked for in
-/// (`str::to_lowercase` lowers a final sigma differently, so `ΟΣ` would never find `ΟΣ`).
+/// `word` folded as [`Folded`] folds the text it is looked for in.
 fn fold(word: &str) -> String {
-    word.chars().flat_map(char::to_lowercase).collect()
+    word.chars().flat_map(fold_char).collect()
+}
+
+/// A character's lowercase, with a final sigma (`ς`) as `σ`: `Σ` lowers to `σ` alone and to `ς`
+/// at a word's end (`str::to_lowercase`), so `ΟΣ`, `ος` and `οσ` all find each other.
+fn fold_char(c: char) -> impl Iterator<Item = char> {
+    c.to_lowercase().map(|lower| if lower == 'ς' { 'σ' } else { lower })
 }
 
 /// `text` lowercased, with the character index in `text` of each of its bytes, since lowercasing
@@ -67,7 +72,7 @@ impl Folded {
         let mut folded = String::with_capacity(text.len());
         let mut origin = Vec::with_capacity(text.len());
         for (i, c) in text.chars().enumerate() {
-            for lower in c.to_lowercase() {
+            for lower in fold_char(c) {
                 folded.push(lower);
                 origin.extend(std::iter::repeat_n(i, lower.len_utf8()));
             }
@@ -174,8 +179,11 @@ mod tests {
     #[test]
     fn a_word_is_lowered_as_the_text_is() {
         // A final capital sigma: `str::to_lowercase` gives `ς` in a word's last place, `σ` alone.
-        let hit = find(&Needle::parse("ΟΣ").expect("words"), &[turn("ΟΣ", "")]).expect("hit");
-        assert_eq!(hit.snippet, "ΟΣ");
+        for (query, text) in [("ΟΣ", "ΟΣ"), ("ΟΣ", "ος"), ("ος", "ΟΣ"), ("οσ", "ος")]
+        {
+            let hit = find(&Needle::parse(query).expect("words"), &[turn(text, "")]);
+            assert_eq!(hit.map(|hit| hit.snippet), Some(text.to_owned()), "{query} in {text}");
+        }
     }
 
     #[test]

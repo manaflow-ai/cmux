@@ -8,7 +8,7 @@
 //! `tool_call` and `tool_call_update`, `agent_message_chunk`, `turn_end`) before the session
 //! continues, the same records a live turn leaves, so every client draws them.
 
-use std::io::{BufRead, BufReader, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use serde_json::Value;
@@ -52,6 +52,9 @@ pub fn read(family: &str, file: &Path) -> Vec<PastTurn> {
     if skip_first && f.seek(SeekFrom::Start(len - MAX_BYTES)).is_err() {
         return Vec::new();
     }
+    // No further than the file was when opened: what the harness appends meanwhile waits for the
+    // next read, so one read is bounded however fast the chat grows.
+    let f = f.take(len.min(MAX_BYTES));
     let mut turns: Vec<PastTurn> = Vec::new();
     // Codex's message items before its rollout turns current (items annotated with their kinds):
     // older Codex also wrote each turn as event messages, which are read instead, so no turn
