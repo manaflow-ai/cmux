@@ -200,6 +200,7 @@ extension PageWebView {
         router.reset()
         loaded = false
         if ended, !reloadsAfterCrash {
+            lastTermination = .unknown
             logger.error("page \(self.descriptor.id, privacy: .public) Chromium ended; no automatic reload (the crash notice offers Reload)")
             webKitLoadsOnReload = true
             onCrash?(self, false)
@@ -240,6 +241,7 @@ extension PageWebView {
         case .finished:
             documentFinished()
         case .crashed:
+            lastTermination = PageTermination(reason: .crash)
             contentProcessTerminated()
         case .ended:
             fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended", ended: true)
