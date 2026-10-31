@@ -137,6 +137,7 @@ enum HomeChiefCards {
                 let picked = ChiefCard.chosen(card.choices, laterPersonTexts: later)
                 if !picked.isEmpty { found[item.key] = picked }
             }
+            if case .notDelivered = item.delivery { continue }
             if isPerson(item.author) {
                 for case .text(let text, _) in item.parts { later.insert(text.trimmingCharacters(in: .whitespacesAndNewlines)) }
             }

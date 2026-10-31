@@ -18,7 +18,9 @@ extension HomeProjection: HomeChiefCardStateObserver {
         }
         guard !cards.isEmpty else { return }
         let summary = shownSummary
-        let chosen = HomeChiefCards.chosen(in: shown) { !HomeMapping.isAgent($0, summary) }
+        let chosen = HomeChiefCards.chosen(in: shown) { author in
+            author == me || summary?.participants.contains { $0.id == author && $0.kind == .human } == true
+        }
         let stored = cardState?.storedSites ?? []
         for item in cards {
             let id = HomeMapping.id(item, aliases: aliases)

@@ -200,11 +200,12 @@ public struct ConversationNextSteps: Sendable, Hashable {
 
 extension ConversationCard {
     /// Of `texts`, those that one of my messages after `index` says exactly
-    /// (surrounding whitespace aside; unsent messages do not count).
+    /// (surrounding whitespace aside; unsent and failed messages do not count).
     static func laterTexts(after index: Int, in messages: [ConversationMessage], meID: String?, matching texts: Set<String>) -> Set<String> {
         guard let meID, !texts.isEmpty, index + 1 < messages.count else { return [] }
         var found: Set<String> = []
         for message in messages[(max(0, index + 1))...] where message.senderID == meID && !message.isUnsent {
+            guard message.delivery?.isFailed != true else { continue }
             let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if texts.contains(text) { found.insert(text) }
             if found.count == texts.count { break }
