@@ -330,6 +330,9 @@ final class CEFRuntime {
         /// NSApp is not a CefAppProtocol NSApplication subclass.
         case application
         case initialize
+        /// The process's open-file limit is below ``OpenFileLimit/chromiumFloor``: Chromium would
+        /// abort the app when it runs out (the soft limit).
+        case openFileLimit(rlim_t)
 
         var description: String {
             switch self {
@@ -339,6 +342,7 @@ final class CEFRuntime {
             case .framework(let message): message
             case .application: "NSApp does not conform to CefAppProtocol"
             case .initialize: "CefInitialize failed"
+            case .openFileLimit(let soft): "open-file limit \(soft) is below \(OpenFileLimit.chromiumFloor)"
             }
         }
     }
@@ -347,7 +351,8 @@ final class CEFRuntime {
     /// Thread-safe: plain `dlopen`/`dlsym`, no Chromium code runs yet.
     nonisolated static func loadLibrary(
         _ candidate: CEFRuntimeLayout?,
-        signatureChecker: (any CEFCodeSignatureChecking)? = nil
+        signatureChecker: (any CEFCodeSignatureChecking)? = nil,
+        openFiles: OpenFileLimit = OpenFileLimit()
     ) -> Result<CEFLoadedLibrary, BootError> {
         guard let layout = candidate else { return .failure(.notEmbedded) }
         if case .downloaded(let teamID) = layout.trust {
