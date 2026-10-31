@@ -4,7 +4,13 @@
 /* The chat header's height (.acpmux-header); the Inspector over the chat starts under it (inspector/inspector.css). */
 .acpmux-shell{--acpmux-header-height:28px;--acpmux-glyph-slot:16px;--acpmux-glyph-line:20px;--acpmux-disclosure-slot:16px;--acpmux-row-compact:28px;--acpmux-row-expanded:40px}
 .acpmux-row-glyph{display:inline-flex;flex:none;align-items:center;justify-content:center;width:var(--acpmux-glyph-slot,16px);height:var(--acpmux-glyph-slot)}
-.acpmux-shell[data-tab-row]{background:linear-gradient(to bottom,transparent 0 var(--acpmux-tab-row-height),var(--agent-page-bg) var(--acpmux-tab-row-height));}
+.acpmux-shell[data-tab-row]{background:linear-gradient(to bottom,transparent 0 var(--acpmux-tab-row-height),var(--cmux-surface-background,var(--agent-page-bg)) var(--acpmux-tab-row-height));}
+/* WebTheme's document-start bootstrap gives html the page surface. A Chromium chat that shares
+   the native tab row must clear that root surface too; otherwise the shell's transparent row
+   still composites over an opaque page-sized box behind its tools. The :has selector is more
+   specific than the bootstrap's plain html rule and stays scoped to this mode. The shell paints
+   the shared surface below the row, preserving per-surface color/opacity overrides once. */
+html:has(.acpmux-shell[data-tab-row]){background:transparent!important}
 .acpmux-stage{position:relative;flex:1;display:flex;flex-direction:column;min-height:0}.acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{visibility:hidden}
 .acpmux-transcript-after-latest{flex:none;min-width:0}
 
