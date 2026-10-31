@@ -607,12 +607,13 @@ impl Hub {
     fn settled_unretried(&self, session: &Session, turn_id: &str, why: &str) {
         let last = session.meta().last_turn;
         let deciding = last.as_ref().is_some_and(|t| {
-            let error = t["errorText"].as_str().unwrap_or_default();
-            t["status"] == "failed" && t["turnId"] == turn_id && retry_decided_on(error)
+            let field = |key: &str| t.get(key).and_then(Value::as_str);
+            let error = field("errorText").unwrap_or_default();
+            field("status") == Some("failed") && field("turnId") == Some(turn_id) && retry_decided_on(error)
         });
         if deciding {
             let mut msg = json!({"turnId": turn_id, "why": why});
-            if let Some(prompt_id) = last.as_ref().and_then(|t| t["promptId"].as_str()) {
+            if let Some(prompt_id) = last.as_ref().and_then(|t| t.get("promptId").and_then(Value::as_str)) {
                 msg.set("promptId", json!(prompt_id));
             }
             self.append_retry(session, "auto_resume_settled", msg);
@@ -830,9 +831,11 @@ impl Hub {
         last: Option<&Value>,
     ) -> (Option<RetrySummary>, bool) {
         let failed = last
-            .filter(|t| t["status"] == "failed")
-            .filter(|t| retry_decided_on(t["errorText"].as_str().unwrap_or_default()));
-        let cut = failed.and_then(|t| t["turnId"].as_str());
+            .filter(|t| t.get("status").and_then(Value::as_str) == Some("failed"))
+            .filter(|t| {
+                retry_decided_on(t.get("errorText").and_then(Value::as_str).unwrap_or_default())
+            });
+        let cut = failed.and_then(|t| t.get("turnId").and_then(Value::as_str));
         let snapshot = || {
             let pending = session.auto_resume.lock();
             let mark = pending.as_ref();
