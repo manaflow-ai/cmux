@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 // Only the grid size: CmuxNextDaemon has its own PaneID and SplitID (the daemon's handles).
+import CmuxNextTestSupport
 import struct CmuxNextDaemon.CellSize
 import CmuxNextDesign
 @testable import CmuxNextLayout
@@ -18,6 +19,7 @@ import Testing
 /// the app's (`DaemonTerminalIO.resize`: each reported grid goes to the `ResizeCoordinator` on the main
 /// actor). Frames step at a fixed 120 Hz dt.
 @MainActor
+@Suite(.closesItsWindows)
 struct SplitTerminalResizeCountTests {
     /// The PTY a resize reaches (`DaemonTerminalIO.applySettled`), counting them.
     final class PTY: ResizeTarget {
