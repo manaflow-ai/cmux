@@ -2,10 +2,11 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 
-/// A row's pull requests in the session tree (Claude desktop's Code tab): the pull request glyph
-/// and the count, both in the status color (green open and passing, orange a draft or a conflict,
-/// red a failed check, purple merged). Hidden without pull requests. Hovering it opens the
-/// pull requests' card (`SidebarPullRequestCard`, `sidebar.pullRequestCard`).
+/// A row's pull requests (Claude desktop's Code tab): the pull request glyph, and the count when
+/// there is more than one. Quiet in the secondary color; only failing checks, the state that needs
+/// the person, turn it red (Leo 2026-10-21, "did we remove the pr things by default and also
+/// redesign tehm to be better"). Hidden without pull requests. Hovering it opens the pull
+/// requests' card (`SidebarPullRequestCard`, `sidebar.pullRequestCard`), which says each one's state.
 final class SidebarPullRequestBadgeView: NSView {
     private let glyph = NSImageView()
     private let count = SidebarRowView.label(font: SidebarStyle.subtitleFont)
@@ -35,19 +36,23 @@ final class SidebarPullRequestBadgeView: NSView {
         guard let badge else { return }
         glyph.image = NSImage.icon(.gitPullrequest, size: Self.glyphSize)
         count.setString(String(badge.count))
+        count.isHidden = !Self.showsCount(badge)
         tint()
+        invalidateIntrinsicContentSize()
         needsLayout = true
     }
 
-    /// The status color, from the theme: success, attention, and the theme's purple.
+    /// The badge's color, from the theme: the secondary text color, so a list of rows with pull
+    /// requests stays quiet, and the danger color for failing checks, which need the person.
     static func color(_ status: SidebarPullRequestBadge.Status) -> NSColor {
         switch status {
-        case .passing: Palette.success
-        case .attention: Palette.attention
         case .failing: Palette.danger
-        case .merged: GroupColor.purple.markColor
+        case .passing, .attention, .merged: Palette.textSecondary
         }
     }
+
+    /// One pull request is the glyph alone; the count says there are several.
+    static func showsCount(_ badge: SidebarPullRequestBadge) -> Bool { badge.count > 1 }
 
     func tint() {
         guard let badge else { return }
@@ -96,15 +101,17 @@ final class SidebarPullRequestBadgeView: NSView {
 
     override var intrinsicContentSize: NSSize {
         // The count's frame holds its text and padding (`naturalSize`): the text alone clipped it.
-        let text = count.naturalSize
-        return NSSize(width: ceil(Self.glyphSize + Metrics.space1 + text.width), height: ceil(max(Self.glyphSize, text.height)))
+        let text = count.naturalSize, height = ceil(max(Self.glyphSize, text.height))
+        guard !count.isHidden else { return NSSize(width: ceil(Self.glyphSize), height: height) }
+        return NSSize(width: ceil(Self.glyphSize + Metrics.space1 + text.width), height: height)
     }
 
     override func layout() {
         super.layout()
         let side = Self.glyphSize, text = count.naturalSize
         glyph.frame = NSRect(x: 0, y: (bounds.height - side) / 2, width: side, height: side)
-        count.frame = NSRect(x: side + Metrics.space1, y: (bounds.height - text.height) / 2, width: ceil(text.width), height: ceil(text.height))
+        count.frame = count.isHidden ? .zero
+            : NSRect(x: side + Metrics.space1, y: (bounds.height - text.height) / 2, width: ceil(text.width), height: ceil(text.height))
     }
 }
 

@@ -149,7 +149,11 @@ class RefusalDetailTests(unittest.TestCase):
         self.assertIn("SIDE_RETRY_CAP_SECONDS = 5.0", side)
         users = [path.name for path in (ROOT / "scripts").rglob("*.py") if "retry_cap=" in path.read_text(errors="ignore")
                  and path.name not in ("pr_runner_pool.py",)]
-        self.assertEqual(users, ["side_lane_placement.py"])
+        # Portable placement reads the runners the way side-lane placement does, with its cap.
+        self.assertEqual(sorted(users), ["portable_job_placement.py", "side_lane_placement.py"])
+        portable = (ROOT / "scripts/ci/portable_job_placement.py").read_text()
+        self.assertIn("retry_cap=side.SIDE_RETRY_CAP_SECONDS, retries=retries", portable)
+        self.assertIn("retries = pool.RetryBudget(1)", portable)
 
     def test_one_retry_per_client_whatever_the_reads(self):
         # Slow refusals on every read (the review's case): the client still retries only once,

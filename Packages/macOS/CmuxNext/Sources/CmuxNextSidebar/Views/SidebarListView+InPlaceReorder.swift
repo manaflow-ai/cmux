@@ -70,13 +70,4 @@ extension SidebarListViewComponents {
         group.setMembers(members)
         sections[s].nodes[n] = .group(group)
     }
-
-    /// The dragged workspaces' tab rows hide with them (they move along).
-    static func tabKeys(of hidden: Set<SidebarRowKey>, in model: SidebarModel) -> Set<SidebarRowKey> {
-        var keys: Set<SidebarRowKey> = []
-        for case let .workspace(id) in hidden {
-            for tab in model.workspace(id)?.tabs ?? [] { keys.insert(.tab(id, tab.id)) }
-        }
-        return keys
-    }
 }
