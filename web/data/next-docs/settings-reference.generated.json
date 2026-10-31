@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 532,
+  "count": 530,
   "sections": [
     {
       "id": "general",
@@ -352,19 +352,6 @@
           "group": "Tabs"
         },
         {
-          "key": "appearance.metrics.tabFontSize",
-          "title": "Tab Text Size",
-          "help": "Text size of tab titles. Unset, tabs follow the interface size.",
-          "kind": "number",
-          "default": null,
-          "group": "Tabs",
-          "range": {
-            "min": 10,
-            "max": 18,
-            "unit": "points"
-          }
-        },
-        {
           "key": "appearance.metrics.tabMaxWidth",
           "title": "Maximum Tab Width",
           "help": "Widest a tab gets when the strip has room.",
@@ -413,19 +400,6 @@
           "range": {
             "min": 24,
             "max": 120,
-            "unit": "points"
-          }
-        },
-        {
-          "key": "appearance.metrics.tabStripHeight",
-          "title": "Tab Bar Height",
-          "help": "Height of a pane's tab bar. Its tabs grow and shrink with it.",
-          "kind": "number",
-          "default": null,
-          "group": "Tabs",
-          "range": {
-            "min": 22,
-            "max": 44,
             "unit": "points"
           }
         },
@@ -1703,7 +1677,7 @@
         {
           "key": "appearance.appTheme",
           "title": "App Theme",
-          "help": "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.",
+          "help": "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast.",
           "kind": "theme",
           "default": "followTerminal",
           "group": "App Theme"
@@ -2664,7 +2638,7 @@
         {
           "key": "appearance.theme",
           "title": "Theme",
-          "help": "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it.",
+          "help": "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it.",
           "kind": "theme",
           "default": null,
           "group": "App Theme"
