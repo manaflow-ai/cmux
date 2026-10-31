@@ -71,10 +71,20 @@ pub trait TokenVerifier: Send + Sync + 'static {
     fn verify(&self, token: &str, expected: &Expected<'_>) -> Result<VerifiedToken, TokenRefused>;
 }
 
+/// The caller's machine role signed by CloudDO for this individual dial.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VmKind {
+    Owner,
+    Team,
+}
+
 /// Identity and issue time from an accepted token's authenticated claims.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedToken {
     pub peer: LinkPeer,
+    /// Absent on old tokens; absence never grants an owner answer.
+    pub vm_kind: Option<VmKind>,
     /// Unix milliseconds, converted from the verified JWT `iat` with checked arithmetic.
     pub issued_at_ms: u64,
     /// Live authority of this authenticated stream, acquired atomically with
