@@ -220,7 +220,8 @@ button.acpmux-workflow-agent__button:focus-visible {
   margin-left: 6px;
 }
 .acpmux-workflow-agent__button--grid {
-  grid-template-columns: auto minmax(76px, 1fr) minmax(82px, 1fr) auto;
+  /* No floors on the name and model columns: in a narrow panel they truncate inside the row. */
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto;
   min-height: calc(var(--ds-control-row) + var(--ds-space-1) + var(--cmux-hairline, 0.5px) * 4);
 }
 .acpmux-workflow-agent__button--grid .acpmux-workflow-agent__icon {

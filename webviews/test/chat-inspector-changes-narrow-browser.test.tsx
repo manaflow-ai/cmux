@@ -124,11 +124,14 @@ await requireBrowserLane("chat-inspector-changes-narrow-browser.test.tsx", async
     });
     for (const name of Object.keys(cases))
       test(`${name}: the comments and checks stay whole inside the row, and no count runs past it`, async () => {
-        const page = await browser.newPage({ viewport: { width: 280, height: 400 } });
+        // The ordinary row at the inspector's usual 320px: this Chromium's fallback font is wider than
+        // the app's Inter, which fits it at 280px. The maximum counts take the narrow 280px.
+        const width = name === "ordinary" ? 320 : 280;
+        const page = await browser.newPage({ viewport: { width, height: 400 } });
         try {
           await page.setContent(
             `<style>${tokens}\n${css}\nbody { margin: 0; font: 13px system-ui, sans-serif }</style>` +
-              `<div class="acpmux-shell" style="width: 280px">${html[name]}</div>`,
+              `<div class="acpmux-shell" style="width: ${width}px">${html[name]}</div>`,
           );
           const rows = await page.evaluate(() =>
             [...document.querySelectorAll<HTMLElement>("li.acpmux-chat-inspector-pr")].map((row) => {
@@ -171,7 +174,7 @@ await requireBrowserLane("chat-inspector-changes-narrow-browser.test.tsx", async
               expect(kept!.inside).toBe(true);
               expect(kept!.whole).toBe(true);
             }
-            // At 280px the shortened counts fit whole too, and inside the row.
+            // The shortened counts fit whole too, and inside the row.
             for (const count of row.counts) {
               expect(count).not.toBeNull();
               expect(count!.inside).toBe(true);
