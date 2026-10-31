@@ -693,9 +693,12 @@
   grid-area: 1 / 2;
   justify-content: flex-end;
   gap: var(--ds-space-1);
-  /* One width on every row (the width probe's), so the effort items line up in a column whatever
-     level each row's hidden item names. */
-  width: var(--acpmux-quick-effort-column);
+  /* As wide as its level and chevron, at its column's trailing edge: the column keeps every row's
+     keys in line, and the item over the model's row covers only what it shows, so a click on the
+     row's middle picks the model. */
+  justify-self: end;
+  width: auto;
+  max-width: var(--acpmux-quick-effort-column);
   min-width: 0;
   padding-inline: var(--ds-space-2) var(--ds-space-1);
   color: var(--agent-muted);
