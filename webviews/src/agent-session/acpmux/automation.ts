@@ -81,6 +81,18 @@ export function automationState(host: AutomationHost) {
       .slice(-TRANSCRIPT_ROWS)
       .map((row) => ({ kind: row.kind, text: (row.text ?? "").slice(0, TRANSCRIPT_CHARS) })),
     lastAssistant: assistant ? { text: assistant.text ?? "", streaming: assistant.streaming === true } : null,
+    /// The last prompts as the pane draws them, with their way to the agent (composer-delivery-DESIGN.md):
+    /// a live proof of a send that stays "Still sending" reads it here.
+    prompts: snapshot.rows
+      .filter((row) => row.kind === "user")
+      .slice(-TRANSCRIPT_ROWS)
+      .map((row) => ({
+        text: (row.text ?? "").slice(0, TRANSCRIPT_CHARS),
+        pending: row.pending === true,
+        delivery: row.delivery?.state ?? null,
+        slow: row.delivery?.slow === true,
+      })),
+    queued: snapshot.queue.map((entry) => entry.prompt.slice(0, TRANSCRIPT_CHARS)),
     sessions: snapshot.sessions.map((session) => ({
       sessionId: session.sessionId,
       title: session.displayTitle ?? session.title ?? session.name ?? null,

@@ -30,6 +30,7 @@ extension SidebarBridge {
         .customize: "appearance.customize",
         .searchChats: "agentPane.searchChats",
         .chief: ChiefSidebar.openAction,
+        .automations: "automations.show",
     ]
 
     /// Runs item `id` as a click does: a top-section item that stands for a
@@ -87,8 +88,8 @@ extension SidebarBridge {
         let store = services.machines.local.store
         let settings = services.settings
         let refs = WorkspaceLayoutRefs(machines: services.machines)
-        // The default Chief's upload, else its pet character (`home.chiefPetMascot`), is the Chief item's picture: a new pick redraws it.
-        let chiefPicture = { [weak services] in services?.characterPicture(of: nil) }
+        // The default Chief's worn upload is the Chief item's picture; none keeps the plain glyph (no pet picture, Lawrence 2026-10-31).
+        let chiefPicture = { [weak services] in services?.wornUpload(of: nil)?.still }
         let uploads = services.chiefAvatarUploads
         let home = services.home
         sectionsObservation = Task { [weak self] in
@@ -159,7 +160,7 @@ extension SidebarBridge {
                     Self.markHomeUnread(&info, homeUnread)
                 } else if builtIn == .chief {
                     ChiefSidebar.shared.decorate(&info)
-                    info.favicon = ChiefSidebarPicture.favicon(mascot: chiefMascot, picture: chiefPicture, image: chiefImage)
+                    info.favicon = chiefPicture.flatMap { ChiefSidebarPicture.favicon(mascot: chiefMascot, picture: $0, image: chiefImage) }
                 }
                 infos[item.id] = info
             }

@@ -28,7 +28,7 @@
 //! session reports nothing until it reopens.
 //!
 //! A turn that failed on an error acpmux retries by itself (`hub/auto_resume.rs`:
-//! a connection cut, no capacity) is not reported failed yet: its continuation
+//! a connection cut, no capacity; a first send a revoked token failed) is not reported failed yet: its continuation
 //! (`<prompt id>~resume-<n>`, naming the same turn) goes on with it. It is
 //! reported failed once no continuation comes: `auto_resume_settled`,
 //! `_exhausted` or `_skipped`, another prompt begins, the session closes, no
@@ -118,7 +118,7 @@ pub(super) enum Step {
     /// A turn ended: how, and the hand-off turn its prompt names, if it names one.
     Ended(End, Option<u64>),
     /// A failed turn's automatic continuation will not come (`auto_resume_settled`,
-    /// `auto_resume_exhausted`, `auto_resume_skipped`).
+    /// `auto_resume_exhausted`, `auto_resume_skipped`, `auto_resume_stopped`).
     NoRetry,
     /// A terminal retry decision observed after reporter restart, before its failed
     /// turn was seen. Carries the named hand-off turn so it can be closed.
@@ -147,7 +147,8 @@ pub(super) enum End {
     /// Finished, with the start of its last reply when it was read.
     Completed(Option<String>),
     /// Why it failed (masked, cut), and whether acpmux decides on a continuation of it
-    /// (`turn_errors::resume_cause`, as `hub/auto_resume.rs` does).
+    /// (`turn_errors::resume_cause`, as `hub/auto_resume.rs` does, or a revoked token, which
+    /// a chat's first send is retried on: `hub/auto_resume/first_send.rs`).
     Failed { why: String, retried: bool },
     /// Stopped before it finished.
     Cancelled,
@@ -159,12 +160,20 @@ pub(super) fn step_of(kind: &str, msg: &Value) -> Option<Step> {
     let named = || named_turn(msg["promptId"].as_str());
     match kind {
         "turn_started" => Some(Step::Began(named())),
-        "auto_resume_settled" | "auto_resume_exhausted" | "auto_resume_stopped" => {
+        "auto_resume_settled" | "auto_resume_exhausted" => {
             let Some(turn) = named_turn(msg["promptId"].as_str()) else {
                 return Some(Step::NoRetry);
             };
             let why = msg["why"].as_str().or_else(|| msg["reason"].as_str()).unwrap_or("policy");
             Some(Step::NoRetryFor { turn, why: format!("Automatic retry settled ({why}).") })
+        }
+        // A Stop ended the wait (`hub/auto_resume.rs` records only `turnId` and `promptId`):
+        // the person stopped it, no policy settled it.
+        "auto_resume_stopped" => {
+            let Some(turn) = named_turn(msg["promptId"].as_str()) else {
+                return Some(Step::NoRetry);
+            };
+            Some(Step::NoRetryFor { turn, why: "Automatic retry stopped.".to_owned() })
         }
         "auto_resume_skipped" => {
             let Some(turn) = named_turn(msg["promptId"].as_str()) else {
@@ -201,7 +210,13 @@ pub(super) fn step_of(kind: &str, msg: &Value) -> Option<Step> {
                     // The hub decides on the agent's own error or the recorded one
                     // (`turn_errors::continuation_error`): either may be the cause.
                     let cause = crate::hub::turn_errors::resume_cause;
-                    let retried = cause(raw, raw).is_some() || cause(why, why).is_some();
+                    // A first send a revoked token failed may be sent again (`first_send.rs`):
+                    // a later turn's is settled `auto_resume_settled` at once.
+                    let revoked = crate::claude_auth::is_revoked_token;
+                    let retried = cause(raw, raw).is_some()
+                        || cause(why, why).is_some()
+                        || revoked(raw)
+                        || revoked(why);
                     End::Failed { why: cut(why, NOTE_CHARS), retried }
                 }
             };
