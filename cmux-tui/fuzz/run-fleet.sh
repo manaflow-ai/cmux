@@ -146,7 +146,10 @@ case "$mode" in
       [[ -f "$log" ]] || continue
       grep -h -E "stat::number_of_executed_units|stat::peak_rss_mb|ERROR|panicked at|SUMMARY" "$log" | head -40
     done
-    execs=$(cat "$tui"/fuzz-*.log "$cache/fuzz-$target.log" 2>/dev/null | grep -h "stat::number_of_executed_units" | awk '{s+=$2} END {print s+0}')
+    # Each worker's final stats are in its own fuzz-N.log; the main log repeats
+    # them, so count the main log only when there are no worker logs.
+    if ls "$tui"/fuzz-*.log >/dev/null 2>&1; then stats_logs=("$tui"/fuzz-*.log); else stats_logs=("$cache/fuzz-$target.log"); fi
+    execs=$(grep -h "stat::number_of_executed_units" "${stats_logs[@]}" 2>/dev/null | awk '{s+=$2} END {print s+0}')
     print_artifacts "$artifacts"
     echo "corpus after: $(ls "$corpus" | wc -l) inputs; executions: $execs"
     if ls "$artifacts"/crash-* "$artifacts"/leak-* "$artifacts"/oom-* "$artifacts"/timeout-* >/dev/null 2>&1; then
