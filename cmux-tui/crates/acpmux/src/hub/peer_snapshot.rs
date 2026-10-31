@@ -995,8 +995,9 @@ impl Store {
             let Some(seq) = seq_of(&r) else { continue };
             let bytes = record_bytes(&r);
             if let Some(old) = held.insert(seq, r) {
-                c.memory -= record_bytes(&old);
-                *memory -= record_bytes(&old);
+                let old_bytes = record_bytes(&old);
+                c.memory -= old_bytes;
+                *memory -= old_bytes;
             }
             c.memory += bytes;
             *memory += bytes;
@@ -1026,8 +1027,9 @@ impl Store {
         let mut cut = false;
         while held.len() > SESSION_EVENTS || c.memory > SESSION_BYTES {
             let Some((seq, old)) = held.pop_first() else { break };
-            c.memory -= record_bytes(&old);
-            *memory -= record_bytes(&old);
+            let old_bytes = record_bytes(&old);
+            c.memory -= old_bytes;
+            *memory -= old_bytes;
             c.head.first_seq = c.head.first_seq.max(seq.saturating_add(1));
             c.head.last_seq = c.head.last_seq.max(c.head.first_seq - 1);
             c.head.from_start = false;

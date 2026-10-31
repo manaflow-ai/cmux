@@ -73,6 +73,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     private let agentReplies: AgentPaneAgentReply.Send?
     private let signal: @Sendable () -> Void
     private let state = Mutex(State())
+    let statusRead = AcpmuxStatusReadSlot()
     /// Checks the daemon's frames in passes, in order, while the receive loop goes on.
     private let inbound = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.inbound", qos: .userInitiated)
 
@@ -152,6 +153,9 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
     /// A daemon frame: it waits for the next pass (``process()``), which checks every waiting
     /// frame in one hop. The bound covers the frames waiting and the frames queued for the page.
+    /// A host read uses the daemon reply path, including its bounds, ids and reply filtering.
+    func receiveLocalReply(_ text: String) { arrived(text) }
+
     private func arrived(_ received: String) {
         let bytes = received.utf8.count
         let (start, overflow) = state.withLock { state -> (Bool, Bool) in

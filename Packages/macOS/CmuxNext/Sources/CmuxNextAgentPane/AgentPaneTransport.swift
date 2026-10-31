@@ -76,6 +76,8 @@ import CmuxNextCompat
     public let decisions = AcpmuxDecisionContexts()
     /// The keyed restart the chat's machine offers, when it runs on another machine.
     private(set) var remoteApprovals: AgentPaneRemoteApprovals?
+    /// The canonical host key of the current remote chat, when its tab record supplied one.
+    private(set) var remoteHostID: String?
     /// The current connection is a chat on another machine (``RemoteAcpmuxWire``): its folders are
     /// that machine's, so this Mac's folder rule does not read them (that machine's acpmux checks
     /// its own folder trust, cx-k21v).
@@ -107,6 +109,9 @@ import CmuxNextCompat
     /// (peer-route approvals, ``AcpmuxMacApprover``): it has not enrolled this Mac, or the allow
     /// was not a one-time allow. nil: a later answer counted, and what was said no longer holds.
     public var onPeerApprovalsOff: (@MainActor (AgentPanePeerApprovals?) -> Void)?
+    /// This app's approver key and Enroll this Mac (``AgentPanePeerApprover``), from the app's pane
+    /// factory; nil: a peer's prompt gets no signed allow and the notice offers no Enroll.
+    public var peerApprover: AgentPanePeerApprover?
     /// The pane's own roots (``AcpmuxPathPolicy/Scope/roots``), asked at each frame.
     public var roots: @MainActor () -> [String] = { [] }
     /// Folders that are roots only when the user picks one by a gesture (the new tab page's scan).
@@ -225,6 +230,7 @@ import CmuxNextCompat
         localAppToken = connection.localAppToken
         socketPath = connection.socketPath
         remoteApprovals = connection.remote?.approvals
+        remoteHostID = connection.remote?.hostID
         remoteWire = connection.remote != nil
         trustDaemon = remoteWire ? nil : (connection.socketPath ?? connection.url.absoluteString)
         if let daemon = trustDaemon {

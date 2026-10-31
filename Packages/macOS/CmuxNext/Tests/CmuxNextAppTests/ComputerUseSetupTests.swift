@@ -89,6 +89,26 @@ struct ComputerUseSetupTests {
         #expect(setup.pageJSON["host_unverified"] == .bool(false))
     }
 
+    /// Driver "upstream" in a build without the helper v2: the legacy helper that runs is read,
+    /// Restart Helper restarts it, and the status says plainly that Legacy runs in its place.
+    @Test func anUpstreamFallbackReadsTheLegacyHelperAndSaysSo() async {
+        let box = InputBox()
+        box.value.upstreamFallback = true
+        let reader = Reader()
+        await reader.answer()
+        let setup = make(box, reader)
+        setup.start()
+        await wait(setup, for: .ready)
+        #expect(setup.pageJSON["driver"] == .string("legacy"))
+        #expect(setup.pageJSON["upstream_fallback"] == .bool(true))
+        #expect(setup.pageJSON["note"] == .string("Upstream helper isn't in this build; using Legacy"))
+        #expect(setup.prepareRestart() != nil, "Restart Helper restarts the legacy helper that runs")
+        box.value.enabled = false
+        for await value in ObservationStream({ setup.upstreamFallback }) where !value { break }
+        #expect(setup.pageJSON["upstream_fallback"] == .bool(false))
+        #expect(setup.pageJSON["note"] == .null)
+    }
+
     @Test func recheckStartsANewReadBudget() async {
         let reader = Reader()
         let setup = make(InputBox(), reader)

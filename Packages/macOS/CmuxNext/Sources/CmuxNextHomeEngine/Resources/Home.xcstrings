@@ -12769,6 +12769,798 @@
           }
         }
       }
+    },
+    "home.engine.cropTitle": {
+      "comment": "Title of the editor that moves and zooms a new Chief picture inside a circle before it is saved.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحريك وتغيير الحجم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pomjeri i promijeni veličinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flyt og skaler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bewegen und skalieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move and Scale"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover y escalar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacer et redimensionner"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sposta e ridimensiona"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動と拡大／縮小"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្លាស់ទី និងប្ដូរទំហំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이동 및 크기 조절"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytt og skaler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przesuń i skaluj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover e redimensionar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переместить и масштабировать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ย้ายและปรับขนาด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taşı ve Ölçekle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемістити й масштабувати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Di chuyển và thu phóng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移动和缩放"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動和縮放"
+          }
+        }
+      }
+    },
+    "home.engine.cropHint": {
+      "comment": "Hint under the Chief picture editor: how to move and zoom the picture.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسحب لتحريك الصورة. مرّر أو اقرص للتكبير."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povucite da pomjerite sliku. Skrolujte ili stisnite prstima za zumiranje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Træk for at flytte billedet. Rul eller knib for at zoome."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Bewegen des Bildes ziehen. Zum Zoomen scrollen oder mit zwei Fingern zusammenziehen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag to move the picture. Scroll or pinch to zoom."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrastra para mover la imagen. Desplázate o pellizca para hacer zoom."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faites glisser pour déplacer l’image. Faites défiler ou pincez pour zoomer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trascina per spostare l’immagine. Scorri o pizzica per ingrandire."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグで画像を移動。スクロールまたはピンチで拡大／縮小。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អូសដើម្បីផ្លាស់ទីរូបភាព។ រំកិល ឬច្បិចដើម្បីពង្រីក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "드래그하여 사진을 이동합니다. 스크롤하거나 핀치하여 확대/축소합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dra for å flytte bildet. Rull eller knip for å zoome."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przeciągnij, aby przesunąć obraz. Przewiń lub uszczypnij, aby powiększyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arraste para mover a imagem. Role ou faça pinça para ampliar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перетащите, чтобы сдвинуть изображение. Прокрутите или сведите пальцы для масштаба."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลากเพื่อย้ายรูปภาพ เลื่อนหรือบีบเพื่อซูม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resmi taşımak için sürükleyin. Yakınlaştırmak için kaydırın veya kıstırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перетягніть, щоб посунути зображення. Прокрутіть або зведіть пальці для масштабу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kéo để di chuyển ảnh. Cuộn hoặc chụm để thu phóng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖移以移动图片。滚动或捏合以缩放。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖移以移動圖片。捲動或捏合以縮放。"
+          }
+        }
+      }
+    },
+    "home.engine.cropZoom": {
+      "comment": "Accessibility label of the zoom slider in the Chief picture editor.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكبير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoomen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拡大／縮小"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពង្រីក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확대/축소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiększenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Масштаб"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซูม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yakınlaştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Масштаб"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thu phóng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缩放"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "縮放"
+          }
+        }
+      }
+    },
+    "home.engine.cropSave": {
+      "comment": "Button in the Chief picture editor that saves the circle as the Chief's picture.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حفظ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sačuvaj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gem"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sichern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salva"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រក្សាទុក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lagre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zapisz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บันทึก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaydet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зберегти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lưu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "存储"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儲存"
+          }
+        }
+      }
+    },
+    "home.chief.welcome": {
+      "comment": "Chief's first message on a fresh install: a welcome and what Chief can do. Keep the line breaks.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرحبًا بك في cmux! 👋 أنا Chief.\nيمكنني إنشاء مساحات عمل جديدة، وتشغيل الوكلاء لك، وإعداد cmux أو تخصيصه كما تحب.\nأخبرني فقط بما تريد إنجازه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dobro došli u cmux! 👋 Ja sam Chief.\nMogu napraviti nove radne prostore, pokrenuti agente za vas i podesiti ili prilagoditi cmux kako želite.\nSamo mi recite šta želite uraditi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velkommen til cmux! 👋 Jeg er Chief.\nJeg kan oprette nye arbejdsområder, starte agenter for dig og sætte cmux op eller tilpasse det, som du vil.\nSig bare, hvad du vil have gjort."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Willkommen bei cmux! 👋 Ich bin Chief.\nIch kann neue Arbeitsbereiche anlegen, Agenten für dich starten und cmux ganz nach deinem Geschmack einrichten und anpassen.\nSag mir einfach, was erledigt werden soll."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Welcome to cmux! 👋 I'm Chief.\nI can make new workspaces, start agents for you, and set up or customize cmux however you like.\nJust tell me what you want done."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¡Te damos la bienvenida a cmux! 👋 Soy Chief.\nPuedo crear espacios de trabajo, iniciar agentes por ti y configurar o personalizar cmux a tu gusto.\nSolo dime qué quieres hacer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bienvenue dans cmux ! 👋 Je suis Chief.\nJe peux créer des espaces de travail, lancer des agents pour vous et configurer ou personnaliser cmux comme vous le souhaitez.\nDites-moi simplement ce que vous voulez faire."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benvenuto in cmux! 👋 Sono Chief.\nPosso creare nuovi spazi di lavoro, avviare agenti per te e configurare o personalizzare cmux come preferisci.\nDimmi solo cosa vuoi fare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux へようこそ！👋 Chief です。\n新しいワークスペースを作ったり、エージェントを起動したり、cmux を好きなように設定・カスタマイズしたりできます。\nやりたいことを気軽に話しかけてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមស្វាគមន៍មកកាន់ cmux! 👋 ខ្ញុំគឺ Chief។\nខ្ញុំអាចបង្កើតកន្លែងធ្វើការថ្មី ចាប់ផ្តើមភ្នាក់ងារឱ្យអ្នក និងរៀបចំ ឬប្ដូរ cmux តាមចិត្តអ្នក។\nគ្រាន់តែប្រាប់ខ្ញុំពីអ្វីដែលអ្នកចង់ធ្វើ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux에 오신 것을 환영합니다! 👋 저는 Chief예요.\n새 워크스페이스를 만들고, 에이전트를 시작하고, cmux를 원하는 대로 설정하거나 꾸며 드릴 수 있어요.\n하고 싶은 일을 말씀만 해 주세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velkommen til cmux! 👋 Jeg er Chief.\nJeg kan lage nye arbeidsområder, starte agenter for deg og sette opp eller tilpasse cmux slik du vil.\nBare si hva du vil ha gjort."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Witaj w cmux! 👋 Jestem Chief.\nMogę tworzyć nowe obszary robocze, uruchamiać dla Ciebie agentów oraz konfigurować i dostosowywać cmux tak, jak lubisz.\nPo prostu powiedz, co chcesz zrobić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boas-vindas ao cmux! 👋 Eu sou o Chief.\nPosso criar novos espaços de trabalho, iniciar agentes para você e configurar ou personalizar o cmux do seu jeito.\nÉ só me dizer o que você quer fazer."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добро пожаловать в cmux! 👋 Я Chief.\nЯ могу создавать новые рабочие пространства, запускать агентов и настраивать cmux так, как вам нравится.\nПросто скажите, что нужно сделать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยินดีต้อนรับสู่ cmux! 👋 ฉันคือ Chief\nฉันสร้างเวิร์กสเปซใหม่ เริ่มเอเจนต์ให้คุณ และตั้งค่าหรือปรับแต่ง cmux ได้ตามที่คุณชอบ\nแค่บอกฉันว่าคุณอยากทำอะไร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux'a hoş geldiniz! 👋 Ben Chief.\nYeni çalışma alanları oluşturabilir, sizin için ajanlar başlatabilir ve cmux'u istediğiniz gibi ayarlayıp özelleştirebilirim.\nNe yapmak istediğinizi söylemeniz yeterli."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ласкаво просимо до cmux! 👋 Я Chief.\nЯ можу створювати нові робочі простори, запускати агентів і налаштовувати cmux так, як вам подобається.\nПросто скажіть, що потрібно зробити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chào mừng bạn đến với cmux! 👋 Mình là Chief.\nMình có thể tạo không gian làm việc mới, khởi chạy agent cho bạn và thiết lập hoặc tùy biến cmux theo ý bạn.\nCứ nói mình biết bạn muốn làm gì."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "欢迎使用 cmux！👋 我是 Chief。\n我可以新建工作区、为你启动智能体，还能按你的喜好设置和自定义 cmux。\n告诉我你想做什么就好。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歡迎使用 cmux！👋 我是 Chief。\n我可以建立新的工作區、幫你啟動代理，還能依你的喜好設定和自訂 cmux。\n告訴我你想做什麼就好。"
+          }
+        }
+      }
+    },
+    "home.chief.welcomeBackground": {
+      "comment": "Chief's second message on a fresh install. %@ is the link that opens the background picker; keep the Markdown link [text](%@).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد أن تجعله خاصًا بك؟ [اختر خلفية](%@) من الأعمال الفنية المضمّنة أو من صورك. أو تخطَّ ذلك وقل مرحبًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Želite li ga prilagoditi sebi? [Odaberite pozadinu](%@) iz ugrađene umjetnosti ili svoju sliku. Ili preskočite i samo recite zdravo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vil du gøre det til dit eget? [Vælg en baggrund](%@) blandt den indbyggede kunst eller dine egne billeder. Eller spring over og sig bare hej."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Möchtest du es persönlicher machen? [Wähle einen Hintergrund](%@) aus der mitgelieferten Kunst oder einem eigenen Bild. Oder überspring das und sag einfach Hallo."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Want to make it yours? [Pick a background](%@) from the built-in art or one of your own pictures. Or skip it and just say hi."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Quieres darle tu toque? [Elige un fondo](%@) entre el arte incluido o una de tus fotos. O sáltatelo y simplemente saluda."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envie de le personnaliser ? [Choisissez un fond](%@) parmi les œuvres incluses ou vos propres images. Ou passez cette étape et dites simplement bonjour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vuoi renderlo tuo? [Scegli uno sfondo](%@) tra le opere incluse o una tua immagine. Oppure salta e dimmi semplicemente ciao."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分好みにしてみませんか？内蔵のアートや自分の写真から[背景を選ぶ](%@)ことができます。スキップして、そのまま話しかけても大丈夫です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចង់ធ្វើឱ្យវាជារបស់អ្នកទេ? [ជ្រើសផ្ទៃខាងក្រោយ](%@) ពីរូបភាពសិល្បៈដែលភ្ជាប់មក ឬរូបភាពផ្ទាល់ខ្លួនរបស់អ្នក។ ឬរំលងហើយគ្រាន់តែនិយាយសួស្ដី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나만의 cmux로 꾸며 볼까요? 내장 아트나 내 사진에서 [배경을 선택](%@)할 수 있어요. 건너뛰고 그냥 인사하셔도 돼요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vil du gjøre det til ditt eget? [Velg en bakgrunn](%@) fra den innebygde kunsten eller dine egne bilder. Eller hopp over og bare si hei."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chcesz dopasować go do siebie? [Wybierz tło](%@) z wbudowanych obrazów lub własnych zdjęć. Albo pomiń to i po prostu się przywitaj."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quer deixar com a sua cara? [Escolha um fundo](%@) entre as artes incluídas ou uma foto sua. Ou pule essa parte e só diga oi."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хотите сделать его своим? [Выберите фон](%@) из встроенных картин или своих изображений. Или пропустите и просто поздоровайтесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อยากทำให้เป็นแบบของคุณไหม? [เลือกพื้นหลัง](%@) จากภาพศิลปะในตัวหรือรูปของคุณเอง หรือข้ามไปแล้วทักทายได้เลย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kendinize göre yapmak ister misiniz? Yerleşik sanat eserlerinden ya da kendi resimlerinizden [bir arka plan seçin](%@). Ya da atlayıp sadece merhaba deyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хочете зробити його своїм? [Виберіть фон](%@) із вбудованих картин або власних зображень. Або пропустіть і просто привітайтеся."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muốn cá nhân hóa không? [Chọn hình nền](%@) từ tranh có sẵn hoặc ảnh của bạn. Hoặc bỏ qua và chỉ cần chào mình."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "想换成你喜欢的样子吗？可以从内置艺术作品或你自己的图片中[选择背景](%@)。也可以跳过，直接跟我打个招呼。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "想換成你喜歡的樣子嗎？可以從內建藝術作品或你自己的圖片中[選擇背景](%@)。也可以略過，直接跟我打聲招呼。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

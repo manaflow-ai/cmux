@@ -25,16 +25,43 @@ export interface IdleResult {
   dataSource: string | null;
   unsupportedReasons: { cpu?: string; wakeups: string };
 }
+/** Autonomous samplers retain their own observations; these are never converted to probe samples. */
+export interface AdapterObservation {
+  status: "painted" | "superseded" | "timeout" | "unsupported";
+  latencyMs: number | null;
+  inputAt: number | null;
+  targetPaintAt: number | null;
+  raw: Record<string, unknown>;
+}
+export interface AdapterRun {
+  status: "complete" | "timeout" | "unsupported";
+  observations: AdapterObservation[];
+  frameGaps: number[] | null;
+  longTasks: number[] | null;
+  reactCommits: number | null;
+  instrumentationWindow?: { startAt: number; endAt: number; source: string };
+  unsupportedReasons: Partial<Record<Instrumentation | "eventTiming" | "frameCadence", string>>;
+  reason?: string;
+}
+export interface AdapterContext {
+  frameMs: number;
+  timeoutMs: number;
+  signal: AbortSignal;
+  /** Register owned sampler/listener cleanup before awaiting work that can fail or time out. */
+  onCleanup(cleanup: () => void | Promise<void>): void;
+}
 export interface LatencyAction {
   name: string;
   id?: string;
   metricType?: MetricType;
   /** Restrict capture to an adapter's event, e.g. pointermove for drag. */
   inputEvent?: string;
-  requiredInstrumentation?: Instrumentation[];
+  requiredInstrumentation?: Instrumentation[] | ((engine: string) => Instrumentation[]);
   /** Prepare outside the window; return an expression false now and true at the visible target. */
-  prepare(page: Page): Promise<string>;
-  input(page: Page): Promise<void>;
+  prepare?(page: Page): Promise<string>;
+  input?(page: Page): Promise<void>;
+  /** Owns its measured window and raw statuses, independently of the DOM predicate probe. */
+  measureRun?(page: Page, context: AdapterContext): Promise<AdapterRun>;
   settle?(page: Page): Promise<void>;
 }
 export interface LatencyPageSpec {
@@ -50,27 +77,28 @@ export interface ActionResult {
   engine: string;
   metricType: MetricType;
   samples: LatencySample[];
+  adapterRuns?: AdapterRun[];
   latencyMs: Distribution | null;
   timeouts: number;
   errors: string[];
-  work: number;
-  paint: number;
-  frames: number;
-  maxWork: number;
-  maxPaint: number;
-  frameGap: number;
+  work: number | null;
+  paint: number | null;
+  frames: number | null;
+  maxWork: number | null;
+  maxPaint: number | null;
+  frameGap: number | null;
   /** Legacy estimate: runs with an API long task OR a >50ms frame stall. Use longTasks for API counts. */
-  longTaskRuns: number;
+  longTaskRuns: number | null;
   budget: number;
   pass60: boolean;
   pass120: boolean;
   pass: boolean;
   longTasks: { count: number; totalMs: number; maxMs: number; source: string } | null;
   reactCommits: number | null;
-  framesSummary: { count: number; dropped: number; maxGapMs: number; droppedSource: string };
+  framesSummary: { count: number | null; dropped: number | null; maxGapMs: number | null; droppedSource: string };
   trace: TraceBreakdown | null;
   idle?: IdleResult;
-  unsupportedReasons: Partial<Record<Instrumentation | "eventTiming", string>>;
+  unsupportedReasons: Partial<Record<Instrumentation | "eventTiming" | "frameCadence", string>>;
 }
 export const BUDGET_120HZ = 1000 / 120;
 export const BUDGET_60HZ = 1000 / 60;
@@ -103,6 +131,7 @@ export async function measureOnce(
   metrics?: MetricReader,
 ): Promise<{ sample: LatencySample | null; error?: string; trace?: TraceBreakdown }> {
   try {
+    if (!action.prepare || !action.input) throw new Error("predicate action requires prepare and input");
     const predicate = await action.prepare(page);
     await page.evaluate(`window.__latencyCheck = () => (${predicate});`);
     const before = await metrics?.();
@@ -257,6 +286,10 @@ export async function measureAction(
   metrics?: MetricReader,
 ): Promise<ActionResult> {
   const budget = await frameBudget(page);
+  if (action.measureRun) {
+    const { measureAdapterAction } = await import("./adapter-measure");
+    return measureAdapterAction(page, spec, action, runs, budget);
+  }
   const samples: LatencySample[] = [];
   const errors: string[] = [];
   const traces: TraceBreakdown[] = [];

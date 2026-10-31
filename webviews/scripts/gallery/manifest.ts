@@ -93,7 +93,7 @@ export function manifestCases(entries: GalleryEntry[], options: ManifestOptions 
           ? [DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME]
           : options.themes && options.themes !== "default"
             ? list(options.themes)
-            : [DEFAULT_DARK_THEME];
+            : [DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME];
   for (const name of themes)
     if (!byName.has(name)) throw new Error(`no shipped Ghostty theme named ${JSON.stringify(name)}`);
   const widths: (WidthName | number)[] =
