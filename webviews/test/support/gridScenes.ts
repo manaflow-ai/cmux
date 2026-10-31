@@ -280,7 +280,8 @@ export const gridScenes: GridScene[] = [
   ]),
   menu("picker.model", "agent-pane.composer-pickers", "model-menu", ".acpmux-quick-menu", true),
   menu("picker.account", "agent-pane.composer-pickers", "claude-direct-accounts", ".acpmux-quick-submenu", true),
-  scene("picker.effort", "agent-pane.composer-pickers", "effort-menu", ".acpmux-quick-efforts", [
+  // #27948 moved the levels from an inline fieldset into the running model's side dropdown.
+  scene("picker.effort", "agent-pane.composer-pickers", "effort-menu", ".acpmux-quick-effort-menu", [
     left("edge", ".acpmux-quick-effort-segment", "left", menuToken("highlight-inset")),
     left("lead: checked state", '[aria-checked="true"] svg', "cx", menuToken("state-x")),
     left("text", ".acpmux-quick-effort-segment", "text", menuToken("state-text-x")),
