@@ -6884,6 +6884,9 @@ function AcpmuxPane() {
     () => (lastEditTurn ? turnCountsFor(lastEditTurn.rowId, lastEditTurn.files, lastEditTurn.pathsOnly) : undefined),
     [lastEditTurn, turnCountsFor],
   );
+  // The card's Changes reads the same history its rows do: an older edit paged in under the reader's
+  // scroll lands there once the scroll settles too (summary/heldWhileScrolling.ts).
+  const cardChanges = useHeldWhileScrolling(lastChanges, shownSessionId);
   // The header's Preview: the local page of the latest of the last few turns that started or mentioned one.
   // Each turn is scanned again only when its rows change, so streaming rescans the live turn alone.
   const previewTurns = useRef(new Map<string, { key: string; url: string | undefined }>());
@@ -11784,7 +11787,7 @@ function AcpmuxPane() {
             card={summaryCard}
             rows={cardRows}
             cwd={snapshot.summary?.cwd}
-            changes={quick ? undefined : lastChanges}
+            changes={quick ? undefined : cardChanges}
             onOpenChanges={toggleLastChanges}
             onOpenOutput={quick ? undefined : openOutput}
             onOpenImage={quick ? undefined : openImage}

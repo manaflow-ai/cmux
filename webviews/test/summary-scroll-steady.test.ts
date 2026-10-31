@@ -51,23 +51,31 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
 
   /// The chat's first turn, far above what attach sends a paged chat: it ran the background commands
   /// and wrote the file the card lists, so they arrive only once the reader scrolls up to them.
+  const writeNotes = [
+    "in",
+    "tool_call",
+    update({
+      sessionUpdate: "tool_call",
+      toolCallId: "w1",
+      title: "Write notes.md",
+      kind: "edit",
+      status: "completed",
+      locations: [{ path: "/home/dev/cmux/notes.md" }],
+      rawInput: { file_path: "/home/dev/cmux/notes.md", content: "notes" },
+    }),
+  ] as [string, string, Record<string, unknown>];
   const firstTurn = [
     ["mux", "user_message", { text: "Start the watchers" }],
     ["mux", "turn_started", {}],
     ...extra,
-    [
-      "in",
-      "tool_call",
-      update({
-        sessionUpdate: "tool_call",
-        toolCallId: "w1",
-        title: "Write notes.md",
-        kind: "edit",
-        status: "completed",
-        locations: [{ path: "/home/dev/cmux/notes.md" }],
-        rawInput: { file_path: "/home/dev/cmux/notes.md", content: "notes" },
-      }),
-    ],
+    writeNotes,
+    ["mux", "turn_result", { status: "completed" }],
+  ] as [string, string, Record<string, unknown>][];
+  /// A first turn that only edited a file: paged in under a card that already shows, it adds Changes.
+  const editTurn = [
+    ["mux", "user_message", { text: "Write the notes" }],
+    ["mux", "turn_started", {}],
+    writeNotes,
     ["mux", "turn_result", { status: "completed" }],
   ] as [string, string, Record<string, unknown>][];
   setDefaultTimeout(150_000);
@@ -90,10 +98,14 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
   let current: Browser | undefined;
   let pane: Awaited<ReturnType<typeof papercutPane>> | undefined;
   let paged: Awaited<ReturnType<typeof papercutPane>> | undefined;
+  let edited: Awaited<ReturnType<typeof papercutPane>> | undefined;
   beforeAll(async () => {
     pane = await papercutPane(() => current!, { turns: 40, running: true, extra });
     // A long chat whose attach sends only its newest records: scrolling up pages the rest in.
     paged = await papercutPane(() => current!, { turns: 60, running: false, lead: firstTurn, attachPage: 40 });
+    // The same, with background commands on its latest turn: the card shows from the start, and the
+    // only edit (so the card's Changes) is in the first turn, above what attach sends.
+    edited = await papercutPane(() => current!, { turns: 60, running: false, extra, lead: editTurn, attachPage: 40 });
     current = browsers.values().next().value;
     await (await pane.open()).close();
   });
@@ -101,6 +113,7 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
     for (const browser of browsers.values()) await browser.close();
     await pane?.close();
     await paged?.close();
+    await edited?.close();
   });
 
   /// Waits for the finite animations (an opening card's slide); a running turn's spinner never ends.
@@ -312,6 +325,46 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
           after: after.reserve,
         }).toEqual({ changes: [], boxes: 1, replaced: false, pagedToTop: 0, before: true, after: false });
         expect(after.text).toContain("watch:0");
+      } finally {
+        await page.close();
+      }
+    });
+
+    test(`${name}: a showing Summary card holds its Changes while an older edit pages in under it`, async () => {
+      current = browsers.get(name)!;
+      const page = await edited!.open({ width: 1400, height: 760 });
+      try {
+        await settle(page);
+        const selector = "aside.acpmux-summary-card[data-placement=inline]";
+        await page.waitForFunction(
+          (selector) => document.querySelector(selector)?.textContent?.includes("watch:0"),
+          selector,
+        );
+        const read = () =>
+          page
+            .locator(selector)
+            .first()
+            .evaluate((card) => ({
+              reserve: card.classList.contains("acpmux-summary-card--reserve"),
+              text: card.textContent ?? "",
+            }));
+        const before = await read();
+        const seen = await scrollAndWatch(page, selector, 400);
+        // Once the scroll settles, the paged-in edit reaches the card's Changes, in one change.
+        await page.waitForFunction(
+          ([selector, text]) => (document.querySelector(selector)?.textContent ?? "") !== text,
+          [selector, before.text] as const,
+        );
+        const after = await read();
+        console.log(`${name} showing summary while an older edit pages in: ${JSON.stringify({ before, after, seen })}`);
+        expect({
+          changes: seen.changes,
+          boxes: seen.boxes.length,
+          replaced: seen.replaced,
+          pagedToTop: seen.lowest,
+          reserve: before.reserve,
+        }).toEqual({ changes: [], boxes: 1, replaced: false, pagedToTop: 0, reserve: false });
+        expect(after.text).toContain("Changes");
       } finally {
         await page.close();
       }
