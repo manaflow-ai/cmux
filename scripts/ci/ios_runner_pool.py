@@ -53,7 +53,9 @@ allowance as a CI run's before it moves them. The simulators are not queued
 for: SIM_LABEL must have the run's simulator jobs free now.
 
 Live capacity. test-ios.yml mints the org's glaeda-route App token (as ci.yml
-does) for same-repository runs and passes it as ROUTE_TOKEN. With it, "free"
+does) for same-repository runs and passes it as ROUTE_TOKEN. The same token
+reads the queue and snapshots when it has Actions read permission, with one
+fallback to the job token for older callers. With it, "free"
 is read from live state, not estimated from run titles. Each in-flight
 test-ios.yml and ios-screenshots.yml run of the last SIM_WINDOW_MINUTES (only
 those two workflows hold simulators) is charged what its jobs show it holds
@@ -191,7 +193,7 @@ assert SIM_LABEL in pr_runner_pool.CAPABILITY_LABELS
 OWNED_CHOICE = "owned"
 IOS_OWNED_VARIABLE = "CI_IOS_OWNED"
 # The workflows whose in-flight runs since the snapshot hold simulators.
-IOS_WORKFLOWS = ("test-ios.yml", "ios-screenshots.yml")
+IOS_WORKFLOWS = ("test-ios.yml", "ios-screenshots.yml", "cmux-next-ios-kit.yml")
 # How far back an in-flight iOS run is charged its simulator jobs on the live
 # path: longer than any iOS run lives (ios-screenshots.yml's 300 minute
 # capture; see Live capacity).
@@ -209,7 +211,7 @@ PICKER_JOB = "runner"
 # The jobs that hold a mini's simulator: test-ios.yml's ios-simulator matrix
 # and ios-screenshots.yml's capture. ios-simulator-build carries SIM_LABEL only
 # to land on a mini with the runtime; glaeda runs it as an isolated build job.
-SIM_JOB = re.compile(r"ios-simulator(?: \(.*\))?|screenshots")
+SIM_JOB = re.compile(r"ios-simulator(?: \(.*\))?|screenshots|CmuxMobileKit tests \(macOS swift test, iOS simulator\)")
 # In-flight iOS runs whose jobs are read (one request each), newest first.
 MAX_JOB_READS = 20
 # Job statuses before a runner has taken the job.
@@ -234,8 +236,10 @@ LANES = {
     # mobile-core-package and ios-simulator-build run side by side; the
     # simulator matrix (iPhone, iPad) follows the build, two again.
     "test-ios": Lane(jobs=2, measured=True),
-    # One capture job.
+    # One capture or CmuxMobileKit job.
     "screenshots": Lane(jobs=1, measured=False),
+    # The kit job builds one iOS simulator target on one Mac.
+    "kit": Lane(jobs=1, measured=True),
 }
 # The most simulator jobs any one iOS run holds: test-ios.yml's two families.
 MAX_SIM_JOBS = 2
@@ -291,7 +295,7 @@ def retry_label(default: str) -> str:
 
 def sim_jobs(lane: str, device_family: str | None, swift_package: str | None = None) -> int:
     """The simulator jobs this run holds at once: one per device family, the one capture, or none."""
-    if lane == "screenshots":
+    if lane in ("screenshots", "kit"):
         return 1
     if (swift_package or "").strip():
         # mobile-core-package alone: SwiftPM tests on the host.
@@ -512,8 +516,11 @@ def charged_sim_jobs(run: Mapping[str, Any], placements: Placements | None = Non
     With `placements`, an `auto` run the picker sent to Blacksmith is charged nothing (see "Where an
     `auto` run went").
     """
-    if screenshots_run(run):
-        return LANES["screenshots"].jobs
+    kit_run = str(run.get("path") or "").split("@", 1)[0].endswith("/cmux-next-ios-kit.yml")
+    if screenshots_run(run) or kit_run:
+        if kit_run and placements is not None and placements.off_fleet(run, now or dt.datetime.now(dt.timezone.utc)):
+            return 0
+        return LANES["screenshots" if screenshots_run(run) else "kit"].jobs
     title = str(run.get("display_title") or "")
     fields = title.split(TITLE_SEPARATOR)
     if not title.startswith(TITLE_PREFIX) or len(fields) != 7 or not fields[6].startswith("on "):
@@ -531,8 +538,9 @@ def charged_sim_jobs(run: Mapping[str, Any], placements: Placements | None = Non
 
 def charged_jobs(run: Mapping[str, Any]) -> int:
     """The owned machines an in-flight iOS run may hold, read from its title; in full when unsure."""
-    if screenshots_run(run):
-        return LANES["screenshots"].jobs
+    kit_run = str(run.get("path") or "").split("@", 1)[0].endswith("/cmux-next-ios-kit.yml")
+    if screenshots_run(run) or kit_run:
+        return LANES["screenshots" if screenshots_run(run) else "kit"].jobs
     title = str(run.get("display_title") or "")
     fields = title.split(TITLE_SEPARATOR)
     if not title.startswith(TITLE_PREFIX) or len(fields) != 7 or not fields[6].startswith("on "):
@@ -786,14 +794,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
 
     route_token = (env.get("ROUTE_TOKEN") or "").strip()
 
-    def measure() -> IOSLoad:
-        if not token or not repo:
-            raise RuntimeError("GH_TOKEN and GH_REPO are required")
-        client = pr_runner_pool.GitHub(token, repo)
+    def read_load(client: Any, runners: Sequence[Mapping[str, Any]] | None) -> IOSLoad:
         pools = pr_runner_pool.owned_pools(args.pr_xcode_app)
-        if route_token and pools:
+        if runners is not None and pools:
             try:
-                runners = pr_runner_pool.GitHub(route_token, repo).runners()
                 since = pr_runner_pool.iso(now - dt.timedelta(minutes=SIM_WINDOW_MINUTES))
                 recent = in_flight_ios_runs(client, since, exclude_run_id=exclude)
                 capacity = pr_runner_pool.capability_slots(args.owned_slots).get(SIM_LABEL, 0)
@@ -801,13 +805,37 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 return IOSLoad(None, live=live_free(runners, pools[0], recent, now=now, capacity=capacity,
                                                     placements=placements, jobs=jobs))
             except Exception as error:  # noqa: BLE001 - the snapshot path still decides
-                print(f"::warning title=live owned capacity::could not list runners ({error}); using the snapshot",
+                print(f"::warning title=live owned capacity::could not read live capacity ({error}); using the snapshot",
                       file=sys.stderr)
         load = e2e_runner_pool.measure_load(client, now=now, exclude_run_id=exclude)
         if load is None:
             return IOSLoad(None)
         return IOSLoad(load, ios_runs_since(client, str(load.snapshot["generated_at"]), exclude_run_id=exclude,
                                             placements=owned_placements(client), now=now))
+
+    def measure() -> IOSLoad:
+        # The job token and routing App have separate quotas. Reuse the routing
+        # App for queue/artifact reads too; older callers that mint runner-only
+        # tokens retain one bounded fallback to the job token.
+        tokens = list(dict.fromkeys(value for value in (route_token, token) if value))
+        if not tokens or not repo:
+            raise RuntimeError("a GitHub token and GH_REPO are required")
+        runners = None
+        if route_token:
+            try:
+                runners = pr_runner_pool.GitHub(route_token, repo).runners()
+            except Exception as error:  # noqa: BLE001 - the snapshot still decides
+                print(f"::warning title=live owned capacity::could not list runners ({error}); using the snapshot",
+                      file=sys.stderr)
+        for index, read_token in enumerate(tokens):
+            try:
+                return read_load(pr_runner_pool.GitHub(read_token, repo), runners)
+            except Exception as error:  # noqa: BLE001 - no usable measurement keeps the default
+                if index + 1 == len(tokens):
+                    raise
+                print(f"::warning title=runner queue::routing-token read failed ({error}); trying the job token",
+                      file=sys.stderr)
+        raise AssertionError("unreachable")
 
     def log(message: str) -> None:
         print(message, file=sys.stderr)
