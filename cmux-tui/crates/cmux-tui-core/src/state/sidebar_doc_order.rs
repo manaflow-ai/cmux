@@ -105,11 +105,11 @@ pub(crate) fn sort_workspaces(
     // The current workspace anchors only from this machine's section (not a
     // pinned row before it) and never as Home; without one, a new row goes
     // first in the section, below a leading Home row.
-    let current = (top..placed.len()).find(|&index| {
-        let workspace = &placed[index];
-        !is_home(workspace)
+    let current = placed.iter().enumerate().skip(top).find_map(|(index, workspace)| {
+        (!is_home(workspace)
             && (workspace["active"].as_bool() == Some(true)
-                || workspace["focused"].as_bool() == Some(true))
+                || workspace["focused"].as_bool() == Some(true)))
+            .then_some(index)
     });
     let below_home = top + usize::from(placed.get(top).is_some_and(is_home));
     // Above this machine's archived tail, where adopting the new workspace puts it.

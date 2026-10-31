@@ -1,5 +1,5 @@
-import CmuxNextSettings
-import CmuxNextSidebar
+package import CmuxNextSettings
+package import CmuxNextSidebar
 
 /// `workspaces.newPlacement` for one new workspace whose entry point names
 /// no place (Cmd-N, the palette, the sidebar's +, `cmux workspace new`, a
