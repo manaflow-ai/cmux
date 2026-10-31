@@ -59,8 +59,8 @@ public nonisolated struct BrowserResizeTunables {
     /// How a Chromium page follows a pane divider or a column or row edge a person drags
     /// (Leo, 2026-10-26: "resizing the panes it propagates so fucking slowly to the right side browser tab
     /// thing"). Chromium draws in another process, so a page laid out at every frame's size shows each size
-    /// some frames after its pane. `BrowserDragResize` names the three ways; the default is the one the
-    /// split_resize harness measured to follow the drag best (`BrowserDragResize.default`).
+    /// some frames after its pane. `BrowserDragResize` names the four ways; resize sync is the default so
+    /// a Chromium page keeps pace with the pane during a drag.
     public static let dragResize = Tunable<BrowserDragResize>.choice(
         "browserResize.dragResize", section, "Page while a divider is dragged",
         help: "Live: the page lays out at every size, a few frames behind the divider. Hold: the page keeps its size and moves with the pane, clipped, and lays out once when the drag lands. Synced live: Chromium holds each app frame until the page has drawn at the new size (up to 500 ms); applies the next time Chromium starts. Resize sync: the page lays out at every size and each app frame waits for it up to the divider drag wait, at most half a display frame (Chromium fork API 27; Live below it).",
@@ -103,11 +103,9 @@ public nonisolated enum BrowserDragResize: String, Sendable, CaseIterable, Tunab
     /// (`CEFLayerHosting.paneResizeDrag`). Needs fork API 27 (`cmux_browser_set_resize_sync`); below it this is `live`.
     case resizeSync
 
-    /// Live: on the split_resize harness (the three variants back to back on one M4 capture Mac, 2026-10-27) it
-    /// lays the page out within half a frame of its pane with the fewest dropped app frames; hold lays out about
-    /// 400 ms after the release (Leo, on hold: "still lagging like shit when recalculating size/layout"), and
-    /// synced follows as closely but holds more app frames.
-    public static let `default` = BrowserDragResize.live
+    /// Resize sync is the shipped default. It keeps each pane frame aligned with the page frame up to the
+    /// bounded drag deadline; the CEF API fallback remains `live` when the published fork is unavailable.
+    public static let `default` = BrowserDragResize.resizeSync
 
     public var tunableTitle: String {
         switch self {
