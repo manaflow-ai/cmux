@@ -41,5 +41,4 @@
 .acpmux-handoff-review :focus-visible:not(:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"])):not([role="menu"], .ui-popup) { outline: 1px solid var(--agent-muted); outline-offset: 2px; }
 .acpmux-handoff-review [role=alert] { margin: 0; color: var(--agent-text); }
 .acpmux-handoff-header-tools { margin-left: auto; display: flex; align-items: center; gap: 8px; min-width: 0; }
-.acpmux-session-coverage { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; color: var(--agent-muted); }
 .acpmux-handoff-error { margin: 8px 24px; color: var(--agent-text); font-size: 12px; }

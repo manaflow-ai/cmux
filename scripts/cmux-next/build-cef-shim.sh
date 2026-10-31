@@ -11,7 +11,9 @@
 # Prints the output directory on stdout (progress goes to stderr); exits
 # non-zero on compile errors. The output is content-addressed,
 # <cache_dir>/<artifact>-<key>, where the key hashes the artifact, the shim
-# header (the ABI identity) and sources, this script, clang and the target.
+# header (the ABI identity) and sources, this script, clang and the target:
+# bytes and repository-relative names only, never a checkout path, so a later
+# checkout (each fleet step has its own directory) reuses the entry.
 # A finished directory is never changed or deleted, so worktrees and
 # concurrent builds that share the cache cannot disturb each other: a build
 # writes to a private temporary directory and renames it into place; when
@@ -36,15 +38,18 @@ SDK="$(xcrun --sdk macosx --show-sdk-path)"
 key="$(
   {
     cat "$CEF_DIR/CMUX-ARTIFACT.json" 2>/dev/null || cat "$CEF_DIR/archive.json"
-    find "$SHIM_DIR" -type f \( -name '*.h' -o -name '*.mm' \) -print0 | sort -z | xargs -0 shasum -a 256
+    (cd "$SHIM_DIR" && find . -type f \( -name '*.h' -o -name '*.mm' \) -print0 | sort -z | xargs -0 shasum -a 256)
     echo "abi $ABI_ID"
-    shasum -a 256 "${BASH_SOURCE[0]}"
+    shasum -a 256 < "${BASH_SOURCE[0]}"
     "$CXX" --version | head -n 1
     echo "$ARCH $MIN_OS"
   } | shasum -a 256 | awk '{print $1}'
 )"
 FINAL_DIR="$CACHE_DIR/$(basename "$CEF_DIR")-${key:0:16}"
 complete() { [[ -f "$1/.build-key" && "$(cat "$1/.build-key")" == "$key" && -f "$1/libcmux_cef_shim.dylib" && -x "$1/cmux-cef-helper" && -x "$1/cmux-chromium-host" ]]; }
+# A use refreshes the entry's mtime, so the week-old pruning below (here and
+# in other builds) removes only entries no build used for a week.
+touch -c "$FINAL_DIR" 2>/dev/null || true
 if complete "$FINAL_DIR"; then
   echo "$FINAL_DIR"
   exit 0
