@@ -329,7 +329,8 @@ Verdict: PASS (every round passed, 10 rounds or more at +15 GB; the `.pass` file
 summary, the rounds' leases, pressure and results, and the gate's commit; a gate with uncommitted
 changes never writes it), TRIAL PASS (all passed with fewer rounds or less swap: no `.pass`), FAIL
 (a round failed: the summary names its step), NOT JUDGED (no failure, but a round did not run or
-showed no memory pressure). A round counts only with its own fresh results for this build; `--out`
+showed no memory pressure), DIAGNOSTIC (`--diagnostic`: where the slot has no key window the lines are
+typed after the creation hold, every other check runs and is counted per round; never a `.pass`). A round counts only with its own fresh results for this build; `--out`
 must be a new folder. Writes `summary.json` and `summary.txt`. Test:
 `python3 scripts/journeys/test_smoke_gate.py`.
 

@@ -20,7 +20,8 @@ Steps (`do`):
                                       ${BIND} to the text. Needs `smoke_make_key` first in the journey; reads again
                                       that a main window is key (debug.window_list): another app window key is a
                                       fail (the app took the keys elsewhere), no app window key is "not run: known
-                                      gap".
+                                      gap" -- or, with the journey option smoke_mode=diagnostic, the keys are typed
+                                      after the creation hold and the round goes on (never a gate pass).
   smoke_remember_workspaces {}        keeps the workspace ids the app has now (the baseline)
   smoke_snapshot     {name}           keeps, before the keys that make terminals, the daemon terminals of the
                                       topology, each pane's tabs and the focused pane (smoke_new_terminals reads it)
@@ -84,27 +85,36 @@ def step_smoke_make_key(j, step):
     return {"window": window, "reply": reply, "key_window_now": took}
 
 
+def _diagnostic(j):
+    """`smoke_mode=diagnostic` (run.py --journey-option, the gate's --diagnostic): when no window of the app can be
+    key (a capture slot), type after the creation hold instead of at once, so the other steps are still checked.
+    Never a gate pass (smoke-gate.py writes no .pass file in this mode)."""
+    return (j.spec.get("options") or {}).get("smoke_mode") == "diagnostic"
+
+
 def step_smoke_type_now(j, step):
-    if not getattr(j, "smoke_key_ok", False):
-        # The slot's limit, not the build's: report it as not run (the gate counts that as no pass).
-        raise D.NotRun(GAP + f" (debug.window.focus said {json.dumps(getattr(j, 'smoke_key_reply', None))[:200]})")
     key_now, windows = _main_key(j)
-    if not key_now:
-        other = [w for w in windows if w["key"] is True]
-        if other:
-            # Another window of the app took the keys (a New Tab page's child window, a panel): the app's bug.
-            raise D.StepError(f"the keys would go to a window that is not a main window: {json.dumps(other)[:300]}")
-        # No window of the app is key any more: keys cannot be checked here (the slot's limit; never a pass).
-        raise D.NotRun(GAP + f" (no app window is key after smoke_make_key: {json.dumps(windows)[:200]})")
+    other = [w for w in windows if w["key"] is True and w["kind"] != "main"]
+    if not key_now and other:
+        # Another window of the app took the keys (a New Tab page's child window, a panel): the app's bug.
+        raise D.StepError(f"the keys would go to a window that is not a main window: {json.dumps(other)[:300]}")
+    waited = None
+    if not (getattr(j, "smoke_key_ok", False) and key_now):
+        if not _diagnostic(j):
+            # The slot's limit, not the build's: report it as not run (the gate counts that as no pass).
+            raise D.NotRun(GAP + f" (debug.window.focus said {json.dumps(getattr(j, 'smoke_key_reply', None))[:200]}; "
+                                 f"windows now {json.dumps(windows)[:200]})")
+        # Diagnostic: no key window, so held keys could not be replayed; type after the creation hold instead.
+        waited = j.outwait_creation_hold(getattr(j, "last_key_at", D.now()))
     text = j.sub(step["text"])
-    j.hold_from = None  # at once: never wait out the creation hold here
+    j.hold_from = None  # at once (or, diagnostic, the hold already waited out above)
     sent, replies = D.now(), []
     for char in text:
         replies.append(j.key(char, [], j.key_window))
     replies.append(j.key("return", [], j.key_window))
     if step.get("bind"):  # never `as`: the driver names the current terminal after any step with `as`
         j.vars[step["bind"]] = text
-    return {"typed": text, "keys": len(replies), "at": round(sent, 3),
+    return {"typed": text, "keys": len(replies), "at": round(sent, 3), "at_once": waited is None, "waited_hold_s": waited,
             "handled_by": sorted({str(r.get("handled_by")) for r in replies if isinstance(r, dict)})}
 
 
@@ -292,6 +302,10 @@ def _main_key(j):
 def cond_smoke_key_window(j, want, cache):
     """A main window is the app's key window: a read (debug.window_list), so the check does not make it key."""
     key_now, windows = _main_key(j)
+    if not key_now and _diagnostic(j) and not getattr(j, "smoke_key_ok", False) \
+            and not any(w["key"] is True for w in windows):
+        # Diagnostic on a slot: no window was ever key; the step's other checks still count.
+        return True, {"windows": windows, "diagnostic": "no key window on this slot (not checked)"}
     return key_now, {"windows": windows}
 
 

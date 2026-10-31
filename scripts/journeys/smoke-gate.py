@@ -19,6 +19,9 @@ Verdict:
     a passed journey counts only when the round's hog log shows memory pressure (pressure() below).
   - TRIAL PASS: every round passed, but with fewer than 10 rounds or less than +15 GB asked of the hog: no .pass.
 Each round must write its own results (a new --out folder; results of this build, newer than the round).
+  - DIAGNOSTIC (NOT JUDGED), with --diagnostic: where the slot has no key window, the lines are typed after the
+    creation hold, not at once; every other step is checked and each check's pass count is reported. Never a .pass
+    file (exit 1 when a round failed, else 75).
 Writes OUT/summary.json and OUT/summary.txt. Exit 0 PASS, 1 FAIL, 75 NOT JUDGED, 2 usage.
 Never run it on a person's Mac: the hog fills the memory up to swap.
 """
@@ -134,8 +137,36 @@ def failing_step(out):
     return None
 
 
+def step_results(out):
+    """Each step of the round's journey: index, do, title, ok, error (short), for the per-step report."""
+    path = out / JOURNEY / "result.json"
+    if not path.is_file():
+        return []
+    try:
+        steps = json.loads(path.read_text()).get("steps", [])
+    except ValueError:
+        return []
+    return [{"index": st.get("index"), "do": st.get("do"), "title": st.get("title"), "ok": st.get("ok"),
+             "finally": bool(st.get("finally")), "error": (st.get("error") or "")[:300]} for st in steps]
+
+
 def frames(out):
     return sorted(str(p.relative_to(out)) for p in (out / JOURNEY).glob("check-*.png")) if (out / JOURNEY).is_dir() else []
+
+
+def expect_table(rounds):
+    """For each expect step (by its title): in how many rounds it was reached, passed and failed."""
+    table = {}
+    for r in rounds:
+        for st in r["steps"]:
+            if st["do"] != "expect" or st["finally"]:
+                continue
+            row = table.setdefault(st["title"] or f"step {st['index']}", {"reached": 0, "passed": 0, "failed": 0, "errors": []})
+            row["reached"] += 1
+            row["passed" if st["ok"] else "failed"] += 1
+            if not st["ok"] and len(row["errors"]) < 3:
+                row["errors"].append(f"round {r['round']}: {st['error'][:200]}")
+    return table
 
 
 def main(argv=None):
@@ -146,6 +177,9 @@ def main(argv=None):
     ap.add_argument("--swap-gb", type=float, default=15.0)
     ap.add_argument("--hosts", default="cmux17 cmux18 cmux19 cmux20 cmux21 cmux22 cmux23 cmux24")
     ap.add_argument("--out")
+    ap.add_argument("--diagnostic", action="store_true",
+                    help="no type-at-once where the slot has no key window (type after the creation hold); every "
+                         "other step is still checked and reported. Verdict DIAGNOSTIC: never a .pass file")
     ap.add_argument("--handoff", default=str(HANDOFF))
     ap.add_argument("--runner", default=str(HERE / "run.py"), help=argparse.SUPPRESS)  # tests: a stand-in for run.py
     opts = ap.parse_args(argv)
@@ -156,7 +190,7 @@ def main(argv=None):
     if out.exists() and any(out.iterdir()):
         ap.error(f"--out {out} is not empty: each gate run needs a new folder (old rounds must never count)")
     out.mkdir(parents=True, exist_ok=True)
-    gate_run = opts.rounds >= GATE_ROUNDS and opts.swap_gb >= GATE_SWAP_GB
+    gate_run = opts.rounds >= GATE_ROUNDS and opts.swap_gb >= GATE_SWAP_GB and not opts.diagnostic
     gate_sha = git("rev-parse", "HEAD").stdout.strip()
     dirty = bool(git("status", "--porcelain", "--", *GATE_PATHS).stdout.strip())
 
@@ -178,7 +212,8 @@ def main(argv=None):
         env["CAPTURE_HOST_HOSTS"] = env["CAPTURE_HOST_SLOT_HOSTS"] = hosts
         done = subprocess.run([sys.executable, opts.runner, "--build", opts.build, "--journey", JOURNEY,
                                "--exclusive", "--hog-swap-gb", str(opts.swap_gb), "--hosts", hosts,
-                               "--out", str(round_out)], capture_output=True, text=True, env=env)
+                               "--out", str(round_out), *(["--journey-option", "smoke_mode=diagnostic"] if opts.diagnostic else [])],
+                              capture_output=True, text=True, env=env)
         (round_out / "run.log").parent.mkdir(parents=True, exist_ok=True)
         (round_out / "run.log").write_text(done.stdout + done.stderr)
         row = round_result(round_out, opts.build, done.returncode, started)
@@ -189,7 +224,7 @@ def main(argv=None):
         if row.get("status") == "pass" and not exclusive:
             row = dict(row, status="not run", reason="capture-host did not say the lease's mini was exclusive (acquire.log)")
         leases = sorted({w for w in (done.stdout + done.stderr).split() if w.startswith("slot-")})
-        record = {"round": n, "status": row.get("status"), "reason": row.get("reason"), "host": row.get("host"),
+        record = {"round": n, "steps": step_results(round_out), "status": row.get("status"), "reason": row.get("reason"), "host": row.get("host"),
                   "seconds": round(time.time() - started), "failing_step": failing_step(round_out),
                   "frames": frames(round_out), "hog_logs": sorted(p.name for p in round_out.glob("hog-*.jsonl")), "pressure": hog, "hosts_offered": hosts, "exclusive": exclusive,
                   "known_gap": "known gap" in str(row.get("reason") or ""), "leases": leases}
@@ -202,9 +237,13 @@ def main(argv=None):
     failed = [r for r in rounds if r["status"] == "fail"]
     not_run = [r for r in rounds if r["status"] not in ("pass", "fail")]
     verdict = ("PASS" if gate_run else "TRIAL PASS") if passed == opts.rounds else ("FAIL" if failed else "NOT JUDGED")
+    if opts.diagnostic:
+        # Diagnostic rounds judge nothing: their findings are in the per-step report.
+        verdict = "DIAGNOSTIC (NOT JUDGED)"
     summary = {"build": opts.build, "journey": JOURNEY, "rounds": opts.rounds, "passed": passed,
                "failed": len(failed), "not_run": len(not_run), "verdict": verdict, "swap_gb": opts.swap_gb,
-               "gate_commit": gate_sha, "gate_dirty": dirty, "gate_run": gate_run, "known_gap_rounds": [r["round"] for r in rounds if r["known_gap"]],
+               "gate_commit": gate_sha, "gate_dirty": dirty, "gate_run": gate_run, "diagnostic": opts.diagnostic,
+               "expects": expect_table(rounds), "known_gap_rounds": [r["round"] for r in rounds if r["known_gap"]],
                "rounds_detail": rounds, "out": str(out)}
     (out / "summary.json").write_text(json.dumps(summary, indent=1))
     lines = [f"dogfood smoke gate for build {opts.build}: {verdict} ({passed} of {opts.rounds} rounds passed; "
@@ -214,6 +253,11 @@ def main(argv=None):
     if summary["known_gap_rounds"]:
         lines.append(f"KNOWN GAP in rounds {summary['known_gap_rounds']}: the capture slot could not make the window key, "
                      "so keys typed into a new terminal while it is made were not checked; not a pass")
+    if opts.diagnostic:
+        lines.append("DIAGNOSTIC: no type-at-once where the slot has no key window; no .pass file. Each check:")
+        for title, row in summary["expects"].items():
+            lines.append(f"  {row['passed']}/{row['reached']} passed (of {opts.rounds} rounds): {title}"
+                         + (f" -- {row['errors'][0]}" if row["errors"] else ""))
     for r in rounds:
         detail = r["failing_step"] and f"{r['failing_step']['do']}: {r['failing_step']['error'][:200]}"
         hog = r["pressure"]
@@ -236,7 +280,7 @@ def main(argv=None):
         (handoff / f"{opts.build}.pass").write_text(json.dumps(summary, indent=1) + "\n")
         print(f"wrote {handoff / (opts.build + '.pass')}")
         return 0
-    return 1 if verdict == "FAIL" else 75
+    return 1 if verdict == "FAIL" or (opts.diagnostic and failed) else 75
 
 
 if __name__ == "__main__":

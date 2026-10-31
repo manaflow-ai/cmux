@@ -513,6 +513,9 @@ def main(argv=None):
                     help="memory pressure during each lease: the Austin's-day hog to this much swap above the start")
     ap.add_argument("--exclusive", action="store_true",
                     help="take each lease exclusive (the whole mini; capture-host acquire --slot --exclusive): for evidence")
+    ap.add_argument("--journey-option", action="append", default=[], metavar="KEY=VALUE",
+                    help="an option the chosen journeys' step groups read (spec `options`; e.g. the smoke gate's "
+                         "smoke_mode=diagnostic); repeatable")
     ap.add_argument("--frame-interval", type=float, default=1.0, help="seconds between clip frames (>= 0.25)")
     ap.add_argument("--build-wait-minutes", type=float, default=90, help="how long to wait for a running build")
     ap.add_argument("--list", action="store_true", help="print the journeys and exit")
@@ -535,6 +538,14 @@ def main(argv=None):
     chosen = select(specs, opts)
     if not chosen:
         ap.error("no journey selected")
+    options = {}
+    for item in opts.journey_option:
+        key, sep, value = item.partition("=")
+        if not sep or not re.fullmatch(r"[a-z][a-z0-9_]*", key):
+            ap.error(f"--journey-option takes KEY=VALUE (KEY lowercase letters, digits, _): {item!r}")
+        options[key] = value
+    if options:
+        chosen = [dict(s, options=dict(s.get("options") or {}, **options)) for s in chosen]
     if opts.hosts:
         os.environ["CAPTURE_HOST_SLOT_HOSTS"] = os.environ["CAPTURE_HOST_HOSTS"] = opts.hosts
     exclude = os.environ.get("JOURNEYS_EXCLUDE_HOSTS", "cmux16")

@@ -42,6 +42,11 @@ if status == "gap":
 if status == "fail":
     json.dump({"steps": [{"do": "smoke_type_now", "ok": False, "error": "keys lost"}]},
               open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
+if "--journey-option" in args:
+    open(os.path.join(out, "options.txt"), "w").write(args[args.index("--journey-option") + 1])
+    json.dump({"steps": [{"index": 5, "do": "expect", "title": "Cmd-D twice fast", "ok": status == "pass",
+                          "error": "" if status == "pass" else "no new pane"}]},
+              open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
 open(os.path.join(out, "results.jsonl"), "w").write(json.dumps(row) + "\n")
 print("leased slot-cmux99-abc")
 if os.environ.get("SMOKE_EXCLUSIVE", "yes") == "yes":
@@ -111,6 +116,20 @@ class Verdicts(unittest.TestCase):
             gate(["pass"], tmp, env_extra={"CAPTURE_HOST_POOL": "other-pool"})
             with open(os.path.join(tmp, "out", "round-01", "env.json")) as f:
                 self.assertEqual(json.load(f)["CAPTURE_HOST_POOL"], "other-pool")
+
+    def test_diagnostic_rounds_report_each_check_and_never_write_the_pass_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, summary = gate(["pass"] * 9 + ["fail"], tmp, ("--diagnostic",))
+            self.assertEqual((code, summary["verdict"], summary["gate_run"]), (1, "DIAGNOSTIC (NOT JUDGED)", False))
+            self.assertEqual(summary["expects"]["Cmd-D twice fast"], {"reached": 10, "passed": 9, "failed": 1,
+                                                                      "errors": ["round 10: no new pane"]})
+            with open(os.path.join(tmp, "out", "round-01", "options.txt")) as f:
+                self.assertEqual(f.read(), "smoke_mode=diagnostic")
+            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+        with tempfile.TemporaryDirectory() as tmp:
+            code, summary = gate(["pass"] * 10, tmp, ("--diagnostic",))
+            self.assertEqual((code, summary["verdict"]), (75, "DIAGNOSTIC (NOT JUDGED)"))
+            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
 
     def test_a_trial_never_writes_the_pass_file(self):
         for plan, extra in ((["pass"] * 3, ()), (["pass"] * 10, ("--swap-gb", "4"))):
@@ -238,6 +257,8 @@ class NewTerminals(unittest.TestCase):
         class J:
             app = App()
             vars = {}
+            spec = {}
+            key_window = None
 
             def sub(self_, x):
                 return x
@@ -322,6 +343,26 @@ class NewTerminals(unittest.TestCase):
             self.ext.step_smoke_type_now(j, {"text": "echo x"})
         self.assertIn("not a main window", str(caught.exception))
         self.assertEqual(typed, [])
+
+    def test_diagnostic_mode_types_after_the_hold_when_no_window_is_key(self):
+        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
+        j.spec = {"options": {"smoke_mode": "diagnostic"}}
+        j.smoke_key_ok, typed, waited = False, [], []
+        j.app.rpc = lambda method, params=None: {"windows": [{"id": 1, "kind": "main", "key": False}]}
+        j.key = lambda *a: typed.append(a)
+        j.outwait_creation_hold = lambda since: waited.append(since) or 2.5
+        j.last_key_at = 7.0
+        result = self.ext.step_smoke_type_now(j, {"text": "ab"})
+        self.assertEqual((result["at_once"], result["waited_hold_s"], waited, len(typed)), (False, 2.5, [7.0], 3))
+        ok, detail = self.ext.cond_smoke_key_window(j, {}, {})
+        self.assertTrue(ok, detail)
+        # Another app window key is still a fail in diagnostic mode.
+        j.app.rpc = lambda method, params=None: {"windows": [{"id": 1, "kind": "main", "key": False},
+                                                             {"id": 2, "kind": "ChromiumChild", "key": True}]}
+        with self.assertRaises(self.StepError):
+            self.ext.step_smoke_type_now(j, {"text": "ab"})
+        ok, detail = self.ext.cond_smoke_key_window(j, {}, {})
+        self.assertFalse(ok, detail)
 
     def test_each_workspace_line_in_its_own_new_workspace(self):
         before = [("w0", "p0", "a", "T0", True)]
