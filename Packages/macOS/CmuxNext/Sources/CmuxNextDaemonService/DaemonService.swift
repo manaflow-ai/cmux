@@ -453,11 +453,12 @@ public final class DaemonService {
         self.connection = connection
         let recovery = recovery
         let mainWork = mainWork
+        let owner = mainWork.board.owner("DaemonRecovery.answering")
         connection.observeAnswering { [weak connection] answering in
-            // One visible main task per heartbeat edge or unanswered ask (at most one per heartbeat interval). On main
-            // it reads the connection's answering again, so posts that land out of order never leave a stale state;
-            // an unanswered ask that still holds probes the owner once more.
-            mainWork.post(.visible, owner: "DaemonRecovery.answering") {
+            // On the heartbeat's timer task (off main): one visible main task per heartbeat edge or unanswered ask (at
+            // most one per heartbeat interval). On main it reads the connection's answering again, so posts that land
+            // out of order never leave a stale state; an unanswered ask that still holds probes the owner once more.
+            mainWork.postFromAnyThread(.visible, owner: owner) {
                 guard let connection else { return }
                 let now = connection.daemonAnswering
                 if now == answering || now { recovery.noteDaemonAnswering(now) }
