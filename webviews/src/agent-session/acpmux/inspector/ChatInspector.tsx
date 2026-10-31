@@ -1173,6 +1173,7 @@ export function ChatInspector({
         onOpenDocument={onOpenDocument}
         onOpenFile={onOpenOutput}
         onOpenArtifacts={rows.length > 0 ? () => setGallery(true) : undefined}
+        onOpenBeside={onOpenUrl}
       />
     </InspectorSection>
   );
