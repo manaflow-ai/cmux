@@ -1,0 +1,543 @@
+{
+ "id": "close-then-type",
+ "priority": "P0",
+ "title": "Cmd-W on the focused right pane, then a line typed at once: the whole line runs in the left pane (8 tries)",
+ "why": "STATUS 1333/1353: journey r3-after-switch round s3 (cmux19, build a0f707a2) pressed Cmd-W in the right pane and typed at once; the left shell ran 'cho ...'. A person's Cmd-W on a live terminal waits for the daemon's read (TabCloseGuard) and the closing terminal keeps the keyboard meanwhile, so the first key went into it.",
+ "source": "P0 close-then-type (cmux-ad, 2026-10-31): a key typed after a close goes to the pane that has the focus after the close, never dropped",
+ "budget_seconds": 200,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-close-type"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "left"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 70% x 70% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.7,
+    0.7
+   ]
+  },
+  {
+   "do": "type",
+   "text": "echo keep-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "key",
+   "title": "try 1: Cmd-D",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "adopt_pane",
+   "as": "r1"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "use_pane",
+   "pane": "r1",
+   "click": true,
+   "title": "try 1: click into the right pane"
+  },
+  {
+   "do": "key",
+   "title": "try 1: Cmd-W closes the focused right pane",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "c1"
+  },
+  {
+   "do": "use_pane",
+   "pane": "left"
+  },
+  {
+   "do": "type",
+   "title": "try 1: a line typed at once after Cmd-W",
+   "text": "echo ct1-${nonce}x$((6*7))",
+   "enter": true,
+   "mark": "t1"
+  },
+  {
+   "do": "expect",
+   "title": "try 1: the whole line ran in the left pane (its first key too), the right pane is gone",
+   "since": "t1",
+   "timeout": 10,
+   "all": [
+    {
+     "pane_state": {
+      "pane": "r1",
+      "gone": true
+     }
+    },
+    {
+     "daemon_line": "ct1-${nonce}x42"
+    },
+    {
+     "app_text_line": "ct1-${nonce}x42"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "title": "try 2: Cmd-D",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "adopt_pane",
+   "as": "r2"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "use_pane",
+   "pane": "r2",
+   "click": true,
+   "title": "try 2: click into the right pane"
+  },
+  {
+   "do": "key",
+   "title": "try 2: Cmd-W closes the focused right pane",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "c2"
+  },
+  {
+   "do": "use_pane",
+   "pane": "left"
+  },
+  {
+   "do": "type",
+   "title": "try 2: a line typed at once after Cmd-W",
+   "text": "echo ct2-${nonce}x$((6*7))",
+   "enter": true,
+   "mark": "t2"
+  },
+  {
+   "do": "expect",
+   "title": "try 2: the whole line ran in the left pane (its first key too), the right pane is gone",
+   "since": "t2",
+   "timeout": 10,
+   "all": [
+    {
+     "pane_state": {
+      "pane": "r2",
+      "gone": true
+     }
+    },
+    {
+     "daemon_line": "ct2-${nonce}x42"
+    },
+    {
+     "app_text_line": "ct2-${nonce}x42"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "title": "try 3: Cmd-D",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "adopt_pane",
+   "as": "r3"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "use_pane",
+   "pane": "r3",
+   "click": true,
+   "title": "try 3: click into the right pane"
+  },
+  {
+   "do": "key",
+   "title": "try 3: Cmd-W closes the focused right pane",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "c3"
+  },
+  {
+   "do": "use_pane",
+   "pane": "left"
+  },
+  {
+   "do": "type",
+   "title": "try 3: a line typed at once after Cmd-W",
+   "text": "echo ct3-${nonce}x$((6*7))",
+   "enter": true,
+   "mark": "t3"
+  },
+  {
+   "do": "expect",
+   "title": "try 3: the whole line ran in the left pane (its first key too), the right pane is gone",
+   "since": "t3",
+   "timeout": 10,
+   "all": [
+    {
+     "pane_state": {
+      "pane": "r3",
+      "gone": true
+     }
+    },
+    {
+     "daemon_line": "ct3-${nonce}x42"
+    },
+    {
+     "app_text_line": "ct3-${nonce}x42"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "title": "try 4: Cmd-D",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "adopt_pane",
+   "as": "r4"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "use_pane",
+   "pane": "r4",
+   "click": true,
+   "title": "try 4: click into the right pane"
+  },
+  {
+   "do": "key",
+   "title": "try 4: Cmd-W closes the focused right pane",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "c4"
+  },
+  {
+   "do": "use_pane",
+   "pane": "left"
+  },
+  {
+   "do": "type",
+   "title": "try 4: a line typed at once after Cmd-W",
+   "text": "echo ct4-${nonce}x$((6*7))",
+   "enter": true,
+   "mark": "t4"
+  },
+  {
+   "do": "expect",
+   "title": "try 4: the whole line ran in the left pane (its first key too), the right pane is gone",
+   "since": "t4",
+   "timeout": 10,
+   "all": [
+    {
+     "pane_state": {
+      "pane": "r4",
+      "gone": true
+     }
+    },
+    {
+     "daemon_line": "ct4-${nonce}x42"
+    },
+    {
+     "app_text_line": "ct4-${nonce}x42"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "title": "try 5: Cmd-D",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "adopt_pane",
+   "as": "r5"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "use_pane",
+   "pane": "r5",
+   "click": true,
+   "title": "try 5: click into the right pane"
+  },
+  {
+   "do": "key",
+   "title": "try 5: Cmd-W closes the focused right pane",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "c5"
+  },
+  {
+   "do": "use_pane",
+   "pane": "left"
+  },
+  {
+   "do": "type",
+   "title": "try 5: a line typed at once after Cmd-W",
+   "text": "echo ct5-${nonce}x$((6*7))",
+   "enter": true,
+   "mark": "t5"
+  },
+  {
+   "do": "expect",
+   "title": "try 5: the whole line ran in the left pane (its first key too), the right pane is gone",
+   "since": "t5",
+   "timeout": 10,
+   "all": [
+    {
+     "pane_state": {
+      "pane": "r5",
+      "gone": true
+     }
+    },
+    {
+     "daemon_line": "ct5-${nonce}x42"
+    },
+    {
+     "app_text_line": "ct5-${nonce}x42"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "title": "try 6: Cmd-D",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "adopt_pane",
+   "as": "r6"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "use_pane",
+   "pane": "r6",
+   "click": true,
+   "title": "try 6: click into the right pane"
+  },
+  {
+   "do": "key",
+   "title": "try 6: Cmd-W closes the focused right pane",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "c6"
+  },
+  {
+   "do": "use_pane",
+   "pane": "left"
+  },
+  {
+   "do": "type",
+   "title": "try 6: a line typed at once after Cmd-W",
+   "text": "echo ct6-${nonce}x$((6*7))",
+   "enter": true,
+   "mark": "t6"
+  },
+  {
+   "do": "expect",
+   "title": "try 6: the whole line ran in the left pane (its first key too), the right pane is gone",
+   "since": "t6",
+   "timeout": 10,
+   "all": [
+    {
+     "pane_state": {
+      "pane": "r6",
+      "gone": true
+     }
+    },
+    {
+     "daemon_line": "ct6-${nonce}x42"
+    },
+    {
+     "app_text_line": "ct6-${nonce}x42"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "title": "try 7: Cmd-D",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "adopt_pane",
+   "as": "r7"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "use_pane",
+   "pane": "r7",
+   "click": true,
+   "title": "try 7: click into the right pane"
+  },
+  {
+   "do": "key",
+   "title": "try 7: Cmd-W closes the focused right pane",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "c7"
+  },
+  {
+   "do": "use_pane",
+   "pane": "left"
+  },
+  {
+   "do": "type",
+   "title": "try 7: a line typed at once after Cmd-W",
+   "text": "echo ct7-${nonce}x$((6*7))",
+   "enter": true,
+   "mark": "t7"
+  },
+  {
+   "do": "expect",
+   "title": "try 7: the whole line ran in the left pane (its first key too), the right pane is gone",
+   "since": "t7",
+   "timeout": 10,
+   "all": [
+    {
+     "pane_state": {
+      "pane": "r7",
+      "gone": true
+     }
+    },
+    {
+     "daemon_line": "ct7-${nonce}x42"
+    },
+    {
+     "app_text_line": "ct7-${nonce}x42"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "title": "try 8: Cmd-D",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "adopt_pane",
+   "as": "r8"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "use_pane",
+   "pane": "r8",
+   "click": true,
+   "title": "try 8: click into the right pane"
+  },
+  {
+   "do": "key",
+   "title": "try 8: Cmd-W closes the focused right pane",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "c8"
+  },
+  {
+   "do": "use_pane",
+   "pane": "left"
+  },
+  {
+   "do": "type",
+   "title": "try 8: a line typed at once after Cmd-W",
+   "text": "echo ct8-${nonce}x$((6*7))",
+   "enter": true,
+   "mark": "t8"
+  },
+  {
+   "do": "expect",
+   "title": "try 8: the whole line ran in the left pane (its first key too), the right pane is gone",
+   "since": "t8",
+   "timeout": 10,
+   "all": [
+    {
+     "pane_state": {
+      "pane": "r8",
+      "gone": true
+     }
+    },
+    {
+     "daemon_line": "ct8-${nonce}x42"
+    },
+    {
+     "app_text_line": "ct8-${nonce}x42"
+    }
+   ]
+  },
+  {
+   "do": "expect",
+   "title": "the last line shows on screen",
+   "timeout": 10,
+   "all": [
+    {
+     "pane_frame_text": "ct8-${nonce}x42"
+    },
+    {
+     "daemon_lacks": "command not found"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}
