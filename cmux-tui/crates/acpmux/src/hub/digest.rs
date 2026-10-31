@@ -308,9 +308,11 @@ impl Hub {
         if inbox_digest::is_digest(head.provenance.as_ref()) {
             return Vec::new();
         }
+        // A review box runs each agent message as its own prompt behind the review (`inbox.rs`).
         if head.agent.is_none()
             || super::forum::slash_command(&head.blocks).is_some()
             || crate::prompt_uploads::any(&head.blocks)
+            || super::inbox::review_box(session)
         {
             return Vec::new();
         }

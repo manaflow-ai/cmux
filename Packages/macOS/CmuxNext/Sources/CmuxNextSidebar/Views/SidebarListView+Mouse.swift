@@ -162,10 +162,9 @@ extension SidebarListViewComponents {
             model.send(.activateItem(LayoutItemID(item), opensWorkspace: event.modifierFlags.contains(.option)))
         case let .status(section):
             model.toggleStatusSection(section)
-        case let .doneFold(fold):
-            if openDoneFolds.remove(fold) == nil { openDoneFolds.insert(fold) }
-        case let .showMore(list):
-            if openShowMore.remove(list) == nil { openShowMore.insert(list) }
+        case .doneFold, .showMore:
+            _ = SidebarFoldAction(list: self).toggle(press.key)
+            return
         case let .emptyGroup(group):
             // The group's empty row makes a workspace in it, as the header's + does; the new row lays the list out.
             onGroupEditorItem?(group, "workspaceGroup.newWorkspace")

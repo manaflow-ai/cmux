@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 756,
-    "mcp": 674
+    "verbs": 758,
+    "mcp": 676
   },
   "nouns": [
     {
@@ -688,6 +688,13 @@
           "id": "palette.disableBrowser",
           "mcp": false,
           "mcpTool": null
+        },
+        {
+          "command": "cmux browser edit-source",
+          "title": "Edit Source",
+          "id": "browser.editSource",
+          "mcp": true,
+          "mcpTool": "app_browser_edit_source"
         },
         {
           "command": "cmux browser enable",
@@ -1765,6 +1772,13 @@
           "id": "home.channels",
           "mcp": true,
           "mcpTool": "app_home_channels"
+        },
+        {
+          "command": "cmux home close-new-message",
+          "title": "Close New Message",
+          "id": "home.closeNewMessage",
+          "mcp": true,
+          "mcpTool": "app_home_close_new_message"
         },
         {
           "command": "cmux home delete-chief",

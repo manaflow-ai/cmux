@@ -148,7 +148,7 @@ final class HandoffNotices {
         let tab = tab(showing: end.record.key)
         if let tab, center.isViewed(tab) { return center.note("handoff \(end.record.id) \(end.outcome.rawValue) viewed") }
         var arrival = NotificationPolicy.Arrival(source: .agent)
-        arrival.appActive = NSApp.isActive
+        arrival.appActive = services?.appActiveSource() ?? false
         arrival.soundEvent = end.outcome == .succeeded ? .finished : end.outcome == .needsYou ? .message : .error
         let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
         arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
@@ -156,7 +156,7 @@ final class HandoffNotices {
         center.note("handoff \(end.record.id) \(end.outcome.rawValue) \(decision)")
         guard !decision.acknowledge, center.desktopPostingEnabled else { return }
         center.soundGate.admit(&decision, cooldownSeconds: center.preferences.sounds.cooldownSeconds)
-        let chat = tab.flatMap { services?.locateTab($0)?.0.title }
+        let chat = tab.flatMap { services?.locateTabOnAnyMachine($0)?.0.title }
         let text = Self.text(end, chat: chat)
         if decision.desktop {
             // One banner per hand-off: its end replaces the needs-you banner it posted before.
