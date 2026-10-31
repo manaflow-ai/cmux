@@ -354,7 +354,8 @@ class Session:
         """Keeps the path the app reported for one of this run's downloads, when its file name starts with that
         download's token (the ops name each download "<token>-..."): a file the run did not make is never kept."""
         destination = row.get("destination") or ""
-        if destination and os.path.basename(destination).startswith(token):
+        # "<token>-": the token ends at a dash, so fz5-12 never matches fz5-123456-... (review of #29769).
+        if destination and os.path.basename(destination).startswith(token + "-"):
             self.download_paths.add(destination)
 
     def cleanup(self):
@@ -377,8 +378,11 @@ class Session:
         worker.start()
         worker.join(DOWNLOAD_DELETE_S)
         if worker.is_alive():
-            self.notes.append(f"the delete of {len(paths)} download(s) did not finish in {DOWNLOAD_DELETE_S:.0f} s; "
-                              f"left in place: {[os.path.basename(p)[:60] for p in paths]}")
+            # Printed, not only noted: run_ops has copied the notes before its end steps run (review of #29769).
+            note = (f"the delete of {len(paths)} download(s) did not finish in {DOWNLOAD_DELETE_S:.0f} s; "
+                    f"left in place: {[os.path.basename(p)[:60] for p in paths]}")
+            self.notes.append(note)
+            print(f"browser-fuzz: cleanup: {note}", flush=True)
 
     # -- model
 
@@ -687,9 +691,9 @@ class Session:
         name = op.get("name") or f"{self.run}-fuzz.bin"
         url = self.site.origin + f"/download?kb={int(op.get('kb', 1))}&name={urllib.parse.quote(name, safe='')}"
         self.call("browser.page.navigate", {"tab": tab, "url": url}, index=index)
-        # The ops name each download "<run token>-<n>-..." (fuzz_model.generate); cleanup deletes only that prefix.
+        # The ops name each download "<run token>-<n>-..." (fuzz_model.generate): "<run token>-<n>" is the download's
+        # token, and record_download keeps the reported path only when its file name starts with that token and a dash.
         token = name.split("-")[0] + "-" + name.split("-")[1] if name.count("-") >= 2 else self.run
-        self.download_token = token
         deadline = time.monotonic() + 30
         row = None
         while time.monotonic() < deadline:
