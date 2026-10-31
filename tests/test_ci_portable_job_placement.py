@@ -1,0 +1,214 @@
+#!/usr/bin/env python3
+"""Portable jobs: fleet Linux first, then a free mini with no nightly waiting, Blacksmith last.
+
+scripts/ci/portable_job_placement.py places the cmux-next checks, the CI guard group, the
+release-notary guards, the tooling tests and the cmux-tui macOS targets (Leo, 2026-10-31: "i mean
+the linux things cant our minis just run them"). These cases pin its order and its refusals, and
+the workflows' wiring of its outputs.
+"""
+from __future__ import annotations
+
+import datetime as dt
+import importlib.util
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts/ci/portable_job_placement.py"
+WORKFLOWS = ROOT / ".github/workflows"
+SIDE = "glaeda-side-light-xcode-26.6"
+STD_SIDE = "glaeda-side-std-xcode-26.6"
+NOW = dt.datetime(2026, 10, 31, 12, 0, tzinfo=dt.timezone.utc)
+JOBS = "ci-guard-group tooling-tests release-notary"
+
+
+def load():
+    spec = importlib.util.spec_from_file_location("portable_job_placement", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["portable_job_placement"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+placement = load()
+
+
+def runner(name: str, label: str = SIDE, *, busy: bool = False, status: str = "online") -> dict:
+    owned = label.replace("glaeda-side-", "glaeda-")
+    return {"name": name, "status": status, "busy": busy,
+            "labels": [{"name": item} for item in ("self-hosted", owned, label)]}
+
+
+def snapshot(pools: dict | None = None, *, age_minutes: int = 2) -> dict:
+    generated = (NOW - dt.timedelta(minutes=age_minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {"generated_at": generated, "pools": pools or {}}
+
+
+def env(**overrides: str) -> dict:
+    return {"JOBS": JOBS, "SIDE_LABEL": SIDE, "FLEET_LINUX": "blacksmith-4vcpu-ubuntu-2404",
+            "GITHUB_RUN_ATTEMPT": "1", **overrides}
+
+
+def idle(count: int, label: str = SIDE) -> list[dict]:
+    return [runner(f"cmux{index}-glaeda", label) for index in range(count)]
+
+
+class Decide(unittest.TestCase):
+    def test_idle_minis_take_the_jobs_in_order_when_there_is_no_fleet_linux(self):
+        placed = placement.decide(env(), idle(2), snapshot(), NOW)
+        self.assertEqual(placed.mini_runner, SIDE)
+        self.assertEqual(placed.mini_jobs, ("ci-guard-group", "tooling-tests"))
+        self.assertEqual((placed.linux_runner, placed.linux_jobs), ("", ()))
+        self.assertIn("release-notary take Blacksmith", placed.why)
+
+    def test_fleet_linux_comes_before_the_minis(self):
+        placed = placement.decide(env(FLEET_LINUX="gcp-linux-32"), idle(5), snapshot(), NOW)
+        self.assertEqual(placed.linux_runner, "gcp-linux-32")
+        self.assertEqual(placed.linux_jobs, tuple(JOBS.split()))
+        self.assertEqual(placed.mini_jobs, ())
+
+    def test_a_mac_first_job_takes_a_mini_before_fleet_linux(self):
+        placed = placement.decide(env(FLEET_LINUX="gcp-linux-32", MAC_FIRST="tooling-tests"),
+                                  idle(1), snapshot(), NOW)
+        self.assertEqual(placed.linux_jobs, ("ci-guard-group", "release-notary"))
+        self.assertEqual(placed.mini_jobs, ("tooling-tests",))
+
+    def test_blacksmith_and_hosted_labels_are_not_fleet_linux(self):
+        for label in ("blacksmith-32vcpu-ubuntu-2404", "ubuntu-24.04", "macos-26", "", "  "):
+            with self.subTest(label=label):
+                self.assertEqual(placement.fleet_linux(label), "")
+        self.assertEqual(placement.fleet_linux("gcp-linux-32"), "gcp-linux-32")
+
+    def test_a_nightly_waiting_on_the_family_keeps_every_job_off_the_minis(self):
+        # Nightly jobs come first on the fleet: one queued on any label of the family (here the root
+        # label) holds the minis for it.
+        pools = {"glaeda-root-light-xcode-26.6": {"queued": 1, "reserved_queued": 1}}
+        placed = placement.decide(env(), idle(4), snapshot(pools), NOW)
+        self.assertEqual(placed.mini_jobs, ())
+        self.assertIn("nightly", placed.why)
+
+    def test_another_familys_nightly_does_not_hold_these_minis(self):
+        pools = {"glaeda-std-xcode-26.6": {"queued": 1, "reserved_queued": 1}}
+        placed = placement.decide(env(), idle(1), snapshot(pools), NOW)
+        self.assertEqual(placed.mini_jobs, ("ci-guard-group",))
+
+    def test_jobs_already_queued_on_the_label_take_its_idle_runners_first(self):
+        pools = {SIDE: {"queued": 2}}
+        placed = placement.decide(env(), idle(3), snapshot(pools), NOW)
+        self.assertEqual(placed.mini_jobs, ("ci-guard-group",))
+
+    def test_busy_or_offline_minis_take_nothing(self):
+        runners = [runner("a", busy=True), runner("b", status="offline")]
+        placed = placement.decide(env(), runners, snapshot(), NOW)
+        self.assertEqual(placed.mini_jobs, ())
+
+    def test_a_starved_light_pool_spills_onto_idle_std_side_runners(self):
+        runners = [runner("a", busy=True), *idle(2, STD_SIDE)]
+        placed = placement.decide(env(), runners, snapshot(), NOW)
+        self.assertEqual(placed.mini_runner, STD_SIDE)
+        self.assertEqual(placed.mini_jobs, ("ci-guard-group", "tooling-tests"))
+
+    def test_all_or_none_places_nothing_short_of_every_job(self):
+        placed = placement.decide(env(JOBS="darwin-aarch64 darwin-x86_64", MAC_FIRST="darwin-aarch64 darwin-x86_64",
+                                      MINI_ALL_OR_NONE="1"), idle(1), snapshot(), NOW)
+        self.assertEqual(placed.mini_jobs, ())
+        placed = placement.decide(env(JOBS="darwin-aarch64 darwin-x86_64", MAC_FIRST="darwin-aarch64 darwin-x86_64",
+                                      MINI_ALL_OR_NONE="1"), idle(2), snapshot(), NOW)
+        self.assertEqual(placed.mini_jobs, ("darwin-aarch64", "darwin-x86_64"))
+
+    def test_uncertainty_places_nothing_on_a_mini(self):
+        cases = {
+            "unread runners": (env(), None, snapshot()),
+            "no snapshot": (env(), idle(3), None),
+            "stale snapshot": (env(), idle(3), snapshot(age_minutes=120)),
+            "a person's re-run": (env(GITHUB_RUN_ATTEMPT="2", GITHUB_TRIGGERING_ACTOR="leo"), idle(3), snapshot()),
+            "attempt 3": (env(GITHUB_RUN_ATTEMPT="3", GITHUB_TRIGGERING_ACTOR="cmux-bot[bot]"), idle(3), snapshot()),
+            "no side label": (env(SIDE_LABEL=""), idle(3), snapshot()),
+            "a fork's placeholder": (env(SIDE_LABEL="ubuntu-24.04"), idle(3), snapshot()),
+            "the AWS pool": (env(SIDE_LABEL="glaeda-aws-side-std-xcode-26.6"), idle(3), snapshot()),
+        }
+        for name, (environment, runners, snap) in cases.items():
+            with self.subTest(name):
+                self.assertEqual(placement.decide(environment, runners, snap, NOW).mini_jobs, ())
+
+    def test_the_rescue_bots_attempt_two_is_placed_afresh(self):
+        placed = placement.decide(env(GITHUB_RUN_ATTEMPT="2", GITHUB_TRIGGERING_ACTOR="github-actions[bot]"),
+                                  idle(1), snapshot(), NOW)
+        self.assertEqual(placed.mini_jobs, ("ci-guard-group",))
+
+    def test_outputs_delimit_whole_job_keys(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            output = Path(scratch) / "out"
+            placement.write(placement.Placement("", (), SIDE, ("checks",), "why"), {"GITHUB_OUTPUT": str(output)})
+            self.assertEqual(output.read_text(),
+                             f"linux_runner=\nlinux_jobs=\nmini_runner={SIDE}\nmini_jobs= checks \n")
+
+    def test_main_with_no_tokens_writes_empty_routes(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            output = Path(scratch) / "out"
+            environment = {**env(), "GITHUB_OUTPUT": str(output), "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
+            self.assertEqual(placement.main(environment), 0)
+            self.assertIn("mini_runner=\nmini_jobs=\n", output.read_text())
+
+
+def jobs(name: str) -> dict:
+    return yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))["jobs"]
+
+
+class Wiring(unittest.TestCase):
+    PLACED = {"cmux-next.yml": ["checks"], "cmux-next-guards.yml": ["ci-guard-group", "tooling-tests"]}
+
+    def test_each_placed_job_reads_fleet_linux_then_its_mini_then_blacksmith(self):
+        for workflow, names in self.PLACED.items():
+            workflow_jobs = jobs(workflow)
+            place = workflow_jobs["portable-placement"]
+            listed = place["steps"][-1]["env"]["JOBS"].split()
+            for name in names:
+                with self.subTest(job=f"{workflow}#{name}"):
+                    job = workflow_jobs[name]
+                    self.assertIn(name, listed)
+                    self.assertEqual(job["needs"], ["portable-placement"])
+                    self.assertTrue(str(job["if"]).startswith("${{ !cancelled()"))
+                    runs_on = job["runs-on"]
+                    linux = runs_on.index(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')")
+                    mini = runs_on.index(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')")
+                    blacksmith = runs_on.rindex("'blacksmith-")
+                    self.assertLess(linux, mini)
+                    self.assertLess(mini, blacksmith)
+                    self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)",
+                                  runs_on)
+
+    def test_release_notary_takes_the_placement_through_ci_guards(self):
+        guards = jobs("cmux-next-guards.yml")
+        self.assertIn("release-notary", guards["portable-placement"]["steps"][-1]["env"]["JOBS"].split())
+        runner = guards["nightly-guards"]["with"]["guard_tests_runner"]
+        self.assertIn("contains(needs.portable-placement.outputs.mini_jobs, ' release-notary ')", runner)
+        tests = jobs("ci-guards.yml")["workflow-guard-tests"]["runs-on"]
+        self.assertIn("inputs.guard_tests_runner != '' && inputs.guard_tests_runner", tests)
+        self.assertLess(tests.index("head.repo.full_name != github.repository"), tests.index("inputs.guard_tests_runner"))
+
+    def test_the_cmux_tui_macos_targets_take_a_free_mini_before_the_linux_cross_build(self):
+        preflight = jobs("cmux-tui-artifacts.yml")["tree-preflight"]
+        step = next(step for step in preflight["steps"] if step.get("id") == "darwin-mac")
+        self.assertEqual(step["env"]["MAC_FIRST"].split(), ["darwin-aarch64", "darwin-x86_64"])
+        self.assertEqual(step["env"]["MINI_ALL_OR_NONE"], "1")
+        self.assertIn("steps.darwin-mac.outputs.mini_runner", preflight["outputs"]["darwin_mac_runner"])
+        build = jobs("cmux-tui-artifacts.yml")["build"]["with"]
+        self.assertEqual(build["darwin_mac_runner"], "${{ needs.tree-preflight.outputs.darwin_mac_runner }}")
+        plan = (WORKFLOWS / "cmux-tui-build-package.yml").read_text(encoding="utf-8")
+        self.assertIn('target["runner"] = darwin_mac_runner', plan)
+
+    def test_placement_runs_the_trusted_base_copy(self):
+        for workflow in self.PLACED:
+            with self.subTest(workflow=workflow):
+                checkout = jobs(workflow)["portable-placement"]["steps"][0]
+                self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha || github.sha }}")
+
+
+if __name__ == "__main__":
+    unittest.main()

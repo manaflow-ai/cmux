@@ -57,8 +57,8 @@ contains(' <key> ') matches whole keys only:
   gui runners for 45+ minutes) is written empty, so the GUI jobs take the workflow's
   Blacksmith macOS leg instead of joining it. With no snapshot to weigh, the live label
   stays (today's route; the rescue still watches it). While that leg is itself stalled or
-  dead (overflow_stalled()), a role label with an online runner stays, full or deep: a busy
-  owned queue moves, a stalled Blacksmith one does not;
+  dead (overflow_stalled(), read from a snapshot up to 45 minutes old too), a role label with
+  an online runner stays, full or deep: a busy owned queue moves, a stalled Blacksmith one does not;
 - `gui_overflow`: the Blacksmith macOS label the GUI jobs take when the owned GUI route
   is declined above, and on the rescue's full re-run (rerun_main()), whose GUI jobs
   never read gui_runner: before it, that re-run wrote no route and the GUI jobs fell
@@ -297,16 +297,19 @@ def role_room(candidate: str, runners: Sequence[Mapping[str, Any]], seen: Any = 
 def overflow_stalled(seen: Any, waiting: Mapping[str, int] | None) -> bool:
     """Whether the GUI jobs' Blacksmith leg (GUI_OVERFLOW) is not moving: dead in the snapshot (Seen.dead), or
     stalled by the pickers' one rule (its oldest queued job has waited STALL_MINUTES; Seen.waits carry the
-    snapshot's age). No reading (no snapshot, a stale one, Blacksmith's queue unread) says nothing: False."""
+    snapshot's age). A snapshot too old for the counts, or Blacksmith's queue unread, still reads the wait the
+    snapshot saw (Seen.waits, only for a label it saw a queue on; next_macos_cascade.late_waits()): on
+    2026-10-31 every placement read no snapshot under 15 minutes and sent swift test and daemon tests to a
+    6 vCPU queue whose oldest job had waited 179 min. No snapshot at all says nothing: False."""
     if seen is None:
         return False
     if GUI_OVERFLOW in cascade.seen_dead(seen):
         return True
-    if waiting is None or getattr(seen, "stale", False):
-        return False
     waits = getattr(seen, "waits", None) or {}
-    return cascade._picker_rule.blacksmith_stalled(int(waiting.get(GUI_OVERFLOW, 0)),
-                                                   float(waits.get(GUI_OVERFLOW, 0.0)))
+    wait = float(waits.get(GUI_OVERFLOW, 0.0))
+    if waiting is None or getattr(seen, "stale", False):
+        return cascade._picker_rule.blacksmith_stalled(1 if GUI_OVERFLOW in waits else 0, wait)
+    return cascade._picker_rule.blacksmith_stalled(int(waiting.get(GUI_OVERFLOW, 0)), wait)
 
 
 def healthy_role_label(live: str, runners: Sequence[Mapping[str, Any]] | None, seen: Any = None,
