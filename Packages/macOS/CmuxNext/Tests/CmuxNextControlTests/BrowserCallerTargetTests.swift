@@ -168,7 +168,7 @@ import Testing
         // Inspectors also support app web views, so the catalog has no browserFocused requirement.
         snapshot.catalog = ControlCatalog(actions: [
             ControlActionInfo(id: actionID, title: actionID, category: "browser", categoryTitle: "Browser",
-                              cliName: nil, symbol: "hammer", keywords: [], shortcut: nil, shortcutConfig: nil,
+                              cliName: actionID, symbol: "hammer", keywords: [], shortcut: nil, shortcutConfig: nil,
                               arguments: [], targets: ["pane"], requiresMask: 0, requires: [],
                               isBound: true, isDebugOnly: false, mainMenu: nil),
         ], contextMask: 1 << 1, targetKinds: ["pane", "tab"], debugActionsAvailable: false)
@@ -238,6 +238,78 @@ import Testing
         #expect(try await state(router, caller: Self.agent).get()["tab"] == "tab-own")
         let identity = try await router.handle(ControlRequest(method: "system.identify", params: ["caller": Self.agent])).get()
         #expect(identity["browser"]?["workspace"] == "ws-agent")
+    }
+
+    @Test(arguments: ["elsewhere", "own", "mirror"])
+    func anActionWithNoTargetRequiresTheSameFocusedBrowser(focus: String) async throws {
+        var snapshot = Self.snapshot(ownBrowser: false, neighbors: false)
+        snapshot.catalog = ControlCatalog(actions: [
+            ControlActionInfo(id: "browserShowHistory", title: "Show Browser History", category: "browser", categoryTitle: "Browser",
+                              cliName: "browser show-history", symbol: "clock", keywords: [], shortcut: nil, shortcutConfig: nil,
+                              arguments: [], targets: [], requiresMask: 1 << 1, requires: ["browserFocused"],
+                              isBound: true, isDebugOnly: false, mainMenu: nil),
+        ], contextMask: 1 << 1, targetKinds: ["tab", "pane"], debugActionsAvailable: false)
+        snapshot.topology.workspaces[0].sessionID = "session-remote"
+        var pane = Self.pane("pane-local", column: 1, [Self.browser("tab-front")])
+        if focus == "mirror" {
+            pane.tabs = []
+            pane.selectedTabID = "tab-front"
+            pane.mirroredTabIDs = ["tab-front"]
+            snapshot.topology.workspaces.append(Self.workspace("ws-owner", [Self.pane("pane-owner", column: 0, [Self.browser("tab-front")])]))
+        }
+        snapshot.topology.workspaces[1].screens[0].panes.append(pane)
+        if focus != "elsewhere" {
+            snapshot.topology.focus = ControlFocus(windowID: "win-b", workspaceID: "ws-agent", paneID: "pane-local", tabID: "tab-front")
+        }
+        let (router, executor) = install(snapshot)
+        let result = await router.handle(ControlRequest(method: "action.run", params: ["action": "browserShowHistory", "caller": Self.agent]))
+        if focus == "elsewhere" {
+            #expect(result.failure?.code == "unavailable")
+            #expect(executor.last == nil)
+        } else {
+            #expect(try result.get()["ran"] == true)
+            #expect(executor.last?.actionID == "browserShowHistory")
+        }
+    }
+
+    @Test(arguments: [false, true]) func creatingTheFirstBrowserCanBeRetriedAfterTopologyChanges(agentChat: Bool) async throws {
+        var snapshot = Self.snapshot(ownBrowser: false, neighbors: false)
+        snapshot.catalog = ControlCatalog(actions: [
+            BrowserPageTabsTests.action("openBrowser", [ControlArgumentInfo(name: "url", title: "URL", kind: .string, isRequired: false)]),
+        ], targetKinds: ["tab", "pane"], debugActionsAvailable: false)
+        if agentChat {
+            var chat = ControlTabInfo(id: "tab-chat", surface: "tab-chat", kind: "agent", title: "Agent")
+            chat.agentSessionID = "agent-1"
+            snapshot.topology.workspaces[1].screens[0].panes.append(Self.pane("pane-chat", column: 1, [chat]))
+        }
+        let caller: JSONValue = agentChat ? ["agent_session": "agent-1"] : Self.agent
+        let (router, executor) = install(snapshot)
+        let request = ControlRequest(method: "browser.page.new_tab", params: [
+            "caller": caller, "url": "https://example.com/", "idempotency_key": "first-browser",
+        ])
+        let first = try await router.handle(request).get()
+        router.snapshots.publish {
+            $0.topology.workspaces[1].screens[0].panes.append(Self.pane("pane-created", column: 2, [Self.browser("tab-created")]))
+        }
+        let replay = try await router.handle(request).get()
+        #expect(replay["replayed"] == true)
+        #expect(replay["created"] == first["created"])
+        #expect(replay["tab"] == first["tab"])
+        #expect(executor.requests.withLock { $0.count } == 1)
+
+        var changed = request
+        changed.params["url"] = "https://different.example/"
+        #expect(await router.handle(changed).failure?.code == "idempotency_conflict")
+        changed = request
+        changed.params["caller"] = ["terminal_id": "another-terminal"]
+        #expect(await router.handle(changed).failure?.code == "idempotency_conflict")
+
+        // Replaying a finished create does not depend on the caller or its browser still existing.
+        router.snapshots.publish { $0.topology.workspaces.removeAll() }
+        let afterClose = try await router.handle(request).get()
+        #expect(afterClose["replayed"] == true)
+        #expect(afterClose["created"] == first["created"])
+        #expect(executor.requests.withLock { $0.count } == 1)
     }
 
     /// `cmux browser page new-tab URL` with no browser near the caller opens its first one, not a
