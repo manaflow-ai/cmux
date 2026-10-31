@@ -139,15 +139,16 @@ pub(crate) fn byte_page<R>(
     // Stable, so of a row listed twice the first is kept.
     order.sort_by(|(a, at), (b, bt)| a.cmp(b).then_with(|| pair(*at).cmp(&pair(*bt))));
     order.dedup_by(|(_, at), (_, bt)| pair(*at) == pair(*bt));
-    let (mut page, mut used, mut last) = (Vec::new(), 0, None);
+    let (mut page, mut used, mut last) = (Vec::new(), 0_usize, None);
     for &(hash, at) in &order {
         let value = row(at);
         // One more byte for the comma between rows.
-        let bytes = size(&value) + 1;
-        if last.is_some_and(|last| last != hash) && used + bytes > budget {
+        let bytes = size(&value).saturating_add(1);
+        let total = used.saturating_add(bytes);
+        if last.is_some_and(|last| last != hash) && total > budget {
             break;
         }
-        (used, last) = (used + bytes, Some(hash));
+        (used, last) = (total, Some(hash));
         page.push(value);
     }
     let next = (page.len() < order.len()).then(|| format!("h{:032x}", last.unwrap_or_default()));
@@ -253,6 +254,14 @@ pub(crate) fn refuse_watch_filters(params: &Value) -> Result<(), RpcError> {
         }
     }
     Ok(())
+}
+
+/// The `cursor` that starts a page after `session`, the `nextCursor` a page ending on it carries:
+/// for a client that stops in the middle of a page (`acpmux ls --limit` with a filter of its own).
+/// A daemon whose cursor keys differ starts at the first session no newer than it
+/// ([`SessionCursor::start`]): one of that same millisecond may repeat, none is skipped.
+pub(crate) fn cursor_after(session: &Value) -> String {
+    SessionCursor::after(session).to_text()
 }
 
 /// After the session updated at `updated_ms` whose id and peer hash to `key` ([`row_key`]).

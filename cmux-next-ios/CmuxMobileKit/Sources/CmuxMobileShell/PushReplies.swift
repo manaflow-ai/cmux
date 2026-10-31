@@ -60,11 +60,9 @@ public final class PushReplies {
     @ObservationIgnored private weak var live: LiveCoordinator?
     /// Foreground replies waiting for the app to be active, unlocked and live.
     private(set) var waiting: [PushReply] = []
-    /// Background deliveries in flight on the headless coordinator (one at a
-    /// time, review #8): it stops when the last one ends.
-    private(set) var headlessRunning = false
-    @ObservationIgnored private var headlessCount = 0
-    @ObservationIgnored private var headlessCoordinator: LiveCoordinator?
+    /// The headless coordinator stays alive until the last background delivery ends.
+    var headlessRunning: Bool { headlessSession.running }
+    @ObservationIgnored private let headlessSession = HeadlessPushSession<LiveCoordinator>()
     @ObservationIgnored private var draining = false
     /// The first drain after a cold attach waits as long as a cold launch does (review #7).
     @ObservationIgnored private var coldAttach = true
@@ -289,22 +287,13 @@ public final class PushReplies {
             return
         }
         // One headless coordinator for every reply of a cold launch (the hub keeps one socket per device).
-        headlessCount += 1
-        headlessRunning = true
-        defer {
-            headlessCount -= 1
-            if headlessCount == 0 {
-                headlessCoordinator?.stop()
-                headlessCoordinator = nil
-                headlessRunning = false
+        await headlessSession.withCoordinator(create: { await self.headless() }, stop: { $0.stop() }) { coordinator in
+            guard let coordinator else {
+                await self.postCouldNotReach(reply, reason: String(localized: "Open cmux to sign in."))
+                return
             }
+            await self.send(reply, on: coordinator, budget: Self.coldBudget)
         }
-        if headlessCoordinator == nil { headlessCoordinator = await headless() }
-        guard let coordinator = headlessCoordinator else {
-            await postCouldNotReach(reply, reason: String(localized: "Open cmux to sign in."))
-            return
-        }
-        await send(reply, on: coordinator, budget: Self.coldBudget)
     }
 
     /// A coordinator for a cold background launch: the account restored from

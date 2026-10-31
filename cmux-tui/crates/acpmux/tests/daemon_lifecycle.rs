@@ -745,6 +745,16 @@ async fn a_daemon_whose_home_is_replaced_stops() {
     std::fs::create_dir(&home).unwrap();
     let socket = home.join("s.sock");
     let mut child = ready_daemon(&dir, &home, &socket).await;
+    // The startup's own writes (the chat index, the model probes' folder) end first, so the
+    // home is replaced under a daemon that only serves and stops. A write in that window is
+    // `tests/lost_home_writes.rs`'s.
+    let mut rpc = Rpc::connect(&socket).await;
+    let started = Instant::now();
+    while rpc.call("_acpmux/status", json!({})).await["loading"]["startupDone"] != true {
+        assert!(started.elapsed() < Duration::from_secs(20), "the startup never ended");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    drop(rpc);
     std::fs::rename(&home, dir.join("h.old")).unwrap();
     std::fs::create_dir(&home).unwrap();
     let status = exit_within(&mut child, acpmux::daemon::EXIT_BUDGET).await;

@@ -93,36 +93,62 @@ pub(crate) fn mark_socket_lost() {
     );
 }
 
-/// Installed only by the daemon after acquiring its lock. A synchronous identity check fences
-/// startup writes even before the asynchronous filesystem event has been delivered.
-static HOME_IDENTITY_LOST: std::sync::OnceLock<Box<dyn Fn() -> bool + Send + Sync>> =
-    std::sync::OnceLock::new();
-
-pub(crate) fn watch_home_identity(check: impl Fn() -> bool + Send + Sync + 'static) {
-    let _ = HOME_IDENTITY_LOST.set(Box::new(check));
-}
-
 /// Whether the home or socket is lost, including an identity change awaiting event delivery.
 pub(crate) fn home_lost() -> bool {
-    if HOME_IDENTITY_LOST.get().is_some_and(|check| check()) {
-        mark_home_lost();
-    }
     HOME_LOST.load(std::sync::atomic::Ordering::SeqCst) != 0
 }
 
 /// Whether the home or lock itself was lost. A socket-only loss leaves the
 /// host records owned by this daemon and may be cleaned during shutdown.
 pub(crate) fn home_path_lost() -> bool {
-    let _ = home_lost();
     HOME_LOST.load(std::sync::atomic::Ordering::SeqCst) == 1
 }
 
-/// Refuses a write under a lost home ([`mark_home_lost`]): a shutdown's last saves would
-/// otherwise make a removed home again, or write this daemon's state into its replacement.
+/// The home this daemon holds, as the folder it locked: its device and inode (`daemon.rs`).
+static HELD_HOME: std::sync::OnceLock<(u64, u64)> = std::sync::OnceLock::new();
+
+/// The device and inode of `path` itself (never a link's target).
+#[cfg(unix)]
+fn folder_identity(path: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::symlink_metadata(path).ok().map(|m| (m.dev(), m.ino()))
+}
+
+#[cfg(not(unix))]
+fn folder_identity(_path: &Path) -> Option<(u64, u64)> {
+    None
+}
+
+/// Records [`home`] as the folder this daemon holds, once it holds its lock. A process that
+/// never calls it (a CLI command) checks no identity.
+pub fn hold_home() {
+    if let Some(identity) = folder_identity(&home()) {
+        let _ = HELD_HOME.set(identity);
+    }
+}
+
+/// Whether the held home ([`hold_home`]) is gone or another folder now: read from the folder
+/// itself, so it does not wait for the home watch to hear of it.
+fn held_home_replaced(home: &Path) -> bool {
+    HELD_HOME.get().is_some_and(|held| folder_identity(home) != Some(*held))
+}
+
+/// Refuses a write under a lost home: one [`mark_home_lost`] marked, or one no longer the folder
+/// this daemon holds ([`hold_home`]), which it then marks. Every write under the home goes
+/// through it, so a write after the home was replaced never lands in the replacement, however
+/// late the home watch hears of it; a shutdown's last saves never make a removed home again.
+/// A replacement between this check and the write itself is not ruled out (by path, POSIX has
+/// no write-if-same-folder).
 pub(crate) fn refuse_lost_home(path: &Path) -> Result<()> {
     let home = home();
+    if !path.starts_with(&home) {
+        return Ok(());
+    }
+    if !home_path_lost() && held_home_replaced(&home) {
+        mark_home_lost();
+    }
     anyhow::ensure!(
-        !(home_lost() && path.starts_with(&home)),
+        !home_lost(),
         "the acpmux home {} is gone; {} is not written",
         home.display(),
         path.display()
@@ -1160,6 +1186,9 @@ pub struct Config {
     /// `titles`: short titles for chats their harness never titles (`hub/titles.rs`).
     #[serde(default, skip_serializing_if = "TitlesConfig::is_default")]
     pub titles: TitlesConfig,
+    /// `usageWarnings`: when a session's usage gets a visible warning (`hub/usage_warnings.rs`).
+    #[serde(default, skip_serializing_if = "UsageWarningsConfig::is_default")]
+    pub usage_warnings: UsageWarningsConfig,
     /// Labs-only transport switches (`transport.wireguard`).
     #[serde(default)]
     pub transport: TransportConfig,
@@ -1741,6 +1770,8 @@ mod pool;
 pub use pool::PoolConfig;
 mod btw;
 pub use btw::BtwConfig;
+mod usage_warnings;
+pub use usage_warnings::{UsageLimits, UsageWarningsConfig};
 pub mod folder_profiles;
 pub mod harness_icon;
 pub mod profiles;

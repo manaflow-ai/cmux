@@ -29,20 +29,6 @@ struct ClassicUpgradeSimulationTests {
                      String(describing: launch.outcome?.decision ?? .skip(.disabled))))
     }
 
-    /// Quarantine (#28425): `multiWindow`'s order and group checks flake while the sidebar placements a
-    /// run queues trail it on a loaded runner (#26153), so they are a known issue for that one case.
-    /// The fix, #28362, removes this.
-    private static func verifyQuarantined(_ sim: ClassicUpgradeSimulator, _ profile: ClassicUpgradeProfile,
-                                          classicBefore before: [String: String],
-                                          sourceLocation: SourceLocation = #_sourceLocation) throws {
-        guard profile.name == "multiWindow" else {
-            return try sim.verify(profile, classicBefore: before, sourceLocation: sourceLocation)
-        }
-        withKnownIssue("#28425: sidebar placements trail the run; fixed by #28362", isIntermittent: true, sourceLocation: sourceLocation) {
-            try sim.verify(profile, classicBefore: before, sourceLocation: sourceLocation)
-        }
-    }
-
     /// The matrix: the first launch brings everything once; relaunching and the
     /// import action make nothing more.
     @Test(arguments: ["fresh", "small", "manyGroups", "nestedSplits", "browsersAndViewers", "multiWindow", "oldSchema", "messy"])
@@ -56,14 +42,14 @@ struct ClassicUpgradeSimulationTests {
         #expect(launch.failure == nil, "\(String(describing: launch.failure))")
         #expect(launch.outcome?.decision == .firstRun, "\(String(describing: launch.outcome))")
         await sim.settle()
-        try Self.verifyQuarantined(sim, profile, classicBefore: before)
+        try sim.verify(profile, classicBefore: before)
 
         let again = try await sim.relaunch()
         #expect(again.decision == .skip(.unchanged) && again.opened.isEmpty, "\(again)")
         let manual = try await sim.manualImport()
         #expect(manual.opened.isEmpty, "\(manual)")
         await sim.settle()
-        try Self.verifyQuarantined(sim, profile, classicBefore: before)
+        try sim.verify(profile, classicBefore: before)
         await sim.shutdown()
     }
 
@@ -296,8 +282,14 @@ struct ClassicUpgradeSimulationTests {
         let background = decoded.windows[0].workspaces.filter { $0.key != selected }.compactMap { ledger.workspaces[$0.key]?.nextWorkspace }
         try #require(!background.isEmpty)
         let tabs = { (id: String) in store.workspace(id: id)?.screens.flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == .pty } ?? [] }
+        // `park-tabs` answers before the shells exit: a tab shows dead with `relaunch` once its host exited, a
+        // moment after the run's last park (the quiet window settle() had covered that by chance). Read once
+        // every one has (the daemon's tab-exit events), with a ceiling for a hang, not a budget.
+        let parked = { (id: String) in !tabs(id).isEmpty && tabs(id).allSatisfy { $0.dead && $0.relaunch?.onShow == true } }
+        let parkDeadline = ContinuousClock.now + .seconds(60)
+        while ContinuousClock.now < parkDeadline, !background.allSatisfy(parked) { try? await Task.sleep(for: .milliseconds(20)) }
         for id in background {
-            #expect(!tabs(id).isEmpty && tabs(id).allSatisfy { $0.dead && $0.relaunch?.onShow == true },
+            #expect(parked(id),
                     "\(store.workspace(id: id)?.name ?? id) is not parked: \(tabs(id).map { ($0.dead, $0.relaunch?.onShow) })")
         }
         // Shown: its terminals start, in the same tabs.
