@@ -13,7 +13,10 @@ Fleet rules this follows (2026-10-31):
 - A pin waits for the worker: the controller moves a pinned step that waits 10 min to another worker of the pool.
   So the driver submits a step only when the worker is idle (no running step, no queued pin, its pool is POOL and not
   a capture lease, at least MIN_FREE_GIB free), reads the step's worker every 15 s for its first 10 min, cancels a
-  step that is still queued after QUEUE_LIMIT, and cancels at once a step that starts on another worker.
+  step that is still queued QUEUE_LIMIT after the controller created it, and cancels at once a step that starts on
+  another worker. A cancel counts only when the job's own status shows it ended; until then the driver keeps
+  watching it. While a step is queued its status is read every 15 s. A submit whose job id did not come back is
+  looked up by its key (`cmux-ci status --ref`) before any new submit, so a step is never submitted twice.
 - Never the reserved hosts in REFUSED (cmux17: the Cua grant).
 - One step at a time per mini, the next only when the previous one ended, so a pin never waits behind its own queue.
 - A verdict comes from the bench's own artifact, never from "done": each ended step and its artifact path are a line
@@ -37,6 +40,8 @@ def worker_ready(status, worker, pool, min_free_gib=MIN_FREE_GIB):
         return False, "not in /v1/status"
     if w.get("pool") != pool:
         return False, f"pool is {w.get('pool')} (a capture lease or another reservation)"
+    if w.get("claim_paused") or w.get("excluded") or w.get("healthy") is False or w.get("online") is False:
+        return False, "paused, excluded, unhealthy or offline"
     free = (w.get("free_bytes") or 0) / 2**30
     if free < min_free_gib:
         return False, f"{free:.1f} GiB free, under {min_free_gib}"
@@ -48,6 +53,16 @@ def worker_ready(status, worker, pool, min_free_gib=MIN_FREE_GIB):
     if m.get("queued_pinned"):
         return False, f"{m['queued_pinned']} pinned step(s) queued"
     return True, "idle"
+
+
+def queued_seconds(job, now=None):
+    """Seconds since the controller created the step (its own created_at), so an adopted step keeps its real age."""
+    import datetime
+    try:
+        t = datetime.datetime.strptime(job["created_at"][:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=datetime.timezone.utc)
+    except (KeyError, TypeError, ValueError):
+        return None
+    return (now or time.time()) - t.timestamp()
 
 
 def step_action(job, worker, queued_for):
@@ -81,7 +96,8 @@ class Driver:
         self.state_path = base + ".state.jsonl"
         self.art_dir = os.path.join(os.path.dirname(os.path.abspath(plan_path)), "artifacts")
         os.makedirs(self.art_dir, exist_ok=True)
-        self.run_id = time.strftime("%H%M", time.gmtime())  # a restarted driver never reuses a step key
+        # A restarted driver never reuses a step key (the controller refuses a key that names another step).
+        self.run_id = time.strftime("%Y%m%dT%H%M%S", time.gmtime()) + f"p{os.getpid()}"
 
     def log(self, **kw):
         kw["t"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -147,7 +163,31 @@ class Driver:
             os.killpg(proc.pid, 15)  # this driver's own client only; the step continues on the controller
         except ProcessLookupError:
             pass
+        if not job:
+            job = self.find_by_key(step["ref"], key)  # the POST may have reached the controller: never submit twice
         return job
+
+    def find_by_key(self, ref, key):
+        """The id of a step with this key at this ref, from `cmux-ci status --ref` (step_key may carry no suffix)."""
+        p = self.ci("status", "--ref", ref, timeout=180)
+        try:
+            jobs = json.loads(p.stdout)
+        except (AttributeError, ValueError):
+            return None
+        for j in jobs if isinstance(jobs, list) else []:
+            if j.get("step_key") == key:
+                return j.get("id")
+        return None
+
+    def cancel(self, job, why):
+        """Cancel and confirm from the job's own status; True only when the controller shows it ended."""
+        for _ in range(6):
+            self.ci("cancel", job, "--reason", f"bench driver: {why} (pinned to {self.worker})")
+            time.sleep(10)
+            s = self.status(job)
+            if s and s.get("state") in ENDED:
+                return True
+        return False
 
     def run_step(self, step):
         attempt, job = 0, step.get("adopt")
@@ -159,28 +199,43 @@ class Driver:
                     return
                 job = self.submit(step, attempt)
                 if not job:
-                    self.log(key=step["key"], result="submit-failed", attempt=attempt)
+                    self.log(key=step["key"], result="submit-failed", attempt=attempt)  # no step with its key exists
                     time.sleep(120)
                     continue
                 self.log(key=step["key"], job=job, result="submitted", attempt=attempt)
-            since = time.time()
+            since, failures = time.time(), 0
             while True:
-                time.sleep(15 if time.time() - since < 600 else 60)
                 s = self.status(job)
                 if not s:
+                    failures += 1
+                    if failures in (5, 20):
+                        self.log(key=step["key"], job=job, result="status-unreadable", tries=failures)
+                    time.sleep(15)
                     continue
-                action = step_action(s, self.worker, time.time() - since)
+                failures = 0
+                age = queued_seconds(s) if s.get("state") == "queued" else None
+                action = step_action(s, self.worker, age if age is not None else time.time() - since)
                 if action == "wait":
+                    time.sleep(15 if s.get("state") == "queued" or time.time() - since < 600 else 60)
                     continue
                 if action.startswith("cancel"):
-                    self.ci("cancel", job, "--reason", f"bench driver: {action} (pinned to {self.worker})")
+                    if not self.cancel(job, action):
+                        self.log(key=step["key"], job=job, result="cancel-unconfirmed", why=action, worker=s.get("worker"))
+                        continue  # keep watching this job: it is not gone
                     self.log(key=step["key"], job=job, result=action, worker=s.get("worker"))
                     job = None
                     time.sleep(30 if action == "cancel-wrong-worker" else 180)
                     break
+                if s["state"] == "cancelled":  # cancelled by someone else (a gate, a P0 run): run it again
+                    self.log(key=step["key"], job=job, result="cancelled-elsewhere", worker=s.get("worker"))
+                    job = None
+                    time.sleep(60)
+                    break
                 art = None
                 if s["state"] == "done":
                     art = os.path.join(self.art_dir, f"{step['key']}.json")
+                    if os.path.exists(art):
+                        os.remove(art)  # an earlier run's file of this key must never stand for this job
                     self.ci("artifact", job, art, timeout=600)
                     art = art if os.path.exists(art) else None
                 self.log(key=step["key"], job=job, result=s["state"], artifact=art, started=s.get("started_at"),

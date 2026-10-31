@@ -78,6 +78,50 @@ class Statistics(unittest.TestCase):
         self.assertEqual(len(bench_ab.load(self.tmp, "instant-ab")["before"]), 1)
         self.assertEqual(len(bench_ab.load(self.tmp, "instant-ba")["before"]), 2)
 
+    def test_equal_arms_rarely_give_a_false_regression(self):
+        # Many seeds, equal arms with a job-to-job spread (a mini's state differs between launches): the two-level
+        # bootstrap and the effect floor keep false REGRESSION verdicts rare (review of #29135: pooled samples gave 12 %).
+        bench_ab.BOOT, saved = 300, bench_ab.BOOT
+        try:
+            false = total = 0
+            for seed in range(60):
+                rng = random.Random(seed)
+                arms = {arm: [(i, {"runs": [{"command": "c", "phase": "idle", "visible_ms": rng.gauss(30 + jm, 3)}
+                                            for _ in range(12)]}) for i, jm in enumerate(rng.gauss(0, 2) for _ in range(3))]
+                        for arm in ("before", "after")}
+                v = bench_ab.compare("instant-x", arms, seed=seed)["rows"][0]["verdict"]
+                false += sum(x == "REGRESSION" for x in v.values())
+                total += len(v)
+            self.assertLessEqual(false / total, 0.03)
+        finally:
+            bench_ab.BOOT = saved
+
+    def test_tails_need_enough_samples_and_max_gets_no_verdict(self):
+        r = row(self.jobs(shift_b=8.0), "new_tab/idle", "visible_ms")
+        self.assertEqual(r["verdict"]["p99"], "too-few")  # 120 samples per arm, under MIN_SAMPLES p99
+        self.assertNotIn("max", r["verdict"])
+        self.assertIsNone(r["a"]["max"][1])
+
+    def test_a_shift_under_the_floor_is_same(self):
+        r = row(self.jobs(shift_b=0.6), "new_tab/idle", "visible_ms")
+        self.assertNotEqual(r["verdict"]["p50"], "REGRESSION")
+
+    def test_artifacts_of_another_commit_never_join_an_arm(self):
+        write_jobs(self.tmp, "instant-ab", [(1, "before", instant_doc(self.rng)), (2, "after", instant_doc(self.rng))])
+        with open(os.path.join(self.tmp, "bench-instant-ab-r3-after-e1b88d18.json"), "w") as f:
+            json.dump(instant_doc(self.rng, 50), f)
+        arms = bench_ab.load(self.tmp, "instant-ab", "acfd69382dc1", "3cc92720c95")
+        self.assertEqual(len(arms["after"]), 1)
+        self.assertEqual(len(bench_ab.load(self.tmp, "instant-ab")["after"]), 2)
+
+    def test_missed_presses_are_counted_per_arm(self):
+        docs = [(r, arm, {"runs": [{"command": "c", "phase": "idle", "visible_ms": 30.0}] * 5
+                          + ([{"command": "c", "phase": "idle", "visible_ms": None}] if arm == "after" else [])})
+                for r in (1, 2) for arm in ("before", "after")]
+        write_jobs(self.tmp, "instant-ab", docs)
+        r = row(bench_ab.compare("instant-ab", bench_ab.load(self.tmp, "instant-ab")), "c/idle", "visible_ms")
+        self.assertEqual(r["missed"], {"before": 0, "after": 2})
+
     def test_quantile_is_linear(self):
         self.assertEqual(bench_ab.q([1, 2, 3, 4], .5), 2.5)
         self.assertIsNone(bench_ab.q([], .5))
@@ -143,6 +187,20 @@ class DriverRules(unittest.TestCase):
         self.assertEqual(driver.step_action({"state": "queued"}, "cmux22-perf", 60), "wait")
         self.assertEqual(driver.step_action({"state": "done", "worker": "cmux22-perf"}, "cmux22-perf", 900), "ended")
 
+    def test_paused_or_unhealthy_worker_is_not_ready(self):
+        for extra in ({"claim_paused": True}, {"excluded": True}, {"healthy": False}):
+            st = self.status()
+            st["workers"][0].update(extra)
+            self.assertFalse(driver.worker_ready(st, "cmux22-perf", "perf-lead")[0])
+
+    def test_queue_age_is_the_controllers(self):
+        import datetime
+        created = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=8)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        age = driver.queued_seconds({"created_at": created})
+        self.assertGreater(age, driver.QUEUE_LIMIT)
+        self.assertEqual(driver.step_action({"state": "queued"}, "cmux22-perf", age), "cancel-queued")
+        self.assertIsNone(driver.queued_seconds({}))
+
     def test_queue_limit_is_under_the_pin_fallback(self):
         self.assertLess(driver.QUEUE_LIMIT, 10 * 60)
 
@@ -162,6 +220,50 @@ class DriverRules(unittest.TestCase):
             self.assertIn(flag, cmd)
 
 
+class FakeCI(driver.Driver):
+    """A Driver whose cmux-ci calls answer from a script: [(args prefix, stdout)]; records every call."""
+    def __init__(self, plan_path, answers):
+        super().__init__(plan_path)
+        self.answers, self.calls = answers, []
+
+    def ci(self, *args, timeout=120):
+        self.calls.append(args)
+        for prefix, out in self.answers:
+            if args[:len(prefix)] == prefix:
+                return subprocess.CompletedProcess(args, 0, out() if callable(out) else out, "")
+        return subprocess.CompletedProcess(args, 1, "", "")
+
+
+class DriverCalls(unittest.TestCase):
+    def plan(self):
+        tmp = tempfile.mkdtemp()
+        path = os.path.join(tmp, "p.json")
+        with open(path, "w") as f:
+            json.dump({"worker": "cmux22-perf", "steps": []}, f)
+        return path
+
+    def test_cancel_counts_only_when_the_job_ended(self):
+        driver.time.sleep, saved = (lambda s: None), driver.time.sleep
+        try:
+            d = FakeCI(self.plan(), [(("status",), json.dumps({"state": "queued"}))])
+            self.assertFalse(d.cancel("j1", "cancel-queued"))
+            self.assertGreaterEqual(sum(c[0] == "cancel" for c in d.calls), 2)
+            d = FakeCI(self.plan(), [(("status",), json.dumps({"state": "cancelled"}))])
+            self.assertTrue(d.cancel("j1", "cancel-queued"))
+        finally:
+            driver.time.sleep = saved
+
+    def test_a_lost_job_id_is_found_by_its_key(self):
+        d = FakeCI(self.plan(), [(("status", "--ref"), json.dumps([{"id": "other", "step_key": "x"},
+                                                                    {"id": "mine", "step_key": "k-1"}]))])
+        self.assertEqual(d.find_by_key("a" * 40, "k-1"), "mine")
+        self.assertIsNone(d.find_by_key("a" * 40, "k-2"))
+
+    def test_keys_of_two_runs_differ(self):
+        self.assertNotEqual(driver.Driver(self.plan()).run_id[:15], "")
+        self.assertIn(f"p{os.getpid()}", driver.Driver(self.plan()).run_id)
+
+
 class Publish(unittest.TestCase):
     def test_regression_line_and_section_replace(self):
         tmp = tempfile.mkdtemp()
@@ -169,13 +271,14 @@ class Publish(unittest.TestCase):
         rng = random.Random(3)
         write_jobs(os.path.join(tmp, "artifacts"), "instant-ab",
                    [(r, arm, instant_doc(rng, 10.0 if arm == "after" else 0.0)) for r in (1, 2, 3, 4) for arm in ("before", "after")])
-        text, regs = publish.section("b" * 40, "a" * 40, tmp, ["instant-ab"], rng_text="abc123 a commit")
-        self.assertTrue(any(m == "visible_ms" for _, r, _s in regs for m in [r["metric"]]))
+        tip, base = "3cc92720" + "b" * 32, "acfd6938" + "a" * 32
+        text, regs = publish.section(tip, base, tmp, ["instant-ab"], rng_text="abc123 a commit")
+        self.assertTrue(any(r["metric"] == "visible_ms" for _, r, _s in regs))
         self.assertIn("BENCH REGRESSION instant-ab/new_tab/idle/visible_ms", text)
-        self.assertIn("range aaaaaaaaaaa..bbbbbbbbbbb", text)
+        self.assertIn("range acfd6938aaa..3cc92720bbb", text)
         self.assertIn("abc123 a commit", text)
         old = "head\n<!-- tip " + "b" * 40 + " -->\nold\n<!-- end tip " + "b" * 40 + " -->\nother\n"
-        merged = publish.replace_section(old, "b" * 40, text)
+        merged = publish.replace_section(old.replace("b" * 40, tip), tip, text)
         self.assertNotIn("\nold\n", merged)
         self.assertTrue(merged.startswith("head\n") and merged.endswith("other\n"))
 

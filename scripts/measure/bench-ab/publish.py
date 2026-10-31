@@ -47,17 +47,21 @@ def jobs(plans, bench):
 
 
 def section(tip, base, plans, benches, note="", rng_text=""):
+    """The Markdown section of one tip and its regressions [(bench, row, stat)]."""
     lines = [f"<!-- tip {tip} -->", f"## Tip {tip[:11]} against base {base[:11]}", "",
              f"Updated {time.strftime('%H:%MZ', time.gmtime())}. {note}".rstrip(), "",
              f"- A (before) = {base}, B (after) = {tip}. One mini per bench, the two commits interleaved.",
-             "- Intervals: 95 % percentile bootstrap. REGRESSION = the B - A interval is above 0 and the A/A interval "
-             "(A jobs 1, 3, ... against 2, 4, ...) contains 0; NOISY = the A/A interval does not contain 0.",
+             "- Intervals: 95 %, two-level bootstrap (jobs, then samples in each job). REGRESSION = the B - A interval is "
+             f"above max({bench_ab.FLOOR_ABS:g}, {bench_ab.FLOOR_REL:.0%} of A) and the A/A interval (A jobs 1, 3, ... "
+             "against 2, 4, ...) contains 0; NOISY = the A/A interval does not contain 0. p95 needs "
+             f"{bench_ab.MIN_SAMPLES['p95']} and p99 {bench_ab.MIN_SAMPLES['p99']} samples per arm for a verdict; max "
+             "has none. missed = presses with no result, per arm.",
              "- unit sample: all raw samples (p50/p95/p99/max). unit replicate: one value per job (an every-action row "
              "keeps only its own p95); the row is the median of the jobs, and its verdict needs "
              f"{bench_ab.MIN_JOBS}+ jobs per arm.", ""]
     regressions = []
     for bench in benches:
-        res = bench_ab.compare(bench, bench_ab.load(os.path.join(plans, "artifacts"), bench))
+        res = bench_ab.compare(bench, bench_ab.load(os.path.join(plans, "artifacts"), bench, base, tip))
         lines += [f"### {bench}", "", f"Jobs: {'; '.join(jobs(plans, bench)) or 'none ended'}. "
                   f"Artifacts: A {res['jobs_a']}, B {res['jobs_b']}.", ""]
         rows = [r for r in res["rows"] if r["unit"] == "sample" or r["metric"] in HEAD_METRICS]
@@ -73,7 +77,8 @@ def section(tip, base, plans, benches, note="", rng_text=""):
             mark = "**" if "REGRESSION" in v.values() else ""
             cells = [fmt(r["a"].get(s)) for s in ("p50", "p95", "p99", "max")]
             cells += [fmt(r["b"].get(s)) for s in ("p50", "p95", "p99", "max")]
-            lines.append(f"| {mark}{r['key']}{mark} | {r['metric']} | {r['unit']} | {r['jobs_a']}/{r['jobs_b']} | "
+            miss = f" (missed {r['missed']['before']}/{r['missed']['after']})" if r.get("missed") else ""
+            lines.append(f"| {mark}{r['key']}{mark}{miss} | {r['metric']} | {r['unit']} | {r['jobs_a']}/{r['jobs_b']} | "
                          + " | ".join(cells) + f" | {fmt(r['delta'][st])} | {fmt(r['aa'][st])} | "
                          + "/".join(f"{k} {x}" for k, x in v.items()) + " |")
             regressions += [(bench, r, s) for s, x in v.items() if x == "REGRESSION"]
