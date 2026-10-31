@@ -87,9 +87,9 @@ final class AgentChatSplitToggles {
         Self.run(id, cwd: cwd, url: url, extra: extra, chat: chat, store: store, on: anchor, actions: actions)
     }
 
-    /// Runs header action `id` on tab `target` (the last panel beside the chat), or on the chat.
-    /// Changes and Preview run as an agent's diff and browser do (AgentBesidePlacement): selected in
-    /// the target's column, or with no target in a new column right of the chat.
+    /// Runs header action `id` on the chat. Changes and Preview run through the shared
+    /// AgentBesidePlacement right-column rule; the target is nil so it measures every pane on the
+    /// chat's right, including panes the user opened or moved independently.
     private static func run(_ id: String, cwd: String?, url: String?, extra: [String: ActionValue] = [:], chat: String,
                             store: DaemonStore?, on target: String?, actions: AgentChatTabActions) {
         switch id {
