@@ -342,7 +342,7 @@ export function QuickModelMenu({
       // is replaced, and the keyboard stays in the list, on its first row, not back in the field.
       const row =
         query && !typed && !node.contains(active)
-          ? node.querySelector<HTMLElement>('.acpmux-quick-list [role="menuitemradio"]:not([data-disabled])')
+          ? node.querySelector<HTMLElement>('.acpmux-quick-item[role="menuitemradio"]:not([data-disabled])')
           : null;
       if (row) row.focus({ preventScroll: true });
       else if ((query && typed && active !== input) || !node.contains(active)) {
@@ -577,7 +577,7 @@ export function QuickModelMenu({
     if (key === "ArrowDown" && !event.shiftKey) {
       const first = event.currentTarget
         .closest(".acpmux-quick-menu")
-        ?.querySelector<HTMLElement>('.acpmux-quick-list [role="menuitemradio"]:not([data-disabled])');
+        ?.querySelector<HTMLElement>('.acpmux-quick-item[role="menuitemradio"]:not([data-disabled])');
       if (first) {
         event.preventDefault();
         event.stopPropagation();
