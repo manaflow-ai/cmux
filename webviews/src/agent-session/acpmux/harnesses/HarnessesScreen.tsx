@@ -395,7 +395,7 @@ export function HarnessesScreen({
               <span className="acpmux-harness-text">
                 <span className="acpmux-harness-name">{row.name}</span>
                 <span
-                  className="acpmux-harness-status"
+                  className="acpmux-harness-detail"
                   {...(doing?.kind === "failed" ? { title: doing.reason } : row.detail ? { title: row.detail } : {})}
                 >
                   {status}
@@ -421,7 +421,7 @@ export function HarnessesScreen({
       </ul>
       <button type="button" className="acpmux-harnesses-custom" data-harness-custom onClick={custom}>
         <span className="acpmux-harness-name">{t("harnesses.custom")}</span>
-        <span className="acpmux-harness-status">{t("harnesses.customDetail")}</span>
+        <span className="acpmux-harness-detail">{t("harnesses.customDetail")}</span>
       </button>
     </section>
   );
