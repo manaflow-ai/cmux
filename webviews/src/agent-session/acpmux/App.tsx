@@ -53,7 +53,7 @@ import {
   QUEUED_MESSAGE,
   PENDING_MESSAGES,
 } from "./model";
-import { ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
+import { lacksImageBytes, ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
 import { pendingMessagesRow, searchablePendingRows } from "./conversation/pendingMessages";
 import { PendingMessagesCard } from "./conversation/PendingMessagesCard";
 import {
@@ -7512,6 +7512,8 @@ function AcpmuxPane() {
       remove: removeQueued,
       edit: async (promptId, text, images) => {
         const attachments = await queuedAttachments(images, readQueuedImage);
+        // An image that could not be read would be lost with the prompt: it stays queued.
+        if (lacksImageBytes(attachments)) return false;
         const removed = await removeQueued(promptId);
         if (removed) restoreComposerDraft(composerHandle, heldBack, text, attachments);
         return removed;
