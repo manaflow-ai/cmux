@@ -122,10 +122,8 @@ function PullRequestPills({ prs }: { prs: readonly SummaryPullRequest[] }) {
         {prs.slice(0, limit).map((pr) => (
           <MeasureChip key={pr.url} pr={pr} live={live} />
         ))}
-        <span data-measure="more" className="acpmux-pr-dock__more">
-          +{prs.length - 1}
-        </span>
-        <span data-measure="min" className="acpmux-pr-dock__min" />
+        <span data-measure="more">+{prs.length - 1}</span>
+        <span data-measure="min" />
       </span>
       {prs.slice(0, visible).map((pr) => (
         <PullRequestChip key={pr.url} pr={pr} live={live} titled={plan.titled} />
@@ -168,12 +166,8 @@ function MeasureChip({ pr, live }: { pr: SummaryPullRequest; live: LivePullReque
   const title = usePullRequestTitle(pr, live);
   return (
     <>
-      <span data-measure="number" className="acpmux-pr-dock__bar">
-        <span className="acpmux-pr-dock__number">#{pr.number}</span>
-      </span>
-      <span data-measure="title" className="acpmux-pr-dock__title">
-        {title}
-      </span>
+      <span data-measure="number">#{pr.number}</span>
+      <span data-measure="title">{title}</span>
     </>
   );
 }

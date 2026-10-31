@@ -213,10 +213,15 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
   inset: 0 auto auto 0;
   width: max-content;
 }
+/* Each size spans what its control draws: a chip's number and the overflow with their 4px
+   inline padding, a title with the 4px gap before it. */
 .acpmux-pr-dock__measure > span {
   flex: none;
 }
-/* The planner's sizes: a title with the 4px gap before it, and the least readable title. */
+.acpmux-pr-dock__measure > [data-measure="number"],
+.acpmux-pr-dock__measure > [data-measure="more"] {
+  padding-inline: 4px;
+}
 .acpmux-pr-dock__measure > [data-measure="title"] {
   min-width: 0;
 }
@@ -239,7 +244,6 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
 .acpmux-pr-dock__list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
   min-width: 0;
   max-height: min(320px, calc(100vh - 96px));
   overflow-y: auto;
