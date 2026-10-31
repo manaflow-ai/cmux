@@ -8,11 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, webkit, type BrowserType, type CDPSession, type Page } from "playwright";
-import {
-  launchSelectedEngines,
-  type EngineCoverage,
-  type EngineLaunchFailure,
-} from "./engine-selection";
+import { launchSelectedEngines, type EngineCoverage, type EngineLaunchFailure } from "./engine-selection";
 import { PAGES } from "../../test/latency/actions";
 import {
   BUDGET_120HZ,

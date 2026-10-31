@@ -20,9 +20,7 @@ test("keeps a structured failure and partial coverage when one engine fails", as
   });
   expect(selection.coverage.measuredEngines).toEqual(["chromium"]);
   expect(selection.coverage.complete).toBe(false);
-  expect(selection.failures).toEqual([
-    { engine: "webkit", error: "shared library missing", stage: "launch" },
-  ]);
+  expect(selection.failures).toEqual([{ engine: "webkit", error: "shared library missing", stage: "launch" }]);
 });
 
 test("reports both launch failures without pretending that zero engines were selected", async () => {
