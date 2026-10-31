@@ -2070,19 +2070,10 @@ jobs:
         if: inputs.nightly_next_unsigned_run == ''
         run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
 
-      # The Embed CEF phase embeds the pinned Chromium engine
-      # (scripts/cmux-next/cef-manifest.json) from the ensure-cef cache. This
-      # step fills the cache from the private R2 bucket with the read-only key
-      # (the GitHub release with CMUX_CEF_READ_TOKEN is the fallback); only
-      # this step's background fetch gets the key, so the build step runs
-      # without it. With no readable source the app builds without the engine
-      # and reports the browser unavailable; "Report the embedded Chromium
-      # engine" flags that. The fetch (9-134 s, runs 40378565252, 40380339203)
-      # runs in the background beside the steps below, and "Finish fetching
-      # the Chromium engine" joins it right before the Release build. It fails
-      # where the serial step failed (a remote browser host digest mismatch,
-      # or an engine store that is not optional): the join exits with the
-      # fetch's status, before anything reads the cache.
+      # Fills the ensure-cef cache with the pinned Chromium engine (cef-manifest.json) from private R2 with the
+      # read-only key (CMUX_CEF_READ_TOKEN's release as fallback); only this background fetch gets the key. No
+      # source: the app builds without the engine ("Report the embedded Chromium engine" flags it). "Finish
+      # fetching the Chromium engine" joins it before the Release build and fails where it failed.
       - name: Fetch the Chromium engine
         if: inputs.nightly_next_unsigned_run == ''
         env:
@@ -2091,13 +2082,8 @@ jobs:
           CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
           CMUX_CEF_R2_ENV_FILE: /dev/null
           GH_TOKEN: ${{ secrets.CMUX_CEF_READ_TOKEN }}
-        # The x86_64 engine (a manifest "x86_64" object) lets a universal
-        # build embed both slices (embed-cef.sh); without it this prints
-        # nothing and the universal app keeps the arm64 engine.
-        # The remote browser host the Embed remote browser host phase puts in
-        # Contents/Helpers (phone browser tabs, arm64). From R2 with the same key;
-        # unavailable, the app builds without it (the phase warns). A digest
-        # mismatch fails the join. The tailnet store is not reachable from runners.
+        # x86_64: a universal build embeds both engine slices (none: arm64 only). The remote browser host
+        # (Contents/Helpers, phone tabs) comes from R2 too; missing, the phase warns; a digest mismatch fails.
         run: |
           python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" chromium-engine -- \
             bash -c 'set -e
@@ -2777,10 +2763,26 @@ jobs:
       - name: Resolve immutable SSH daemon metadata
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
         id: remote_daemon
-        env:
-          TRACK: ${{ needs.decide.outputs.track }}
-          SHOULD_PUBLISH: ${{ needs.decide.outputs.should_publish }}
-        run: bash scripts/ci/nightly-steps/remote-daemon-metadata.sh
+        run: |
+          set -euo pipefail
+          app="build-universal/Build/Products/Release/cmux.app"
+          base_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
+          build="${GITHUB_RUN_ID}$(printf '%02d' "${GITHUB_RUN_ATTEMPT:-1}")"
+          track="${{ needs.decide.outputs.track }}"
+          version="$(python3 scripts/ci/nightly_version.py marketing --track "$track" \
+            --project-version "$base_version" --build "$build" --next-base "$(python3 scripts/ci/nightly_version.py next-base)")"
+          if [[ "$track" == "nightly-next" && "${{ needs.decide.outputs.should_publish }}" == "true" ]]; then
+            # cmux-next and main's NIGHTLY install as the same app, so a published
+            # cmux-next build must be above every build on both feeds: no feed
+            # ever offers a downgrade after a switch between the two.
+            feeds=()
+            for appcast in appcast.xml appcast-arm64.xml appcast-x86_64.xml; do
+              feeds+=(--feed-if-present "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
+            done
+            python3 scripts/ci/nightly_version.py check-build --build "$build" "${feeds[@]}"
+          fi
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Strip unsigned nightly app before transfer
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
@@ -3002,8 +3004,7 @@ jobs:
           retention-days: 2
           overwrite: true
 
-      # The next light jobs (no environment or secret) take a mini idle now, else Blacksmith (Leo, 2026-10-31:
-      # "i mean the linux things cant our minis just run them"); a re-run of failed jobs takes Blacksmith.
+      # The light jobs next take a mini idle now, else Blacksmith (Leo: "cant our minis just run them").
       - name: Mint the routing token for the light-job placement
         id: light-route-token
         if: success() && github.ref == 'refs/heads/nightly-next' && inputs.nightly_next_unsigned_run == '' && github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
