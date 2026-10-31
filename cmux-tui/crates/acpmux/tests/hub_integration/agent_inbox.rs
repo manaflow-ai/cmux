@@ -692,3 +692,41 @@ async fn a_chat_whose_agent_has_no_tools_gets_its_messages_as_prompts() {
     let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();
     assert_eq!(threads["threads"], json!([]), "{threads}");
 }
+
+/// Messages the inbox took while the chat's agent had cmux's tools still reach an agent that has
+/// none: whether a notice can be read is decided as it goes, by the agent last launched and the
+/// profile the chat spawns with now, so one sent to an agent without the tools carries each
+/// message whole (router review: a respawn under `--strict-mcp-config`, or a restart's first
+/// spawn, would have got the 120-character previews only).
+#[tokio::test]
+async fn a_notice_to_an_agent_that_lost_its_tools_carries_each_message_whole() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "coord").await;
+    let lane = new_session(&mut c, "lane-a").await;
+    for s in [&id, &lane] {
+        c.request(method::SESSION_PROMPT, prompt(s, "hello", None)).await.unwrap();
+    }
+    let order =
+        format!("Merged; next, {}", "a long standing order that a preview cuts. ".repeat(5));
+    // Its profile now starts agents with no cmux tools; the agent it runs still has them, so the
+    // inbox takes the message, and its next agent is the one that reads it.
+    let mut cfg = hub.config.write().await;
+    let fake = cfg.harnesses.get_mut("fake").unwrap();
+    fake.env.insert("ACPMUX_AGENT_TOOLS".into(), "0".into());
+    drop(cfg);
+    let mut lane_agent = agent_of(&hub, &lane).await;
+    let p = json!({"sessionId": id, "prompt": [{"type": "text", "text": order}],
+        "_meta": {"acpmux": {"promptId": "m-1", "class": "blocker"}}});
+    lane_agent.send(method::SESSION_PROMPT, p).await;
+    let accepted =
+        lane_agent.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "m-1").await;
+    assert_eq!(accepted["inbox"], true, "{accepted}");
+    // A blocker wakes the chat: its notice is whole.
+    until(&hub, &id, "the notice", |p| {
+        p.iter().any(|m| m["_meta"]["provenance"]["kind"] == "inbox_notice")
+    })
+    .await;
+    let notice = notices(&hub, &id)[0]["text"].as_str().unwrap().to_owned();
+    assert!(notice.contains(&order), "{notice}");
+    assert!(notice.contains("lane-a"), "{notice}");
+}
