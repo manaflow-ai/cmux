@@ -287,7 +287,7 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
   // The Subagents title opens the Subagents tab in both placements: beside a wide chat (inline
   // column) and over a narrow one (popover, which has no title row of its own).
   for (const [placement, variant, width] of [
-    ["inline", "shared-tab-row", 720],
+    ["inline", "inline-subagents", 720],
     ["popover", "popover-subagents", 480],
   ] as const) {
     for (const theme of ["Apple System Colors", "Apple System Colors Light"]) {

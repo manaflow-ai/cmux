@@ -185,6 +185,32 @@ const workflow: WorkflowSummary = {
 const workflowActions: WorkflowActions = { onPause: none, onStop: none, onSave: none, onOpenTranscript: none };
 const [realWorkflow] = createWorkflowAdapter()(realWorkflowFixture(GALLERY_NOW), "gallery-session");
 
+/// Two subagents, one still running, for the Subagents title and tab.
+const liveSubagentRows = [
+  ...rows,
+  row("subagents", 1, {
+    subagents: [
+      {
+        id: "explore-docs",
+        name: "Explore docs",
+        task: "Read the release docs",
+        parent: null,
+        state: "running",
+        startedAt: minutesAgo(3),
+      },
+      {
+        id: "check-links",
+        name: "Check links",
+        task: "Check every link",
+        parent: null,
+        state: "completed",
+        startedAt: minutesAgo(3),
+        endedAt: minutesAgo(1),
+      },
+    ],
+  }),
+];
+
 const background = (list: InspectorProcess[]) => ({
   processes: list,
   listed: true,
@@ -208,34 +234,11 @@ export default componentEntry<Props>({
     },
     "popover-subagents": {
       note: "A narrow pane's popover with live subagents: Environment first, and the Subagents title still opens the Subagents tab.",
-      props: {
-        popover: true,
-        rows: [
-          ...rows,
-          row("subagents", 1, {
-            subagents: [
-              {
-                id: "explore-docs",
-                name: "Explore docs",
-                task: "Read the release docs",
-                parent: null,
-                state: "running",
-                startedAt: minutesAgo(3),
-              },
-              {
-                id: "check-links",
-                name: "Check links",
-                task: "Check every link",
-                parent: null,
-                state: "completed",
-                startedAt: minutesAgo(3),
-                endedAt: minutesAgo(1),
-              },
-            ],
-          }),
-        ],
-        background: background(processes.slice(0, 2)),
-      },
+      props: { popover: true, rows: liveSubagentRows, background: background(processes.slice(0, 2)) },
+    },
+    "inline-subagents": {
+      note: "The inline column with the same live subagents: the Subagents title opens the Subagents tab beside Summary.",
+      props: { rows: liveSubagentRows, background: background(processes.slice(0, 2)) },
     },
     "preview-tab-row": {
       note: "The Preview sibling obeys the same native tab-row clearance, both beside the chat and covering a narrow pane.",
