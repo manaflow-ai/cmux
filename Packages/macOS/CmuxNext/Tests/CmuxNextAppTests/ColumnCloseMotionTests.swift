@@ -1,10 +1,12 @@
 import AppKit
 @testable import CmuxNextLayout
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// Closing a column revealed beside a chat must bring the chat back while its workspace stays visible.
 @MainActor
+@Suite(.closesItsWindows)
 struct ColumnCloseMotionTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
@@ -43,6 +45,7 @@ struct ColumnCloseMotionTests {
     @Test(arguments: [false, true], [false, true])
     func closingTheRevealedColumnBringsTheChatBack(collapseToLeaf: Bool, reduceMotion: Bool) throws {
         let fixture = Screen(reduceMotion: reduceMotion)
+        defer { fixture.window.closeAfterTest() }
         let screen = try #require(fixture.root.screenViews["s"])
         fixture.model.revealColumn(containing: "files")
         fixture.root.syncWithModel()

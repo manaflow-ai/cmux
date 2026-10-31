@@ -20,6 +20,8 @@ import { TurnActionsContext } from "../conversation/turnActions";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
+import { AgentIdentity } from "./AgentIdentity";
+import { agentTone } from "./agentTones";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
 import { retryLabel, subagentRetry, type RetryAction, type RetryNote, type SessionRetryFields } from "./retryState";
 import { elapsed, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
@@ -119,7 +121,11 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
         onClick={() => open?.(agent.id)}
       >
         <span className="cv-tool__icon">
-          {waiting ? <Spinner size={16} loading /> : <Icon name="agent.session" size={16} />}
+          {waiting ? (
+            <Spinner size={16} loading />
+          ) : (
+            <AgentIdentity harness={agent.harness} tone={agentTone(agent.id)} size={16} />
+          )}
         </span>
         {/* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */}
         <span className="cv-tool__text" title={parts.join(" · ")}>

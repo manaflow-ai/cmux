@@ -1,11 +1,13 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextAppCore
 import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
+import UniformTypeIdentifiers
 
 /// Leo 2026-10-21, closing several selected sidebar workspaces (#23110's Cmd-W on a selection):
 /// "also idk what's going on with these new workspace deletions but it's really slow and it's
@@ -215,5 +217,187 @@ struct SidebarSelectionBatchCloseTests {
             // With motion available here (an awake display, animations on), the row is seen on its closing spring.
             if animates { #expect(closingSeen, "the row left in one step, with no close animation") }
         }
+    }
+
+    /// Leo 2026-10-31, after a sidebar close of 8 rows showed "The workspace could not be closed." above
+    /// "Closed 8 workspaces  Undo": "plus the dumb shit when it apparently races a delete". A close of a
+    /// workspace the daemon no longer has (closed before it came, or by another close that committed while
+    /// it was on its way) is a close that went through, never a refusal; a real refusal still fails.
+    @Test func closingAWorkspaceThatIsAlreadyGoneIsNoRefusal() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            try await PinnedPageTests.until({ !services.windows.registry.isLaunching }, within: .seconds(60))
+            let controller = try #require(services.windows.active)
+            let ids = try await Self.make(8, prefix: "race", services, in: controller)
+            let keys = try ids.map { try #require(services.workspace(id: $0)?.key) }
+
+            // Two closes of each at once (a second press, another window, the CLI): one of each pair commits first.
+            let failures = await withTaskGroup(of: String?.self) { group in
+                for key in keys + keys {
+                    group.addTask {
+                        do { try await WorkspaceClose.close(key, terminals: [], on: connection); return nil } catch { return "\(key.rawValue): \(error)" }
+                    }
+                }
+                var failures: [String] = []
+                for await failure in group { if let failure { failures.append(failure) } }
+                return failures
+            }
+            #expect(failures.isEmpty, "closes that raced a close failed: \(failures)")
+            // And once more, after the daemon has dropped them all.
+            for key in keys {
+                do { try await WorkspaceClose.close(key, terminals: [], on: connection) } catch {
+                    Issue.record("a close of the already closed \(key.rawValue) failed: \(error)")
+                }
+            }
+
+            // A genuine refusal still surfaces: `ifEmpty` on a workspace that has a tab.
+            let kept = try await Self.make(1, prefix: "kept", services, in: controller)
+            let key = try #require(services.workspace(id: kept[0])?.key)
+            try await PinnedPageTests.until({ services.workspace(id: kept[0])?.screens.flatMap(\.panes).contains { !$0.tabs.isEmpty } == true }, within: .seconds(30))
+            await #expect(throws: (any Error).self) { try await WorkspaceClose.close(key, terminals: [], on: connection, ifEmpty: true) }
+            #expect(services.workspace(id: kept[0]) != nil)
+        }
+    }
+
+    /// The same race through a selection's batch close: three of its eight rows are deleted while the batch
+    /// still lists them (their delete is on its way to the store). The batch shows its one toast, "Closed 8
+    /// workspaces", and no "The workspace could not be closed." above it.
+    @Test func aBatchCloseThatRacesADeleteShowsOneToast() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            try await PinnedPageTests.until({ !services.windows.registry.isLaunching }, within: .seconds(60))
+            let controller = try #require(services.windows.active)
+            let window = try #require(controller.window)
+            let ids = try await Self.make(8, prefix: "raced", services, in: controller)
+            let members = ids.compactMap { services.machines.workspace(id: $0) }
+            try #require(members.count == 8)
+            for (workspace, _) in members.prefix(3) { try await connection.closeWorkspace(try #require(workspace.key), endTerminals: true) }
+
+            let offered = Notices()
+            let flow = WorkspaceSelectionCloseFlow(
+                hide: { InstantClose.begin($0, in: controller.state.id, windows: services.windows) }, mayAsk: { false }, question: { nil },
+                restore: {}, listed: { _ in true }, machines: { services.machines.daemons },
+                offerUndo: { names, _ in offered.shown.append(WorkspaceBulkClose.closedToast(names.count)) },
+                window: controller.state.id, toastWindow: window, running: WorkspaceSelectionCloseFlow.Running())
+            let work = try #require(flow.start(members))
+            let failure = await work.value
+            let toasts = CmuxToastCenter.shared.toasts(in: window)
+            print("SidebarSelectionBatchClose: raced batch failure \(String(describing: failure)), toasts \(toasts.map(\.message)), offered \(offered.shown)")
+
+            #expect(failure == nil, "the batch failed: \(String(describing: failure))")
+            #expect(!toasts.contains { $0.id == "workspace-close-refused" }, "a refusal toast beside the batch's: \(toasts.map(\.message))")
+            #expect(offered.shown == [WorkspaceBulkClose.closedToast(8)], "toasts offered: \(offered.shown)")
+            try await PinnedPageTests.until({ Self.listed(ids, services).isEmpty }, within: .seconds(30))
+        }
+    }
+
+    /// The picture of the raced batch close for the PR (Leo's two stacked toasts before, one after): the window's
+    /// bottom left (sidebar and toasts) at 2x, light above dark, in `.build/raced-batch-close.png` (a fleet step
+    /// returns it with `--artifact`). The toasts are the app's own (`offerUndo` and the refusal path as the sidebar
+    /// wires them); it checks only that a toast drew.
+    @Test func aRacedBatchCloseCapture() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            try await PinnedPageTests.until({ !services.windows.registry.isLaunching }, within: .seconds(60))
+            let controller = try #require(services.windows.active)
+            let window = try #require(controller.window)
+            var shots: [CGImage] = []
+            // Rows that stay, so the sidebar beside the toasts is not empty.
+            _ = try await Self.make(3, prefix: "web-app", services, in: controller)
+            for (round, dark) in [false, true].enumerated() {
+                NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+                window.appearance = NSApp.appearance
+                // The chrome follows the cmux theme, not the appearance (as the sidebar galleries set it).
+                _ = ThemeScope.app.store.apply(try AANestedGroupsGalleryTests.input(dark ? "Soft Blue" : "Soft Blue Light"))
+                let ids = try await Self.make(8, prefix: round == 0 ? "api-server" : "docs-site", services, in: controller)
+                let members = ids.compactMap { services.machines.workspace(id: $0) }
+                try #require(members.count == 8)
+                for (workspace, _) in members.prefix(3) { try await connection.closeWorkspace(try #require(workspace.key), endTerminals: true) }
+                let closing = members.map(\.0.id), context = AppActionContext(services: services)
+                let undoWindow = WorkspaceBulkClose.survivor(closing: closing, context)
+                let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
+                let flow = WorkspaceSelectionCloseFlow(
+                    hide: { InstantClose.begin($0, in: controller.state.id, windows: services.windows) }, mayAsk: { false }, question: { nil },
+                    restore: {}, listed: { _ in true }, machines: { services.machines.daemons },
+                    offerUndo: { names, undone in
+                        guard names.count > 1, let undoWindow else { return }
+                        WorkspaceGroupClose.offerUndo("workspaces-closed", WorkspaceBulkClose.closedToast(names.count), groups: [(nil, names)],
+                                                      after: seen, in: undoWindow, services, undone: undone)
+                    },
+                    window: controller.state.id, toastWindow: window, running: WorkspaceSelectionCloseFlow.Running())
+                let work = try #require(flow.start(members))
+                _ = await work.value
+                try? await PinnedPageTests.until({ CmuxToastCenter.shared.toasts(in: window).contains { $0.id == Self.toastID } }, within: .seconds(10))
+                try? await Task.sleep(for: .seconds(1)) // the toasts' appear motion
+                print("SidebarSelectionBatchClose: capture \(dark ? "dark" : "light") toasts \(CmuxToastCenter.shared.toasts(in: window).map(\.message))")
+                shots.append(try #require(Self.shot(window)))
+                // The dark round's toasts take the light round's places (same ids): Undo's offer is throttled per id.
+            }
+            let width = shots.map(\.width).max() ?? 0, gap = 24, height = shots.map(\.height).reduce(0, +) + gap
+            let ctx = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            ctx.setFillColor(CGColor(gray: 0.5, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            ctx.draw(shots[0], in: CGRect(x: 0, y: height - shots[0].height, width: shots[0].width, height: shots[0].height))
+            ctx.draw(shots[1], in: CGRect(x: 0, y: 0, width: shots[1].width, height: shots[1].height))
+            let out = AddServerShotsTests.packageRoot.appending(path: ".build/raced-batch-close.png")
+            try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let dest = try #require(CGImageDestinationCreateWithURL(out as CFURL, UTType.png.identifier as CFString, 1, nil))
+            CGImageDestinationAddImage(dest, try #require(ctx.makeImage()), nil)
+            #expect(CGImageDestinationFinalize(dest))
+            print("SidebarSelectionBatchClose: wrote \(out.path)")
+        }
+    }
+
+    /// `view`'s `rect` at 2x.
+    private static func render(_ view: NSView, _ rect: NSRect) -> CGImage? {
+        guard rect.width >= 1, rect.height >= 1,
+              let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(rect.width * 2), pixelsHigh: Int(rect.height * 2), bitsPerSample: 8,
+                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+        else { return nil }
+        rep.size = rect.size
+        view.cacheDisplay(in: rect, to: rep)
+        return rep.cgImage
+    }
+
+    /// The window's content with its toasts drawn over it where they show (they live in the window's overlay
+    /// panel), cropped to the bottom left: the sidebar and the toasts. Nil when no toast is found.
+    private static func shot(_ window: NSWindow) -> CGImage? {
+        guard let content = window.contentView else { return nil }
+        content.layoutSubtreeIfNeeded()
+        let bounds = content.bounds
+        func toasts(in view: NSView) -> [CmuxToastView] { (view as? CmuxToastView).map { [$0] } ?? view.subviews.flatMap { toasts(in: $0) } }
+        let panels = NSApp.windows.filter { $0 !== window && ($0.parent === window || $0.parent?.parent === window) }
+        let found = panels.compactMap(\.contentView).flatMap { toasts(in: $0.superview ?? $0) }.filter { !$0.isHidden && $0.alphaValue > 0 }
+        var placed: [(CmuxToastView, NSRect)] = found.compactMap { toast in
+            guard let host = toast.window else { return nil }
+            var rect = content.convert(window.convertFromScreen(host.convertToScreen(toast.convert(toast.bounds, to: nil))), from: nil)
+            if content.isFlipped { rect.origin.y = bounds.height - rect.maxY }
+            return (toast, rect)
+        }
+        if placed.isEmpty {
+            // No overlay panel in this run: the window's toasts, bottom centered and stacked as the toast host places them.
+            var y: CGFloat = 24
+            for toast in CmuxToastCenter.shared.toasts(in: window) {
+                let view = CmuxToastView(toast: toast)
+                view.appearance = window.effectiveAppearance
+                view.layoutSubtreeIfNeeded()
+                let size = view.fittingSize
+                view.frame = NSRect(origin: .zero, size: size)
+                placed.append((view, NSRect(x: bounds.midX - size.width / 2, y: y, width: size.width, height: size.height)))
+                y += size.height + 8
+            }
+        }
+        print("SidebarSelectionBatchClose: capture found \(found.count) toast views in \(panels.count) panels, drew \(placed.count)")
+        guard !placed.isEmpty, let base = render(content, bounds),
+              let ctx = CGContext(data: nil, width: base.width, height: base.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        // CG's origin is bottom left; a flipped content view drew top down into its bitmap the same way.
+        ctx.draw(base, in: CGRect(x: 0, y: 0, width: base.width, height: base.height))
+        for (view, rect) in placed {
+            guard let image = render(view, view.bounds) else { continue }
+            ctx.draw(image, in: CGRect(x: rect.minX * 2, y: rect.minY * 2, width: rect.width * 2, height: rect.height * 2))
+        }
+        let top = (placed.map(\.1.maxY).max() ?? 0) + 260, right = (placed.map(\.1.maxX).max() ?? 0) + 48
+        let crop = CGRect(x: 0, y: CGFloat(base.height) - min(top, bounds.height) * 2, width: min(right, bounds.width) * 2, height: min(top, bounds.height) * 2)
+        return ctx.makeImage()?.cropping(to: crop)
     }
 }
