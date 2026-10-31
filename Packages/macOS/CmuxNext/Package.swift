@@ -621,7 +621,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextDaemonService",
             dependencies: [
-                "CmuxNextActions", "CmuxNextAgentPane", "CmuxNextApps", "CmuxNextBridge", "CmuxNextCompat", "CmuxNextControl",
+                "CmuxNextActions", "CmuxNextAgentPane", "CmuxNextApps", "CmuxNextBridge", "CmuxNextCloud", "CmuxNextCompat", "CmuxNextControl",
                 "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextWakeups",
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
             ],
@@ -1236,7 +1236,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextBridge",
             dependencies: [
                 "CmuxNextCompat",
-                "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextSidebar", "CmuxNextTabs", "CmuxNextIcons",
+                "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextRemote", "CmuxNextSidebar", "CmuxNextTabs", "CmuxNextIcons",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             ],
             swiftSettings: uiSwiftSettings

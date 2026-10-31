@@ -387,7 +387,7 @@ fn moved_peer_the_kernel_signature_of_a_peer_whose_executable_is_gone_is_read_an
     let err = code_signature::verify(&running, &apple).unwrap_err();
     assert!(signature_rule(&err), "{err}");
 
-    // The whole peer check reaches the signature rule instead of stopping at
+    // The whole peer check reaches the signature rules instead of stopping at
     // the unknown executable, and still refuses this peer.
     let err = optchat_chief::acpmux_peer::check(&stream, Some(&clang)).unwrap_err();
     assert!(signature_rule(&err), "{err}");
