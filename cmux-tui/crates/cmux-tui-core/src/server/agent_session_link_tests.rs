@@ -76,14 +76,14 @@ fn a_cursor_given_twice_fails_the_list() {
         json!({"sessions": [row("c", 1)], "nextCursor": "p1"}),
     ]);
     let err = link.call_whole_list("_acpmux/sessions", json!({}), WAIT).unwrap_err();
-    assert!(matches!(&err, LinkError::Rpc(why, _) if why.contains("twice")), "{err:?}");
+    assert!(matches!(&err, LinkError::BadList(why) if why.contains("twice")), "{err:?}");
 }
 
 #[test]
 fn a_cursor_that_is_not_a_string_fails_the_list() {
     let (link, _asked, _dir) = scripted(vec![json!({"sessions": [row("a", 2)], "nextCursor": 7})]);
     let err = link.call_whole_list("_acpmux/sessions", json!({}), WAIT).unwrap_err();
-    assert!(matches!(&err, LinkError::Rpc(why, _) if why.contains("page cursor 7")), "{err:?}");
+    assert!(matches!(&err, LinkError::BadList(why) if why.contains("page cursor 7")), "{err:?}");
 }
 
 #[test]
@@ -93,5 +93,24 @@ fn a_page_with_no_sessions_fails_the_list() {
         json!({"nextCursor": null}),
     ]);
     let err = link.call_whole_list("_acpmux/sessions", json!({}), WAIT).unwrap_err();
-    assert!(matches!(&err, LinkError::Rpc(why, _) if why.contains("lists no sessions")), "{err:?}");
+    assert!(
+        matches!(&err, LinkError::BadList(why) if why.contains("lists no sessions")),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn a_sessions_reply_with_no_list_fails_and_a_watch_reply_without_one_is_as_before() {
+    let (link, _asked, _dir) = scripted(vec![json!({})]);
+    let err = link.call_whole_list("_acpmux/sessions", json!({}), WAIT).unwrap_err();
+    assert!(
+        matches!(&err, LinkError::BadList(why) if why.contains("lists no sessions")),
+        "{err:?}"
+    );
+    // A watch from before watches answered with the list.
+    let (link, _asked, _dir) = scripted(vec![json!({})]);
+    assert_eq!(
+        link.call_whole_list("_acpmux/watch", json!({"enabled": true}), WAIT).unwrap(),
+        json!({})
+    );
 }

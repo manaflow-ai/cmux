@@ -144,6 +144,8 @@ pub(super) struct Fixture {
     /// The watch answers only its first row with a `nextCursor`; `_acpmux/sessions`
     /// from that cursor answers the rest ([`Fixture::watch`]).
     pub(super) watch_pages: bool,
+    /// With [`Fixture::watch_pages`], the page after the watch's cursor lists no sessions.
+    pub(super) watch_bad_page: bool,
 }
 
 fn serve(stream: UnixStream, frames: Sender<Value>, fixture: &Fixture) {
@@ -188,17 +190,22 @@ fn serve(stream: UnixStream, frames: Sender<Value>, fixture: &Fixture) {
                 }
             }
             "_acpmux/sessions" if params["cursor"] == json!("w1") => {
-                Some(json!({"sessions": fixture.watch}))
+                Some(if fixture.watch_bad_page {
+                    json!({"nextCursor": null})
+                } else {
+                    json!({"sessions": fixture.watch})
+                })
             }
             // The machine's whole list: the attached session's family and others
-            // (agent_session_children_tests.rs).
+            // (agent_session_children_tests.rs), its older rows first, as acpmux's byte
+            // pages (in no time order) can come.
             "_acpmux/sessions" if fixture.sessions_pages => {
                 let mut rows = machine_sessions()["sessions"].as_array().unwrap().clone();
+                let older = rows.split_off(3);
                 Some(if params["cursor"] == json!("c1") {
-                    json!({"sessions": rows.split_off(3)})
+                    json!({"sessions": rows})
                 } else {
-                    rows.truncate(3);
-                    json!({"sessions": rows, "nextCursor": "c1"})
+                    json!({"sessions": older, "nextCursor": "c1"})
                 })
             }
             "_acpmux/sessions" => Some(machine_sessions()),

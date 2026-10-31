@@ -136,6 +136,7 @@ enum Failure {
     AcpmuxUnavailable,
     Timeout,
     Refused,
+    BadList,
 }
 
 impl Failure {
@@ -149,6 +150,7 @@ impl Failure {
             Self::AcpmuxUnavailable => "agent_update.acpmux_unavailable",
             Self::Timeout => "agent_update.timeout",
             Self::Refused => "agent_update.refused",
+            Self::BadList => "agent_update.bad_list",
         }
     }
 
@@ -164,6 +166,7 @@ impl Failure {
             }
             Self::Timeout => "acpmux did not answer in time",
             Self::Refused => "acpmux refused the request",
+            Self::BadList => "acpmux sent a session list that cannot be read whole",
         }
     }
 
@@ -173,6 +176,7 @@ impl Failure {
             LinkError::Timeout => Self::Timeout,
             LinkError::Busy => Self::Busy,
             LinkError::Rpc(..) | LinkError::MethodNotFound(_) => Self::Refused,
+            LinkError::BadList(_) => Self::BadList,
         }
     }
 }

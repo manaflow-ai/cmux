@@ -20,14 +20,17 @@ const PEER_CHILD: &str = "acp_peer_child";
 /// The fake acpmux's `_acpmux/sessions` answer, newest first.
 fn machine_sessions() -> Value {
     json!({"sessions": [
-        {"sessionId": GRANDCHILD, "startedBy": CHILD, "spawnedBy": null, "depth": 2},
-        {"sessionId": UNRELATED, "startedBy": null, "spawnedBy": null},
+        {"sessionId": GRANDCHILD, "startedBy": CHILD, "spawnedBy": null, "depth": 2,
+         "updatedAt": 70},
+        {"sessionId": UNRELATED, "startedBy": null, "spawnedBy": null, "updatedAt": 60},
         {"sessionId": CHILD, "startedBy": SESSION, "spawnedBy": SESSION, "depth": 1,
-         "status": "running"},
-        {"sessionId": UNRELATED_CHILD, "startedBy": UNRELATED, "spawnedBy": UNRELATED},
-        {"sessionId": PEER_CHILD, "startedBy": SESSION, "peer": "mac"},
-        {"sessionId": SPAWNED, "startedBy": null, "spawnedBy": SESSION},
-        {"sessionId": SESSION, "name": "sub", "startedBy": null, "spawnedBy": null},
+         "status": "running", "updatedAt": 50},
+        {"sessionId": UNRELATED_CHILD, "startedBy": UNRELATED, "spawnedBy": UNRELATED,
+         "updatedAt": 40},
+        {"sessionId": PEER_CHILD, "startedBy": SESSION, "peer": "mac", "updatedAt": 30},
+        {"sessionId": SPAWNED, "startedBy": null, "spawnedBy": SESSION, "updatedAt": 20},
+        {"sessionId": SESSION, "name": "sub", "startedBy": null, "spawnedBy": null,
+         "updatedAt": 10},
     ]})
 }
 
@@ -91,8 +94,8 @@ fn session_children_lists_exactly_the_attached_sessions_descendants() {
     assert_eq!(child["startedBy"], json!(SESSION));
 }
 
-/// A list past acpmux's largest reply comes in pages: a descendant only the second
-/// page names is still listed.
+/// A list past acpmux's largest reply comes in pages, in no time order: a descendant
+/// only the second page names is still listed, and the list is newest first.
 #[test]
 fn session_children_reads_every_page_of_a_list_too_big_for_one_reply() {
     let fixture = Fixture { sessions_pages: true, ..Fixture::default() };
@@ -141,6 +144,18 @@ fn session_children_follows_a_child_only_a_later_watch_page_names() {
     let change = client.event(WAIT).expect("the followed child's change");
     assert_eq!(change["event"], json!("agent-session-changed"), "{change}");
     assert_eq!(change["change"]["sessionId"], json!(CHILD));
+}
+
+/// A watch list in pages it cannot be read whole from would follow only some of the
+/// session's descendants: the attach is refused, and the client attaches again.
+#[test]
+fn an_attach_whose_watch_list_comes_in_bad_pages_is_refused() {
+    let fixture = Fixture { watch_pages: true, watch_bad_page: true, ..Fixture::default() };
+    let fake = FakeAcpmux::start_with("children-bad-watch", fixture);
+    let mux = mux_with(&fake, "asa-children-bad-watch");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "children-bad-watch");
+    assert_code(&attach(&mut client, surface), "agent_session.bad_list");
 }
 
 #[test]

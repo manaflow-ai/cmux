@@ -14,6 +14,9 @@ use crate::notify::Classifier;
 
 /// A read that never answers reconnects the existing watch; no polling task.
 const INFO_TIMEOUT: Duration = Duration::from_secs(10);
+/// A page of the watch list that never answers reconnects the watch too. A page is up
+/// to acpmux's largest reply, and acpmux may hold it back while it paces list builds.
+const PAGE_TIMEOUT: Duration = Duration::from_secs(60);
 const SESSION_LIMIT: usize = 4096;
 
 #[derive(Default)]
@@ -23,8 +26,10 @@ pub(crate) struct Waiting {
     requests: HashMap<u64, Pending>,
     queued: VecDeque<u64>,
     active: Option<u64>,
-    /// The `_acpmux/sessions` reading the watch list's next page; none once it is whole.
+    /// The `_acpmux/sessions` reading the watch list's next page, and when it is due; none
+    /// once the list is whole.
     page: Option<u64>,
+    page_deadline: Option<Instant>,
     /// The page cursors this watch list gave: one given twice would page it forever.
     cursors: HashSet<String>,
 }
@@ -44,7 +49,8 @@ struct Pending {
 
 impl Waiting {
     pub(crate) fn next_deadline(&self) -> Option<Instant> {
-        self.active.and_then(|id| self.requests.get(&id)?.deadline)
+        let lookup = self.active.and_then(|id| self.requests.get(&id)?.deadline);
+        lookup.into_iter().chain(self.page_deadline).min()
     }
 
     /// Outgoing acpmux queries and push requests for one watch frame.
@@ -152,6 +158,7 @@ impl Waiting {
     /// cursor until a page has none (acpmux `Client::whole_list`).
     fn next_page(&mut self, result: &Value) -> Result<Option<Value>, String> {
         self.page = None;
+        self.page_deadline = None;
         let cursor = match result.get("nextCursor") {
             None | Some(Value::Null) => return Ok(None),
             Some(Value::String(cursor)) => cursor,
@@ -162,6 +169,7 @@ impl Waiting {
         }
         self.next_id = self.next_id.checked_add(1).ok_or("pending-input request IDs exhausted")?.max(10);
         self.page = Some(self.next_id);
+        self.page_deadline = Some(Instant::now() + PAGE_TIMEOUT);
         Ok(Some(json!({"jsonrpc":"2.0","id":self.next_id,"method":"_acpmux/sessions",
             "params":{"cursor":cursor}})))
     }
@@ -300,6 +308,12 @@ mod tests {
         let mut waiting = Waiting::default();
         let empty = page(&mut waiting, &mut classifier, json!({"sessions":[],"nextCursor":"c2"})).unwrap();
         assert_eq!(empty[0]["params"], json!({"cursor":"c2"}), "an empty page's cursor is followed");
+        // The page asked for has a deadline (the watch reconnects past it); the whole list none.
+        let due = waiting.next_deadline().expect("a page asked for is due");
+        assert!(due > Instant::now() + PAGE_TIMEOUT - Duration::from_secs(5));
+        let last = json!({"id":empty[0]["id"],"result":{"sessions":[]}});
+        receive(&mut waiting, &last, &mut classifier);
+        assert_eq!(waiting.next_deadline(), None);
         // A new watch reads the list again from its start, and may give the same cursors.
         assert_eq!(receive(&mut waiting, &first, &mut classifier).0[0]["params"], json!({"cursor":"c1"}));
     }

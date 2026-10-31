@@ -51,6 +51,10 @@ pub(crate) enum LinkError {
     /// acpmux does not know the method (JSON-RPC -32601, an acpmux from
     /// before it): its message.
     MethodNotFound(String),
+    /// A session list read whole (`call_whole_list`) came in pages it cannot
+    /// be read whole from: a bad or repeated cursor, or a page with no
+    /// `sessions`: why.
+    BadList(String),
 }
 
 /// acpmux's session list order (`hub::session_pages::sort_session_summaries`): newest
@@ -170,7 +174,12 @@ impl AcpmuxLink {
         if let Some(p) = rest.as_object_mut() {
             p.remove("enabled");
         }
-        let bad = |why: String| LinkError::Rpc(format!("{method}: {why}"), Value::Null);
+        let bad = |why: String| LinkError::BadList(format!("{method}: {why}"));
+        // Every acpmux answers `_acpmux/sessions` with its list; a watch from before
+        // watches had one answers without.
+        if method == "_acpmux/sessions" && !reply.get("sessions").is_some_and(Value::is_array) {
+            return Err(bad("the reply lists no sessions".to_owned()));
+        }
         let mut seen = std::collections::HashSet::new();
         while let Some(cursor) = reply.as_object_mut().and_then(|r| r.remove("nextCursor")) {
             let cursor = match cursor {
