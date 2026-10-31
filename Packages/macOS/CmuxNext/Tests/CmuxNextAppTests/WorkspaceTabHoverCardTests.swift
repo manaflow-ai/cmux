@@ -99,7 +99,9 @@ struct WorkspaceTabHoverCardTests {
         list.reload(animated: false)
         let id = WorkspaceHoverCardController.targetID(target)
 
-        list.hoverCard.resources.setSource(MockResourceSource(tabs: []))
+        let source = MockResourceSource(tabs: []) // the sampler holds its source weakly
+        list.hoverCard.resources.setSource(source)
+        defer { withExtendedLifetime(source) {} }
 
         // The coordinator's order: activation while the card is pending, then the body.
         list.hoverCard.requestDetails(for: target)
