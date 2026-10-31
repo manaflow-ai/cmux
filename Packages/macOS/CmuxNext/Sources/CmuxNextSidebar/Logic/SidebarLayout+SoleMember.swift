@@ -6,10 +6,12 @@ import CoreGraphics
 // (a member row's level is its header's, `SidebarRow.indentLevel`). The row stays the group's member (`group`, its
 // color and line) and stands for the group (`standsForGroup`): its menu carries the group's actions.
 nonisolated extension SidebarLayout {
-    /// The workspace `group` draws as its one row, or nil when the group keeps its header: two or more members, an
-    /// item member, a member named otherwise (names compared trimmed), or subgroups under it.
+    /// The workspace `group` draws as its one row, or nil when the group keeps its header: two or more members (in the
+    /// group, not only among the drawn `members`: a filter showing one of two keeps the header), an item member, a member
+    /// named otherwise (names compared trimmed), or subgroups under it.
     static func soleMember(_ group: SidebarGroup, _ members: [SidebarGroupMember], hasSubgroups: Bool) -> SidebarWorkspace? {
-        guard members.count == 1, !hasSubgroups, case let .workspace(ws) = members[0] else { return nil }
+        guard members.count == 1, group.workspaces.count + group.items.count == 1, !hasSubgroups,
+              case let .workspace(ws) = members[0] else { return nil }
         return names(group, ws.title) ? ws : nil
     }
 
