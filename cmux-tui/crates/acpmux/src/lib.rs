@@ -74,6 +74,7 @@ pub mod local_stream;
 pub mod login_env;
 pub mod machine_wake;
 pub mod mailbox;
+pub mod managed_codex;
 pub mod mesh;
 pub mod mesh_control;
 pub mod mesh_http;

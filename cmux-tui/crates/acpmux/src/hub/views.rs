@@ -38,6 +38,23 @@ fn summary_title(title: &str) -> String {
 
 /// The tag naming the session whose agent started this one (`Hub::spawned_by`).
 pub const SPAWNED_BY_TAG: &str = "spawnedBy";
+const COORDINATOR_PARENT_TAG: &str = "mux.parent";
+
+/// Whether a session is agent-started and therefore must be explicitly opened before a client
+/// projects it into an automatic sidebar row. The durable `parent` and validated `spawnedBy`
+/// fields cover current and older daemons; the raw tags preserve the classification when a
+/// parent is gone or a coordinator child predates lineage recording.
+fn sidebar_requires_open(summary: &Value) -> bool {
+    let nonempty = |value: Option<&Value>| {
+        value.and_then(Value::as_str).is_some_and(|value| !value.is_empty())
+    };
+    let tags = summary.get("tags");
+    nonempty(summary.get("parent"))
+        || nonempty(summary.get("spawnedBy"))
+        || nonempty(tags.and_then(|tags| tags.get(SPAWNED_BY_TAG)))
+        || nonempty(tags.and_then(|tags| tags.get(COORDINATOR_PARENT_TAG)))
+        || nonempty(tags.and_then(|tags| tags.get(super::lane_reports::TAG)))
+}
 
 /// The session's status dot, decided here once so every client draws the
 /// same one (cx-zlox). First match wins:
@@ -138,7 +155,7 @@ impl Hub {
 ///
 /// `stalledSince`: a working lane whose turn has stalled (`hub/activity.rs`), since when.
 ///
-/// `{state, since, error, step, title, stalledSince}`; null for a closed session.
+/// `{state, since, error, step, title, stalledSince, requiresOpen}`; null for a closed session.
 pub fn lane(summary: &Value) -> Value {
     if summary["status"] == "closed" {
         return Value::Null;
@@ -173,7 +190,8 @@ pub fn lane(summary: &Value) -> Value {
     let stalled =
         if state == "working" { summary["turn"]["stalledSince"].clone() } else { Value::Null };
     json!({"state": state, "since": since, "error": error, "step": lane_step(summary),
-           "title": lane_title(summary), "stalledSince": stalled})
+           "title": lane_title(summary), "stalledSince": stalled,
+           "requiresOpen": sidebar_requires_open(summary)})
 }
 
 /// The lane's step, one line: the running turn's prompt, else the agent's
