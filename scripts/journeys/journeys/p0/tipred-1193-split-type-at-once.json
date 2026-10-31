@@ -29,7 +29,7 @@
     {"do": "smoke_type_now", "text": "echo d2-${nonce}-$((6*7))"},
     {"do": "expect", "title": "Cmd-D twice fast, a line typed at once after each: two new panes, each line ran in its own new pane and nowhere else", "since": "split1", "timeout": 30,
      "all": [
-       {"smoke_new_terminals": {"since": "before_splits", "lines": ["d1-${nonce}-42", "d2-${nonce}-42"], "focused": "d2-${nonce}-42", "placement": "new_panes"}},
+       {"smoke_new_terminals": {"since": "before_splits", "lines": ["d1-${nonce}-42", "d2-${nonce}-42"], "focused": "d2-${nonce}-42", "placement": "new_panes", "order": "left_to_right"}},
        {"smoke_key_window": {}},
        {"frame_screen": {"shows": ["d1-${nonce}-42", "d2-${nonce}-42"]}}
      ]},

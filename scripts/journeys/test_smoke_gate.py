@@ -566,6 +566,28 @@ class NewTerminals(unittest.TestCase):
         finally:
             self.ext.time.sleep = sleep
 
+    def test_split_lines_must_be_in_the_panes_made_for_them_in_order(self):
+        before = [("w", "pA", "a", "T0", True)]
+        after = before + [("w", "pB", "b", "T1", False), ("w", "pC", "c", "T2", True)]
+        def run(screens, xs, focused="pC"):
+            j = self.journey(after, screens, focused)
+            j.app.panes = lambda: [{"pane": p, "focused": p == focused, "grid": {"frame_x": x}} for p, x in xs.items()]
+            snap = self.journey(before, {}, "pA")
+            self.ext.step_smoke_snapshot(snap, {"name": "s"})
+            j.smoke_snapshots = snap.smoke_snapshots
+            return self.ext.cond_smoke_new_terminals(j, {"since": "s", "lines": ["d1", "d2"], "focused": "d2",
+                                                         "placement": "new_panes", "order": "left_to_right"}, {})
+        xs = {"pA": 0.0, "pB": 450.0, "pC": 671.0}
+        ok, detail = run({"T1": "d1", "T2": "d2"}, xs)
+        self.assertTrue(ok, detail)
+        # Swapped: d1 in the right pane, d2 in the left one (focus on d2's pane): fails on the order.
+        ok, detail = run({"T1": "d2", "T2": "d1"}, xs, focused="pB")
+        self.assertFalse(ok)
+        self.assertTrue(any("left to right" in p for p in detail["problems"]), detail["problems"])
+        # TIP RED 1193: both lines in the first new pane (pB), focus kept on pB: fails.
+        ok, detail = run({"T1": "d1\nd2"}, xs, focused="pB")
+        self.assertFalse(ok)
+
     def test_each_workspace_line_in_its_own_new_workspace(self):
         before = [("w0", "p0", "a", "T0", True)]
         after = before + [("w1", "p1", "b", "T1", True), ("w1", "p1", "c", "T2", False)]

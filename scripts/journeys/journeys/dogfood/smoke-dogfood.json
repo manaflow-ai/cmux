@@ -49,7 +49,7 @@
     {"do": "expect", "title": "Cmd-D twice fast: two new panes, and the line typed into each at once ran there and nowhere else", "since": "split1", "timeout": 30,
      "all": [
        {"smoke_panes": {"line": "d2-${nonce}-42", "count": 3}},
-       {"smoke_new_terminals": {"since": "before_splits", "lines": ["d1-${nonce}-42", "d2-${nonce}-42"], "focused": "d2-${nonce}-42", "placement": "new_panes"}},
+       {"smoke_new_terminals": {"since": "before_splits", "lines": ["d1-${nonce}-42", "d2-${nonce}-42"], "focused": "d2-${nonce}-42", "placement": "new_panes", "order": "left_to_right"}},
        {"smoke_app_lines": {"lines": ["d1-${nonce}-42", "d2-${nonce}-42"]}},
        {"smoke_key_window": {}},
        {"frame_screen": {"shows": ["d1-${nonce}-42", "d2-${nonce}-42"]}}

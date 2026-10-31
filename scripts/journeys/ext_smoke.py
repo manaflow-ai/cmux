@@ -39,14 +39,15 @@ Conditions (inside `expect.all`; evidence kind app):
                                       LACKS. The screenshot of a step whose state the app's reads prove
   smoke_panes        {line, count}    the workspace whose terminal shows LINE has COUNT panes
   smoke_key_window   {}               a main window of the app is its key window (debug.window_list; a read only)
-  smoke_new_terminals {since, lines, focused, placement}
+  smoke_new_terminals {since, lines, focused, placement, order?}
                                       the keys went to the new terminals, not to an old one: exactly len(LINES) new
                                       daemon terminals since the snapshot SINCE; each line is on exactly one terminal
                                       of the whole topology, that terminal is new, and no two lines share one; the
                                       line FOCUSED is on the focused terminal. PLACEMENT: `new_workspaces` (each in
                                       its own workspace not in the snapshot), `new_panes` (each in its own pane not in
                                       the snapshot) or `focused_pane` (all tabs of the pane focused at the snapshot,
-                                      which now has len(LINES) more tabs)
+                                      which now has len(LINES) more tabs); ORDER left_to_right: line i's pane is left
+                                      of line i+1's (each line in the pane made for it, in split order)
   smoke_app_lines    {lines}          every line is a line of some pane's viewport text in the app (any pane)
   smoke_daemon_lines {lines}          (evidence daemon) every line is a line of some terminal's daemon screen
 
@@ -279,6 +280,20 @@ def cond_smoke_new_terminals(j, want, cache):
         if not (pane == focused_pane and selected):
             problems.append(f"{focus_line} is not on the focused terminal (focused pane {focused_pane}, line in "
                             f"pane {pane}, its selected tab: {selected})")
+    if want.get("order") == "left_to_right" and len(owners) == len(wanted) and len(set(owners)) == len(owners):
+        # Each line in the pane made for it, in the order the panes were made: a split puts its new pane right of the
+        # split one, so line i's pane is left of line i+1's (the view frames' x). Catches lines that swapped panes
+        # or landed in the earlier new pane (TIP RED 1193: d1 and d2 both in the first new pane, focus kept there).
+        xs = {}
+        for row in j.app.panes():
+            grid = row.get("grid") if isinstance(row.get("grid"), dict) else {}
+            if "frame_x" in grid:
+                xs[row.get("pane")] = float(grid["frame_x"])
+        line_x = [xs.get(terms[t][1]) for t in owners]
+        if any(x is None for x in line_x):
+            problems.append(f"no view frame for the panes of the lines (x {line_x})")
+        elif any(a >= b for a, b in zip(line_x, line_x[1:])):
+            problems.append(f"the lines are not each in the pane made for it, left to right: pane x {line_x}")
     placement = want.get("placement")
     places = [terms[t] for t in owners]
     if placement == "new_workspaces":
