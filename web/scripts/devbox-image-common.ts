@@ -49,6 +49,7 @@ export const DEVBOX_TEMPLATE_FILES = [
   "chrome-managed-policy.json",
   "cmux-bashrc",
   "cmux-devbox-boot",
+  "cmux-vm-kind-sync",
   "cmux-tui-state-mount",
   "cmux-motd",
   "cmux-prompt.bash",
@@ -552,6 +553,18 @@ export type DevboxSourceRecord = {
   readonly digest: string;
   readonly schema?: number;
 };
+
+/**
+ * The kind record every machine boots with: `team` until cmux-vm-kind-sync
+ * (the boot supervisor runs it every VM_KIND_SYNC_INTERVAL) writes the answer
+ * of /api/vm/reflection/kind. The create's backend writer
+ * (services/vms/guestVmKind.ts) writes only when no record exists, so on this
+ * image it keeps this one and the sync corrects it.
+ */
+export function devboxTeamKindDefaultCommand(kindFile = "/etc/cmux/vm-kind"): string {
+  const kind = shellQuote(kindFile);
+  return `mkdir -p ${shellQuote(path.posix.dirname(kindFile))} && echo team > ${kind} && chmod 0644 ${kind} && [ "$(cat ${kind})" = team ] && echo vm-kind-team-default`;
+}
 
 export function devboxTemplateFile(name: string): string {
   return readFileSync(path.join(devboxDir, name), "utf8");
