@@ -21,7 +21,7 @@
   margin: 0;
 }
 /* Before: no bottom fade on the scrolling response. */
-.tool-row-column-gallery[data-look="before"] .cv-mcp-call__body {
+.tool-row-column-gallery[data-look="before"] :is(.cv-mcp-call__body, .cv-mcp-call .cv-tool-output) {
   -webkit-mask-image: none;
   mask-image: none;
 }

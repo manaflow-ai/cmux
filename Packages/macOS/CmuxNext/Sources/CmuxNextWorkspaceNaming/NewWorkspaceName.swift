@@ -95,8 +95,6 @@ public nonisolated struct NewWorkspaceName {
 
     /// Shell names a terminal reports as its title while idle; they say
     /// nothing about the work, so the directory names the workspace.
-    private static let bareShells: Set<String> = ["zsh", "bash", "fish", "sh", "nu", "dash", "ksh", "tcsh", "pwsh", "login", "~"]
-
     /// The blank page's and the New Tab page's addresses: what a conversation, page or app tab's
     /// record carries as its title, never a name.
     private static let placeholders: Set<String> = ["about:blank", "chrome://newtab", "chrome://newtab/"]
@@ -106,7 +104,7 @@ public nonisolated struct NewWorkspaceName {
     }
 
     private static func isBareShell(_ title: String) -> Bool {
-        bareShells.contains(title.hasPrefix("-") ? String(title.dropFirst()) : title)
+        TerminalTitle.isBareShell(title)
     }
 
     /// One line, trimmed, at most `maxLength` characters; nil when empty

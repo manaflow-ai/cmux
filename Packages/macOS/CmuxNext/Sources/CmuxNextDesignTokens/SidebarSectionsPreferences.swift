@@ -1,6 +1,6 @@
 /// The sidebar section settings in cmux.json (`sidebar.sectionLook`,
 /// `sidebar.topBandMaxShare`, `sidebar.bottomBandMaxShare`,
-/// `sidebar.pinnedBandsScroll`, `sidebar.showWorkspaceTabs` and
+/// `sidebar.pinnedBandsScroll` and
 /// `sidebar.workspaceRow.*`; plans/cmux-next/sidebar-sections.md 7).
 /// `sidebar.showChats` lists every chat (All chats) on the New Tab page, where All chats moved
 /// from the sidebar (cx-n0i9); on by default (cx-xub5).
@@ -46,10 +46,6 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// False: the bands never scroll; the list shrinks instead (to a
     /// minimum of three rows).
     public var pinnedBandsScroll: Bool
-    /// Whether the workspace list expands each workspace into its tab rows. Off by default
-    /// (https://github.com/manaflow-ai/cmux/issues/26384): plain workspace rows; Settings >
-    /// Appearance > Sidebar > Show Workspace Tabs turns it on.
-    public var showWorkspaceTabs: Bool
     /// `sidebar.groupByComputer`: one workspace section per computer, each
     /// under its header. Off (the default) shows one list of workspaces with
     /// no computer headers; a workspace of another computer names it on its
@@ -78,6 +74,11 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.showSearchButton`: the footer's Search button after the profile avatar
     /// (plans/cmux-next/sidebar-search.md). On by default; off hides the button only.
     public var showSearchButton = true
+    /// `sidebar.showNewWorkspaceChooser`: the titlebar's chevron beside the + that opens the New
+    /// Workspace chooser. Off by default (Lawrence 2026-10-30: "by default i dont want to have
+    /// workspace titlebar dropdowns at all, i just want to have linear list of workspaces"): the +
+    /// stands alone, and its right-click menu still holds the same chooser.
+    public var showNewWorkspaceChooser = false
     /// `sidebar.noFade`: the whole left sidebar shows with no edge fade, and the bottom profile and
     /// search bar hides (Lawrence 2026-10-26). Off by default: the edges fade and the bar shows.
     public var noFade = false
@@ -145,12 +146,11 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var style: SidebarLayoutStyle = .standard
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
-                pinnedBandsScroll: Bool = true, showWorkspaceTabs: Bool = false) {
+                pinnedBandsScroll: Bool = true) {
         self.look = look
         self.topBandMaxShare = topBandMaxShare
         self.bottomBandMaxShare = bottomBandMaxShare
         self.pinnedBandsScroll = pinnedBandsScroll
-        self.showWorkspaceTabs = showWorkspaceTabs
     }
 
     public static let defaults = SidebarSectionsPreferences()

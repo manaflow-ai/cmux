@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { Popover } from "../../ui/Popover";
+import { BrowseFailure, browseFailureMessage } from "./BrowseFailure";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import {
@@ -31,6 +32,7 @@ import {
   type OffloadKind,
 } from "./environments";
 import { FolderPopover } from "./FolderPopover";
+import type { BrowseRequest, BrowseResult } from "./AddProjectPanel";
 import type { Project } from "./ProjectChooser";
 import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
@@ -103,6 +105,7 @@ export function ComposerContext({
   started = false,
   onProject,
   projectChoices,
+  machineFolders,
   onBrowseProject,
   onNewWorktree,
   onNoProject,
@@ -142,7 +145,10 @@ export function ComposerContext({
   started?: boolean;
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
-  onBrowseProject?(): void;
+  /// A chat on another machine: that machine's own folders (its `project.list`), listed in its
+  /// folder menu while the chat's own machine is picked; a pick there is this chat's folder.
+  machineFolders?: Project[];
+  onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
   onNewWorktree?(cwd: string): void;
   /// A new chat's Do not work in a project (FolderPopover); `noProject` while it is the choice.
@@ -276,9 +282,19 @@ export function ComposerContext({
   // so a pick on one new chat never carries into the next.
   const pickKey = `${summary?.sessionId ?? ""}\u0000${initialComputer}`;
   const [picked, setPicked] = useState<{ key: string; computer?: string }>({ key: pickKey });
+  const [browseError, setBrowseError] = useState<string>();
+  const browseRequest = useRef(0);
+  useEffect(
+    () => () => {
+      browseRequest.current += 1;
+    },
+    [],
+  );
   if (picked.key !== pickKey) setPicked({ key: pickKey });
   const selectedComputer = picked.key === pickKey && picked.computer ? picked.computer : initialComputer;
   const setSelectedComputer = (computer: string) => setPicked({ key: pickKey, computer });
+  // The chat's own machine (not this Mac) is picked, and its folders were listed for it.
+  const ownMachine = selectedComputer !== "local" && selectedComputer === initialComputer && Boolean(machineFolders);
   // A Cloud machine picked while it was paused or not yet linked (pickCloudMachine below), until
   // acpmux lists it ready, another machine is picked, or the chat changes. A change drops it for
   // good, so a chat that comes back to the same key (an empty New Tab id) never inherits it; a
@@ -291,8 +307,9 @@ export function ComposerContext({
   const waitFailed = waitMachine?.stage === "failed";
   const folders = useMemo(() => {
     const known = availableFolders(summary, sessions, selectedComputer);
-    if (selectedComputer !== "local" || !projectChoices) return known;
-    const projects = projectChoices.map((project) => ({
+    const choices = selectedComputer === "local" ? projectChoices : ownMachine ? machineFolders : undefined;
+    if (!choices) return known;
+    const projects = choices.map((project) => ({
       id: normalizeCwd(project.cwd)!,
       label: project.label,
       detail: project.cwd,
@@ -300,7 +317,7 @@ export function ComposerContext({
     }));
     const seen = new Set(projects.map((project) => project.id));
     return [...projects, ...known.filter((folder) => !seen.has(folder.id))];
-  }, [summary, sessions, selectedComputer, projectChoices]);
+  }, [summary, sessions, selectedComputer, projectChoices, machineFolders, ownMachine]);
   const summaryFolder = summary?.cwd && computerId(summary) === selectedComputer ? summary.cwd : undefined;
   // A chat in its private agent-home folder has no project yet: the row offers a folder instead.
   const currentFolder = summaryFolder
@@ -356,13 +373,21 @@ export function ComposerContext({
       : projectLabel(currentLocation.id)
     : undefined;
   // A started chat's Choose folder…: the host's folder panel, then a new chat there.
-  const browseNewChat = onBrowseFolder
-    ? () => {
-        void onBrowseFolder().then((cwd) => {
-          if (cwd) onNewChat?.(cwd);
-        });
-      }
-    : undefined;
+  const browseNewChat =
+    onBrowseFolder && onNewChat
+      ? () => {
+          const request = ++browseRequest.current;
+          setBrowseError(undefined);
+          void Promise.resolve()
+            .then(() => onBrowseFolder())
+            .then((cwd) => {
+              if (request === browseRequest.current && cwd) onNewChat(cwd);
+            })
+            .catch((error: unknown) => {
+              if (request === browseRequest.current) setBrowseError(browseFailureMessage(error));
+            });
+        }
+      : undefined;
   // An account Cloud machine acpmux does not list runs its machine action (resume or open); the
   // chat cannot start there until acpmux links it. The pick waits for that (`waiting`): the
   // control names the machine as starting, and the chat moves there once its row is ready, so a
@@ -477,14 +502,20 @@ export function ComposerContext({
                       {
                         id: "newChatHere",
                         label: t(CONTEXT_LABELS.newChatHere),
-                        onSelect: () => onNewChat?.(currentFolder),
+                        onSelect: () => {
+                          browseRequest.current += 1;
+                          onNewChat?.(currentFolder);
+                        },
                       },
                     ]
                   : undefined
               }
               onPick={(cwd) => {
-                if (newChats) onNewChat?.(cwd);
-                else if (!readOnly) onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
+                if (newChats) {
+                  browseRequest.current += 1;
+                  onNewChat?.(cwd);
+                } else if (!readOnly)
+                  onProject?.(cwd, selectedComputer === "local" || ownMachine ? undefined : selectedComputer);
               }}
             />
           )}
@@ -585,6 +616,9 @@ export function ComposerContext({
             />
           )}
         </div>
+        {browseError && browseNewChat && (
+          <BrowseFailure error={browseError} onRetry={browseNewChat} onDismiss={() => setBrowseError(undefined)} />
+        )}
         {branch && <BranchPicker branch={branch} />}
       </div>
     </div>
