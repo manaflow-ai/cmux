@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// `cloud.startChat {task, cwd?, harness?, model?, key}`: a new chat's first send with Cloud picked
@@ -60,7 +61,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         let components = (folder as NSString).pathComponents
         for count in stride(from: components.count, through: 1, by: -1) {
             let current = NSString.path(withComponents: Array(components.prefix(count)))
-            if FileManager.default.fileExists(atPath: (current as NSString).appendingPathComponent(".git")) { return current }
+            if FileManager.checked.fileExists(atPath: (current as NSString).appendingPathComponent(".git")) { return current }
         }
         return folder
     }
