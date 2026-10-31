@@ -10,6 +10,7 @@ mod auth_token;
 mod automation;
 mod billing;
 mod browser;
+pub(crate) mod chat_code;
 mod cli_connection;
 mod coderouter;
 mod config;
