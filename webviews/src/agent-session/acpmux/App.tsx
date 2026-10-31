@@ -10726,13 +10726,13 @@ function AcpmuxPane() {
     const fork = row("fork");
     const archive = row("archive");
     const archiveItem = archive
-      ? { ...archive, shortcutLabel: "A" }
+      ? { ...archive, accelerator: "A" }
       : {
           key: "archive",
           label: t("chatMenu.archive"),
           icon: "inbox",
           disabled: true,
-          shortcutLabel: "A",
+          accelerator: "A",
         };
     const moveChildren = [
       ...(moves.includes(CONNECT_ACTIONS.move) && moveTargets.length > 0
@@ -10752,24 +10752,24 @@ function AcpmuxPane() {
           ]
         : []),
     ];
+    // Two groups with one line between them, before the destructive pair, as Claude and ChatGPT
+    // draw it (design/menus.md); no line between every row.
     return guardedChatMenu(
       menuGroups(
-        rename ? [{ ...rename, shortcutLabel: "R" }] : [],
         [
-          // `F` only on a Fork row that runs: a submenu row (children, no onSelect) keeps no letter.
+          ...(rename ? [{ ...rename, accelerator: "R" }] : []),
+          // `F` only on a Fork row that runs: a submenu row (children, no onSelect) takes no letter.
           fork
             ? fork.onSelect
-              ? { ...fork, shortcutLabel: "F" }
+              ? { ...fork, accelerator: "F" }
               : fork
             : {
                 key: "fork",
                 label: t("chatMenu.fork"),
                 icon: "agent.fork",
                 disabled: true,
-                shortcutLabel: "F",
+                accelerator: "F",
               },
-        ],
-        [
           {
             key: "moveMachine",
             label: moves.includes(CONNECT_ACTIONS.move)
@@ -10781,8 +10781,6 @@ function AcpmuxPane() {
             disabled: moveChildren.length === 0,
             children: moveChildren,
           },
-        ],
-        [
           {
             key: "openIn",
             label: t("preview.openIn"),
@@ -10799,14 +10797,14 @@ function AcpmuxPane() {
             ],
           },
         ],
-        [archiveItem],
         [
+          archiveItem,
           {
             key: "delete",
             label: t("permission.verb.delete"),
             icon: "action.delete",
             onSelect: requestDelete,
-            shortcutLabel: "D",
+            accelerator: "D",
           },
         ],
       ),
