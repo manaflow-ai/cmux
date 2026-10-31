@@ -5,12 +5,48 @@
 // a question asked and answered (the answered QuestionCard), a checklist of three steps, then a
 // thought and five shell steps under "Ran 5 commands", and the prose after them. The same turn as
 // the gallery's `agent-pane.claude-desktop-organization`; every name and path in it is made up.
-import answeredCollapsed from "../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/answered-collapsed.json";
 import type { AcpmuxActivity, AcpmuxPlanEntry, AcpmuxRow } from "./model";
 import type { AgentQuestion } from "./question/model";
 import { QUESTION_RECORD } from "./question/record";
 
 const SECOND = 1_000;
+
+/// An answered question, as the shared CmuxAgentQuestion `answered-collapsed.json` fixture holds it
+/// (copied, not imported: a shipped bundle imports nothing from outside webviews/ for a debug seed).
+const ANSWERED: AgentQuestion = {
+  id: "perm_toolu_single",
+  source: {
+    harness: "claude",
+    session: "sess_claude_1",
+    permission: "perm_toolu_single",
+    agentName: "Claude Code",
+    answerOption: "allow_once",
+    rejectOption: "reject_once",
+    toolCall: "toolu_single",
+  },
+  items: [
+    {
+      id: "q0",
+      header: "Auth method",
+      prompt: "Which auth method should the API use?",
+      options: [
+        { id: "OAuth 2.0", label: "OAuth 2.0", detail: "Delegated sign-in through the identity provider; best for third-party clients." },
+        { id: "API keys", label: "API keys", detail: "One static key per integration. Simple, but keys must be rotated by hand." },
+        { id: "Passkeys", label: "Passkeys", detail: "WebAuthn credentials bound to the device. No shared secret on the server." },
+      ],
+      multiSelect: false,
+      allowsOther: true,
+    },
+  ],
+  state: {
+    kind: "answered",
+    answer: {
+      selections: { q0: { optionIDs: ["Passkeys"] } },
+      respondent: { participant: "user_local", displayName: "Lawrence", device: "MacBook Pro", isRemote: false },
+      answeredAtMs: 1791331200000,
+    },
+  },
+};
 
 const LEAD =
   "The fetch helper retries every failure the same way, so a 404 waits through three backoffs before it fails. " +
@@ -65,7 +101,7 @@ export function organizationRows(at: number): AcpmuxRow[] {
       version: 1,
       at: at + 4 * SECOND,
       kind: QUESTION_RECORD,
-      question: answeredCollapsed as unknown as AgentQuestion,
+      question: ANSWERED,
     },
     {
       id: "organization-plan",
