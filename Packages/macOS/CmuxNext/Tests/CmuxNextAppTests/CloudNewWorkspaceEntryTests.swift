@@ -98,4 +98,3 @@ struct CloudNewWorkspaceEntryTests {
         _ = other
     }
 }
-

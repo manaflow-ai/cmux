@@ -122,4 +122,3 @@ struct CloudNewWorkspaceTests {
         #expect(CloudNewWorkspacePlan.route(unavailableReason: "off", signedIn: true, hasWindow: true) == .thisMac(.unavailable("off")))
     }
 }
-
