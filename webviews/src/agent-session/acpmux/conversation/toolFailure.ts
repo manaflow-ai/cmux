@@ -232,6 +232,9 @@ export function shellOutput(tool: Tool): string | undefined {
 /// A call's result as its opened row draws it: a hook's block without the harness's
 /// "PreToolUse:… hook error:" envelope (Find in Chat counts the same text, chatFind.ts), any other
 /// call's result as it came.
-export function callOutput(tool: Tool, failure: ToolFailure | undefined = toolFailure(tool)): string | undefined {
-  return failure?.kind === "hook" ? (failure.output ?? tool.output) : tool.output;
+/// Only a failed call that never ran (no exit code) can be a hook's block, so no other call is read.
+export function callOutput(tool: Tool, failure?: ToolFailure): string | undefined {
+  if (tool.status !== "failed" || tool.exitCode !== undefined) return tool.output;
+  const read = failure ?? toolFailure(tool);
+  return read?.kind === "hook" ? (read.output ?? tool.output) : tool.output;
 }
