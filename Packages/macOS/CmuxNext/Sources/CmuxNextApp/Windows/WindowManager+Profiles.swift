@@ -111,7 +111,7 @@ extension WindowManager {
         let moving = sources.flatMap { WindowProfiles.visible($0.workspaceIDs, profile: profile, machines: machines) }
             .filter { WindowProfiles.qualified($0, machines: machines) != nil && !isWindowHome($0) }
         try refuseClosingCreating(sources.filter { !$0.workspaceIDs.isEmpty && Set(moving).isSuperset(of: $0.workspaceIDs) }.map(\.id))
-        try refuseLocalTabs(sources.filter { !Set($0.workspaceIDs).isDisjoint(with: moving) })
+        try refuseLocalTabs([state.id] + sources.filter { !Set($0.workspaceIDs).isDisjoint(with: moving) }.map(\.id))
         // A CLI or MCP run without focus permission leaves this window's view alone (as `RoomHandlers.startNewSpace`).
         let mayShow = ActionRunScope.viewChangeAllowed()
         guard !moving.isEmpty else {
@@ -141,7 +141,7 @@ extension WindowManager {
         let moving = sources.flatMap(\.workspaceIDs).filter { !isWindowHome($0) }
         guard !sources.isEmpty else { return }
         try refuseClosingCreating(sources.map(\.id))
-        try refuseLocalTabs(sources)
+        try refuseLocalTabs([state.id] + sources.map(\.id))
         let order = Dictionary(value.recency.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         for source in sources.sorted(by: { order[$0.id, default: .max] < order[$1.id, default: .max] }) {
             guard let other = states[source.id] else { continue }
@@ -157,10 +157,10 @@ extension WindowManager {
     }
 
     private func isWindowHome(_ id: String) -> Bool { services.workspace(id: id)?.isWindowHome == true }
-    /// Refuses taking a workspace out of a window that keeps its own browser tabs (keyed by pane id, which can repeat
-    /// across machines; they die with the window): a daemon without frontend browser tabs.
-    private func refuseLocalTabs(_ windows: [WindowRegistry.Window]) throws {
-        let keeps = windows.contains { states[$0.id]?.localBrowserTabs.all.isEmpty == false }
+    /// Refuses a move out of or into a window that keeps its own browser tabs (a daemon without frontend browser tabs):
+    /// keyed by pane id, which can repeat across machines, they would mix with a moved pane's or die with their window.
+    private func refuseLocalTabs(_ windows: [String]) throws {
+        let keeps = windows.contains { states[$0]?.localBrowserTabs.all.isEmpty == false }
         if keeps { throw ActionFailure.invalidTarget(RefusalStrings.gatherLocalTabs) }
     }
 
