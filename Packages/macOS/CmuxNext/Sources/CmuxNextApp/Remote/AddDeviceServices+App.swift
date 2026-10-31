@@ -17,7 +17,7 @@ extension AddDeviceServices {
         AddDeviceServices(
             list: { [weak services] in
                 #if DEBUG
-                if let fixture = DebugAddDevice.listing { return fixture.devices }
+                if let fixture = services?.debugFixtures.addDevice { return fixture.devices }
                 #endif
                 return await services?.devices.read()
             },
@@ -43,7 +43,7 @@ extension AddDeviceServices {
             machineJoin: { [weak services] in
                 guard let services, services.settings?.snapshot.machineJoin == true else { return nil }
                 #if DEBUG
-                if let fixture = DebugAddDevice.listing?.join { return fixture }
+                if let fixture = services.debugFixtures.addDevice?.join { return fixture }
                 #endif
                 return MachineJoinService.app(services)
             },
@@ -68,7 +68,9 @@ extension DeviceDirectory {
                                    // acpmux refuses an on from a connection that is not the person.
                                    if on, !line.isPerson { return false }
                                    return await line.call("_acpmux/pair_set", ["id": id, "fullAccess": on]) != nil
-                               })
+                               },
+                               // A removed peer's SSH machine leaves the sidebar too (HQ #4877 break 8).
+                               peerRemoved: { [weak services] peer in await services?.ssh.forgetMachines(reachingPeer: peer) })
     }
 }
 

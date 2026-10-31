@@ -116,10 +116,10 @@ struct DevicesPage: View {
                     .accessibilityIdentifier("settings.scanMacCode")
                 }
             } header: {
-                Text("Macs").cmuxMobileTextColumn()
+                Text("Macs")
             } footer: {
                 if directory != nil {
-                    Text(String(localized: "mobile.devices.macsFooter", defaultValue: "Removed Macs can return when you sign in again.", bundle: .module)).cmuxMobileTextColumn()
+                    Text(String(localized: "mobile.devices.macsFooter", defaultValue: "Removed Macs can return when you sign in again.", bundle: .module))
                 }
             }
             if directory != nil, !phones.isEmpty {
@@ -129,10 +129,9 @@ struct DevicesPage: View {
                     }
                     .onDelete { offsets in pendingRemoval = offsets.first.map { phones[$0] } }
                 } header: {
-                    Text("Phones").cmuxMobileTextColumn()
+                    Text("Phones")
                 } footer: {
                     Text(directory != nil ? String(localized: "mobile.devices.phonesFooter", defaultValue: "Remove this iPhone with the button below.", bundle: .module) : "Sign out to remove this iPhone.")
-                        .cmuxMobileTextColumn()
                 }
             }
             if directory != nil {
@@ -147,7 +146,6 @@ struct DevicesPage: View {
                     .accessibilityIdentifier("settings.removeThisPhone")
                 } footer: {
                     Text(String(localized: "mobile.devices.approvalFooter", defaultValue: "Removal resets Mac approval; signing out keeps it.", bundle: .module))
-                        .cmuxMobileTextColumn()
                 }
             }
             if let loadError = list.loadError {
