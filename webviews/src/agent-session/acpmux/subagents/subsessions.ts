@@ -49,7 +49,7 @@ export type SubsessionInfo = {
 /// The user-facing name for a session. Keep the raw id in `session.name` for matching and
 /// diagnostics, but never expose an opaque optchat id as the identity in a row.
 export function subsessionDisplayName(t: Translate, session: Pick<SubsessionInfo, "name" | "sessionId">): string {
-  return session.name === session.sessionId || /(?:^|\/)optchat-[a-z0-9-]+$/iu.test(session.name)
+  return session.name === session.sessionId || /(?:^|\/)optchat-[0-9a-f]{8,}(?:-[0-9a-f]+)*$/iu.test(session.name)
     ? t("tray.kind.subagent")
     : session.name;
 }
