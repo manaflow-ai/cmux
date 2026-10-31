@@ -650,6 +650,18 @@ export function QuickModelMenu({
       event.preventDefault();
       pickRow(choice);
     } else if (event.target === field.current) {
+      // Down from the field lands on the first model row, at once: left to the menu, a keypress
+      // right after typing could stay in the field and the next went to the row's effort item.
+      if (event.key === "ArrowDown") {
+        const first = event.currentTarget.querySelector<HTMLElement>(
+          '.acpmux-quick-list [role="menuitemradio"]:not([data-disabled])',
+        );
+        if (first) {
+          event.preventDefault();
+          first.focus();
+        }
+        return;
+      }
       // The field edits its own text (fieldKeyDown). Enter there picks the highlighted row (the
       // pointer's or the arrows'), else the first match.
       if (event.key !== "Enter") return;
