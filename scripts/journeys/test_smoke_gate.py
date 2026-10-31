@@ -22,6 +22,8 @@ GATE = HERE / "smoke-gate.py"
 
 FAKE = r'''
 import json, os, sys
+R3 = [st["title"] for st in json.load(open(os.environ["SMOKE_JOURNEY"]))["steps"]
+      if st.get("do") == "expect" and str(st.get("title", "")).startswith("R3")]
 args = sys.argv[1:]
 out = args[args.index("--out") + 1]
 os.makedirs(os.path.join(out, "smoke-dogfood"), exist_ok=True)
@@ -46,12 +48,24 @@ if status == "pass" and "--journey-option" not in args:
     late = os.environ.get("SMOKE_LATE") == "yes"
     typed = [] if os.environ.get("SMOKE_LATE") == "none" else [{"index": 7, "do": "smoke_type_now", "ok": True,
                                                                  "result": {"at_once": not late}}]
+    r3 = os.environ.get("SMOKE_R3", "all")  # all | none | r3b-failed | one-r3b | renamed | duplicated
+    checks = [(title, not (r3 == "r3b-failed" and i == 4)) for i, title in enumerate(R3)]
+    if r3 == "none":
+        checks = []
+    if r3 == "one-r3b":
+        checks = checks[:3]
+    if r3 == "renamed":
+        checks[5] = ("R3b: Split Down, renamed", True)
+    if r3 == "duplicated":
+        checks[5] = (checks[2][0], True)  # the New Column check twice stands in for Split Down
+    typed += [{"do": "expect", "title": title, "ok": ok} for title, ok in checks]
     json.dump({"steps": typed},
               open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
 if "--journey-option" in args:
     open(os.path.join(out, "options.txt"), "w").write(args[args.index("--journey-option") + 1])
     json.dump({"steps": [{"index": 5, "do": "expect", "title": "Cmd-D twice fast", "ok": status == "pass",
-                          "error": "" if status == "pass" else "no new pane"}]},
+                          "error": "" if status == "pass" else "no new pane"}]
+                        + ([{"do": "expect", "title": t, "ok": True} for t in R3] if status == "pass" else [])},
               open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
 open(os.path.join(out, "results.jsonl"), "w").write(json.dumps(row) + "\n")
 print("leased slot-cmux99-abc")
@@ -69,7 +83,8 @@ def gate(plan, tmp, extra=(), env_extra=None, rounds=None):
     with open(runner, "w") as f:
         f.write(FAKE)
     env = {k: v for k, v in os.environ.items() if not k.startswith("CAPTURE_HOST_")}
-    env.update({"SMOKE_PLAN": json.dumps(plan), "SMOKE_GATE_CMUX_CI": "/bin/false", **(env_extra or {})})
+    env.update({"SMOKE_PLAN": json.dumps(plan), "SMOKE_GATE_CMUX_CI": "/bin/false",
+                "SMOKE_JOURNEY": str(HERE / "journeys" / "dogfood" / "smoke-dogfood.json"), **(env_extra or {})})
     done = subprocess.run([sys.executable, str(GATE), "--build", "job123", "--rounds", str(rounds or len(plan)), "--runner", runner,
                            "--out", os.path.join(tmp, "out"), "--handoff", os.path.join(tmp, "handoff"), *extra],
                           capture_output=True, text=True, env=env, timeout=120)
@@ -138,6 +153,29 @@ class Verdicts(unittest.TestCase):
             self.assertEqual((code, summary["verdict"]), (75, "DIAGNOSTIC (NOT JUDGED)"))
             self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
 
+    def test_the_gate_requires_exactly_the_journeys_resize_checks(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("smoke_gate_titles", GATE)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with open(HERE / "journeys" / "dogfood" / "smoke-dogfood.json") as f:
+            journey = json.load(f)
+        titles = [st["title"] for st in journey["steps"] if st.get("do") == "expect" and st["title"].startswith("R3")]
+        self.assertEqual(titles, list(module.REQUIRED_CHECKS))
+        self.assertEqual(len(titles), len(set(titles)))
+
+    def test_a_round_that_did_not_reach_or_pass_every_resize_check_is_no_pass(self):
+        for r3, want in (("none", "R3a split resize: the right pane is wider"),
+                         ("r3b-failed", "R3b: Cmd-D (Split Right) splits the pane inside its own column and every...: failed"),
+                         ("one-r3b", "R3b: New Column's key (Ctrl-Cmd-D) adds a column"),
+                         ("renamed", "R3b: Cmd-Shift-D (Split Down) adds no column"),
+                         ("duplicated", "recorded 2 times")):
+            with tempfile.TemporaryDirectory() as tmp:
+                code, summary = gate(["pass"] * 10, tmp, env_extra={"SMOKE_R3": r3})
+                self.assertEqual((code, summary["verdict"], summary["passed"]), (1, "FAIL", 0), r3)
+                self.assertIn(want, summary["rounds_detail"][0]["reason"], r3)
+                self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+
     def test_a_strict_pass_whose_lines_were_not_typed_at_once_does_not_count(self):
         with tempfile.TemporaryDirectory() as tmp:
             code, summary = gate(["pass"] * 10, tmp, env_extra={"SMOKE_LATE": "yes"})
@@ -196,7 +234,9 @@ class Verdicts(unittest.TestCase):
                 f.write(FAKE)
             done = subprocess.run([sys.executable, str(GATE), "--build", "job123", "--runner", runner,
                                    "--out", os.path.join(tmp, "out"), "--handoff", os.path.join(tmp, "handoff")],
-                                  capture_output=True, text=True, timeout=60, env={**os.environ, "SMOKE_GATE_CMUX_CI": "/bin/false"})
+                                  capture_output=True, text=True, timeout=60,
+                                  env={**os.environ, "SMOKE_GATE_CMUX_CI": "/bin/false",
+                                       "SMOKE_JOURNEY": str(HERE / "journeys" / "dogfood" / "smoke-dogfood.json")})
             self.assertEqual(done.returncode, 2)
             self.assertIn("not empty", done.stderr)
 
@@ -478,11 +518,15 @@ class Resize(unittest.TestCase):
         class StepError(Exception):
             pass
 
-        ext_smoke.install(type("D", (), {"StepError": StepError, "NotRun": Exception, "now": staticmethod(lambda: 0.0)}))
-        self.ext = ext_smoke
+        class NotRun(Exception):
+            pass
+
+        ext_smoke.install(type("D", (), {"StepError": StepError, "NotRun": NotRun, "now": staticmethod(lambda: 0.0)}))
+        self.ext, self.StepError, self.NotRun = ext_smoke, StepError, NotRun
 
     def journey(self, grid="80x24", fit="80x24", drawn="80x24", daemon=(80, 24), topo=(80, 24), pty=(80, 24),
-                frame=(80 * 8 + 8, 24 * 16 + 8), long_rows=None, widths=None):
+                frame=(80 * 8 + 8, 24 * 16 + 8), long_rows=None, columns=None):
+        """columns: [(column index, pane id, frame_x, frame_width)] of workspace W besides pane P1 (column 0)."""
         screen_text = "$ echo r3-1 $(stty size)\nr3-1 %d %d\n" % (pty[1], pty[0]) if pty else ""
         if long_rows:
             screen_text += "\n".join(long_rows) + "\n"
@@ -490,8 +534,11 @@ class Resize(unittest.TestCase):
                   "surface": {"grid": grid, "fit_grid": fit, "drawn_grid": drawn},
                   "grid": {"cell_width": 8, "cell_height": 16, "frame_x": 0, "frame_y": 0, "origin_x": 4, "origin_y": 4,
                            "frame_width": frame[0], "frame_height": frame[1]}}]
-        for key, width in (widths or {}).items():
-            panes.append({"pane": key, "workspace": "W", "content_size": "%sx400" % width})
+        topo_panes = [{"id": "P1", "column": 0}]
+        for column, key, x0, width in (columns or []):
+            panes.append({"pane": key, "workspace": "W", "content_size": "%dx400" % int(width),
+                          "grid": {"frame_x": x0, "frame_width": width}})
+            topo_panes.append({"id": key, "column": column})
 
         class App:
             def panes(self_):
@@ -503,15 +550,16 @@ class Resize(unittest.TestCase):
         class J:
             app = App()
             vars = {}
+            pane = "P1"
             smoke_named = {"right": {"pane": "P1", "term": "T1"}}
-            ext_remembered = {"right0": {"grid": (70, 24)}}
+            ext_remembered = {"right0": {"grid": (70, 24)}, "right1": {"grid": (90, 24)}}
             smoke_long = {"LL": 95}
 
             def sub(self_, x):
                 return x
 
             def topology(self_):
-                return {}
+                return {"workspaces": [{"id": "W", "screens": [{"panes": topo_panes}]}]}
 
             @staticmethod
             def places(_topology):
@@ -529,12 +577,24 @@ class Resize(unittest.TestCase):
     def test_r3_fails_on_each_mismatch_and_reports_every_size(self):
         for kwargs, word in ((dict(fit="79x24"), "fit_grid"), (dict(drawn="70x24"), "drawn_grid"),
                              (dict(daemon=(70, 24)), "daemon"), (dict(topo=(70, 24)), "topology"),
-                             (dict(pty=(70, 24)), "pty"), (dict(frame=(70 * 8 + 8, 24 * 16 + 8)), "bounds"),
-                             (dict(pty=None), "pty")):
+                             (dict(pty=(70, 24)), "pty"), (dict(frame=(70 * 8 + 8, 24 * 16 + 8)), "fit(bounds)"),
+                             (dict(frame=(81 * 8 + 8, 24 * 16 + 8)), "fit(bounds)"), (dict(pty=None), "pty")):
             ok, detail = self.r3(self.journey(**kwargs))
             self.assertFalse(ok, (kwargs, detail))
             self.assertTrue(any(word in p for p in detail["problems"]), (kwargs, detail["problems"]))
             self.assertEqual(set(detail["sizes"]), {"grid", "fit_grid", "drawn_grid", "fit_bounds", "pty", "daemon", "topology"})
+
+    def test_a_terminal_that_did_not_resize_fails_the_window_check(self):
+        # After the window drag the pane must be narrower than right1 (90 cols): 80 passes; a pane that stayed at
+        # 90 (the window resized, the terminal did not) fails, although its seven sizes agree.
+        ok, detail = self.r3(self.journey(), vs="right1", cols="narrower")
+        self.assertTrue(ok, detail)
+        same = self.journey(grid="90x24", fit="90x24", drawn="90x24", daemon=(90, 24), topo=(90, 24), pty=(90, 24),
+                            frame=(90 * 8 + 8, 24 * 16 + 8))
+        ok, detail = self.r3(same, vs="right1", cols="narrower")
+        self.assertFalse(ok)
+        self.assertTrue(any("not narrower" in p for p in detail["problems"]), detail["problems"])
+        self.assertIn("smoke_r3", self.ext.NEGATIVE)
 
     def test_the_long_line_must_wrap_at_the_new_width(self):
         good = ["LL" + "x" * 78, "x" * 15]
@@ -547,7 +607,7 @@ class Resize(unittest.TestCase):
         ok, detail = self.r3(self.journey(long_rows=None), long_tag="LL")
         self.assertFalse(ok)
 
-    def test_the_long_line_waits_for_the_prompt_before_its_keys(self):
+    def test_the_long_line_waits_for_the_prompt_and_exceeds_the_current_width(self):
         j = self.journey()
         screens = iter(["$ echo r3-1 $(stty size)\n", "$ echo r3-1 $(stty size)\nr3-1 24 80\n$ \n"])
         state = {"text": next(screens)}
@@ -560,31 +620,213 @@ class Resize(unittest.TestCase):
         typed = []
         j.key = lambda *a: typed.append(a)
         j.key_window = None
+        j.ext_remembered = {}
         sleep = self.ext.time.sleep
         self.ext.time.sleep = lambda s: None
         try:
-            result = self.ext.step_smoke_long_line(j, {"tag": "LL", "longer_than": ["right"]})
+            result = self.ext.step_smoke_long_line(j, {"tag": "LL"})
+            self.assertEqual(result["length"], 95)  # the current pane's 80 columns + 15
+            self.assertGreater(len(typed), 0)
+            j.pane = "P9"  # the focused pane is not the current one: the keys would go elsewhere
+            with self.assertRaises(self.StepError):
+                self.ext.step_smoke_long_line(j, {"tag": "LL2"})
         finally:
             self.ext.time.sleep = sleep
-        self.assertEqual(result["length"], 95)
-        self.assertGreater(len(typed), 0)
+
+    def test_r3_reads_the_screen_again_once_after_a_failed_read(self):
+        j = self.journey()
+        calls = {"n": 0}
+        real = j.app.screen
+
+        def flaky(term):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise self.StepError("slow reply")
+            return real(term)
+        j.app.screen = flaky
+        sleep = self.ext.time.sleep
+        self.ext.time.sleep = lambda s: None
+        try:
+            ok, detail = self.r3(j)
+        finally:
+            self.ext.time.sleep = sleep
+        self.assertTrue(ok, detail)
+        self.assertEqual(calls["n"], 2)
+
+    def test_uneven_padding_is_not_a_misfit_but_a_spare_column_is(self):
+        # 80 columns of 8 points, left padding 4, right padding 9 (an uneven split of the leftover): fits.
+        ok, detail = self.r3(self.journey(frame=(4 + 80 * 8 + 9, 24 * 16 + 8)))
+        self.assertTrue(ok, detail)
+        # Right padding 4 + 8: a whole column is left unused: misfit.
+        ok, detail = self.r3(self.journey(frame=(4 + 80 * 8 + 12, 24 * 16 + 8)))
+        self.assertFalse(ok, detail)
+        self.assertTrue(any("fit(bounds)" in p for p in detail["problems"]), detail["problems"])
+
+    def test_r3b_a_column_with_no_frame_is_not_judged(self):
+        j = self.journey(columns=[(1, "P2", 650.0, 300.0)])
+        self.ext.step_smoke_widths(j, {"name": "c0"})
+        later = self.journey(columns=[(1, "P2", 650.0, 300.0), (2, "P3", 951.0, 300.0)])
+        later.smoke_width_snaps = j.smoke_width_snaps
+        del later.app.panes()[1]["grid"]  # old P2 has no frame now (off screen, closed under memory pressure)
+        clock = {"t": 0.0}
+        self.ext.D.now = staticmethod(lambda: clock["t"])
+        # Not judged yet while frames may still come: this poll does not hold.
+        ok, detail = self.ext.cond_smoke_same_widths(later, {"since": "c0", "new": 1}, {})
+        self.assertFalse(ok)
+        self.assertTrue(detail["waiting_for_frames"])
+        # Past UNKNOWN_SECONDS: not judged (the round is "not run"), never a fail or a pass.
+        clock["t"] = self.ext.UNKNOWN_SECONDS + 0.1
+        with self.assertRaises(self.NotRun) as caught:
+            self.ext.cond_smoke_same_widths(later, {"since": "c0", "new": 1}, {})
+        self.assertIn("P2", str(caught.exception))
+        bare = self.journey(columns=[(1, "P2", 650.0, 300.0)])
+        del bare.app.panes()[1]["grid"]
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_widths(bare, {"name": "c1", "frame_wait": 0.3})
+
+    def test_a_new_pane_without_its_frame_yet_does_not_hide_the_old_column(self):
+        # Split Down adds P6 to column 1; P6 has no frame yet at this poll. Column 1's width is read from P2 alone.
+        j = self.journey(columns=[(1, "P2", 650.0, 300.0)])
+        self.ext.step_smoke_widths(j, {"name": "c0"})
+        down = self.journey(columns=[(1, "P2", 650.0, 300.0), (1, "P6", 650.0, 300.0)])
+        down.smoke_width_snaps = j.smoke_width_snaps
+        del down.app.panes()[2]["grid"]
+        ok, detail = self.ext.cond_smoke_same_widths(down, {"since": "c0", "new": 0}, {})
+        self.assertTrue(ok, detail)
+
+    def test_a_column_that_grew_to_hold_a_new_pane_beside_its_old_ones_fails(self):
+        j = self.journey(columns=[(1, "P2", 650.0, 300.0)])
+        self.ext.step_smoke_widths(j, {"name": "c0"})
+        # P6 joins column 1 to the right of P2: P2 keeps 300 points, but the column is now 600 wide.
+        grew = self.journey(columns=[(1, "P2", 650.0, 300.0), (1, "P6", 951.0, 300.0)])
+        grew.smoke_width_snaps = j.smoke_width_snaps
+        ok, detail = self.ext.cond_smoke_same_widths(grew, {"since": "c0", "new": 0}, {})
+        self.assertFalse(ok)
+        self.assertEqual(detail["changed"]["1"]["all_panes_span"], 601.0)
+        # The new columns' widths are in the evidence.
+        added = self.journey(columns=[(1, "P2", 650.0, 300.0), (2, "P7", 951.0, 250.0)])
+        added.smoke_width_snaps = j.smoke_width_snaps
+        ok, detail = self.ext.cond_smoke_same_widths(added, {"since": "c0", "new": 1}, {})
+        self.assertTrue(ok, detail)
+        self.assertEqual(detail["new_widths"]["2"], 250.0)
+
+    def test_a_real_failure_is_judged_even_when_a_width_is_unknown(self):
+        # Column 0's pane has no frame, and Cmd-D opened a column instead of splitting: a FAIL, not "not judged".
+        j = self.journey(columns=[(1, "P2", 650.0, 300.0)])
+        j.app.panes()[1]["focused"], j.app.panes()[0]["focused"] = True, False
+        self.ext.step_smoke_widths(j, {"name": "c0"})
+        opened = self.journey(columns=[(1, "P2", 650.0, 300.0), (2, "P5", 951.0, 300.0)])
+        opened.smoke_width_snaps = j.smoke_width_snaps
+        del opened.app.panes()[0]["grid"]
+        ok, detail = self.ext.cond_smoke_same_widths(opened, {"since": "c0", "new": 0, "split_in_place": True}, {})
+        self.assertFalse(ok)
+        self.assertTrue(any("new columns" in p for p in detail["problems"]), detail["problems"])
+
+    def test_cmd_d_splits_in_place_and_no_other_column_changes(self):
+        base = [(1, "P2", 650.0, 300.0)]
+        j = self.journey(columns=base)
+        j.app.panes()[1]["focused"], j.app.panes()[0]["focused"] = True, False  # P2 (column 1) is focused
+        self.ext.step_smoke_widths(j, {"name": "c0"})
+        self.assertEqual(j.smoke_width_snaps["c0"]["focused"], "P2")
+        # P2 splits inside column 1 (P2 and P5 share it); column 0 keeps its width: holds.
+        good = self.journey(columns=[(1, "P2", 650.0, 150.0), (1, "P5", 800.0, 150.0)])
+        good.smoke_width_snaps = j.smoke_width_snaps
+        ok, detail = self.ext.cond_smoke_same_widths(good, {"since": "c0", "new": 0, "split_in_place": True}, {})
+        self.assertTrue(ok, detail)
+        # Cmd-D opened a column instead: fails ("1 new columns, not 0").
+        column = self.journey(columns=[(1, "P2", 650.0, 300.0), (2, "P5", 951.0, 300.0)])
+        column.smoke_width_snaps = j.smoke_width_snaps
+        ok, detail = self.ext.cond_smoke_same_widths(column, {"since": "c0", "new": 0, "split_in_place": True}, {})
+        self.assertFalse(ok)
+        # Another column changed width: fails, with old and new.
+        other = self.journey(columns=[(1, "P2", 650.0, 150.0), (1, "P5", 800.0, 150.0)],
+                             frame=(80 * 8 + 8 - 40, 24 * 16 + 8))
+        other.smoke_width_snaps = j.smoke_width_snaps
+        ok, detail = self.ext.cond_smoke_same_widths(other, {"since": "c0", "new": 0, "split_in_place": True}, {})
+        self.assertFalse(ok)
+        self.assertIn("0", detail["changed"])
+
+    def test_split_down_adds_no_column_and_keeps_every_width(self):
+        j = self.journey(columns=[(1, "P2", 650.0, 300.0)])
+        self.ext.step_smoke_widths(j, {"name": "c0"})
+        down = self.journey(columns=[(1, "P2", 650.0, 300.0), (1, "P6", 650.0, 300.0)])
+        down.smoke_width_snaps = j.smoke_width_snaps
+        ok, detail = self.ext.cond_smoke_same_widths(down, {"since": "c0", "new": 0}, {})
+        self.assertTrue(ok, detail)
+        opened = self.journey(columns=[(1, "P2", 650.0, 300.0), (2, "P6", 951.0, 300.0)])
+        opened.smoke_width_snaps = j.smoke_width_snaps
+        self.assertFalse(self.ext.cond_smoke_same_widths(opened, {"since": "c0", "new": 0}, {})[0])
 
     def test_r3b_any_old_column_width_change_fails_with_old_and_new(self):
-        j = self.journey(widths={"P2": 300.0})
+        base = [(1, "P2", 650.0, 300.0)]
+        j = self.journey(columns=base)
         self.ext.step_smoke_widths(j, {"name": "c0"})
-        same = self.journey(widths={"P2": 300.0, "P3": 300.0})
+        # A new column after column 0 shifts P2 to index 2; it is matched by its pane, not its index.
+        same = self.journey(columns=[(1, "P3", 650.0, 300.0), (2, "P2", 951.0, 300.0)])
         same.smoke_width_snaps = j.smoke_width_snaps
         ok, detail = self.ext.cond_smoke_same_widths(same, {"since": "c0", "new": 1}, {})
         self.assertTrue(ok, detail)
-        moved = self.journey(widths={"P2": 299.5, "P3": 300.0})
+        moved = self.journey(columns=[(1, "P3", 650.0, 300.0), (2, "P2", 951.0, 299.5)])
         moved.smoke_width_snaps = j.smoke_width_snaps
         ok, detail = self.ext.cond_smoke_same_widths(moved, {"since": "c0", "new": 1}, {})
         self.assertFalse(ok)
-        self.assertEqual(detail["changed"], {"P2": {"old": 300.0, "new": 299.5}})
-        none_new = self.journey(widths={"P2": 300.0})
-        none_new.smoke_width_snaps = j.smoke_width_snaps
-        self.assertFalse(self.ext.cond_smoke_same_widths(none_new, {"since": "c0", "new": 1}, {})[0])
+        self.assertEqual({k: (v["old"], v["new"]) for k, v in detail["changed"].items()}, {"1": (300.0, 299.5)})
+        # A split inside a column is no new column: "1 new" fails.
+        split = self.journey(columns=[(1, "P2", 650.0, 300.0), (1, "P4", 650.0, 300.0)])
+        split.smoke_width_snaps = j.smoke_width_snaps
+        ok, detail = self.ext.cond_smoke_same_widths(split, {"since": "c0", "new": 1}, {})
+        self.assertFalse(ok)
+        self.assertTrue(any("new columns" in p for p in detail["problems"]), detail["problems"])
         self.assertIn("smoke_same_widths", self.ext.NEGATIVE)
+
+
+class SettleThroughTheDriver(unittest.TestCase):
+    """smoke_same_widths through the real driver.Journey.step_expect (its polls and its settle): an old pane that
+    loses its frame after the check held is not judged (not run), never a FAIL; a frame never lost passes."""
+
+    def run_step(self, lose_after):
+        sys.path.insert(0, str(HERE))
+        sys.path.insert(0, str(HERE.parent / "cmux-next"))  # driver.py imports build_names from there
+        import driver
+        import ext_smoke
+        ext_smoke.install(driver)
+        t0 = driver.now()
+        topo = {"workspaces": [{"id": "W", "screens": [{"panes": [{"id": "P1", "column": 0}, {"id": "P2", "column": 1},
+                                                                  {"id": "P3", "column": 2}]}]}]}
+
+        class App:
+            snapshot_window = None
+
+            def rpc(self_, method, params=None):
+                return {"topology": topo} if method == "snapshot.get" else {}
+
+            def panes(self_):
+                lost = lose_after is not None and driver.now() - t0 >= lose_after
+                rows = [{"pane": "P1", "workspace": "W", "grid": {"frame_x": 0.0, "frame_width": 300.0}},
+                        {"pane": "P2", "workspace": "W", "grid": {"frame_x": 301.0, "frame_width": 300.0}},
+                        {"pane": "P3", "workspace": "W", "grid": {"frame_x": 602.0, "frame_width": 300.0}}]
+                if lost:
+                    del rows[0]["grid"]
+                return rows
+
+        with tempfile.TemporaryDirectory() as tmp:
+            j = driver.Journey({"id": "settle-test", "steps": []}, App(), tmp, driver.now() + 60, 1.0)
+            j.smoke_width_snaps = {"c0": {"workspace": "W", "widths": {"0": 300.0, "1": 300.0},
+                                          "columns": {"0": ["P1"], "1": ["P2"]}, "focused": "P2"}}
+            j.marks["m"] = driver.now()
+            return j.step_expect({"title": "R3b settle", "since": "m", "timeout": 4, "settle": 1.5,
+                                  "all": [{"smoke_same_widths": {"since": "c0", "new": 1}}]}), driver
+
+    def test_a_frame_never_lost_passes(self):
+        result, _driver = self.run_step(None)
+        self.assertTrue(result)
+
+    def test_a_frame_lost_during_the_settle_is_not_judged(self):
+        sys.path.insert(0, str(HERE))
+        sys.path.insert(0, str(HERE.parent / "cmux-next"))
+        import driver
+        with self.assertRaises(driver.NotRun):
+            self.run_step(0.3)
 
 
 class Loads(unittest.TestCase):

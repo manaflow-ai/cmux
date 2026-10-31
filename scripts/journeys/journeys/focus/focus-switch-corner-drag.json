@@ -1,0 +1,215 @@
+{
+ "id": "focus-switch-corner-drag",
+ "priority": "P0",
+ "title": "Focus: switch away and back, then a window corner drag: the left pane keeps the focus and gets the typed line",
+ "why": "r3-after-switch with the person's Ctrl-` cannot switch on the dogfood line: Ctrl-` in Home opens the terminal in Home. This journey makes a workspace first (Cmd-N), so the switch back is real. The P0 sequence of STATUS 981: left pane focused, workspace switch back, corner drag, type.",
+ "source": "cmux-ad P0 2026-10-31 08:15Z (typed text goes to the wrong pane)",
+ "budget_seconds": 150,
+ "steps": [
+  {
+   "do": "key",
+   "title": "Cmd-N: a workspace first (a person's Ctrl-` in Home opens the terminal in Home, which no workspace switch returns to)",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "ws-a"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "new_terminal",
+   "name": "jr-focus-switch",
+   "via": "key"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo base-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "base-${nonce}",
+   "as": "main"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 70% x 70% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.7,
+    0.7
+   ]
+  },
+  {
+   "do": "key",
+   "title": "Cmd-D: a split; the new right pane has the focus",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "split"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "right"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo right-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "right-${nonce}",
+   "as": "right"
+  },
+  {
+   "do": "use_pane",
+   "pane": "main",
+   "click": true,
+   "title": "click into the left pane"
+  },
+  {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "key",
+   "title": "Cmd-N: a second workspace (the first parks)",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "away"
+  },
+  {
+   "do": "expect",
+   "title": "the new workspace shows",
+   "since": "away",
+   "timeout": 20,
+   "all": [
+    {
+     "smoke_workspaces": {
+      "new": 1
+     }
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "title": "Ctrl-Cmd-` back to the first workspace",
+   "key": "`",
+   "modifiers": [
+    "control",
+    "cmd"
+   ],
+   "mark": "back"
+  },
+  {
+   "do": "expect",
+   "title": "back: the first workspace's left pane shows again",
+   "since": "back",
+   "timeout": 15,
+   "all": [
+    {
+     "pane_state": {
+      "pane": "main",
+      "fields": {
+       "visible": true
+      }
+     }
+    }
+   ]
+  },
+  {
+   "do": "use_pane",
+   "pane": "main",
+   "click": true,
+   "title": "click into the left pane"
+  },
+  {
+   "do": "expect",
+   "title": "the left pane has the focus before the drag",
+   "timeout": 5,
+   "all": [
+    {
+     "pane_state": {
+      "pane": "main",
+      "fields": {
+       "focused": true
+      }
+     }
+    }
+   ]
+  },
+  {
+   "do": "window_drag",
+   "title": "drag the bottom-right corner 260 right, 160 down",
+   "by": [
+    260,
+    160
+   ],
+   "events": 30,
+   "mark": "grow"
+  },
+  {
+   "do": "use_pane",
+   "pane": "main"
+  },
+  {
+   "do": "type",
+   "text": "echo fsc-${nonce}",
+   "enter": true,
+   "mark": "fsc-typed"
+  },
+  {
+   "do": "expect",
+   "title": "after the switch back and the corner drag: the left pane still has the focus, and the typed line is in it",
+   "since": "grow",
+   "timeout": 10,
+   "settle": 1,
+   "all": [
+    {
+     "pane_state": {
+      "pane": "main",
+      "fields": {
+       "focused": true
+      }
+     }
+    },
+    {
+     "pane_state": {
+      "pane": "right",
+      "fields": {
+       "focused": false
+      }
+     }
+    },
+    {
+     "daemon_line": "fsc-${nonce}"
+    },
+    {
+     "pane_frame_text": {
+      "text": "fsc-${nonce}",
+      "pane": "main"
+     }
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}

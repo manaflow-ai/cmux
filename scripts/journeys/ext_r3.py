@@ -13,6 +13,12 @@ Condition (inside `expect.all`):
               is right for one poll and then drifts (a late layout, a held spring size, a deferred set_size)
               fails; a size that is wrong for good fails with every size in the detail.
 
+  r3_replay_matches {pane, chars?}   app
+              the app's viewport text and the daemon's screen show the same characters at the end (default the last
+              800): rows joined, single spaces dropped and longer space runs kept as one mark, because the app's text (Ghostty's
+              selection read) joins soft-wrapped rows while the daemon's screen read gives physical rows. A row drawn
+              at another column (fuzzer e2) still differs: its leading spaces stay. NEGATIVE.
+
 Steps:
   r3_long_line {tag, after?, timeout?} ext_smoke's smoke_long_line (a line 15 cells longer than any grid,
                                  fitted grid or view width now, or any remembered grid),
@@ -80,6 +86,29 @@ def step_r3_long_line(j, step):
     return {"tag": tag, "length": length, "widest_before": widest, "keys": len(replies), "prompt_wait_s": waited}
 
 
+def _stream(text):
+    """The characters both sides agree on: rows joined (the app joins soft-wrapped rows, the daemon's read drops the
+    space a soft wrap falls on), single spaces dropped, and each run of two or more spaces kept as one mark, so a row
+    drawn at another column (its leading spaces) still differs."""
+    import re
+    return re.sub(r" ", "", re.sub(r" {2,}", "\u2423", "".join(row.rstrip() for row in (text or "").split("\n"))))
+
+
+def cond_r3_replay_matches(j, want, cache):
+    import ext_smoke
+    rec = ext_smoke._named(j, want["pane"])
+    row = next((p for p in ext_smoke._surfaces(j, cache) if p.get("pane") == rec["pane"]), None)
+    app, daemon = _stream((row or {}).get("text")), _stream(j.app.screen(rec["term"])["text"])
+    n = int(want.get("chars", 800))
+    n = min(n, len(app), len(daemon))
+    a, d = app[len(app) - n:], daemon[len(daemon) - n:]
+    first = next((i for i, (x, y) in enumerate(zip(a, d)) if x != y), None if len(a) == len(d) else min(len(a), len(d)))
+    detail = {"pane": rec["pane"], "app_chars": len(app), "daemon_chars": len(daemon), "first_difference": first}
+    if first is not None:
+        detail.update(app_around=a[max(0, first - 40):first + 40], daemon_around=d[max(0, first - 40):first + 40])
+    return row is not None and first is None and len(a) > 0, detail
+
+
 STEPS = {"r3_long_line": step_r3_long_line}
-CONDITIONS = {"r3_settled": ("app", cond_r3_settled)}
-NEGATIVE = ("r3_settled",)
+CONDITIONS = {"r3_settled": ("app", cond_r3_settled), "r3_replay_matches": ("app", cond_r3_replay_matches)}
+NEGATIVE = ("r3_settled", "r3_replay_matches")

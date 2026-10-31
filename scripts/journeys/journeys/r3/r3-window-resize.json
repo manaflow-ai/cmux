@@ -8,6 +8,7 @@
  "steps": [
   {
    "do": "new_terminal",
+   "via": "key",
    "name": "jr-r3-window"
   },
   {

@@ -353,9 +353,26 @@ terminals is broken", "creating new columns must never resize existing columns")
 the journey drags the divider between the two new panes and then the window's right edge. After each,
 in the shown terminal: grid == fitted grid == drawn grid == fit(the view's bounds at the cell size) ==
 the PTY's size (`stty size`) == the daemon's screen size == the topology tab's size, and a line longer
-than the old width wraps at the new width (`smoke_r3`; every size is in the result). Then New Column
-and a Cmd-D that adds a column: every existing pane of the workspace keeps exactly its width
-(`smoke_same_widths`, re-read through a 1.5 s settle; each old and new width in the result).
+than the old width wraps at the new width (`smoke_r3`; every size is in the result; the window check
+also needs the window 160 points narrower and the pane narrower than before). Both are re-read through
+a 1.5 s settle. Then, each from the layout the one before left: New Column (the action) and its key
+Ctrl-Cmd-D each add one column, and every existing column (matched by its panes, width from the float
+view frames) keeps exactly its width; Cmd-D (Split Right) splits the focused pane inside its own column
+(Lawrence 2026-10-01, plans/cmux-next/column-sizing.md; Cmd-D is a Ghostty-reserved key, so a change
+needs his own "Ghostty-defaults-OK"): no new column, that column gains one pane, every OTHER column
+keeps exactly its width; Cmd-Shift-D (Split Down) adds no column and every column keeps its width
+(`smoke_same_widths`; each old and new width in the result). Each old column is measured from its
+old panes only, so a pane a split just added (no frame yet) never hides it. Any real problem (a width
+change, a lost or extra column, no split in place) fails first; when the only problem is an old pane
+with no frame (an off-screen column whose terminal was closed under memory pressure) for 3 s, the
+round is not judged.
+
+**No pass without the resize checks** (cmux-ad 06:38Z): a round passes only when it reached and passed,
+exactly once each, the 2 R3a checks and the 4 R3b checks (`REQUIRED_CHECKS` in smoke-gate.py: their
+exact titles; a renamed or duplicated check never counts). A round whose journey passed without them
+is a FAIL that names the missing checks; a round that failed at an earlier step stays a FAIL; a round
+that did not run (no lease, a known gap, a column width that cannot be read) stays NOT JUDGED. None is
+ever a pass, and the `.pass` file needs every round to pass.
 
 **Typed at once** (`smoke_type_now`): no wait for the creation hold, the case Lawrence reports
 (keys into a terminal while it is created). A capture slot's window is never key
@@ -377,6 +394,21 @@ showed no memory pressure), DIAGNOSTIC (`--diagnostic`: where the slot has no ke
 typed after the creation hold, every other check runs and is counted per round; never a `.pass`). A round counts only with its own fresh results for this build; `--out`
 must be a new folder. Writes `summary.json` and `summary.txt`. Test:
 `python3 scripts/journeys/test_smoke_gate.py`.
+
+### Building a smoke candidate (the only way)
+
+```bash
+scripts/journeys/build-smoke-candidate.sh SHA [--tag TAG] [--dry-run]
+```
+
+cmux-ad 2026-10-31 08:15Z: a plain Release build has no `debug.*` socket, so the gate cannot drive it
+(every round stops at step 1, `debug.windows: method_not_found`). Every smoke candidate, feat or
+perf, is built like the dogfood lines: `cmux-ci build cmux --release` of a tag that
+`Resources/build/cmux-next.dogfood.conf` names, which `reload.sh` builds as the bench configuration
+(Release optimization plus `CMUX_BENCH_HOOKS`; it never ships). The script adds that mapping (commit
+`c6d35671018`, no app source change) to SHA when SHA lacks it, pushes it as
+`cp/smoke-candidate-<sha12>` (a dogfood line, never merge), submits the build and prints the job id
+for `smoke-gate.py --build JOB`. `--dry-run` shows the commit and the build command without pushing.
 
 ## Not supported yet
 
