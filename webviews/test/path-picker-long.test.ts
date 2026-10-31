@@ -61,9 +61,8 @@ await requireBrowserLane("path-picker-long.test.ts", async () => {
       await list.waitFor();
       // All 300 fixture folders begin "surface"; both filters keep the first option at index 0.
       await field.fill("s");
-      await page.waitForFunction(
-        () => document.querySelector<HTMLInputElement>(".ve-picker-field")?.value === "s",
-      );
+      await page.waitForFunction(() => document.querySelector<HTMLInputElement>(".ve-picker-field")?.value === "s");
+      const highlighted = await field.getAttribute("aria-activedescendant");
       await list.evaluate((element) => {
         element.scrollTop = 1500;
         element.dispatchEvent(new Event("scroll"));
@@ -73,9 +72,8 @@ await requireBrowserLane("path-picker-long.test.ts", async () => {
         return list !== null && list.scrollTop > 1000;
       });
       await field.press("u");
-      await page.waitForFunction(
-        () => document.querySelector<HTMLInputElement>(".ve-picker-field")?.value === "su",
-      );
+      await page.waitForFunction(() => document.querySelector<HTMLInputElement>(".ve-picker-field")?.value === "su");
+      expect(await field.getAttribute("aria-activedescendant")).toBe(highlighted);
       // The active descendant stays index 0 but must be visible after the new result set.
       const state = await page.evaluate(() => {
         const field = document.querySelector<HTMLInputElement>(".ve-picker-field")!;
