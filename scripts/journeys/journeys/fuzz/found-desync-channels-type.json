@@ -2,8 +2,8 @@
  "id": "found-desync-channels-type",
  "priority": "P1",
  "first_in_app": true,
- "title": "Home dock Channels, first open in a fresh launch: after its Chromium page attaches, typed letters reach a field of the Channels page",
- "why": "Review of #29272 (FIX at 976b215bed7, https://github.com/manaflow-ai/cmux/pull/29272#issuecomment-6542312241): the pane lookup there also matched the docked Home's Channels page, a page nested in HomeDockView. Its attach then skipped its own focus grant, and the focus applier cannot focus a nested page, so the Chromium page never got the keys and typing into Channels went nowhere. The fix (5ceaf206d2b) matches only the pane's own Chromium page. This journey opens Channels for the first time in a fresh launch (Chromium makes its page after the view shows) and waits for its Chromium page. Then a click in the page's own script (debug.page click on .lg-search, no AppKit event, so no key-window change) opens the page's palette with its field focused in the DOM, and real key events go through the app's event queue (debug.key sequence with no key_window: they go to whatever window is key, as a person's keys do). The letters reach that field only when Chromium's page window has the keys. Plain letters: a chord such as Cmd-K is an app shortcut there (agentPane.searchChats) and never reaches the page. Needs run.py --whole-host (the app launched active, so a window is key). The frame check reads the typed word from the window. The daemon check at the end (after one Cmd-N) is the harness's required daemon evidence, a health check of the app afterwards, not part of the claim.",
+ "title": "Home dock Channels, first open in a fresh launch: after its Chromium page attaches, the keyboard is with the Chromium page (its window is key), not with the hidden WebKit stand-in",
+ "why": "Review of #29272 (FIX at 976b215bed7, https://github.com/manaflow-ai/cmux/pull/29272#issuecomment-6542312241): the pane lookup there also matched the docked Home's Channels page, a page nested in HomeDockView. Its attach then skipped its own focus grant, and the focus applier cannot focus a nested page, so the keys stayed with the hidden WebKit stand-in (first responder PageWKWebView, key window ShellWindow) and typing into Channels went nowhere. Seen on build 568ad9fbd033e4ba0ac995fb (976b215), cmux19, 12:09Z: Channels in Chromium, its page window visible over the dock, key window ShellWindow, first responder PageWKWebView. The fix (5ceaf206d2b) matches only the pane's own Chromium page, so the page grants itself. This journey opens Channels for the first time in a fresh launch (Chromium makes its page after the view shows), waits for its Chromium page to paint, and reads where the keyboard is (debug.focus). It reads the focus state, not typed keys: debug.key's sequence mode (real events through the event queue) has no event timestamp on the capture minis, and the other debug.key modes choose the target window themselves. Needs run.py --whole-host (the app launched active). The frame check (not blank) and the closing daemon check (after one Cmd-N) are the harness's required evidence kinds, not the claim; on the feat base the closing check is red from the false G1 finding (#29272).",
  "source": "#29272 review finding 1; #29274 review (FIX at c5cba01aa64, comment 6542986147); webviews/src/pages/home-channels/ConversationList.tsx (.lg-search) and Palette.tsx",
  "budget_seconds": 200,
  "steps": [
@@ -71,7 +71,7 @@
   },
   {
    "do": "expect",
-   "title": "Channels shows, in Chromium, painted, with its search button",
+   "title": "Channels shows, in Chromium, painted",
    "timeout": 30,
    "all": [
     {
@@ -109,18 +109,6 @@
       "path": "painted",
       "equals": true
      }
-    },
-    {
-     "app_rpc": {
-      "method": "debug.page",
-      "params": {
-       "page": "cmux.home-channels",
-       "action": "query",
-       "selector": ".lg-search"
-      },
-      "path": "elements",
-      "len_gte": 1
-     }
     }
    ]
   },
@@ -137,139 +125,35 @@
    "method": "debug.window_list"
   },
   {
-   "do": "rpc",
-   "method": "debug.page",
-   "params": {
-    "page": "cmux.home-channels",
-    "action": "click",
-    "selector": ".lg-search"
-   }
-  },
-  {
    "do": "expect",
-   "title": "the page's palette is open and a text field in it has DOM focus (before any key)",
+   "title": "the keyboard is with the Channels page in Chromium: a Chromium page window is key and the hidden WebKit stand-in is not the first responder; the window is not blank",
    "timeout": 10,
    "all": [
     {
      "app_rpc": {
-      "method": "debug.page",
-      "params": {
-       "page": "cmux.home-channels",
-       "action": "query",
-       "selector": ".lg-palette"
-      },
-      "path": "elements",
-      "len_gte": 1
+      "method": "debug.focus",
+      "path": "app_active",
+      "equals": true
      }
     },
     {
      "app_rpc": {
-      "method": "debug.page",
-      "params": {
-       "page": "cmux.home-channels",
-       "action": "state"
-      },
-      "path": "active.tag",
-      "in": [
-       "input",
-       "textarea"
-      ]
-     }
-    }
-   ]
-  },
-  {
-   "do": "rpc",
-   "method": "debug.key",
-   "params": {
-    "sequence": [
-     {
-      "key_code": 35,
-      "down": true,
-      "after_ms": 60
-     },
-     {
-      "key_code": 35,
-      "down": false,
-      "after_ms": 40
-     },
-     {
-      "key_code": 15,
-      "down": true,
-      "after_ms": 60
-     },
-     {
-      "key_code": 15,
-      "down": false,
-      "after_ms": 40
-     },
-     {
-      "key_code": 31,
-      "down": true,
-      "after_ms": 60
-     },
-     {
-      "key_code": 31,
-      "down": false,
-      "after_ms": 40
-     },
-     {
-      "key_code": 11,
-      "down": true,
-      "after_ms": 60
-     },
-     {
-      "key_code": 11,
-      "down": false,
-      "after_ms": 40
-     },
-     {
-      "key_code": 14,
-      "down": true,
-      "after_ms": 60
-     },
-     {
-      "key_code": 14,
-      "down": false,
-      "after_ms": 40
-     }
-    ]
-   }
-  },
-  {
-   "do": "wait",
-   "seconds": 1.5
-  },
-  {
-   "do": "rpc",
-   "method": "debug.page",
-   "params": {
-    "page": "cmux.home-channels",
-    "action": "state"
-   }
-  },
-  {
-   "do": "rpc",
-   "method": "debug.focus"
-  },
-  {
-   "do": "expect",
-   "title": "the typed letters reached the Channels page: its focused field holds them, and the window shows them",
-   "timeout": 10,
-   "all": [
-    {
-     "app_rpc": {
-      "method": "debug.page",
-      "params": {
-       "page": "cmux.home-channels",
-       "action": "state"
-      },
-      "path": "active.value",
-      "equals": "probe"
+      "method": "debug.focus",
+      "path": "key_window",
+      "equals": "CefNSWindow"
      }
     },
     {
-     "frame_text": "probe"
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.appkit.first_responder",
+      "not_equals": "PageWKWebView"
+     }
+    },
+    {
+     "smoke_frame": {
+      "min_lines": 1
+     }
     }
    ]
   },
@@ -306,7 +190,7 @@
     "args": {
      "view": "messages"
     },
-    "focus": false
+    "focus": true
    }
   },
   {
