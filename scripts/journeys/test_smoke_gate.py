@@ -1219,12 +1219,16 @@ class HoldPath(unittest.TestCase):
         j.steps = [{"index": 1, "result": {"reply": {"handled_by": "app"}}},
                    {"index": 2, "result": {"reply": {"handled_by": "window"}}}]
         want = {"lines": ["echo d2"], "every_line": True, "held_marks": ["split2"]}
-        with self.assertRaises(self.NotRun) as no:  # the second Cmd-D ran at once: not the hold path
+        with self.assertRaises(self.NotRun) as no:  # the second Cmd-D went to the window: not the hold path
             self.ext.step_smoke_hold_path(j, want)
-        self.assertIn("'split2' was handled_by 'window'", str(no.exception))
-        j.steps[1]["result"]["reply"]["handled_by"] = "app"
+        self.assertIn("'split2' was not held (handled_by 'window'", str(no.exception))
+        # "app" with a dispatcher trace: the router RAN the split at once (no creation pending): not a hold.
+        j.steps[1]["result"]["reply"] = {"handled_by": "app", "trace": ["dispatcher: run(split.right)"]}
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_hold_path(j, want)
+        j.steps[1]["result"]["reply"] = {"handled_by": "app", "trace": []}  # held: capture returned before dispatch
         done = self.ext.step_smoke_hold_path(j, want)
-        self.assertEqual((done["hold_path"], done["marks"]), (True, {"split2": "app"}))
+        self.assertEqual((done["hold_path"], done["marks"]["split2"]["held"]), (True, True))
         j.smoke_typed_paths[1]["paths"] = ["responder"]  # d2 not held: not proven
         with self.assertRaises(self.NotRun):
             self.ext.step_smoke_hold_path(j, want)

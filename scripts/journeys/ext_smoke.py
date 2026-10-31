@@ -1134,7 +1134,15 @@ def step_smoke_hold_path(j, step):
         mark = specs[index].get("mark") if 0 <= index < len(specs) else None
         if mark in step.get("held_marks", []):
             reply = (record.get("result") or {}).get("reply") if isinstance(record.get("result"), dict) else None
-            marks[mark] = str(reply.get("handled_by")) if isinstance(reply, dict) else None
+            if not isinstance(reply, dict):
+                marks[mark] = {"handled_by": None, "trace": None, "held": False}
+                continue
+            trace = [str(t) for t in reply.get("trace") or []]
+            # "app" is any router intercept: a chord the router RUNS at once (no creation pending) is "app" too, and
+            # its dispatch adds a "dispatcher: <decision>" trace line; a held key returns from capture before that.
+            ran = [t for t in trace if t.startswith("dispatcher:")]
+            marks[mark] = {"handled_by": str(reply.get("handled_by")), "trace": trace[:8],
+                           "held": reply.get("handled_by") == "app" and not ran}
     result = {"hold_path": held > 0, "held_keys": held, "lines": lines, "burst_holds": burst, "marks": marks}
     why = []
     if held <= 0:
@@ -1144,8 +1152,9 @@ def step_smoke_hold_path(j, step):
     if step.get("every_line"):
         why += [f"no key of {t['line']!r} was held" for t in lines if t["held"] <= 0]
         why += [f"line {line!r} was not typed" for line in j.sub(step.get("lines", [])) if line not in {t["line"] for t in lines}]
-    why += [f"the key of step {m!r} was handled_by {marks.get(m)!r}, not app" for m in step.get("held_marks", [])
-            if marks.get(m) != "app"]
+    why += [f"the key of step {m!r} was not held (handled_by {(marks.get(m) or {}).get('handled_by')!r}, "
+            f"trace {(marks.get(m) or {}).get('trace')!r})" for m in step.get("held_marks", [])
+            if not (marks.get(m) or {}).get("held")]
     if why:
         result["hold_path"] = False
         raise D.NotRun(f"hold path not proven: {'; '.join(why)} ({json.dumps(result)[:500]})")
