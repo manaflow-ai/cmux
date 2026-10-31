@@ -547,8 +547,13 @@ final class TabContentCache {
         return true
     }
 
-    /// Tab `key`'s node for the pane that selects it (`PaneController.selectTabNode`).
-    func selectedNode(for key: String) -> VisibilityNode { node(for: key) }
+    /// Tab `key`'s node for the pane that selects it: a daemon tab whose Ctrl-` stand-in waits adopts it first, so the pane
+    /// shows, once, the node the stand-in's content follows (`moveNode`; a node made first hid it for good: P0 resize).
+    func selectedNode(for key: String) -> VisibilityNode {
+        if tabNodes[key]?.node == nil, terminals[key] == nil, let link = terminals.values.lazy.compactMap(\.standIn).first(where: { $0.daemon?.store.tab(terminal: $0.terminal)?.id == key }),
+           let daemon = link.daemon, let tab = daemon.store.tab(terminal: link.terminal) { _ = adoptStandIn(for: tab, daemon: daemon) }
+        return node(for: key)
+    }
 
     /// Stand-in tab `key`'s visibility node becomes `real`'s, unless `real` has one: the content moving with it keeps it.
     func moveNode(_ key: String, to real: String) {
