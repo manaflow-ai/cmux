@@ -10,18 +10,17 @@ import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-/// Each row kind's icon slot and the element whose first text is its label.
-const ROWS: Record<string, [icon: string, label: string]> = {
-  tool: [".cv-tool__icon", ".cv-tool__text"],
-  sent: [".cv-agentmsg__icon", ".cv-agentmsg__words"],
-  received: [".cv-received__mark", ".cv-received__from"],
-  inbox: [".cv-received__mark", ".cv-received__from"],
-  "background-task": [".cv-tool__icon", ".cv-tool__text"],
-  subsession: [".cv-disclosure__icon", ".cv-disclosure__label"],
-};
-
 await requireBrowserLane("transcript-meta-columns-browser.test.ts", async () => {
   setDefaultTimeout(120_000);
+  /// Each row kind's icon slot and the element whose first text is its label.
+  const ROWS: Record<string, [icon: string, label: string]> = {
+    tool: [".cv-tool__icon", ".cv-tool__text"],
+    sent: [".cv-agentmsg__icon", ".cv-agentmsg__words"],
+    received: [".cv-received__mark", ".cv-received__from"],
+    inbox: [".cv-received__mark", ".cv-received__from"],
+    "background-task": [".cv-tool__icon", ".cv-tool__text"],
+    subsession: [".cv-disclosure__icon", ".cv-disclosure__label"],
+  };
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>>;
