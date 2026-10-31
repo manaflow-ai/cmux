@@ -205,15 +205,7 @@ impl Snapshot {
         let picked = super::session_pages::session_list_reply(keys.clone(), &filters)?;
         let rows =
             picked.get("sessions").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
-        let at = |key: &Value| key.get("at").and_then(Value::as_u64).unwrap_or_default() as usize;
-        let row = |key: &Value| -> std::borrow::Cow<'_, str> {
-            let text = spans.get(at(key)).and_then(|span| text.get(span.clone()));
-            match text {
-                Some(text) if text.len() <= budget => text.into(),
-                Some(text) => too_large_stub(key, text.len()).into(),
-                None => "null".into(),
-            }
-        };
+        let row = |key: &Value| row_text(text, spans, key, budget);
         let whole = cursor.is_none() && {
             let bytes: usize = rows.iter().map(|key| row(key).len() + 1).sum();
             bytes <= budget
@@ -254,23 +246,49 @@ impl Snapshot {
         rows.finish()
     }
 
-    /// The reply to a paged or filtered `params`, cut from the shared text: the bytes
-    /// `session_list_reply` over the summaries writes (`nextCursor` sorts first).
-    pub(crate) fn page(&self, params: &Value) -> Result<String, RpcError> {
-        let picked = super::session_pages::session_list_reply(self.keys.clone(), params)?;
+    /// The reply to a paged `params` (a `limit`, or a census's `orderBy`), cut from the shared
+    /// text, with tools when `full` is given: the rows `session_list_reply` picks, as many as fit
+    /// in `budget` bytes, at least one, and `nextCursor` first. A page cut short by its bytes ends
+    /// with the `nextCursor` of its last row, as a page of that many rows would: 1000 rows of a
+    /// busy host with usage were more than one message, refused whole on every retry. A row
+    /// larger than `budget` alone is trimmed ([`row_text`]).
+    pub(crate) fn page(
+        &self,
+        full: Option<&FullRows>,
+        params: &Value,
+        budget: usize,
+    ) -> Result<String, RpcError> {
+        let (text, spans, keys) = match full {
+            Some(full) => (full.whole.as_str(), &full.spans, &full.keys),
+            None => (self.whole.as_str(), &self.spans, &self.keys),
+        };
+        let picked = super::session_pages::session_list_reply(keys.clone(), params)?;
+        let rows =
+            picked.get("sessions").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+        let mut next = picked.get("nextCursor").cloned();
+        let (mut page, mut used) = (Vec::with_capacity(rows.len()), 0_usize);
+        for (n, key) in rows.iter().enumerate() {
+            let row = row_text(text, spans, key, budget);
+            // One more byte for the comma between rows.
+            let total = used.saturating_add(row.len()).saturating_add(1);
+            if n > 0 && total > budget {
+                let last = rows.get(n.saturating_sub(1)).unwrap_or(key);
+                next = Some(Value::String(page_cursor(params, last)));
+                break;
+            }
+            used = total;
+            page.push(row);
+        }
         let mut text = String::from("{");
-        if let Some(next) = picked.get("nextCursor") {
+        if let Some(next) = next {
             text.push_str(&format!("\"nextCursor\":{next},"));
         }
         text.push_str("\"sessions\":[");
-        for (n, key) in picked["sessions"].as_array().into_iter().flatten().enumerate() {
+        for (n, row) in page.iter().enumerate() {
             if n > 0 {
                 text.push(',');
             }
-            let at = key["at"].as_u64().unwrap_or_default() as usize;
-            text.push_str(
-                self.spans.get(at).and_then(|span| self.whole.get(span.clone())).unwrap_or("null"),
-            );
+            text.push_str(row);
         }
         text.push_str("]}");
         Ok(text)
@@ -299,9 +317,43 @@ impl Snapshot {
     }
 }
 
-/// A row larger than a page alone goes as this stub, with its size, as a record too large for a
-/// reply goes (`hub/paging.rs`): a page holds at least one row, and one that large would be
-/// refused, page and all. It keeps the row's paging keys (an id longer than 4 KiB as null), so
+/// Row `key` of `text`: whole when it fits in `budget`, else trimmed to fit, its largest fields
+/// first (`reply_fit.rs`), or as [`too_large_stub`] when even the fields it keeps do not.
+fn row_text<'a>(
+    text: &'a str,
+    spans: &[Range<usize>],
+    key: &Value,
+    budget: usize,
+) -> std::borrow::Cow<'a, str> {
+    let at = key.get("at").and_then(Value::as_u64).and_then(|at| usize::try_from(at).ok());
+    let Some(row) = at.and_then(|at| spans.get(at)).and_then(|span| text.get(span.clone())) else {
+        return "null".into();
+    };
+    if row.len() <= budget {
+        return row.into();
+    }
+    let mut value: Value = serde_json::from_str(row).unwrap_or_default();
+    if super::reply_fit::fit_object(&mut value, budget) {
+        value.to_string().into()
+    } else {
+        too_large_stub(key, row.len()).into()
+    }
+}
+
+/// The cursor of the page after `last`: a census's (`orderBy`, `s:<id>`) or the list's
+/// (`session_pages::cursor_after`).
+fn page_cursor(params: &Value, last: &Value) -> String {
+    let census = params.get("orderBy").and_then(Value::as_str).is_some_and(|o| !o.is_empty());
+    if census {
+        format!("s:{}", last.get("sessionId").and_then(Value::as_str).unwrap_or(""))
+    } else {
+        super::session_pages::cursor_after(last)
+    }
+}
+
+/// A row larger than a page alone even trimmed (a kept field that large) goes as this stub, with
+/// its size, as a record too large for a reply goes (`hub/paging.rs`): a page holds at least one
+/// row, and one that large would be refused, page and all. It keeps the row's paging keys (an id longer than 4 KiB as null), so
 /// a client still sees the chat and can read it alone (`_acpmux/info`).
 fn too_large_stub(key: &Value, bytes: usize) -> String {
     let id = key.get("sessionId").filter(|v| v.as_str().is_some_and(|t| t.len() <= 4 << 10));
@@ -573,12 +625,12 @@ mod tests {
             json!({"peer": "cmux16", "limit": 1}),
         ] {
             assert_eq!(
-                list.page(&params).unwrap(),
+                list.page(None, &params, usize::MAX).unwrap(),
                 reply(&params).unwrap().to_string(),
                 "{params}"
             );
         }
-        assert!(list.page(&json!({"cursor": 3})).is_err());
+        assert!(list.page(None, &json!({"cursor": 3}), usize::MAX).is_err());
     }
 
     /// A list read from a session list cursor (`k...`) with no `limit`, too large for one page,
@@ -656,7 +708,7 @@ mod tests {
             [json!({}), json!({"limit": 2}), json!({"status": "closed"}), json!({"peer": "remote"})]
         {
             assert_eq!(
-                list.page(&params).unwrap(),
+                list.page(None, &params, usize::MAX).unwrap(),
                 super::super::session_pages::session_list_reply(rows.clone(), &params)
                     .unwrap()
                     .to_string()
