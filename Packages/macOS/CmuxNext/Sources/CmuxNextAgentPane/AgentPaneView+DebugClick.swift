@@ -63,7 +63,7 @@ extension AgentPaneView {
     public var debugChromiumStarting: Bool { pageDrawsOverCovers && !debugShowsChromium }
 
     /// Whether the document has painted, independently of the loading cover's give-up deadline.
-    public var debugPageHasPainted: Bool { model.hasPainted }
+    public var debugPageHasPainted: Bool { model.hasPainted && (page?.hasPainted ?? true) }
 
     /// Whether the chat's Chromium page is one a window snapshot draws: in this window, not parked,
     /// hidden or under a clear (alpha 0) ancestor, and with a size.
