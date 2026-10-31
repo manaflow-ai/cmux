@@ -5,12 +5,13 @@ import CmuxNextDesignTokens
 import CoreText
 import Testing
 
-/// Issue 28793: at the default settings (compact app density, `sidebar.density` compact) the sidebar's
-/// text and row rhythm match the Codex desktop sidebar: 13 pt row titles at weight 430, 12 pt detail
+/// Issue 28793: the sidebar list's base tokens (compact app density, `sidebar.density` compact,
+/// `sidebar.textSize` small) match the Codex desktop sidebar: 13 pt row titles at weight 430, 12 pt detail
 /// lines, one-line rows on a 30 pt pitch (row plus row gap) and 8 pt horizontal padding. Only the
 /// sidebar's own defaults move; other chrome keeps `Typography.body` and `Metrics.sidebarRowHeight`,
 /// and a person's Interface Size, chrome font size, `appearance.metrics.sidebarRowHeight`, sidebar
-/// density and custom densities still win.
+/// density and custom densities still win. The default text size is Medium, the ChatGPT size a step
+/// above (2026-10-30: "default is ChatGPT size. the one that is current is small"; `SidebarTextSizeTests`).
 @MainActor @Suite(.serialized) struct SidebarCodexTextDefaultsTests {
     private static let first = WorkspaceID("ws-codex-1")
     private static let second = WorkspaceID("ws-codex-2")
@@ -23,7 +24,9 @@ import Testing
                 .workspace(SidebarWorkspace(id: second, title: "workspace-2", kind: .terminal)),
             ]),
         ])
-        let sidebar = SidebarView(model: model, design: DesignSettings())
+        let design = DesignSettings()
+        design.sidebarSections = DesignSettings.shared.sidebarSections
+        let sidebar = SidebarView(model: model, design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 280, height: 600)
         sidebar.renderNow()
         sidebar.layoutSubtreeIfNeeded()
@@ -33,17 +36,19 @@ import Testing
         return sidebar
     }
 
-    /// Runs `body` at app density `tokens` and sidebar density `density` with `override` as
-    /// `appearance.metrics.sidebarRowHeight` and `fontSize` as the chrome font size, then restores them.
+    /// Runs `body` at app density `tokens`, sidebar density `density` and sidebar text size `textSize` with
+    /// `override` as `appearance.metrics.sidebarRowHeight` and `fontSize` as the chrome font size, then restores them.
     private static func at(_ tokens: DensityTokens = DensityPreset.compact.tokens, sidebar density: SidebarDensity = .compact,
-                           rowHeight override: CGFloat? = nil, fontSize: CGFloat? = nil, _ body: () throws -> Void) rethrows {
+                           textSize: SidebarTextSize = .small, rowHeight override: CGFloat? = nil, fontSize: CGFloat? = nil,
+                           _ body: () throws -> Void) rethrows {
         let shared = DesignSettings.shared
-        let saved = (shared.sidebarSections.density, shared.overrides[.sidebarRowHeight], shared.overrides[.chromeFontSize])
+        let saved = (shared.sidebarSections, shared.overrides[.sidebarRowHeight], shared.overrides[.chromeFontSize])
         shared.sidebarSections.density = density
+        shared.sidebarSections.textSize = textSize
         shared.setOverride(.sidebarRowHeight, override)
         shared.setOverride(.chromeFontSize, fontSize)
         defer {
-            shared.sidebarSections.density = saved.0
+            shared.sidebarSections = saved.0
             shared.setOverride(.sidebarRowHeight, saved.1)
             shared.setOverride(.chromeFontSize, saved.2)
         }
@@ -87,6 +92,16 @@ import Testing
             #expect(abs(abs(b.minY - a.minY) - 30) < 0.5, "workspace rows step \(abs(b.minY - a.minY)) pt")
             let row = try #require(sidebar.list.rowViews[.workspace(Self.first)] as? WorkspaceRowView)
             #expect(row.title.frame.minX == SidebarStyle.horizontalInset, "a title without an icon starts at the 8 pt inset")
+        }
+    }
+
+    @Test func theDefaultTextSizeIsMediumAStepAboveCodex() {
+        #expect(SidebarSectionsPreferences.defaults.textSize == .medium)
+        Self.at(textSize: .medium) {
+            #expect(SidebarStyle.titleFont.pointSize == 14 && SidebarStyle.subtitleFont.pointSize == 13)
+            let metrics = SidebarLayoutMetrics.standard
+            #expect(metrics.rowHeight + metrics.rowSpacing == 31, "ChatGPT's 31 pt pitch")
+            #expect(SidebarStyle.horizontalInset == 8, "the inset is the density's, not the text size's")
         }
     }
 

@@ -21,7 +21,7 @@ import Testing
         var density: SidebarDensity
         var width: CGFloat
         /// `sidebar.textSize` (Lawrence msg 17752): marks stay on one column at every text size.
-        var textSize: SidebarTextSize = .standard
+        var textSize: SidebarTextSize = .medium
         var testDescription: String { "\(density) at \(Int(width)) pt, text \(textSize.rawValue)" }
     }
 
@@ -57,7 +57,7 @@ import Testing
         return sidebar
     }
 
-    private static func withDensity<T>(_ density: SidebarDensity, textSize: SidebarTextSize = .standard,
+    private static func withDensity<T>(_ density: SidebarDensity, textSize: SidebarTextSize = .medium,
                                        _ body: () throws -> T) rethrows -> T {
         let before = DesignSettings.shared.sidebarSections
         DesignSettings.shared.sidebarSections.density = density
@@ -132,7 +132,7 @@ import Testing
         var density: SidebarDensity
         var minimal: SidebarMinimalMode
         var width: CGFloat
-        var textSize: SidebarTextSize = .standard
+        var textSize: SidebarTextSize = .medium
         var testDescription: String { "\(density.rawValue)/minimal-\(minimal.rawValue)/\(Int(width))pt/text-\(textSize.rawValue)" }
     }
 

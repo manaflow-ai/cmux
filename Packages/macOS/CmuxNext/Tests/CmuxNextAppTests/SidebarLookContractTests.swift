@@ -16,20 +16,20 @@ import Testing
         var density: SidebarDensity
         var minimal: SidebarMinimalMode
         var width: CGFloat
-        /// `sidebar.textSize` (Lawrence msg 17752): the contract holds at Large and Larger too.
-        var textSize: SidebarTextSize = .standard
+        /// `sidebar.textSize` (Lawrence msg 17752): the contract holds at Small and Large too.
+        var textSize: SidebarTextSize = .medium
         var testDescription: String { "\(density.rawValue)/minimal-\(minimal.rawValue)/\(Int(width))pt/text-\(textSize.rawValue)" }
     }
 
     /// Every density, Minimal Mode and width at every text size, plus the narrowest sidebar (about 181 pt,
-    /// `SidebarModel.minimumWidth` since a875) at Larger.
+    /// `SidebarModel.minimumWidth` since a875) at Large.
     nonisolated static let cases: [Case] = SidebarTextSize.allCases.flatMap { textSize in
         SidebarDensity.allCases.flatMap { density in
             [SidebarMinimalMode.off, .both].flatMap { minimal in
                 [200, 260, 360].map { Case(density: density, minimal: minimal, width: $0, textSize: textSize) }
             }
         }
-    } + SidebarDensity.allCases.map { Case(density: $0, minimal: .off, width: 181, textSize: .larger) }
+    } + SidebarDensity.allCases.map { Case(density: $0, minimal: .off, width: 181, textSize: .large) }
 
     static let loose = WorkspaceID("c-loose"), icon = WorkspaceID("c-icon"), member = WorkspaceID("c-member")
     static let nested = WorkspaceID("c-nested"), group = GroupID("c-group"), sub = GroupID("c-sub")

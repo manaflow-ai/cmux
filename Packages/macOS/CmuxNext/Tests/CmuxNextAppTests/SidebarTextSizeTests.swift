@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextDesignTokens
 @testable import CmuxNextSidebar
 import Testing
 
@@ -7,8 +8,10 @@ import Testing
 /// text to be very significantly bigger. this is how big chatgpt is by default, let's match them".
 ///
 /// `sidebar.textSize` scales the list together: titles, details and headers, the leading glyph
-/// column and the row and header heights. Larger is the ChatGPT size measured from the screenshot
-/// at 2x: 14 pt titles on a 31 pt row pitch. Default keeps the original 12 pt on 26 pt. Every size
+/// column and the row and header heights. Then (2026-10-30): "default is ChatGPT size. the one that
+/// is current is small.. small | medium | large". Small is the Codex desktop sidebar (13 pt on a 30 pt
+/// pitch, https://github.com/manaflow-ai/cmux/issues/28793); Medium, the default, the ChatGPT size
+/// measured from the screenshot at 2x (14 pt titles on a 31 pt row pitch); Large a step past it. Every size
 /// keeps a group header as tall as a workspace row and a title inside its row. Each case prints a
 /// `TEXTSIZE|` line so a fleet log shows the measured numbers.
 @MainActor @Suite(.serialized) struct SidebarTextSizeTests {
@@ -77,31 +80,36 @@ import Testing
         }
     }
 
-    @Test func defaultKeepsTheOriginalSize() throws {
+    @Test func smallIsTheCodexSidebar() throws {
         try DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) {
-            let m = try Self.measure(.standard)
-            #expect(m.titlePoints == 12)
-            #expect(m.rowHeight == 24)
-            #expect(m.rowPitch == 26)
+            let m = try Self.measure(.small)
+            #expect(m.titlePoints == 13 && m.subtitlePoints == 12)
+            #expect(m.rowHeight == 28)
+            #expect(m.rowPitch == 30)
         }
     }
 
-    @Test func largerMatchesChatGPT() throws {
+    @Test func theDefaultIsMediumTheChatGPTSize() throws {
+        #expect(SidebarSectionsPreferences.defaults.textSize == .medium)
         try DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) {
-            let m = try Self.measure(.larger)
+            let m = try Self.measure(.medium)
             #expect(m.titlePoints == 14, "ChatGPT's sidebar titles are 14 pt; got \(m.titlePoints)")
             #expect(m.rowPitch == 31, "ChatGPT's rows are 31 pt apart; got \(m.rowPitch)")
             #expect(m.rowHeight == 29)
+            #expect(m.iconBox > Self.measureIcon(.small), "ChatGPT's leading icons are about 14 pt")
         }
     }
 
-    @Test func largeIsBetween() throws {
+    @Test func largeIsAStepPastMedium() throws {
         try DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) {
             let m = try Self.measure(.large)
-            #expect(m.titlePoints == 13)
-            #expect(m.rowHeight == 27)
+            #expect(m.titlePoints == 15)
+            #expect(m.rowHeight == 32)
+            #expect(m.rowPitch == 34)
         }
     }
+
+    private static func measureIcon(_ size: SidebarTextSize) throws -> CGFloat { try measure(size).iconBox }
 
     /// Titles, details, headers, the leading glyph column and every height grow together, never one alone.
     @Test(arguments: DensityPreset.allCases)
@@ -140,13 +148,13 @@ import Testing
         }
     }
 
-    /// a590's review: at Larger, the narrowest sidebar (``SidebarModel/minimumWidth``, about 181 pt since a875)
+    /// a590's review: at Large, the narrowest sidebar (``SidebarModel/minimumWidth``, about 181 pt since a875)
     /// still shows a short title whole, and a long one keeps a readable run of text before its fade.
-    @Test func largerStaysReadableAtTheNarrowestSidebar() throws {
-        try Self.withTextSize(.larger) {
+    @Test func largeStaysReadableAtTheNarrowestSidebar() throws {
+        try Self.withTextSize(.large) {
             // The window sets the titlebar part of the minimum (~181 pt); a bare model knows only the 160 pt tunable.
             let narrowest = max(181, SidebarModel(sections: []).minimumWidth)
-            let sidebar = Self.sidebar(.larger, width: narrowest)
+            let sidebar = Self.sidebar(.large, width: narrowest)
             let list = sidebar.list
             let short = try #require(list.rowViews[.workspace(Self.loose)] as? WorkspaceRowView)
             let long = try #require(list.rowViews[.workspace(Self.long)] as? WorkspaceRowView)
@@ -154,9 +162,9 @@ import Testing
             let natural = ceil(("Work on cmux" as NSString).size(withAttributes: [.font: font]).width)
             let room = short.title.frame.width
             print("TEXTSIZE|narrow \(narrowest)|short room \(room) natural \(natural)|long room \(long.title.frame.width)")
-            #expect(font.pointSize == 14)
+            #expect(font.pointSize == 15)
             #expect(room >= natural, "\(narrowest) pt: \"Work on cmux\" needs \(natural) pt, has \(room)")
-            // About ten 14 pt characters before the fade: enough to tell rows apart.
+            // About nine 15 pt characters before the fade: enough to tell rows apart.
             #expect(long.title.frame.width >= 80, "\(narrowest) pt: a long title has only \(long.title.frame.width) pt")
         }
     }

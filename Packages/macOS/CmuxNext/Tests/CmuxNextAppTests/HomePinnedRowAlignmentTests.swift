@@ -14,7 +14,7 @@ import Testing
         var minimal: SidebarMinimalMode
         var width: CGFloat
         /// `sidebar.textSize` (Lawrence msg 17752): Home and pinned rows stay on one column at every text size.
-        var textSize: SidebarTextSize = .standard
+        var textSize: SidebarTextSize = .medium
         var testDescription: String { "\(density.rawValue)/minimal-\(minimal.rawValue)/\(Int(width))pt/text-\(textSize.rawValue)" }
     }
 
@@ -24,7 +24,7 @@ import Testing
                 [200, 260].map { Case(density: density, minimal: minimal, width: $0, textSize: textSize) }
             }
         }
-    } + [Case(density: .compact, minimal: .off, width: 181, textSize: .larger)]
+    } + [Case(density: .compact, minimal: .off, width: 181, textSize: .large)]
 
     static let home = LayoutItem(id: LayoutItemID("itm_align_home"), ref: .builtIn(.home))
     static let pinned = LayoutItem(id: LayoutItemID("itm_align_pin"), ref: .workspace("local:ws-align-pin"))

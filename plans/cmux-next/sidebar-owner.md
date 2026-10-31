@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-30: Sidebar Text Size is Small | Medium | Large, Medium by default ("default is ChatGPT size. the one that
+  is current is small.. small | medium | large where medium is the larger and larger becomes large"). Small is the
+  list's base tokens, the Codex desktop sidebar of https://github.com/manaflow-ai/cmux/issues/28793 (13 pt titles at
+  weight 430, 12 pt details, 28 pt rows on a 30 pt pitch). Medium is the former Larger, the ChatGPT size (14 pt titles,
+  13 pt details, 29 pt rows on a 31 pt pitch, 14 pt leading glyphs). Large is a step past it (15 pt, 32 pt rows on 34,
+  15 pt glyphs). `SidebarTextSize(setting:)` reads the first setting's "default" and "larger" as Medium. Strings in all
+  21 locales; tour and What's New highlight updated. Regression: `SidebarTextSizeTests`, `SidebarTextSizeSettingTests`,
+  `SidebarCodexTextDefaultsTests`.
 - 2026-10-30: the default sidebar text and rows match the Codex desktop sidebar (issue
   https://github.com/manaflow-ai/cmux/issues/28793: "cmux NEXT's default sidebar text should match the Codex desktop
   app's sidebar"). At compact app density and `sidebar.density` compact, list, pinned, band and tab rows draw 13 pt Inter

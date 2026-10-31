@@ -1,5 +1,5 @@
 {
-  "title": "Sidebar Text Size: Default, Large and Larger (ChatGPT size), light and dark",
+  "title": "Sidebar Text Size: Small (Codex), Medium (default, ChatGPT size) and Large, light and dark",
   "steps": [
     {
       "title": "Launch",
@@ -173,17 +173,27 @@
       "optional": "debug.appearance is DEBUG only"
     },
     {
-      "title": "Light, Default: the original 12 pt titles on 26 pt rows",
+      "title": "Light, Small: the Codex sidebar, 13 pt titles on 30 pt rows",
       "cmux": [
         "settings",
         "set",
         "sidebar.textSize",
-        "default"
+        "small"
       ],
       "wait": 2
     },
     {
-      "title": "Light, Large: 13 pt titles on 29 pt rows",
+      "title": "Light, Medium (default): 14 pt titles on 31 pt rows, the ChatGPT app's size",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.textSize",
+        "medium"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Light, Large: 15 pt titles on 34 pt rows",
       "cmux": [
         "settings",
         "set",
@@ -193,17 +203,7 @@
       "wait": 2
     },
     {
-      "title": "Light, Larger: 14 pt titles on 31 pt rows, the ChatGPT app's size",
-      "cmux": [
-        "settings",
-        "set",
-        "sidebar.textSize",
-        "larger"
-      ],
-      "wait": 2
-    },
-    {
-      "title": "Dark, Larger: 14 pt titles on 31 pt rows",
+      "title": "Dark, Large: 15 pt titles on 34 pt rows",
       "rpc": {
         "method": "debug.appearance",
         "params": {
@@ -214,22 +214,22 @@
       "optional": "debug.appearance is DEBUG only"
     },
     {
-      "title": "Dark, Large: 13 pt titles on 29 pt rows",
+      "title": "Dark, Medium (default): 14 pt titles on 31 pt rows",
       "cmux": [
         "settings",
         "set",
         "sidebar.textSize",
-        "large"
+        "medium"
       ],
       "wait": 2
     },
     {
-      "title": "Dark, Default: the original size",
+      "title": "Dark, Small: the Codex sidebar",
       "cmux": [
         "settings",
         "set",
         "sidebar.textSize",
-        "default"
+        "small"
       ],
       "wait": 2
     },
@@ -246,7 +246,7 @@
       "optional": "debug.appearance is DEBUG only"
     },
     {
-      "title": "Removed: back to Default",
+      "title": "Removed: back to Medium",
       "cmux": [
         "settings",
         "unset",
