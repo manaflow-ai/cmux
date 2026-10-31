@@ -72,7 +72,6 @@ export function commandWaitsForTurn(
   // cmux's own commands (cmuxCommands.ts) share the menu's list; their passthrough forms
   // (`/model opus`, `/plan explain`) keep the send they had.
   return (
-    name !== undefined &&
-    commands.some((command) => command.source !== "cmux" && command.name.toLowerCase() === name)
+    name !== undefined && commands.some((command) => command.source !== "cmux" && command.name.toLowerCase() === name)
   );
 }

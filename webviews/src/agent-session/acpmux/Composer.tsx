@@ -1536,9 +1536,7 @@ export function Composer({
   // One of the agent's own slash commands waits for the turn either way (cliOnlyCommands.ts): it
   // queues, so it shows as waiting behind the turn and runs as its own turn, never as a steer.
   const steers =
-    queues &&
-    snapshot.summary?.steering === true &&
-    !commandWaitsForTurn(text, snapshot.summary?.harness, commands);
+    queues && snapshot.summary?.steering === true && !commandWaitsForTurn(text, snapshot.summary?.harness, commands);
   const returnSteers = steers && (Boolean(text.trim()) || attachments.length > 0);
   // Queueing off (ChatGPT's and Codex's "Turn off queueing", queueing.ts): ⌘Return and Send steer
   // too, so nothing new waits. An agent that cannot steer still runs it after the turn.
