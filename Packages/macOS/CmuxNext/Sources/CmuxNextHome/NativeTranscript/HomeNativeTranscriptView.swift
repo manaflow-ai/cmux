@@ -120,6 +120,10 @@ public final class HomeNativeTranscriptView: NSView {
     /// first-run panel waits, so a Chief conversation with history never
     /// flashes it before its messages arrive (stability rule).
     public var holdsFirstRun = false { didSet { if holdsFirstRun != oldValue { updateFirstRun() } } }
+    /// Chief welcomes the person in the chat itself (`ChiefWelcome`: its typing dots, then its
+    /// messages as iMessage bubbles), so the first-run panel (hero, rows and starter buttons) stays
+    /// hidden on that empty conversation (user, 2026-10-30: reuse the iMessage code).
+    public var welcomesInChat = false { didSet { if welcomesInChat != oldValue { updateFirstRun() } } }
     /// Automation (DEBUG socket): the transcript sits this far from this view's origin, with no size change
     /// (a pane on a fraction of a point; MessagesLab b6760b6's typing snap). Zero in the product.
     public var debugTranscriptOffset = CGPoint.zero { didSet { needsLayout = true } }
@@ -472,7 +476,7 @@ public final class HomeNativeTranscriptView: NSView {
 
     /// The first-run panel shows only in an empty Chief conversation.
     private func updateFirstRun() {
-        firstRun.isHidden = holdsFirstRun || !(transcript.isEmpty && transcript.conversationSummary?.kind(me: me) == .chief)
+        firstRun.isHidden = holdsFirstRun || welcomesInChat || !(transcript.isEmpty && transcript.conversationSummary?.kind(me: me) == .chief)
     }
 
     /// The typing hold gives back what it holds while the views are still in the old window.

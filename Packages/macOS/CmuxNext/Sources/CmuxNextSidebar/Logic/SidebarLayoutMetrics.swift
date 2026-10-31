@@ -121,7 +121,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var showsSoleMachineHeader = false
     /// One workspace list (`sidebar.groupByComputer` off): machine sections
     /// show no header and no gap between them, and a row of a computer other
-    /// than this Mac names it (and a failed connection) on its second line.
+    /// than this Mac names it (and a failed connection) in its machine mark,
+    /// hover card and accessibility label, and an expanded row's meta line.
     public var flattensMachines = false
     /// In one list, the status a computer's rows name after its name when it
     /// cannot connect until the person acts ("Failed to start"; cx-mdo0).
@@ -207,6 +208,9 @@ nonisolated extension SidebarLayoutOptions {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
         content.machine = machines[ws.machineID].map(SidebarMachineMark.init)
+        // Every mode (compact, minimal, workspaces as tabs, expanded), mark drawn or not: VoiceOver says the
+        // computer and its status when it cannot connect, as no line does (review of #28510 at 58ee6d24).
+        content.machineLabel = machine.flatMap { $0.isEmpty ? nil : $0 }
         if let sessionTree { content.keycap = keycaps[ws.id] }
         // Leo 2026-10-21, "REMOVE PR INDICATORS BY DEFAULT": every pull request mark on a row (the
         // hook's text and the read badge, tree or not) follows `sidebar.workspaceRow.pullRequest`,

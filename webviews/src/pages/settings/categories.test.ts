@@ -39,6 +39,8 @@ test("the categories are the approved ones, in order", () => {
     "browser",
     "import",
     "keyboard",
+    // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it).
+    "menus",
     "privacy",
     "accounts",
     "mobile",

@@ -150,6 +150,6 @@ final class ViewerService {
     /// A refusal after the action returned (the picker answered later).
     func showRefusal(_ reason: String) {
         guard let services else { return }
-        services.refusalHUD.show(reason, in: services.windows.active?.window ?? NSApp.keyWindow)
+        services.refusalHUD.show(reason, in: services.windows.active?.window ?? services.keyWindowSource())
     }
 }
