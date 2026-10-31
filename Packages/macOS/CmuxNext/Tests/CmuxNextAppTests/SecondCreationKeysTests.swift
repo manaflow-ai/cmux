@@ -82,6 +82,28 @@ struct SecondCreationKeysTests {
         }
     }
 
+    /// A key-down of `window`: `characters` with `flags`, physical key `keyCode`.
+    private static func press(_ characters: String, _ flags: NSEvent.ModifierFlags, keyCode: UInt16, ignoring: String? = nil,
+                              in p: Panes) throws -> Bool {
+        let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
+                                                  timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: p.window.windowNumber,
+                                                  context: nil, characters: characters, charactersIgnoringModifiers: ignoring ?? characters,
+                                                  isARepeat: false, keyCode: keyCode))
+        let held = p.services.keyRouter.interceptKeyDown(event, in: p.window)
+        if !held { p.window.sendEvent(event) }
+        return held
+    }
+
+    /// Starts a reader in the focused terminal: it prints `R42x<nonce>` when it waits, then the hex of the next 4 bytes
+    /// the terminal sends it, as `K42x<nonce><hex>K`.
+    private static func startByteReader(nonce: String, on surface: SurfaceID, in p: Panes) async throws {
+        let command = "stty raw -echo; echo R$((6*7))x\(nonce); b=$(head -c 4 | od -An -tx1 | tr -d ' \\n'); stty sane; echo K$((6*7))x\(nonce)${b}K\r"
+        _ = try Self.type(command, in: p)
+        let started = try await Self.ran("R42x\(nonce)", on: surface, in: p)
+        let screen = await Self.screen(surface, in: p)
+        try #require(started, "the byte reader did not start: \(screen.suffix(300))")
+    }
+
     private static func ran(_ marker: String, on surface: SurfaceID, in p: Panes) async throws -> Bool {
         let screen = try await p.connection.request(WaitForTextRequest(surface: surface, pattern: marker, timeoutMs: 20_000), timeout: .seconds(25))
         return screen.matched == true
@@ -117,7 +139,8 @@ struct SecondCreationKeysTests {
             coordinator.resolve(secondCreation, landed: true, in: p.window)
             let inSecond = try await Self.ran("d2x\(nonce)x42", on: p.second.surface, in: p)
             let first = await Self.screen(p.first.surface, in: p)
-            #expect(inSecond, "the line typed for the second terminal did not run there: \(await Self.screen(p.second.surface, in: p).suffix(300))")
+            let second = await Self.screen(p.second.surface, in: p)
+            #expect(inSecond, "the line typed for the second terminal did not run there: \(second.suffix(300))")
             #expect(!first.contains("d2x\(nonce)"), "the line typed for the second terminal reached the first one: \(first.suffix(300))")
         }
     }
@@ -152,9 +175,47 @@ struct SecondCreationKeysTests {
             let inFirst = try await Self.ran("d1x\(nonce)x42", on: p.first.surface, in: p)
             let inSecond = try await Self.ran("d2x\(nonce)x42", on: p.second.surface, in: p)
             let second = await Self.screen(p.second.surface, in: p)
-            #expect(inFirst, "the line held for the first terminal did not run there: \(await Self.screen(p.first.surface, in: p).suffix(300))")
+            let first = await Self.screen(p.first.surface, in: p)
+            #expect(inFirst, "the line held for the first terminal did not run there: \(first.suffix(300))")
             #expect(inSecond, "the line typed into the second terminal did not run there: \(second.suffix(300))")
             #expect(!second.contains("d1x\(nonce)"), "the line held for the first terminal reached the second one: \(second.suffix(300))")
+        }
+    }
+
+    /// Not only text: a held Ctrl-C and arrow key for the first creation reach the first terminal, encoded by its own
+    /// surface (0x03, then its cursor-up sequence), when the second terminal has the keyboard; never the second terminal,
+    /// where a Ctrl-C would stop another process.
+    @Test func heldControlAndArrowKeysReachOnlyTheirOwnTerminal() async throws {
+        try await Self.withTwoTerminals { p in
+            let coordinator = p.services.keyRouter.creationInputCoordinator
+            coordinator.holdLimit = .milliseconds(300)
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            try await Self.focus(p.second.pane, tab: p.second.tab, in: p)
+            try await Self.startByteReader(nonce: nonce, on: p.second.surface, in: p)
+            try await Self.focus(p.first.pane, tab: p.first.tab, in: p)
+            try await Self.startByteReader(nonce: nonce, on: p.first.surface, in: p)
+
+            // The first creation's focus is on its way and its view does not have the keyboard: the keys wait for it.
+            let firstGeneration = p.content.beginFocusIntent()
+            p.content.focus.expect(.tab(p.first.tab), awayFrom: p.first.pane.paneKey, generation: firstGeneration)
+            let firstCreation = try #require(coordinator.begin(in: p.window, generation: firstGeneration, earlyTab: p.first.tab, tab: p.first.tab))
+            p.window.makeFirstResponder(nil)
+            let controlC = try Self.press("\u{3}", [.control], keyCode: 8, ignoring: "c", in: p)
+            let up = try Self.press("\u{F700}", [.function, .numericPad], keyCode: 126, in: p)
+            try #require(controlC && up, "the test needs Ctrl-C and Up held for the first creation: \(controlC), \(up)")
+
+            // The second creation's terminal gets the keyboard first; then both creations reply.
+            let secondCreation = try #require(coordinator.begin(in: p.window, generation: p.content.beginFocusIntent(),
+                                                                earlyTab: p.second.tab, tab: p.second.tab))
+            try await Self.focus(p.second.pane, tab: p.second.tab, in: p)
+            coordinator.resolve(firstCreation, landed: true, in: p.window)
+            coordinator.resolve(secondCreation, landed: true, in: p.window)
+
+            let inFirst = try await Self.ran("K42x\(nonce)03(1b5b41|1b4f41)K", on: p.first.surface, in: p)
+            let second = await Self.screen(p.second.surface, in: p)
+            let first = await Self.screen(p.first.surface, in: p)
+            #expect(inFirst, "Ctrl-C and Up held for the first terminal did not reach it as 03 and cursor-up: \(first.suffix(300))")
+            #expect(!second.contains("K42x\(nonce)"), "a key held for the first terminal reached the second one: \(second.suffix(300))")
         }
     }
 }
