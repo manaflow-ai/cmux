@@ -227,6 +227,7 @@ final class CloudMoveAsks {
 
     private static func scope(_ services: AppServices) -> CloudMoveAlwaysGrants.Scope? {
         let auth = services.cloud.auth
+        guard auth.isSignedIn else { return nil }
         return CloudMoveAlwaysGrants.Scope(userID: auth.user?.id, teamID: auth.teamID,
                                           cloudOrigin: auth.configuration.apiBaseURL.absoluteString)
     }
