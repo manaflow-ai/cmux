@@ -2223,19 +2223,123 @@ class LostJobDetectionTests(unittest.TestCase):
         # Still queued is no evidence.
         self.assertEqual(janitor.skipped_by_pool(job, since, [unassigned_job(age=35)]), 0)
 
-    def test_wait_starts_when_the_runs_last_other_job_finished(self):
-        # A job record can exist before its needs finished; the wait starts when it could run.
+    def test_wait_starts_when_the_last_job_it_may_need_finished(self):
+        # A sibling created before the job may be one of its needs; the wait starts when it could run.
         job = unassigned_job(age=60)
-        gate = started_job(age=60, status="completed", label=LINUX)
+        gate = started_job(age=61, status="completed", label=LINUX)
         gate["completed_at"] = iso(20)
         self.assertEqual(janitor.lost_wait_start(job, [job, gate]), janitor.parse_time(iso(20)))
         self.assertEqual(janitor.lost_wait_start(job, [job]), janitor.parse_time(iso(60)))
+        # A sibling with no created_at may be a need too.
+        undated = dict(gate, created_at=None)
+        self.assertEqual(janitor.lost_wait_start(job, [job, undated]), janitor.parse_time(iso(20)))
+        # GitHub creates a job only once its needs finished: a sibling created with it or later is no need.
+        for age in (60, 50):
+            with self.subTest(sibling_created_minutes_ago=age):
+                sibling = started_job(age=age, status="completed", label=LINUX)
+                sibling["completed_at"] = iso(20)
+                self.assertFalse(janitor.may_need(job, sibling))
+                self.assertEqual(janitor.lost_wait_start(job, [job, sibling]), janitor.parse_time(iso(60)))
 
     def test_a_gated_job_is_not_lost_before_it_could_run_for_thirty_minutes(self):
-        gate = started_job(age=60, status="completed", label=LINUX)
+        gate = started_job(age=61, status="completed", label=LINUX)
         gate["completed_at"] = iso(20)
         stuck, other, jobs = lost_world(age=60, evidence_age=15, siblings=[gate])
         self.assertEqual(janitor.find_lost([stuck, other], jobs, now=NOW), {})
+
+
+class LostAssignmentBesideLaterSiblingsTests(unittest.TestCase):
+    """Run 41158893861 (PR #28749, CI, 2026-10-31): the lost job sat beside siblings created after it.
+
+    `GhosttyKit release check` (job 124413283263, labels blacksmith-4vcpu-ubuntu-2404, needs `changes`) was
+    created at 02:18:12Z with runner_id 0 and sat queued until 02:59:09Z. From 02:48:12Z it had waited 30
+    minutes while a newer job on exactly its label had started, but the sweep left the run alone: the
+    `web / react-*` jobs, created at 02:30Z and 02:43Z, were still running (_gated()), and the completions of
+    jobs created with it or later (`web / runners` at 02:43:49Z) kept moving its wait start (lost_wait_start()).
+    """
+
+    LABEL = "blacksmith-4vcpu-ubuntu-2404"
+    SHA = "7f1a501dcb390a02ca61e8485c445bd1dcc45a8a"
+    NOW = dt.datetime(2026, 10, 31, 2, 48, 30, tzinfo=dt.timezone.utc)
+
+    def job(self, name, created, *, started=None, completed=None, conclusion=None, runner=None, label=None,
+            skipped=False):
+        if skipped:
+            return {"name": name, "labels": [], "status": "completed", "conclusion": "skipped",
+                    "created_at": created, "started_at": created, "completed_at": created, "runner_id": 0,
+                    "runner_name": None}
+        status = "completed" if completed else ("in_progress" if runner else "queued")
+        return {"name": name, "labels": [label or self.LABEL], "status": status, "conclusion": conclusion,
+                "created_at": created, "started_at": started or created, "completed_at": completed,
+                "runner_id": runner or 0, "runner_name": f"blacksmith-{runner}" if runner else None}
+
+    def world(self):
+        run = {"id": 41158893861, "event": "pull_request", "status": "queued", "run_attempt": 1,
+               "head_branch": "lane/orch-lane-report-ui", "head_sha": self.SHA, "path": ".github/workflows/ci.yml",
+               "name": "CI", "created_at": "2026-10-31T02:12:01Z", "triggering_actor": {"login": "teamleaderleo"},
+               "head_repository": {"full_name": "manaflow-ai/cmux", "owner": {"login": "manaflow-ai"}},
+               "pull_requests": [{"number": 28749}]}
+        sixteen = "blacksmith-16vcpu-ubuntu-2404"
+        jobs = [
+            self.job("changes", "2026-10-31T02:12:01Z", started="2026-10-31T02:18:00Z",
+                     completed="2026-10-31T02:18:12Z", conclusion="success", runner=1),
+            self.job("Fast static checks", "2026-10-31T02:12:02Z", skipped=True),
+            self.job("CI fast guards", "2026-10-31T02:12:02Z", skipped=True),
+            self.job("GhosttyKit release check", "2026-10-31T02:18:12Z"),
+            self.job("web / web-subarea-scope", "2026-10-31T02:18:12Z", started="2026-10-31T02:29:57Z",
+                     completed="2026-10-31T02:30:24Z", conclusion="success", runner=2),
+            self.job("web / runners / Resolve runner capabilities", "2026-10-31T02:18:12Z",
+                     started="2026-10-31T02:43:45Z", completed="2026-10-31T02:43:49Z", conclusion="success",
+                     runner=3),
+            *(self.job(name, "2026-10-31T02:18:12Z", skipped=True)
+              for name in ("macos", "guards", "Dogfood build", "remote-daemon", "browser")),
+            self.job("web / react-apps-check (1)", "2026-10-31T02:30:24Z", started="2026-10-31T02:30:27Z",
+                     runner=4, label=sixteen),
+            self.job("web / react-apps-check (2)", "2026-10-31T02:30:24Z", started="2026-10-31T02:30:37Z",
+                     completed="2026-10-31T02:43:21Z", conclusion="success", runner=5, label=sixteen),
+            self.job("web / react-apps-check (3)", "2026-10-31T02:30:24Z", started="2026-10-31T02:30:27Z",
+                     completed="2026-10-31T02:42:57Z", conclusion="success", runner=6, label=sixteen),
+            self.job("web / react-apps-check (4)", "2026-10-31T02:30:24Z", started="2026-10-31T02:30:27Z",
+                     runner=7, label=sixteen),
+            self.job("web / react-doctor", "2026-10-31T02:43:49Z", started="2026-10-31T02:43:51Z", runner=8,
+                     label=sixteen),
+        ]
+        # Another pull request's CI: a job on exactly the lost job's label, created after it, that started.
+        other = make_run(event="pull_request", branch="another-pr", sha="ccc", path=".github/workflows/ci.yml",
+                         name="CI")
+        served = [self.job("changes", "2026-10-31T02:27:00Z", started="2026-10-31T02:42:40Z", runner=9)]
+        return run, other, {run["id"]: jobs, other["id"]: served}
+
+    def test_the_ghosttykit_release_check_is_lost_at_02_48(self):
+        run, other, jobs = self.world()
+        stuck = jobs[run["id"]][3]
+        # Its wait began when it was created: no job it may need finished later.
+        self.assertEqual(janitor.lost_wait_start(stuck, jobs[run["id"]]), janitor.parse_time("2026-10-31T02:18:12Z"))
+        lost = janitor.find_lost([run, other], jobs, now=self.NOW)
+        self.assertEqual(lost[run["id"]].job_name, "GhosttyKit release check")
+        self.assertEqual(lost[run["id"]].labels, self.LABEL)
+        # `web / runners`, created the same second and started at 02:43:45Z, is not newer; the other run's is.
+        self.assertEqual(lost[run["id"]].skipped, 1)
+        # Thirty minutes after 02:18:12Z, not before.
+        self.assertEqual(janitor.find_lost([run, other], jobs, now=self.NOW - dt.timedelta(minutes=1)), {})
+
+    def test_the_sweep_fails_it_over_at_the_open_pull_request_head(self):
+        run, other, jobs = self.world()
+        pr = make_pr(28749, head=self.SHA)
+        result = janitor.build_plan([run, other], jobs, {run["head_branch"]: [pr], "another-pr": []},
+                                    threshold=6, max_cancels=10, pull_request_policy="compile-only", now=self.NOW,
+                                    rerun_state=True, cmux_bot_rerun=True)
+        decision = decision_for(result, run)
+        self.assertEqual((decision.action, decision.candidate.category), ("cancel", "lost"))
+        self.assertTrue(decision.candidate.rerun)
+        self.assertIn("PR #28749", decision.candidate.reason)
+
+    def test_a_running_sibling_created_before_it_still_gates_it(self):
+        # A job created before the lost one may be what it waits on, so the run is still left alone.
+        run, other, jobs = self.world()
+        jobs[run["id"]].append(self.job("web / earlier gate", "2026-10-31T02:15:00Z",
+                                        started="2026-10-31T02:15:05Z", runner=10))
+        self.assertEqual(janitor.find_lost([run, other], jobs, now=self.NOW), {})
 
 
 class LostAssignmentPlanTests(unittest.TestCase):
