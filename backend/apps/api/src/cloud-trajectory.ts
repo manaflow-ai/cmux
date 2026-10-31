@@ -43,7 +43,7 @@ type Store = {
   appendNative(session: string, generation: number, label: string, path: string, offset: number, data: Uint8Array): Promise<TrajectoryResult<{ size: number }>>
   list(afterSession: string | null): Promise<TrajectoryListPage>
   read(session: string, afterSeq: number, limit: number): Promise<TrajectoryResult<unknown>>
-  readNative(session: string, label: string, path: string, offset: number): Promise<TrajectoryResult<{ size: number; data: Uint8Array }>>
+  readNative(session: string, label: string, path: string, offset: number): Promise<TrajectoryResult<{ generation: number; size: number; data: Uint8Array }>>
 }
 
 const NO_STORE = { "cache-control": "no-store" }
@@ -178,7 +178,7 @@ export const handleCloudTrajectory = async (request: Request, env: Env, machine:
     case "native-read": {
       const { label, path, offset } = body
       if (!isCount(offset) || !isNativePath(label, path)) return answer(400, "validation.invalid", "invalid native file read")
-      return reply(await store.readNative(session, label as string, path, offset), (v) => ({ size: v.size, data: toBase64(v.data) }))
+      return reply(await store.readNative(session, label as string, path, offset), (v) => ({ generation: v.generation, size: v.size, data: toBase64(v.data) }))
     }
   }
 }

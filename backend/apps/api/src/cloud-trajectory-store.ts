@@ -221,22 +221,26 @@ export class TrajectoryStore {
    * after following every cursor.
    */
   list(afterSession: string | null = null): TrajectoryListPage {
-    const rows = this.sql.exec<Record<string, SqlStorageValue>>(
+    const cursor = this.sql.exec<Record<string, SqlStorageValue>>(
       `SELECT * FROM traj_session WHERE session > ? ORDER BY session ASC LIMIT ?`,
       afterSession ?? "", LIST_MAX_SESSIONS + 1
-    ).toArray() as unknown as Array<SessionRow>
+    )
     // Each session record may be up to RECORD_MAX_BYTES, so 500 of them could exceed the Durable
     // Object reply limit; cut the page at a byte budget too. The cursor makes a short page safe.
-    let take = 0
+    const rows: Array<SessionRow> = []
     let bytes = 0
-    while (take < Math.min(rows.length, LIST_MAX_SESSIONS)) {
-      const size = bytesOf(rows[take]!.meta)
-      if (take > 0 && bytes + size > LIST_MAX_BYTES) break
+    let hasMore = false
+    for (const value of cursor) {
+      const row = value as unknown as SessionRow
+      const size = bytesOf(row.meta)
+      if (rows.length === LIST_MAX_SESSIONS || (rows.length > 0 && bytes + size > LIST_MAX_BYTES)) {
+        hasMore = true
+        break
+      }
       bytes += size
-      take++
+      rows.push(row)
     }
-    const hasMore = rows.length > take
-    const sessions = rows.slice(0, take).map((r) => ({
+    const sessions = rows.map((r) => ({
       session: r.session,
       generation: Number(r.generation),
       last_seq: Number(r.last_seq),
@@ -266,14 +270,17 @@ export class TrajectoryStore {
   }
 
   /** The kept chunk of a native file that starts at `offset`, and the file's size. */
-  readNative(session: string, label: string, path: string, offset: number): TrajectoryResult<{ size: number; data: Uint8Array }> {
+  readNative(session: string, label: string, path: string, offset: number): TrajectoryResult<{ generation: number; size: number; data: Uint8Array }> {
+    const row = this.row(session)
+    if (!row) return { ok: false, refusal: { code: "cloud.trajectory.not_found" } }
+    const generation = Number(row.generation)
     const kept = this.sql.exec<{ size: number }>(`SELECT size FROM traj_native WHERE session = ? AND label = ? AND path = ?`, session, label, path).toArray()[0]
     if (!kept) return { ok: false, refusal: { code: "cloud.trajectory.not_found" } }
     const size = Number(kept.size)
-    if (offset >= size) return { ok: true, value: { size, data: new Uint8Array(0) } }
+    if (offset >= size) return { ok: true, value: { generation, size, data: new Uint8Array(0) } }
     const chunk = this.sql.exec<{ data: ArrayBuffer }>(`SELECT data FROM traj_native_chunk WHERE session = ? AND label = ? AND path = ? AND offset = ?`, session, label, path, offset).toArray()[0]
     if (!chunk) return { ok: false, refusal: { code: "cloud.trajectory.offset", size } }
-    return { ok: true, value: { size, data: new Uint8Array(chunk.data) } }
+    return { ok: true, value: { generation, size, data: new Uint8Array(chunk.data) } }
   }
 }
 

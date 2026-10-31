@@ -206,15 +206,18 @@ fn list(api: &mut dyn Api, body: &Value) -> Result<Vec<Remote>, Pass> {
     let mut cursor: Option<String> = None;
     for _ in 0..LIST_MAX_PAGES {
         let mut request = body.clone();
+        let Some(fields) = request.as_object_mut() else {
+            return Err(Pass::Failed("trajectory list request is not an object".to_owned()));
+        };
         // Version gate: a pre-pagination guest should receive an explicit refusal if the
         // backend has more than 500 chats, rather than silently importing a truncated list.
-        request["page_protocol"] = json!(2);
+        fields.insert("page_protocol".to_owned(), json!(2));
         if let Some(after) = cursor.as_deref() {
-            request["after_session"] = json!(after);
+            fields.insert("after_session".to_owned(), json!(after));
         }
         match reply(api.call("list", &request)) {
             Reply::Ok(v) => {
-                let Some(raw) = v["sessions"].as_array() else {
+                let Some(raw) = v.field("sessions").as_array() else {
                     return Err(Pass::Failed("trajectory list omitted sessions".to_owned()));
                 };
                 if raw.len() > LIST_PAGE_MAX {
@@ -224,12 +227,13 @@ fn list(api: &mut dyn Api, body: &Value) -> Result<Vec<Remote>, Pass> {
                 // An older backend sorts by update time rather than session id. Accept that
                 // ordering only when its whole list fits a single reply; new cursor pages must
                 // be strictly increasing, including the first one.
-                let paginated = v["has_more"].as_bool().is_some();
+                let paginated = v.field("has_more").as_bool().is_some();
                 if page.len() != raw.len()
                     || (paginated
                         && page
-                            .windows(2)
-                            .any(|rows| rows[0].session.as_str() >= rows[1].session.as_str()))
+                            .iter()
+                            .zip(page.iter().skip(1))
+                            .any(|(left, right)| left.session >= right.session))
                     || cursor.as_deref().is_some_and(|after| {
                         page.first().is_some_and(|row| row.session.as_str() <= after)
                     })
@@ -238,7 +242,7 @@ fn list(api: &mut dyn Api, body: &Value) -> Result<Vec<Remote>, Pass> {
                         "trajectory list contains invalid or unordered sessions".to_owned(),
                     ));
                 }
-                let has_more = match v["has_more"].as_bool() {
+                let has_more = match v.field("has_more").as_bool() {
                     Some(value) => value,
                     None if raw.len() < LIST_PAGE_MAX => false, // Older backend, entire list fits.
                     None => {
@@ -248,7 +252,7 @@ fn list(api: &mut dyn Api, body: &Value) -> Result<Vec<Remote>, Pass> {
                     }
                 };
                 let next = if has_more {
-                    let Some(next) = v["next_after_session"].as_str() else {
+                    let Some(next) = v.field("next_after_session").as_str() else {
                         return Err(Pass::Failed("trajectory list has no next cursor".to_owned()));
                     };
                     if page.last().is_none_or(|row| row.session.as_str() != next)
@@ -392,7 +396,7 @@ impl Mirror {
             let stage = self.layout.staging.join(&remote.session);
             let _ = fs::remove_dir_all(&stage);
             let result = stage_bundle(api, &remote, &stage)
-                .and_then(|()| importer.import(&stage, &remote.meta));
+                .and_then(|()| importer.import(&stage, &remote.meta).map_err(RestoreError::Failed));
             let _ = fs::remove_dir_all(&stage);
             match result {
                 Ok(()) => {
@@ -402,14 +406,23 @@ impl Mirror {
                         remote.session, remote.last_seq
                     ));
                 }
-                Err(e) if tries + 1 < RESTORE_TRIES => {
+                Err(RestoreError::GenerationChanged) => {
+                    // The source recreated this id after listing. Discard the partial bundle
+                    // and fetch fresh metadata and native-file sizes before another attempt.
+                    self.reset_parent();
+                    (self.log)(&format!(
+                        "trajectory {}: source generation changed; listing again",
+                        remote.session
+                    ));
+                }
+                Err(RestoreError::Failed(e)) if tries + 1 < RESTORE_TRIES => {
                     (self.log)(&format!(
                         "trajectory {}: restore failed, will retry: {e}",
                         remote.session
                     ));
                     self.pending.push((remote, tries + 1));
                 }
-                Err(e) => {
+                Err(RestoreError::Failed(e)) => {
                     (self.log)(&format!("trajectory {}: restore failed: {e}", remote.session));
                 }
             }
@@ -624,8 +637,33 @@ impl Mirror {
     }
 }
 
-/// Writes one of the restore source's chats as an acpmux bundle at `stage`.
-fn stage_bundle(api: &mut dyn Api, remote: &Remote, stage: &Path) -> Result<(), String> {
+enum RestoreError {
+    GenerationChanged,
+    Failed(String),
+}
+
+impl From<String> for RestoreError {
+    fn from(error: String) -> Self {
+        Self::Failed(error)
+    }
+}
+
+impl From<&str> for RestoreError {
+    fn from(error: &str) -> Self {
+        Self::Failed(error.to_owned())
+    }
+}
+
+fn restore_generation(value: &Value, generation: u64) -> Result<(), RestoreError> {
+    match value.field("generation").as_u64() {
+        Some(kept) if kept == generation => Ok(()),
+        Some(_) => Err(RestoreError::GenerationChanged),
+        None => Err(RestoreError::Failed("trajectory read omitted its generation".to_owned())),
+    }
+}
+
+/// Writes one source generation as an acpmux bundle at `stage`.
+fn stage_bundle(api: &mut dyn Api, remote: &Remote, stage: &Path) -> Result<(), RestoreError> {
     let err = |e: io::Error| e.to_string();
     let failed = |r: Reply| match r {
         Reply::Ok(_) => String::new(),
@@ -642,13 +680,14 @@ fn stage_bundle(api: &mut dyn Api, remote: &Remote, stage: &Path) -> Result<(), 
         let body = json!({ "session": remote.session, "after_seq": after, "limit": 2000, "from": "parent" });
         let page = match reply(api.call("read", &body)) {
             Reply::Ok(v) => v,
-            other => return Err(failed(other)),
+            other => return Err(failed(other).into()),
         };
+        restore_generation(&page, remote.generation)?;
         for line in page.field("lines").as_array().into_iter().flatten() {
             let line = line.as_str().ok_or("a kept record is not text")?;
             let seq = line_seq(line).ok_or("a kept record has no seq")?;
             if seq != after + 1 {
-                return Err(format!("kept records jump from {after} to {seq}"));
+                return Err(format!("kept records jump from {after} to {seq}").into());
             }
             events.write_all(line.as_bytes()).map_err(err)?;
             events.write_all(b"\n").map_err(err)?;
@@ -660,7 +699,7 @@ fn stage_bundle(api: &mut dyn Api, remote: &Remote, stage: &Path) -> Result<(), 
     }
     events.flush().map_err(err)?;
     if after < remote.last_seq {
-        return Err(format!("read {after} of {} records", remote.last_seq));
+        return Err(format!("read {after} of {} records", remote.last_seq).into());
     }
     for (label, path, size) in &remote.native {
         if !native_path(label, path) {
@@ -671,12 +710,13 @@ fn stage_bundle(api: &mut dyn Api, remote: &Remote, stage: &Path) -> Result<(), 
             let body = json!({ "session": remote.session, "label": label, "path": path, "offset": bytes.len(), "from": "parent" });
             let chunk = match reply(api.call("native-read", &body)) {
                 Reply::Ok(v) => v,
-                other => return Err(failed(other)),
+                other => return Err(failed(other).into()),
             };
+            restore_generation(&chunk, remote.generation)?;
             let data = decode_base64(chunk.field("data").as_str().unwrap_or(""))
                 .ok_or("a kept file chunk is not base64")?;
             if data.is_empty() {
-                return Err(format!("{path}: kept file ends early"));
+                return Err(format!("{path}: kept file ends early").into());
             }
             bytes.extend_from_slice(&data);
         }
