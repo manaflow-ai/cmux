@@ -116,7 +116,10 @@ import Testing
             }
             #expect(head.minX >= 0, "\(layout): the bar runs off the list at \(head.minX)")
             let cut = line.minY - head.maxY
-            #expect(cut == (layout == .joined ? 0 : SidebarStyle.groupLineCut), "\(layout): a \(cut) pt cut")
+            // The cut is at most the gap down to the first member: the line never starts part way down a row.
+            let first = try #require(list.rowViews[.workspace(Self.members[0])])
+            let gap = max(0, first.frame.minY - head.maxY)
+            #expect(cut == (layout == .joined ? 0 : min(SidebarStyle.groupLineCut, gap)), "\(layout): a \(cut) pt cut, rows \(gap) pt apart")
             let last = try #require(list.rowViews[.workspace(Self.members[2])])
             #expect(line.maxY == last.frame.maxY, "\(layout): the line ends at \(line.maxY), the last member at \(last.frame.maxY)")
 
@@ -183,7 +186,9 @@ import Testing
             sidebar.renderNow() // what the sidebar's observation runs on the change
             let bar = try #require(sidebar.list.rowViews[.group(Self.group)]).frame
             let cut = try #require(sidebar.list.groupLineViews.shown[Self.group]?.frame)
-            #expect(cut.minY == bar.maxY + SidebarStyle.groupLineCut, "line style: the joined line still starts at \(cut.minY), the header ends at \(bar.maxY)")
+            let first = try #require(sidebar.list.rowViews[.workspace(Self.members[0])]).frame
+            #expect(cut.minY == min(bar.maxY + SidebarStyle.groupLineCut, max(bar.maxY, first.minY)),
+                    "line style: the joined line still starts at \(cut.minY), the header ends at \(bar.maxY)")
         }
     }
 
