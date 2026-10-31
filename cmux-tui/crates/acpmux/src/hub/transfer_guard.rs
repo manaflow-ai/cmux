@@ -340,6 +340,7 @@ impl Hub {
         meta.harness_roots.clear();
         meta.harness_argv.clear();
         meta.spawn_argv = None;
+        meta.launch_digest = None;
         meta.tags.clear();
         meta.remote_origin = true;
         if let Some(sid) = meta.agent_session_id.as_deref()

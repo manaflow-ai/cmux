@@ -695,12 +695,17 @@ impl Hub {
         // disk before the agent starts: a daemon that dies while it starts leaves a host the next
         // one judges by this argv (review 44 of #23322). Not left to the folder check's save, which
         // a slow git read skips.
+        // So is the digest of the profile it starts from (`profile_respawn.rs`): an agent host
+        // the next daemon adopts is judged by it, and this start settles a respawn that waited.
         let argv_changed = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            let changed = m.spawn_argv.as_ref() != Some(&profile.argv);
+            let changed = m.spawn_argv.as_ref() != Some(&profile.argv)
+                || m.launch_digest.as_ref() != Some(&profile.launch_digest);
             m.spawn_argv = Some(profile.argv.clone());
+            m.launch_digest = Some(profile.launch_digest.clone());
             changed
         };
+        self.settle_profile_respawn(session);
         if argv_changed {
             self.save_meta(session);
         }

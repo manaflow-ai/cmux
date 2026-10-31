@@ -1978,6 +1978,8 @@ impl Hub {
         }
         session.detaching.store(false, Ordering::SeqCst);
         drop(slot);
+        // Its next start runs the profile as it is now (`profile_respawn.rs`).
+        self.settle_profile_respawn(session);
         *session.turn.lock().unwrap() = None;
         if session.status() != SessionStatus::Closed {
             self.set_status(session, SessionStatus::Idle);
