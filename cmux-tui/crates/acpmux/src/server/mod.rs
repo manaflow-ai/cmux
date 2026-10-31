@@ -2121,6 +2121,10 @@ mod acp_list_tests;
 mod session_list_pages_tests;
 
 #[cfg(test)]
+#[path = "watch_delta_link_tests.rs"]
+mod watch_delta_link_tests;
+
+#[cfg(test)]
 #[path = "compressed_link_tests.rs"]
 mod compressed_link_tests;
 
