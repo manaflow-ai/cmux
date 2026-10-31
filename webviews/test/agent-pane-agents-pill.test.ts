@@ -2,8 +2,8 @@
 // Running subagents sit in one tray above the composer (subagents/SubagentTray.tsx): the transcript
 // has no running card and there is no second pill. A subagent that ends leaves one line where it
 // ended. This page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in
-// acpmux daemon that can push live events. The skipped cases below document the removed pill's old
-// interaction contract; current running-tray coverage owns those interactions.
+// acpmux daemon that can push live events. Current running-tray coverage owns the tray interactions;
+// this fixture only checks that the removed pill is absent.
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
