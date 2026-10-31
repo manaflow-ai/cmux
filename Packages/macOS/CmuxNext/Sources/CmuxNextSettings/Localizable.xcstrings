@@ -3669,6 +3669,270 @@
         }
       }
     },
+    "settings.browser.importCookieBanner": {
+      "comment": "Settings > Browser > Import: toggle for the Import Cookies banner in browser tabs.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offer to Import Cookies"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض استيراد ملفات تعريف الارتباط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponudi uvoz kolačića"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilbyd at importere cookies"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookie-Import anbieten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ofrecer importar cookies"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proposer d’importer les cookies"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proponi di importare i cookie"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookie の読み込みを提案"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ដល់ជូនការនាំចូលខូគី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "쿠키 가져오기 제안"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilby å importere informasjonskapsler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proponuj import plików cookie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oferecer importação de cookies"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предлагать импорт файлов cookie"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เสนอให้นำเข้าคุกกี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çerezleri İçe Aktarmayı Öner"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропонувати імпорт файлів cookie"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đề xuất nhập cookie"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示导入 Cookie"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示匯入 Cookie"
+          }
+        }
+      }
+    },
+    "settings.browser.importCookieBanner.help": {
+      "comment": "Settings > Browser > Import: help under Offer to Import Cookies.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعرض علامات تبويب المتصفح استيراد ملفات تعريف الارتباط من متصفحاتك الأخرى لتبقى مسجّل الدخول. لا يُستورد شيء حتى تنقر على استيراد. يؤدي «عدم الإظهار مرة أخرى» في الشريط إلى إيقاف هذا الخيار."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartice preglednika nude uvoz kolačića iz vaših drugih preglednika, kako biste ostali prijavljeni. Ništa se ne uvozi dok ne kliknete Uvezi. Ne prikazuj ponovo na traci isključuje ovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browserfaner tilbyder at importere cookies fra dine andre browsere, så du forbliver logget ind. Intet importeres, før du klikker på Importér. Vis ikke igen på banneret slår dette fra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser-Tabs bieten an, Cookies aus deinen anderen Browsern zu importieren, damit du angemeldet bleibst. Nichts wird importiert, bis du auf Importieren klickst. „Nicht mehr anzeigen“ im Banner schaltet dies aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las pestañas del navegador ofrecen importar cookies de tus otros navegadores para que mantengas la sesión iniciada. No se importa nada hasta que haces clic en Importar. «No volver a mostrar» en el aviso lo desactiva."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les onglets du navigateur proposent d’importer les cookies de vos autres navigateurs pour que vous restiez connecté. Rien n’est importé avant que vous cliquiez sur Importer. « Ne plus afficher » sur la bannière désactive cette option."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le schede del browser propongono di importare i cookie dagli altri browser, così resti connesso. Nulla viene importato finché non fai clic su Importa. «Non mostrare più» sul banner disattiva questa opzione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザタブで、他のブラウザから Cookie を読み込むよう提案し、サインインしたままにします。「読み込む」をクリックするまで何も読み込みません。バナーの「今後表示しない」でオフになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងកម្មវិធីរុករកផ្ដល់ជូនការនាំចូលខូគីពីកម្មវិធីរុករកផ្សេងទៀតរបស់អ្នក ដើម្បីឱ្យអ្នកបន្តចូលគណនី។ គ្មានអ្វីត្រូវបាននាំចូលទេ រហូតដល់អ្នកចុច នាំចូល។ «កុំបង្ហាញម្ដងទៀត» នៅលើបដាបិទមុខងារនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 탭에서 다른 브라우저의 쿠키를 가져오도록 제안하여 로그인 상태를 유지합니다. 가져오기를 클릭하기 전에는 아무것도 가져오지 않습니다. 배너의 '다시 표시하지 않음'을 누르면 꺼집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nettleserfaner tilbyr å importere informasjonskapsler fra de andre nettleserne dine, så du forblir logget på. Ingenting importeres før du klikker på Importer. Ikke vis igjen på banneret slår dette av."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karty przeglądarki proponują import plików cookie z innych przeglądarek, aby pozostać zalogowanym. Nic nie jest importowane, dopóki nie klikniesz Importuj. „Nie pokazuj ponownie” na banerze wyłącza tę opcję."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As abas do navegador oferecem importar cookies dos seus outros navegadores para você continuar conectado. Nada é importado até você clicar em Importar. \"Não mostrar novamente\" no banner desativa isto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки браузера предлагают импортировать файлы cookie из других браузеров, чтобы вы оставались в учётных записях. Ничего не импортируется, пока вы не нажмёте «Импортировать». «Больше не показывать» на баннере отключает это."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บเบราว์เซอร์จะเสนอให้นำเข้าคุกกี้จากเบราว์เซอร์อื่นของคุณ เพื่อให้คุณยังลงชื่อเข้าใช้อยู่ ไม่มีการนำเข้าใดจนกว่าคุณจะคลิกนำเข้า \"ไม่ต้องแสดงอีก\" บนแบนเนอร์จะปิดตัวเลือกนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcı sekmeleri, oturumunuz açık kalsın diye diğer tarayıcılarınızdan çerezleri içe aktarmayı önerir. İçe Aktar'a tıklayana kadar hiçbir şey içe aktarılmaz. Başlıktaki Bir Daha Gösterme bunu kapatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки браузера пропонують імпортувати файли cookie з інших браузерів, щоб ви залишалися в обліковому записі. Нічого не імпортується, доки ви не натиснете «Імпортувати». «Більше не показувати» на банері вимикає це."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các tab trình duyệt đề xuất nhập cookie từ các trình duyệt khác để bạn luôn đăng nhập. Không có gì được nhập cho đến khi bạn nhấp Nhập. \"Không hiển thị lại\" trên biểu ngữ sẽ tắt tùy chọn này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器标签页会提示从你的其他浏览器导入 Cookie，让你保持登录。点按“导入”之前不会导入任何内容。横幅上的“不再显示”会关闭此选项。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器標籤頁會提示從你的其他瀏覽器匯入 Cookie，讓你保持登入。按一下「匯入」之前不會匯入任何內容。橫幅上的「不再顯示」會關閉此選項。"
+          }
+        }
+      }
+    },
     "settings.tabs.nativeNewTabPage": {
       "extractionState": "manual",
       "localizations": {
