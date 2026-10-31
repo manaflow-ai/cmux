@@ -250,6 +250,10 @@ path = "tests/test_runner_label_policy.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_linux_single_size.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_linux_guard_routing.py"
 lane = "linux-guard"
 
@@ -595,6 +599,10 @@ path = "tests/test_ios_ffi_cache.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_chief_benchmark_route.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_backdrop_art_generator.py"
 lane = "linux-guard"
 
@@ -768,6 +776,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_pr_checks_base_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ui_review_advisory.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2017,6 +2029,10 @@ path = "tests/test_pr_design_spec_check.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_pr_cloud_backend_check.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_pr_capture_check_paths.py"
 lane = "linux-guard"
 
@@ -2294,6 +2310,15 @@ path = "tests/test_cmux_next_kill_switches.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_stable_next.py"
+lane = "manual"
+reason = "Run by hand with python3 when stable_next.py or stable-next.yml changes; repository policy adds no new CI tests."
+
+[[test]]
 path = "tests/test_devbox_bubblewrap.py"
 lane = "manual"
 reason = "Run by hand (cmux-ci) before changing the devbox bubblewrap recipe: it builds the Dockerfile's devtools and bubblewrap layers in Docker and runs an unprivileged sandbox; no new CI tests (CLAUDE.md, Verification)."
+
+[[test]]
+path = "tests/test_chromium_staleness.py"
+lane = "linux-guard"
