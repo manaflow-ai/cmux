@@ -1,5 +1,44 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-30: the narrowest sidebar fits its titlebar row. Lawrence: "get rid of this intersect thing",
+  then "not remove glyph but just make min width of sidebar bigger": at the 160 pt minimum the toolbar band's
+  Forward chevron drew over the +. `SidebarModel.minimumWidth` is now the wider of the `sidebarMinWidth`
+  tunable and `SidebarView.titlebarControlsWidth` (the band reserve, the Priority bell while it shows, the +
+  and its trailing inset); the window's layout sets it and a narrower `width`, saved or dragged, clamps up.
+  No glyph is removed; the options chevron still hides first. Regression: `SidebarMinimumWidthTitlebarTests`.
+
+## Link opener placement keeps pane-local relationships (2026-10-30)
+
+- [1cc205d8d16](https://github.com/manaflow-ai/cmux/commit/1cc205d8d16) (carry of #26582): behavior-only opener bookkeeping keeps a tab's opener relationship inside its source pane when placement moves it elsewhere. No sidebar drawing or layout changes; the existing `RightPanePlacementTests` cover placement behavior. Reviewed as `Sidebar-Look: no visual change`.
+
+- 2026-10-30: the "cmux Updated!" card is glass again. Leo: "I don't like the non-glassness". The card is a
+  React page over the sidebar whose own CSS glass could not see the sidebar (a flat fill; solid in an opaque
+  window through the theme bootstrap's html background). `SidebarUpdatedCardHost` now draws `CardSurfaceView`
+  under the page at the card's 12 pt corner (`Metrics.space5`), the same glass as the Update Ready, Now
+  Playing and notice cards; the page (`#/surface/updated`) paints only the words and sets `data-glass-native`
+  so the lens draws nothing over it. Reduce Transparency keeps the opaque elevated fill. Regression:
+  `UpdatedCardDismissPathTests`, webviews `updated-card-native-glass.test.ts` and `glass-lens.test.ts`.
+  This replaces only the card's fill from #22670 (already restyled to glass by #22734).
+
+- 2026-10-30: `sidebar.groupChromeShape` is an off-by-default band-header prototype. Leo's ask:
+  "our group header is a plain rounded pill with a separate thin line; Chrome's colored header chip
+  and vertical rail are one hot shape, with a clipped/notched join, thicker group-colored rail,
+  rounded cap at the last member, and collapsed groups showing only the chip. Keep our glass look."
+  It joins the header to a 4 pt rail with a clipped shoulder and bounds-following rounded terminal
+  cap. The header reaches left to fit the rail; member columns, nesting step, manual order, glass,
+  quiet header styles and existing defaults stay as shipped. The prototype uses the existing
+  group rows and fold animation. `SidebarGroupChromeShapeTests` and `AAGroupLineGalleryTests`
+  cover its geometry and before/after variants. Structural change: HOLD for dogfood.
+  Default rationale: `sidebar.groupChromeShape` defaults to false, so existing sidebar geometry
+  remains unchanged until explicitly enabled. Expanded parent groups retain a rail through their
+  nested members; the gallery's Agent fleet group is not an exception.
+
+- 2026-10-30: a Cloud machine that ran and then lost its app link (or whose resume failed) reads "Disconnected" in
+  its header and workspace rows, with the attention tone, instead of "Failed to start" in red.
+  `SidebarMachine.Status.disconnected` is new; "Failed to start" stays for a create or a machine the provider failed.
+  Nothing else about the header changes. Leo 2026-10-29: "a whole lot of this cloud stuff ought to get better...".
+  Regression: `CloudLinkEndedHeaderTests`.
+
 - 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
   pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned
   tile in the multi-selection draws the list's secondary selection fill (`Palette.secondarySelectionFill`); the shown
@@ -617,3 +656,7 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## A hover control stays lit while its menu is open, and lights alone (2026-10-29)
 
 - Leo 2026-10-26: "If it's a toggle, if it's something like that, then you keep it on when you click the context menu, when you click the top, the drop-down, the popover, whatever the fucking. We say we keep it." Leo 2026-10-27: "why are you giving it the entire row when it's only this small little section? Just don't do that. Don't ever do that." Before (sw-sidebar audit): a workspace row's ⋮, ✕ and chevron followed `isHovered` alone, so they vanished as the pointer moved onto the row's open ⋮ menu; a group header's ⋮ was not lit while the group editor it opened was up, and the editor painted the hover step over the whole bar; a workspace tile's menu used the profile control's `showsMenu`, the selected fill over the whole pill. Now `OverflowButton.showsMenu` holds the button pressed (lit) while its menu or editor is open: `SidebarRowMenu` sets `WorkspaceRowView.showsMenu` for the synchronous `popUp` (the hover controls hold, the row's fill does not change), a workspace tile's more button holds its controls and lights alone (the pill keeps the selected step for the profile control only, whose pill is the control), and a group header's open editor lights its ⋮ instead of the bar. No position, size or slot changes. Test: `SidebarMenuHeldControlsTests`.
+
+## Runaway session warning badge (2026-10-30)
+
+- PR [#27899](https://github.com/manaflow-ai/cmux/pull/27899). Leo, verbatim: "that visibility into [one agent host's] guys was (and is?) pretty bad i feel like we can make more improvements to acpmux/cmux-next". A workspace row whose agent chats acpmux finds breaking a usage rule (no autocompact cap, context over 400k, more than 40 subagents an hour; acpmux `usageWarnings`) draws a small `exclamationmark.triangle.fill` in the theme's attention color in the trailing cluster, left of the muted bell's slot, the same size as that bell. Its tooltip is each warning's line, and the row's accessibility label says them. It is its own view (`usageWarningMark`), never the working spinner. It never gives way to the hover controls: while the row is hovered it sits just left of the ⋯ and ×, the title fading before it, so a person can still point at it and read its tooltip (the first fleet capture showed the controls in its place). Rows with no warnings are unchanged. Tests: `SidebarUsageWarningTests`; gallery `AAUsageWarningGalleryTests` (before/after, light and dark).

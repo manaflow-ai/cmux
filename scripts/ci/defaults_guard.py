@@ -812,16 +812,18 @@ def summary(text: str) -> None:
 
 
 def post_comment(repo: str, number: int, pull: Mapping[str, object], body: str, found: list[Change]) -> None:
-    existing = None
-    for comment in (pull.get("comments") or {}).get("nodes") or []:
-        if MARKER in str(comment.get("body") or "") and str((comment.get("author") or {}).get("login") or "") == "github-actions":
-            existing = comment.get("databaseId")
-    if existing is None and not found:
-        return  # nothing changed and nothing said before: no comment
-    if existing is None:
-        gh(["api", f"repos/{repo}/issues/{number}/comments", "-f", f"body={body}"])
-    else:
-        gh(["api", "-X", "PATCH", f"repos/{repo}/issues/comments/{existing}", "-f", f"body={body}"])
+    # Snapshot/check-fresh also run from small fixture checkouts without the writer.
+    import pr_status
+
+    if not found:
+        # Do not create a clean-defaults section unless this PR previously had one.
+        # Read the full comment list, not fetch_pull's last-100 receipt window.
+        comments = pr_status.list_comments(pr_status.http_api, repo, number)
+        previous = pr_status.bot_comments(comments, MARKER)
+        status = pr_status.bot_comments(comments, pr_status.MARKER)
+        if not previous and not any("defaults" in pr_status.parse(c["body"]) for c in status):
+            return
+    pr_status.upsert(repo, number, "defaults", body.removeprefix(MARKER).strip(), legacy=MARKER)
 
 
 # MARK: Commands
@@ -913,7 +915,9 @@ def command_check(args: argparse.Namespace) -> int:
     if args.comment and pull is not None:
         try:
             post_comment(args.repo, args.pr, pull, body, found)
-        except SystemExit as error:  # a fork's review event has a read-only token: the verdict stands
+        # comment failures never change the verdict; a checkout without the writer (main's
+        # pull_request_target sparse list may lag the guard) is one of them
+        except (SystemExit, RuntimeError, OSError, ImportError) as error:
             print(f"::warning title=Defaults comment not posted::{error}")
     if problems:
         return 1

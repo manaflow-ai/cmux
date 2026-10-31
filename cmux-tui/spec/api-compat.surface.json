@@ -7748,6 +7748,10 @@
     },
     "request:cloud-host-replica-status": {},
     "request:cloud-inbox-list": {
+      "/cursor": {
+        "ty": "string",
+        "nullable": true
+      },
       "/include_archived": {
         "ty": "boolean"
       },

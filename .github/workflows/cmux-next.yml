@@ -116,6 +116,9 @@ on:
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
+      - tests/test_cmux_next_base_tier.py
+      - scripts/ci/cmux_next_base_tier.py
+      - .github/workflows/cmux-next-base-tier-kick.yml
       - scripts/cmux-next/swift-exports-cache.sh
       - scripts/cmux-next/swift-exports-key.py
       - scripts/cmux-next/ci-target-graph.py
@@ -200,7 +203,6 @@ on:
       - scripts/ci/reset-stale-submodules.sh
       - scripts/ci/git_fetch_retry.py
       - .github/workflows/cmux-next.yml
-      - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_generated_fold.py
@@ -230,6 +232,9 @@ on:
       - scripts/ci/next_batch.py
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_base_autofix_finishes.py
+      - tests/test_base_autofix_pushed_exports.py
+      - scripts/cmux-next/base_autofix_pushed_exports.py
+      - scripts/cmux-next/base-autofix-exports-pack.sh
       - tests/test_cmux_next_pr_autofix_settings.py
       - scripts/cmux-next/check-generator-inputs.sh
       - tests/test_ci_generator_input_freshness.sh
@@ -298,6 +303,9 @@ on:
       - scripts/cmux-next/check-generator-inputs.sh
       - tests/test_ci_generator_input_freshness.sh
       - tests/test_cmux_next_base_autofix_finishes.py
+      - tests/test_base_autofix_pushed_exports.py
+      - scripts/cmux-next/base_autofix_pushed_exports.py
+      - scripts/cmux-next/base-autofix-exports-pack.sh
       - tests/test_cmux_next_pr_autofix_settings.py
       - scripts/ci/test_reds.py
       - scripts/ci/base_red_excuse.py
@@ -379,6 +387,9 @@ on:
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
+      - tests/test_cmux_next_base_tier.py
+      - scripts/ci/cmux_next_base_tier.py
+      - .github/workflows/cmux-next-base-tier-kick.yml
       - scripts/cmux-next/swift-exports-cache.sh
       - scripts/cmux-next/swift-exports-key.py
       - scripts/cmux-next/ci-target-graph.py
@@ -465,7 +476,6 @@ on:
       - scripts/ci/reset-stale-submodules.sh
       - scripts/ci/git_fetch_retry.py
       - .github/workflows/cmux-next.yml
-      - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_generated_fold.py
@@ -563,6 +573,23 @@ on:
         required: false
         default: false
         type: boolean
+      # main's cmux-next-tip-swift-suite-dispatch.yml (its daemon suite): a feat-cmux-next push never
+      # gets daemon-test, so this run is the base verdict scripts/ci/base_red_excuse.py compares a pull
+      # request's daemon-test red with. A same-tree run it waits on carries it too (its run name).
+      tip_daemon_suite:
+        description: "Run only the live-daemon suites (daemon-test) on the feat-cmux-next tip"
+        required: false
+        default: false
+        type: boolean
+      # cmux-next-base-tier-kick.yml (scripts/ci/cmux_next_base_tier.py): a feat-cmux-next push leaves
+      # its base Mac tier (daemon tests, generated files, the Debug app scheme compile) to this run,
+      # started at most once every 15 minutes on the tip (cmuxterm-hq#5424). Named
+      # `cmux-next base tier · <sha>`, which the kick, push attribution and base_red_excuse.py read.
+      base_tier:
+        description: "Run only the base Mac tier (daemon tests, generated files, scheme compile) on the feat-cmux-next tip"
+        required: false
+        default: false
+        type: boolean
       # The safety net under CI_NEXT_JOB_REUSE: a dispatch with no_reuse runs every job
       # in full, reusing no recorded pass (it still records its own). A nightly one on
       # feat-cmux-next re-checks what the day's reused results stood on.
@@ -573,7 +600,7 @@ on:
         type: boolean
 
 run-name: >-
-  ${{ inputs.dev_daily == true && format('cmux NEXT DEV daily · {0}', inputs.dev_daily_sha || github.sha) || inputs.tip_swift_suite == true && format('cmux-next tip Swift suite · {0}', github.sha) || inputs.no_reuse == true && format('cmux-next uncached · {0}', github.sha) || format('cmux-next · {0}', github.sha) }}
+  ${{ inputs.dev_daily == true && format('cmux NEXT DEV daily · {0}', inputs.dev_daily_sha || github.sha) || inputs.tip_swift_suite == true && format('cmux-next tip Swift suite · {0}', github.sha) || inputs.tip_daemon_suite == true && format('cmux-next tip daemon suite · {0}', inputs.same_tree_sha || github.sha) || inputs.base_tier == true && format('cmux-next base tier · {0}', inputs.same_tree_sha || github.sha) || inputs.no_reuse == true && format('cmux-next uncached · {0}', github.sha) || format('cmux-next · {0}', github.sha) }}
 
 permissions:
   contents: read
@@ -743,7 +770,9 @@ jobs:
       # runs and builds (its targets), else daemon-test where it runs, else the generated-files job's
       # own build. swift-test and daemon-test then never compete with a third
       # `swift build --build-tests`; generated-verdict gives the folded verdict its own check.
-      generated_host: ${{ steps.route.outputs.generated != 'true' && 'none' || github.event_name == 'push' && steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && steps.route.outputs.swift == 'true' && steps.route.outputs.swift_targets != '' && 'swift-test' || steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || 'generated-files' }}
+      # A base tier run (inputs.base_tier) checks them on the generated-files job itself: its standalone
+      # `cmux-next generated files` verdict is the base verdict a pull request's is compared with.
+      generated_host: ${{ steps.route.outputs.generated != 'true' && 'none' || inputs.base_tier == true && 'generated-files' || github.event_name == 'push' && steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && steps.route.outputs.swift == 'true' && steps.route.outputs.swift_targets != '' && 'swift-test' || steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || 'generated-files' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -758,6 +787,13 @@ jobs:
           DEV_DAILY: ${{ inputs.dev_daily || false }}
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha }}
           TIP_SWIFT_SUITE: ${{ inputs.tip_swift_suite || false }}
+          TIP_DAEMON_SUITE: ${{ inputs.tip_daemon_suite || false }}
+          BASE_TIER: ${{ inputs.base_tier || false }}
+          # '0' turns the coalescing off: every feat-cmux-next push runs its base Mac tier again.
+          BASE_TIER_COALESCE: ${{ github.repository == 'manaflow-ai/cmux' && format('{0}', vars.CMUX_NEXT_BASE_TIER_COALESCE) != '0' && 'true' || 'false' }}
+          # '0': the push's scheme compile is also the DEV landing build (cmux-scheme-compile's DEV
+          # Release step), so a push keeps it.
+          DEV_LANDING_COMPILE: ${{ format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) }}
           SAME_TREE_SHA: ${{ inputs.same_tree_sha }}
           GH_TOKEN: ${{ github.token }}
           # The labels at the push. A re-run keeps that event, so it reads them
@@ -868,9 +904,96 @@ jobs:
               echo
               echo '- scheduled tip Swift suite: every CmuxNext Swift target on the feat-cmux-next tip.'
             } >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$EVENT_NAME" == workflow_dispatch && "$BASE_TIER" == true ]]; then
+            # cmux-next-base-tier-kick.yml, at most once every 15 minutes: the base Mac tier a
+            # feat-cmux-next push leaves to it (below), on the tip. Its tree wait marker carries
+            # tip_suite=base, so a same-tree run tests this exact commit even after the tip moves on.
+            [[ "$GITHUB_REF" == refs/heads/feat-cmux-next ]] || {
+              echo "error: base_tier runs on refs/heads/feat-cmux-next, got $GITHUB_REF" >&2
+              exit 1
+            }
+            {
+              echo 'native=false'
+              echo 'swift_canary=false'
+              echo 'cmuxnext_swift=false'
+              echo 'swift_canary_targets='
+              echo 'macos=true'
+              echo 'scheme=true'
+              echo 'generated=true'
+              echo 'swift=false'
+              echo 'daemon=true'
+              echo 'full=false'
+              echo 'swift_filter='
+              echo 'swift_priority_filter='
+              echo 'swift_targets='
+            } >> "$GITHUB_OUTPUT"
+            {
+              echo '### cmux-next tiers'
+              echo
+              echo '| tier | runs |'
+              echo '| --- | --- |'
+              echo '| generated | true |'
+              echo '| scheme | true |'
+              echo '| daemon | true |'
+              echo
+              echo '- base tier: daemon tests, generated files and the Debug app scheme compile on the feat-cmux-next tip.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$EVENT_NAME" == workflow_dispatch && "$TIP_DAEMON_SUITE" == true ]]; then
+            # main's tip suite dispatcher (its daemon suite): a feat-cmux-next push never gets
+            # daemon-test (its same-tree run has origin push, and in a landing burst the tip moves
+            # before the tree publishes), so the base had no daemon-test verdict for
+            # scripts/ci/base_red_excuse.py to compare a pull request's daemon-test red with
+            # (2026-10-30, #27692). Only the daemon tier. Its tree wait marker carries tip_suite, so
+            # the same-tree run tests this exact commit even after the tip moves on.
+            [[ "$GITHUB_REF" == refs/heads/feat-cmux-next ]] || {
+              echo "error: tip_daemon_suite runs on refs/heads/feat-cmux-next, got $GITHUB_REF" >&2
+              exit 1
+            }
+            {
+              echo 'native=false'
+              echo 'swift_canary=false'
+              echo 'cmuxnext_swift=false'
+              echo 'swift_canary_targets='
+              echo 'macos=true'
+              echo 'scheme=false'
+              echo 'generated=false'
+              echo 'swift=false'
+              echo 'daemon=true'
+              echo 'full=false'
+              echo 'swift_filter='
+              echo 'swift_priority_filter='
+              echo 'swift_targets='
+            } >> "$GITHUB_OUTPUT"
+            {
+              echo '### cmux-next tiers'
+              echo
+              echo '| tier | runs |'
+              echo '| --- | --- |'
+              echo '| daemon | true |'
+              echo
+              echo '- scheduled tip daemon suite: the live-daemon suites on the feat-cmux-next tip.'
+            } >> "$GITHUB_STEP_SUMMARY"
           else
+            # --base-rev: the merge commit's first parent, so a change to this workflow that leaves
+            # every Mac job and what it needs as it was (`on:` paths, a Linux-only job) is CI-only.
+            # The router runs every tier when it cannot read or compare that base.
+            routed="$GITHUB_OUTPUT"
+            if [[ "$EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/feat-cmux-next && "$BASE_TIER_COALESCE" == true ]]; then
+              routed="$RUNNER_TEMP/route-outputs.txt"
+              : > "$routed"
+            fi
             python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" \
-              --labels "$labels" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+              --labels "$labels" --base-rev HEAD^1 --github-output "$routed" --summary "$GITHUB_STEP_SUMMARY"
+            if [[ "$routed" != "$GITHUB_OUTPUT" ]]; then
+              # The base Mac tier (daemon tests, generated files, the Debug app scheme compile) runs
+              # at most once every 15 minutes on the tip, in the run cmux-next-base-tier-kick.yml
+              # dispatches (cmuxterm-hq#5424). The Release compiles (nightly-next's input), the DEV
+              # landing compile and the fast tier still run on this push.
+              keep=()
+              [[ "$DEV_LANDING_COMPILE" == 0 ]] && keep=(--keep scheme)
+              python3 scripts/ci/cmux_next_base_tier.py defer "$routed" "${keep[@]}" >> "$GITHUB_OUTPUT"
+              echo '- base tier (daemon tests, generated files, scheme compile): left to the cmux-next base tier run on the tip, at most 15 minutes away (cmux-next-base-tier-kick.yml).' >> "$GITHUB_STEP_SUMMARY"
+            fi
           fi
           # Whether this pull request changes the cmux-tui it would test against:
           # any v2 tree-key input (cmux-tui-tree-inputs.txt), such as cmux-tui/,
@@ -950,6 +1073,8 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           DEV_DAILY: ${{ inputs.dev_daily || false }}
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha }}
+          TIP_DAEMON_SUITE: ${{ inputs.tip_daemon_suite || false }}
+          BASE_TIER: ${{ inputs.base_tier || false }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
@@ -975,6 +1100,14 @@ jobs:
               if env["EVENT_NAME"] == "workflow_dispatch" and env["DEV_DAILY"] != "true":
                   marker.update(origin="dispatch", branch=env["BRANCH"],
                                 ref_kind="tags" if env["REF_TYPE"] == "tag" else "heads")
+                  # The tip daemon suite tests this exact commit, like the DEV daily: its same-tree run
+                  # starts after the tip moves on (scripts/ci/cmux_next_tree_notify.py is_current).
+                  if env.get("TIP_DAEMON_SUITE") == "true" and env["BRANCH"] == "feat-cmux-next":
+                      marker.update(tip_suite="daemon")
+                  # The base tier likewise (cmux-next-base-tier-kick.yml): its same-tree run is the base
+                  # verdict for this commit and is named after it.
+                  elif env.get("BASE_TIER") == "true" and env["BRANCH"] == "feat-cmux-next":
+                      marker.update(tip_suite="base")
               else:
                   marker.update(origin="push", branch=env["BRANCH"])
           with open(sys.argv[1], "w", encoding="utf-8") as stream:
@@ -1331,7 +1464,8 @@ jobs:
   checks:
     # feat-cmux-next pushes run it again (Leo, 2026-10-19; cx-g34i had dropped it): a direct push's
     # red shows on that push, and a pull request's red has a base run to be compared with.
-    if: ${{ inputs.dev_daily != true && inputs.same_tree_sha == '' }}
+    # Not in a base tier run: the push of its commit already ran it.
+    if: ${{ inputs.dev_daily != true && inputs.base_tier != true && inputs.same_tree_sha == '' }}
     name: cmux-next checks (god files, concurrency, crash safety, l10n)
     # Blacksmith runners are free here; 16 vCPU runs the script tests 32 at once
     # (scripts/ci/run-checks-concurrently.sh) and the god-file scans faster.
@@ -1693,6 +1827,7 @@ jobs:
             # ci-guards.yml's `ci` group runs for feat-cmux-next too (cmux-next-guards.yml).
             python3 tests/test_feat_ci_guard_group.py
             python3 tests/test_guards_new_reds.py
+            python3 tests/test_webviews_test_history.py
             python3 tests/test_app_symbol_map.py
             bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
             bash scripts/cmux-next/tests/bundle-acpmux-alias.test.sh
@@ -1904,6 +2039,7 @@ jobs:
         continue-on-error: true
         run: |
           python3 tests/test_cmux_next_route.py
+          python3 tests/test_cmux_next_base_tier.py
           python3 tests/test_ci_target_graph.py
           python3 tests/test_ci_swiftpm_build_metrics.py
           python3 tests/test_cmux_next_route_replay.py
@@ -1955,6 +2091,7 @@ jobs:
           python3 tests/test_next_batch.py
           python3 tests/test_next_batch_groups.py
           python3 tests/test_cmux_next_base_autofix_finishes.py
+          python3 tests/test_base_autofix_pushed_exports.py
           python3 tests/test_cmux_next_pr_autofix_settings.py
           python3 tests/test_cmux_next_pr_changed_paths.py
           python3 tests/test_pr_capture_check_paths.py
@@ -3814,6 +3951,35 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-settings-exports.sh
 
+      # The base autofix's exports, on a push or base tier run whose generated files this job checks
+      # (the generated-files job's step of the same name, which that run skips).
+      - name: Pack the exports for the base autofix
+        id: base-exports
+        if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && format('{0}', vars.CMUX_NEXT_BASE_EXPORTS_PACK) != '0' }}
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          CMUX_STRINGS_BEST_EFFORT: "1"
+        run: |
+          set -euo pipefail
+          # A dispatch packs only as the base tier run (its base_tier input, read from the event so this
+          # step needs no input the workflow may not declare).
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] && [[ "$(python3 -I -c 'import json, os; print(str((json.load(open(os.environ["GITHUB_EVENT_PATH"])).get("inputs") or {}).get("base_tier", "")).lower())')" != true ]]; then
+            echo "not a base tier dispatch: no pack"
+            exit 0
+          fi
+          scripts/cmux-next/base-autofix-exports-pack.sh "$RUNNER_TEMP/base-exports" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Upload the exports for the base autofix
+        if: ${{ steps.base-exports.outcome == 'success' && steps.base-exports.outputs.name != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.base-exports.outputs.name }}
+          path: ${{ runner.temp }}/base-exports
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Compile string catalogs into the resource bundles
         working-directory: Packages/macOS/CmuxNext
         run: ../../../scripts/cmux-next/compile-string-catalogs.sh
@@ -4000,7 +4166,7 @@ jobs:
       # The reuse lookup lists artifacts.
       actions: read
       contents: read
-    timeout-minutes: 30
+    timeout-minutes: 40
     outputs:
       patch: ${{ steps.regenerate.outputs.patch }}
     env:
@@ -4237,6 +4403,41 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         run: scripts/cmux-next/check-settings-exports.sh
+
+      # The base autofix's action and settings exports, made on this build instead of a second Mac
+      # build of the same push (cmuxterm-hq#5424): every export regenerated, packed under this commit's
+      # tree (scripts/cmux-next/base_autofix_pushed_exports.py), and uploaded for
+      # cmux-next-base-autofix.yml's pushed-exports job. Pushes of feat-cmux-next and its base tier
+      # dispatches (cmux-next-base-tier-kick.yml, which these checks move to) only, so a pack is only
+      # ever this repository's merged code. It puts the checkout's exports back as they were, so
+      # the steps below see what the checks left; a failure makes no pack (the autofix's Mac job then
+      # regenerates them) and never fails this job. vars.CMUX_NEXT_BASE_EXPORTS_PACK=0 turns it off.
+      - name: Pack the exports for the base autofix
+        id: base-exports
+        if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && steps.reuse.outputs.hit != 'true' && format('{0}', vars.CMUX_NEXT_BASE_EXPORTS_PACK) != '0' }}
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          CMUX_STRINGS_BEST_EFFORT: "1"
+        run: |
+          set -euo pipefail
+          # A dispatch packs only as the base tier run (its base_tier input, read from the event so this
+          # step needs no input the workflow may not declare).
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] && [[ "$(python3 -I -c 'import json, os; print(str((json.load(open(os.environ["GITHUB_EVENT_PATH"])).get("inputs") or {}).get("base_tier", "")).lower())')" != true ]]; then
+            echo "not a base tier dispatch: no pack"
+            exit 0
+          fi
+          scripts/cmux-next/base-autofix-exports-pack.sh "$RUNNER_TEMP/base-exports" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Upload the exports for the base autofix
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.base-exports.outcome == 'success' && steps.base-exports.outputs.name != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.base-exports.outputs.name }}
+          path: ${{ runner.temp }}/base-exports
+          if-no-files-found: error
+          retention-days: 1
 
       # Only the generated paths are collected into the artifact.
       - name: Regenerate stale files
@@ -6027,10 +6228,12 @@ jobs:
       own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
 
   push-attribution:
-    needs: [checks, generated-files, generated-verdict, swift-canary, swift-test, daemon-test, release-compile, cmux-scheme-compile]
+    needs: [checks, generated-files, generated-verdict, swift-canary, swift-test, daemon-test, release-compile, cmux-scheme-compile, crash-ends-app]
     # Also a same-tree mode run for a feat-cmux-next push: the tree jobs of a
-    # push whose tree was published after its run probed it run there.
-    if: ${{ failure() && inputs.dev_daily != true && (github.event_name == 'push' || inputs.same_tree_origin == 'push') && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
+    # push whose tree was published after its run probed it run there. And a
+    # base tier run (or its same-tree run): the range since the base tier last
+    # passed holds the landings it covers.
+    if: ${{ failure() && inputs.dev_daily != true && (github.event_name == 'push' || inputs.same_tree_origin == 'push' || inputs.base_tier == true) && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
     name: cmux-next push attribution
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a pull-requests write token; ephemeral Blacksmith VM, reads no variable
     timeout-minutes: 10
