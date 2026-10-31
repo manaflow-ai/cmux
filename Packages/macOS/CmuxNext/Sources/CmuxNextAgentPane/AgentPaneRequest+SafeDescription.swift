@@ -50,6 +50,8 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .shareMachineWithMe: "shareMachineWithMe"
         case .chooseAttachments: "chooseAttachments"
         case .attachDropped: "attachDropped"
+        case .attachSource: "attachSource"
+        case .attachmentSourceIcon: "attachmentSourceIcon"
         case .listProjects: "listProjects"
         case .projectIcon: "projectIcon"
         case .agentAvatar: "agentAvatar"
