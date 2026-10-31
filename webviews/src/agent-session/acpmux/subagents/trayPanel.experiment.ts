@@ -27,3 +27,31 @@ export const trayPanelLook = defineExperiment({
   },
   defaultArm: "pinned",
 });
+
+/// Where a tray line's spent work (tokens, tool uses, a workflow's agents) sits beside its one
+/// glyph, its title and its time (Leo 2026-10-31: "why is this still so ass in latest nightly"; the
+/// running row read its stats on a second line under a kind subtitle). Every arm draws one leading
+/// glyph, no agent-type subtitle and no Done or Running word; they differ in the stats' place and in
+/// whether the time keeps its column. Compare them in the gallery's `agent-pane.subagent-tray`
+/// (`row-anatomy`).
+export const trayRowLook = defineExperiment({
+  id: "subagent-tray-row",
+  title: "Subagent tray row",
+  description:
+    "A tray line's stats: muted in the trailing meta before the time, on a second line under the title, or right after the title with the time beside them.",
+  arms: {
+    trailing: {
+      label: "Trailing meta",
+      description: "One line: glyph, title, then the muted stats and time at the trailing edge, lined up across lines.",
+    },
+    below: {
+      label: "Second line",
+      description: "The stats on a second muted line under the title; the time keeps the trailing column.",
+    },
+    inline: {
+      label: "After the title",
+      description: "One line: the stats and the time follow the title, muted, with no trailing column.",
+    },
+  },
+  defaultArm: "trailing",
+});

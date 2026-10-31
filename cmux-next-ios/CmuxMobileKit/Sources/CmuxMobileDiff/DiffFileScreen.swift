@@ -763,7 +763,7 @@ struct UnifiedGutter: View {
                 .allowsHitTesting(false)
         }
         .overlay(alignment: .leading) {
-            if isCurrentMatch { Color.accentColor.frame(width: 3).allowsHitTesting(false) }
+            if isCurrentMatch { Color.cmuxMobileAccent.frame(width: 3).allowsHitTesting(false) }
         }
         .accessibilityHidden(true)
     }
@@ -837,7 +837,7 @@ struct UnifiedDiffRow: View {
         }
         .background(line.rowColor)
         .overlay(alignment: .leading) {
-            if isCurrentMatch { Color.accentColor.frame(width: 3).allowsHitTesting(false) }
+            if isCurrentMatch { Color.cmuxMobileAccent.frame(width: 3).allowsHitTesting(false) }
         }
         .fixedSize(horizontal: false, vertical: true)
         .contextMenu {

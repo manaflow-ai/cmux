@@ -48,8 +48,7 @@ extension WindowManager {
     /// `holdingKeysFrom`: Cmd-Shift-N's window; keys typed there meanwhile go to the new page (cx-kql5h).
     func newWindow(frame: CGRect? = nil, holdingKeysFrom keyWindow: NSWindow? = nil) -> String {
         let windowID = UUID().uuidString.lowercased(), input = services.keyRouter.newTabInputCoordinator
-        // cmux Classic Mode opens a terminal, not a page: no page would take the held keys.
-        let keys = NewTabKind.terminalFirst(services) ? nil : input.beginIncoming(in: keyWindow, followsNewWindow: true)
+        let keys = input.beginIncoming(in: keyWindow, followsNewWindow: true)
         Task { [services] in
             let made = await createWorkspace(into: windowID, frame: frame, newTabPage: true, inputToken: keys)
             input.endIncoming(keys, pageMade: made != nil); withExtendedLifetime(services) {}
@@ -81,10 +80,13 @@ extension WindowManager {
             pendingClaims[workspaceID] = windowID
             if let frame, registry.value.window(windowID) == nil { pendingFrames[windowID] = frame }
             if !ActionRunScope.viewChangeAllowed() {
+                backgroundClaims.insert(workspaceID)
                 if registry.value.window(windowID)?.isOpen == true { quietClaims.insert(workspaceID) } else { behindWindows.insert(windowID) }
             }
             return
         }
+        // A background create on a Cloud machine nobody opened here waits with its machine (#28609).
+        if !ActionRunScope.viewChangeAllowed(), isHeldCloudWorkspace(workspaceID) { return }
         // Already mirrored (the claim came after the delta): place it now.
         pendingClaims[workspaceID] = nil
         if let state = states[windowID], registry.value.window(windowID)?.isOpen == true {
