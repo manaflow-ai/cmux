@@ -223,6 +223,31 @@ impl Mux {
         #[cfg(any(unix, windows))]
         let respawn_candidate =
             settle_until_ms.is_none().then(|| self.respawn_candidate(incarnation, end)).flatten();
+        // Its agent ended with the process (#22995). Journaled before the exit commits, while
+        // the terminal still has its surface: a respawn plan below takes the runtime out of
+        // the tabs, and an end with no surface would never reach the agent projection.
+        // Only for the process that runs now: a late exit of an earlier incarnation (the
+        // terminal respawned since) is refused by the exit commit, and its agent is the
+        // replacement's, which still runs.
+        let live_terminal = {
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            match registry.terminal_record(terminal_id)? {
+                Some(terminal)
+                    if !matches!(
+                        terminal.lifecycle,
+                        TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
+                    ) && !terminal.incarnation.as_deref().is_some_and(|stored| {
+                        incarnation.is_some_and(|observed| observed != stored)
+                    }) =>
+                {
+                    registry.terminal_resource_id(terminal_id)?
+                }
+                _ => None,
+            }
+        };
+        if let Some(public_terminal_id) = live_terminal.as_ref() {
+            self.end_agent_session_of_exited_terminal(public_terminal_id);
+        }
         let mut registry = self.workspace_registry.lock().unwrap();
         let terminal = registry
             .terminal_record(terminal_id)?

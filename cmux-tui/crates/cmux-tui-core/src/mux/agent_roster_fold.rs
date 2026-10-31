@@ -28,9 +28,8 @@ impl Mux {
         {
             return Ok(());
         }
-        use crate::journal_reducers::hook_roster_state;
-        let native_event =
-            ingress.payload.get("native_event").and_then(Value::as_str).unwrap_or_default();
+        let native_event = ingress.payload.get("native_event").and_then(Value::as_str);
+        let kind_state = crate::journal_reducers::hook_kind_state(&ingress.kind, native_event);
         // Attention-worthy transitions earn a notification even when they
         // leave the roster state as it is (a failed tool call of a working
         // agent: PostToolUseFailure keeps it working but still reports the
@@ -39,7 +38,8 @@ impl Mux {
         // Only a kind that moves a terminal under some current state, or
         // earns a notification, gets past this guard.
         if notification.is_none()
-            && hook_roster_state(&ingress.kind, native_event, Some(AgentState::Blocked)).is_none()
+            && kind_state.is_none()
+            && !crate::agent_hooks::resumes_blocked_turn(&ingress.kind, native_event)
         {
             return Ok(());
         }
@@ -50,15 +50,18 @@ impl Mux {
         };
         let terminal_id = TerminalPublicId::parse(&terminal_subject.id)
             .with_context(|| format!("invalid terminal subject {:?}", terminal_subject.id))?;
-        // A completed tool call resumes only a blocked agent, so the roster's state decides it.
-        let current = self
-            .agent_records
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(&terminal_id)
-            .map(|record| record.state);
-        let state = hook_roster_state(&ingress.kind, native_event, current);
-        if state.is_none() && notification.is_none() {
+        let waiting = || {
+            self.agent_records
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get(&terminal_id)
+                .is_some_and(|record| {
+                    record.source == AgentSource::Hook && record.state == AgentState::Blocked
+                })
+        };
+        // A tool hook of an agent that does not wait changes nothing unless it earns a
+        // notification; it never queues a retry.
+        if kind_state.is_none() && notification.is_none() && !waiting() {
             return Ok(());
         }
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else {
@@ -119,15 +122,28 @@ impl Mux {
         // then agent-record locks, so teardown acquires sequence before those
         // locks as well.
         let mut fences = self.agent_hook_fences.lock().unwrap();
-        let explicit_session_id = ingress
-            .payload
-            .get("normalized")
+        let normalized = ingress.payload.get("normalized");
+        let explicit_session_id = normalized
             .and_then(|value| value.get("agent_session_id"))
             .and_then(Value::as_str)
             .filter(|session_id| !session_id.is_empty());
+        let hook = crate::journal_reducers::HookWaitProbe::of_payload(&ingress.payload);
         let is_session_start = ingress.kind == "agent.session.started";
         let observed_at_ms = crate::journal_reducers::hook_observed_at_ms(&ingress.payload);
         let previous_fence = fences.get(&terminal_id).cloned();
+        // A tool hook moves a waiting hook agent back to work only when the agent it waits on
+        // runs it (its wait was answered, #22995). Decided again under the fences lock, which
+        // orders this terminal's hooks: the check above is a hint.
+        let state = match kind_state {
+            Some(state) => Some(state),
+            None if waiting()
+                && previous_fence.as_ref().is_none_or(|fence| fence.wait_answered_by(hook)) =>
+            {
+                Some(AgentState::Working)
+            }
+            None if notification.is_some() => None,
+            None => return Ok(()),
+        };
         let JournalHookTransition::Apply(agent_session_id) = HookFence::journal_transition(
             previous_fence.as_ref(),
             terminal_id.as_str(),
@@ -165,7 +181,8 @@ impl Mux {
             sequence,
             state == AgentState::Done,
             observed_at_ms,
-        );
+        )
+        .noting_wait(previous_fence.as_ref(), state, hook);
         // The record's session field is a human-facing label; native agent
         // session ids are opaque, so views fall back to their own context.
         let marker = if state == AgentState::Done {
@@ -174,7 +191,14 @@ impl Mux {
             format!("cmux-hook-sequence:{sequence}")
         };
         let (harness, ended) = (agent_provider_identity(ingress), state == AgentState::Done);
-        self.note_relaunch_agent(&terminal_id, harness, explicit_session_id, ended, job);
+        // An end journaled for a terminal's lost process leaves the relaunch record as the
+        // session's start wrote it: a crash or a lost host is when "Resume Agents After
+        // Restart" brings the session back (#22995).
+        if ingress.payload.get("native_event").and_then(Value::as_str)
+            != Some(crate::agent_hooks::TERMINAL_EXIT_NATIVE_EVENT)
+        {
+            self.note_relaunch_agent(&terminal_id, harness, explicit_session_id, ended, job);
+        }
         let hook_state = crate::workspace_registry::AgentHookProjectionState {
             agent_session_id,
             applied_sequence: sequence,
@@ -468,6 +492,49 @@ impl Mux {
             eprintln!(
                 "cmux-tui: agent projection update for {terminal_id} ({kind}) failed: {error}"
             );
+        }
+    }
+
+    /// The process of `terminal_id` ended. A hook session that still claims the
+    /// terminal working or blocked never sends its own end now, so its row would
+    /// spin forever (#22995): journal that end for it, as `agent.plugin.exited`
+    /// does for a crashed plugin. The roster stays a journal-only fold, and the
+    /// projection and broadcast take the same fenced path as a real `SessionEnd`
+    /// (or wait in the pending-hook queue until a respawn gives the terminal a
+    /// surface again). Best effort: an exit never fails on it.
+    pub(super) fn end_agent_session_of_exited_terminal(&self, terminal_id: &TerminalPublicId) {
+        // The roster decides, from its own fence: the projector's fence can lag it (a new
+        // session's start waiting in the pending-hook queue), and an end that names the old
+        // session would leave the roster's live one spinning.
+        let (agent, session) = {
+            let host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
+            let Some(entry) = host.roster.entries.get(terminal_id.as_str()) else { return };
+            if entry.agent_source() != AgentSource::Hook
+                || !matches!(entry.agent_state(), AgentState::Working | AgentState::Blocked)
+            {
+                return;
+            }
+            let Some(session) = host.roster.live_hook_session(terminal_id.as_str()) else { return };
+            (entry.agent.clone().unwrap_or_else(|| "cmux".to_owned()), session.to_owned())
+        };
+        let ingress = match crate::agent_hooks::terminal_exit_session_ended_journal_ingress(
+            terminal_id,
+            &agent,
+            &session,
+        ) {
+            Ok(ingress) => ingress,
+            Err(error) => {
+                eprintln!("cmux-tui: ending the agent session of {terminal_id} failed: {error}");
+                return;
+            }
+        };
+        // A resumed session can end with its terminal again, so each end is its own record.
+        let idempotency_key =
+            format!("agent-terminal-exit-{}", crate::workspace_registry::new_uuid_v4());
+        if let Err(error) =
+            self.append_journal_ingress(&ingress, "agent-terminal-exit", &idempotency_key)
+        {
+            eprintln!("cmux-tui: ending the agent session of {terminal_id} failed: {error}");
         }
     }
 

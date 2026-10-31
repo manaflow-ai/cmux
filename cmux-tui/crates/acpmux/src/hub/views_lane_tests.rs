@@ -104,6 +104,23 @@ fn whitespace_before_a_secret_does_not_move_the_scan_cut_into_it() {
     assert_eq!(step, "[GitHub Personal Access Token] tail");
 }
 
+/// https://github.com/manaflow-ai/cmux/issues/22995: a prompt whose agent is still starting (a
+/// cold spawn, a resume after an idle reap or a daemon restart) has its turn before the session
+/// runs. It works from the prompt on, so the sidebar spins for it instead of showing nothing or
+/// the last turn's done.
+#[test]
+fn a_turn_whose_agent_is_starting_is_working() {
+    for status in ["idle", "ready"] {
+        let starting = json!({"status": status, "turn": {"prompt": "fix it", "startedAt": 5},
+                              "lastTurn": {"status": "completed"}, "turnCount": 2, "updatedAt": 9});
+        assert_eq!(super::status_indicator(&starting), Some("working"), "{status}");
+        assert_eq!(lane(&starting)["state"], "working", "{status}");
+    }
+    // Between turns it stays done.
+    let done = json!({"status": "idle", "turn": null, "lastTurn": {"status": "completed"}, "turnCount": 2});
+    assert_eq!(super::status_indicator(&done), Some("done"));
+}
+
 /// manaflow-ai/cmux#25230: between turns, work the session started that still runs keeps it
 /// working; a failed last turn, a lost agent and a peer gone unreachable still say so.
 #[test]

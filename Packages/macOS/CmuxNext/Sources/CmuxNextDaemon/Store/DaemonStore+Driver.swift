@@ -209,12 +209,12 @@ extension DaemonStore {
         guard let driver, !isResyncing else { return }
         let batch = driver.inbox.take()
         guard !batch.isEmpty else { return }
-        let connected = batch.contains { if case .connected = $0.event { true } else { false } }
+        let seedAgents = Self.seedsAgents(batch)
         // A snapshot that failed past its retry budget is retried on the
         // next daemon event (something changed), not on a timer.
         let followup = apply(batch: batch)
         if followup == .resync || needsResync {
-            resync(seedAgents: connected)
+            resync(seedAgents: seedAgents)
         } else if followup == .personal {
             refetchPersonal()
         }
@@ -246,6 +246,18 @@ extension DaemonStore {
             if personalRefetch.again {
                 personalRefetch.again = false
                 refetchPersonal()
+            }
+        }
+    }
+
+    /// Whether the resync a batch asks for lists the agents again (`list-agents`): after a
+    /// connect, and after an overflow, which may have dropped an `agent-changed` such as a
+    /// turn's end. The tree alone left a finished agent working (#22995).
+    nonisolated static func seedsAgents(_ batch: [DaemonEventEnvelope]) -> Bool {
+        batch.contains {
+            switch $0.event {
+            case .connected, .overflow: true
+            default: false
             }
         }
     }

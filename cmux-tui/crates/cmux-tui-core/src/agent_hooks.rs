@@ -161,11 +161,13 @@ pub fn agent_hook_journal_ingress(
     // Read before redaction: `tool_input` is redacted whole, and live
     // presence needs only its file target.
     let tool_target = tool_target_fields(&native);
+    let tool_call = tool_call_fields(&native);
     // Read the structured reason before redaction replaces free-form strings.
     let resumable_interruption = is_resumable_opencode_interruption(source, native_event, &native);
     let native = redact_agent_native(native_event, native);
     let mut normalized = normalized_fields(&native);
     normalized.extend(tool_target);
+    normalized.extend(tool_call);
     add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
     let kind = if resumable_interruption {
         // OpenCode keeps a shutdown-interrupted execution and resumes it, so
@@ -257,7 +259,87 @@ pub(crate) fn journal_plugin_exit_journal_ingress(
     })
 }
 
+/// Internal lifecycle event emitted when a terminal's process ends while an
+/// agent hook session still claims the terminal working or blocked (#22995).
+pub(crate) const TERMINAL_EXIT_NATIVE_EVENT: &str = "AgentTerminalExited";
+
+/// Build the core-owned end of `agent_session_id`, the hook session of `agent`
+/// in `terminal_id`, whose process ended (it exited, or its host was lost: a
+/// crash, a daemon restart that could not keep it). The agent can no longer
+/// send its own `SessionEnd`, so its last `working` would stay forever. Like
+/// a real `SessionEnd`, this goes through the session fence; its observation
+/// time lets a resumed session (`claude --resume`, same id) start again.
+pub(crate) fn terminal_exit_session_ended_journal_ingress(
+    terminal_id: &TerminalPublicId,
+    agent: &str,
+    agent_session_id: &str,
+) -> anyhow::Result<JournalIngress> {
+    validate_agent_source(agent)?;
+    Ok(JournalIngress {
+        producer_id: AGENT_HOOK_PRODUCER_ID.into(),
+        manifest_version: AGENT_HOOK_MANIFEST_VERSION,
+        kind: "agent.session.ended".into(),
+        schema_version: 1,
+        occurred_at_ms: None,
+        subjects: vec![JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() }],
+        sensitivity: Some(JournalSensitivity::Sensitive),
+        payload: json!({
+            "format": AGENT_HOOK_FORMAT,
+            "adapter": {"id": agent, "version": 1},
+            "native_event": TERMINAL_EXIT_NATIVE_EVENT,
+            "normalized": {
+                "agent_session_id": agent_session_id,
+                "observed_at_ms": crate::workspace_registry::unix_epoch_ms()?.to_string(),
+            },
+            "native": {},
+        }),
+        causation_id: None,
+        correlation_id: None,
+    })
+}
+
 const MAX_TOOL_TARGET_PATH_BYTES: usize = 1024;
+
+const MAX_TOOL_CALL_ID_BYTES: usize = 128;
+
+/// Which tool call a hook is about, read before redaction: `tool_call_id` (Claude's
+/// `tool_use_id` and its kin) and `tool_input_digest`, a short SHA-256 of the tool input. A
+/// wait for an approval ends only with the post-tool hook of the call it waits on (#22995):
+/// Claude's `PermissionRequest` carries no call id, so its input tells parallel calls of the
+/// same tool apart. Only the digest is kept; the input stays redacted.
+fn tool_call_fields(native: &Value) -> Map<String, Value> {
+    let mut fields = Map::new();
+    if let Some(id) = first_string_at(
+        native,
+        &[
+            &["tool_use_id"][..],
+            &["toolUseId"][..],
+            &["tool_call_id"][..],
+            &["toolCallId"][..],
+            &["call_id"][..],
+            &["callId"][..],
+        ],
+    )
+    .filter(|id| !id.is_empty() && id.len() <= MAX_TOOL_CALL_ID_BYTES)
+    {
+        fields.insert("tool_call_id".into(), Value::String(id.to_owned()));
+    }
+    let input = [&["tool_input"][..], &["toolInput"][..]]
+        .into_iter()
+        .find_map(|path| value_at(native, path))
+        .filter(|input| !input.is_null());
+    if let Some(input) = input
+        && let Ok(bytes) = serde_json::to_vec(input)
+    {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(bytes);
+        fields.insert(
+            "tool_input_digest".into(),
+            Value::String(digest[..8].iter().map(|byte| format!("{byte:02x}")).collect()),
+        );
+    }
+    fields
+}
 
 /// The file a tool call targets, copied from the tool input before it is
 /// redacted: `tool_target_path` and, when the input names one,
@@ -493,15 +575,17 @@ fn semantic_kind(
     normalized: &Map<String, Value>,
 ) -> &'static str {
     let event = semantic_key(native_event);
-    let tool =
-        normalized.get("tool_name").and_then(Value::as_str).map(semantic_key).unwrap_or_default();
-    // A question or plan review is asked when its tool call starts. The call's completion is the
-    // person's answer and the agent going on, so it is not another question.
-    let asks = !is_tool_completion(native_event);
-    if tool == "askuserquestion" && asks {
+    // A question or a plan review waits from its pre-tool or permission hook. The
+    // post-tool hook of the same tool is the answer: the turn goes on (#22995).
+    let tool = if is_post_tool_event(&event) {
+        String::new()
+    } else {
+        normalized.get("tool_name").and_then(Value::as_str).map(semantic_key).unwrap_or_default()
+    };
+    if tool == "askuserquestion" {
         return "agent.question.requested";
     }
-    if tool == "exitplanmode" && asks {
+    if tool == "exitplanmode" {
         return "agent.plan_review.requested";
     }
     if event == "questionasked" {
@@ -541,12 +625,73 @@ fn semantic_kind(
             _,
             "permissionrequest" | "permissionasked" | "preapprovalrequest" | "ontoolpermission",
         ) => "agent.approval.requested",
+        // A failed tool call (PostToolUseFailure) reports its error for the Feed, but it is a
+        // tool result the agent reads and works on: `hook_kind_state` keeps the agent's state
+        // (#22995); only a failed turn's error blocks it.
         (_, "stopfailure" | "onerror" | "error" | "posttoolusefailure") => "agent.error.reported",
         (_, "sessionend" | "onsessionend" | "onsessionfinalize" | "sessionshutdown") => {
             "agent.session.ended"
         }
         _ => "agent.state.changed",
     }
+}
+
+/// A hook before a tool runs (Claude's `PreToolUse` and its kin across harnesses),
+/// as a [`semantic_key`].
+pub(crate) fn is_pre_tool_event(event: &str) -> bool {
+    matches!(
+        event,
+        "pretooluse"
+            | "beforetool"
+            | "beforeshellexecution"
+            | "beforemcpexecution"
+            | "beforereadfile"
+            | "toolexecutebefore"
+            | "pretoolcall"
+            | "toolexecutionstart"
+            | "toolcall"
+    )
+}
+
+/// A hook after a tool ran, failed or not (Claude's `PostToolUse` and its kin), as a
+/// [`semantic_key`].
+pub(crate) fn is_post_tool_event(event: &str) -> bool {
+    matches!(
+        event,
+        "posttooluse"
+            | "posttoolusefailure"
+            | "posttoolbatch"
+            | "aftertool"
+            | "aftershellexecution"
+            | "aftermcpexecution"
+            | "afterfileedit"
+            | "toolexecuteafter"
+            | "posttoolcall"
+            | "toolexecutionend"
+            | "toolresult"
+    )
+}
+
+/// A hook `agent.state.changed` that says a waiting agent works again: a tool runs or
+/// ran in its turn, so the approval, question or plan review it waited on was answered
+/// (#22995). The hook projector and the roster fold both move a `blocked` hook agent
+/// back to `working` on it; any other state stays as it was.
+pub(crate) fn resumes_blocked_turn(kind: &str, native_event: Option<&str>) -> bool {
+    let event = native_event.map(semantic_key);
+    match kind {
+        "agent.state.changed" => {
+            event.is_some_and(|event| is_pre_tool_event(&event) || is_post_tool_event(&event))
+        }
+        // A failed tool call ran in the turn too: it answers the wait like its success.
+        "agent.error.reported" => is_tool_failure(native_event),
+        _ => false,
+    }
+}
+
+/// A hook of a tool call that failed (Claude's `PostToolUseFailure`), journaled as
+/// `agent.error.reported` so the Feed shows its error.
+pub(crate) fn is_tool_failure(native_event: Option<&str>) -> bool {
+    native_event.map(semantic_key).as_deref() == Some("posttoolusefailure")
 }
 
 fn is_resumable_opencode_interruption(source: &str, native_event: &str, native: &Value) -> bool {
@@ -1050,10 +1195,4 @@ pub(crate) fn semantic_key(value: &str) -> String {
         .filter(|byte| byte.is_ascii_alphanumeric())
         .map(|byte| byte.to_ascii_lowercase() as char)
         .collect()
-}
-
-/// Whether a hook event says a tool call finished (Claude's `PostToolUse`, or its failure): the
-/// agent runs on in its turn after it, so a question or approval it waited on is answered.
-pub(crate) fn is_tool_completion(native_event: &str) -> bool {
-    matches!(semantic_key(native_event).as_str(), "posttooluse" | "posttoolusefailure")
 }

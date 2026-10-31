@@ -391,6 +391,11 @@ impl Mux {
                     sequence: direct_state.applied_sequence,
                     ended: false,
                     ended_at_ms: direct_state.ended_at_ms,
+                    waiting_agent: None,
+                    waiting_since_ms: None,
+                    waiting_tool: None,
+                    waiting_call: None,
+                    waiting_input: None,
                 },
             );
         }
