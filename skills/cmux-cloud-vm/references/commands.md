@@ -1,8 +1,9 @@
 # cmux Cloud CLI reference
 
 The Rust `cmux` reaches Cloud machines through the app's cloud actions. The Swift
-`cmux vm …` family and its `cmux cloud` alias were removed; there is no `vm` scope,
-no `vm.*` socket method on the CLI, and no `cmux rpc`.
+`cmux vm …` family and its `cmux cloud` alias were removed: there is no `vm.*` socket
+method on the CLI and no `cmux rpc`. Today's `cmux vm` calls the cmux VM API with an
+API key and no app; see [headless.md](headless.md).
 
 ## Conventions
 
@@ -97,6 +98,7 @@ cmux cloud kill-machine --target machine:vm-…
 cmux cloud pause-machine --target machine:vm-…
 cmux cloud resume-machine --target machine:vm-…
 cmux cloud set-idle-pause --target machine:vm-… --minutes off|15|30|60|120   # answers idle_pause_minutes
+cmux cloud set-network-access --target machine:vm-… --access full|trusted|none   # answers network_access, applied
 cmux cloud delete-snapshot --target machine:vm-… --snapshot <snapshot-id>
 cmux workspace new-on-machine --machine machine:vm-…
 ```
@@ -112,6 +114,11 @@ cmux Cloud pauses a machine after 30 idle minutes by default (no attached termin
 no running agent turn, no command still running in a terminal, no forwarded port). The
 machine's record says `pauseReason: "idle"`; opening a workspace or terminal on it, or ssh,
 resumes it. `set-idle-pause` changes the timeout per machine.
+
+A machine reaches the whole internet by default. `set-network-access` narrows it, live and with no
+restart: `trusted` allows only GitHub, the package registries and the model providers the server
+lists as presets, and `none` only the hosts cmux itself needs. The machine's own allowed ranges
+and domains (set in the dashboard) are kept. An agent may only choose `none` (turn access off).
 
 ## Shell, commands and files
 

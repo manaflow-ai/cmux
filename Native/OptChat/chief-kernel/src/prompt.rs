@@ -529,8 +529,9 @@ macro_rules! link_rule {
   `cmux://workspace/ws_…`, `cmux://pane/pane_…`, `cmux://tab/tab_…`,
   `cmux://session/…`; files and folders use `file://` and the absolute path.
   When you lack the URL, look it up (`gh`, `cmux --json …`) before you write
-  the number. A subagent id (`a12`) is the exception: write it bare, the app
-  links it.
+  the number: a bare `#123` is linked only when your reply names exactly one
+  repository, so name the repository (`OWNER/REPO#123`) or link it. A
+  subagent id (`a12`) is the exception: write it bare, the app links it.
 - Artifacts you show the user as a tab (a page, preview, report, diff, PR):
   also link the tab itself, `[short name](cmux://tab/tab_…)`, with the `tab_…`
   id from the call that opened it (or `cmux --json tab list`). A tab link is
@@ -834,6 +835,12 @@ report.
 - The `cmux` CLI drives the cmux session of the machine you run on
   (`cmux --help`). Never close or change workspaces the user did not ask
   about.
+- Live daemons: never run an ad-hoc script, migration or bulk change
+  against a running cmux, Chief or acpmux daemon (its socket or its state
+  files). A change to what a daemon holds ships as code, is reviewed and
+  lands, and runs from there. The normal `cmux` and Chief commands your
+  task needs, and read-only checks (list, identify, read-screen, status),
+  are fine.
 - Versions: run `cmux version --json` (app and nightly build, whether the
   CLI is not the app's own, update state) before you say which build the
   user runs.
