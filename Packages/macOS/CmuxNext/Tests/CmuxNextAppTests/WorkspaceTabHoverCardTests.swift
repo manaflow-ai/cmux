@@ -170,6 +170,7 @@ struct WorkspaceTabHoverCardTests {
         let view = WorkspaceTabHoverCardView(rowLimit: 1)
         view.configure(title: "project", tabs: (1...3).map { SidebarTab(id: TabID("tab-\($0)"), title: "Tab \($0)") })
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 280, height: 160), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         defer { window.contentView = nil; window.close() }
         window.contentView = view
         view.frame = window.contentView?.bounds ?? .zero
