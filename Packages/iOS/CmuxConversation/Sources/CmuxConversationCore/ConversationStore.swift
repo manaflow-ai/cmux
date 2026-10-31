@@ -344,6 +344,10 @@ public final class ConversationStore {
         // page that contains it will carry its current state.
         if indexByID[incoming.id] == nil, let seq = incoming.seq,
            let oldest = messages.first(where: { $0.seq != nil })?.seq, seq < oldest {
+            // While a reconnect recovers, the window itself may be stale: a
+            // reset backend restarts its sequence below it. Hold the row and
+            // judge it against the recovered window instead.
+            if recoveryBaseline != nil { bufferedLive.append(incoming) }
             return
         }
         if recoveryBaseline?[incoming.id] == nil, recoveryBaseline != nil {
@@ -643,7 +647,14 @@ public final class ConversationStore {
     private func applyNewest(_ pages: [ConversationHistoryPage], retained: [String: ConversationMessage]?) {
         guard let newest = pages.first else { return }
         var inserted: [String] = []
-        if let retained {
+        let reset = retained.map { Self.historyWasReset(pages, retained: $0) } ?? false
+        if reset {
+            // Pages asked for against the stale window are meaningless now.
+            olderGeneration += 1
+            olderTask?.cancel()
+            olderTask = nil
+        }
+        if let retained, !reset {
             // The oldest kept row: the reconnect snapshot's, or a live row
             // that landed below it while the pages were fetched (the fetch
             // loop read the same window synchronously before this call).
@@ -735,14 +746,20 @@ public final class ConversationStore {
                 // no longer proves there is no history before that row.
                 older = .idle
             }
-        } else if !hasLoadedNewest {
-            let pending = messages.filter { $0.seq == nil }
+        } else if reset || !hasLoadedNewest {
+            // A first load, or a backend whose history no longer holds the
+            // kept window (restarted or reset): the fetched pages become the
+            // transcript. Unsent local sends stay, and so do rows that arrived
+            // live from the new history while it was fetched (they are newer).
+            let kept = messages.filter { $0.seq == nil || liveDuringRecovery.contains($0.id) }
             messages = []
             indexByID = [:]
-            for message in newest.messages { upsert(message) }
-            for message in pending { upsert(message) }
+            for page in pages.reversed() {
+                for message in page.messages where !liveDuringRecovery.contains(message.id) { upsert(message) }
+            }
+            for message in kept { upsert(message) }
             sortAndReindex()
-            older = newest.hasMore ? .idle : .exhausted
+            older = (pages.last ?? newest).hasMore ? .idle : .exhausted
         }
         hasLoadedNewest = true
         recoveryBaseline = nil
@@ -751,9 +768,23 @@ public final class ConversationStore {
         let buffered = bufferedLive
         bufferedLive = []
         for message in buffered { ingestBuffered(message) }
-        notify(retained == nil ? .reset : .live(insertedRowIDs: inserted, sentByMe: false))
+        notify(retained == nil || reset ? .reset : .live(insertedRowIDs: inserted, sentByMe: false))
         refreshReadState()
         if olderWanted { loadOlder() }
+    }
+
+    /// Whether recovered history no longer contains the kept window, as after
+    /// a backend restart or reset. Its sequence went backwards below the
+    /// newest kept row, or the fetch reached the kept range (or the start of
+    /// history) without returning any kept row. The recovery loop fetches
+    /// down to the oldest kept row unless history ends first, so a backend
+    /// that still holds the window always returns some of it.
+    private static func historyWasReset(_ pages: [ConversationHistoryPage], retained: [String: ConversationMessage]) -> Bool {
+        guard let keptNewest = retained.values.compactMap(\.seq).max() else { return false }
+        let fetched = pages.flatMap(\.messages)
+        guard let fetchedNewest = fetched.compactMap(\.seq).max() else { return true }
+        if fetchedNewest < keptNewest { return true }
+        return !fetched.contains { retained[$0.id]?.seq != nil }
     }
 
     /// The lowest server sequence in the loaded window, if any.
