@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 import os
@@ -456,6 +457,9 @@ struct NotificationSoundProcessRunner: NotificationSoundProcessRunning, Sendable
         setupStatus = posix_spawnattr_setpgroup(&attributes, 0)
         if setupStatus == 0 {
             setupStatus = posix_spawnattr_setflags(&attributes, spawnFlags)
+        }
+        if setupStatus == 0 {
+            setupStatus = POSIXSpawnSignalPolicy().apply(to: &attributes)
         }
         guard setupStatus == 0 else {
             throw Self.processError(code: setupStatus, operation: "spawn attributes")
