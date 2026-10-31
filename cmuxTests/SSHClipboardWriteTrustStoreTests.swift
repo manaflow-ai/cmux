@@ -2,6 +2,7 @@ import CmuxSSHClipboardTrust
 import CmuxCloud
 import CmuxSurfaceCatalogModel
 import CmuxRemoteSession
+import CmuxTerminal
 import Foundation
 import Testing
 
@@ -13,6 +14,36 @@ import Testing
 
 @Suite(.serialized)
 struct SSHClipboardWriteTrustStoreTests {
+    @Test("the bootstrap workspace observes SSH clipboard grants and revocations")
+    @MainActor
+    func bootstrapWorkspaceObservesClipboardTrustChanges() throws {
+        let previousDelegate = AppDelegate.shared
+        AppDelegate.shared = nil
+        defer {
+            AppDelegate.shared = previousDelegate
+            if let previousDelegate {
+                GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(previousDelegate)
+            }
+        }
+
+        // Recreate the composition root with no published delegate, as on first
+        // launch, rather than injecting a trust store into a test workspace.
+        let application = cmuxApp()
+        try withExtendedLifetime(application) {
+            let app = try #require(AppDelegate.shared)
+            let manager = try #require(app.tabManager)
+            defer { manager.finalizeAllWorkspacesForWindowClose() }
+            let workspace = try #require(manager.tabs.first)
+            let machine = SurfaceMachineID.ssh("bootstrap-clipboard-test-\(UUID().uuidString)")
+            defer { app.sshClipboardWriteTrustStore.setTrusted(false, for: machine) }
+
+            for trusted in [true, false, true] {
+                app.sshClipboardWriteTrustStore.setTrusted(trusted, for: machine)
+                #expect(workspace.sshClipboardWriteTrustStore.allowsRemoteClipboardWrites(for: machine) == trusted)
+            }
+        }
+    }
+
     @Test("Dock trust propagation resolves transferred terminal ownership")
     @MainActor
     func dockClipboardMachineUsesDockOwnershipFallback() throws {
