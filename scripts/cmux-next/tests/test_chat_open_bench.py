@@ -4,12 +4,44 @@ is reported as failed with its valid count, never as a median over the opens tha
 
 from __future__ import annotations
 
+import importlib.util
 import sys
+import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+HERE = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(HERE))
 import chat_open_summary as cos  # noqa: E402
+
+
+def load_bench(*args):
+    """chat-open-bench.py with its macOS-only helpers stubbed (bench_memory loads libproc), so its
+    open and diagnostics run on any host."""
+    def merged(base, extra):
+        out = dict(base)
+        for key, value in extra.items():
+            out[key] = merged(out[key], value) if isinstance(value, dict) and isinstance(out.get(key), dict) else value
+        return out
+
+    stubs = {"bench_memory": types.SimpleNamespace(merged=merged),
+             "idle_cost_load": types.SimpleNamespace(), "bench_power": types.SimpleNamespace(wipe_state=None)}
+    spec = importlib.util.spec_from_file_location("chat_open_bench", HERE / "chat-open-bench.py")
+    module = importlib.util.module_from_spec(spec)
+    with mock.patch.dict(sys.modules, stubs), mock.patch.object(sys, "argv", ["chat-open-bench.py", "--app", "/x.app", *args]):
+        spec.loader.exec_module(module)
+    return module
+
+
+class FakeApp:
+    def __init__(self, replies):
+        self.replies = replies
+        self.calls = []
+
+    def action(self, action, *, focus=False, **args):
+        self.calls.append((action, focus, args))
+        return self.replies.get(action, {})
 
 
 def open_(first, empty=0.0, **extra):
@@ -52,6 +84,76 @@ class SummaryTests(unittest.TestCase):
     def test_error_and_empty_cases_fail(self):
         self.assertFalse(cos.summarize([{"error": "arm: None"}])["complete"])
         self.assertFalse(cos.summarize([])["complete"])
+
+
+class OpenTests(unittest.TestCase):
+    """The bench's open shows the chat it opens (agent.openSessionWorkspace alone never switches to
+    its workspace, so no agent pane was made and every open timed out with no frames)."""
+
+    def setUp(self):
+        self.bench = load_bench()
+
+    def test_open_shows_the_workspace_it_created(self):
+        # By its ref: selectLast read the sidebar's order, which can lag the open on a loaded host,
+        # and showed the previous workspace (a loaded fleet Mac: every open after the first).
+        app = FakeApp({"agent.openSessionWorkspace": {"created": ["ws_1"]}})
+        reply = self.bench.open_workspace(types.SimpleNamespace(app=app), "s1")
+        self.assertEqual([(c[0], c[1], c[2]) for c in app.calls],
+                         [("agent.openSessionWorkspace", True, {"session": "s1"}),
+                          ("goToWorkspace", True, {"workspace": "ws_1"})])
+        self.assertEqual(reply["created"], ["ws_1"])
+        self.assertEqual(reply["shown"], {"via": "goToWorkspace", "reply": {}})
+
+    def test_open_with_no_created_ref_falls_back_to_the_last_workspace(self):
+        app = FakeApp({"agent.openSessionWorkspace": {}, "workspace.selectLast": {}})
+        reply = self.bench.open_workspace(types.SimpleNamespace(app=app), "s1")
+        self.assertEqual([c[0] for c in app.calls], ["agent.openSessionWorkspace", "workspace.selectLast"])
+        self.assertEqual(reply["shown"]["via"], "workspace.selectLast")
+
+    def test_a_refused_switch_falls_back_and_says_so(self):
+        app = FakeApp({"agent.openSessionWorkspace": {"created": ["ws_1"]},
+                       "goToWorkspace": {"error": "No workspace ws_1."}})
+        reply = self.bench.open_workspace(types.SimpleNamespace(app=app), "s1")
+        self.assertEqual([c[0] for c in app.calls], ["agent.openSessionWorkspace", "goToWorkspace", "workspace.selectLast"])
+        self.assertEqual(reply["shown"]["refused"], {"error": "No workspace ws_1."})
+
+    def test_a_refused_open_shows_nothing(self):
+        app = FakeApp({"agent.openSessionWorkspace": {"error": "daemon offline"}})
+        reply = self.bench.open_workspace(types.SimpleNamespace(app=app), "s1")
+        self.assertEqual([c[0] for c in app.calls], ["agent.openSessionWorkspace"])
+        self.assertEqual(reply, {"error": "daemon offline"})
+
+    def test_new_workspaces_go_last(self):
+        # selectLast shows the open's workspace only when new ones go to the bottom (default: top).
+        self.assertEqual(self.bench.CONFIG["workspaces"]["newPlacement"], "bottom")
+        # A --config placement would make selectLast show another workspace: bottom wins, the rest applies.
+        bench = load_bench("--config", '{"workspaces": {"newPlacement": "top", "autoName": false}}')
+        self.assertEqual(bench.CONFIG["workspaces"], {"newPlacement": "bottom", "autoName": False})
+
+    def test_why_names_the_marks_that_ran(self):
+        # marks_ms names every mark (null when it did not run): only `order` says which ran.
+        line = self.bench.why({"timed_out": True, "frames": [], "frame_count": 0, "order": ["action"],
+                               "marks_ms": {"action": 0.0, "pane_made": None, "page_painted": None}})
+        self.assertIn("marks=['action']", line)
+        self.assertNotIn("pane_made", line)
+
+    def test_why_shows_how_the_workspace_was_shown_past_a_long_reply(self):
+        reply = {"action": "agent.openSessionWorkspace", "args": {"session": "s" * 300}, "created": ["ws_1"],
+                 "shown": {"via": "workspace.selectLast", "reply": {}, "refused": {"error": "No workspace ws_1."}}}
+        record = {"timed_out": True, "frames": [], "order": ["action"], "open_reply": reply}
+        line = self.bench.why(record)
+        self.assertIn('shown={"via": "workspace.selectLast"', line)
+        self.assertIn("shown", record["open_reply"])  # the record keeps it for the JSON artifact
+
+
+class TableTests(unittest.TestCase):
+    def test_a_measured_table_says_failed_nowhere_but_its_legend(self):
+        # The header's FAILED read as a verdict on a run where every case measured.
+        bench = load_bench("--conditions", "idle", "--cases", "sidebar")
+        ok = cos.summarize([open_(100, 10)])
+        table = bench.markdown({"host": "h", "model": "m", "ncpu": 1, "cases": {"idle": {"sidebar": ok}}})
+        self.assertNotIn("FAILED:", table)
+        self.assertEqual(sum("FAILED" in line for line in table.splitlines()), 1)  # the legend's one mention
 
 
 if __name__ == "__main__":

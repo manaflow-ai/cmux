@@ -18,6 +18,14 @@ extension AgentPaneModel {
     /// palette, as Cmd-K does, so they need no gesture credit.
     static let paletteActions: Set<String> = ["agentPane.searchChats", "history.search"]
 
+    /// A model the person cannot use (Leo 2026-10-26: "if user picks a model they don't have api key,
+    /// we offer them to add credits or add their own api key"): Add Credits… takes the one paid-plan
+    /// path (``UpgradeToPro``) as the model router's paywall, with its fixed `source`. webviews
+    /// accessOffer.ts ACCESS_ACTIONS names the same one. It opens app UI, so it needs the person's gesture.
+    static let accessActions: Set<String> = ["palette.pro.upgrade"]
+    /// The arguments an access action runs with; the page names none.
+    static let accessArguments: [String: [String: String]] = ["palette.pro.upgrade": ["source": "inference"]]
+
     /// `action.run` from the page. Any agent tab may open the New Tab
     /// page (a blank chat's New), the command palette's chats page ("Show all", decision K1), and the
     /// location row's SSH and cmux Cloud connect flows (Lawrence 2026-10-06: "I cannot click on cmux
@@ -28,16 +36,16 @@ extension AgentPaneModel {
     /// is an `unavailable` failure, so the page can say so; one that ran and
     /// then stopped reports itself in the app (its refusal or toast).
     func runAction(_ id: String, session: String? = nil) -> [String: Any] {
-        guard id == "newTab.page" || Self.paletteActions.contains(id) || Self.connectActions.contains(id),
-              let onRunAction else {
+        let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id)
+        guard id == "newTab.page" || Self.paletteActions.contains(id) || gated, let onRunAction else {
             return Self.unsupported("action.run")
         }
         // Bound to the chat whose menu offered it: a tab that shows another chat by now runs nothing.
         if let session, header?.showsChat(session) != true {
             return AgentPaneReply.failure(code: "unavailable", message: "This chat is no longer shown.")
         }
-        if Self.connectActions.contains(id), !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
-        if onRunAction(id, Self.connectArguments[id] ?? [:]) { return AgentPaneReply.success() }
+        if gated, !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
+        if onRunAction(id, Self.connectArguments[id] ?? Self.accessArguments[id] ?? [:]) { return AgentPaneReply.success() }
         return AgentPaneReply.failure(code: "unavailable", message: "The app did not run \(id).")
     }
 }
