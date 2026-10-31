@@ -41,7 +41,9 @@ const runs = [
   }),
   activity(
     [
-      tool("Read src/retry.ts", "read", "completed", { locations: [{ path: "/Users/you/src/atlas-web/src/retry.ts" }] }),
+      tool("Read src/retry.ts", "read", "completed", {
+        locations: [{ path: "/Users/you/src/atlas-web/src/retry.ts" }],
+      }),
       tool("Search for retry callers", "search", "completed"),
       command("bun test --filter retry-and-backoff-integration", "12 pass\n"),
       edit("/Users/you/src/atlas-web/src/backoff.ts", "export const backoff = 100;\n", "export const backoff = 250;\n"),
@@ -55,7 +57,12 @@ const runs = [
 function RunEditCountsGallery({ look, mode }: Props) {
   useEffect(() => resetTranscriptDisclosure(SESSION), []);
   return (
-    <main className="run-edit-counts-gallery acpmux-conversation" data-mode={mode} data-look={look} data-run-edit-counts>
+    <main
+      className="run-edit-counts-gallery acpmux-conversation"
+      data-mode={mode}
+      data-look={look}
+      data-run-edit-counts
+    >
       {runs.map((row) => (
         <section key={row.id} className="run-edit-counts-gallery__row" data-run={row.id}>
           <ToolRows row={row} sessionId={SESSION} />
@@ -89,7 +96,11 @@ export default componentEntry<Props>({
   variants: {
     before: variant("before", "light", "Before: the run's line names its work and no totals."),
     inline: variant("inline", "light", "Shipped: +N/-N right after the summary; the summary cuts, the totals stay."),
-    "inline-dark": variant("inline", "dark", "Shipped: +N/-N right after the summary; the summary cuts, the totals stay."),
+    "inline-dark": variant(
+      "inline",
+      "dark",
+      "Shipped: +N/-N right after the summary; the summary cuts, the totals stay.",
+    ),
     trailing: variant("trailing", "light", "Totals at the row's trailing edge, before the chevron."),
     "added-only": variant("added-only", "light", "Added lines only, as Claude Code's collapsed row reads."),
   },
