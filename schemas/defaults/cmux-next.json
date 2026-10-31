@@ -6795,7 +6795,7 @@
     "tunable.server.panel.style": "compact",
     "tunable.settings.diagnosticToast": "toast",
     "tunable.settings.presentation": "pane",
-    "tunable.sidebar.agentMark": "off",
+    "tunable.sidebar.agentMark": "besideTitle",
     "tunable.sidebar.allChats.design": "age",
     "tunable.sidebar.collapseMotion": "slide",
     "tunable.sidebar.doneFold": true,
