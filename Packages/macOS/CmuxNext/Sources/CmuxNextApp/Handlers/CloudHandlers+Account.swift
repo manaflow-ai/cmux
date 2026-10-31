@@ -524,9 +524,12 @@ extension CloudHandlers {
                     // The machine list loads after sign-in; a machine action replayed before it lands finds no machine.
                     await pending.perform(expected: expected, signIn: {
                         guard await cloud.auth.signIn() else { return false }
-                        // A list read for this account, or a fresh read that supersedes one in flight; a failed
-                        // read still replays, so the action reports its own error instead of nothing.
-                        if !cloud.hasCurrentList(within: .seconds(30)) { _ = await cloud.refresh() }
+                        // A list read for this account, else a fresh read; one a newer read superseded (the
+                        // sign-in's own refresh) is read once more. A failed read still replays, so the action
+                        // reports its own error instead of nothing.
+                        for _ in 0..<2 where !cloud.hasCurrentList(within: .seconds(30)) && cloud.isSignedIn {
+                            if await cloud.refresh() { break }
+                        }
                         return true
                     }, resume: {
                         guard let registry, cloud.isSignedIn else { return }
