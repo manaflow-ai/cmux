@@ -32,6 +32,12 @@ import UserNotifications
         #expect(decide(NotificationRoute(kind: "question", mac: "m", sessionID: "s"), chat: chat, workspaces: [ws]) == .chat(chat))
     }
 
+    /// The Mac's agent tree can arrive before the workspace list has updated.
+    /// The Mac-scoped resolver already establishes ownership in that interval.
+    @Test func aSessionChatCanOpenBeforeItsWorkspaceCacheArrives() {
+        #expect(decide(NotificationRoute(kind: "question", mac: "m", sessionID: "s"), chat: chat) == .chat(chat))
+    }
+
     /// Two Macs can retain a copy of the same conversation, or a notification
     /// can name a stale session. Its Mac id outranks a coincidentally matching
     /// chat id on another machine.
