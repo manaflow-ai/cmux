@@ -1,5 +1,4 @@
 import CmuxNextAgentPane
-import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 
@@ -11,10 +10,6 @@ import Foundation
 /// from anywhere else on this Mac, and the machine can't start an upload.
 @MainActor
 final class CloudUploads {
-    /// A staged upload's chunk: each write is this size at most, whatever the file's size (there is
-    /// no size limit on a file or a batch).
-    nonisolated static let stageChunkBytes = 512 * 1024
-    private static let stageLifetime: TimeInterval = 10 * 60
     /// `cmux-pastes` in the temporary folder the upload CLI (a child of this app, with its
     /// environment) resolves: `TMPDIR`. Nil without one (the CLI would look elsewhere): no upload.
     nonisolated static var pastes: URL? {
@@ -30,27 +25,8 @@ final class CloudUploads {
         var binary: URL
     }
 
-    private struct Stage {
-        var target: Target
-        var folder: URL
-        var file: URL
-        var name: String
-        var size: Int
-        var received: Int
-        var expires: Date
-        var batchToken: String?
-        var cleanup: Task<Void, Never>?
-    }
-
-    private var stages: [String: Stage] = [:]
-    /// A stage remains owned while its remote transfer is in flight.  Keeping the task here lets a
-    /// cancel request stop the transfer and lets expiry skip files that are still being consumed.
-    private var finishTasks: [String: Task<CloudAccessCLI.Answer, Never>] = [:]
-    private struct Batch { var target: Target; var authorization: AgentPaneUploadBatch }
-    private var batches: [String: Batch] = [:]
-    /// One deadline for the earliest stage expiry, so an abandoned stage's folder is removed
-    /// without a sleeping task per stage (plans/cmux-next/idle-wakeups.md).
-    private let expiryTimer = DemandTimer(owner: "CloudUploads.stageExpiry")
+    /// This Mac's staged Cloud uploads: files of any size, in `cmux-pastes` until the machine has them.
+    private let stages = AgentPaneStagedUploads<Target>(owner: "CloudUploads.stageExpiry")
 
     /// The upload for chat tab `tab`, nil unless it is a live moved chat on a connected machine. The
     /// upload looks the chat up again when it runs.
@@ -125,77 +101,55 @@ final class CloudUploads {
     }
 
     private func stage(_ request: AgentPaneUploadStageRequest, tab: String, session: String, services: AppServices) async -> [String: Any] {
-        await purgeStages(work: services.work)
+        let failed = AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed)
+        await stages.purge(work: services.work)
+        let owns = { (staged: Target) in staged.chat.session == session }
+        // Every step but a cancel needs the tab to show the chat still.
+        let current = { Self.target(tab: tab, services: services).flatMap { $0.chat.session == session ? $0 : nil } }
         switch request {
         case .begin(let name, let size, let batchToken, let manifest):
+            guard let found = current() else { return failed }
             let target: Target
             if let batchToken {
-                guard let batch = batches[batchToken], batch.target.chat.session == session,
-                      batch.authorization.accepts(name: name, size: size),
-                      let current = Self.target(tab: tab, services: services), current.chat.session == batch.target.chat.session,
-                      current.machine.machineID == batch.target.machine.machineID, current.remoteRoot == batch.target.remoteRoot else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
-                target = batch.target
-            } else {
-                guard let found = Self.target(tab: tab, services: services), found.chat.session == session else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
-                target = found
-            }
-            guard target.chat.session == session else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
+                guard let batch = stages.batchTarget(batchToken, name: name, size: size), owns(batch),
+                      found.machine.machineID == batch.machine.machineID, found.remoteRoot == batch.remoteRoot else { return failed }
+                target = batch
+            } else { target = found }
             if let refusal = Self.beginRefusal(name: name, size: size, manifest: batchToken == nil ? manifest : nil) { return refusal }
-            guard let pastes = Self.pastes else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
-            let token = UUID().uuidString.lowercased(), folder = pastes.appendingPathComponent("staged-" + token, isDirectory: true)
-            let file = folder.appendingPathComponent(name, isDirectory: false)
-            do {
-                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-                guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) }
-            } catch { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
-            let batchID: String?
-            if let batchToken { batchID = batchToken }
-            else if let manifest {
-                let id = UUID().uuidString.lowercased()
-                batches[id] = Batch(target: target, authorization: AgentPaneUploadBatch(manifest))
-                batchID = id
-            } else { batchID = nil }
-            if let batchID { batches[batchID]?.authorization.begin(name: name, size: size, stage: token) }
-            stages[token] = Stage(target: target, folder: folder, file: file, name: name, size: size, received: 0, expires: Date().addingTimeInterval(Self.stageLifetime), batchToken: batchID, cleanup: nil)
-            armExpiry(work: services.work)
-            var response: [String: Any] = ["token": token, "size": size, "chunkSize": Self.stageChunkBytes]
-            if let batchID { response["batchToken"] = batchID }
+            guard let pastes = Self.pastes else { return failed }
+            let begun = stages.begin(name: name, size: size, batchToken: batchToken, manifest: manifest, target: target, work: services.work) { token in
+                let folder = pastes.appendingPathComponent("staged-" + token, isDirectory: true)
+                let file = folder.appendingPathComponent(name, isDirectory: false)
+                do {
+                    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+                    guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) }
+                } catch {
+                    try? FileManager.default.removeItem(at: folder)
+                    return nil
+                }
+                return (file, folder)
+            }
+            guard let begun else { return failed }
+            var response: [String: Any] = ["token": begun.token, "size": size, "chunkSize": AgentPaneStagedUploads<Target>.chunkBytes]
+            if let batch = begun.batchToken { response["batchToken"] = batch }
             return AgentPaneReply.success(response)
         case .chunk(let token, let offset, let data):
-            guard var stage = stages[token], finishTasks[token] == nil, stage.cleanup == nil, stage.target.chat.session == session, stage.received == offset,
-                  let current = Self.target(tab: tab, services: services), current.chat.session == stage.target.chat.session,
-                  data.count <= Self.stageChunkBytes, data.count <= stage.size - offset else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
-            do {
-                let handle = try FileHandle(forWritingTo: stage.file)
-                try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close()
-            } catch { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
-            stage.received += data.count; stage.expires = Date().addingTimeInterval(Self.stageLifetime); stages[token] = stage
-            armExpiry(work: services.work)
-            return AgentPaneReply.success(["offset": stage.received])
+            guard current() != nil, let received = stages.chunk(token, offset: offset, data: data, owns: owns, work: services.work) else { return failed }
+            return AgentPaneReply.success(["offset": received])
         case .finish(let token):
-            guard let stage = stages[token], stage.target.chat.session == session,
-                  let current = Self.target(tab: tab, services: services), current.chat.session == stage.target.chat.session,
-                  stage.received == stage.size, finishTasks[token] == nil, stage.cleanup == nil else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
-            let task = Task { () -> CloudAccessCLI.Answer in
-                let answer: CloudAccessCLI.Answer
-                if let socket = await stage.target.machine.daemon.connection?.endpoint?.socketPath {
-                    answer = (try? await CloudAccessCLI(binary: stage.target.binary).upload(socket: socket, remoteRoot: stage.target.remoteRoot, files: [stage.file.path])) ?? CloudAccessCLI.Answer(ok: false, errorCode: "upload_failed")
-                } else { answer = CloudAccessCLI.Answer(ok: false, errorCode: "link_error") }
-                await removeStage(token, work: services.work)
-                return answer
+            guard current() != nil else { return failed }
+            let done = await stages.finish(token, owns: owns, work: services.work) { staged -> (answer: CloudAccessCLI.Answer, name: String) in
+                let target = staged.target
+                guard let socket = await target.machine.daemon.connection?.endpoint?.socketPath else {
+                    return (CloudAccessCLI.Answer(ok: false, errorCode: "link_error"), staged.name)
+                }
+                let answer = try? await CloudAccessCLI(binary: target.binary).upload(socket: socket, remoteRoot: target.remoteRoot, files: [staged.file.path])
+                return (answer ?? CloudAccessCLI.Answer(ok: false, errorCode: "upload_failed"), staged.name)
             }
-            finishTasks[token] = task
-            armExpiry(work: services.work)
-            let answer = await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
-            return Self.reply(answer, names: [stage.name], services: services)
+            guard let done else { return failed }
+            return Self.reply(done.answer, names: [done.name], services: services)
         case .cancel(let token):
-            guard let stage = stages[token], stage.target.chat.session == session else { return AgentPaneReply.success() }
-            if let task = finishTasks[token] {
-                task.cancel()
-                _ = await task.value
-                return AgentPaneReply.success()
-            }
-            await removeStage(token, work: services.work)
+            await stages.cancel(token, owns: owns, work: services.work)
             return AgentPaneReply.success()
         }
     }
@@ -204,55 +158,8 @@ final class CloudUploads {
     /// `manifest` (nil for a lone file or a later file of a batch), or nil when the begin is well formed.
     /// No size is too large: a file or a batch of any size is taken.
     static func beginRefusal(name: String, size: Int, manifest: [AgentPaneUploadBatchEntry]?) -> [String: Any]? {
-        guard size >= 0 else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
-        if let manifest {
-            guard manifest.first?.name == name, manifest.first?.size == size,
-                  manifest.allSatisfy({ $0.size >= 0 }) else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
-        }
-        return nil
-    }
-
-    private func removeStage(_ token: String, work: BackgroundWork) async {
-        if let cleanup = stages[token]?.cleanup { await cleanup.value; return }
-        guard let stage = stages[token] else { return }
-        let folder = stage.folder
-        // task-owner: one awaited unlink on the file lane, independent of a cancelled transfer.
-        let cleanup = Task(priority: WorkPriority.userBlocking.taskPriority) { @MainActor in
-            _ = try? await work.run(.userBlocking, mayBlock: .files, shutdown: .blockShutdown) {
-                try? FileManager.checked.removeItem(at: folder)
-            }
-            stages.removeValue(forKey: token)
-            finishTasks.removeValue(forKey: token)
-            if let batchToken = stage.batchToken {
-                batches[batchToken]?.authorization.release(stage: token)
-                if batches[batchToken]?.authorization.isComplete == true { batches.removeValue(forKey: batchToken) }
-            }
-            armExpiry(work: work)
-        }
-        stages[token]?.cleanup = cleanup
-        armExpiry(work: work)
-        await cleanup.value
-    }
-
-    private func purgeStages(work: BackgroundWork) async {
-        let expired = stages.filter { finishTasks[$0.key] == nil && $0.value.cleanup == nil && $0.value.expires < Date() }.map(\.key)
-        for token in expired { await removeStage(token, work: work) }
-        batches = batches.filter { $0.value.authorization.isAlive() }
-    }
-
-    /// One deadline for ownerless batches and idle stages; an active transfer retains its batch.
-    private func armExpiry(work: BackgroundWork) {
-        let stageDeadlines = stages.compactMap { finishTasks[$0.key] == nil && $0.value.cleanup == nil ? $0.value.expires : nil }
-        let batchDeadlines = batches.values.compactMap { $0.authorization.abandonmentDeadline }
-        guard let next = (stageDeadlines + batchDeadlines).min() else { expiryTimer.cancel(); return }
-        expiryTimer.schedule(after: .seconds(max(1, next.timeIntervalSinceNow))) { @MainActor [weak self] in
-            guard let self else { return }
-            // task-owner: one timer-fired cleanup; rearmed after awaited file removal, no repeating task.
-            Task { @MainActor in
-                await purgeStages(work: work)
-                armExpiry(work: work)
-            }
-        }
+        AgentPaneStagedUploads<Target>.acceptsBegin(name: name, size: size, manifest: manifest)
+            ? nil : AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed)
     }
 
     /// Writes each file owner-only to `folder/<index>/<name>` (its own folder, so two files may share
