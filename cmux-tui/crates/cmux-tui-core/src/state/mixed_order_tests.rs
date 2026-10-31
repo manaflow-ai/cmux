@@ -35,8 +35,12 @@ fn group(mux: &Arc<Mux>, name: &str) -> String {
 /// A group made with an explicit index, so it forms after every loose row
 /// (with none it forms below Home under `workspaces.newPlacement` top).
 fn group_after_loose_rows(mux: &Arc<Mux>, name: &str) -> String {
-    mutate(mux, "workspace_group.create", json!({"name": name, "index": 0}), &format!("group-{name}"))
-        ["id"]
+    mutate(
+        mux,
+        "workspace_group.create",
+        json!({"name": name, "index": 0}),
+        &format!("group-{name}"),
+    )["id"]
         .as_str()
         .unwrap()
         .to_string()
@@ -337,6 +341,7 @@ fn before_current_goes_below_a_group_right_above_the_current_row() {
     let ids = [&a, &b, &w, &n].map(String::as_str);
     let [a, b, w, n] = ids;
     assert_eq!(listed(&mux, Some("personal"), &ids), [a, w, n, b]);
+    assert_eq!(listed(&mux, None, &ids), [a, w, n, b], "the sidebar document agrees");
     let groups = read(&mux, "workspace_group.list", json!({}));
     assert_eq!(groups[0]["top_index"], 1, "Work still shows right after a");
     mux.shutdown();

@@ -258,6 +258,9 @@ fn place_created_rows(
     } else {
         None
     };
+    // `beforeCurrent` beside a loose current row: the groups slotted right
+    // above that row stay above the new rows, as the app draws them.
+    let mut below_groups: Option<(&str, &str)> = None;
     let slot = match placement {
         NewWorkspacePlacement::Bottom => match in_group {
             Some((_, group)) => Some(end_of_group_slot(transaction, &local, &placed, group)?),
@@ -270,7 +273,12 @@ fn place_created_rows(
         NewWorkspacePlacement::BeforeCurrent | NewWorkspacePlacement::AfterCurrent => {
             let after = placement == NewWorkspacePlacement::AfterCurrent;
             match beside_current_slot(transaction, &local, &placed, current, after)? {
-                Some(slot) => Some(slot),
+                Some(slot) => {
+                    if !after && slot.1.is_none() {
+                        below_groups = current.map(|current| (local.as_str(), current));
+                    }
+                    Some(slot)
+                }
                 None => Some(top_slot(transaction, &local, &placed)?),
             }
         }
@@ -288,6 +296,10 @@ fn place_created_rows(
         return Ok(());
     };
     let groups_before = read_groups(transaction)?;
+    let current_position = match below_groups {
+        Some((session, key)) => row_position(transaction, session, key)?,
+        None => None,
+    };
     for (offset, key) in placed.iter().enumerate() {
         WorkspaceRegistry::move_personal_row_in(transaction, &local, key, index + offset)?;
         if group.is_some() {
@@ -295,6 +307,18 @@ fn place_created_rows(
                 "UPDATE personal_workspaces SET group_id = ?3
                  WHERE session_id = ?1 AND workspace_key = ?2",
                 params![local, key, group],
+            )?;
+        }
+    }
+    if let (Some(current), Some(first)) = (current_position, placed.first()) {
+        // Moving a row lands it before the groups at its new place; a group
+        // that showed right before the current row keeps showing before the
+        // first new row instead.
+        if let Some(first) = row_position(transaction, &local, first)? {
+            transaction.execute(
+                "UPDATE personal_groups SET top_position = ?1
+                 WHERE top_position > ?1 AND top_position <= ?2",
+                params![first, current],
             )?;
         }
     }
@@ -318,6 +342,21 @@ fn place_created_rows(
         super::closed_history_store::queue_change(transaction, &change)?;
     }
     Ok(())
+}
+
+/// The personal position of `session`/`key`'s row, if it has one.
+fn row_position(
+    transaction: &Transaction<'_>,
+    session: &str,
+    key: &str,
+) -> anyhow::Result<Option<i64>> {
+    Ok(transaction
+        .query_row(
+            "SELECT position FROM personal_workspaces WHERE session_id = ?1 AND workspace_key = ?2",
+            params![session, key],
+            |row| row.get(0),
+        )
+        .optional()?)
 }
 
 fn queue_placement(transaction: &Transaction<'_>, local: &str, key: &str) -> anyhow::Result<()> {
