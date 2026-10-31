@@ -2,12 +2,13 @@ public import CmuxHomeCore
 
 /// My archived and deleted Chiefs, as Home's list and page see them: their conversations leave the
 /// list (the history stays with the owner, read-only), and the page never opens one by itself.
-public nonisolated struct HomeArchivedChiefs: Sendable {
+public struct HomeArchivedChiefs {
     /// The archived and deleted Chiefs' agent ids (`HomeDirectory.archivedChiefs`).
     public var ids: Set<String>
     /// The signed-in person, never taken for the Chief of a conversation.
     public var me: ParticipantID?
 
+    /// `ids`: the archived and deleted Chiefs (`HomeDirectory.archivedChiefs`); `me`: the signed-in person.
     public init(_ ids: Set<String>, me: ParticipantID?) {
         self.ids = ids
         self.me = me
