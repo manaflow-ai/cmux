@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileAgentChat
+import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileModel
 import OSLog
@@ -56,6 +57,14 @@ extension NotificationTarget {
         }
     }
 
+    /// Home links carry only the conversation id. Resolve it against the
+    /// currently loaded Cloud Chief, Mac Chief and Mac Home list; an absent
+    /// conversation is never silently replaced with a different Chief.
+    static func knowsHomeConversation(_ id: String, macChief: String?, cloudChief: String?,
+                                      homeChief: String?, homeRows: Set<String>) -> Bool {
+        id == macChief || id == cloudChief || id == homeChief || homeRows.contains(id)
+    }
+
     /// The harness a reported agent names, or nil for one we do not know
     /// (the Mac's `DeepLink.knownHarness`; Claude Code's hooks may say `claude-code`).
     static func knownHarness(_ agent: String?) -> String? {
@@ -80,6 +89,22 @@ extension ShellModel {
         cancelRestore()
         let target = NotificationTarget.resolve(link, workspaces: store.activeWorkspaces) { [live] session in
             live?.destination(sessionID: session, workspaceID: nil, tabID: nil)
+        }
+        if case .conversation(let conversationID, _) = link.target {
+            let sources = ChiefSources.shared
+            let feed = MacHomeFeed.shared
+            let known = NotificationTarget.knowsHomeConversation(
+                conversationID, macChief: sources.mac.conversationID, cloudChief: sources.cloud.conversationID,
+                homeChief: feed.macChiefID, homeRows: Set(feed.rows?.map(\.id) ?? []))
+            if !known {
+                // The Mac Home list and Cloud Chief may still be loading on a
+                // cold launch. Wait for the route's bounded budget, then say
+                // which link failed instead of opening an unrelated Chief.
+                if !NotificationRouter.shared.isExpired() { return false }
+                toast = NotificationTarget.linkNotFoundToast()
+                theme.haptics.error()
+                return true
+            }
         }
         guard let target else {
             if !NotificationRouter.shared.isExpired(), macsStillLoading { return false }
