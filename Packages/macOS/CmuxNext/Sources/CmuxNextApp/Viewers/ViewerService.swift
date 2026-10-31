@@ -86,23 +86,30 @@ final class ViewerService {
     /// repository in its recents (`DiffRecents`, `cmux.diff.recents`).
     /// `onPaneMachine`: `directory` is a folder of `pane`'s machine (``DiffViewerOpening``).
     func openDiff(_ directory: String, turn: DiffTurn? = nil, showTurn: Bool = false, in pane: PaneController, focus: Bool,
-                  onPaneMachine: Bool = false, created: (@MainActor (SurfaceID) -> Void)? = nil) async throws {
+                  onPaneMachine: Bool = false, created: (@MainActor (SurfaceID) -> Void)? = nil,
+                  failed: (@MainActor ((any Error)?) -> Void)? = nil) async throws {
         try await diffViewer.openDiff(directory: directory, turn: turn, showTurn: showTurn, in: pane, focus: focus,
-                                      onPaneMachine: onPaneMachine, created: created)
+                                      onPaneMachine: onPaneMachine, created: created, failed: failed)
     }
 
     /// The picker's folder mode for the diff viewer. `beside`: the placement of a diff opened beside
     /// a chat (the header's Changes), made when the folder is picked; else the diff opens focused in `pane`.
     func diffPickerPage(for pane: PaneController,
-                        beside: (@MainActor () -> @MainActor (SurfaceID) -> Void)? = nil) -> PalettePageSpec {
+                        beside: (@MainActor () -> AgentBesidePlacement.Opening)? = nil) -> PalettePageSpec {
         picker.openPage(.init(choose: .folders, startDirectory: Self.start(for: pane), recents: [.diff])) { [weak self, weak pane] urls in
             guard let self, let pane, let folder = urls?.first else { return }
             // One diff open at a time: a newer choice cancels the one before.
             self.diffOpen?.cancel()
-            let created = beside?()
+            let opening = beside?()
             self.diffOpen = Task { @MainActor [weak self, weak pane] in
                 guard let self, let pane else { return }
-                do { try await self.openDiff(folder.path, in: pane, focus: created == nil, created: created) } catch {
+                do {
+                    try await self.openDiff(folder.path, in: pane, focus: opening == nil, created: opening?.created, failed: { [weak self] error in
+                        opening?.failed(nil)
+                        if let error { self?.showRefusal(Self.reason(error)) }
+                    })
+                } catch {
+                    opening?.failed(nil)
                     if !Task.isCancelled { self.showRefusal(Self.reason(error)) }
                 }
                 // A cancelled open leaves the handle to the one that replaced it.

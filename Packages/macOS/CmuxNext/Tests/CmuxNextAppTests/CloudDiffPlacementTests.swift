@@ -93,4 +93,40 @@ struct CloudDiffPlacementTests {
         #expect(start.duration(to: .now) < .seconds(5), "repository refusal waited for an impossible tab")
         #expect(!failures.contains { $0.message.contains("new tab did not open") })
     }
+    @Test(arguments: [false, true])
+    func failedBesideOpenCompletesWithoutAWait(_ newColumn: Bool) async throws {
+        let fixture = try await PalettePickerSourcesTests.fixture()
+        defer { fixture.close() }
+        let services = fixture.services
+        let pane = try #require(fixture.controller.focusedPane)
+        var invocation = ActionInvocation(origin: .cli)
+        invocation.besideCaller = true
+        invocation.newColumnBeside = newColumn
+        var opening: AgentBesidePlacement.Opening?
+        let work = services.registry.capturingWork { opening = AgentBesidePlacement.opening(invocation, in: pane, then: nil) }
+        opening?.failed("expected creation failure")
+        // A late success after failure cannot select or move a tab.
+        opening?.created(1)
+        for task in work { #expect(await task.value?.message == "expected creation failure") }
+        #expect(pane.pendingSelectSurface == nil)
+    }
+
+    @Test func unsupportedBesideDiffRefusesWithoutAnAppOnlyFallback() async throws {
+        let fixture = try await PalettePickerSourcesTests.fixture()
+        defer { fixture.close() }
+        let services = fixture.services
+        let pane = try #require(fixture.controller.focusedPane)
+        var invocation = ActionInvocation(origin: .cli)
+        invocation.besideCaller = true
+        invocation.newColumnBeside = true
+        let work = services.registry.capturingWork {
+            let opening = AgentBesidePlacement.opening(invocation, in: pane, then: nil)
+            let key = services.viewers.diffPages.open(repository: DiffRepository(root: "/missing", branch: nil, base: nil),
+                in: pane, focus: false, created: opening.created,
+                failed: { opening.failed($0.map { ActionWorkFailure("open diff", $0) }) })
+            #expect(!services.pages.tabIDs(in: pane.paneKey).contains(key))
+        }
+        for task in work { #expect(await task.value?.message.contains("page-tabs-v1") == true) }
+    }
+
 }
