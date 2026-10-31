@@ -48,7 +48,7 @@ pub(super) fn headline(reply: &str) -> String {
         let one_line = reply.split_whitespace().collect::<Vec<_>>().join(" ");
         return first_sentence(&one_line, HEADLINE_CHARS);
     };
-    let sha = &verdict.sha[..12];
+    let sha = verdict.sha.get(..12).unwrap_or(&verdict.sha);
     let counts = verdict.counts;
     if counts.total() == 0 {
         return format!("{} at {sha} · no findings", verdict.kind);
@@ -70,7 +70,7 @@ pub(super) fn excerpt(reply: &str) -> String {
     let Some(verdict) = verdict(reply) else {
         return bounded_lines(reply);
     };
-    bounded_lines(&reply[verdict.end..])
+    bounded_lines(reply.get(verdict.end..).unwrap_or_default())
 }
 
 fn verdict(reply: &str) -> Option<ReviewVerdict> {
@@ -78,7 +78,7 @@ fn verdict(reply: &str) -> Option<ReviewVerdict> {
     let whole = marker.get(0)?;
     let kind = marker.get(1)?.as_str().to_ascii_uppercase();
     let sha = marker.get(2)?.as_str().to_ascii_lowercase();
-    let tail = &reply[whole.end()..];
+    let tail = reply.get(whole.end()..).unwrap_or_default();
     let counts = count_findings(tail);
     Some(ReviewVerdict { kind, sha, counts, end: whole.end() })
 }
@@ -134,13 +134,13 @@ fn first_sentence(text: &str, max: usize) -> String {
             if !matches!(ch, '.' | '!' | '?') {
                 return None;
             }
-            let rest = &text[index + ch.len_utf8()..];
+            let rest = text.get(index + ch.len_utf8()..).unwrap_or_default();
             let rest = rest.trim_start_matches('*').trim_start_matches('_');
             (rest.is_empty() || rest.starts_with(char::is_whitespace))
                 .then_some(index + ch.len_utf8())
         })
         .unwrap_or(text.len());
-    shorten_words(&text[..end], max)
+    shorten_words(text.get(..end).unwrap_or(text), max)
 }
 
 fn shorten_words(text: &str, max: usize) -> String {
@@ -148,10 +148,11 @@ fn shorten_words(text: &str, max: usize) -> String {
         return text.trim().to_owned();
     }
     let end = text.char_indices().nth(max).map_or(text.len(), |(index, _)| index);
+    let prefix = text.get(..end).unwrap_or(text);
     let boundary =
-        text[..end].char_indices().rfind(|(_, ch)| ch.is_whitespace()).map(|(index, _)| index);
+        prefix.char_indices().rfind(|(_, ch)| ch.is_whitespace()).map(|(index, _)| index);
     match boundary {
-        Some(index) if index > 0 => text[..index].trim_end().to_owned(),
+        Some(index) if index > 0 => prefix.get(..index).unwrap_or(prefix).trim_end().to_owned(),
         _ => text.chars().take(max).collect(),
     }
 }
@@ -173,6 +174,12 @@ mod tests {
     fn ship_none_has_compact_headline() {
         let reply = "Review (Sol): SHIP at ABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCD\nNone";
         assert_eq!(headline(reply), "SHIP at abcdefabcdef · no findings");
+    }
+
+    #[test]
+    fn short_review_sha_has_compact_headline() {
+        let reply = "Review (Sol): SHIP at abc123\nNone";
+        assert_eq!(headline(reply), "SHIP at abc123 · no findings");
     }
 
     #[test]
