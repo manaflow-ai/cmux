@@ -93,6 +93,27 @@ struct CloudStartChatMachineTests {
         #expect(CloudStartChat.destination(for: UUID().uuidString, destinations: destinations, candidates: later, user: Self.me) { _ in true } == .machine("vm-b"))
     }
 
+    /// Router review at 2a315af: a team switch keeps the user signed in and the previous team's
+    /// machines in the store until the new list lands. A send's pin belongs to the account it was
+    /// sent in, and a send copies nothing while the account changed or its list is not current.
+    @Test func aSendNeverGoesToAMachineOfTheTeamItWasNotSentIn() throws {
+        let destinations = CloudStartChat.Destinations()
+        let key = UUID().uuidString
+        let teamA: [String?] = [Self.me, "team-a"], teamB: [String?] = [Self.me, "team-b"]
+        destinations.record("vm-a", for: CloudStartChat.pinKey(key, account: teamA))
+        // In team B the same send has no pin: it picks among team B's own machines.
+        let teamBMachines = [Self.machine("vm-b", "spare-b")]
+        #expect(CloudStartChat.destination(for: CloudStartChat.pinKey(key, account: teamB), destinations: destinations,
+                                           candidates: teamBMachines, user: Self.me) { $0 == "vm-b" } == .machine("vm-b"))
+        // Back in team A, the retry finds its first try's machine.
+        #expect(destinations.machine(for: CloudStartChat.pinKey(key, account: teamA)) == "vm-a")
+
+        try CloudStartChat.checkAccount(teamA, now: teamA, listCurrent: true)
+        #expect(throws: CloudMove.Failure.self) { try CloudStartChat.checkAccount(teamA, now: teamB, listCurrent: true) }
+        #expect(throws: CloudMove.Failure.self) { try CloudStartChat.checkAccount(teamA, now: teamA, listCurrent: false) }
+        #expect(throws: CloudMove.Failure.self) { try CloudStartChat.checkAccount(teamA, now: [nil, nil], listCurrent: true) }
+    }
+
     @Test func aRetryWhoseMachineIsGonePicksAfreshAndARetryOfANewMachineStaysOnIt() {
         let destinations = CloudStartChat.Destinations()
         let key = UUID().uuidString

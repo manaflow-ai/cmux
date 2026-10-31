@@ -106,11 +106,14 @@ struct CloudStartChat {
         let move = CloudMove(services: services)
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
         // This person's free machine (or one for chats), else a new one; a retry stays on its first try's (+Machine).
-        let machine = try await self.machine(for: start, invocation: invocation) { await CloudChatPick(services: services).read(folder: chat, tab: tab) }
+        let account = services.cloud.account
+        let machine = try await self.machine(for: start, account: account, invocation: invocation) { await CloudChatPick(services: services).read(folder: chat, tab: tab) }
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
         guard let socket = await machine.daemon.connection?.endpoint?.socketPath else {
             throw CloudMove.Failure(message: CloudMoveStrings.notConnected(name))
         }
+        // The account may have changed while the machine connected: copy nothing then.
+        try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         // A retry whose copy finished opens its chat (by its tab key) without copying again: a
         // second push would overwrite what the chat already changed there.

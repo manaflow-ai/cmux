@@ -206,12 +206,32 @@ extension CloudStartChat {
         return pick(candidates, user: user, used: destinations.machines).map(Destination.machine) ?? .new
     }
 
+    /// The key a send's machine is pinned under: the send's key in the account (user and team) it
+    /// was sent in. A team switch keeps the user signed in, so a pin from the previous team is never
+    /// this team's machine, and switching back finds it again.
+    static func pinKey(_ key: String, account: [String?]) -> String {
+        key + "@" + account.map { $0 ?? "" }.joined(separator: "/")
+    }
+
+    /// Refuses a send whose account changed since it began (`asked`), or whose machine list is not
+    /// the server's answer for the account signed in now (`listCurrent`): after a team switch the
+    /// previous team's machines stay in the store until that list lands, and the chat's folder must
+    /// never be copied to one of them.
+    static func checkAccount(_ asked: [String?], now: [String?], listCurrent: Bool) throws {
+        guard asked == now else { throw CloudMove.Failure(message: CloudMoveStrings.startChatAccountChanged) }
+        guard listCurrent else { throw CloudMove.Failure(message: CloudMoveStrings.startChatListUnread) }
+    }
+
     /// The machine for the send `start`, connected (``destination(for:destinations:candidates:user:exists:)``);
     /// a new one is named for chats and sized for the chat (`pick`). Pins the send to it before
-    /// anything runs there, so a retry of the send names it.
-    func machine(for start: AgentPaneCloudStart, invocation: ActionInvocation,
+    /// anything runs there, so a retry of the send names it. Only a machine of the list the server
+    /// answered for `account`, the account the send began in (``checkAccount(_:now:listCurrent:)``).
+    func machine(for start: AgentPaneCloudStart, account: [String?], invocation: ActionInvocation,
                  pick: () async -> CloudWorkPick?) async throws -> CloudMachineSession {
         let destinations = services.cloud.startChatDestinations, machines = services.machines, cloud = services.cloud
+        if !cloud.hasLoadedCurrentMachines { await cloud.refresh() }
+        try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
+        let pin = Self.pinKey(start.key, account: account)
         let candidates = machines.cloud.map { session in
             let connected = session.daemon.connection != nil
             let chats = connected
@@ -220,19 +240,19 @@ extension CloudStartChat {
             return Candidate(id: session.machineID, title: session.machine.title, slug: session.machine.slug, createdBy: session.machine.createdBy,
                              status: session.machine.status, pauseReason: session.machine.pauseReason, connected: connected, chats: chats)
         }
-        let destination = Self.destination(for: start.key, destinations: destinations, candidates: candidates, user: cloud.auth.user?.id) { id in
-            cloud.hasLoadedMachines ? machines.session(id) != nil : nil
+        let destination = Self.destination(for: pin, destinations: destinations, candidates: candidates, user: cloud.auth.user?.id) { id in
+            machines.session(id) != nil
         }
         var invocation = invocation
         switch destination {
         case .machine(let id):
-            destinations.record(id, for: start.key)
+            destinations.record(id, for: pin)
             invocation.arguments["machine"] = .string(id)
         case .new:
             let created = try await cloud.createMachine(name: Self.newMachineName(taken: machines.cloud.map(\.machine.title)),
                                                         startedByPerson: invocation.origin == .user,
                                                         request: Self.createRequest(for: start, sizedFor: await pick()))
-            destinations.record(created.machineID, for: start.key)
+            destinations.record(created.machineID, for: pin)
             invocation.arguments["machine"] = .string(created.machineID)
         }
         return try await CloudMove(services: services).machine(invocation, pick: pick)
