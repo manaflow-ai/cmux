@@ -157,7 +157,7 @@ impl<B: Backend> Server<B> {
         if browser
             && !caller_scope::wants_caller(params)
             && let Ok(Some(identity)) = self.backend.identity()
-            && caller_scope::is_placed(&identity["caller"])
+            && identity.get("caller").is_some_and(caller_scope::is_placed)
         {
             crate::cli::caller_browser::apply(params, &identity)?;
         }

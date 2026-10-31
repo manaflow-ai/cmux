@@ -32,7 +32,7 @@ pub(super) fn wants(params: &Map<String, Value>) -> bool {
 /// has no browser near it, or that browser is in another session than the
 /// request's.
 pub(super) fn apply(params: &mut Map<String, Value>, identity: &Value) -> Result<bool, Value> {
-    let caller = &identity["caller"];
+    let Some(caller) = identity.get("caller") else { return Ok(false) };
     let workspace = caller.get("workspace").and_then(Value::as_str);
     if caller.get("found").and_then(Value::as_bool) == Some(false) || workspace.is_none() {
         return Ok(false);
