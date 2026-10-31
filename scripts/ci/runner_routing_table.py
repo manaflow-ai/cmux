@@ -195,7 +195,14 @@ def _picked_matrix_key(key: str, strategy: dict[str, Any], seen: frozenset[str])
         values += [row.get(key) for row in include if isinstance(row, dict) and row.get(key) is not None]
     elif include is not None:
         values.append(include)
-    return bool(values) and all(_picked_value(value, strategy, seen) for value in values)
+    # A leg on a plainly Linux or Windows label is not a macOS leg; this check is about the Mac ones.
+    mac_values = [value for value in values if not _non_mac_literal(value)]
+    return bool(mac_values) and all(_picked_value(value, strategy, seen) for value in mac_values)
+
+
+def _non_mac_literal(value: object) -> bool:
+    text = str(value if value is not None else "")
+    return not EXPRESSION.search(text) and bool(NON_MAC_HINT.search(text)) and not MACOS_HINT.search(text)
 
 
 def picked(job: dict[str, Any]) -> bool:

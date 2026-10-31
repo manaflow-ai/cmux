@@ -278,6 +278,15 @@ class RoutingTableTests(unittest.TestCase):
                                         {"w.yml#test": "apple-app-build"})
             self.assertEqual(len(problems), 1, strategy)
             self.assertIn("from a fixed label", problems[0])
+        # Review round 4: a plainly Linux or Windows leg is not a macOS leg.
+        mixed = ("    strategy:\n      matrix:\n        runner: [ubuntu-24.04, windows-2025, "
+                 "'${{ needs.pick.outputs.macos_runner }}']\n")
+        self.assertEqual(self.run_fixture({"w.yml": self.pinned_job("${{ matrix.runner }}", mixed)},
+                                          {"w.yml#test": "apple-app-build"}), [])
+        fixed_mac = "    strategy:\n      matrix:\n        runner: [ubuntu-24.04, blacksmith-6vcpu-macos-26]\n"
+        problems = self.run_fixture({"w.yml": self.pinned_job("${{ matrix.runner }}", fixed_mac)},
+                                    {"w.yml#test": "apple-app-build"})
+        self.assertIn("from a fixed label", problems[0])
         opaque = "    strategy:\n      matrix:\n        include: ${{ fromJSON(needs.pick.outputs.legs) }}\n"
         self.assertEqual(self.run_fixture({"w.yml": self.pinned_job("${{ matrix.runner }}", opaque)},
                                           {"w.yml#test": "apple-app-build"}), [])
