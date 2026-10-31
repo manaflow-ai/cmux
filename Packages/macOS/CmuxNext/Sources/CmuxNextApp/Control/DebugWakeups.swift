@@ -13,15 +13,19 @@ import Darwin
 /// - `frame_schedulers`: each window's display link, its active clients and the links it made, and the app's
 ///   budgeted scheduler (``MainWorkScheduler``: the control queue, the daemon store drain).
 /// - `processes`: cumulative CPU time and wakeups per process (diff two
-///   calls for rates; `scripts/cmux-next/bench-idle.py` does), sampled off
-///   the main actor.
+///   calls for rates; `scripts/cmux-next/bench-idle.py` does), sampled on a
+///   ``BackgroundWork`` system lane: every read is a system call (`proc_pid_rusage`,
+///   `proc_listpids`, `proc_pidpath`, `KERN_PROCARGS2`), and a diagnostic never
+///   runs one on the main thread.
 /// - `main_run_loop` (with `run_loop: true`): the main run loop's description (`CFCopyDescription`):
 ///   every mode's timers with their interval and callout, sources and observers. An idle bench reads
 ///   the repeating timers from it to name what wakes the main thread outside the ledger.
 enum DebugWakeups {
-    static func report(_ params: [String: JSONValue], budgeted: FrameScheduler) async -> JSONValue {
-        var object = await MainActor.run { mainActorPart(params, budgeted: budgeted) }
-        object["processes"] = .array(AppProcesses.sample().map(\.json))
+    static func report(_ params: [String: JSONValue], budgeted: FrameScheduler, work: BackgroundWork) async throws -> JSONValue {
+        var object = mainActorPart(params, budgeted: budgeted)
+        // A cancelled sample throws: an empty list would read as every process gone (bench-idle.py diffs two calls).
+        let processes = try await work.run(.bestEffort, mayBlock: .system) { AppProcesses.sample() }
+        object["processes"] = .array(processes.map(\.json))
         return .object(object)
     }
 
@@ -62,7 +66,8 @@ enum DebugWakeups {
 }
 
 /// This app, its Chromium helpers, and the bundled cmux-tui (daemon and
-/// terminal hosts).
+/// terminal hosts). Every function here makes system calls: call them off the
+/// main thread (``BackgroundWork``, the busy watchdog's sampling queue).
 nonisolated enum AppProcesses {
     struct Sample {
         var kind: String
