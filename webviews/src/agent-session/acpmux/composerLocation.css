@@ -71,7 +71,7 @@
   align-items: center;
   /* Keep the folder/computer pair and the optional branch on one optical rhythm.  The
      controls already carry their own hit-area insets; this is the only inter-control gap. */
-  gap: var(--acpmux-location-gap, 6px);
+  gap: var(--acpmux-location-gap, 4px);
   min-width: 0;
   height: 100%;
   margin: 0;
@@ -80,7 +80,7 @@
 }
 /* Folder and computer share the same small inter-control gap, told apart by their icons; no "·"
    floats between them against the folder's chevron. */
-.acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: var(--acpmux-location-gap, 6px); min-width: 0; flex: 1 1 0; }
+.acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: var(--acpmux-location-gap, 4px); min-width: 0; flex: 1 1 0; }
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker,
 .acpmux-composer-context > .acpmux-location-picker { flex: 0 1 auto; min-width: 0; }
 /* The folder gives up width before the computer: the computer never shrinks (even a fraction of a
@@ -217,6 +217,8 @@
 .acpmux-location-menu .acpmux-menu-item { width: 100%; text-align: left; }
 .acpmux-location-menu .ui-menu-item[data-highlighted] { background: var(--acpmux-menu-highlight); }
 .acpmux-location-menu .acpmux-menu-description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-location-name[data-warning="true"],
+.acpmux-location-name[data-warning="true"] .acpmux-menu-description { color: var(--acpmux-warning); }
 .acpmux-location-menu .ui-separator { flex: none; height: 1px; border: 0; margin: 4px 6px; background: color-mix(in srgb, var(--agent-text) 12%, transparent); }
 /* A started chat's Choose folder… under the folder field's rows (dogfood 09): a plain row, not a button face. */
 .acpmux-location-choose { border: 0; background: none; color: inherit; font: inherit; }
@@ -371,7 +373,7 @@
   font-family: var(--font-ui);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
-  cursor: pointer;
+  cursor: default;
   letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-access-grant-remove:hover { color: var(--agent-text); background: var(--agent-control-hover); }

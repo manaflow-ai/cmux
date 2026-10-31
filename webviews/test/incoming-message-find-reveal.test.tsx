@@ -113,7 +113,7 @@ test("a Find match for another row leaves the message folded", async () => {
   expect(host.querySelector("button.cv-disclosure__toggle")?.getAttribute("aria-expanded")).toBe("false");
 });
 
-test("the panel's From header is skipped by Find, so a match in the sender's name lands in the message", async () => {
+test("the panel has no From header: the line names the sender once", async () => {
   await draw("find-4", "zebra-tail");
-  expect(host.querySelector(".cv-received__from-line")?.hasAttribute("data-find-skip")).toBe(true);
+  expect(host.querySelector(".cv-received__from-line")).toBeNull();
 });

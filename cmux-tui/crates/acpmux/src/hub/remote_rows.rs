@@ -65,11 +65,13 @@ impl RemoteRows {
         let keys: Vec<String> = self
             .rows
             .iter()
-            .filter(|(_, r)| r.peer == peer && r.summary["status"] != "closed")
             .filter(|(_, r)| {
-                r.summary["status"] != "unreachable"
-                    || r.summary["stale"] != true
-                    || r.summary["lastSeen"] != json!(last_seen)
+                let status = r.summary.get("status").and_then(Value::as_str);
+                r.peer == peer
+                    && status != Some("closed")
+                    && (status != Some("unreachable")
+                        || r.summary.get("stale").and_then(Value::as_bool) != Some(true)
+                        || r.summary.get("lastSeen").unwrap_or(&Value::Null) != &json!(last_seen))
             })
             .map(|(k, _)| k.clone())
             .collect();

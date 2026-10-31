@@ -9,6 +9,8 @@ Behaviour per prompt text:
   "until-cancel" -> streams "running", then waits for session/cancel
   "until-cancel-then-exit" -> "until-cancel", then the agent exits between turns
   "deaf-to-cancel" -> streams "running", ignores session/cancel, answers end_turn after 20 s
+  "cancel-ends-turn" -> streams "running", then answers session/cancel with end_turn, not cancelled
+  "cancel-errors" -> streams "running", then answers session/cancel with an error
   "works-through-cancel" -> a tool call every 100 ms, titled "step N pid P", through every
                  session/cancel; answers end_turn after 60 s
   "answer-then-exit" -> answers, then the agent exits between turns
@@ -25,7 +27,8 @@ Its "slow-stop" turn runs until session/cancel and takes 5 s more to stop.
 FAKE_CLAUDE_STEER=1: steering as Claude Code (claude-stdio) does it. The agent
 advertises steering; a prompt while a turn runs is read into that turn and
 answered at once with stopReason "steered"; the turn runs on and its own
-prompt is answered when it ends.
+prompt is answered when it ends. With FAKE_STEER_STEP=<fifo> a steer is
+answered only once the test writes to that FIFO (the agent's next tool step).
 
 FAKE_SESSION_PREFIX=<p>: session ids are <p><n> instead of fake-<n> (an id as
 long as a real agent's, for checks that refuse short ones).
@@ -233,6 +236,12 @@ def claude_prompt(rid, params):
             claude_turns.add(sid)
     if steer:
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "steer: " + text}})
+        # FAKE_STEER_STEP=<fifo>: the steer is read at the agent's next tool step, which the
+        # test makes by writing to the FIFO, as Claude Code answers a steer only there.
+        step = os.environ.get("FAKE_STEER_STEP")
+        if step:
+            with open(step) as gate:
+                gate.read()
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "steered"}})
         return
     try:
@@ -1054,6 +1063,28 @@ def handle_prompt(rid, params):
                 return
             time.sleep(0.05)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "cancel-ends-turn" streams "running" and answers session/cancel with end_turn: an adapter
+    # that stops on a cancel but does not say its turn was cancelled (bounded at 30 s).
+    if text == "cancel-ends-turn":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        for _ in range(600):
+            if sid in cancelled:
+                cancelled.discard(sid)
+                break
+            time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "cancel-errors" streams "running" and answers session/cancel with an error, as an adapter
+    # whose interrupt fails the turn (bounded at 30 s).
+    if text == "cancel-errors":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        for _ in range(600):
+            if sid in cancelled:
+                cancelled.discard(sid)
+                break
+            time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "turn interrupted: request aborted"}})
         return
     # "works-through-cancel" ignores every session/cancel and keeps calling tools, as a harness
     # that went on working after Stop (2026-10-29): a tool call every 100 ms, each titled with

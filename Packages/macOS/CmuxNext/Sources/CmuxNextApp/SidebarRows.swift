@@ -15,6 +15,9 @@ import CmuxNextSidebar
 final class SidebarRows {
     private let model: SidebarModel
     private var live: [SidebarRowSection] = []
+    /// The sidebar document's `shownChanges` `live` was built at (nil: not from its projection): the creates'
+    /// rows that wait for the window's current row wait while `live` is a projection behind (`layoutCatchingUp`).
+    private var liveShownAt: UInt64?
     private var pending = SidebarPendingEdits()
     /// A group's fold the user asked for that the home store has not shown
     /// yet (cx-qno.17): the newest click wins over a live recompute, so a
@@ -98,19 +101,24 @@ final class SidebarRows {
     /// rows of the creates in flight (`creating`, when given). `unlessShown`: nothing to do when `live` and `creating`
     /// are what the rows show already (patches included), so a structural pass that lists nothing new sets no sections
     /// (sidebar churn: at 400 workspaces each set arranged and compared every row). A changed `elsewhere` shows again.
-    func show(_ live: [SidebarRowSection]? = nil, creating: (rows: [PendingWorkspaceRows.Row], home: String?)? = nil, unlessShown: Bool = false,
-              elsewhere: Set<String>? = nil, showAppStore: Bool? = nil) {
+    /// `shownAt`: the sidebar document's `shownChanges` `live` was built at; a newer one with creates in flight shows
+    /// again, since a create waiting for the current row may draw now.
+    func show(_ live: [SidebarRowSection]? = nil, shownAt: UInt64? = nil, creating: (rows: [PendingWorkspaceRows.Row], home: String?)? = nil,
+              unlessShown: Bool = false, elsewhere: Set<String>? = nil, showAppStore: Bool? = nil) {
         let sameVisibility = showAppStore == nil || showAppStore == self.showAppStore
         if let showAppStore { self.showAppStore = showAppStore }
         let sameElsewhere = elsewhere == nil || elsewhere == self.elsewhere
         if let elsewhere { self.elsewhere = elsewhere }
-        if unlessShown, let live, let creating, live == self.live, creating == self.creating, sameElsewhere, sameVisibility { return }
+        let reprojected = live != nil && shownAt != liveShownAt && !(creating ?? self.creating).rows.isEmpty
+        if live != nil { liveShownAt = shownAt }
+        if unlessShown, !reprojected, let live, let creating, live == self.live, creating == self.creating, sameElsewhere, sameVisibility { return }
         if let live { self.live = live }
         if let creating { self.creating = creating }
         #if DEBUG
         if let fixture { return model.setSections(fixture) }
         #endif
-        var sections = PendingWorkspaceRows.adding(self.creating.rows, to: pending.apply(to: self.live), home: self.creating.home)
+        var sections = PendingWorkspaceRows.adding(self.creating.rows, to: pending.apply(to: self.live), home: self.creating.home,
+                                                   catchingUp: layoutCatchingUp)
         for (group, fold) in folds {
             guard let (s, n) = SidebarEdits.locateGroup(group, in: sections), case var .group(shown) = sections[s].nodes[n] else { continue }
             guard shown.isCollapsed != fold.collapsed else {
@@ -124,6 +132,9 @@ final class SidebarRows {
         model.hiddenItemRefs = self.showAppStore ? [] : [.app("cmux/app-store"), .builtIn(.appStore)]
         model.setSections(sections)
     }
+
+    /// The live rows are a projection behind the sidebar document (`NewWorkspaceDefaultSlot.layoutCatchingUp`).
+    var layoutCatchingUp: Bool { NewWorkspaceDefaultSlot.layoutCatchingUp(rowsAt: liveShownAt) }
 
     /// Row content of listed workspaces changed (`SidebarRowFeed`): written in place, or shown again when it moves rows.
     func patch(_ changed: [SidebarWorkspace]) {

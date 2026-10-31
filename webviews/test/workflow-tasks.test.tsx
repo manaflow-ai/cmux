@@ -25,6 +25,7 @@ import {
   upNext,
 } from "../src/agent-session/acpmux/summary/foldWorkflows";
 import { workflowFixture } from "../src/agent-session/acpmux/summary/workflowFixture";
+import { pageClocks } from "../src/ui/pageClock";
 
 const NOW = 1_800_000_000_000;
 const summaries = (stage: "running" | "finished") => createWorkflowAdapter()(workflowFixture(stage, NOW), "s1");
@@ -303,21 +304,12 @@ test("a running workflow keeps its elapsed clock live before agent records arriv
     saved.set(key, scope[key]);
     scope[key] = value;
   }
-  const realSetInterval = globalThis.setInterval;
-  const timers: number[] = [];
-  globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => {
-    timers.push(Number(args[1]));
-    return timers.length as unknown as ReturnType<typeof setInterval>;
-  }) as unknown as typeof setInterval;
-  try {
-    const workflow = summaries("running")[0]!;
-    const container = dom.window.document.getElementById("root")!;
-    root = createRoot(container);
-    await act(async () => root!.render(<WorkflowTasks workflows={[{ ...workflow, agents: [], phases: [] }]} />));
-    expect(timers).toContain(1000);
-  } finally {
-    globalThis.setInterval = realSetInterval;
-  }
+  const workflow = summaries("running")[0]!;
+  const container = dom.window.document.getElementById("root")!;
+  root = createRoot(container);
+  await act(async () => root!.render(<WorkflowTasks workflows={[{ ...workflow, agents: [], phases: [] }]} />));
+  // The elapsed clock is the page's shared second clock (ui/pageClock.ts), running for this page.
+  expect(pageClocks().items.some((clock) => clock.name === "elapsed" && clock.running)).toBe(true);
 });
 
 test("with running and finished workflows, each group says how many it holds", () => {
