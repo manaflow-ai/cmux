@@ -474,6 +474,7 @@ impl Hub {
             full_access_device: opts.full_access_device.as_deref(),
             replaced: &replaced,
             no_queue: opts.no_queue,
+            after_turn: after_turn.is_some(),
         };
         let (turn_id, waiting, mut guard, run) =
             match self.queue_slot(session, slot, &mut accept).await {
@@ -649,7 +650,7 @@ impl Hub {
                     replaced.set(self.supersede_queued(session, key, agent.as_deref(), &prompt_id));
             }
             accept(
-                json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false}),
+                json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "state": "started"}),
             );
         }
         // The prompt is recorded and acknowledged above before the agent is started again (it
