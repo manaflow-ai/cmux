@@ -128,7 +128,7 @@ export default agentPaneEntry({
       play: openRaw,
     },
     "batch-sending": {
-      note: "A loop batch in flight: each message's row has the working spinner and the group line reads Messaging.",
+      note: "A loop batch in flight: only the group header has the working spinner; the group line reads Messaging.",
       theme: { codexToolRuns: false },
       snapshot: turn([RUNNING], true),
     },
