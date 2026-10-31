@@ -21,9 +21,12 @@ extension PageWebView {
     /// explicitly when they make the host transparent. The page's own alpha does not count: a pane
     /// clears its page while it waits for the page's first frame (loading state, move cover), and
     /// a hidden Chromium page draws no frame, so the wait would last until its give-up.
+    /// An off-screen parking view's alpha (``PageOffscreenParking``) does not count either:
+    /// a prewarmed page waits there to paint before it is adopted.
     public func setChromiumVisibility(_ requested: Bool) {
         let visible = requested && window != nil && !isHiddenOrHasHiddenAncestor
-            && sequence(first: self as NSView, next: \.superview).dropFirst().allSatisfy { $0.alphaValue > 0.001 }
+            && sequence(first: self as NSView, next: \.superview).dropFirst()
+                .allSatisfy { $0.alphaValue > 0.001 || $0 is PageOffscreenParking }
         chromiumSession?.page.setVisible(visible)
     }
 
