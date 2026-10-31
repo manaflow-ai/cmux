@@ -182,3 +182,25 @@ fn chief_acp_refuses_an_empty_prompt_and_a_cancel_ends_the_wait() {
     let (cancelled, _) = agent.answer(id);
     assert_eq!(cancelled["result"]["stopReason"], "cancelled", "{cancelled}");
 }
+
+#[test]
+fn chief_acp_answers_a_model_probe_without_opening_the_chief() {
+    // acpmux probes every ACP harness at its start (spawn, initialize, session/new, kill):
+    // that must never start or wake a Chief, so session/new opens nothing, even where no
+    // Chief conversation exists yet. The first prompt says so instead.
+    let server = HeadlessServer::start("chief-acp-probe");
+    let mut agent = Agent::start(&server);
+    agent.call("initialize", json!({"protocolVersion": 1}));
+    let (created, _) = agent.call("session/new", json!({"cwd": "/tmp", "mcpServers": []}));
+    let session = created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}"));
+    let session = session.to_owned();
+    let mut home = Conn::open(&server.socket);
+    let listed = home.request("conversation-list", json!({}));
+    assert_eq!(listed["conversations"], json!([]), "the probe made a conversation: {listed}");
+    let (refused, _) = agent.call(
+        "session/prompt",
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]}),
+    );
+    let message = refused["error"]["message"].as_str().unwrap_or_default();
+    assert!(message.contains("no Chief conversation"), "{refused}");
+}

@@ -9,7 +9,9 @@
 //! message) until the turn that answers it ends ([`super::pipe::follow`]).
 //!
 //! The Chief keeps one chat that never ends, so every ACP session is that one
-//! chat: `session/new` opens it, `session/load` takes any id. A prompt's text
+//! chat: `session/new` and `session/load` (any id) answer at once, and the
+//! link to the Chief opens at the first prompt, so acpmux's model probe
+//! (spawn, `initialize`, `session/new`, kill) never starts a Chief. A prompt's text
 //! blocks (and the text of embedded resources and links) are the message;
 //! images are not offered (`promptCapabilities.image` is false).
 //! `session/cancel` ends the wait with `cancelled`; the message stays in the
@@ -98,19 +100,12 @@ impl Out {
     }
 }
 
-/// Work for the thread that owns the Chief connection.
-enum Job {
-    /// `session/new` (no `session`) or `session/load`.
-    Open {
-        id: Value,
-        session: Option<String>,
-    },
-    Prompt {
-        id: Value,
-        session: String,
-        text: String,
-        generation: u64,
-    },
+/// A prompt for the thread that owns the Chief connection.
+struct Job {
+    id: Value,
+    session: String,
+    text: String,
+    generation: u64,
 }
 
 /// What the main thread shares with the Chief thread to cancel a prompt.
@@ -174,8 +169,17 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
                 out.result(&id, json!({}));
                 continue;
             }
-            "session/new" => Job::Open { id, session: None },
-            "session/load" => Job::Open { id, session: Some(session().unwrap_or_default()) },
+            // Answered at once: the Chief link opens at the first prompt, so acpmux's model
+            // probe (spawn, initialize, session/new, kill) never starts or wakes a Chief.
+            "session/new" => {
+                let session_id = format!("chief-{}", super::link::new_message_id());
+                out.result(&id, json!({"sessionId": session_id}));
+                continue;
+            }
+            "session/load" => {
+                out.result(&id, json!({}));
+                continue;
+            }
             "session/prompt" => {
                 let text = prompt_text(params.get("prompt"));
                 if text.trim().is_empty() {
@@ -184,7 +188,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
                 }
                 generation += 1;
                 cancel.running.store(generation, Ordering::SeqCst);
-                Job::Prompt { id, session: session().unwrap_or_default(), text, generation }
+                Job { id, session: session().unwrap_or_default(), text, generation }
             }
             other => {
                 out.error(&id, METHOD_NOT_FOUND, &format!("cmux chief acp has no method {other}"));
@@ -237,8 +241,8 @@ fn prompt_text(prompt: Option<&Value>) -> String {
     pieces.join("\n\n")
 }
 
-/// Owns the Chief connection: opens it on the first `session/new` or
-/// `session/load`, then runs each prompt to its turn's end.
+/// Owns the Chief connection: opens it at the first prompt (and again after
+/// it was lost), then runs each prompt to its turn's end.
 fn chief_thread(
     global: &GlobalArgs,
     options: &Options,
@@ -248,10 +252,7 @@ fn chief_thread(
 ) {
     let m = messages();
     let mut chief: Option<Session> = None;
-    for job in inbox {
-        let id = match &job {
-            Job::Open { id, .. } | Job::Prompt { id, .. } => id.clone(),
-        };
+    for Job { id, session: session_id, text, generation } in inbox {
         if chief.is_none() {
             if cmux_tui_core::agent_launch::disabled() {
                 out.error(&id, CHIEF_ERROR, m.agents_disabled);
@@ -270,54 +271,40 @@ fn chief_thread(
             }
         }
         let Some(session) = chief.as_mut() else { continue };
-        match job {
-            Job::Open { id, session: None } => {
-                let session_id = format!("chief-{}", super::link::new_message_id());
-                out.result(&id, json!({"sessionId": session_id}));
-            }
-            Job::Open { id, session: Some(_) } => out.result(&id, json!({})),
-            Job::Prompt { id, session: session_id, text, generation } => {
-                let (seq, message_id) = match session.send(&text) {
-                    Ok(sent) => sent,
-                    Err(error) => {
-                        out.error(
-                            &id,
-                            CHIEF_ERROR,
-                            &m.rejected.replace("{reason}", &error.to_string()),
-                        );
-                        continue;
-                    }
-                };
-                let watch = Follow {
-                    seq,
-                    id: &message_id,
-                    wait_agents: options.wait_agents,
-                    stream: true,
-                    timeout_secs: options.timeout_secs,
-                };
-                let mut sink = Updates::new(out.clone(), session_id);
-                let cancelled = || cancel.cancelled.load(Ordering::SeqCst) == generation;
-                match follow(session, &watch, &mut sink, &cancelled) {
-                    Ending::Done => out.result(&id, json!({"stopReason": "end_turn"})),
-                    Ending::Cancelled => out.result(&id, json!({"stopReason": "cancelled"})),
-                    Ending::TimedOut => {
-                        let secs = options.timeout_secs.unwrap_or_default().to_string();
-                        out.error(&id, CHIEF_ERROR, &m.timed_out.replace("{secs}", &secs));
-                    }
-                    Ending::Lost => {
-                        out.error(&id, CHIEF_ERROR, m.lost);
-                        // The next prompt opens the chat again.
-                        chief = None;
-                    }
+        let (seq, message_id) = match session.send(&text) {
+            Ok(sent) => sent,
+            Err(error) => {
+                out.error(&id, CHIEF_ERROR, &m.rejected.replace("{reason}", &error.to_string()));
+                // A lost connection opens the chat again at the next prompt.
+                if matches!(error, super::link::LinkError::Transport(_)) {
+                    chief = None;
                 }
-                let _ = cancel.running.compare_exchange(
-                    generation,
-                    0,
-                    Ordering::SeqCst,
-                    Ordering::SeqCst,
-                );
+                continue;
+            }
+        };
+        let watch = Follow {
+            seq,
+            id: &message_id,
+            wait_agents: options.wait_agents,
+            stream: true,
+            timeout_secs: options.timeout_secs,
+        };
+        let mut sink = Updates::new(out.clone(), session_id);
+        let cancelled = || cancel.cancelled.load(Ordering::SeqCst) == generation;
+        match follow(session, &watch, &mut sink, &cancelled) {
+            Ending::Done => out.result(&id, json!({"stopReason": "end_turn"})),
+            Ending::Cancelled => out.result(&id, json!({"stopReason": "cancelled"})),
+            Ending::TimedOut => {
+                let secs = options.timeout_secs.unwrap_or_default().to_string();
+                out.error(&id, CHIEF_ERROR, &m.timed_out.replace("{secs}", &secs));
+            }
+            Ending::Lost => {
+                out.error(&id, CHIEF_ERROR, m.lost);
+                // The next prompt opens the chat again.
+                chief = None;
             }
         }
+        let _ = cancel.running.compare_exchange(generation, 0, Ordering::SeqCst, Ordering::SeqCst);
     }
 }
 
