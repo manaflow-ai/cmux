@@ -163,6 +163,39 @@ struct CloudNetworkAccessTests {
         #expect(person.written.map(\.mode) == [.full])
     }
 
+    /// Two runs on one machine never overlap: the second reads only after the first wrote, so an
+    /// agent cannot widen from a policy another run already narrowed.
+    @Test func runsOnOneMachineReadAfterTheEarlierWrite() async throws {
+        @MainActor final class Log { var events: [String] = [] }
+        let gate = AsyncStream<Void>.makeStream()
+        let log = Log()
+        // task-owner: this test awaits both runs below.
+        let first = Task { @MainActor in
+            try await CloudNetworkAccessActions.serialized("vm-serial") {
+                log.events.append("first read")
+                var waiting = gate.stream.makeAsyncIterator()
+                _ = await waiting.next()
+                log.events.append("first write")
+                return 1
+            }
+        }
+        for _ in 0..<100 where log.events.isEmpty { await Task.yield() }
+        try #require(log.events == ["first read"])
+        // task-owner: this test awaits it below.
+        let second = Task { @MainActor in
+            try await CloudNetworkAccessActions.serialized("vm-serial") {
+                log.events.append("second read")
+                return 2
+            }
+        }
+        for _ in 0..<20 { await Task.yield() }
+        #expect(log.events == ["first read"], "the second run waits for the first")
+        gate.continuation.yield(())
+        #expect(try await first.value == 1)
+        #expect(try await second.value == 2)
+        #expect(log.events == ["first read", "first write", "second read"])
+    }
+
     @Test(arguments: ["", "open", "allowlist", "FULLY"])
     func aLevelThatIsNotAChoiceIsRefused(text: String) {
         let services = MachineIconTests.services()
