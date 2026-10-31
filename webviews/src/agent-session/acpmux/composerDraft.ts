@@ -46,6 +46,25 @@ export function mergedDraft(typed: string, saved: string | undefined): string {
 const DRAFT_SEPARATOR = "\n\n";
 
 /**
+ * The longest draft the stores keep, in characters: acpmux's `Hub::MAX_COMPOSER_DRAFT_CHARS`
+ * (cmux-tui/crates/acpmux/src/hub/mod.rs, which refuses a longer one) and the tab's kept unsent text
+ * (`AgentUnsentDrafts.maximumCharacters`, Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane). Those
+ * two own it; composer-draft-orderings.test.tsx pins all three equal.
+ */
+export const MAX_DRAFT_CHARS = 1_000_000;
+
+/**
+ * Whether the stores keep `text` (`MAX_DRAFT_CHARS`). Counted in code points, as acpmux counts; a
+ * UTF-16 length within the limit is within it in every count, so most texts are never walked.
+ */
+export function draftFits(text: string): boolean {
+  if (text.length <= MAX_DRAFT_CHARS) return true;
+  let count = 0;
+  for (const _ of text) if (++count > MAX_DRAFT_CHARS) return false;
+  return true;
+}
+
+/**
  * What the composer does when acpmux's draft read answers (`readDurableDraftState`). One rule:
  * once the person touched this chat's prompt (`local`: an edit or a send, in this mount or an
  * earlier one, or a write still queued or unanswered), what the page holds is the draft, and
@@ -55,7 +74,11 @@ const DRAFT_SEPARATOR = "\n\n";
  * Untouched, with nothing on its way, acpmux's draft fills the prompt; on the page's first read
  * whatever the prompt holds (the remount cache, an inherited draft) is kept beside it.
  * `text` is the prompt to show, `shown` whether it differs from the editor, and `write` whether it
- * goes to acpmux.
+ * goes to acpmux. `overflow`: the two texts to merge do not fit the stores' limit together
+ * (`MAX_DRAFT_CHARS`), so nothing is merged or written: acpmux keeps its draft as it is, the editor
+ * keeps what was typed, and the chat stays unread (its edits stay in the remount cache) until a read
+ * finds a merge that fits (cmux#28204 review at b7cddbbf: a merge past the limit was written, and
+ * the store that refuses it removed the saved draft).
  */
 export function hydratedDraft(input: {
   current: string;
@@ -68,12 +91,13 @@ export function hydratedDraft(input: {
   sent: boolean;
   /** A write of this page's is queued or unanswered. */
   pendingWrite: boolean;
-}): { text: string; shown: boolean; write: boolean } {
+}): { text: string; shown: boolean; write: boolean; overflow?: true } {
   const { current, restored, read, edited, sent, pendingWrite } = input;
   // The prompt as it is; it goes to acpmux when acpmux holds something else and nothing is on its way.
   const keep = () => ({ text: current, shown: false, write: !pendingWrite && current !== (restored ?? "") });
   const merge = () => {
     const text = mergedDraft(current, restored);
+    if (!draftFits(text)) return { text: current, shown: false, write: false, overflow: true as const };
     return { text, shown: text !== current, write: text !== (restored ?? "") && Boolean(text.trim()) };
   };
   if (edited || sent || pendingWrite) {
