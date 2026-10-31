@@ -115,7 +115,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.focus = focus
         focus.applier = focusApplier
         focus.window = window
-        focus.send(.appActive(NSApp.isActive))
+        focus.send(.appActive(services.appActiveSource()))
         startShortcutHints()
         observeWorkspace()
         observePreviewFeatures()
