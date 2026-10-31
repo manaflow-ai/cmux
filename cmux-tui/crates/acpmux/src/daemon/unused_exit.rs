@@ -50,8 +50,8 @@ pub(crate) fn client() -> Client {
 
 fn arrive(clients: &'static watch::Sender<Use>) -> Client {
     clients.send_modify(|u| {
-        u.clients += 1;
-        u.arrivals += 1;
+        u.clients = u.clients.saturating_add(1);
+        u.arrivals = u.arrivals.saturating_add(1);
     });
     Client(clients)
 }
