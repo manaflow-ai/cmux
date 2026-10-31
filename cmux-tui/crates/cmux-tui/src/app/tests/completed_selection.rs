@@ -27,6 +27,7 @@ fn split_completed_before_its_tree_is_selected_when_the_tree_lands() {
         surface: split.id,
     }));
     assert_eq!(app.active_surface(), Some(first.id), "the cached tree has no split yet");
+    app.claim_active_terminal_geometry(true);
 
     app.replace_tree(app.session.tree());
 
