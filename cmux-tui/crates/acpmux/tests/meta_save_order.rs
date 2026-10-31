@@ -48,7 +48,10 @@ impl Daemon {
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
         let config = json!({"harnesses": {"fake": {"argv": ["python3", fake]}},
                             "defaultHarness": "fake", "permissionPolicy": "approve-all",
-                            "agentInbox": false, "autoResumeDelaysMs": []});
+                            "agentInbox": false, "autoResumeDelaysMs": [],
+                            // Both of the stand-in's modes ask, so the socket may set either
+                            // (`hub/person.rs`: a mode that does not ask is the person's).
+                            "webAskingModes": {"fake": ["normal", "strict"]}});
         std::fs::write(home.join("config.json"), config.to_string()).unwrap();
         std::fs::set_permissions(home.join("config.json"), std::fs::Permissions::from_mode(0o600))
             .unwrap();
