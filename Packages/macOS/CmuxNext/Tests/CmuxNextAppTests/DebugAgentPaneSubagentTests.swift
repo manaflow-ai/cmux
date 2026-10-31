@@ -96,7 +96,7 @@ struct DebugAgentPaneSubagentTests {
 
     @Test func aRefusedIndexOrNoSessionOpensNothing() async {
         let (model, placement, tabs) = chat("chat-tab", placed: true)
-        for params: [String: JSONValue] in [[:], ["index": .number(0)], ["index": .number(9)], ["index": .number(1.5)]] {
+        for params: [String: CmuxNextSettings.JSONValue] in [[:], ["index": .number(0)], ["index": .number(9)], ["index": .number(1.5)]] {
             let result = await DebugAgentPaneSubagent.open(params, pane: "pane-1", model: model) { "mock" }
             #expect(result["error"]?.stringValue?.contains("index") == true)
         }
