@@ -83,7 +83,7 @@ import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
 import { failedSendText, retryHelps, sendCause } from "./sendFailure";
-import { SessionPager, type SessionPage } from "./sessionPages";
+import { SessionPageError, SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { isPlumbingCall, showsNothing } from "./hiddenTools";
 import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
@@ -2278,7 +2278,12 @@ export class AcpmuxDirectClient {
       this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     } catch (error) {
       this.wire.lifecycle("connect failed", {
-        message: error instanceof Error ? error.message : String(error),
+        message:
+          error instanceof SessionPageError
+            ? `${error.message} (${error.detail})`
+            : error instanceof Error
+              ? error.message
+              : String(error),
       });
       this.releaseCopyAttach(mine);
       this.socket?.close();
