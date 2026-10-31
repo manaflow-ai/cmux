@@ -5,7 +5,7 @@ import Testing
 
 struct ChiefWelcomeShortcutTests {
     @Test(arguments: [true, false]) func theStoredWelcomeKeepsTheShortcutsAndExamplesBeforeTheBackgroundOffer(showsTyping: Bool) async throws {
-        let text = await ChiefWelcome.text(goTo: "⌘P", shortcuts: [.init(keys: "⇧⌘P", title: "Command Palette"), .init(keys: "⌘T", title: "New Tab")])
+        let text = ChiefWelcome.text(goTo: "⌘P", shortcuts: [.init(keys: "⇧⌘P", title: "Command Palette"), .init(keys: "⌘T", title: "New Tab")])
         let owner = WelcomeShortcutOwner()
         let keys = [ChiefWelcome.helloClientID, ChiefWelcome.aboutClientID, ChiefWelcome.backgroundClientID]
         let welcome = ChiefWelcome(conversation: "conv", owner: owner, showsTyping: showsTyping, text: text)

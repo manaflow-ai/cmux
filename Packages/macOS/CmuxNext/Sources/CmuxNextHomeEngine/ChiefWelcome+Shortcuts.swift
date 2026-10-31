@@ -2,7 +2,7 @@ public import CmuxNextActions
 
 extension ChiefWelcome {
     /// One shortcut line, using the keys and title the action registry shows.
-    public struct Shortcut: Sendable, Equatable {
+    public nonisolated struct Shortcut: Sendable, Equatable {
         /// The shortcut's display text, including any user rebind.
         public var keys: String
         /// The localized action title.
@@ -31,7 +31,7 @@ extension ChiefWelcome {
 
     /// The about message's Markdown: what Chief can do, Go to Workspace, other shortcuts and example requests.
     /// An unbound Go to Workspace (`goTo` nil) has no call-out.
-    public static func text(goTo: String?, shortcuts: [Shortcut]) -> String {
+    public nonisolated static func text(goTo: String?, shortcuts: [Shortcut]) -> String {
         var blocks = [aboutText]
         if let goTo { blocks.append(HomeStrings.chiefWelcomeGoTo(goTo)) }
         if !shortcuts.isEmpty {
