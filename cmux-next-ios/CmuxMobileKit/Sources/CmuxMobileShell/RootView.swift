@@ -322,11 +322,7 @@ public struct RootView: View {
         PushRetryStore.app?.removeAll()
         // The App Group is resolved and emptied off the main thread, after any snapshot save in flight.
         let snapshotsCleared = PushSnapshots.clearForSignOut()
-        Task.detached(priority: .utility) {
-            await snapshotsCleared.value
-            let group = await PushAppGroup.resolved(timeout: PushAppGroupResolver.cleanupTimeout)
-            PushOutbox(group: group)?.removeAll()
-        }
+        PushReplies.shared.clearOutboxForSignOut(after: snapshotsCleared)
         welcomeCut = false
         log.info("signed out: account state reset, device identity kept")
     }
