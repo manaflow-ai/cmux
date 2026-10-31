@@ -2387,6 +2387,10 @@ export function VirtualTranscript({
   /// A send or a move toward the latest row asks to follow now, through the input hold that defers
   /// follow-bottom. It lasts until the reader's next input (userScroll.ts `request`).
   const followRequest = useRef<(() => boolean) | undefined>(undefined);
+  /// Upward reader input whose scroll event has not come yet: the live offset already holds that
+  /// movement, so the anchor pass keeps it. Once the event is processed, a later live change is
+  /// layout work (#26718) and the stored offset is the base again.
+  const upwardPending = useRef(false);
   const [followResume, resumeDeferredFollow] = useReducer((count: number) => count + 1, 0);
   const follow = (next: boolean) => {
     followingRef.current = next;
@@ -3445,6 +3449,7 @@ export function VirtualTranscript({
       previousSession.current = sessionId;
       followDeferred.current = false;
       followRequest.current = undefined;
+      upwardPending.current = false;
       anchorCorrection.current = undefined;
       wheelGlide.current?.stop();
       didOpenAtLatest.current = false;
@@ -3528,7 +3533,7 @@ export function VirtualTranscript({
       const top = scrollAnchorBase(
         live,
         scrolledTo.current.top,
-        readerLeft || (!clamped && userScrollIntent(node).isHeld()),
+        readerLeft || (!clamped && upwardPending.current),
       );
       // Following is reader intent, not proximity. A token must not recapture a parked reader
       // just because the last recorded offset remains inside the bottom deadband.
@@ -4040,6 +4045,7 @@ export function VirtualTranscript({
     checkOlderNow.current();
     const node = event.currentTarget;
     const next = node.scrollTop;
+    upwardPending.current = false;
     // Every path below acknowledges `next`: upward input before this event is processed now, so a
     // later live offset above it is layout work until the reader moves up again.
     readerUpAt.current = Number.NEGATIVE_INFINITY;
@@ -4180,7 +4186,10 @@ export function VirtualTranscript({
       foldAnchor.current = undefined;
       if (findFrame.current !== undefined) cancelAnimationFrame(findFrame.current);
       findFrame.current = undefined;
-      if (reader(event)) followIntent(false);
+      if (reader(event)) {
+        upwardPending.current = true;
+        followIntent(false);
+      }
       // Moving toward the latest row while following keeps following through the hold.
       else if (followingRef.current && movingDown(event)) followRequest.current = intent.request();
       if (jumpTarget.current !== undefined) {

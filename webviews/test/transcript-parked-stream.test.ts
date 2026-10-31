@@ -48,7 +48,7 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
             let source = readFileSync(process.env.CMUX_PARKED_SOURCE ?? id, "utf8");
             const inserts = [
               [
-                "readerLeft || (!clamped && userScrollIntent(node).isHeld()),\n      );",
+                "readerLeft || (!clamped && upwardPending.current),\n      );",
                 'globalThis.__geometry?.("anchor-base", {live, stored: scrolledTo.current.top, top, readerLeft});',
               ],
               [
