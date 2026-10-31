@@ -365,7 +365,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
         await ctx.click({ selector: '.nt-location .acpmux-location-picker[data-kind="computer"] button' });
-        await ctx.click({ role: "menuitem", name: /devbox/ });
+        await ctx.click({ role: "option", name: /devbox/ });
         await ctx.type("Inspect the failed build and suggest a fix.", { selector: ".nt-field" });
         await ctx.press("Enter");
         await ctx.waitFor(() => galleryNativeCalls(ctx.document).some((call) => call.method === "chat.new"));
