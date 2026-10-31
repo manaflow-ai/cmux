@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
 
@@ -80,6 +81,47 @@ final class NewTabSparePool {
     /// Main-thread time of the last move of the parked spare to another window.
     private(set) var lastRetargetMilliseconds: Double?
 
+    /// The native New Tab page's spare (`tabs.nativeNewTabPage`): one SwiftUI page, made and laid out
+    /// in the parking view at the target pane's size at a quiet moment, so Cmd-T shows it with no
+    /// build or layout (cmux19-perf: a cold native page showed on the 4th frame, 51 ms p50).
+    private(set) var nativeSpare: NativeNewTabHostingView?
+    /// Spares an open took, until the pane makes its tab's view (``claimNative(_:)``).
+    private var nativeAdoptions: [String: NativeNewTabHostingView] = [:]
+    private var wantsNative: Bool { services.settings?.snapshot.nativeNewTabPage == true }
+
+    /// Makes the native spare now, parked in the target window (no-op when the setting is off, a
+    /// spare is parked or no window is the target). The warm timer calls it; tests call it directly.
+    func warmNative() {
+        guard wantsNative, nativeSpare == nil, let content = target?.contentView else { return }
+        park(in: content)
+        let host = BenchSpans.measure("pool.makeNativeSpare") {
+            NativeNewTabView.hosted(NativeNewTabModel(page: NewTabPage.sparePage(services), actions: NativeNewTabActions()))
+        }
+        host.frame = parking.bounds
+        host.autoresizingMask = [.width, .height]
+        parking.addSubview(host)
+        host.layoutSubtreeIfNeeded()
+        nativeSpare = host
+    }
+
+    /// The parked native spare for the new tab `key`, out of the parking view, or nil (the page is made
+    /// cold). The pane's view for `key` claims it (``claimNative(_:)``); the next spare follows when input is quiet.
+    func takeNative(for key: String) -> NativeNewTabHostingView? {
+        defer { scheduleWarm() }
+        guard let host = nativeSpare else { return nil }
+        nativeSpare = nil
+        host.removeFromSuperview()
+        // One opening at a time: a spare an earlier open took but no pane claimed (its tab closed first) goes.
+        nativeAdoptions = [key: host]
+        return host
+    }
+
+    /// Tab `key` shows a spare already made (its showing builds nothing: the presentation budget allows it now).
+    func hasNativeAdoption(_ key: String) -> Bool { nativeAdoptions[key] != nil }
+
+    /// The spare taken for tab `key`, once.
+    func claimNative(_ key: String) -> NativeNewTabHostingView? { nativeAdoptions.removeValue(forKey: key) }
+
     /// In place of ``AgentTabs/makeSpare(_:)`` (WebKit's first load, on the main thread): tests stall it.
     var makeSpare: ((AgentPaneNewTab) -> AgentPaneView?)?
     init(services: AppServices, memoryPressure: MemoryPressureEvents) {
@@ -101,14 +143,14 @@ final class NewTabSparePool {
         // The first page of a new workspace (Cmd-N, an empty window's New Tab page) adopts the
         // spare too, so a cold Cmd-N shows a page that already loaded (cx-ec99).
         services.agentTabs.takeSpare = { [weak self] in
-            guard let self, let window = NSApp.keyWindow.flatMap(self.mainWindow) ?? self.target else { return nil }
+            guard let self, let window = self.services.keyWindowSource().flatMap(self.mainWindow) ?? self.target else { return nil }
             let start = ContinuousClock.now
             let spare = self.take(for: window, size: nil)
             self.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true, milliseconds: Self.milliseconds(since: start)))
             return spare?.view
         }
         observeWindows()
-        if let window = NSApp.keyWindow.flatMap(mainWindow) ?? services.windows.controllers.compactMap(\.window).first(where: \.isVisible) {
+        if let window = services.keyWindowSource().flatMap(mainWindow) ?? services.windows.controllers.compactMap(\.window).first(where: \.isVisible) {
             retarget(window)
         }
     }
@@ -298,6 +340,8 @@ final class NewTabSparePool {
 
     /// Drops the spare (memory pressure, the last window closing).
     func dropAll() {
+        nativeSpare?.removeFromSuperview()
+        nativeSpare = nil
         guard let view = slot.drop() else { return }
         view.redraw.newTabFrameCaptureChanged = nil
         view.removeFromSuperview()
@@ -313,7 +357,8 @@ final class NewTabSparePool {
 
     /// Arms the quiet-input deadline; each key or click pushes it back.
     private func scheduleWarm() {
-        guard services.agentTabs.canHostChat, slot.shouldWarm || unparked != nil, target != nil else { return }
+        let web = services.agentTabs.canHostChat && (slot.shouldWarm || unparked != nil)
+        guard target != nil, web || (wantsNative && nativeSpare == nil) else { return }
         watchMemoryPressure()
         if inputMonitor == nil {
             inputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel]) {
@@ -346,6 +391,8 @@ final class NewTabSparePool {
     private func warmNow() {
         if let inputMonitor { NSEvent.removeMonitor(inputMonitor) }
         inputMonitor = nil
+        warmNative()
+        guard services.agentTabs.canHostChat else { return }
         if let view = unparked, let content = target?.contentView {
             park(in: content)
             view.frame = parking.bounds
@@ -376,9 +423,10 @@ final class NewTabSparePool {
 }
 
 /// Where the spare waits: in the target window (WebKit renders only views in
-/// a window and not hidden), fully transparent, never hit by the mouse, and
+/// a window and not hidden), fully transparent (to AppKit only: a Chromium spare's child window
+/// ignores alpha and keeps drawing, off screen, so Cmd-T adopts a page that already painted), never hit by the mouse, and
 /// out of the accessibility tree. Adopting the spare reparents it into a pane.
-final class NewTabSpareParking: NSView {
+final class NewTabSpareParking: NSView, PageChromiumOffscreenParking {
     /// The size of the pane content the spare will fill (nil: the window content's), far
     /// outside the window content. A web view's tracking areas ignore alpha and hit testing:
     /// parked over the content, the spare's cards hovered and set the cursor under the tab in

@@ -138,7 +138,7 @@ impl Translator {
         let mut carry = self.carry.lock().await;
         if let Some(answer) = carry.answers.pop_front() {
             carry.owed = carry.owed.saturating_sub(1);
-            self.carry_owed.send_replace(carry.owed);
+            self.carry_owed.send_replace((carry.owed, carry.seq));
             return Outbound::Reply(match answer {
                 Ok(v) => Message::ok(id.clone(), v),
                 Err(e) => Message::err(id.clone(), e),
@@ -150,19 +150,22 @@ impl Translator {
         carry.owed -= 1;
         // Taken while the carry lock is held: the result that answers it takes that lock first.
         self.pending.lock().await.insert(id.to_string(), Pending::Prompt);
-        self.carry_owed.send_replace(carry.owed);
+        self.carry_owed.send_replace((carry.owed, carry.seq));
         Outbound::Lines(Vec::new())
     }
 
-    /// The output after a carry is held: the next turn's prompt has not come yet.
-    pub fn holding(&self) -> bool {
-        *self.carry_owed.borrow() > 0
+    /// The output after a carry is held while a carried turn's prompt has not come yet: the
+    /// newest carry's number, so a reader gives each carry a hold of its own, also one made
+    /// while an earlier carry's prompt is still to come.
+    pub fn holding(&self) -> Option<u64> {
+        let (owed, seq) = *self.carry_owed.borrow();
+        (owed > 0).then_some(seq)
     }
 
     /// Waits, at most `max`, until no carried turn waits for its prompt.
     pub async fn wait_unheld(&self, max: std::time::Duration) {
         let mut owed = self.carry_owed.subscribe();
-        let _ = tokio::time::timeout(max, owed.wait_for(|n| *n == 0)).await;
+        let _ = tokio::time::timeout(max, owed.wait_for(|(n, _)| *n == 0)).await;
     }
 
     /// A result carried (`carried`) or not: the carry state after it, under its lock.
@@ -172,7 +175,7 @@ impl Translator {
         } else {
             carry.ended();
         }
-        self.carry_owed.send_replace(carry.owed);
+        self.carry_owed.send_replace((carry.owed, carry.seq));
     }
 
     /// A new prompt of the hub's: no carried turn is owed any more.
@@ -182,6 +185,6 @@ impl Translator {
         carry.current = None;
         carry.answers.clear();
         carry.steers.clear();
-        self.carry_owed.send_replace(0);
+        self.carry_owed.send_replace((0, carry.seq));
     }
 }

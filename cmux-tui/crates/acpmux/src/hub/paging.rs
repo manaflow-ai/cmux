@@ -31,6 +31,9 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "queue_paused",
     "queue_resumed",
     "turn_started",
+    // Where a chat seeded from a Claude Code transcript's newest page has older turns
+    // (`hub/native_history.rs`): the pane that pages back to it reads on from the transcript.
+    "native_history",
     // The turn's agent has said nothing since its prompt, and then its model's first sign
     // (`silent_turn.rs`).
     "turn_silent",
@@ -68,6 +71,9 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct EventFilter {
     kinds: Option<Vec<String>>,
+    /// A page read newest first leaves out what newer tool call updates in it make moot
+    /// (`store/superseded.rs`). Pages only; a live stream ignores it.
+    omit_superseded: bool,
 }
 
 impl EventFilter {
@@ -79,7 +85,7 @@ impl EventFilter {
     pub fn parse(v: Option<&Value>) -> Result<Self, RpcError> {
         match v {
             None | Some(Value::Null) => Ok(Self::all()),
-            Some(Value::String(s)) => Ok(Self { kinds: Some(vec![s.clone()]) }),
+            Some(Value::String(s)) => Ok(Self { kinds: Some(vec![s.clone()]), ..Self::default() }),
             Some(Value::Array(a)) => {
                 let mut kinds = Vec::with_capacity(a.len());
                 for k in a {
@@ -88,10 +94,18 @@ impl EventFilter {
                     })?;
                     kinds.push(k.to_owned());
                 }
-                Ok(Self { kinds: Some(kinds) })
+                Ok(Self { kinds: Some(kinds), ..Self::default() })
             }
             Some(_) => Err(RpcError::invalid_params("kinds must be an array of strings")),
         }
+    }
+
+    /// For a page a client bounds by bytes (it names `maxBytes`): the app's open and its older
+    /// pages. Every call still ends as logged; a reader that wants every record (an export, a
+    /// lane report) names no bound and reads them all.
+    pub fn omitting_superseded(mut self, on: bool) -> Self {
+        self.omit_superseded = on;
+        self
     }
 
     pub fn is_all(&self) -> bool {
@@ -196,8 +210,13 @@ pub const MAX_RECORD_BYTES: usize = crate::rpc::MAX_MESSAGE_BYTES - (1 << 20);
 
 /// A record no message can carry goes as a stub with its kind and seq: what it left out, and how
 /// much. Also returns what the record adds to the page.
-fn fit(mut rec: EventRecord, bounded: bool) -> (EventRecord, usize) {
+fn fit(rec: EventRecord, bounded: bool) -> (EventRecord, usize) {
     let bytes = record_bytes(&rec);
+    fit_sized(rec, bytes, bounded)
+}
+
+/// [`fit`] for a record whose bytes are known.
+fn fit_sized(mut rec: EventRecord, bytes: usize, bounded: bool) -> (EventRecord, usize) {
     if !bounded || bytes <= MAX_RECORD_BYTES {
         return (rec, bytes);
     }
@@ -267,27 +286,68 @@ impl Hub {
             })?;
             return Ok(page);
         }
-        let mut found = Vec::new();
-        let skip = |dir: &[u8], kind: &[u8]| filter.surely_skips(dir, kind);
+        // Newest first; a slot a later (older) record made moot is empty.
+        let mut found: Vec<Option<(EventRecord, usize)>> = Vec::new();
+        let mut held = 0usize;
+        // A Codex command's updates each carry its whole output so far: without this, a few of
+        // them fill the page (`store/superseded.rs`). Its prompts are read whatever the kinds: a
+        // call id names a call within one prompt.
+        let omit = filter.omit_superseded;
+        let skip = |dir: &[u8], kind: &[u8]| {
+            filter.surely_skips(dir, kind) && !(omit && crate::store::starts_prompt(dir, kind))
+        };
+        let mut superseded = omit.then(crate::store::Superseded::default);
         self.store.scan_back(id, after, before, &skip, &mut |rec| {
-            if !filter.matches(&rec) {
+            let matches = filter.matches(&rec);
+            let mut rec = rec;
+            if matches {
+                self.display_logged(session.as_deref(), &mut rec);
+            }
+            // Its bytes, once its superseded content is out: whether it goes out whole.
+            let mut sized = None;
+            let moot = match superseded.as_mut() {
+                Some(superseded)
+                    if matches
+                        || crate::store::starts_prompt(rec.dir.as_bytes(), rec.kind.as_bytes()) =>
+                {
+                    superseded.read(&mut rec, found.len(), |rec| {
+                        let bytes = record_bytes(rec);
+                        sized = Some(bytes);
+                        !bounded || bytes <= MAX_RECORD_BYTES
+                    })
+                }
+                _ => None,
+            };
+            if !matches {
                 return true;
             }
-            let mut rec = rec;
-            self.display_logged(session.as_deref(), &mut rec);
-            let (rec, rec_bytes) = fit(rec, bounded);
-            if full(rec_bytes, found.len()) {
+            let (rec, rec_bytes) = match sized {
+                Some(bytes) => fit_sized(rec, bytes, bounded),
+                None => fit(rec, bounded),
+            };
+            let moot_bytes = moot.and_then(|slot| found.get(slot)?.as_ref()).map_or(0, |(_, b)| *b);
+            let kept = held + 1 - usize::from(moot.is_some());
+            let size = bytes + rec_bytes - moot_bytes;
+            // Full by count, or by size once it holds another record.
+            if kept > limit || (kept > 1 && max_bytes.is_some_and(|max| size > max)) {
                 page.has_more = true;
                 return false;
             }
-            found.push(rec);
+            if let Some(entry) = moot.and_then(|slot| found.get_mut(slot)) {
+                *entry = None;
+            }
+            (held, bytes) = (kept, size);
+            found.push(Some((rec, rec_bytes)));
             true
         })?;
-        found.reverse();
-        page.events = found;
+        page.events = found.into_iter().rev().flatten().map(|(rec, _)| rec).collect();
         Ok(page)
     }
 }
+
+#[cfg(test)]
+#[path = "paging_tests.rs"]
+mod paging_tests;
 
 #[cfg(test)]
 mod transcript_kind_tests {
