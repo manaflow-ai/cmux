@@ -1801,6 +1801,11 @@ impl Hub {
         let record = crate::agent_host::program_wait::spawn(launcher, spec)
             .await
             .map_err(|error| HostStartFailed { error, started: None })?;
+        // Not at a background class another process set (`cpu_class.rs`, item 1); its host,
+        // this daemon's child, holds it unreaped while it starts.
+        if let Some(pid) = record.harness_pid {
+            crate::cpu_class::clear_running(pid);
+        }
         self.forget_adopted_caller(&session.id);
         // Logged before the first entry, so a later controller counts every
         // entry of this incarnation.

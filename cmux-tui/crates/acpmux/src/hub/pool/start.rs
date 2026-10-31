@@ -150,6 +150,10 @@ impl Hub {
         )
         .await
         .unwrap_or_else(|_| Err(anyhow::anyhow!("no pooled agent host within {START_BUDGET:?}")))?;
+        // Not at a background class another process set (`cpu_class.rs`, item 1).
+        if let Some(pid) = record.harness_pid {
+            crate::cpu_class::clear_running(pid);
+        }
         lock(&self.pool.starting).insert(session_id.clone(), record.clone());
         let started =
             self.start_pooled(session_id.clone(), name, record.clone(), spec, claude, off).await;
@@ -245,7 +249,7 @@ impl Hub {
             // What its harness was doing, read before it is ended (`cpu_class.rs`).
             Err(_) => Err(anyhow::anyhow!(
                 "no harness session within {START_BUDGET:?}{}",
-                crate::cpu_class::deadline_detail(child.harness_state().await.as_ref())
+                child.harness_seen().await.detail()
             )),
         };
         let (init, new_result) = match outcome {

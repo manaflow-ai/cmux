@@ -754,7 +754,7 @@ impl Hub {
                         Err(_) => {
                             let harness = Self::starting_harness(session).await;
                             self.abandon_cold_start(session, budget).await;
-                            Err(start_deadline_exceeded(budget, harness))
+                            Err(start_deadline_exceeded(budget, &harness))
                         }
                     };
                 }
@@ -769,9 +769,9 @@ impl Hub {
         // session, forever. Re-adoption and pool adoption above keep their
         // own bounds: they serve agents that may be mid-turn.
         let budget = self.config.read().await.agent_start_timeout();
-        let mut retry_at_normal = false;
+        let mut retried = false;
         loop {
-            let started = self.cold_start(session, profile, stops, off, retry_at_normal);
+            let started = self.cold_start(session, profile, stops, off);
             let failed = match tokio::time::timeout(budget, started).await {
                 Ok(Ok(child)) => return Ok(self.keep_account_home(session, profile, child)),
                 Ok(Err(e)) => Some(e),
@@ -779,37 +779,40 @@ impl Hub {
             };
             // What its harness was doing, read before it is ended (`cpu_class.rs`).
             let harness = Self::starting_harness(session).await;
-            let background = harness.as_ref().and_then(Option::as_ref).filter(|h| h.background);
-            // A start that failed at background class anyway (a class acpmux did not set: its
-            // harness clears one at its exec) runs once more, its harness's class also cleared
-            // by the daemon (`cpu_class.rs`, item 3).
-            let retry = !retry_at_normal && background.is_some();
-            match &failed {
-                None => self.abandon_cold_start(session, budget).await,
-                Some(_) if retry => self.end_cold_start(session).await,
-                Some(_) => {}
-            }
-            if let Some(state) = background.filter(|_| retry) {
-                let why = failed.as_ref().map_or("missed its deadline", |_| "failed");
-                tracing::warn!(session = %session.id, "the agent start {why} at background CPU class ({state}); starting it once more at normal class");
+            // A start that failed with its harness at background class anyway (set again during
+            // the start by another process: acpmux clears it at the spawn) runs once more
+            // (`cpu_class.rs`, item 3). Each try has the whole budget: a caller waits up to twice
+            // that (Chief's `SESSION_NEW_DEADLINE`).
+            if let Some(state) = harness.background().filter(|_| !retried) {
+                self.end_cold_start(session).await;
+                let why = if failed.is_some() { "failed" } else { "missed its deadline" };
+                tracing::warn!(session = %session.id, "the agent start {why} at background CPU class ({state}); starting it once more");
                 self.append(
                     session,
                     "mux",
                     "agent_start_retried_at_normal",
                     json!({"timedOut": failed.is_none(), "harness": state}),
                 );
-                retry_at_normal = true;
+                retried = true;
                 continue;
             }
-            return Err(failed.unwrap_or_else(|| start_deadline_exceeded(budget, harness)));
+            return Err(match failed {
+                Some(e) => e,
+                None => {
+                    self.abandon_cold_start(session, budget).await;
+                    start_deadline_exceeded(budget, &harness)
+                }
+            });
         }
     }
 
-    /// Its starting harness's state (`cpu_class::HarnessState`): None when no harness was spawned
-    /// yet, `Some(None)` when it no longer runs.
-    async fn starting_harness(session: &Session) -> Option<Option<crate::cpu_class::HarnessState>> {
-        let child = session.child.lock().await.clone()?;
-        Some(child.harness_state().await)
+    /// Its starting harness, as a deadline error says it (`cpu_class::HarnessSeen`).
+    async fn starting_harness(session: &Session) -> crate::cpu_class::HarnessSeen {
+        let child = session.child.lock().await.clone();
+        match child {
+            Some(child) => child.harness_seen().await,
+            None => crate::cpu_class::HarnessSeen::NotStarted,
+        }
     }
 
     /// End what a failed cold start left before it is retried: as `abandon_cold_start`, with no
@@ -848,15 +851,12 @@ impl Hub {
 
     /// The cold-start half of `ensure_child`, under `spawn_lock`: spawn the
     /// agent, initialize it, load or create its session, replay its config.
-    /// `retry_at_normal`: a start retried because the last one failed at background class; the
-    /// daemon also clears its harness's class right after the spawn (`cpu_class.rs`, item 3).
     async fn cold_start(
         self: &Arc<Self>,
         session: &Arc<Session>,
         profile: &HarnessProfile,
         stops: u64,
         off: &super::full_access_bound::OffLatch,
-        retry_at_normal: bool,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         // Its worktree back if cleanup reclaimed it, and reopened if stopped.
         self.ready_to_start(session, stops).await?;
@@ -1058,10 +1058,6 @@ impl Hub {
                 return Err(super::shutdown::shutting_down_error());
             }
             *slot = Some(child.clone());
-        }
-        if retry_at_normal {
-            let cleared = child.clear_harness_background().await;
-            tracing::info!(session = %session.id, cleared, "retried agent start: cleared its harness's background class");
         }
         // A new harness runs none of the background subagents of one it replaced.
         self.end_background_subagents(session);
@@ -1692,19 +1688,16 @@ impl<'a> ReplayHold<'a> {
     }
 }
 
-/// `agent_start`'s deadline error, with what its harness was doing (`cpu_class.rs`, item 4):
-/// `harness` as `Hub::starting_harness` read it. Its `data.harness` carries the same fields.
+/// `agent_start`'s deadline error, with what its harness was doing (`cpu_class.rs`, item 4).
+/// Its `data.harness` carries the same fields when they were read.
 fn start_deadline_exceeded(
     budget: std::time::Duration,
-    harness: Option<Option<crate::cpu_class::HarnessState>>,
+    harness: &crate::cpu_class::HarnessSeen,
 ) -> RpcError {
     let mut e = RpcError::deadline_exceeded("agent_start", budget);
-    e.message.push_str(&match &harness {
-        None => "; its agent process had not started".to_owned(),
-        Some(state) => crate::cpu_class::deadline_detail(state.as_ref()),
-    });
-    if let (Some(Some(state)), Some(data)) =
-        (&harness, e.data.as_mut().and_then(Value::as_object_mut))
+    e.message.push_str(&harness.detail());
+    if let (crate::cpu_class::HarnessSeen::Running(state), Some(data)) =
+        (harness, e.data.as_mut().and_then(Value::as_object_mut))
     {
         data.insert("harness".into(), json!(state));
     }

@@ -61,6 +61,22 @@ fn base_priority(pid: i32) -> u32 {
     })
 }
 
+/// These checks compare a harness's class with its starter's: a runner at background class
+/// (set on it by another process, which a child cannot clear) makes them meaningless.
+fn runs_above_background() {
+    let own = base_priority(std::process::id() as i32);
+    assert!(own > BACKGROUND_PRI, "the test process itself runs at background class (pri {own})");
+}
+
+/// `ps -o ppid=` of `pid`.
+fn parent(pid: i32) -> i32 {
+    let out = std::process::Command::new("/bin/ps")
+        .args(["-o", "ppid=", "-p", &pid.to_string()])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().parse().unwrap()
+}
+
 fn kill(pid: i32) {
     // SAFETY: signals one process this test started.
     unsafe { libc::kill(pid, libc::SIGKILL) };
@@ -118,6 +134,7 @@ impl Client {
 /// An in-process daemon whose one harness is the stand-in agent with `env` (its direct child: no
 /// agent hosts), and its person client.
 async fn daemon(env: BTreeMap<String, String>) -> (Arc<Hub>, Client) {
+    runs_above_background();
     let profile: HarnessProfile =
         serde_json::from_value(json!({"argv": ["python3", FAKE], "env": env})).unwrap();
     let mut cfg = Config {
@@ -244,15 +261,14 @@ async fn cpu_class_a_start_that_misses_its_deadline_says_what_its_harness_was_do
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A start whose harness is put in background class by another process (`FAKE_BG_ONCE`: the
-/// first harness reads nothing while it is there) misses its deadline; the daemon starts it once
-/// more, logs it, and the session starts.
+/// A start whose harness is put in background class by another process during its start
+/// (`FAKE_BG_ONCE`: the first harness then fails its `initialize` and stays alive) runs once
+/// more; the retry is logged with that harness's state, and the session starts.
 #[tokio::test]
-async fn cpu_class_a_start_that_misses_its_deadline_at_background_class_runs_once_more() {
+async fn cpu_class_a_start_that_fails_at_background_class_runs_once_more() {
     let dir = scratch("b");
     let once = dir.join("bg-once");
     let (hub, mut c) = daemon(logged(&dir, &[("FAKE_BG_ONCE", once.to_str().unwrap())])).await;
-    hub.config.write().await.agent_start_timeout_ms = Some(5_000);
     let id = c.new_session(&dir, "retried").await.expect("the retried start failed");
     assert!(once.exists(), "the first harness never started");
     let events = hub.events(&id, 0, 10_000).unwrap();
@@ -262,6 +278,7 @@ async fn cpu_class_a_start_that_misses_its_deadline_at_background_class_runs_onc
         });
     let harness = &retried.msg["harness"];
     assert_eq!(harness["background"], json!(true), "{harness}");
+    assert_eq!(retried.msg["timedOut"], json!(false), "{}", retried.msg);
     // The second harness answered session/new at normal class.
     let [(_, at_start)] = class_log(&dir)[..] else { panic!("{:?}", class_log(&dir)) };
     assert!(at_start > BACKGROUND_PRI, "the retried harness started at background class");
@@ -344,6 +361,106 @@ async fn cpu_class_a_hosted_harness_starts_at_normal_under_a_background_host_the
     assert!(at_start > BACKGROUND_PRI, "the hosted harness started at background class");
     assert!(starter_tool_pri > BACKGROUND_PRI, "a tool its start ran is at background class");
     assert_eq!(running, BACKGROUND_PRI, "the started harness runs at the GUI's class");
+    assert_eq!(tool_pri, BACKGROUND_PRI, "a tool its turn started runs at the GUI's class");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A real daemon (`acpmux daemon run`, agent hosts on, a store on disk) whose one harness is the
+/// stand-in agent with `env`.
+struct RealDaemon {
+    root: PathBuf,
+    child: Option<std::process::Child>,
+}
+
+impl RealDaemon {
+    fn start(tag: &str, env: &BTreeMap<String, String>) -> Self {
+        runs_above_background();
+        let root = scratch(tag);
+        for sub in ["amx", "work"] {
+            std::fs::create_dir_all(root.join(sub)).unwrap();
+        }
+        let config = json!({
+            "harnesses": {"fake": {"argv": ["python3", FAKE], "env": env}},
+            "defaultHarness": "fake",
+            "permissionPolicy": "approve-all",
+        });
+        std::fs::write(root.join("amx").join("config.json"), config.to_string()).unwrap();
+        let mut daemon = Self { root, child: None };
+        let mut child = daemon
+            .cmd()
+            .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::inherit())
+            .spawn()
+            .expect("start daemon");
+        let mut out = std::io::BufReader::new(child.stdout.take().unwrap());
+        let mut seen = String::new();
+        loop {
+            let mut line = String::new();
+            let n = std::io::BufRead::read_line(&mut out, &mut line).unwrap();
+            assert!(n > 0, "daemon exited before it was ready: {seen}");
+            if line.contains("\"ready\":true") {
+                break;
+            }
+            seen.push_str(&line);
+        }
+        daemon.child = Some(child);
+        daemon
+    }
+
+    fn cmd(&self) -> std::process::Command {
+        let mut cmd = daemon_env::command(&self.root, daemon_env::Agents::StandIn, &[]);
+        cmd.current_dir(self.root.join("work"))
+            .env("ACPMUX_HOME", self.root.join("amx"))
+            .env("ACPMUX_SOCKET", self.root.join("s.sock"))
+            .env("ACPMUX_LOGIN_ENV", "0")
+            .env("ACPMUX_REGISTRY_FETCH", "0")
+            .env("ACPMUX_HEALTH_FETCH", "0")
+            .env("ACPMUX_CATALOG_FETCH", "0")
+            .env("ACPMUX_PROBE_HARNESSES", "fake")
+            .env_remove("ACPMUX_SESSION_ID")
+            .stdin(std::process::Stdio::null());
+        cmd
+    }
+}
+
+impl Drop for RealDaemon {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = self.cmd().args(["daemon", "shutdown", "--end-agents"]).output();
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+/// Through the real daemon, whose harnesses run under agent hosts as in the app: a chat's harness
+/// answers `session/new` above background class, runs at it once its start is over, and a tool
+/// its turn starts inherits that.
+#[test]
+fn cpu_class_a_daemon_runs_a_hosted_harness_at_background_once_its_start_is_over() {
+    let dir = scratch("dh");
+    let daemon = RealDaemon::start("dd", &logged(&dir, &[]));
+    let out = dir.join("tool.json");
+    let probe = format!("class-probe: {}", out.display());
+    let ran = daemon.cmd().args(["run", "--timeout", "60", &probe]).output().expect("run acpmux");
+    assert!(ran.status.success(), "acpmux run failed: {}", String::from_utf8_lossy(&ran.stderr));
+    let tool = read_json(&out)["sleeper"].as_i64().unwrap() as i32;
+    let tool_pri = base_priority(tool);
+    // The chat's harness is the tool's parent; a pooled harness may have logged too.
+    let harness = parent(tool);
+    let log = class_log(&dir);
+    let at_start = log.iter().find(|(pid, _)| *pid == harness).map(|(_, pri)| *pri);
+    let at_start = at_start.unwrap_or_else(|| panic!("harness {harness} is not in {log:?}"));
+    let running = base_priority(harness);
+    kill(tool);
+    drop(daemon);
+    assert!(
+        at_start > BACKGROUND_PRI,
+        "the hosted harness answered session/new at background class"
+    );
+    assert_eq!(running, BACKGROUND_PRI, "the started hosted harness runs at the GUI's class");
     assert_eq!(tool_pri, BACKGROUND_PRI, "a tool its turn started runs at the GUI's class");
     let _ = std::fs::remove_dir_all(&dir);
 }

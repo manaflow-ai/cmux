@@ -1104,9 +1104,10 @@ pub fn session_meta(spec: &SessionSpec, preset: Option<&str>) -> Value {
 }
 
 /// How long Chief waits on `session/new`: past acpmux's own start deadline (`agent_start`, 90 s
-/// unless its config sets another), so acpmux's error arrives, which says what the agent process
-/// was doing (alive or not, its CPU class, run and CPU time), instead of a bare "no answer".
-pub const SESSION_NEW_DEADLINE: Duration = Duration::from_secs(100);
+/// unless its config sets another), twice, since acpmux tries a start that failed at background
+/// CPU class once more, so acpmux's error arrives. That error says what the agent process was
+/// doing (alive or not, its CPU class, run and CPU time), not a bare "no answer".
+pub const SESSION_NEW_DEADLINE: Duration = Duration::from_secs(200);
 
 /// `session/new` with acpmux's name, harness, policy, model and preset.
 pub fn new_session(

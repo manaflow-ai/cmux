@@ -64,9 +64,9 @@ call through the ACP permission flow: announced, asked, run only after an allow.
 CPU class (macOS, tests/cpu_class.rs; `ps -o pri=` is 4 at background class):
 FAKE_CLASS_LOG=<path>: on session/new, append {"pid", "pri"} (its own, as it starts) to <path>.
 "class-probe: <path>": start `sleep 120` (a tool its turn runs) and write {"sleeper": pid} to <path>.
-FAKE_BG_ONCE=<path>: the first agent to start (<path> does not exist yet) creates <path>, has another
-process put it in background class (an outside cause, not its own call), and reads nothing until its
-class is normal again (it ends when stdin does), as a harness stuck at background class does.
+FAKE_BG_ONCE=<path>: the first agent to get `initialize` (<path> does not exist yet) creates <path>,
+has another process put it in background class (an outside cause, not its own call), answers that
+`initialize` with an error and stays alive, as a harness that fails its start at background class.
 """
 import base64
 import hashlib
@@ -1290,20 +1290,6 @@ def main():
     # What arrives meanwhile is kept for after the gate.
     gate = os.environ.get("FAKE_START_GATE")
     early = b""
-    bg_once = os.environ.get("FAKE_BG_ONCE")
-    if bg_once and not os.path.exists(bg_once):
-        import select
-        import subprocess
-        open(bg_once, "w").close()
-        # PRIO_DARWIN_PROCESS (4), PRIO_DARWIN_BG (0x1000), set from another process.
-        lower = "import ctypes, sys; sys.exit(ctypes.CDLL(None).setpriority(4, int(sys.argv[1]), 0x1000))"
-        subprocess.run([sys.executable, "-c", lower, str(os.getpid())], check=True)
-        while own_pri() <= 4:
-            if select.select([sys.stdin.fileno()], [], [], 0.05)[0]:
-                chunk = os.read(sys.stdin.fileno(), 65536)
-                if not chunk:
-                    return
-                early += chunk
     if gate:
         import select
         while not os.path.exists(gate):
@@ -1329,6 +1315,15 @@ def main():
         params = msg.get("params") or {}
         # FAKE_SET_MODE_SILENT=1: never answer session/set_mode, while staying alive.
         if m == "session/set_mode" and os.environ.get("FAKE_SET_MODE_SILENT") == "1":
+            continue
+        bg_once = os.environ.get("FAKE_BG_ONCE")
+        if m == "initialize" and bg_once and not os.path.exists(bg_once):
+            import subprocess
+            open(bg_once, "w").close()
+            # PRIO_DARWIN_PROCESS (4), PRIO_DARWIN_BG (0x1000), set from another process.
+            lower = "import ctypes, sys; sys.exit(ctypes.CDLL(None).setpriority(4, int(sys.argv[1]), 0x1000))"
+            subprocess.run([sys.executable, "-c", lower, str(os.getpid())], check=True)
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "start failed at background class"}})
             continue
         if m == "initialize" and os.environ.get("FAKE_DIE_AT_START"):
             sys.stderr.write(os.environ["FAKE_DIE_AT_START"] + "\n")

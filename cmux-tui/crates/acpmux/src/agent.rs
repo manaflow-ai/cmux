@@ -738,6 +738,11 @@ impl ChildAgent {
         );
         crate::cpu_class::start_at_normal(&mut cmd);
         let mut child = cmd.spawn().map_err(|e| spawn_error(&format!("spawn agent {name}"), e))?;
+        // Not at a background class another process set on this daemon (`cpu_class.rs`, item 1):
+        // the child is held and not reaped, so its pid is its own.
+        if let Some(pid) = child.id() {
+            crate::cpu_class::clear_running(pid);
+        }
         #[cfg(windows)]
         let job = {
             let contained = child
@@ -1694,15 +1699,14 @@ impl ChildAgent {
         self.with_live_harness(|pid| class.enter(pid)).await.unwrap_or(false)
     }
 
-    /// Clears a background class another process set on its running harness (`cpu_class.rs`,
-    /// the retried start). True when the call succeeded.
-    pub async fn clear_harness_background(&self) -> bool {
-        self.with_live_harness(crate::cpu_class::clear_running).await.unwrap_or(false)
-    }
-
-    /// What its harness is doing now (`cpu_class::HarnessState`); None when it ended.
-    pub async fn harness_state(&self) -> Option<crate::cpu_class::HarnessState> {
-        self.with_live_harness(crate::cpu_class::harness_state).await.flatten()
+    /// What its harness is doing now (`cpu_class::HarnessSeen`): ended, unread or its state.
+    pub async fn harness_seen(&self) -> crate::cpu_class::HarnessSeen {
+        use crate::cpu_class::HarnessSeen;
+        match self.with_live_harness(crate::cpu_class::harness_state).await {
+            None => HarnessSeen::Ended,
+            Some(None) => HarnessSeen::Unread,
+            Some(Some(state)) => HarnessSeen::Running(state),
+        }
     }
 
     /// `f` of its harness's pid while that pid is still its harness: a direct child not reaped

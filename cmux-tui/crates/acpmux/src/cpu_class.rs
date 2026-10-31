@@ -14,23 +14,25 @@
 //! plist parse at disk tier 3) with under 1 s of CPU, and every Chief turn failed; the same
 //! command at normal class answered in 14.5 s. So:
 //!
-//! 1. The harness starts at its starter's class, and clears a background class it would inherit
-//!    (an agent host under `ACPMUX_QOS=background`, a daemon started with `taskpolicy -b`) between
-//!    fork and exec ([`start_at_normal`]): the exec and the harness's own start run at normal
-//!    class.
+//! 1. The harness starts at its starter's class (an agent host's utility clamp, `qos.rs`, or the
+//!    daemon's class) and keeps no background class it would inherit: between fork and exec it
+//!    clears one set on its starter by the starter itself (an agent host under
+//!    `ACPMUX_QOS=background`, [`start_at_normal`]), and right after the spawn the daemon clears
+//!    one that another process set ([`clear_running`]; a process cannot clear that one itself).
+//!    The exec and the harness's own start run at normal CPU class. Disk I/O stays at the
+//!    starter's `IOPOL_UTILITY` (`qos.rs`): utility, not throttled.
 //! 2. Once the session's start is over (its `initialize` and `session/new` or `session/load`
 //!    answered, `hub/lifecycle.rs` `ensure_child`), the daemon puts the running harness in its
 //!    class ([`CpuClass::enter`]): `setpriority(PRIO_DARWIN_PROCESS, pid, PRIO_DARWIN_BG)`, which
 //!    macOS allows on another process of the same user. Every process the harness starts after
 //!    that inherits it, so the builds and tests of its turns run below the GUI. A process it
-//!    started during its start (an MCP server) keeps the class it started at: acpmux does not list
-//!    processes (`scripts/cmux-next/check-no-process-scan.py`). So a running process is reniced
-//!    now, once, and only the harness itself.
-//! 3. A start that still fails or misses its deadline with its harness at background class (a
-//!    class acpmux did not set, as the harness is cleared at its exec) is retried once, and the
-//!    daemon also clears the class of the second harness right after its spawn
-//!    ([`clear_running`]); the retry is logged.
-//! 4. A start that misses its deadline says what its harness was doing ([`HarnessState`]): alive or
+//!    started during its start keeps the class it started at: an MCP server, and the real agent
+//!    of a harness that is only a launcher (a script or adapter that starts the agent as a child
+//!    and waits for it), whose turns then run at normal class. acpmux does not list processes
+//!    (`scripts/cmux-next/check-no-process-scan.py`), so only the harness itself is reniced, once.
+//! 3. A cold start that still fails or misses its deadline with its harness at background class
+//!    (set again during the start by another process) is retried once, and the retry is logged.
+//! 4. A start that misses its deadline says what its harness was doing ([`HarnessSeen`]): alive or
 //!    not, its class and priority, how long it ran, its CPU time and its threads on a CPU.
 //!
 //! The class, first set wins: the profile's env `ACPMUX_SESSION_CPU_CLASS` as the harness gets it
@@ -132,10 +134,10 @@ pub fn start_at_normal(cmd: &mut tokio::process::Command) {
     let _ = cmd;
 }
 
-/// Clears the background class of the running harness `pid` that another process set on it or
-/// on its starter (macOS; elsewhere nothing): the retried start (module docs, item 3). Its own
-/// clear at its exec ([`start_at_normal`]) cannot clear that one. The same caution as
-/// [`CpuClass::enter`] applies to `pid`. True when the call succeeded.
+/// Clears a background class that another process set on the harness `pid` or on its starter
+/// (macOS; elsewhere nothing), right after its spawn (module docs, item 1): its own clear at its
+/// exec ([`start_at_normal`]) cannot clear that one. The same caution as [`CpuClass::enter`]
+/// applies to `pid`. True when the call succeeded.
 pub fn clear_running(pid: u32) -> bool {
     imp::set_background(pid, false)
 }
@@ -167,12 +169,36 @@ pub fn harness_state(pid: u32) -> Option<HarnessState> {
     imp::state(pid)
 }
 
-/// The clause a start's deadline error ends with (`agent_start`, the pool's start): what its
-/// harness was doing, or that it is not running.
-pub fn deadline_detail(state: Option<&HarnessState>) -> String {
-    match state {
-        Some(state) => format!("; {state}"),
-        None => "; its agent process is not running".to_owned(),
+/// What a start's deadline error can say about its harness.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HarnessSeen {
+    /// The start had not spawned it yet.
+    NotStarted,
+    /// It ended.
+    Ended,
+    /// It runs, and its state cannot be read (not macOS, or the kernel refused).
+    Unread,
+    Running(HarnessState),
+}
+
+impl HarnessSeen {
+    /// Running at background class.
+    pub fn background(&self) -> Option<&HarnessState> {
+        match self {
+            Self::Running(state) if state.background => Some(state),
+            _ => None,
+        }
+    }
+
+    /// The clause a start's deadline error ends with (`agent_start`, the pool's start): what its
+    /// harness was doing. Empty when that is not known.
+    pub fn detail(&self) -> String {
+        match self {
+            Self::NotStarted => "; its agent process had not started".to_owned(),
+            Self::Ended => "; its agent process is not running".to_owned(),
+            Self::Unread => String::new(),
+            Self::Running(state) => format!("; {state}"),
+        }
     }
 }
 
