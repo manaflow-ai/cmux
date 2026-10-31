@@ -3195,12 +3195,27 @@ def _job_key(job: Mapping[str, Any]) -> Any:
     return job.get("id") or (job.get("name"), job.get("created_at"))
 
 
-def open_head_jobs_moved(before: Sequence[Mapping[str, Any]], now: Sequence[Mapping[str, Any]]) -> str | None:
+def _failed(job: Mapping[str, Any]) -> bool:
+    return job.get("status") == "completed" and job.get("conclusion") == "failure"
+
+
+def open_head_jobs_moved(
+    before: Sequence[Mapping[str, Any]],
+    now: Sequence[Mapping[str, Any]],
+    rerun_job: int | None = None,
+) -> str | None:
     """Why a lost run at an open PR's head may no longer be cancelled, from its jobs read again just before.
 
     The plan judged the sweep's job inventory, which can be minutes old: a lost job that took a runner since
     is running valid work at the PR's head, and cancelling it would interrupt that work. None when every job
-    the inventory showed unassigned still is, at least one still is, and none has failed since."""
+    the inventory showed unassigned still is, at least one still is, and none has failed since.
+
+    A job that had already failed in the inventory is not one that "failed since": the plan already judged
+    it (open_head_lost() fails such a run over by re-running its lost job alone, `rerun_job`). Counting it
+    here refused every one of those failovers: on 2026-10-31, after #28852, every sweep from 06:30Z listed
+    each lost job in a failed cmux-next run as "skipped (a job failed since the inventory)", and those skips
+    filled the per-sweep cap of 10. For such a run the lost job must also still be its only unfinished job,
+    or the job-only re-run would leave a sibling created since the inventory cancelled and never re-run."""
     lost = {_job_key(job) for job in before if unassigned(job)}
     if not lost:
         return "no lost job in the inventory"
@@ -3209,8 +3224,13 @@ def open_head_jobs_moved(before: Sequence[Mapping[str, Any]], now: Sequence[Mapp
             return f"job {job.get('name')!r} took a runner since the inventory"
     if not any(unassigned(job) for job in now):
         return "no job is still unassigned"
-    if any(job.get("status") == "completed" and job.get("conclusion") == "failure" for job in now):
+    already_failed = {_job_key(job) for job in before if _failed(job)}
+    if any(_failed(job) and _job_key(job) not in already_failed for job in now):
         return "a job failed since the inventory"
+    if rerun_job is not None:
+        others = [job for job in now if job.get("status") != "completed" and job.get("id") != rerun_job]
+        if others:
+            return f"job {others[0].get('name')!r} is unfinished beside the lost job"
     return None
 
 
@@ -3218,6 +3238,10 @@ def open_head_jobs_moved(before: Sequence[Mapping[str, Any]], now: Sequence[Mapp
 # (a dropped connection after it did), so the run's re-run entry is kept and the next sweep reconciles it
 # (new_lost_reruns(), plan_lost_reruns()).
 CANCEL_SENT = "failed (cancel sent, outcome unknown): "
+
+# rerun_lost()'s result prefix for a re-run GitHub took: "re-ran failed jobs", or "re-ran job <id>" for a lost
+# job re-run alone; the sweep summary counts both as freed.
+RERAN = "re-ran "
 
 
 def cancel_plan(
@@ -3273,7 +3297,7 @@ def cancel_plan(
             if again.get("status") not in IN_FLIGHT_RUN_STATUSES:
                 results[run_id] = f"skipped (now {again.get('status')})"
                 continue
-            moved = open_head_jobs_moved((jobs_by_run or {}).get(run_id, ()), now_jobs)
+            moved = open_head_jobs_moved((jobs_by_run or {}).get(run_id, ()), now_jobs, candidate.rerun_job)
             if moved:
                 results[run_id] = f"skipped ({moved})"
                 continue
@@ -3827,10 +3851,10 @@ def rerun_lost(github: GitHub, decisions: Sequence[LostRerun]) -> tuple[list[dic
         try:
             if isinstance(job_id, int) and not isinstance(job_id, bool):
                 github.rerun_job(job_id, app_only=app_only)
-                results[run_id] = f"re-ran job {job_id}"
+                results[run_id] = f"{RERAN}job {job_id}"
             else:
                 github.rerun_failed(run_id, app_only=app_only)
-                results[run_id] = "re-ran failed jobs"
+                results[run_id] = f"{RERAN}failed jobs"
         except Exception as error:  # noqa: BLE001 one failed re-run never drops the other entries
             failures += 1
             results[run_id] = f"failed: {error!r}"
@@ -4207,7 +4231,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 open_head_pending, open_head_results, open_head_failures = [dict(e) for e in open_head], {}, 0
             failures += open_head_failures
             open_head_freed = sum(1 for decision in open_head_decisions if decision.action == "rerun"
-                                  and open_head_results.get(int(decision.entry["run_id"])) == "re-ran failed jobs")
+                                  and open_head_results.get(int(decision.entry["run_id"]), "").startswith(RERAN))
             fresh = [*(entry for entry in fresh if not (entry.get("open_head") and not entry.get("cancel_unconfirmed"))),
                      *open_head_pending]
             save_lost_reruns([*pending, *fresh])

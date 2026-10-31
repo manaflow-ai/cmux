@@ -2485,6 +2485,35 @@ class LostInAFailedRunTests(unittest.TestCase):
         self.assertEqual((decision.action, decision.note), ("skip", janitor.OPEN_HEAD_RULE))
         self.assertIn("already failed", decision.candidate.reason)
 
+    def test_the_cancel_goes_through_when_the_failure_predates_the_inventory(self):
+        # 2026-10-31, after #28852: cancel_plan()'s re-read refused every such run as "a job failed since the
+        # inventory", though `cmux-next swift test` had failed in the inventory too (sweeps 41176910685 to
+        # 41179594210 skipped ten each, filling the per-sweep cap).
+        run, other, jobs, prs = self.world()
+        candidate = decision_for(self.plan([run, other], jobs, prs), run).candidate
+        self.assertEqual(candidate.rerun_job, 124387425580)
+        fake = FakeGitHub({run["id"]: dict(run)}, {run["id"]: [dict(job) for job in jobs[run["id"]]]})
+        results, failures = janitor.cancel_plan(fake, [candidate], jobs)
+        self.assertEqual((results[run["id"]], failures), ("cancelled", 0))
+
+    def test_the_cancel_is_refused_when_a_job_failed_or_appeared_since(self):
+        run, other, jobs, prs = self.world()
+        candidate = decision_for(self.plan([run, other], jobs, prs), run).candidate
+        last = jobs[run["id"]][-1]
+        cases = {
+            "a job failed since the inventory": dict(last, id=3, name="late failure", status="completed",
+                                                     conclusion="failure"),
+            "is unfinished beside the lost job": dict(last, id=4, name="new sibling", status="queued",
+                                                      conclusion=None, completed_at=None, runner_id=None),
+        }
+        for case, extra in cases.items():
+            with self.subTest(case=case):
+                now_jobs = [dict(job) for job in jobs[run["id"]]] + [extra]
+                fake = FakeGitHub({run["id"]: dict(run)}, {run["id"]: now_jobs})
+                results, failures = janitor.cancel_plan(fake, [candidate], jobs)
+                self.assertIn(case, results[run["id"]])
+                self.assertEqual((failures, fake.posts()), (0, []))
+
     def test_the_re_run_posts_the_job_not_the_runs_failed_jobs(self):
         fake = FakeGitHub({})
         fake.app_token = True
