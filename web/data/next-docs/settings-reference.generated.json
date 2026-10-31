@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 533,
+  "count": 534,
   "sections": [
     {
       "id": "general",
@@ -4571,6 +4571,14 @@
           "group": "Opening Links"
         },
         {
+          "key": "browser.import.cookieBanner",
+          "title": "Offer to Import Cookies",
+          "help": "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Import"
+        },
+        {
           "key": "browser.import.enabled",
           "title": "Import from Other Browsers",
           "help": "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.",
@@ -4709,6 +4717,14 @@
           "group": "Address Bar"
         },
         {
+          "key": "browser.omnibar.fontSize",
+          "title": "Address Bar Text Size",
+          "help": "The size of the address and the suggestions. Match Density follows the density.",
+          "kind": "choice_or_number",
+          "default": "density",
+          "group": "Address Bar"
+        },
+        {
           "key": "browser.omnibar.glass",
           "title": "Address Bar Glass",
           "help": "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.",
@@ -4747,6 +4763,14 @@
             "max": 1,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "browser.omnibar.height",
+          "title": "Address Bar Height",
+          "help": "Match Density follows the density. The bar always grows to fit its text.",
+          "kind": "choice_or_number",
+          "default": "density",
+          "group": "Address Bar"
         },
         {
           "key": "browser.omnibar.inlineAutocomplete",
@@ -5699,26 +5723,6 @@
           "kind": "string_map",
           "default": {},
           "group": "Machine Colors"
-        },
-        {
-          "key": "cloud.newWorkspaceFolder",
-          "title": "New Cloud Workspaces Start In",
-          "help": "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
-          "kind": "choice",
-          "default": "inherit",
-          "group": "Cloud Workspaces",
-          "values": [
-            "inherit",
-            "empty"
-          ]
-        },
-        {
-          "key": "cloud.newWorkspacesInCloud",
-          "title": "Run New Workspaces in Cloud",
-          "help": "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Cloud Workspaces"
         },
         {
           "key": "phone.allowConnections",

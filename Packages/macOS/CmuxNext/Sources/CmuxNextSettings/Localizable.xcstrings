@@ -1,7 +1,7 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "settings.sidebarSection.look": {
+    "settings.sidebarSection.lookAndFeel": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3010,6 +3010,925 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "檔案與連結"
+          }
+        }
+      }
+    },
+    "settings.choice.matchDensity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Match Density"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مطابقة الكثافة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prema gustoći"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Følg tæthed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wie Dichte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Igual que la densidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comme la densité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Come la densità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密度に合わせる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដូចដង់ស៊ីតេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "밀도에 맞춤"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Følg tetthet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jak gęstość"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Igual à densidade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Как плотность"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตามความหนาแน่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yoğunluğa uy"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Як щільність"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Theo mật độ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "匹配密度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "符合密度"
+          }
+        }
+      }
+    },
+    "settings.browser.omnibar.height": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Address Bar Height"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ارتفاع شريط العنوان"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Visina adresne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresselinjens højde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Höhe der Adressleiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altura de la barra de direcciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hauteur de la barre d’adresse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altezza della barra degli indirizzi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アドレスバーの高さ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្ពស់របារអាសយដ្ឋាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "주소 표시줄 높이"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Høyde på adressefeltet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wysokość paska adresu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altura da barra de endereço"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Высота адресной строки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความสูงของแถบที่อยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adres çubuğu yüksekliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Висота адресного рядка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiều cao thanh địa chỉ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "地址栏高度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "網址列高度"
+          }
+        }
+      }
+    },
+    "settings.browser.omnibar.height.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Match Density follows the density. The bar always grows to fit its text."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مطابقة الكثافة تتبع الكثافة. يتسع الشريط دائمًا ليناسب نصه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prema gustoći prati gustoću. Traka se uvijek povećava da stane njen tekst."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Følg tæthed følger tætheden. Linjen bliver altid høj nok til sin tekst."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wie Dichte folgt der Dichte. Die Leiste wächst immer, damit ihr Text passt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Igual que la densidad sigue la densidad. La barra siempre crece para que quepa su texto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comme la densité suit la densité. La barre s’agrandit toujours pour contenir son texte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Come la densità segue la densità. La barra si allarga sempre per contenere il testo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「密度に合わせる」は密度に従います。バーは常に文字が収まる高さまで広がります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដូចដង់ស៊ីតេ ធ្វើតាមដង់ស៊ីតេ។ របារតែងតែពង្រីកឱ្យសមនឹងអត្ថបទរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "밀도에 맞춤은 밀도를 따릅니다. 표시줄은 항상 텍스트가 들어가도록 커집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Følg tetthet følger tettheten. Feltet blir alltid høyt nok til teksten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jak gęstość podąża za gęstością. Pasek zawsze rośnie, aby zmieścić tekst."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Igual à densidade segue a densidade. A barra sempre cresce para caber o texto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Как плотность» следует плотности. Строка всегда растёт, чтобы вместить текст."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตามความหนาแน่นจะใช้ตามความหนาแน่น แถบจะขยายให้พอดีกับข้อความเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yoğunluğa uy yoğunluğu izler. Çubuk her zaman metnine sığacak kadar büyür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Як щільність» відповідає щільності. Рядок завжди збільшується, щоб умістити текст."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Theo mật độ sẽ theo mật độ. Thanh luôn giãn ra cho vừa chữ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“匹配密度”跟随密度。地址栏总会增高以容纳文字。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「符合密度」會跟隨密度。網址列一律會增高以容納文字。"
+          }
+        }
+      }
+    },
+    "settings.browser.omnibar.fontSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Address Bar Text Size"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حجم نص شريط العنوان"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Veličina teksta adresne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresselinjens tekststørrelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Textgröße der Adressleiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamaño del texto de la barra de direcciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taille du texte de la barre d’adresse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dimensione del testo della barra degli indirizzi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アドレスバーの文字サイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំហំអក្សររបារអាសយដ្ឋាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "주소 표시줄 텍스트 크기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tekststørrelse i adressefeltet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozmiar tekstu paska adresu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamanho do texto da barra de endereço"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Размер текста адресной строки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขนาดข้อความของแถบที่อยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adres çubuğu metin boyutu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розмір тексту адресного рядка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cỡ chữ thanh địa chỉ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "地址栏文字大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "網址列文字大小"
+          }
+        }
+      }
+    },
+    "settings.browser.omnibar.fontSize.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The size of the address and the suggestions. Match Density follows the density."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حجم العنوان والاقتراحات. مطابقة الكثافة تتبع الكثافة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Veličina adrese i prijedloga. Prema gustoći prati gustoću."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Størrelsen på adressen og forslagene. Følg tæthed følger tætheden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Größe der Adresse und der Vorschläge. Wie Dichte folgt der Dichte."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El tamaño de la dirección y las sugerencias. Igual que la densidad sigue la densidad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La taille de l’adresse et des suggestions. Comme la densité suit la densité."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La dimensione dell’indirizzo e dei suggerimenti. Come la densità segue la densità."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アドレスと候補の文字サイズです。「密度に合わせる」は密度に従います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំហំអាសយដ្ឋាន និងការណែនាំ។ ដូចដង់ស៊ីតេ ធ្វើតាមដង់ស៊ីតេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "주소와 제안의 크기입니다. 밀도에 맞춤은 밀도를 따릅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Størrelsen på adressen og forslagene. Følg tetthet følger tettheten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozmiar adresu i podpowiedzi. Jak gęstość podąża za gęstością."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O tamanho do endereço e das sugestões. Igual à densidade segue a densidade."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Размер адреса и подсказок. «Как плотность» следует плотности."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขนาดของที่อยู่และคำแนะนำ ตามความหนาแน่นจะใช้ตามความหนาแน่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresin ve önerilerin boyutu. Yoğunluğa uy yoğunluğu izler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розмір адреси й підказок. «Як щільність» відповідає щільності."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cỡ của địa chỉ và gợi ý. Theo mật độ sẽ theo mật độ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "地址和建议的大小。“匹配密度”跟随密度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "網址和建議的大小。「符合密度」會跟隨密度。"
+          }
+        }
+      }
+    },
+    "settings.browser.importCookieBanner": {
+      "comment": "Settings > Browser > Import: toggle for the Import Cookies banner in browser tabs.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offer to Import Cookies"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض استيراد ملفات تعريف الارتباط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponudi uvoz kolačića"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilbyd at importere cookies"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookie-Import anbieten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ofrecer importar cookies"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proposer d’importer les cookies"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proponi di importare i cookie"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookie の読み込みを提案"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ដល់ជូនការនាំចូលខូគី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "쿠키 가져오기 제안"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilby å importere informasjonskapsler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proponuj import plików cookie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oferecer importação de cookies"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предлагать импорт файлов cookie"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เสนอให้นำเข้าคุกกี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çerezleri İçe Aktarmayı Öner"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропонувати імпорт файлів cookie"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đề xuất nhập cookie"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示导入 Cookie"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示匯入 Cookie"
+          }
+        }
+      }
+    },
+    "settings.browser.importCookieBanner.help": {
+      "comment": "Settings > Browser > Import: help under Offer to Import Cookies.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعرض علامات تبويب المتصفح استيراد ملفات تعريف الارتباط من متصفحاتك الأخرى لتبقى مسجّل الدخول. لا يُستورد شيء حتى تنقر على استيراد. يؤدي «عدم الإظهار مرة أخرى» في الشريط إلى إيقاف هذا الخيار."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartice preglednika nude uvoz kolačića iz vaših drugih preglednika, kako biste ostali prijavljeni. Ništa se ne uvozi dok ne kliknete Uvezi. Ne prikazuj ponovo na traci isključuje ovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browserfaner tilbyder at importere cookies fra dine andre browsere, så du forbliver logget ind. Intet importeres, før du klikker på Importér. Vis ikke igen på banneret slår dette fra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser-Tabs bieten an, Cookies aus deinen anderen Browsern zu importieren, damit du angemeldet bleibst. Nichts wird importiert, bis du auf Importieren klickst. „Nicht mehr anzeigen“ im Banner schaltet dies aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las pestañas del navegador ofrecen importar cookies de tus otros navegadores para que mantengas la sesión iniciada. No se importa nada hasta que haces clic en Importar. «No volver a mostrar» en el aviso lo desactiva."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les onglets du navigateur proposent d’importer les cookies de vos autres navigateurs pour que vous restiez connecté. Rien n’est importé avant que vous cliquiez sur Importer. « Ne plus afficher » sur la bannière désactive cette option."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le schede del browser propongono di importare i cookie dagli altri browser, così resti connesso. Nulla viene importato finché non fai clic su Importa. «Non mostrare più» sul banner disattiva questa opzione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザタブで、他のブラウザから Cookie を読み込むよう提案し、サインインしたままにします。「読み込む」をクリックするまで何も読み込みません。バナーの「今後表示しない」でオフになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងកម្មវិធីរុករកផ្ដល់ជូនការនាំចូលខូគីពីកម្មវិធីរុករកផ្សេងទៀតរបស់អ្នក ដើម្បីឱ្យអ្នកបន្តចូលគណនី។ គ្មានអ្វីត្រូវបាននាំចូលទេ រហូតដល់អ្នកចុច នាំចូល។ «កុំបង្ហាញម្ដងទៀត» នៅលើបដាបិទមុខងារនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 탭에서 다른 브라우저의 쿠키를 가져오도록 제안하여 로그인 상태를 유지합니다. 가져오기를 클릭하기 전에는 아무것도 가져오지 않습니다. 배너의 '다시 표시하지 않음'을 누르면 꺼집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nettleserfaner tilbyr å importere informasjonskapsler fra de andre nettleserne dine, så du forblir logget på. Ingenting importeres før du klikker på Importer. Ikke vis igjen på banneret slår dette av."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karty przeglądarki proponują import plików cookie z innych przeglądarek, aby pozostać zalogowanym. Nic nie jest importowane, dopóki nie klikniesz Importuj. „Nie pokazuj ponownie” na banerze wyłącza tę opcję."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As abas do navegador oferecem importar cookies dos seus outros navegadores para você continuar conectado. Nada é importado até você clicar em Importar. \"Não mostrar novamente\" no banner desativa isto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки браузера предлагают импортировать файлы cookie из других браузеров, чтобы вы оставались в учётных записях. Ничего не импортируется, пока вы не нажмёте «Импортировать». «Больше не показывать» на баннере отключает это."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บเบราว์เซอร์จะเสนอให้นำเข้าคุกกี้จากเบราว์เซอร์อื่นของคุณ เพื่อให้คุณยังลงชื่อเข้าใช้อยู่ ไม่มีการนำเข้าใดจนกว่าคุณจะคลิกนำเข้า \"ไม่ต้องแสดงอีก\" บนแบนเนอร์จะปิดตัวเลือกนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcı sekmeleri, oturumunuz açık kalsın diye diğer tarayıcılarınızdan çerezleri içe aktarmayı önerir. İçe Aktar'a tıklayana kadar hiçbir şey içe aktarılmaz. Başlıktaki Bir Daha Gösterme bunu kapatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки браузера пропонують імпортувати файли cookie з інших браузерів, щоб ви залишалися в обліковому записі. Нічого не імпортується, доки ви не натиснете «Імпортувати». «Більше не показувати» на банері вимикає це."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các tab trình duyệt đề xuất nhập cookie từ các trình duyệt khác để bạn luôn đăng nhập. Không có gì được nhập cho đến khi bạn nhấp Nhập. \"Không hiển thị lại\" trên biểu ngữ sẽ tắt tùy chọn này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器标签页会提示从你的其他浏览器导入 Cookie，让你保持登录。点按“导入”之前不会导入任何内容。横幅上的“不再显示”会关闭此选项。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器標籤頁會提示從你的其他瀏覽器匯入 Cookie，讓你保持登入。按一下「匯入」之前不會匯入任何內容。橫幅上的「不再顯示」會關閉此選項。"
           }
         }
       }
@@ -99700,7 +100619,7 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Boje terminala i cmuxa, osim ako je postavljena tema aplikacije"
+            "value": "Boje terminala i cmuxa ako tema aplikacije nije postavljena"
           }
         },
         "da": {
@@ -99712,25 +100631,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Farben für Terminals und cmux, außer ein App-Theme ist gesetzt"
+            "value": "Farben für Terminals und cmux, außer bei gesetztem App-Theme"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Colores de los terminales, y de cmux si no hay tema de la app"
+            "value": "Colores de terminales, y de cmux si no hay tema de la app"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couleurs des terminaux, et de cmux sauf si un thème de l’app est choisi"
+            "value": "Couleurs des terminaux, et de cmux sans thème de l’app"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Colori dei terminali, e di cmux se non è impostato un tema dell’app"
+            "value": "Colori dei terminali, e di cmux senza un tema dell’app"
           }
         },
         "ja": {
@@ -99754,13 +100673,13 @@
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Farger for terminaler, og cmux med mindre et apptema er valgt"
+            "value": "Farger for terminaler, og cmux om ikke et apptema er valgt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kolory terminali, a także cmux, jeśli nie ustawiono motywu aplikacji"
+            "value": "Kolory terminali i cmux, gdy nie ustawiono motywu aplikacji"
           }
         },
         "pt-BR": {
@@ -99784,7 +100703,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminallerin renkleri; uygulama teması ayarlı değilse cmux'un da"
+            "value": "Terminal renkleri; uygulama teması yoksa cmux'unkiler de"
           }
         },
         "uk": {
@@ -99856,7 +100775,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couleurs de la fenêtre, de la barre latérale, des onglets et des pages"
+            "value": "Couleurs de la fenêtre, barre latérale, onglets et pages"
           }
         },
         "it": {
