@@ -1,8 +1,9 @@
 # cmux Cloud CLI reference
 
 The Rust `cmux` reaches Cloud machines through the app's cloud actions. The Swift
-`cmux vm …` family and its `cmux cloud` alias were removed; there is no `vm` scope,
-no `vm.*` socket method on the CLI, and no `cmux rpc`.
+`cmux vm …` family and its `cmux cloud` alias were removed: there is no `vm.*` socket
+method on the CLI and no `cmux rpc`. Today's `cmux vm` calls the cmux VM API with an
+API key and no app; see [headless.md](headless.md).
 
 ## Conventions
 
