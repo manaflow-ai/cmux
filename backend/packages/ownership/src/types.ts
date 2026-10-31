@@ -211,7 +211,7 @@ export interface ReduceContext {
    * Read-only rows of a row-backed domain. The engine and mirrors always pass it (empty for
    * JSON-only domains); hand-built test contexts for JSON domains may omit it.
    */
-  readonly rows?: RowReader
+  readonly rows?: RowReader | undefined
   /**
    * The request's idempotency key: present on the owner and in a client's preview of its own
    * intent; absent when a mirror replays a committed event (events hide keys behind `tx`).
