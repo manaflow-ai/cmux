@@ -7333,7 +7333,7 @@ extension TabManager {
                 // persisted UUID hint. The UUID hint matches on ordinary
                 // session restore, but duplicate/corrupt snapshots can still
                 // mint fresh workspace ids.
-                let anchorId: UUID = {
+                let savedAnchorId: UUID? = {
                     if let index = groupSnapshot.anchorMemberIndex,
                        members.indices.contains(index) {
                         return members[index]
@@ -7341,20 +7341,26 @@ extension TabManager {
                     if let stored = groupSnapshot.anchorWorkspaceId, members.contains(stored) {
                         return stored
                     }
-                    return members[0]
+                    return nil
                 }()
+                // A member standing in for an anchor the save left out is not
+                // what the saved provenance describes, and "generated" would
+                // let group cleanup close it.
+                let anchorProvenance = savedAnchorId == nil
+                    ? WorkspaceGroupAnchorProvenance.unknown
+                    : WorkspaceGroupAnchorProvenance(
+                        rawValue: groupSnapshot.anchorWorkspaceProvenance ?? ""
+                    ) ?? .unknown
                 return WorkspaceGroup(
                     id: groupSnapshot.id,
                     name: groupSnapshot.name,
                     isCollapsed: groupSnapshot.isCollapsed,
                     isPinned: groupSnapshot.isPinned ?? false,
-                    anchor: .workspace(anchorId),
+                    anchor: .workspace(savedAnchorId ?? members[0]),
                     customColor: groupSnapshot.customColor,
                     iconSymbol: groupSnapshot.iconSymbol,
                     externalID: groupSnapshot.externalID,
-                    anchorWorkspaceProvenance: WorkspaceGroupAnchorProvenance(
-                        rawValue: groupSnapshot.anchorWorkspaceProvenance ?? ""
-                    ) ?? .unknown
+                    anchorWorkspaceProvenance: anchorProvenance
                 )
             }
         }()
