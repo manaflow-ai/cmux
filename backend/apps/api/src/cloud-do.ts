@@ -129,8 +129,8 @@ export class CloudDO extends CloudIdle {
     // cannot revive a grant after an A→B→A membership transition.
     const memberAuthority = items.filter((i) => i.op === TEAM_MEMBER_AUTHORITY_CHANGED)
     const teamAuthority = items.filter((i) => i.op === TEAM_AUTHORITY_CHANGED)
-    const validAuthority = source === `team:${entity}` && this.isBound(entity)
-    if (validAuthority && (memberAuthority.length || teamAuthority.length)) {
+    const validAuthority = source === `team:${entity}`
+    if (validAuthority && this.isBound(entity) && (memberAuthority.length || teamAuthority.length)) {
       const users = new Set(memberAuthority.flatMap((i) => {
         const user = (i.params as { user?: unknown })?.user
         return typeof user === "string" ? [user] : []
@@ -139,9 +139,14 @@ export class CloudDO extends CloudIdle {
       // including machines created by another member. Any member or team policy notice
       // therefore fences all receiver generations in this CloudDO.
       const store = new VmReceiverGenerations(this.sqlStore)
-      for (const entry of this.bind(entity).rows.range<MachineRow>(TABLE_MACHINE, { limit: 10_000 })) {
-        const row = entry.row
-        store.close(row.id, (audit) => this.audit.record({ op: "receiver_authority_close", team: entity, ...audit, at: Date.now() }))
+      let after = Number.MIN_SAFE_INTEGER
+      for (;;) {
+        const page = this.bind(entity).rows.range<MachineRow>(TABLE_MACHINE, { after, limit: 1000 })
+        for (const entry of page) store.close(entry.row.id, (audit) => this.audit.record({ op: "receiver_authority_close", team: entity, ...audit, at: Date.now() }))
+        if (page.length < 1000) break
+        const next = page[page.length - 1]!.n
+        if (next === null || next <= after) break
+        after = next
       }
       for (const user of users) this.closeSockets((p) => p.user === user, "team membership authority changed")
     }
