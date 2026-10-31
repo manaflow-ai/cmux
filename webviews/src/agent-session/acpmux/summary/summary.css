@@ -288,6 +288,11 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
 .cv-md>.cv-block-tail:last-child>div:first-child>:last-child{margin-bottom:0}
 .cv-block-tail>.acpmux-pr-dock{flex:0 1 220px;max-width:45%;height:1lh}
 .cv-received__line:has(>.acpmux-pr-dock)>.cv-received__name{flex:0 1 auto;min-width:0}
+/* A received line's hover box sizes to its content, so titled chips would widen it past the row:
+   cap the dock as the inline tail does, and the planner fits chips to that. */
+.cv-received__hover > .acpmux-pr-dock {
+  max-width: min(320px, 45vw);
+}
 /* Keep the links visible while the existing action buttons retain their hover behavior. */
 .acpmux-turnSummary .cv-turn-actions:has(> .acpmux-pr-dock),
 .cv-reply-actions:has(> .acpmux-pr-dock) {
