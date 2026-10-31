@@ -144,9 +144,18 @@ export function withoutChildren(entries: AcpmuxSessionEntry[]): AcpmuxSessionEnt
   return entries.filter((entry) => !folded(entry, parents));
 }
 
-/** Whether `entry` folds under a parent in `parents`: it has one there and needs no answer. */
-export const folded = (entry: AcpmuxSessionEntry, parents: ReadonlySet<string>) =>
-  Boolean(entry.spawnedBy && parents.has(entry.spawnedBy) && sessionMark(entry, false) !== "input");
+/** A child with a live ask remains independently discoverable even while its dot says "working".
+ * The Home inbox and the sidebar share this folding rule; acpmux may report a pending permission
+ * or question before its indicator moves to "input". A lost host cannot answer its old asks.
+ */
+export const folded = (entry: AcpmuxSessionEntry, parents: ReadonlySet<string>) => {
+  const needsPerson =
+    entry.indicator !== "lost" &&
+    ((entry.pendingPermissions ?? 0) > 0 || entry.waitingOn !== undefined || entry.status === "waiting");
+  return Boolean(
+    entry.spawnedBy && parents.has(entry.spawnedBy) && sessionMark(entry, false) !== "input" && !needsPerson,
+  );
+};
 
 /** Whether acpmux's tags (an object of key to value; a list in older fixtures) hold `tag`. */
 function tagged(tags: unknown, tag: string): boolean {
