@@ -511,6 +511,7 @@
               "sidebar.showTimestamps",
               "sidebar.showColors",
               "sidebar.showLocalMachine",
+              "sidebar.groupPinMark",
               "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount",
               "sidebar.minimalMode",
@@ -51190,6 +51191,178 @@
       "title" : {
         "key" : "settings.sidebar.showLocalMachine",
         "text" : "Mark This Mac's Workspaces"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "trailing",
+        "leading",
+        "shelf"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupPinTrailing",
+            "text" : "Pin After Name"
+          },
+          "value" : "trailing"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupPinLeading",
+            "text" : "Pin Before Name"
+          },
+          "value" : "leading"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupPinShelf",
+            "text" : "Tinted Rows"
+          },
+          "value" : "shelf"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "off",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.groupPinMark.help",
+        "text" : "How a workspace pinned inside its group shows it. A pin after the name, a pin before the name in the group's color, or a light wash of the group's color behind the pinned workspaces. Off, the pin shows only when you point at an expanded row."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupPinMark",
+      "keywords" : [
+        "sidebar",
+        "group",
+        "groups",
+        "pin",
+        "pinned",
+        "pins",
+        "mark",
+        "indicator",
+        "badge",
+        "icon",
+        "tint",
+        "workspace"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupPinMark"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.groupPinMark"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.groupPinMark",
+        "text" : "Pinned in Group Mark"
       },
       "validation" : "portable"
     },

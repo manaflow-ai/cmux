@@ -3624,6 +3624,18 @@
       "title" : "Show Group Unread Count",
       "type" : "boolean"
     },
+    "sidebar.groupPinMark" : {
+      "default" : "off",
+      "description" : "How a workspace pinned inside its group shows it. A pin after the name, a pin before the name in the group's color, or a light wash of the group's color behind the pinned workspaces. Off, the pin shows only when you point at an expanded row.",
+      "enum" : [
+        "off",
+        "trailing",
+        "leading",
+        "shelf"
+      ],
+      "title" : "Pinned in Group Mark",
+      "type" : "string"
+    },
     "sidebar.hoverCards.delay" : {
       "default" : 1300,
       "description" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
