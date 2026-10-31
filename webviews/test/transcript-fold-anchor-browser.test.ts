@@ -358,6 +358,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     const page = await open("reduce");
     const reports = Array.from({ length: 24 }, (_, index) =>
       row(`received-${index}`, "user", `Report ${index + 1}: the focused checks passed.`, {
+        steer: "landed",
         promptId: `report-${index}`,
         incoming: {
           kind: "message",
