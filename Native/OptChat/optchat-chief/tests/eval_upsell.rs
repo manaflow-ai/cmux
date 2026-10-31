@@ -27,7 +27,7 @@ fn the_paid_plans_skill_ships_with_the_checkout_command_and_the_never_rules() {
     }
     let text = std::fs::read_to_string(&skill.path).unwrap();
     for want in [
-        "cmux billing checkout --plan <pro|max|team>",
+        "cmux billing checkout --plan <plus|pro|max|team>",
         "Tell the user in one line: what the plan adds and its price",
         "nothing is charged until they pay",
         "Never say you bought, paid for or upgraded anything",
