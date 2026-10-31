@@ -114,6 +114,7 @@ export function HighlightedCode({ code, lang = "text", label, actions }: CodeBlo
             type="button"
             className="cv-codeblock__action"
             aria-pressed={wrap}
+            data-fold-toggle=""
             aria-label={t("changes.wrapLines")}
             title={t("changes.wrapLines")}
             onClick={() => setWrap((value) => !value)}
