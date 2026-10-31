@@ -79,7 +79,11 @@ pub(crate) fn is_lane_pool(name: &str) -> bool {
 /// only one that can take work now or after an idle resume. Among those: one
 /// marked for chats first, then a free one (connected with no chat open, or
 /// paused by the idle timer); connected first, then in the App's order.
-pub(crate) fn pick(candidates: &[Candidate], user: Option<&str>, used: &BTreeSet<String>) -> Option<String> {
+pub(crate) fn pick(
+    candidates: &[Candidate],
+    user: Option<&str>,
+    used: &BTreeSet<String>,
+) -> Option<String> {
     let user = user?;
     let mine = |machine: &Candidate| match &machine.created_by {
         Some(creator) => creator == user,
