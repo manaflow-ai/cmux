@@ -241,6 +241,9 @@ mod hook_callback;
 #[cfg(test)]
 mod hook_callback_tests;
 mod inbound;
+// What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
+mod logged_bodies;
+pub use logged_bodies::leave_out_bodies;
 mod outbound;
 #[cfg(test)]
 mod steer_now_tests;
@@ -447,8 +450,9 @@ pub struct Translator {
     /// Turns Claude Code runs on steers it read after its turn ended (`carry.rs`). Taken before
     /// `pending`, and after `batches`, `steers` and `steer_lines`.
     carry: Mutex<carry::Carry>,
-    /// Carried turns whose prompt has not come yet (`carry.rs` `holding`).
-    carry_owed: tokio::sync::watch::Sender<usize>,
+    /// Carried turns whose prompt has not come yet, and the newest carry's number (`carry.rs`
+    /// `holding`).
+    carry_owed: tokio::sync::watch::Sender<(usize, u64)>,
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
@@ -603,7 +607,7 @@ impl Translator {
             steer_lines: Mutex::new(HashMap::new()),
             batches: Mutex::new(Default::default()),
             carry: Mutex::new(carry::Carry::new()),
-            carry_owed: tokio::sync::watch::channel(0).0,
+            carry_owed: tokio::sync::watch::channel((0, 0)).0,
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
             skills: Mutex::new(Vec::new()),
@@ -732,6 +736,12 @@ impl Translator {
                 shell.asked = false;
             }
         }
+    }
+
+    /// Whether Claude Code runs a subagent or a background shell: work an agent host whose
+    /// daemon is gone keeps its harness for (`agent_host::OrphanExit`).
+    pub async fn runs_background_work(&self) -> bool {
+        self.interrupt_ends_work().await
     }
 
     pub async fn take_stdin_replies(&self) -> Vec<Value> {

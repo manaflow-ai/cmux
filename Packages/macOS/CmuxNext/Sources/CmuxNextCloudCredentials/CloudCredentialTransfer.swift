@@ -40,7 +40,7 @@ public import Foundation
         try await run(currentTeamID: currentTeamID, currentUserID: currentUserID, confirmed: confirmed, refresh: refresh,
             effects: Effects(
                 exec: { try await pinned.exec(machineID, command: $0, timeoutMs: 20_000).exitCode },
-                write: { try await pinned.writeFile(machineID, path: $0, data: $1, mode: 0o600) },
+                write: { try await Self.stage($1, at: $0, on: pinned, machineID: machineID) },
             // Codex auth.json is never reused as a seed: its refresh token is VM-bound and may
             // rotate. A new device login is required for every transfer; a broker can supersede this.
             load: { provider == .codex ? nil : try await CloudCredentialLogin.load(provider: provider, teamID: teamID, userID: userID, machineID: machineID) },
@@ -50,6 +50,20 @@ public import Foundation
                 store: { value in
                     if provider == .claude { try await CloudCredentialLogin.store(value, provider: provider, teamID: teamID, userID: userID, machineID: machineID) }
                 }))
+    }
+
+    /// Writes the credential where the installer reads it. The file routes write as root. Where exec
+    /// runs as root too (`/api/vm`), the installer chowns a 0600 file before it drops to `cmux`. A
+    /// Worker machine's exec runs as `cmux` and can't read a root 0600 file, so its folder is first
+    /// made `cmux`'s own 0700 one (an exec as `cmux`), and the file goes in 0644: only `cmux` and
+    /// root can reach it, as `deliver-secrets` stages its receiver.
+    nonisolated static func stage(_ credential: Data, at path: String, on api: CloudAPIClient, machineID: String) async throws {
+        guard api.execRunsAsWorkUser else { return try await api.writeFile(machineID, path: path, data: credential, mode: 0o600) }
+        let folder = CloudCredentialInstaller.quote((path as NSString).deletingLastPathComponent)
+        let made = try await api.exec(machineID, command: "umask 077 && mkdir -p -- \(folder) && chmod 700 -- \(folder) && test -O \(folder) && test ! -L \(folder)",
+                                      timeoutMs: 20_000)
+        guard made.exitCode == 0 else { throw Failure.deliveryFailed }
+        try await api.writeFile(machineID, path: path, data: credential, mode: 0o644)
     }
 
     nonisolated struct Effects: Sendable {
