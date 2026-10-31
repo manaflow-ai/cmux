@@ -120,6 +120,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// Compact (the default), comfortable or expanded workspace rows
     /// (`sidebar.density`); minimal mode wins over expanded content.
     public var density: SidebarDensity = .compact
+    /// How large the list's text, leading glyphs and rows are (`sidebar.textSize`, ``SidebarTextSize``):
+    /// the original size by default; Larger matches the ChatGPT app's sidebar.
+    public var textSize: SidebarTextSize = .standard
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
     /// Off by default: a fresh profile's sidebar is pinned, its Settings and
     /// account band always shown; hover-reveal is opt-in (Leo 2026-10-11).

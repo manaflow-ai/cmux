@@ -57,7 +57,7 @@ extension SettingsSchema {
         "tabs.plusButton",
         "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons", "browser.toolbarPosition",
         "navigation.historyScope", "navigation.history.scope",
-        "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors",
+        "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.textSize", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors",
         "sidebar.showLocalMachine", "workspaceColors.indicatorStyle",
         "sidebar.controlsOnHover", // sidebar control visibility (looks only)
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",

@@ -16,6 +16,8 @@ public nonisolated enum SidebarSectionsSetting {
     /// headers become thin lines.
     public static let minimalPath = ["sidebar", "minimal"]
     public static let densityPath = ["sidebar", "density"]
+    /// `sidebar.textSize` (``SidebarTextSize``): the list's text, leading glyphs and rows together.
+    public static let textSizePath = ["sidebar", "textSize"]
     /// `sidebar.style`: standard or the thin rail (plans/cmux-next/minimal-sidebar.md).
     public static let stylePath = ["sidebar", "style"]
     public static let showProjectsPath = ["sidebar", "showProjects"]
@@ -123,6 +125,24 @@ public nonisolated enum SidebarSectionsSetting {
                           }),
                           default: .string(SidebarSectionsPreferences.defaults.density.rawValue),
                           keywords: ["sidebar", "density", "expanded", "compact", "comfortable", "rows", "preview", "two lines", "taller", "t3", "codex"])
+    }
+
+    /// Lawrence msg 17752: "we also need option for sidebar text to be very significantly bigger. this is
+    /// how big chatgpt is by default, let's match them". Larger is that size.
+    static func textSizeDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(textSizePath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.textSize", "Sidebar Text Size"),
+                          help: SettingsText.keyed("settings.sidebar.textSize.help",
+                                                   "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar."),
+                          kind: .choice(SidebarTextSize.allCases.map { size in
+                              switch size {
+                              case .standard: SettingChoice(size.rawValue, SettingsText.keyed("settings.choice.default", "Default"))
+                              case .large: SettingChoice(size.rawValue, SettingsText.keyed("settings.choice.sidebarTextLarge", "Large"))
+                              case .larger: SettingChoice(size.rawValue, SettingsText.keyed("settings.choice.sidebarTextLarger", "Larger"))
+                              }
+                          }),
+                          default: .string(SidebarSectionsPreferences.defaults.textSize.rawValue),
+                          keywords: ["sidebar", "text", "size", "font", "bigger", "larger", "large", "zoom", "readable", "accessibility", "chatgpt", "rows"])
     }
 
     static func styleDescriptor(group: SettingText) -> SettingDescriptor {
@@ -317,6 +337,14 @@ public nonisolated enum SidebarSectionsSetting {
             } else {
                 let choices = SidebarDensity.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.density", message: "expected one of " + choices))
+            }
+        }
+        if let value = root.value(at: textSizePath) {
+            if let text = value.stringValue, let size = SidebarTextSize(rawValue: text) {
+                result.textSize = size
+            } else {
+                let choices = SidebarTextSize.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.textSize", message: "expected one of " + choices))
             }
         }
         if let value = root.value(at: stylePath) {
