@@ -123,6 +123,42 @@ import Testing
         #expect(viewer.phase == .ended(reason: "sharing_off"))
     }
 
+    @Test func aFailedSignOutEndsTheSessionAndStopSignsOutAgain() async throws {
+        let (service, ends) = makeService()
+        let signOuts = SignOuts(failing: true)
+        service.signOutDevice = { _ in try signOuts.call() }
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        viewer.requestAnswered(.success(HubSession(id: "s8", state: .approved, scope: .full)), scope: .full)
+        service.route(.sessionTicket(ticket("s8", scope: .full)))
+        await service.signOutBeforeSessionEnds()
+        #expect(signOuts.count == 1)
+        // The hub still has the session: the viewer ends it itself.
+        #expect(viewer.phase == .ended(reason: "signed_out"))
+        await ends.wait(for: 1)
+        #expect(ends.calls == [Ends.Call(session: "s8", reason: "signed_out")])
+        // The phone is not signed out of the hub yet, so stop() tries again.
+        service.stop()
+        await service.stopping?.value
+        #expect(signOuts.count == 2)
+        #expect(service.hub == nil)
+    }
+
+    @Test func aSignOutThatWorkedIsNotRepeatedByStop() async throws {
+        let (service, ends) = makeService()
+        let signOuts = SignOuts(failing: false)
+        service.signOutDevice = { _ in try signOuts.call() }
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        viewer.requestAnswered(.success(HubSession(id: "s9", state: .approved, scope: .full)), scope: .full)
+        service.route(.sessionTicket(ticket("s9", scope: .full)))
+        await service.signOutBeforeSessionEnds()
+        #expect(viewer.phase == .ended(reason: "signed_out"))
+        service.stop()
+        await service.stopping?.value
+        #expect(signOuts.count == 1)
+        // Signing out ended the session on the hub: no /end of its own.
+        #expect(ends.calls.isEmpty)
+    }
+
     @Test func aDenialPushedBeforeTheAnswerIsKeptForIt() throws {
         let (service, _) = makeService()
         let viewer = try #require(service.connect(to: mac(), scope: .view))
@@ -261,6 +297,18 @@ import Testing
     func wait(for count: Int) async {
         guard calls.count < count else { return }
         await withCheckedContinuation { waiters.append((count, $0)) }
+    }
+}
+
+/// The hub's sign-out call: counts its calls and fails each when `failing`.
+@MainActor final class SignOuts {
+    struct Offline: Error {}
+    let failing: Bool
+    private(set) var count = 0
+    init(failing: Bool) { self.failing = failing }
+    func call() throws {
+        count += 1
+        if failing { throw Offline() }
     }
 }
 

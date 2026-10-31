@@ -277,6 +277,34 @@ fn server_connection_permits_enforce_and_release_the_cap() {
     assert_eq!(snapshot.peak, MAX_SERVER_CONNECTIONS as u64);
 }
 
+/// Agents in the session's terminals cannot take every connection: the app's
+/// own connections still get the rest, so it can close their workspaces
+/// (#27698: 55,162 refusals locked the app out of its daemon).
+#[test]
+fn terminal_connections_leave_slots_for_the_app() {
+    let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
+    let claim_terminal = || claim_terminal_connection(&connections);
+    let terminal: Vec<ConnectionPermit> = (0..MAX_TERMINAL_CONNECTIONS)
+        .map(|_| claim_terminal().expect("terminal slot below its share"))
+        .collect();
+    // One more terminal connection is refused and gives its slot back.
+    assert!(claim_terminal().is_none());
+    assert_eq!(connections.active(), MAX_TERMINAL_CONNECTIONS as u64);
+    let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
+    assert_eq!(snapshot.accepted, MAX_TERMINAL_CONNECTIONS as u64, "a refusal is not accepted");
+    assert_eq!(snapshot.refused, 1);
+
+    let app: Vec<ConnectionPermit> = (MAX_TERMINAL_CONNECTIONS..MAX_SERVER_CONNECTIONS)
+        .map(|_| claim_connection(&connections).expect("slot left for the app"))
+        .collect();
+    assert!(claim_connection(&connections).is_none());
+
+    drop(terminal);
+    assert!(claim_terminal().is_some(), "a released terminal slot is free again");
+    drop(app);
+    assert_eq!(connections.active(), 0);
+}
+
 /// #27669: connection threads parked on the registry lock outlived their CLI
 /// clients and held every slot, so the app's reconnects were refused
 /// `server.busy`. A client that hung up gives its slot to the next one; a live
@@ -316,6 +344,39 @@ fn hung_up_local_clients_give_their_slots_to_the_next_connection() {
     assert_eq!((snapshot.active, snapshot.hung_up), (1, 0));
     drop(app);
     assert_eq!(connections.active(), 0);
+}
+
+/// A terminal client that hung up gives back its terminal slot with its main
+/// one, so parked agent CLIs do not hold the terminals' share (#27698, #27669).
+#[cfg(unix)]
+#[test]
+fn hung_up_terminal_clients_give_back_their_terminal_slots() {
+    use std::os::unix::net::UnixStream;
+    let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
+    let mut clients = Vec::new();
+    let parked: Vec<ConnectionPermit> = (0..MAX_TERMINAL_CONNECTIONS)
+        .map(|_| {
+            let (daemon_side, client) = UnixStream::pair().unwrap();
+            clients.push(client);
+            claim_watched_terminal_connection(&connections, &daemon_side)
+                .expect("terminal slot below its share")
+        })
+        .collect();
+    let (live_daemon_side, _live_client) = UnixStream::pair().unwrap();
+    assert!(claim_watched_terminal_connection(&connections, &live_daemon_side).is_none());
+
+    clients.pop();
+    let next = claim_watched_terminal_connection(&connections, &live_daemon_side)
+        .expect("the terminal slot of a client that hung up serves the next one");
+    let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
+    assert_eq!(snapshot.hung_up, 1);
+    assert_eq!(snapshot.active, MAX_TERMINAL_CONNECTIONS as u64);
+    drop((parked, next));
+    assert_eq!(connections.active(), 0);
+    assert!(
+        claim_terminal_connection(&connections).is_some(),
+        "every terminal slot was given back"
+    );
 }
 
 /// The hung-up pool is bounded by the limit, so connection threads stay

@@ -1842,7 +1842,7 @@ async fn dispatch_request(
             let s = hub.resolve(session_key(&params)?)?;
             Ok(super::session_files::describe(hub, &s))
         }
-        method::MUX_WAIT => wait::wait(hub, &params).await,
+        method::MUX_WAIT => wait::wait(hub, &params, conn.caller()).await,
         method::MUX_WATCH_ADD | method::MUX_WATCH_LS | method::MUX_WATCH_RM => {
             watches::handle(hub, conn, m, &params).await
         }
@@ -1854,7 +1854,9 @@ async fn dispatch_request(
         method::MUX_HISTORY => {
             let s = hub.resolve(session_key(&params)?)?;
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
-            Ok(json!({"sessionId": s.id, "turns": hub.history(&s, limit)}))
+            let turns = hub.history(&s, limit);
+            hub.lane_report_history_read(conn.caller(), &s.id, &turns);
+            Ok(json!({"sessionId": s.id, "turns": turns}))
         }
         m if composer::handles(m) => composer::handle(hub, conn, m, &params).await,
         method::MUX_TAG => {
@@ -2061,6 +2063,7 @@ async fn dispatch_request(
             };
             // The prompt of the turn the page starts inside, read with it (`turn_opener.rs`).
             let opener = turn_opener::turn_opener(hub, &s.id, &page);
+            hub.lane_report_events_read(conn.caller(), &s.id, &page.events);
             let events: Vec<Value> = events::values(&s.id, page.events);
             // Who has the chat open now (`hub/presence.rs`), this attachment included.
             let presence = hub.presence.snapshot(&s.id);
@@ -2099,7 +2102,9 @@ async fn dispatch_request(
         method::MUX_HARNESS_INVENTORY_WATCH => super::inventory_watch::handle(hub, conn, &params),
         // A lending Mac counts once this answer is queued (`server/mod.rs`, `github_owner.rs`).
         method::MUX_WATCH => super::list_reply::watch(hub, conn, &params).await,
-        method::MUX_EVENTS | method::MUX_ATTACHMENT => events::handle(hub, m, &params),
+        method::MUX_EVENTS | method::MUX_ATTACHMENT => {
+            events::handle(hub, m, &params, conn.caller())
+        }
         // A read, for whoever may read the log, as `_acpmux/events` (`hub/queue_text.rs`).
         method::MUX_QUEUE_TEXT => Box::pin(queue_text(hub, &params)).await,
         method::MUX_MAIL_SEND

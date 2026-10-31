@@ -16,8 +16,9 @@ async function until(ready: () => boolean): Promise<void> {
 await until(() => !!window.cmuxAcpmuxActions?.["chat.send"] && !!window.cmuxAcpmuxDebug && !!MockAcpmuxSocket.live);
 const turns = Number(new URLSearchParams(location.search).get("turns") ?? 0);
 const resident = new URLSearchParams(location.search).has("resident");
-if (turns !== 0 && turns !== 3000) throw new Error("unsupported flow fixture size");
-if (resident && turns !== 3000) throw new Error("resident flow fixture requires 3000 turns");
+// 100 turns: a typical chat for the rail hover sweep (test/latency/rail-sweep.ts).
+if (turns !== 0 && turns !== 100 && turns !== 3000) throw new Error("unsupported flow fixture size");
+if (resident && turns === 0) throw new Error("resident flow fixture requires a turn count");
 const sessionId = turns && !resident ? MockAcpmuxSocket.live!.seedLoadSession(turns) : WORKED_SESSION;
 window.cmuxAcpmuxBridge!.applyHeaderState!({ inspector: true, version: 2 });
 // The resident rail adapter measures compact-arm entries (`.acpmux-minimap__entry`).

@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDesign
+import CmuxTheme
 @testable import CmuxNextPalette
 import CmuxNextTestSupport
 import Foundation
@@ -33,19 +35,40 @@ struct PaletteMemberPickerSnapshotTests {
         return page
     }
 
-    private static func render(chosen: [String], dark: Bool, windows: inout [NSWindow]) async throws -> NSImage {
+    private static func themeInput(dark: Bool) -> ThemeInput {
+        dark ? ThemeInput(background: ThemeRGB(hex: 0x1E1E1E), foreground: ThemeRGB(hex: 0xD4D4D4))
+            : ThemeInput(background: ThemeRGB(hex: 0xFFFFFF), foreground: ThemeRGB(hex: 0x24292F))
+    }
+
+    private static func refresh(_ view: NSView) {
+        view.viewDidChangeEffectiveAppearance()
+        view.needsLayout = true
+        view.needsDisplay = true
+        view.subviews.forEach(refresh)
+    }
+
+    private static func render(chosen: [String], dark: Bool, windows: inout [NSWindow],
+                               scopes: inout [ThemeScope]) async throws -> NSImage {
         let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         let palette = PaletteController(registry: ActionRegistry.standard(), sources: PaletteSources(), frecencyPersistence: nil)
         defer { palette.closeForTest() }
         palette.show(page: try page(chosen: chosen))
         await palette.model.settle()
         let view = PaletteContentView(model: palette.model)
+        view.appearance = appearance
         let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.appearance = appearance
-        window.backgroundColor = dark ? NSColor(white: 0.12, alpha: 1) : NSColor(white: 0.97, alpha: 1)
         window.contentView = view
         windows.append(window)
+        // The palette's colors come from the cmux theme, not the window's appearance: give the view the
+        // theme a light or dark user has (as PaletteScopeChipSnapshotTests does), then redraw every view.
+        let input = Self.themeInput(dark: dark)
+        let scope = ThemeScope(level: .room)
+        scope.setOverride(ThemeSpec(dark ? "Dark+" : "GitHub Light"), input: input, animated: false)
+        scope.root(view)
+        scopes.append(scope)
+        Self.refresh(view)
         view.layoutSubtreeIfNeeded()
         view.displayIfNeeded()
         // The glass panel itself does not draw through cacheDisplay; its content (field, chips, rows) does,
@@ -57,9 +80,11 @@ struct PaletteMemberPickerSnapshotTests {
         content.cacheDisplay(in: bounds, to: rep)
         let image = NSImage(size: bounds.size)
         image.lockFocus()
-        (dark ? NSColor(white: 0.16, alpha: 1) : NSColor(white: 0.96, alpha: 1)).setFill()
+        // The palette's opaque surface (Reduce Transparency) for this theme stands in for the glass.
+        ThemeTokens.derive(from: input).opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value).nsColor.setFill()
         NSRect(origin: .zero, size: bounds.size).fill()
-        rep.draw(in: NSRect(origin: .zero, size: bounds.size))
+        rep.draw(in: NSRect(origin: .zero, size: bounds.size), from: .zero, operation: .sourceOver, fraction: 1,
+                 respectFlipped: true, hints: nil)
         image.unlockFocus()
         return image
     }
@@ -67,12 +92,13 @@ struct PaletteMemberPickerSnapshotTests {
     @Test func drawsLightAndDark() async throws {
         _ = NSApplication.shared
         var windows: [NSWindow] = []
+        var scopes: [ThemeScope] = []
         defer { windows.forEach { $0.close() } }
         let states: [(String, [String])] = [("On open", []), ("Chief and Aziz chosen", ["Chief", "Aziz"])]
         var cells: [[NSImage]] = []
         for (_, chosen) in states {
-            cells.append([try await Self.render(chosen: chosen, dark: false, windows: &windows),
-                          try await Self.render(chosen: chosen, dark: true, windows: &windows)])
+            cells.append([try await Self.render(chosen: chosen, dark: false, windows: &windows, scopes: &scopes),
+                          try await Self.render(chosen: chosen, dark: true, windows: &windows, scopes: &scopes)])
         }
         let cell = cells[0][0].size
         let label: CGFloat = 28

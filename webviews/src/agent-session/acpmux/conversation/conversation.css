@@ -716,11 +716,15 @@
     transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
   }
   .cv-user:hover .cv-user__actions,
+  .cv-user:has([data-popup-open]) .cv-user__actions,
   .cv-received:hover .cv-received-actions,
   .cv-received > .cv-disclosure__line:hover .cv-received__hover,
+  .cv-received > .cv-disclosure__line:has([data-popup-open]) .cv-received__hover,
   .acpmux-assistant:hover .cv-reply-actions,
+  .acpmux-assistant:has([data-popup-open]) .cv-reply-actions,
   .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
-  .acpmux-turnSummary:hover .cv-turn-actions {
+  .acpmux-turnSummary:hover .cv-turn-actions,
+  .acpmux-turnSummary:has([data-popup-open]) .cv-turn-actions {
     transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
   }
 }
@@ -735,6 +739,7 @@
   }
 }
 .cv-user:hover .cv-user__actions,
+.cv-user:has([data-popup-open]) .cv-user__actions,
 .cv-user__actions:focus-within,
 .cv-user__actions:has([aria-haspopup="menu"][aria-expanded="true"]),
 .cv-user__actions--versions {
@@ -1944,6 +1949,13 @@ pre.cv-math-source {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* An opened call's line that is no shell's reads whole (ToolRow.tsx `is-whole-open`): its label
+   wraps instead of being cut at the row's edge. */
+.cv-tool.is-whole-open[aria-expanded="true"] > .cv-tool__text {
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 /* The rows' verb column (ToolVerb.tsx), as the Codex app lines its tool rows up (Leo 2026-10-29:
    "having stuff aligned is nice"): each verb ("Ran", "Read", "Edited") is a box as wide as the
    widest verb of its turn's rows, so every subject starts at one x. The widest is never measured:
@@ -2411,6 +2423,33 @@ pre.cv-math-source {
   margin-left: 6px;
   font-variant-numeric: tabular-nums;
 }
+/* A group row's totals (EditCounts.tsx) come right after its summary, as Claude Code desktop puts
+   them (Leo 2026-10-30: "i like claude code they put the number overarching too"): the summary
+   cuts with an ellipsis and the totals and a failed count stay whole. */
+.cv-tool__text.has-counts {
+  display: flex;
+  align-items: baseline;
+  text-overflow: clip;
+}
+.cv-tool__text.has-counts > .cv-tool__summary {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-tool__text.has-counts > :is(.cv-tool__counts, .cv-tool__failed) {
+  flex: none;
+}
+.cv-tool__text.has-counts > .cv-tool__failed {
+  margin-left: 0.3em;
+}
+.cv-tool__text.has-counts > .cv-tool-error__inline {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* A written file's name (WriteLabel.tsx): it opens the file, so it underlines under the pointer. */
 .cv-tool__file.is-link {
   cursor: default;
@@ -2708,6 +2747,7 @@ pre.cv-math-source {
   pointer-events: none;
 }
 .cv-received > .cv-disclosure__line:hover .cv-received__hover,
+.cv-received > .cv-disclosure__line:has([data-popup-open]) .cv-received__hover,
 .cv-received__hover:focus-within,
 .cv-received__hover:has([aria-haspopup="menu"]:is([aria-expanded="true"], [data-popup-open])) {
   opacity: 1;
@@ -3205,7 +3245,8 @@ a.cv-sha:focus-visible {
   overflow-wrap: anywhere;
   text-align: start;
 }
-.cv-iconbtn:hover {
+.cv-iconbtn:hover,
+.cv-iconbtn[data-popup-open] {
   color: var(--cv-text);
   background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
 }
@@ -3242,6 +3283,7 @@ a.cv-sha:focus-visible {
 .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
 .acpmux-turnSummary:focus-visible .cv-turn-actions,
 .acpmux-turnSummary:hover .cv-turn-actions,
+.acpmux-turnSummary:has([data-popup-open]) .cv-turn-actions,
 .acpmux-turnSummary .cv-turn-actions:focus-within,
 .acpmux-turnSummary .cv-turn-actions--failed,
 .acpmux-turnSummary .cv-turn-actions--resumable {
@@ -3255,6 +3297,7 @@ a.cv-sha:focus-visible {
   opacity: 0;
 }
 .acpmux-assistant:hover .cv-reply-actions,
+.acpmux-assistant:has([data-popup-open]) .cv-reply-actions,
 .acpmux-assistant:focus-visible .cv-reply-actions,
 .cv-reply-actions:focus-within {
   opacity: 1;

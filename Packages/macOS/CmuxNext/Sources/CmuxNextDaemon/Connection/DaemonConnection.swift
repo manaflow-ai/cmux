@@ -52,6 +52,8 @@ public actor DaemonConnection {
     /// The open `session.events` stream id (`DaemonConnection+SessionEvents`).
     var sessionStream: String?
     private var reconnectTask: Task<Void, Never>?
+    /// The initial endpoint/handshake attempt, retained so teardown can join it too.
+    private var connectTask: Task<DaemonIdentity, any Error>?
     private var pacer: RetryPacer
     private let wake: RetryWake
     private let healthy: DemandTimer
@@ -99,23 +101,50 @@ public actor DaemonConnection {
     /// afterwards the connection reconnects by itself until `close()`.
     @discardableResult
     public func start() async throws -> DaemonIdentity {
-        guard case .idle = phase else {
-            if let identity { return identity }
-            throw DaemonError.notConnected
+        if let identity, !isClosedPhase { return identity }
+        let task = try beginInitialAttempt()
+        do {
+            let identity = try await task.value
+            connectTask = nil
+            return identity
+        } catch {
+            connectTask = nil
+            throw error
         }
-        return try await connectOnce()
+    }
+
+    /// Kept synchronous on the actor so one initial attempt owns its retained task.
+    /// Tests can close in this same actor turn before the scheduled attempt enters.
+    func beginInitialAttempt() throws -> Task<DaemonIdentity, any Error> {
+        guard case .idle = phase, connectTask == nil else { throw DaemonError.notConnected }
+        let task = Task { [weak self] in
+            guard let self else { throw DaemonError.connectionClosed(reason: "connection deallocated") }
+            return try await self.connectOnce()
+        }
+        connectTask = task
+        return task
     }
 
     /// Stops reconnecting, closes the socket, and finishes `events`.
     public func close() {
         healthy.cancel()
         heartbeat.stop()
+        connectTask?.cancel()
         reconnectTask?.cancel()
         reconnectTask = nil
         if case .ready(let ready) = phase { ready.transport.close() }
         phase = .closed
         releaseHandoffHold()
         continuation.finish()
+    }
+
+    /// Also waits for an in-flight endpoint/reconnect attempt to finish before its owner is reaped.
+    public func closeAndWait() async {
+        let connect = connectTask
+        let reconnect = reconnectTask
+        close()
+        _ = try? await connect?.value
+        await reconnect?.value
     }
 
     /// False while the connected daemon left its heartbeat's asks unanswered and its process is alive
@@ -249,6 +278,9 @@ public actor DaemonConnection {
     // MARK: - Connect / reconnect
 
     private func connectOnce() async throws -> DaemonIdentity {
+        guard acceptsNewAttempt else {
+            throw DaemonError.connectionClosed(reason: "connection is not accepting a new attempt")
+        }
         phase = .connecting
         serial += 1
         let serial = serial
@@ -306,6 +338,13 @@ public actor DaemonConnection {
     }
 
     private var isClosedPhase: Bool { if case .closed = phase { true } else { false } }
+    /// Only an idle or waiting connection may start a new endpoint/handshake attempt.
+    private var acceptsNewAttempt: Bool {
+        switch phase {
+        case .idle, .waiting: true
+        case .connecting, .ready, .closed: false
+        }
+    }
 
     private func transportClosed(serial: UInt64, reason: TransportCloseReason) {
         guard serial == self.serial else { return }

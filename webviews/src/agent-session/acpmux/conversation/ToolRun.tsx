@@ -11,6 +11,7 @@ import { mainToolRunCategory, toolRunSummary, type ToolRunCategory } from "./too
 import { useToolRunLook } from "../toolRunLook";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
+import { EditCounts, useEditTotals } from "./EditCounts";
 import { ToolLabel } from "./ToolVerb";
 
 /// The summary's glyph: its main kind of work's, with searches and reads both as the magnifier.
@@ -58,6 +59,9 @@ export function ToolRun({
     }),
     [t, items],
   );
+  // The lines the run's edits added and removed, on its summary line as Claude Code desktop puts
+  // them (Leo 2026-10-30: "i like claude code they put the number overarching too").
+  const totals = useEditTotals(items);
   const pencil = look === "pencil" || look === "quiet-pencil";
   const quiet = look === "quiet" || look === "quiet-pencil";
   return (
@@ -71,8 +75,11 @@ export function ToolRun({
         onClick={fold.toggle}
       >
         <span className="cv-tool__icon">{running ? <Spinner size={16} /> : runIcon(pencil ? "edited" : main)}</span>
-        <span className="cv-tool__text" data-find-skip>
-          <ToolLabel text={summary} />
+        <span className={totals ? "cv-tool__text has-counts" : "cv-tool__text"} data-find-skip>
+          <span className="cv-tool__summary">
+            <ToolLabel text={summary} />
+          </span>
+          {totals && <EditCounts totals={totals} />}
           {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
         </span>
         <ChevronRight

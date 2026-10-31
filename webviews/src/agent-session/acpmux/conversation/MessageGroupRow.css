@@ -50,3 +50,20 @@
   padding: 0;
   border-top: 0;
 }
+/* Inside the group, a message row's chevron shows only while that row is pointed at, focused or
+   open: the card never repeats a column of disclosure controls down its rows (the group line keeps
+   its own). Its slot stays, so the row's words never move. */
+/* It fades on the message hover row's tokens (conversation.css --cv-actions-*). */
+.cv-msggroup__entry .cv-tool__chevron {
+  opacity: 0;
+  transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+}
+.cv-msggroup__entry .cv-tool:hover .cv-tool__chevron {
+  opacity: 1;
+  transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+}
+.cv-msggroup__entry .cv-tool:focus-within .cv-tool__chevron,
+.cv-msggroup__entry .cv-tool[aria-expanded="true"] .cv-tool__chevron,
+.cv-msggroup__entry .cv-tool__chevron.is-open {
+  opacity: 1;
+}
