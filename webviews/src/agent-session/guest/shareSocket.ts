@@ -196,13 +196,15 @@ const participantsOf = (value: unknown): GuestParticipant[] =>
   Array.isArray(value)
     ? value.flatMap((entry) => {
         if (!isObject(entry) || typeof entry.id !== "string" || typeof entry.name !== "string") return [];
-        return [{
-          id: entry.id,
-          name: entry.name,
-          ...(typeof entry.kind === "string" ? { kind: entry.kind } : {}),
-          ...(typeof entry.viewing === "boolean" ? { viewing: entry.viewing } : {}),
-          ...(typeof entry.typing === "boolean" ? { typing: entry.typing } : {}),
-        }];
+        return [
+          {
+            id: entry.id,
+            name: entry.name,
+            ...(typeof entry.kind === "string" ? { kind: entry.kind } : {}),
+            ...(typeof entry.viewing === "boolean" ? { viewing: entry.viewing } : {}),
+            ...(typeof entry.typing === "boolean" ? { typing: entry.typing } : {}),
+          },
+        ];
       })
     : [];
 

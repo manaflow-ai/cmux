@@ -209,7 +209,12 @@ const ROWS: AcpmuxRow[] = [
     text: "Chief -> me: Check the upload retry",
     incoming: {
       kind: "message",
-      message: { name: "optchat-home-1", chief: "chief-1", text: "Check the upload retry", raw: "Chief -> me: Check the upload retry" },
+      message: {
+        name: "optchat-home-1",
+        chief: "chief-1",
+        text: "Check the upload retry",
+        raw: "Chief -> me: Check the upload retry",
+      },
     },
   }),
   row("assistant-5", "assistant", {

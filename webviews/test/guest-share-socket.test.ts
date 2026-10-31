@@ -162,11 +162,13 @@ test("frames of another version or malformed are ignored", () => {
 test("malformed snapshot prompts are dropped at the socket boundary", () => {
   const r = room();
   r.client.connect();
-  expect(() => r.last().frame("snapshot", {
-    records: [],
-    watermark: 0,
-    prompts: [null, {}, { client_id: "guest-1", state: "held" }],
-  })).not.toThrow();
+  expect(() =>
+    r.last().frame("snapshot", {
+      records: [],
+      watermark: 0,
+      prompts: [null, {}, { client_id: "guest-1", state: "held" }],
+    }),
+  ).not.toThrow();
   expect(r.seen.snapshots).toEqual([[]]);
 });
 
@@ -174,9 +176,11 @@ test("malformed presence entries are dropped before reaching the page", () => {
   const r = room();
   r.client.connect();
   r.last().frame("snapshot", { records: [], watermark: 0 });
-  expect(() => r.last().frame("presence", {
-    participants: [{}, { id: "guest-1" }, { id: "guest-2", name: "Theo" }],
-  })).not.toThrow();
+  expect(() =>
+    r.last().frame("presence", {
+      participants: [{}, { id: "guest-1" }, { id: "guest-2", name: "Theo" }],
+    }),
+  ).not.toThrow();
   expect(r.seen.presence).toEqual([["guest-2"]]);
 });
 
@@ -185,8 +189,34 @@ test("the socket boundary drops malformed nested frame payloads and keeps render
   r.client.connect();
   const malformed = [
     ["snapshot", { records: [null, {}], prompts: [null, {}], chat: {} }],
-    ["records", { records: [{ ...record(1), msg: { method: "session/update", params: { update: { sessionUpdate: "config_option_update", configOptions: [null, {}] } } } }] }],
-    ["records", { records: [{ ...record(2), msg: { method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: [null, {}] } } } }] }],
+    [
+      "records",
+      {
+        records: [
+          {
+            ...record(1),
+            msg: {
+              method: "session/update",
+              params: { update: { sessionUpdate: "config_option_update", configOptions: [null, {}] } },
+            },
+          },
+        ],
+      },
+    ],
+    [
+      "records",
+      {
+        records: [
+          {
+            ...record(2),
+            msg: {
+              method: "session/update",
+              params: { update: { sessionUpdate: "agent_message_chunk", content: [null, {}] } },
+            },
+          },
+        ],
+      },
+    ],
     ["page", { records: [null, {}] }],
     ["presence", { participants: [null, {}] }],
     ["prompt_state", {}],
@@ -196,10 +226,15 @@ test("the socket boundary drops malformed nested frame payloads and keeps render
   }).not.toThrow();
   r.last().frame("snapshot", { records: [], watermark: 0, prompts: [] });
   r.last().frame("records", {
-    records: [{
-      ...record(3),
-      msg: { method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "still live" } } } },
-    }],
+    records: [
+      {
+        ...record(3),
+        msg: {
+          method: "session/update",
+          params: { update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "still live" } } },
+        },
+      },
+    ],
   });
   expect(r.seen.snapshots).toEqual([[], []]);
   expect(r.seen.records).toEqual([3]);

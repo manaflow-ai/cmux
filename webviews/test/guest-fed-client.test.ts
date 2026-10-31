@@ -90,5 +90,10 @@ test("a fed client has no socket, yet every feed reaches its listener", () => {
   client.feed([say(2, "Working")], "live");
   client.feed([prompt(0, "skipped"), say(-1, "skipped")], "older");
   expect(shown.length).toBe(3);
-  expect(shown.at(-1)?.rows.map((row) => row.text ?? "").join("|")).toContain("Working");
+  expect(
+    shown
+      .at(-1)
+      ?.rows.map((row) => row.text ?? "")
+      .join("|"),
+  ).toContain("Working");
 });
