@@ -51,6 +51,45 @@ struct SessionWindowLimitTests {
         )
     }
 
+    @Test("Routes whose window is gone stay bounded when few windows are open")
+    func orphanedRoutesStayBounded() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+
+        var orphaned: [(id: UUID, window: NSWindow, manager: TabManager)] = []
+        defer {
+            for entry in orphaned {
+                app.forgetRecoverableMainWindowRoute(windowId: entry.id)
+                entry.window.orderOut(nil)
+            }
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        for _ in 0..<windowCountPastOldLimit {
+            let windowId = UUID()
+            let window = makeMainWindow(id: windowId)
+            let manager = TabManager()
+            orphaned.append((windowId, window, manager))
+            app.registerMainWindow(
+                window,
+                windowId: windowId,
+                tabManager: manager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: FileExplorerState()
+            )
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            app.dismissMainWindowFromWindowChrome(window)
+            window.orderOut(nil)
+        }
+
+        let snapshot = try #require(app.sessionSnapshotForTesting())
+        #expect(snapshot.windows.count == SessionPersistencePolicy.maxOrphanedWindowRoutes)
+    }
+
     @Test("A restore opens every saved window past the twelfth")
     func restoreOpensEverySavedWindow() {
         _ = NSApplication.shared
