@@ -85,4 +85,28 @@ struct CloudFileRoutingTests {
         #expect(FilePageHandlers.file(ofTab: remote, fixture.services) == nil,
                 "a remote file was offered to this Mac's external-open actions")
     }
+
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), arguments: FilePageKind.allCases)
+    func remoteFilesInALocalPaneNeverPersistAsLocalPaths(_ kind: FilePageKind) async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            let pane = try #require(services.windows.active?.focusedPane)
+            try #require(pane.daemon.isLocal && services.pages.keepsRoutes(pane.daemon))
+            let root = FileManager.default.temporaryDirectory.appending(path: "cloud-file-route-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let machine = CloudMoveTests.machine(services, cli: URL(fileURLWithPath: "/usr/bin/false"), root: root)
+            let service = FilePageHandlers.service(kind, services)
+            let file = root.appending(path: "same-path.md")
+            try Data("local copy".utf8).write(to: file)
+            let local = service.open(file, in: pane, focus: false)
+            #expect(!services.pages.tabIDs(in: pane.paneKey).contains(local), "local control must use a store tab")
+            // A remote link can finish after its source closed and land in the active local pane.
+            let remote = service.open(file, in: pane, focus: false, on: machine.daemon)
+            #expect(remote != local)
+            #expect(services.pages.tabIDs(in: pane.paneKey).contains(remote),
+                    "remote content became a store route that relaunch would restore from this Mac")
+            #expect(service.localFile(remote) == nil)
+        }
+    }
+
 }
