@@ -55,7 +55,10 @@ await requireBrowserLane("subagent-tray-line-motion.test.ts", async () => {
     });
 
   test("a tray line arriving, the tray card and a live activity row fade without moving the transcript", async () => {
-    const p = await page(`<div class="acpmux-row acpmux-activity acpmux-row--enter">row</div>${tray()}`, "no-preference");
+    const p = await page(
+      `<div class="acpmux-row acpmux-activity acpmux-row--enter">row</div>${tray()}`,
+      "no-preference",
+    );
     const row = await motionOf(p, ".acpmux-row--enter");
     const card = await motionOf(p, ".acpmux-running-tray");
     const line = await motionOf(p, ".acpmux-running-tray__list > li");
