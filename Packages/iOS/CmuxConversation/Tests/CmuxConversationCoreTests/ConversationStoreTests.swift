@@ -572,8 +572,8 @@ import Testing
             if case .live = change { merged = true }
         }
         history.open()
+        // The merge notifies only after recovery applied in full.
         try await waitUntil { merged && backend.historyCount >= 2 }
-        try await Task.sleep(for: .milliseconds(50))
         let result = try #require(store.message(id: "m31"))
         #expect(result.text == changed.text)
         #expect(result.editCount == changed.editCount)
