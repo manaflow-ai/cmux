@@ -52,6 +52,7 @@ echo "$FAKE_SDK"
 # AppKit's screen count in this session, as the lane's display check reads it (osascript, JavaScript for Automation).
 FAKE_OSASCRIPT = """#!/bin/bash
 [ -n "${FAKE_OSASCRIPT_ERROR:-}" ] && { echo "$FAKE_OSASCRIPT_ERROR" >&2; exit 1; }
+[ -n "${FAKE_OSASCRIPT_WARNING:-}" ] && echo "$FAKE_OSASCRIPT_WARNING" >&2
 echo "${FAKE_SCREENS:-1}"
 """
 
@@ -339,6 +340,11 @@ class SuiteSkipTest(unittest.TestCase):
                 self.assertIn("::error title=Display step has no screen::", done.stdout)
                 self.assertNotIn("swift build --build-tests", done.stdout)
                 self.assertNotIn("suites passed", done.stdout)
+        # A warning AppKit logs on stderr in a real session is no answer: the screen count on stdout is.
+        done = self.suite("SidebarMultiViewPressTests", CMUX_CI_DISPLAY_ROUTED="1",
+                          FAKE_OSASCRIPT_WARNING="+[CATransaction synchronize] called within transaction")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("display step: this session has 1 screen(s)", done.stdout)
         # Only a display step asks: the same suite without --display needs no screen.
         done = self.suite("SidebarMultiViewPressTests", FAKE_SCREENS="0")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)

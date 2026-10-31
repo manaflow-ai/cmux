@@ -764,14 +764,19 @@ swift_filter() {
 # test process inherits; at most 30 s.
 require_display_screen() {
   [ "${CMUX_CI_DISPLAY_ROUTED:-}" = 1 ] && [ "$lane_os" != Linux ] || return 0
-  local out rc=0
+  local out err rc=0
+  # stdout only is the answer: AppKit may log a harmless line on stderr in a real Aqua session.
+  err="$(mktemp -t display-screen.XXXXXX)"
   out="$(perl -e 'alarm shift; exec @ARGV or exit 127' 30 osascript -l JavaScript \
-    -e 'ObjC.import("AppKit"); $.NSScreen.screens.count' < /dev/null 2>&1)" || rc=$?
+    -e 'ObjC.import("AppKit"); $.NSScreen.screens.count' < /dev/null 2>"$err")" || rc=$?
+  out="${out//[[:space:]]/}"
   if [ "$rc" -eq 0 ] && [[ "$out" =~ ^[1-9][0-9]*$ ]]; then
     echo "display step: this session has $out screen(s)"
+    rm -f "$err"
     return 0
   fi
-  echo "::error title=Display step has no screen::this display step's session has no screen (NSScreen.screens: ${out:-none}, exit $rc); its screen tests would skip, so it is no on-screen evidence. A display step must run in a console (Aqua) session: cmux-ci run --display sends it to a gui-session-v1 worker."
+  echo "::error title=Display step has no screen::this display step's session has no screen (NSScreen.screens: ${out:-none}, exit $rc: $(head -c 300 "$err" | tr '\n' ' ')); its screen tests would skip, so it is no on-screen evidence. A display step must run in a console (Aqua) session: cmux-ci run --display sends it to a gui-session-v1 worker."
+  rm -f "$err"
   exit 1
 }
 
