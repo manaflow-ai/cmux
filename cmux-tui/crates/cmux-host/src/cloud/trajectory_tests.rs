@@ -21,6 +21,7 @@ struct Kept {
     meta: Value,
     lines: Vec<String>,
     native: BTreeMap<(String, String), Vec<u8>>,
+    native_revision: BTreeMap<(String, String), u64>,
 }
 
 /// The backend's store, in memory: contiguous logs, byte-identical
@@ -99,7 +100,7 @@ impl Api for FakeServer {
                     "generation": k.generation,
                     "last_seq": k.lines.len(),
                     "meta": k.meta,
-                    "native": k.native.iter().map(|((l, p), b)| json!({ "label": l, "path": p, "size": b.len() })).collect::<Vec<_>>(),
+                    "native": k.native.iter().map(|((l, p), b)| json!({ "label": l, "path": p, "size": b.len(), "revision": k.native_revision.get(&(l.clone(), p.clone())).unwrap_or(&0).to_string() })).collect::<Vec<_>>(),
                 })).collect();
                 let next =
                     has_more.then(|| page.last().unwrap()["session"].as_str().unwrap().to_owned());
@@ -153,6 +154,9 @@ impl Api for FakeServer {
                 assert!(native_path(&key.0, &key.1), "{key:?}");
                 let offset = body["offset"].as_u64().unwrap() as usize;
                 let data = decode_base64(body["data"].as_str().unwrap()).unwrap();
+                if offset == 0 {
+                    *kept.native_revision.entry(key.clone()).or_default() += 1;
+                }
                 let file = kept.native.entry(key).or_default();
                 if offset != 0 && offset != file.len() {
                     return refuse(409, "cloud.trajectory.offset", json!({ "size": file.len() }));
@@ -183,7 +187,7 @@ impl Api for FakeServer {
                 let offset = body["offset"].as_u64().unwrap() as usize;
                 let end = file.len().min(offset + 5);
                 ok(
-                    json!({ "generation": kept.generation, "size": file.len(), "data": encode_base64(&file[offset..end]) }),
+                    json!({ "generation": kept.generation, "revision": kept.native_revision.get(&key).unwrap_or(&0).to_string(), "size": file.len(), "data": encode_base64(&file[offset..end]) }),
                 )
             }
             other => panic!("unexpected action {other}"),
@@ -618,6 +622,7 @@ fn a_restore_rejects_generation_changes_and_relists_before_retrying() {
         action: &'static str,
         occurrence: usize,
         seen: usize,
+        recreate_session: bool,
     }
     impl Api for Recreate {
         fn call(&mut self, action: &str, body: &Value) -> Answer {
@@ -625,11 +630,16 @@ fn a_restore_rejects_generation_changes_and_relists_before_retrying() {
                 self.seen += 1;
                 if self.seen == self.occurrence {
                     let kept = self.server.stores.get_mut("m1").unwrap().get_mut("chat-a").unwrap();
-                    kept.generation += 1;
-                    kept.meta["createdAt"] = json!(kept.generation);
-                    kept.lines = (1..=5)
-                        .map(|seq| json!({ "seq": seq, "new_generation": true }).to_string())
-                        .collect();
+                    if self.recreate_session {
+                        kept.generation += 1;
+                        kept.meta["createdAt"] = json!(kept.generation);
+                        kept.lines = (1..=5)
+                            .map(|seq| json!({ "seq": seq, "new_generation": true }).to_string())
+                            .collect();
+                    }
+                    for revision in kept.native_revision.values_mut() {
+                        *revision += 1;
+                    }
                     for bytes in kept.native.values_mut() {
                         *bytes = b"{\"new!\":1}\n{\"new!\":2}\n".to_vec();
                     }
@@ -639,11 +649,11 @@ fn a_restore_rejects_generation_changes_and_relists_before_retrying() {
         }
     }
     // Recreate after listing, between event pages, and before/between native chunks.
-    for (action, occurrence) in [("read", 1), ("read", 2), ("native-read", 1), ("native-read", 2)] {
+    for (action, occurrence, recreate_session) in [("read", 1, true), ("read", 2, true), ("native-read", 1, true), ("native-read", 2, true), ("native-read", 2, false)] {
         let mut server = FakeServer::at("m1");
         let _first = first_machine(&mut server);
         server.as_machine("m2", Some("m1"));
-        let mut api = Recreate { server, action, occurrence, seen: 0 };
+        let mut api = Recreate { server, action, occurrence, seen: 0, recreate_session };
         let second = Machine::new();
         let mut acpmux =
             FakeAcpmux { layout: second.layout.clone(), running: true, fail: 0, imported: vec![] };
@@ -666,15 +676,17 @@ fn a_restore_rejects_generation_changes_and_relists_before_retrying() {
             &fs::read(second.session_dir("chat-a").join("session.json")).unwrap(),
         )
         .unwrap();
-        assert_eq!(restored["createdAt"], CREATED + 1);
+        assert_eq!(restored["createdAt"], CREATED + u64::from(recreate_session));
         let events =
             fs::read_to_string(second.session_dir("chat-a").join("events/000001.ndjson")).unwrap();
+        if recreate_session {
         assert!(
             events
                 .lines()
                 .take(5)
                 .all(|line| serde_json::from_str::<Value>(line).unwrap()["new_generation"] == true)
         );
+        }
         assert_eq!(fs::read(second.claude_file()).unwrap(), b"{\"new!\":1}\n{\"new!\":2}\n");
     }
 }

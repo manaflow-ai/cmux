@@ -85,7 +85,7 @@ describe("ACP trajectories outside the VM", { timeout: 60_000 }, () => {
       expect((await traj(s.vm, s.machine, "native", { session: "chat-a", generation: CREATED, ...bad, offset: 0, data: part("x") })).status).toBe(400)
     }
     const list = await traj(s.vm, s.machine, "list", {})
-    expect(list.body.value.sessions).toEqual([expect.objectContaining({ session: "chat-a", generation: CREATED, last_seq: 1, meta: meta("chat-a", 1), native: [{ label: "claude-project", path, size: 16 }] })])
+    expect(list.body.value.sessions).toEqual([expect.objectContaining({ session: "chat-a", generation: CREATED, last_seq: 1, meta: meta("chat-a", 1), native: [expect.objectContaining({ label: "claude-project", path, size: 16 })] })])
     const a = await traj(s.vm, s.machine, "native-read", { session: "chat-a", label: "claude-project", path, offset: 0 })
     const b = await traj(s.vm, s.machine, "native-read", { session: "chat-a", label: "claude-project", path, offset: 8 })
     expect([atob(a.body.value.data), atob(b.body.value.data), b.body.value.size]).toEqual(['{"a":1}\n', '{"b":2}\n', 16])
@@ -222,8 +222,27 @@ describe("ACP trajectories outside the VM", { timeout: 60_000 }, () => {
       await traj(s.vm, s.machine, "append", { session: "chat-a", generation, meta: meta("chat-a", 1, generation), lines: [line(1)] })
       await traj(s.vm, s.machine, "native", { session: "chat-a", generation, label: "claude-project", path, offset: 0, data: btoa("{}\n") })
       const read = await traj(s.vm, s.machine, "native-read", { session: "chat-a", label: "claude-project", path, offset: 0 })
-      expect(read.body.value).toEqual({ generation, size: 3, data: btoa("{}\n") })
+      expect(read.body.value).toMatchObject({ generation, size: 3, data: btoa("{}\n") })
     }
+  })
+
+  it("a native rewrite changes its revision while appended ranges keep it", async () => {
+    const s = await setup("traj-3")
+    const path = ".claude/projects/-work/resume.jsonl"
+    await traj(s.vm, s.machine, "append", { session: "chat-a", generation: CREATED, meta: meta("chat-a", 1), lines: [line(1)] })
+    const write = (offset: number, text: string) => traj(s.vm, s.machine, "native", { session: "chat-a", generation: CREATED, label: "claude-project", path, offset, data: btoa(text) })
+    const read = () => traj(s.vm, s.machine, "native-read", { session: "chat-a", label: "claude-project", path, offset: 0 })
+    await write(0, "{}\n")
+    const first = (await read()).body.value.revision
+    expect(first).toEqual(expect.any(String))
+    await write(3, "{}\n")
+    expect((await read()).body.value.revision).toBe(first)
+    await write(0, "[]\n[]\n")
+    const rewritten = (await read()).body.value
+    expect(rewritten).toMatchObject({ generation: CREATED, size: 6, data: btoa("[]\n[]\n"), revision: expect.any(String) })
+    expect(rewritten.revision).not.toBe(first)
+    const listed = (await traj(s.vm, s.machine, "list", {})).body.value.sessions[0].native[0]
+    expect(listed.revision).toBe(rewritten.revision)
   })
 
   it("a record must name its own session and generation", async () => {
