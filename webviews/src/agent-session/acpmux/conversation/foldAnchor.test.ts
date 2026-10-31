@@ -133,7 +133,8 @@ describe("foldHolding", () => {
 });
 
 describe("hold timing", () => {
-  const line = (top: number) => ({ isConnected: true, getBoundingClientRect: () => ({ top }) }) as unknown as HTMLElement;
+  const line = (top: number) =>
+    ({ isConnected: true, getBoundingClientRect: () => ({ top }) }) as unknown as HTMLElement;
   test("a click keeps the place its press held, timed from the click", () => {
     const toggle = line(300);
     const pressed = { toggle, top: 200, until: 1_000 };
