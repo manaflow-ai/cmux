@@ -12,7 +12,9 @@
 //! them, with the terminals of the workspace the user sees first. Client
 //! requests then find the locks free between turns. A first attempt that
 //! fails gives its turn back at once and retries on its own schedule, so a
-//! slow or dead host never holds a slot past one attempt.
+//! slow or dead host never holds a slot past one attempt. A terminal that a
+//! request waits on (a reopen, `wait_for_terminal_adoption`) gives its place
+//! up and adopts at once, without a turn.
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
@@ -79,8 +81,10 @@ impl StartupAdoptionGate {
         Ticket { number, gate: self.clone(), used: false }
     }
 
-    /// Waits for this ticket's turn and a free slot. `give_up` (shutdown)
-    /// is checked whenever the gate changes; then no turn is taken.
+    /// Waits for this ticket's turn and a free slot. `give_up` (shutdown, or
+    /// a request waits on this terminal) is checked whenever the gate changes
+    /// or [`Self::wake_all`] runs; then no turn is taken. It runs under the
+    /// gate's lock, so it may take only leaf locks.
     pub(super) fn turn(&self, mut ticket: Ticket, give_up: impl Fn() -> bool) -> Option<Turn<'_>> {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
@@ -101,7 +105,7 @@ impl StartupAdoptionGate {
         }
     }
 
-    /// Wakes waiters so they re-check `give_up` (shutdown).
+    /// Wakes waiters so they re-check `give_up` (shutdown, a waited-on terminal).
     pub(super) fn wake_all(&self) {
         let _state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         self.changed.notify_all();

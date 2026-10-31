@@ -893,11 +893,7 @@ impl Mux {
                     let deadline = Instant::now() + STARTUP_READY_WAIT;
                     while !mux.server_lifecycle_ready()
                         && !mux.startup_adoptions_released.load(Ordering::Acquire)
-                        && !mux
-                            .terminal_adoptions_now
-                            .lock()
-                            .unwrap_or_else(PoisonError::into_inner)
-                            .contains(&terminal_id)
+                        && !mux.terminal_adoption_wanted_now(&terminal_id)
                         && !mux.shutting_down.load(Ordering::Acquire)
                         && Instant::now() < deadline
                     {
@@ -913,9 +909,13 @@ impl Mux {
                 {
                     std::thread::sleep(Duration::from_millis(ms));
                 }
+                // A terminal a request waits on (a reopen) gives its place up
+                // and adopts at once, without a turn.
                 let mut turn = ticket.and_then(|ticket| {
-                    mux.startup_adoption_gate
-                        .turn(ticket, || mux.shutting_down.load(Ordering::Acquire))
+                    mux.startup_adoption_gate.turn(ticket, || {
+                        mux.shutting_down.load(Ordering::Acquire)
+                            || mux.terminal_adoption_wanted_now(&terminal_id)
+                    })
                 });
                 // Test seam: a slow first attempt, held inside its turn (debug only).
                 #[cfg(debug_assertions)]
@@ -1151,13 +1151,16 @@ impl Mux {
     }
 
     /// Waits, at most `bound`, until the adoption of `terminal_id` (a host id)
-    /// ended, and has it start at once instead of after the owner says ready.
-    /// Holds no other lock while it waits.
+    /// ended, and has it start at once instead of after the owner says ready
+    /// or after its turn in the start's adoption gate. Holds no other lock
+    /// while it waits.
     pub(crate) fn wait_for_terminal_adoption(&self, terminal_id: &str, bound: Duration) {
         self.terminal_adoptions_now
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(terminal_id.to_owned());
+        // An adoption waiting for its turn re-checks and gives its place up.
+        self.startup_adoption_gate.wake_all();
         let deadline = Instant::now() + bound;
         let mut adoptions = self.terminal_adoptions.lock().unwrap_or_else(PoisonError::into_inner);
         while adoptions.contains(terminal_id) {
@@ -1176,6 +1179,15 @@ impl Mux {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(terminal_id);
+    }
+
+    /// Whether a request waits on the adoption of `terminal_id`
+    /// (`wait_for_terminal_adoption`): it then skips the start's waits.
+    fn terminal_adoption_wanted_now(&self, terminal_id: &str) -> bool {
+        self.terminal_adoptions_now
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(terminal_id)
     }
 
     /// The running terminal `terminal_id` names, for a reopen that gives it a
