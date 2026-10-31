@@ -48,7 +48,7 @@ describe.skipIf(!python)("the fs program's remove", () => {
 })
 
 describe.skipIf(!python)("the fs program's dir", () => {
-  // Names of control characters: json.dumps writes each byte as a 6-byte \\u0001 escape (an entry is about 1.6 KB).
+  // Names of control characters: json.dumps writes each byte as a 6-byte \u0001 escape (an entry is about 1.6 KB).
   const listing = (count: number) => {
     const dir = mkdtempSync(join(root, "dir-"))
     for (let n = 0; n < count; n++) writeFileSync(join(dir, "\u0001".repeat(245) + String(n).padStart(10, "0")), "")
