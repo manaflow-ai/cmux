@@ -5,6 +5,7 @@
 mod access_cli;
 mod agent_cli;
 mod cloud;
+#[cfg(target_os = "linux")]
 mod cloud_broker;
 mod cloud_fs;
 mod control;
@@ -29,6 +30,7 @@ mod mesh;
 mod mesh_cloud;
 #[cfg(target_os = "linux")]
 mod native_process;
+#[cfg_attr(not(test), allow(dead_code))]
 mod native_receiver;
 #[cfg(target_os = "linux")]
 mod native_supervision;
