@@ -17,9 +17,6 @@ struct AgentPaneChromiumVisibilityTests {
         func whenFirstPainted(_ body: @escaping () -> Void) {}
     }
 
-    /// Off-screen parking for prewarmed pages, transparent only to stay out of sight (the New Tab spare's).
-    private final class OffscreenParking: NSView, PageChromiumOffscreenParking {}
-
     private func pane() async throws -> (AgentPaneView, FakeChromiumPage, NSWindow) {
         _ = NSApplication.shared
         let file = try #require(AgentPageTestRoot.page)
@@ -121,8 +118,7 @@ struct AgentPaneChromiumVisibilityTests {
         defer { view.page?.close(); window.close() }
         view.loadingView.leave(over: view.pageContent, fades: false)
         let host = NSView()
-        let parking = OffscreenParking()
-        parking.alphaValue = 0
+        let parking = PageOffscreenParking() // the New Tab spare's parking: alpha 0, off screen
         window.contentView = host
         host.addSubview(parking)
         parking.addSubview(view)

@@ -78,16 +78,16 @@ final class FilePageOpener: FileOpening {
     /// moved beside `pane`; a tab that already shows the file is selected and focused where it is.
     /// `position` (a Find result): the code editor puts the cursor there; other pages ignore it.
     func open(_ file: URL, in pane: PaneController?, userChose: Bool, asText: Bool = false, at position: FilePosition? = nil,
-              placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String? {
+              placed: (@MainActor (SurfaceID) -> Void)? = nil, shownInPlace: (@MainActor () -> Void)? = nil) -> String? {
         guard let url = AgentPaneFileOpen.resolve(file.path) else { return FilePageStrings.notAFile }
         guard let pane = pane ?? services.windows.active?.focusedPane else { return FilePageStrings.noPane }
         switch Self.route(for: url, userChose: userChose, asText: asText) {
         case .renderedPage:
             pane.newBrowserTab(url: url, background: placed != nil, placementOwner: placed != nil, then: placed)
         case .markdown:
-            services.viewers.markdownPages.open(url, in: pane, focus: placed == nil, userChose: userChose, placed: placed)
+            services.viewers.markdownPages.open(url, in: pane, focus: placed == nil, userChose: userChose, placed: placed, shownInPlace: shownInPlace)
         case .editor:
-            services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, at: position, placed: placed)
+            services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, at: position, placed: placed, shownInPlace: shownInPlace)
         case .preview:
             guard AgentPaneFileOpen.showsInTab(url) else { return FilePageStrings.notAFile }
             pane.newBrowserTab(url: url, engine: Self.tabEngine(for: url), background: placed != nil, placementOwner: placed != nil, then: placed)
