@@ -12132,15 +12132,6 @@ function AcpmuxPane() {
                         )}
                       </ChatHeaderInlineStatus>
                     )}
-                    {preview && (
-                      <span
-                        className="acpmux-session-coverage"
-                        // tooltip-allow: the policy's enforcement detail, shown nowhere else
-                        title={`${handoffLabels.unverified} · ${snapshot.summary?.enforcement?.detail ?? handoffLabels.unverifiedDetail}`}
-                      >
-                        {snapshot.summary?.enforcement ? handoffLabels.nativePolicy : handoffLabels.unverified}
-                      </span>
-                    )}
                     <ChatHeaderTools
                       nativeRowTools={{
                         enabled: inTabRow && tabRow.nativeRowTools === true && !diffFiles && !inspectorOpen,
