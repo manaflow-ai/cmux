@@ -364,18 +364,14 @@ extension NewTabPage {
     private static func servicesOpenNativeTool(_ request: AgentPaneOpenTab, from page: PaneController) {
         let services = page.services
         services.linkOpener.open(from: page, kind: request.kind.rightColumnKind) { target, placed in
-            let then: @MainActor (SurfaceID) -> Void = { surface in placed?(surface) }
             switch request.kind {
             case .terminal:
-                target.newTerminalTab(cwd: request.cwd, typing: command(request.text) ?? nil,
-                                       placementOwner: placed != nil, then: then)
+                target.newTerminalTab(cwd: request.cwd, typing: command(request.text) ?? nil, placementOwner: placed != nil) { surface in placed?(surface) }; return true
             case .browser:
                 let url = browserURL(request, services: services)
-                return target.newBrowserTab(url: url, engine: BrowserEngineTag.engine(for: url),
-                                            background: placed != nil, placementOwner: placed != nil, then: then)
+                return target.newBrowserTab(url: url, engine: BrowserEngineTag.engine(for: url), background: placed != nil, placementOwner: placed != nil) { surface in placed?(surface) }
             case .agent: return false
             }
-            return true
         }
     }
 }
