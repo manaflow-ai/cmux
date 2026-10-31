@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextAppCore
 import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextSidebar
@@ -214,6 +215,76 @@ struct SidebarSelectionBatchCloseTests {
             #expect(intentAtHide, "the row left after a slow answer without the person's intent: it drops out with no animation")
             // With motion available here (an awake display, animations on), the row is seen on its closing spring.
             if animates { #expect(closingSeen, "the row left in one step, with no close animation") }
+        }
+    }
+
+    /// Leo 2026-10-31, after a sidebar close of 8 rows showed "The workspace could not be closed." above
+    /// "Closed 8 workspaces  Undo": "plus the dumb shit when it apparently races a delete". A close of a
+    /// workspace the daemon no longer has (closed before it came, or by another close that committed while
+    /// it was on its way) is a close that went through, never a refusal; a real refusal still fails.
+    @Test func closingAWorkspaceThatIsAlreadyGoneIsNoRefusal() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            try await PinnedPageTests.until({ !services.windows.registry.isLaunching }, within: .seconds(60))
+            let controller = try #require(services.windows.active)
+            let ids = try await Self.make(8, prefix: "race", services, in: controller)
+            let keys = try ids.map { try #require(services.workspace(id: $0)?.key) }
+
+            // Two closes of each at once (a second press, another window, the CLI): one of each pair commits first.
+            let failures = await withTaskGroup(of: String?.self) { group in
+                for key in keys + keys {
+                    group.addTask {
+                        do { try await WorkspaceClose.close(key, terminals: [], on: connection); return nil } catch { return "\(key.rawValue): \(error)" }
+                    }
+                }
+                var failures: [String] = []
+                for await failure in group { if let failure { failures.append(failure) } }
+                return failures
+            }
+            #expect(failures.isEmpty, "closes that raced a close failed: \(failures)")
+            // And once more, after the daemon has dropped them all.
+            for key in keys {
+                do { try await WorkspaceClose.close(key, terminals: [], on: connection) } catch {
+                    Issue.record("a close of the already closed \(key.rawValue) failed: \(error)")
+                }
+            }
+
+            // A genuine refusal still surfaces: `ifEmpty` on a workspace that has a tab.
+            let kept = try await Self.make(1, prefix: "kept", services, in: controller)
+            let key = try #require(services.workspace(id: kept[0])?.key)
+            try await PinnedPageTests.until({ services.workspace(id: kept[0])?.screens.flatMap(\.panes).contains { !$0.tabs.isEmpty } == true }, within: .seconds(30))
+            await #expect(throws: (any Error).self) { try await WorkspaceClose.close(key, terminals: [], on: connection, ifEmpty: true) }
+            #expect(services.workspace(id: kept[0]) != nil)
+        }
+    }
+
+    /// The same race through a selection's batch close: three of its eight rows are deleted while the batch
+    /// still lists them (their delete is on its way to the store). The batch shows its one toast, "Closed 8
+    /// workspaces", and no "The workspace could not be closed." above it.
+    @Test func aBatchCloseThatRacesADeleteShowsOneToast() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            try await PinnedPageTests.until({ !services.windows.registry.isLaunching }, within: .seconds(60))
+            let controller = try #require(services.windows.active)
+            let window = try #require(controller.window)
+            let ids = try await Self.make(8, prefix: "raced", services, in: controller)
+            let members = ids.compactMap { services.machines.workspace(id: $0) }
+            try #require(members.count == 8)
+            for (workspace, _) in members.prefix(3) { try await connection.closeWorkspace(try #require(workspace.key), endTerminals: true) }
+
+            let offered = Notices()
+            let flow = WorkspaceSelectionCloseFlow(
+                hide: { InstantClose.begin($0, in: controller.state.id, windows: services.windows) }, mayAsk: { false }, question: { nil },
+                restore: {}, listed: { _ in true }, machines: { services.machines.daemons },
+                offerUndo: { names, _ in offered.shown.append(WorkspaceBulkClose.closedToast(names.count)) },
+                window: controller.state.id, toastWindow: window, running: WorkspaceSelectionCloseFlow.Running())
+            let work = try #require(flow.start(members))
+            let failure = await work.value
+            let toasts = CmuxToastCenter.shared.toasts(in: window)
+            print("SidebarSelectionBatchClose: raced batch failure \(String(describing: failure)), toasts \(toasts.map(\.message)), offered \(offered.shown)")
+
+            #expect(failure == nil, "the batch failed: \(String(describing: failure))")
+            #expect(!toasts.contains { $0.id == "workspace-close-refused" }, "a refusal toast beside the batch's: \(toasts.map(\.message))")
+            #expect(offered.shown == [WorkspaceBulkClose.closedToast(8)], "toasts offered: \(offered.shown)")
+            try await PinnedPageTests.until({ Self.listed(ids, services).isEmpty }, within: .seconds(30))
         }
     }
 }
