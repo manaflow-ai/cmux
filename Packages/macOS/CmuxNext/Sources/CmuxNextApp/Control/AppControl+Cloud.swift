@@ -140,8 +140,8 @@ extension AppControl {
 // `runs.sandbox.create|runs.wait|runs.cancel`: the methods `cmux run --sandboxed` sends
 // (hq#3367). The app holds the Stack session, so the CLI never sees a token: it asks the
 // app, the app asks cmux.com's Run API (messages in Resources/Runs.xcstrings), and the answer (the Run's view and its receipt,
-// which hold no secrets or provider handles) passes through as JSON. Behind Labs >
-// Show Preview Features while sandboxes are being shaped.
+// which hold no secrets or provider handles) passes through as JSON. Not behind Labs
+// (Leo, 2026-10-30): signed in and Cloud allowed by policy.
 extension AppControl {
     private func registerRunMethods(_ services: AppServices) {
         service?.router.register([
