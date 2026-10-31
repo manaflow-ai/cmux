@@ -40,7 +40,15 @@ pub(crate) struct MetaWriter {
     state: StdMutex<WriterState>,
     /// Signalled when a commit ends, written or failed.
     done: Condvar,
+    /// Tests only: the next write holds after its copy, says so on the first channel and waits
+    /// for the second (`meta_save_tests.rs`).
+    #[cfg(test)]
+    pub(super) hold: StdMutex<Option<TestHold>>,
 }
+
+/// A test's hold of one write: (arrived, release).
+#[cfg(test)]
+pub(super) type TestHold = (std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>);
 
 #[derive(Default)]
 struct WriterState {
@@ -185,6 +193,13 @@ impl Hub {
         let meta = session.meta();
         #[cfg(debug_assertions)]
         hold_seam(&session.id);
+        #[cfg(test)]
+        if let Some((arrived, release)) =
+            session.meta_writer.hold.lock().unwrap_or_else(|e| e.into_inner()).take()
+        {
+            let _ = arrived.send(());
+            let _ = release.recv();
+        }
         let saved = self.store.save(&meta);
         // The purge ran between the check and the save: delete it again.
         if session.purged.load(Ordering::SeqCst)

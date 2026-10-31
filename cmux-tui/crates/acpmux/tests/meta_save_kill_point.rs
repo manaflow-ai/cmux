@@ -41,7 +41,15 @@ impl Daemon {
         let holds = home.join("holds");
         std::fs::create_dir_all(&holds).unwrap();
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let config = json!({"harnesses": {"fake": {"argv": ["python3", fake]}},
+        let claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+        // `fakem` takes its model at the next start (`${model}` on its command line), so a
+        // model pick is recorded in the chat's metadata (`Hub::set_model`). `fakeclaude` is a
+        // Claude Code stand-in whose MCP server `github` a chat may turn off (`_acpmux/set_tools`).
+        let init = json!({"mcp_servers": [{"name": "github", "status": "connected"}]});
+        let config = json!({"harnesses": {"fake": {"argv": ["python3", fake]},
+                                          "fakem": {"argv": ["python3", fake, "--model", "${model}"]},
+                                          "fakeclaude": {"argv": ["python3", claude], "kind": "claude-stdio",
+                                                         "env": {"FAKE_CLAUDE_INIT": init.to_string()}}},
                             "defaultHarness": "fake", "permissionPolicy": "ask",
                             "agentInbox": false, "autoResumeDelaysMs": [],
                             // A policy and modes that ask, so the socket may change the rules and
@@ -172,6 +180,28 @@ struct Case {
     read: fn(&mut Client, &str) -> Value,
 }
 
+/// The harness a case's chat runs, and whether it runs one turn first (a bookmark names a
+/// prompt; a Claude chat lists its MCP servers once it has started).
+fn harness_of(field: &str) -> (&'static str, bool) {
+    match field {
+        "modelRequest" => ("fakem", false),
+        "tools" => ("fakeclaude", true),
+        "bookmarks" => ("fake", true),
+        _ => ("fake", false),
+    }
+}
+
+/// Whether the chat's tool `id` is on, as `_acpmux/info` lists it.
+fn tool_on(c: &mut Client, id: &str, tool: &str) -> Value {
+    let info = info(c, id);
+    info["tools"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|row| row["id"] == tool)
+        .map_or(Value::Null, |row| row["enabled"].clone())
+}
+
 fn info(c: &mut Client, id: &str) -> Value {
     c.call("_acpmux/info", json!({"sessionId": id}))
 }
@@ -244,6 +274,23 @@ fn cases() -> Vec<Case> {
             expect: |_| json!({"autoDeny": ["g2"]}),
             read: |c, id| info(c, id)["rulesJson"].clone(),
         },
+        Case {
+            field: "modelRequest",
+            change: |id, _| ("session/set_model", json!({"sessionId": id, "modelId": "g2-model"})),
+            expect: |_| json!("g2-model"),
+            read: |c, id| info(c, id)["model"].clone(),
+        },
+        Case {
+            field: "tools",
+            change: |id, _| {
+                (
+                    "_acpmux/set_tools",
+                    json!({"sessionId": id, "id": "mcp:github", "enabled": false}),
+                )
+            },
+            expect: |_| json!(false),
+            read: |c, id| tool_on(c, id, "mcp:github"),
+        },
     ]
 }
 
@@ -265,11 +312,15 @@ fn meta_save_kill_point_keeps_every_acknowledged_change() {
     let mut lost = Vec::new();
     for case in cases() {
         let mut client = Client::connect(&daemon.socket);
-        let made =
-            client.call("session/new", json!({"cwd": daemon.home.join("p"), "mcpServers": []}));
+        let (harness, turn_first) = harness_of(case.field);
+        let made = client.call(
+            "session/new",
+            json!({"cwd": daemon.home.join("p"), "mcpServers": [],
+                   "_meta": {"acpmux": {"harness": harness}}}),
+        );
         let id = made["sessionId"].as_str().unwrap().to_owned();
-        // A bookmark names a prompt: one turn first (the stand-in echoes it), then its seq.
-        let seq = if case.field == "bookmarks" {
+        // One turn first (the stand-in echoes it); a bookmark names that prompt's seq.
+        let seq = if turn_first {
             let prompt =
                 json!({"sessionId": id, "prompt": [{"type": "text", "text": "g2 prompt"}]});
             client.call("session/prompt", prompt);
@@ -331,6 +382,101 @@ fn meta_save_kill_point_keeps_every_acknowledged_change() {
     assert!(
         lost.is_empty(),
         "acknowledged changes lost at the kill point: {lost:?}\n{}",
+        report.join("\n")
+    );
+}
+
+/// A request that changes nothing (the chat is unread already; the prompt is bookmarked
+/// already) answers ok only once the earlier change that made it so is on disk: a client that
+/// hears ok counts on that state surviving a crash. Review of #29311.
+///
+/// Each case: an older save of the chat is held; client A sends the change (it waits for the
+/// held save); once the change shows in memory, client B sends the same request, a no-op. If B
+/// is answered while the save is still held, the test kills the daemon there and the state must
+/// survive. Else it lets the save go, waits for both answers, and kills the daemon then.
+#[test]
+fn meta_save_kill_point_a_no_op_answers_after_the_change_it_repeats_is_on_disk() {
+    let mut daemon = Daemon::new("noop");
+    let mut report = Vec::new();
+    let mut lost = Vec::new();
+    for field in ["unread", "bookmarks"] {
+        let mut a = Client::connect(&daemon.socket);
+        let made = a.call("session/new", json!({"cwd": daemon.home.join("p"), "mcpServers": []}));
+        let id = made["sessionId"].as_str().unwrap().to_owned();
+        let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "g2 prompt"}]});
+        a.call("session/prompt", prompt);
+        let prompts = a.call(
+            "_acpmux/events",
+            json!({"sessionId": id, "afterSeq": 0, "kinds": ["user_message"]}),
+        );
+        let seq = prompts["events"][0]["seq"].as_u64().expect("the prompt's seq");
+        let (method, params, expect) = if field == "unread" {
+            ("_acpmux/markUnread", json!({"sessionId": id}), json!(true))
+        } else {
+            (
+                "_acpmux/bookmark_set",
+                json!({"sessionId": id, "seq": seq, "bookmarked": true}),
+                json!([seq]),
+            )
+        };
+        let read = |c: &mut Client| {
+            if field == "unread" {
+                info(c, &id)["unread"].clone()
+            } else {
+                c.call("_acpmux/bookmark_get", json!({"sessionId": id}))["bookmarks"].clone()
+            }
+        };
+        // An older save of the chat, held after its copy.
+        std::fs::write(daemon.holds.join(format!("hold-{id}")), "").unwrap();
+        let holder = {
+            let (socket, id) = (daemon.socket.clone(), id.clone());
+            std::thread::spawn(move || {
+                Client::connect(&socket)
+                    .call("_acpmux/rename", json!({"sessionId": id, "newName": "g2-noop-holder"}))
+            })
+        };
+        wait_held(&daemon, &id);
+        // A: the change; it waits for the held save.
+        let a_request = a.send(method, params.clone());
+        let mut watcher = Client::connect(&daemon.socket);
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while read(&mut watcher) != expect {
+            assert!(Instant::now() < deadline, "{field}: A's change never showed");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // B: the same request, a no-op now.
+        let mut b = Client::connect(&daemon.socket);
+        let b_request = b.send(method, params);
+        let early = b.answer(b_request, method, Duration::from_secs(2));
+        if early.is_none() {
+            std::fs::write(daemon.holds.join(format!("release-{id}")), "").unwrap();
+            assert!(b.answer(b_request, method, Duration::from_secs(30)).is_some(), "B unanswered");
+            assert!(a.answer(a_request, method, Duration::from_secs(30)).is_some(), "A unanswered");
+            holder.join().unwrap();
+        }
+        // The crash: with the save still held when B was answered early.
+        daemon.kill9();
+        daemon.start();
+        let mut reader = Client::connect(&daemon.socket);
+        let after = read(&mut reader);
+        let ok = after == expect;
+        let line = format!(
+            "META-NOOP field={field} acked={expect} after_kill={after} answered_while_held={} ok={ok}",
+            early.is_some()
+        );
+        println!("{line}");
+        report.push(line);
+        if !ok {
+            lost.push(field);
+        }
+        if early.is_some() {
+            // The holder's connection closed with the old daemon.
+            let _ = holder.join();
+        }
+    }
+    assert!(
+        lost.is_empty(),
+        "a no-op answered ok before the change it repeats was on disk: {lost:?}\n{}",
         report.join("\n")
     );
 }
