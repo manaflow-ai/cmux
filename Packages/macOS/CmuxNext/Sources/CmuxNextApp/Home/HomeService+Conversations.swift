@@ -35,7 +35,7 @@ extension HomeService {
     }
     func recipientLook(_ recipient: HomeRecipient) -> HomeRecipientLook {
         chiefRoster.look(recipient, rows: homeStore.rows, avatars: chiefFaces,
-                         fallback: HomeHostView.defaultTileAvatar(picture: services.characterPicture(of: nil)),
+                         fallback: HomeHostView.defaultTileAvatar(picture: services.avatarPicture(of: nil)),
                          harnesses: directory.chiefHarnesses)
     }
 
@@ -161,7 +161,7 @@ extension HomeService {
             rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
             me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] },
             chiefAvatars: { [weak self] in self?.chiefFaces ?? [:] },
-            defaultChiefAvatar: { [weak self] in HomeHostView.defaultTileAvatar(picture: self?.services.characterPicture(of: nil)) },
+            defaultChiefAvatar: { [weak self] in HomeHostView.defaultTileAvatar(picture: self?.services.avatarPicture(of: nil)) },
             chiefHarnesses: { [weak self] in self?.directory.chiefHarnesses ?? [:] },
             chiefRoster: { [weak self] in self?.chiefRoster ?? HomeChiefRoster() },
             chiefNames: { [weak self] in self?.chiefNames ?? [:] })
@@ -277,14 +277,14 @@ extension HomeService {
     }
 
     /// Each listed Chief's avatar as its Home row, header and bubbles draw it: its own picture or
-    /// text, else the picture of its own pet character (``ChiefMascotPicks``), so a character picked
-    /// for one Chief never shows on another.
+    /// text, else its own worn upload (`AppServices.avatarPicture(of:)`), so one Chief's upload never
+    /// shows on another; a Chief with none is left out and draws its name's monogram.
     var chiefFaces: [String: HomeChiefAvatar] {
         var chiefs = Set(homeStore.rows.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
         #if DEBUG
         chiefs.formUnion(debugChiefs)
         #endif
-        return Self.chiefFaces(chiefs: chiefs, own: directory.chiefAvatars) { services.characterPicture(of: $0) }
+        return Self.chiefFaces(chiefs: chiefs, own: directory.chiefAvatars) { services.avatarPicture(of: $0) }
     }
 
     /// Chief `chief` (a participant id) as an agent chat draws a message it sent there
@@ -297,16 +297,18 @@ extension HomeService {
             ?? homeStore.rows.lazy.flatMap(\.summary.participants).first { $0.id.rawValue == chief }?.displayName
             ?? directory.chiefs.first { $0.id == chief }?.name
         // The sidebar draws the default Chief (`agent_mux`) with no id.
-        var picture = services.characterPicture(of: chief == DaemonHomeSource.chief.id ? nil : chief), text: String?
+        var picture = services.avatarPicture(of: chief == DaemonHomeSource.chief.id ? nil : chief), text: String?
         switch chiefFaces[chief] {
         case .picture(let url): picture = url
         case .text(let own): text = own
         case nil: break
         }
+        // No picture and no text of its own: its name's monogram, as Home's header draws it (CH).
+        if picture == nil, text == nil { text = HomeChiefAvatar.monogram(of: name ?? "") }
         return await avatars.chiefFace(name: name, picture: picture, text: text)
     }
 
-    /// `own` (each Chief's own avatar), with each other Chief in `chiefs` wearing the `picture` of its character.
+    /// `own` (each Chief's own avatar), with each other Chief in `chiefs` wearing its `picture` (its upload) when it has one.
     static func chiefFaces(chiefs: Set<String>, own: [String: HomeChiefAvatar], picture: (String) -> URL?) -> [String: HomeChiefAvatar] {
         var faces = own
         for chief in chiefs where faces[chief] == nil {

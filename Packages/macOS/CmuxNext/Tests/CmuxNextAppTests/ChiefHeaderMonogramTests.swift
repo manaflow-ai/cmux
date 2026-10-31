@@ -30,7 +30,7 @@ import Testing
         container.addSubview(view)
         // The host's call for a Chief with no avatar of its own (HomeHostView.loadAvatar).
         view.headerTitle = name
-        view.setChiefAvatar(picture: nil, text: HomeChiefAvatar.headerText(nil, hasPicture: false))
+        view.setChiefAvatar(picture: nil, text: nil)
         container.layoutSubtreeIfNeeded()
         return (view, window)
     }
@@ -61,8 +61,6 @@ import Testing
             #expect(p.r > 0.2 && p.r < 0.85, "the disc is a mid grey, not white or black: \(p)")
         }
         #expect(top.r > bottom.r + 0.04, "the disc is a top-to-bottom gradient: top \(top.r), bottom \(bottom.r)")
-        let hero = HomeChiefAvatar.headerText(nil, hasPicture: false)
-        #expect(hero == nil, "no 🫡 or other text stands in for the monogram: \(String(describing: hero))")
     }
 
     @Test func anotherChiefsMonogramIsItsOwnInitials() {

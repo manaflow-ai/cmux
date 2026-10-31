@@ -402,6 +402,14 @@ final class AppServices {
         ChiefPetSettingsRows.characterPicture(of: chief, picks: chiefMascotPicks, uploads: chiefAvatarUploads, in: settings?.snapshot)
     }
 
+    /// The picture Chief `chief` (a participant id; nil: the default Chief) wears as its avatar where
+    /// its profile sets none: its worn upload's first frame, else nil and it draws its monogram
+    /// (Lawrence 2026-10-30: "no profile pic by default"; the pet character stays the pet's, never
+    /// the avatar, which overturns Leo's 2026-10-20 "one of the nine characters" default).
+    func avatarPicture(of chief: String?) -> URL? {
+        wornUpload(of: chief)?.still
+    }
+
     /// Chief `chief`'s (nil: the default) upload while it is worn over the character picked now.
     func wornUpload(of chief: String?) -> ChiefAvatarUploads.Upload? {
         ChiefPetSettingsRows.wornUpload(of: chief, picks: chiefMascotPicks, uploads: chiefAvatarUploads, in: settings?.snapshot)
