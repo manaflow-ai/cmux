@@ -547,10 +547,7 @@ struct ChromiumQuestionKeyChannelTests {
             }
         }
         let descriptor = PageDescriptor(id: "cmux.agent", resource: "agent", namespaces: [])
-        #if DEBUG
-        PageID.allowFixtureRoot(root, for: descriptor.id)
-        #endif
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [],
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, testRoot: true, routes: [],
                                            options: PageEngineOptions(chromiumAgentChat: true), chromium: hosting))
         view.chromiumClock = PageTestClock.never
         await view.chromiumStart?.value
@@ -579,10 +576,7 @@ struct ChromiumQuestionKeyChannelTests {
             }
         }
         let descriptor = PageDescriptor(id: "cmux.agent", resource: "agent", namespaces: [])
-        #if DEBUG
-        PageID.allowFixtureRoot(root, for: descriptor.id)
-        #endif
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [],
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, testRoot: true, routes: [],
                                            options: PageEngineOptions(chromiumAgentChat: true), chromium: hosting))
         view.chromiumClock = PageTestClock.never
         await view.chromiumStart?.value
