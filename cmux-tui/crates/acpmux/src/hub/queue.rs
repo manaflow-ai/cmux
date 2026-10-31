@@ -1318,8 +1318,11 @@ impl Hub {
             let approval = approved
                 .get(&turn_id)
                 .filter(|a| a.get("revision").and_then(Value::as_u64) == revision);
-            let awaiting_owner =
-                e.msg.get("awaitingOwner") == Some(&Value::Bool(true)) && approval.is_none();
+            // A link guest's prompt waits whatever its record says (`author::awaits_owner`): one
+            // an older writer recorded unmarked never runs unapproved after a restart.
+            let awaiting_owner = (e.msg.get("awaitingOwner") == Some(&Value::Bool(true))
+                || crate::author::awaits_owner(provenance.as_ref()))
+                && approval.is_none();
             restored.push((prompt_id.clone(), turn_id.clone()));
             queue.push(QueuedPrompt {
                 prompt_id: prompt_id.clone(),
