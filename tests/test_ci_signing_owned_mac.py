@@ -41,6 +41,14 @@ Blacksmith macOS last. On an owned Mac a signing job must:
    certificate is decoded to a private temporary file that create itself
    removes, and delete removes again) and delete it in an `if: always()` step.
 
+A job that holds a Sparkle private key (SPARKLE_KEY) is a signing job too: the key signs every update a feed
+serves, so on a shared mini any other job could read it from the environment. It makes no keychain, so only rule 4
+does not apply to it. A signing job whose runs-on has no ephemeral route (owned_only: no blacksmith-* or ubuntu-*
+label and no EPHEMERAL_RUNNER_VARIABLES variable, which nightlies never use) runs on an owned Mac however it reaches
+it, so rules 1 to 4 apply to it even when it reads no owned pick. nightly.yml's generate-nightly-deltas held the
+nightly-next Sparkle key on an owned mini beside other jobs (glaeda's isolated class; run 41180899369 on
+cmux14-glaeda-2, 2026-10-31) with no claim gate.
+
 The claim script and the drained-mini pick are tested here too.
 """
 
@@ -141,6 +149,11 @@ DYNAMIC_INDEX = re.compile(r"\b(?:secrets|needs|outputs)\s*\[")
 REF_CONDITION = re.compile(r"\bgithub\.ref(?:_name)?\b")
 AFTER_STEP = re.compile(r"^\s*steps\.([\w-]+)\.outcome\s*==\s*'failure'\s*$")
 RUNS_AFTER_FAILURE = re.compile(r"\b(?:always|failure|cancelled)\s*\(")
+# A Sparkle EdDSA private key (SPARKLE_PRIVATE_KEY, NIGHTLY_SPARKLE_PRIVATE_KEY, SPARKLE_NEXT_PRIVATE_KEY, ...).
+SPARKLE_KEY = re.compile(r"secrets\.\w*SPARKLE\w*PRIVATE_KEY", re.IGNORECASE)
+# A fork's own runner (`github.repository_owner != 'manaflow-ai' && 'macos-26' ||`): never this repository's.
+FORK_ROUTE = re.compile(r"github\.repository_owner\s*!=\s*'manaflow-ai'\s*&&\s*'[^']*'\s*\|\|")
+LABEL_LITERAL = re.compile(r"'([^']*)'")
 
 
 def dotted(value: Any) -> Any:
@@ -163,11 +176,30 @@ def workflows() -> dict[str, dict]:
     return out
 
 
-def signing_job(job: dict) -> bool:
+def keychain_job(job: dict) -> bool:
     """A job that holds the Developer ID certificate or makes a signing keychain."""
     text = json.dumps(keychain_guard.inline_step_scripts(job))
     return "APPLE_CERTIFICATE_BASE64" in text or bool(keychain_guard.CREATE.search(text)) or any(
         script in text for script in keychain_guard.SCRIPT_MADE_KEYCHAINS.values())
+
+
+def signing_job(job: dict) -> bool:
+    """A keychain job, or a job that holds a Sparkle private key (read in dot form, after dotted())."""
+    return keychain_job(job) or bool(SPARKLE_KEY.search(json.dumps(keychain_guard.inline_step_scripts(job))))
+
+
+def owned_only(runs_on: str) -> bool:
+    """runs-on gives this repository no ephemeral runner, so the job runs on an owned Mac: past the fork route, no
+    blacksmith-*, ubuntu-* or GitHub-hosted macos-* label and no EPHEMERAL_RUNNER_VARIABLES variable, and an owned
+    label or a variable to take one from."""
+    text = FORK_ROUTE.sub("", runs_on)
+    if any(keychain_guard.EPHEMERAL_LABEL.match(label) or label.startswith("macos-")
+           for label in LABEL_LITERAL.findall(text)):
+        return False
+    if any(re.search(rf"\bvars\.{name}\b", text, re.IGNORECASE)
+           for name in keychain_guard.EPHEMERAL_RUNNER_VARIABLES):
+        return False
+    return "glaeda-" in text or "vars." in text
 
 
 def picker_ref_failures(name: str, job: dict) -> list[str]:
@@ -306,7 +338,8 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                                         f"signing job's runner comes from {OWNED_PICKER} or {BLACKSMITH_PICKER} only")
             if not owned_reads and DYNAMIC_INDEX.search(runs_on):
                 failures.append(f"{label}: runs-on indexes needs or outputs with an expression the guard cannot read")
-            if not owned_reads:
+            # A job with no ephemeral route is on an owned Mac whether or not it reads the owned pick.
+            if not owned_reads and not owned_only(runs_on):
                 continue
             if DYNAMIC_INDEX.search(json.dumps(job)) or DYNAMIC_INDEX.search(json.dumps(document.get("env") or {})):
                 failures.append(f"{label}: indexes secrets, needs or outputs with an expression the guard cannot read")
@@ -354,7 +387,8 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             text = json.dumps(steps)
             if "security import" in text:
                 failures.append(f"{label}: imports a certificate inline; use scripts/ci/signing-keychain.sh create")
-            if not any("always()" in str(step.get("if", "")) and KEYCHAIN_DELETE.search(str(step.get("run", "")))
+            # Rule 4 is the keychain's; a job that only holds a Sparkle key makes none.
+            if keychain_job(job) and not any("always()" in str(step.get("if", "")) and KEYCHAIN_DELETE.search(str(step.get("run", "")))
                        for step in steps):
                 failures.append(f"{label}: routed to owned Macs without an `if: always()` step that runs "
                                 "scripts/ci/signing-keychain.sh delete")
@@ -534,6 +568,31 @@ class SigningOwnedMacTests(unittest.TestCase):
                  "steps": [{"id": "pick", "run": "python3 scripts/ci/nightly_build_runner.py verify"}]}
         failures, _ = check({"release.yml": {"jobs": paired(other, "build-sign-notarize", good)}})
         self.assertTrue(any("signing job's runner comes from" in failure for failure in failures), failures)
+
+    def test_an_owned_only_job_with_a_sparkle_key_holds_the_whole_mac(self) -> None:
+        """nightly.yml's generate-nightly-deltas (2026-10-31): the Sparkle key on an owned mini with no claim."""
+        key = {"env": {"NEXT_SPARKLE_PRIVATE_KEY": "${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}"},
+               "run": "./scripts/ci/generate-nightly-deltas.sh"}
+        owned = "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_SIDE_LANE_RUNNER || " \
+                "'glaeda-std-xcode-26.6' }}"
+        bare = {"runs-on": owned, "steps": [{"uses": "actions/checkout@v6"}, key]}
+        failures, owned_jobs = check({"nightly.yml": {"jobs": {"generate-nightly-deltas": bare}}})
+        self.assertEqual(owned_jobs, 1, failures)
+        for needle in ("not in SIGNING_JOBS", "the first step must be the claim gate", "without a step that runs"):
+            with self.subTest(needle):
+                self.assertTrue(any(needle in failure for failure in failures), failures)
+        in_job_env = {"runs-on": owned, "env": key["env"], "steps": [{"run": "true"}]}
+        failures, _ = check({"nightly.yml": {"jobs": {"generate-nightly-deltas": in_job_env}}})
+        self.assertTrue(any("job-level env names a secret" in failure for failure in failures), failures)
+        # Held whole: the claim gate first, the claim before the key, and no keychain to delete (rule 4 is the keychain's).
+        held = {"runs-on": owned, "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "run": CLAIM_GATE},
+                                            {"uses": "actions/checkout@v6"}, {"run": CLAIM}, key]}
+        self.assertEqual(check({"nightly.yml": {"jobs": {"sign-nightly-identity-legacy": held}}}), ([], 1))
+        # A Sparkle job with an ephemeral route is rule 7's (test_ci_signing_keychain_is_deleted_before_bundle_code).
+        for runs_on in ("${{ vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}", "blacksmith-6vcpu-macos-26",
+                        "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.MACOS_RUNNER_26 }}"):
+            with self.subTest(runs_on=runs_on):
+                self.assertEqual(check({"nightly.yml": {"jobs": {"publish": {**bare, "runs-on": runs_on}}}}), ([], 0))
 
     def test_drained_runner_takes_only_a_mini_running_nothing(self) -> None:
         runners = [
