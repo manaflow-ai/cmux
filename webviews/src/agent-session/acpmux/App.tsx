@@ -177,7 +177,7 @@ import { useCloudChatRecovery } from "./useCloudChatRecovery";
 import { cloudChatRecoveryActive, cloudChatUnavailable, type CloudChatIdentity } from "./cloudChatRecovery";
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
-import { byRecentUse, parseProjectRepos, projectRows } from "./projectRepos";
+import { byRecentUse, parseProjectRepos } from "./projectRepos";
 import { answerFromHome } from "./HomeInbox";
 import { HomeLists } from "./HomeLists";
 import { endsTurn, lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
@@ -10557,13 +10557,8 @@ function AcpmuxPane() {
     // The machine as the rows key it (ComposerContext.computerId): a peer, else a Cloud host.
     const peer = summary?.peer || (summary?.hostKind === "cloud" ? summary.host : undefined);
     return {
-      projects: [
-        ...projectRows(
-          newTabProjects.filter((project) => !isAgentHome(project.cwd)),
-          cwd?.replace(/(.)\/+$/, "$1"),
-        ),
-        ...remote.values(),
-      ],
+      // Every folder: the chooser lists one row per repository and finds the rest by search.
+      projects: [...newTabProjects.filter((project) => !isAgentHome(project.cwd)), ...remote.values()],
       current: cwd && !isAgentHome(cwd) ? cwd.replace(/(.)\/+$/, "$1") : undefined,
       currentPeer: peer,
       // In no project only when it is: its folder is agent-home, or the host starts it there. A chat
