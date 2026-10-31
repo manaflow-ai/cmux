@@ -35,7 +35,7 @@ import Testing
         let bubbles = Self.bubbles(Self.rows(alone: true))
         #expect(bubbles.count == 3)
         #expect(bubbles.dropFirst().allSatisfy { $0.gap == 14 })
-        #expect(bubbles.allSatisfy(\.tail))
+        #expect(bubbles.map(\.tail) == [true, true, true])
         #expect(RowBuilder.standAloneGap == RowBuilder.typingGapUnderBubble + RowDraw.typingBubble.minY - RowDraw.margin)
     }
 
