@@ -35305,127 +35305,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Ghostty config sets %@, so themes cannot change these colors."
+            "value": "Your Ghostty config sets %@, so terminal themes cannot change these colors. The App Theme does not use them."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يضبط ملف إعدادات Ghostty لديك %@، لذا لا يمكن للسمات تغيير هذه الألوان."
+            "value": "يضبط ملف إعدادات Ghostty لديك %@، لذا لا يمكن لسمات الطرفية تغيير هذه الألوان. سمة التطبيق لا تتأثر."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vaša Ghostty konfiguracija postavlja %@, pa teme ne mogu promijeniti ove boje."
+            "value": "Vaša Ghostty konfiguracija postavlja %@, pa teme terminala ne mogu promijeniti ove boje. Tema aplikacije ih ne koristi."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Din Ghostty-konfiguration angiver %@, så temaer kan ikke ændre disse farver."
+            "value": "Din Ghostty-konfiguration angiver %@, så terminaltemaer kan ikke ændre disse farver. Apptemaet bruger dem ikke."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deine Ghostty-Konfiguration legt %@ fest, daher können Themes diese Farben nicht ändern."
+            "value": "Deine Ghostty-Konfiguration legt %@ fest, daher können Terminal-Themes diese Farben nicht ändern. Das App-Theme verwendet sie nicht."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tu configuración de Ghostty define %@, así que los temas no pueden cambiar estos colores."
+            "value": "Tu configuración de Ghostty define %@, así que los temas del terminal no pueden cambiar estos colores. El tema de la app no los usa."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Votre configuration Ghostty définit %@ : les thèmes ne peuvent donc pas modifier ces couleurs."
+            "value": "Votre configuration Ghostty définit %@ : les thèmes du terminal ne peuvent donc pas modifier ces couleurs. Le thème de l’app ne les utilise pas."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La tua configurazione di Ghostty imposta %@, quindi i temi non possono cambiare questi colori."
+            "value": "La tua configurazione di Ghostty imposta %@, quindi i temi del terminale non possono cambiare questi colori. Il tema dell’app non li usa."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty の設定で %@ が指定されているため、テーマではこれらの色を変更できません。"
+            "value": "Ghostty の設定で %@ が指定されているため、ターミナルテーマではこれらの色を変更できません。アプリテーマには使われません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការកំណត់ Ghostty របស់អ្នកកំណត់ %@ ដូច្នេះរចនាប័ទ្មមិនអាចប្ដូរពណ៌ទាំងនេះបានទេ។"
+            "value": "ការកំណត់ Ghostty របស់អ្នកកំណត់ %@ ដូច្នេះរចនាប័ទ្មទែមីណាល់មិនអាចប្ដូរពណ៌ទាំងនេះបានទេ។ ស្បែកកម្មវិធីមិនប្រើពួកវាទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty 설정에서 %@을(를) 지정하고 있어 테마로 이 색상을 바꿀 수 없습니다."
+            "value": "Ghostty 설정에서 %@을(를) 지정하고 있어 터미널 테마로 이 색상을 바꿀 수 없습니다. 앱 테마는 이 색상을 쓰지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty-konfigurasjonen din angir %@, så temaer kan ikke endre disse fargene."
+            "value": "Ghostty-konfigurasjonen din angir %@, så terminaltemaer kan ikke endre disse fargene. Apptemaet bruker dem ikke."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Twoja konfiguracja Ghostty ustawia %@, więc motywy nie mogą zmienić tych kolorów."
+            "value": "Twoja konfiguracja Ghostty ustawia %@, więc motywy terminala nie mogą zmienić tych kolorów. Motyw aplikacji ich nie używa."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sua configuração do Ghostty define %@, então os temas não podem mudar essas cores."
+            "value": "Sua configuração do Ghostty define %@, então os temas do terminal não podem mudar essas cores. O tema do app não as usa."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ваша конфигурация Ghostty задаёт %@, поэтому темы не могут изменить эти цвета."
+            "value": "Ваша конфигурация Ghostty задаёт %@, поэтому темы терминала не могут изменить эти цвета. Тема приложения их не использует."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การตั้งค่า Ghostty ของคุณกำหนด %@ ไว้ ธีมจึงเปลี่ยนสีเหล่านี้ไม่ได้"
+            "value": "การตั้งค่า Ghostty ของคุณกำหนด %@ ไว้ ธีมเทอร์มินัลจึงเปลี่ยนสีเหล่านี้ไม่ได้ ธีมแอปไม่ใช้สีเหล่านี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty yapılandırmanız %@ ayarlıyor, bu nedenle temalar bu renkleri değiştiremez."
+            "value": "Ghostty yapılandırmanız %@ ayarlıyor, bu nedenle terminal temaları bu renkleri değiştiremez. Uygulama teması bunları kullanmaz."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ваша конфігурація Ghostty задає %@, тому теми не можуть змінити ці кольори."
+            "value": "Ваша конфігурація Ghostty задає %@, тому теми термінала не можуть змінити ці кольори. Тема застосунку їх не використовує."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cấu hình Ghostty của bạn đặt %@, nên chủ đề không thể thay đổi các màu này."
+            "value": "Cấu hình Ghostty của bạn đặt %@, nên chủ đề terminal không thể thay đổi các màu này. Chủ đề ứng dụng không dùng chúng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的 Ghostty 配置设置了 %@，因此主题无法更改这些颜色。"
+            "value": "你的 Ghostty 配置设置了 %@，因此终端主题无法更改这些颜色。应用主题不使用它们。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的 Ghostty 設定指定了 %@，因此主題無法變更這些顏色。"
+            "value": "你的 Ghostty 設定指定了 %@，因此終端機主題無法變更這些顏色。App 主題不使用它們。"
           }
         }
       }
@@ -36478,6 +36478,137 @@
         }
       }
     },
+    "settingsPage.theme.overriddenSpaceApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُستبدل في هذه المساحة بـ%@، مع سمة التطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U ovom prostoru zamijenjeno temom %@, i tema aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilsidesat i dette område af %@, apptemaet med"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesem Bereich durch %@ ersetzt, auch das App-Theme"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overridden in this space by %@, App Theme included"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reemplazado en este espacio por %@, tema de la app incluido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplacé dans cet espace par %@, thème de l’app compris"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sostituito in questo spazio da %@, tema dell’app incluso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このスペースでは%@に置き換え（アプリテーマも）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវបានជំនួសក្នុងលំហនេះដោយ %@ រួមទាំងស្បែកកម្មវិធី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 스페이스에서는 %@(으)로 대체됨 (앱 테마 포함)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overstyrt i dette området av %@, apptemaet også"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W tej przestrzeni zastąpiony przez %@, z motywem aplikacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Substituído neste espaço por %@, incluindo o tema do app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом пространстве заменено на %@, включая тему приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถูกแทนที่ในพื้นที่นี้ด้วย %@ รวมถึงธีมแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu alanda %@ ile geçersiz kılındı, uygulama teması dahil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У цьому просторі замінено на %@, разом із темою застосунку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bị thay bằng %@ trong không gian này, cả chủ đề ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此空间中被 %@ 覆盖（包括应用主题）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此空間中被 %@ 覆寫（包括 App 主題）"
+          }
+        }
+      }
+    },
     "settingsPage.theme.overriddenWorkspace": {
       "extractionState": "manual",
       "localizations": {
@@ -36605,6 +36736,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "在此工作區中被 %@ 覆寫"
+          }
+        }
+      }
+    },
+    "settingsPage.theme.overriddenWorkspaceApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُستبدل في مساحة العمل هذه بـ%@، مع سمة التطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U ovom radnom prostoru zamijenjeno temom %@, i tema aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilsidesat i dette arbejdsområde af %@, apptemaet med"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesem Arbeitsbereich durch %@ ersetzt, auch das App-Theme"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overridden in this workspace by %@, App Theme included"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reemplazado en este espacio de trabajo por %@, con el tema de la app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplacé dans cet espace de travail par %@, thème de l’app compris"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sostituito in questo workspace da %@, tema dell’app incluso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースでは%@に置き換え（アプリテーマも）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវបានជំនួសក្នុងកន្លែងធ្វើការនេះដោយ %@ រួមទាំងស្បែកកម្មវិធី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 워크스페이스에서는 %@(으)로 대체됨 (앱 테마 포함)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overstyrt i dette arbeidsområdet av %@, apptemaet også"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W tym obszarze roboczym zastąpiony przez %@, z motywem aplikacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Substituído neste espaço de trabalho por %@, com o tema do app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом рабочем пространстве заменено на %@, с темой приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถูกแทนที่ในเวิร์กสเปซนี้ด้วย %@ รวมถึงธีมแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu çalışma alanında %@ ile geçersiz kılındı, uygulama teması dahil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У цьому робочому просторі замінено на %@, з темою застосунку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bị thay bằng %@ trong workspace này, cả chủ đề ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此工作区中被 %@ 覆盖（包括应用主题）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此工作區中被 %@ 覆寫（包括 App 主題）"
           }
         }
       }

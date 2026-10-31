@@ -145,6 +145,7 @@ extension PaletteModel {
             isTextInput = false
             fieldHint = page.hint
             pageCrumbs = page.crumbs.map(\.title)
+            pageTokens = page.tokens
         case .textInput(let spec):
             pageTitle = spec.title
             placeholder = spec.placeholder
@@ -152,6 +153,7 @@ extension PaletteModel {
             isTextInput = true
             fieldHint = nil
             pageCrumbs = []
+            pageTokens = []
         }
     }
 
