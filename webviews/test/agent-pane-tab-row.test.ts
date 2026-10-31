@@ -234,11 +234,12 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
   // session, so the badge (Labs preview only) said the same thing on every tab. The enforcement
   // detail stays in the continuation review (handoff/ReviewMessage.tsx); the row draws no badge.
   test("Labs preview on: the row draws no coverage badge, in a chat or on an empty New Tab", async () => {
-    for (const target of [`session=${CHAT}`, "newtab"]) {
+    for (const target of [`session=${CHAT}`, `newtab&cwd=${encodeURIComponent("/home/dev/uploader")}`]) {
       const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
       await installPaintedFrames(page);
       await page.goto(url(target));
-      if (target === "newtab") await page.locator(".acpmux-handoff-header-tools").waitFor();
+      // The New Tab is its start page (its field), with no session and no summary.
+      if (target.startsWith("newtab")) await page.locator(".nt-field").waitFor();
       else await page.getByText(REPLY).waitFor();
       await page.waitForFunction(() =>
         Boolean((window as { cmuxAcpmuxBridge?: Bridge }).cmuxAcpmuxBridge?.applyPreview),
