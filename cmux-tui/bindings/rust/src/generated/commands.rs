@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2461ff8aeeb5d34f4dd06fbf14db7a02d2e540305fe2174488fd74e38e0b2f8d.
+// cmux-tui mux protocol 12, IR d8b421f4d16b40c144106ba3d62e1a36f9366e6361adf66a8f40db8a39ee1655.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -779,6 +779,8 @@ pub type CloudHostReplicaStatusResult = T::JsonValue;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CloudInboxListRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cursor: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub include_archived: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]

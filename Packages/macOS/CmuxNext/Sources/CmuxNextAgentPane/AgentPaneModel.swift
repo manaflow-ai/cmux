@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 public import CmuxNextSettings
 public import Foundation
 public import Observation
@@ -104,6 +105,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var header: AgentPaneHeaderHooks?
     /// The header's tools in the pane's tab row (``AgentPaneTabRow``, `ChromeTunables.tabRowTools`).
     @ObservationIgnored public let tabRow = AgentPaneTabRow()
+    /// Declarative native controls published by the page for the shared tab row.
+    public private(set) var tabRowTools: [PaneTabRowTool] = []
+    @ObservationIgnored public var onTabRowToolInvoked: ((String, String?) -> Void)?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
     /// Takes back a long recording the pane's dictation gave the page, for chat `session`
@@ -211,6 +215,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onComposerSetting: (@MainActor ([String], Bool) async throws -> Void)?
     /// The chat's look as the page last got it, and where its popover writes (AgentPaneView+Display.swift).
     @ObservationIgnored public internal(set) var display = AgentPaneDisplaySetting.fallback
+    /// The app's feature tip records (`tips.state`); a test gives its own defaults.
+    @ObservationIgnored public var featureTipRecords = AgentPaneFeatureTipRecords()
     @ObservationIgnored public var onDisplaySetting: (@MainActor ([String], JSONValue?) async throws -> Void)?
     /// The chat's tool cards (``AgentPaneToolCard``), and the App's answer to a click on one: the card's id, the button's
     /// and what the person typed in the card's field, if the button sends it.
@@ -301,7 +307,8 @@ public final class AgentPaneModel {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .environment(.list), .cloudMachine(.list), .sandboxState: break
+             .tabRowTools, .tabRowToolsSet, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList),
+             .sandboxState, .subagentShown: break
         case .reply(let reply) where reply.isPassive: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
@@ -312,6 +319,7 @@ public final class AgentPaneModel {
         case .ready, .reconnect:
             return await AgentPaneHandshakeReply.reply(to: request, in: self)
         case .restartAcpmux: return await AgentPaneHandshakeReply.restartAcpmux(in: self)
+        case .restartStuckAcpmux: return await AgentPaneHandshakeReply.restartStuckAcpmux(in: self)
         case .persistSession(let id): adoptSession(id); return AgentPaneReply.success()
         case .missingChat(let session, let reason):
             missingChatLog.record(session: session, reason: reason, tabSession: sessionId, remote: remoteChat)
@@ -364,7 +372,7 @@ public final class AgentPaneModel {
             guard let readAloud else { return Self.unsupported("readAloud") }
             if case .speak(let id, let text, let language) = command { readAloud.speak(text, id: id, language: language, owner: self) } else { readAloud.stop() }
             return AgentPaneReply.success()
-        case .runAction(let id): return runAction(id)
+        case .runAction(let id, let session): return runAction(id, session: session)
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
         case .chooseFolder: return await chooseFolder()
@@ -487,7 +495,7 @@ public final class AgentPaneModel {
             } catch {
                 return AgentPaneReply.failure(code: "btw_failed", message: "Inline side question failed")
             }
-        case .paneAction, .diffTurn, .preview, .setQuickActions, .tabState, .tabRowTools, .sideChat, .subagentPane, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
+        case .paneAction, .moveToMachine, .diffTurn, .preview, .setQuickActions, .tabState, .tabRowTools, .tabRowToolsSet, .sideChat, .subagentPane, .subagentShown, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)
@@ -519,6 +527,7 @@ public final class AgentPaneModel {
         case .saveFile(let save): return await saveFile(save)
         case .composerSetting(let path, let show): return await setComposer(path, show, userGesture: userGesture)
         case .displaySetting(let path, let value): return await setDisplay(path, value)
+        case .featureTips(let tips): return featureTipState(tips)
         case .toolCard(let card, let action, let value): return AgentPaneToolCard.respond(card: card, action: action, value: value, in: self)
         case .computerUsePreview(let action): return AgentPaneComputerUsePreview.respond(action, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)
@@ -537,6 +546,11 @@ public final class AgentPaneModel {
         sessionId = id
         newTab = nil
         onSessionChange?(id)
+    }
+
+    func setTabRowTools(_ tools: [PaneTabRowTool]) {
+        guard tabRowTools != tools else { return }
+        tabRowTools = tools
     }
 
     func setCheckpointAvailable(_ available: Bool) {

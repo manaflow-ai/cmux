@@ -515,6 +515,47 @@
   }
  },
  {
+  "name": "live fork from outside the scope uses scope credit",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"acp.session.fork\",\"params\":{\"sessionId\":\"s9\",\"live\":true}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 13,
+    "method": "acp.session.fork",
+    "params": {
+     "sessionId": "s9",
+     "live": true
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "acp.session.fork",
+    "page_id": "13",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": true,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": false
+   }
+  }
+ },
+ {
   "name": "fork from the scope is free",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"acp.session.fork\",\"params\":{\"sessionId\":\"s1\"}}",
   "state": {
