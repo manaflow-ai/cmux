@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import tempfile
 import textwrap
+import time
 import unittest
 from pathlib import Path
 
@@ -95,6 +96,52 @@ class CefCacheKeyIsCheckoutIndependent(unittest.TestCase):
         self.assertNotIn("merging", second.stderr, "the second checkout merged again instead of reusing")
         self.assertEqual(sorted(p.name for p in cache.iterdir() if not p.name.startswith(".")),
                          [Path(first.stdout.splitlines()[-1]).name])
+
+    def entry(self, cache: Path, name: str, hours_since_use: float) -> Path:
+        path = cache / f"146.0-arm64-universal-{name}"
+        write(path / ".merged", "old\n")
+        used = time.time() - hours_since_use * 3600
+        os.utime(path / ".merged", (used, used))
+        return path
+
+    def test_merge_keeps_the_newest_entries_and_drops_week_old_ones(self):
+        arm = fake_dist(self.tmp / "cef/146.0-arm64", "a" * 64)
+        x86 = fake_dist(self.tmp / "cef/146.0-x86_64", "b" * 64)
+        cache = self.tmp / "cef/universal"
+        week_old = self.entry(cache, "weekold", 8 * 24)
+        older = [self.entry(cache, f"old{i}", 2 + i) for i in range(4)]
+        stale_delete = cache / ".deleting.gone.999999999"
+        write(stale_delete / ".merged", "")
+        result = subprocess.run(["bash", str(MERGE), str(arm), str(x86), str(cache)], capture_output=True, text=True,
+                                timeout=120, env=dict(os.environ, CMUX_CEF_UNIVERSAL_KEEP="3"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        current = Path(result.stdout.splitlines()[-1])
+        self.assertEqual(sorted(p.name for p in cache.iterdir()),
+                         sorted([current.name, older[0].name, older[1].name]))
+        self.assertFalse(week_old.exists())
+        self.assertTrue((current / ".merged").is_file())
+
+    def test_merge_never_removes_an_entry_used_in_the_last_hour(self):
+        arm = fake_dist(self.tmp / "cef/146.0-arm64", "a" * 64)
+        x86 = fake_dist(self.tmp / "cef/146.0-x86_64", "b" * 64)
+        cache = self.tmp / "cef/universal"
+        in_use = [self.entry(cache, f"busy{i}", 0.2) for i in range(3)]
+        result = subprocess.run(["bash", str(MERGE), str(arm), str(x86), str(cache)], capture_output=True, text=True,
+                                timeout=120, env=dict(os.environ, CMUX_CEF_UNIVERSAL_KEEP="1"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for path in in_use:
+            self.assertTrue((path / ".merged").is_file(), path)
+
+    def test_a_reused_entry_is_marked_as_used(self):
+        arm = fake_dist(self.tmp / "cef/146.0-arm64", "a" * 64)
+        x86 = fake_dist(self.tmp / "cef/146.0-x86_64", "b" * 64)
+        cache = self.tmp / "cef/universal"
+        first = self.merge(checkout(self.tmp, "job-1"), arm, x86, cache)
+        merged = Path(first.stdout.splitlines()[-1]) / ".merged"
+        old = time.time() - 3 * 24 * 3600
+        os.utime(merged, (old, old))
+        self.merge(checkout(self.tmp, "job-2"), arm, x86, cache)
+        self.assertGreater(merged.stat().st_mtime, old + 3600)
 
     def shim(self, repo: Path, cef: Path, cache: Path) -> subprocess.CompletedProcess[str]:
         env = dict(os.environ, PATH=f"{self.tmp / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
