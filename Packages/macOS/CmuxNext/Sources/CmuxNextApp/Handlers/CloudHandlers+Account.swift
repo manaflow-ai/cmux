@@ -18,6 +18,7 @@ extension CloudHandlers {
         bindMachineCreation(into: registry, context: context, reason: reason)
         bind("newCloudWorkspace", registry, reason: { reason() ?? (cloud.isSignedIn ? nil : CloudStrings.signInFirst) }) { invocation in
             let target = try workspaceMachine(invocation, context)
+            if let target { try requireAttachableState(target) }
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
             guard let session = target, session.daemon.connection != nil else {
                 if target == nil, origin(of: invocation) == .user, window != nil {
@@ -501,4 +502,6 @@ extension CloudHandlers {
         }
         return CloudStrings.diagnosticsAllWell(CloudDiagnosticsReport.accountLabel(account))
     }
+
+    static func bindSignInRecovery(into registry: ActionRegistry, cloud: CloudService) { CloudSignInRecovery(pending: cloud.signedOutCreation, signIn: { await cloud.auth.signIn() }, hasCurrentList: { cloud.hasCurrentList(within: .seconds(30)) }, isSignedIn: { cloud.isSignedIn }, refresh: { await cloud.refresh() }).bind(into: registry) } // HQ #4884
 }
