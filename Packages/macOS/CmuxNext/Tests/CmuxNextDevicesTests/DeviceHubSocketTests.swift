@@ -156,9 +156,17 @@ final class EventLog: @unchecked Sendable {
         task.cancel()
         await task.value
         #expect(outcome, "the socket kept reconnecting after a 4003 close")
-        #expect(Array(log.all.prefix(2)) == [.state(.connecting), .state(.connected)])
+        #expect(log.all == [.state(.connecting), .state(.connected), .state(.signedOut)])
         #expect(!log.all.contains { if case .state(.reconnecting) = $0 { true } else { false } })
         #expect(connector.count.value == 1)
+    }
+
+    @Test func onlyTheReplacedRemovedAndSignedOutCloseCodesAreTerminal() {
+        #expect(DeviceHubSocket.terminalState(closeCode: 4000) == .replaced)
+        #expect(DeviceHubSocket.terminalState(closeCode: 4001) == .removed)
+        #expect(DeviceHubSocket.terminalState(closeCode: 4003) == .signedOut)
+        #expect(DeviceHubSocket.terminalState(closeCode: 1006) == nil)
+        #expect(DeviceHubSocket.terminalState(closeCode: 4002) == nil)
     }
 
     @Test(.timeLimit(.minutes(1))) func theSocketPings() async throws {
