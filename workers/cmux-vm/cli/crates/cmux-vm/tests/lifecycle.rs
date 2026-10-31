@@ -2652,7 +2652,7 @@ async fn exec_answers(server: &MockServer, needle: &str, exit_code: i32, times: 
         })))
         .with_priority(1)
         .expect(times)
-        .mount(&server)
+        .mount(server)
         .await;
 }
 
