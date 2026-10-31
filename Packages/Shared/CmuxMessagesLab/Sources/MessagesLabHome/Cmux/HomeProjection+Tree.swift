@@ -14,6 +14,7 @@ extension HomeProjection {
     /// of the user, or a full history without it ends the request.
     func reveal(_ message: MessageID) {
         pendingReveal = message
+        if placesOnOpen { revealedBeforePlacing = true }
         tree.target = nil
         tree.pages = 0
         let homeStore = self.homeStore, conversation = self.conversation

@@ -109,6 +109,15 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private var deferredThread: (root: MessageID?, parent: MessageID?) = (nil, nil)
     /// A permalink's message waiting for the window that holds it (`reveal`, HomeProjection+Tree.swift).
     var pendingReveal: MessageID?
+    /// The view has not been placed yet: it opens at the place the last view of this chat kept, or at
+    /// the newest message (HomeProjection+ReadingPlace.swift, #27627).
+    var placesOnOpen = true
+    /// The kept place the view opened at, while rows above it are still estimated: each off-main
+    /// measure moves them, so the place is shown again until the rows are exact or the person scrolls.
+    var openedPlace: (message: ID, offset: CGFloat)?
+    /// A permalink was asked for before the view was placed: it opens at the newest message, not a
+    /// kept place, even when the link's message is already loaded (`reveal` then ends at once).
+    var revealedBeforePlacing = false
     /// Tree threads: permalink paging, the thread header, Copy Link (HomeProjection+ThreadHeader.swift).
     let tree = HomeTreeState()
     /// One streamed-text commit per display frame (HomeStreamPacer).
@@ -159,6 +168,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     func stop() {
+        keepReadingPlace()
         stopped = true
         homeStore.stopTyping(in: conversation)
         liveLine.stop()
@@ -191,6 +201,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         revealIfLoaded()
         refreshThreadHeader()
         passStep("reveal+threadHeader", &mark)
+        placeOnOpen()
+        forgetPlaceAtNewest()
     }
 
     /// The whole current value; unchanged values return before any work.
@@ -289,6 +301,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         self.hasOlder = hasOlder
         let store = controller.install(conv, windowStart: w.start, total: w.total)
         store.linkPreviews = linkPreviews
+        controller.host.onLaidOut = { [weak self] in self?.placeOnOpen() }
+        controller.demo?.onWindowMeasured = { [weak self] in self?.placeAgainAfterMeasure() }
         installThreadHeader()
         if let previews = linkPreviews?.previews {
             // A historical outgoing card on screen may receive a late answer from the guarded
@@ -853,6 +867,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     func scrolled() {
+        openedPlace = nil
+        forgetPlaceAtNewest()
         video.place()
         if let previews = linkPreviews?.previews {
             // My link cards that scrolled in with no title (also from HomeStore): a cached title,
@@ -886,8 +902,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     /// Advances my read cursor to the newest committed message while the
     /// newest row is on screen and the user can see it.
-    private func reportReadIfNeeded() {
-        guard isVisibleToUser, !stopped, let store = controller.store, store.state.ui.scroll.pinnedToBottom,
+    func reportReadIfNeeded() {
+        // Not before the view is placed: its engine state starts pinned, and a chat that opens
+        // scrolled up has not shown its newest message (#27627).
+        guard isVisibleToUser, !stopped, !placesOnOpen, let store = controller.store, store.state.ui.scroll.pinnedToBottom,
               let newest = shown.last(where: { $0.seq != nil })?.seq else { return }
         let cursor = max(reportedRead, shownSummary?.readCursors[me] ?? 0)
         guard newest > cursor else { return }

@@ -417,6 +417,9 @@ final class TopHomePageView: NSView {
             return
         }
         shown = id
+        // Stopped here, not only when the view is released: the transcript keeps its scroll place
+        // for the next view of that chat (#27627) before this one replaces it.
+        host?.transcript.stop()
         host?.removeFromSuperview()
         let view = HomeHostView(services: services, conversation: id.rawValue)
         view.isHidden = isComposingNewMessage

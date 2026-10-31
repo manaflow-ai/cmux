@@ -108,6 +108,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// Ask for `settle(at:)` at an engine time (event-driven cleanup).
     var requestWake: (Double) -> Void = { _ in }
     var onScrollPosition: () -> Void = {}
+    /// cmux (#27627): a width change's off-main measure installed its exact rows (or found them unchanged).
+    var onWindowMeasured: () -> Void = {}
     /// The host's hooks (HostHooks.swift); all off by default. A new hook set reports changes from the selection now.
     var hostHooks = HostHooks() { didSet { hostSelectionReported = hostSelection } }
     /// HostHooks.swift: the focused message (ask 10) and the selection last reported to the host.
@@ -817,6 +819,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.measuringWidth = nil
+                defer { self.onWindowMeasured() }  // cmux (#27627)
                 guard self.bounds.width == width else { self.measureWindow(width: self.bounds.width); return }
                 let st = self.store.state
                 if st.conversation.messages.count != msgs.count { self.measureWindow(width: width) }

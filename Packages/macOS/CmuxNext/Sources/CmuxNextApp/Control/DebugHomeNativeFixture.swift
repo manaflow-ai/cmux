@@ -128,7 +128,8 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             return .object(["ok": .bool(!rows.isEmpty), "rows": .array(rows), "windowWidth": .number(Double(size.width)),
                             "scale": .number(Double(view.window?.backingScaleFactor ?? 0)), "trim": .number(Double(view.debugTranscriptWidthTrim)),
                             "hostRight": .number(Double(view.debugHostFrame.maxX)),
-                            "windowHeight": .number(Double(size.height)), "hostX": .number(Double(o.x)), "hostY": .number(Double(o.y))])
+                            "windowHeight": .number(Double(size.height)), "hostX": .number(Double(o.x)), "hostY": .number(Double(o.y)),
+                            "atNewest": .bool(view.debugAtNewest)])
         case "resize":
             // Width changes in one main-thread turn (one display frame): the pass counters and rows after each.
             let trims = params["trims"]?.arrayValue?.compactMap(\.doubleValue) ?? []
