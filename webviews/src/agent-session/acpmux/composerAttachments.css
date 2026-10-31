@@ -141,7 +141,7 @@
    (chips/chips.css .cv-media__duration). A click plays it. */
 .acpmux-attachment-video-open {
   position: relative;
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-attachment-video-play {
   position: absolute;
@@ -252,7 +252,7 @@
   color: var(--agent-text);
   font: inherit;
   font-size: var(--text-caption);
-  cursor: pointer;
+  cursor: default;
   letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-attachment-retry:hover {
@@ -260,6 +260,29 @@
 }
 .acpmux-attachment-retry:focus-visible {
   outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
+/* A staged image whose original could not be saved: its preview still sends; a Retry badge in its
+   corner uploads the original again, and its tooltip says why it failed (attachmentIntake.tsx). */
+.acpmux-attachment-original-retry {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  color: #fff; /* theme-fixed: on its own black scrim over media */
+  background: rgb(0 0 0 / 0.6);
+  font: inherit;
+  font-size: var(--text-detail);
+  line-height: 1.4;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-attachment-original-retry:hover {
+  background: rgb(0 0 0 / 0.75);
+}
+.acpmux-attachment-original-retry:focus-visible {
+  outline: 1.5px solid #fff; /* theme-fixed: on its own black scrim over media */
   outline-offset: 1px;
 }
 .acpmux-attachment-file {
@@ -454,7 +477,7 @@
   background: color-mix(in srgb, var(--acpmux-composer-bg) 82%, transparent);
   box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
   color: var(--agent-text);
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-attachment-file .acpmux-attachment-remove {
   top: 8px;

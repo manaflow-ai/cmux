@@ -269,7 +269,8 @@ extension PageWebViewChromiumTests {
 
     /// A right-click in the Chromium page shows the host's menu, built as on the WebKit page: Copy on
     /// a selection, then the host's own rows (``PageWebView/contextMenuEditor``). Chromium hears
-    /// the menu closed once, also when nothing is shown.
+    /// the menu closed once, after it closed, also when nothing is shown. The menu pops up on a
+    /// later pass of the run loop, never inside the event that asked for it (a CEF pump pass).
     @Test func aRightClickInTheChromiumPageShowsTheHostsMenu() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
@@ -277,20 +278,30 @@ extension PageWebViewChromiumTests {
         view.chromiumClock = PageTestClock.never
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
-        var shown: [[String]] = []
-        view.chromiumMenuPresenter = { menu, _, _ in shown.append(menu.items.map(\.title)) }
         var finished = 0
+        func rightClick(selection: String) async -> [String]? {
+            var shown: [String]?
+            view.chromiumMenuPresenter = { menu, _, _ in
+                #expect(PageMenuCallout.isRunLoopBlock, "the menu tracked inside the CEF event that asked for it")
+                shown = menu.items.map(\.title)
+            }
+            let before = finished
+            page.onEvent?(.contextMenu(PageChromiumContextMenu(location: CGPoint(x: 4, y: 5), selection: selection,
+                                                               isEditable: false) { finished += 1 }))
+            #expect(finished == before, "Chromium heard the menu closed before it showed")
+            await PageMenuCallout.drain { shown != nil }
+            return shown
+        }
 
         // The desktop default: Copy on a selection.
-        page.onEvent?(.contextMenu(PageChromiumContextMenu(location: CGPoint(x: 4, y: 5), selection: "hello", isEditable: false) {
-            finished += 1
-        }))
-        #expect(shown == [[PageWebView.copyTitle]])
+        #expect(await rightClick(selection: "hello") == [PageWebView.copyTitle])
         #expect(finished == 1)
 
-        // Nothing selected and no rows: no menu, and Chromium still hears it closed.
+        // Nothing selected and no rows: no menu, and Chromium hears it closed at once.
+        var shown = 0
+        view.chromiumMenuPresenter = { _, _, _ in shown += 1 }
         page.onEvent?(.contextMenu(PageChromiumContextMenu(location: .zero, selection: "", isEditable: false) { finished += 1 }))
-        #expect(shown.count == 1)
+        #expect(shown == 0)
         #expect(finished == 2)
 
         // A host's editor gets the menu with Copy in it and adds its rows.
@@ -298,8 +309,7 @@ extension PageWebViewChromiumTests {
             PageWebView.keepDefaultMenuItems(in: menu)
             menu.addItem(PageWebView.menuItem("Quote") {})
         }
-        page.onEvent?(.contextMenu(PageChromiumContextMenu(location: .zero, selection: "hello", isEditable: false) { finished += 1 }))
-        #expect(shown.last == [PageWebView.copyTitle, "Quote"])
+        #expect(await rightClick(selection: "hello") == [PageWebView.copyTitle, "Quote"])
         #expect(finished == 3)
         view.close()
     }
