@@ -295,8 +295,11 @@ jobs:
         with:
           bun-version: "1.4.4"
 
+      # setup-python has no macOS arm64 build of 3.9, so a mini (portable-placement) takes the one uv installs
+      # instead. The head and the base run on the same machine, so either way they compare like for like.
       - name: Set up Python 3.9 for nightly prune compatibility
         id: python39
+        if: runner.os == 'Linux'
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.9"
@@ -307,6 +310,13 @@ jobs:
           PYTHON39: ${{ steps.python39.outputs.python-path }}
         run: |
           mkdir -p "$RUNNER_TEMP/python39"
+          if [ -z "$PYTHON39" ] && command -v uv >/dev/null 2>&1; then
+            PYTHON39="$(uv python find 3.9 2>/dev/null || { uv python install 3.9 >/dev/null 2>&1 && uv python find 3.9; } || true)"
+          fi
+          if [ -z "$PYTHON39" ]; then
+            echo "::warning::no Python 3.9 on this runner; the nightly prune compatibility step reds on the head and the base alike"
+            exit 0
+          fi
           ln -sf "$PYTHON39" "$RUNNER_TEMP/python39/python3.9"
           echo "$RUNNER_TEMP/python39" >> "$GITHUB_PATH"
 
