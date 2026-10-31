@@ -3,6 +3,7 @@ import { noAccountConfiguredMessage } from "./noAccountMessage";
 import {
   authenticateRouteToken,
   hasConfiguredAccount,
+  hasRefreshingAccount,
   markAccountCooldown,
   nextCapacityAvailableAt,
   selectAccountForRequest,
@@ -91,6 +92,12 @@ type CodexResponsesDependencies = {
    * terminal 403 instead of a retryable 503.
    */
   readonly hasConfiguredAccount?: typeof hasConfiguredAccount;
+  /**
+   * Whether an account the caller can see has a credential refresh in flight
+   * (seconds). Selection skips such an account, so an empty pool is only
+   * terminal when this answers false. Without it the answer stays retryable.
+   */
+  readonly hasRefreshingAccount?: typeof hasRefreshingAccount;
 };
 
 /** Runtime seams used by tests to exercise request-wide timeout behavior. */
@@ -184,6 +191,7 @@ export const proxyCodexRequest = createCodexResponsesProxy({
   cooldown: markAccountCooldown,
   nextAvailableAt: nextCapacityAvailableAt,
   hasConfiguredAccount,
+  hasRefreshingAccount,
 });
 
 /**
@@ -326,8 +334,8 @@ async function proxyCodexRequestWith(
   for (let attempt = 0; ; attempt++) {
     throwIfRequestAborted(request);
     if (attempted.length >= MAX_ACCOUNTS_PER_ROUND) {
+      // Eight accounts tried is not proof the pool is empty; a later one may serve.
       if (await holdForNextRound()) continue;
-      noUsableAccount = holdLookupKnown && !roundHadTransientMiss;
       break;
     }
     if (remainingUpstreamHeadersTimeoutMs(
@@ -387,8 +395,13 @@ async function proxyCodexRequestWith(
         noAccountConfigured = true;
         break;
       }
+      // Terminal only on proof: no account this round was excluded for a
+      // transient miss, the cooldown lookup answered, and no account is
+      // mid-refresh.
+      const transientMiss = roundHadTransientMiss;
       if (await holdForNextRound()) continue;
-      noUsableAccount = holdLookupKnown && !roundHadTransientMiss;
+      noUsableAccount = !transientMiss && holdLookupKnown &&
+        await noRefreshingCodexAccount(dependencies, identity, request.signal, upstreamHeaderDeadlineAt, runtime.now);
       break;
     }
     attempted.push(account.id);
@@ -1497,6 +1510,29 @@ function unauthorizedError(reason: RouteTokenAuthFailure): Response {
     AUTH_FAILURE_MESSAGES[reason],
     false,
   );
+}
+
+/** True only when the lookup proves no account the caller can see is refreshing. */
+async function noRefreshingCodexAccount(
+  dependencies: { readonly hasRefreshingAccount?: typeof hasRefreshingAccount },
+  identity: RouteTokenIdentity,
+  requestSignal: AbortSignal,
+  deadlineAt: number,
+  now: () => number,
+): Promise<boolean> {
+  const lookup = dependencies.hasRefreshingAccount;
+  if (!lookup) return false;
+  try {
+    return !await withCoderouterOperationDeadline(requestSignal, deadlineAt, now, (signal) => lookup({
+      teamId: identity.teamId,
+      provider: RESPONSES_PROVIDERS,
+      access: accountAccessForIdentity(identity),
+      signal,
+    }));
+  } catch (error) {
+    if (requestSignal.aborted) throw error;
+    return false;
+  }
 }
 
 /**

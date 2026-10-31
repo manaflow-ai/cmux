@@ -68,6 +68,8 @@ resetRefreshPatience();
 /** Logical clock for capacity holds; the fake sleep advances it instead of waiting. */
 let clock = 0;
 let sleeps: number[] = [];
+/** Whether the shared proxy's pool has an account mid-refresh. */
+let refreshingAccount = false;
 const holdRuntime = {
   now: () => clock,
   wallNow: () => clock,
@@ -140,6 +142,7 @@ const proxy = createCodexResponsesProxy({
       expiresAt: Date.now() + 60_000,
     };
   },
+  hasRefreshingAccount: async () => refreshingAccount,
   cooldown: async (accountId) => {
     cooldowns.push(accountId);
   },
@@ -764,6 +767,18 @@ describe("codex responses proxy session routing", () => {
     expect(leaseProbeTimes).toEqual([]);
   });
 
+  test("an empty selection while an account is mid-refresh stays a retryable 503", async () => {
+    accountsToServe = [];
+    refreshingAccount = true;
+    try {
+      const response = await proxy(responsesRequest({ session_id: "session-refreshing" }));
+      expect(response.status).toBe(503);
+      expect(((await response.json()) as { retryable: boolean }).retryable).toBe(true);
+    } finally {
+      refreshingAccount = false;
+    }
+  });
+
   test("returns no_usable_account when selection is exhausted", async () => {
     accountsToServe = [];
     const response = await proxy(responsesRequest({ session_id: "session-dry" }));
@@ -798,6 +813,7 @@ describe("codex responses proxy with no account configured", () => {
         configuredChecks.push(input.teamId);
         return configured;
       },
+      hasRefreshingAccount: async () => false,
     }, holdRuntime);
     return { proxy, selects, configuredChecks, slept: () => sleeps.length - sleptBefore };
   }
@@ -929,6 +945,7 @@ describe("codex responses proxy capacity hold", () => {
         const cooling = cooldownUntil.get("acct-1");
         return cooling && cooling.at > clock ? new Date(cooling.at) : null;
       },
+      hasRefreshingAccount: async () => false,
     }, {
       ...holdRuntime,
       ...overrides,

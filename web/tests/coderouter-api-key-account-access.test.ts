@@ -80,6 +80,7 @@ describe("data-plane proxies pass the API-key scope to account selection", () =>
       },
       credential: async () => { throw new Error("no account should be selected"); },
       cooldown: async () => {},
+      hasRefreshingAccount: async () => false,
     }, { fetch: async () => { throw new Error("no upstream call expected"); } });
     const response = await proxy(new Request("https://coderouter.test/v1/responses", {
       method: "POST",
