@@ -20,7 +20,28 @@ nonisolated extension SidebarLayout {
             }
             bundles[i] = bundle
         }
-        let ids: [WorkspaceID?] = starts.map { if case let .workspace(id) = rows[$0].key { id } else { nil } }
+        let drawnIDs: [WorkspaceID?] = starts.map { if case let .workspace(id) = rows[$0].key { id } else { nil } }
+        // The base projection already dropped the descendants of a folded loose parent. Keep
+        // them as undrawn entries after the drawn ones (indices past `starts`) so that parent
+        // keeps its chevron and roll-up and its host badge counts the whole family. They never
+        // draw: `family` stops at a folded parent, and roots are drawn entries only.
+        let drawn = Set(drawnIDs.compactMap { $0 })
+        var seenFolded: Set<WorkspaceID> = []
+        // Only loose rows fold away with their parent (a group's members never do).
+        let loose = sections.flatMap(\.nodes).compactMap { node -> WorkspaceID? in
+            if case let .workspace(ws) = node { ws.id } else { nil }
+        }
+        let folded = loose.filter { id in
+            guard !drawn.contains(id), seenFolded.insert(id).inserted else { return false }
+            var path: Set<WorkspaceID> = [id]
+            var next = tree.parents[id]
+            while let current = next, path.insert(current).inserted {
+                if drawn.contains(current) { return tree.collapsed.contains(current) }
+                next = tree.parents[current]
+            }
+            return false
+        }
+        let ids: [WorkspaceID?] = drawnIDs + folded.map { Optional($0) }
         // A visible parent inside an explicit user group is still a lineage anchor. Only
         // loose children move; explicitly placed members keep the user's document order.
         let looseIDs = Set(starts.compactMap { i -> WorkspaceID? in
@@ -36,9 +57,10 @@ nonisolated extension SidebarLayout {
         // Preserve the Pinned/custom boundary: a fleet child of a pinned workspace
         // remains in its own machine group rather than being pulled into Pinned.
         let parents = tree.parents.filter { looseIDs.contains($0.key) && machineParents.contains($0.value) }
+            .merging(folded.compactMap { id in tree.parents[id].map { (id, $0) } }, uniquingKeysWith: { first, _ in first })
         let children = Self.treeChildren(ids, parents: parents)
         let nested = Set(children.values.joined())
-        let roots = ids.indices.filter { !nested.contains($0) }
+        let roots = starts.indices.filter { !nested.contains($0) }
         struct HostKey: Hashable {
             let host: String
             let section: SectionID
@@ -101,7 +123,7 @@ nonisolated extension SidebarLayout {
             y += row.height + spacing
         }
         func family(_ root: Int, depth: Int, groupDepth: Int = 0) {
-            guard let id = ids[root], var bundle = bundles[starts[root]], !bundle.isEmpty else { return }
+            guard root < starts.count, let id = ids[root], var bundle = bundles[starts[root]], !bundle.isEmpty else { return }
             let (fold, rollUp) = Self.treeFold(root, ids, tree: tree, children: children, states: agentState)
             bundle[0].content?.treeDepth = depth
             if bundle[0].group == nil || fold != nil {
@@ -159,7 +181,12 @@ nonisolated extension SidebarLayout {
         layout.rowSpacing = rowSpacing
         layout.pinnedChatsY = movedPinnedY
         layout.earlierChatsY = movedEarlierY
-        if !result.contains(where: { if case .sessionHost = $0.key { true } else { false } }) {
+        // With no host header drawn, the base projection stands unless lineage moved a row:
+        // a loose child nested under a parent outside its own list (a user group's member),
+        // which the base projection drew as a root.
+        let regrouped = result.contains(where: { if case .sessionHost = $0.key { true } else { false } })
+            || nested.contains { $0 < starts.count && (rows[starts[$0]].content?.treeDepth ?? 0) == 0 }
+        if !regrouped {
             var base = SidebarLayout(rows: rows, totalHeight: totalHeight, gapY: gapY,
                                      gapHeight: gapHeight, gapShift: gapShift)
             base.rowSpacing = rowSpacing

@@ -108,7 +108,7 @@ struct SidebarSessionHostIntegrationTests {
             #expect(list.displayed.gapY == nil)
             let familyRow = try #require(list.displayed.row(for: .workspace(Self.workers[0])))
             let beforeCardY = drag.lift.frame.minY
-            list.updateDrag(windowPoint: NSPoint(x: 80, y: familyRow.y + familyRow.height / 2))
+            list.updateDrag(windowPoint: list.convert(NSPoint(x: 80, y: familyRow.y + familyRow.height / 2), to: nil))
             #expect(drag.lift.frame.minY != beforeCardY)
             #expect(list.displayed.gapY == nil)
             list.finishDrag()
@@ -125,6 +125,7 @@ struct SidebarSessionHostIntegrationTests {
             let original = list.model.sections[0].workspaces.map(\.id)
             let source = SidebarRowKey.workspace(Self.dragged)
 
+            // Targets are list points (the list is flipped); the drag and drop entry points take window points.
             @MainActor func exercise(_ point: NSPoint, document: Bool) throws {
                 if document {
                     list.model.docDrag = SidebarDocDrag(
@@ -141,7 +142,7 @@ struct SidebarSessionHostIntegrationTests {
                 list.beginDrag(press)
                 let drag = try #require(list.drag)
                 let beforeY = drag.lift.frame.minY
-                list.updateDrag(windowPoint: point)
+                list.updateDrag(windowPoint: list.convert(point, to: nil))
                 #expect(drag.lift.frame.minY != beforeY)
                 #expect(list.displayed.gapY == nil)
                 #expect(drag.target == nil)
@@ -166,10 +167,10 @@ struct SidebarSessionHostIntegrationTests {
             // structural reorders; taking a tab into an existing workspace is
             // still accepted.
             let workspacePoint = NSPoint(x: 80, y: plain.y + plain.height / 2)
-            #expect(list.externalDragMoved(windowPoint: workspacePoint, sourceMachine: nil) != nil)
+            #expect(list.externalDragMoved(windowPoint: list.convert(workspacePoint, to: nil), sourceMachine: nil) != nil)
             list.externalDragExited()
             let endPoint = NSPoint(x: 80, y: list.displayed.totalHeight - 4)
-            #expect(list.externalDragMoved(windowPoint: endPoint, sourceMachine: nil) == nil)
+            #expect(list.externalDragMoved(windowPoint: list.convert(endPoint, to: nil), sourceMachine: nil) == nil)
             #expect(list.externalDragEnded() == nil)
 
             // Control: with no host header, the ordinary resolver still opens a gap.
@@ -180,7 +181,7 @@ struct SidebarSessionHostIntegrationTests {
             list.press = press
             list.beginDrag(press)
             let plainControl = try #require(list.displayed.row(for: .workspace(Self.plain)))
-            list.updateDrag(windowPoint: NSPoint(x: 80, y: plainControl.y + plainControl.height / 2))
+            list.updateDrag(windowPoint: list.convert(NSPoint(x: 80, y: plainControl.y + plainControl.height / 2), to: nil))
             #expect(list.displayed.gapY != nil)
             list.cancelDrag()
         }
