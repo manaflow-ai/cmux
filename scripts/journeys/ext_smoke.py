@@ -1198,6 +1198,8 @@ def step_smoke_wait_new_view(j, step):
     of TIP RED 1193). Reads only; polls every 75 ms. Not reached in time: recorded, the journey goes on (smoke_hold_path
     then judges whether the race happened)."""
     old = (getattr(j, "smoke_snapshots", {}).get(step.get("since", "before_splits")) or {}).get("focused_pane")
+    if not old:  # without the split pane, the old pane's own terminal would pass at once
+        return {"reached": False, "after_s": 0, "last": "no focused pane in the smoke_snapshot before the split"}
     end, last, t0 = D.now() + float(step.get("timeout", 5)), None, D.now()
     while D.now() < end:
         report = j.app.rpc("debug.focus") or {}

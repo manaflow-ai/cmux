@@ -284,14 +284,19 @@ class GoSpec(unittest.TestCase):
             now = time.time()
             with open(os.path.join(rounds_dir, "spec-x.go"), "w") as f:
                 json.dump({"spec": "spec-x", "host": "cmux99", "go": self.stamp(now - 5), "until": self.stamp(now + 300)}, f)
+            ci = os.path.join(tmp, "fake-ci")
+            with open(ci, "w") as f:
+                f.write("#!/bin/sh\necho '{\"state\": \"done\"}'\n")
+            os.chmod(ci, 0o755)
             code, summary = gate([{"status": "pass"}], tmp, extra=("--go-spec", "spec-x", "--hosts", "cmux98 cmux99"),
-                                 env_extra={"SMOKE_GATE_SCHED_ROUNDS": rounds_dir})
+                                 env_extra={"SMOKE_GATE_SCHED_ROUNDS": rounds_dir, "SMOKE_GATE_CMUX_CI": ci})
             argv = json.load(open(os.path.join(tmp, "out", "round-01", "argv.json")))
             self.assertEqual(argv[argv.index("--hosts") + 1], "cmux99")
             env = json.load(open(os.path.join(tmp, "out", "round-01", "env.json")))
             bound = int(env["CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS"]) + int(env["CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS"])
             self.assertLessEqual(bound, 300 - 20)  # the lease starts before the GO's until
-            self.assertTrue(os.path.exists(os.path.join(rounds_dir, "spec-x.done")))
+            done = json.load(open(os.path.join(rounds_dir, "spec-x.done")))
+            self.assertNotIn("status", done)  # a round that took its lease uses up one of the spec's rounds
             self.assertEqual(summary["rounds_detail"][0]["go"]["host"], "cmux99")
 
     def test_a_short_or_foreign_go_is_given_back_and_a_used_go_is_never_reused(self):
@@ -302,8 +307,10 @@ class GoSpec(unittest.TestCase):
             go_file = os.path.join(tmp, "s.go")
             json.dump({"host": "cmux99", "go": self.stamp(now - 5), "until": self.stamp(now + 30)}, open(go_file, "w"))
             go, why = gate_mod.await_go("s", ["cmux99"], set(), now + 0.5, poll=0.1)
-            self.assertIsNone(go)  # 30 s left < 60 s: given back
-            self.assertTrue(os.path.exists(os.path.join(tmp, "s.done")))
+            self.assertIsNone(go)  # 30 s left < 60 s: given back, and not counted as a round taken
+            self.assertEqual(json.load(open(os.path.join(tmp, "s.done")))["status"], "not run")
+            self.assertEqual(gate_mod._utc("2026-10-31T11:00:00Z"), 1793444400)  # UTC whatever the local zone
+            os.remove(os.path.join(tmp, "s.done"))
             json.dump({"host": "cmux42", "go": self.stamp(now - 3), "until": self.stamp(now + 400)}, open(go_file, "w"))
             go, _ = gate_mod.await_go("s", ["cmux99"], set(), now + 0.5, poll=0.1)
             self.assertIsNone(go)  # not one of --hosts
@@ -314,7 +321,8 @@ class GoSpec(unittest.TestCase):
             used.add(go["go"])
             again, _ = gate_mod.await_go("s", ["cmux99"], used, time.time() + 0.3, poll=0.1)
             self.assertIsNone(again)  # the same GO twice is never two rounds
-            os.remove(os.path.join(tmp, "s.done"))
+            if os.path.exists(os.path.join(tmp, "s.done")):
+                os.remove(os.path.join(tmp, "s.done"))
             older = dict(go, go=go["go"] - 100)
             self.assertFalse(gate_mod.go_done("s", older, "x"))  # a .done for an older GO never ends the open one
             self.assertFalse(os.path.exists(os.path.join(tmp, "s.done")))

@@ -29,6 +29,7 @@ Writes OUT/summary.json and OUT/summary.txt. Exit 0 PASS, 1 FAIL, 75 NOT JUDGED,
 Never run it on a person's Mac: the hog fills the memory up to swap.
 """
 import argparse
+import calendar
 import json
 import re
 import os
@@ -250,7 +251,7 @@ GO_MARGIN, GO_MIN_LEFT = 20, 60
 
 def _utc(text):
     try:
-        return time.mktime(time.strptime(str(text), "%Y-%m-%dT%H:%M:%SZ")) - time.timezone
+        return calendar.timegm(time.strptime(str(text), "%Y-%m-%dT%H:%M:%SZ"))
     except (ValueError, OverflowError):
         return None
 
@@ -267,13 +268,15 @@ def read_go(spec):
     return {"host": d["host"], "go": go, "until": until} if d.get("host") and go and until else None
 
 
-def go_done(spec, go, cell):
-    """The .done that ends GO, only while GO is still the open one."""
+def go_done(spec, go, cell, status=None):
+    """The .done that ends GO, only while GO is still the open one. STATUS "not run" (a GO given back, a round with no
+    lease) tells the scheduler the GO did not use up one of the spec's rounds."""
     cur = read_go(spec)
     if not (cur and cur["go"] == go["go"] and cur["host"] == go["host"]):
         return False
     tmp = SCHED_ROUNDS / f"{spec}.done.tmp"
-    tmp.write_text(json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "cell": cell}) + "\n")
+    tmp.write_text(json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "cell": cell,
+                               **({"status": status} if status else {})}) + "\n")
     os.replace(tmp, SCHED_ROUNDS / f"{spec}.done")
     return True
 
@@ -290,10 +293,24 @@ def await_go(spec, hosts, used, deadline, poll=5.0):
             if left > 0:
                 print(f"GO for {go['host']} given back: " + (f"not in --hosts" if go["host"] not in hosts
                       else f"{left:.0f} s of its window left (< {GO_MIN_LEFT} s)"), flush=True)
-                go_done(spec, go, "given back")
+                go_done(spec, go, "given back", "not run")
             used.add(go["go"])
         if time.time() > deadline:
             return None, f"the scheduler gave no GO of {spec} within the wait"
+        time.sleep(poll)
+
+
+def build_state(job, deadline, poll=30.0):
+    """The fleet state of build JOB once it is done, failed or cancelled, or its last state at DEADLINE."""
+    while True:
+        try:
+            out = subprocess.run([os.environ.get("SMOKE_GATE_CMUX_CI", "cmux-ci"), "status", job],
+                                 capture_output=True, text=True, timeout=60).stdout
+            state = json.loads(out).get("state") if out.strip() else None
+        except (subprocess.TimeoutExpired, ValueError, OSError):
+            state = None
+        if state in ("done", "failed", "cancelled") or time.time() > deadline:
+            return state or "unknown"
         time.sleep(poll)
 
 
@@ -342,6 +359,11 @@ def main(argv=None):
 
     rounds = []
     go_used, go_deadline = set(), time.time() + opts.go_wait_hours * 3600
+    if opts.go_spec:
+        state = build_state(opts.build, go_deadline)
+        if state != "done":
+            ap.error(f"--go-spec needs a finished build: job {opts.build} is {state} (run.py would wait for it inside "
+                     "the GO's window and take its lease after the GO ends)")
     for n in range(1, opts.rounds + 1):
         round_out = out / f"round-{n:02d}"
         go = None
@@ -377,8 +399,6 @@ def main(argv=None):
                                "--out", str(round_out), *(["--journey-option", "smoke_mode=diagnostic"] if opts.diagnostic else []),
                                *(["--whole-host"] if opts.whole_host else [])],
                               capture_output=True, text=True, env=env)
-        if go:
-            go_done(opts.go_spec, go, f"{opts.build[:12]} round {n}")
         (round_out / "run.log").parent.mkdir(parents=True, exist_ok=True)
         (round_out / "run.log").write_text(done.stdout + done.stderr)
         row = round_result(round_out, opts.build, done.returncode, started)
@@ -410,6 +430,9 @@ def main(argv=None):
                   "key_gaps": gaps, "leases": leases,
                   "go": {"host": go["host"], "go": go["go"], "until": go["until"]} if go else None}
         rounds.append(record)
+        if go:
+            took = bool(leases) or record["status"] in ("pass", "fail")
+            go_done(opts.go_spec, go, f"{opts.build[:12]} round {n}", None if took else "not run")
         print(f"round {n}: {record['status']}" + (f" ({record['reason'][:160]})" if record.get("reason") else "")
               + (f" step {record['failing_step']['do']}: {record['failing_step']['error'][:160]}" if record["failing_step"] else ""),
               flush=True)
