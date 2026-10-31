@@ -27,9 +27,11 @@ export function editTotals(tools: readonly Tool[]): EditTotals | undefined {
   return { additions, deletions };
 }
 
-/// The last count per group, under its last edit's snapshot: an entry lives as long as that
-/// snapshot (a WeakMap, no cleanup needed).
-const totalsCache = new WeakMap<Tool, { edits: Tool[]; totals: EditTotals | undefined }>();
+/// The last count per group, under its first and last edits' snapshots: a folded run and an edits
+/// group inside it end on the same edit but start on different ones, so each keeps its own entry
+/// (Codex review of #29183). An entry lives as long as those snapshots (WeakMaps, no cleanup).
+type Entry = { edits: Tool[]; totals: EditTotals | undefined };
+const totalsCache = new WeakMap<Tool, WeakMap<Tool, Entry>>();
 
 /// A group's totals, counted again only when one of its edits changes. Items are immutable
 /// snapshots (direct.ts replaces only the call a chunk changed), so a call streaming its output, a
@@ -39,14 +41,17 @@ const totalsCache = new WeakMap<Tool, { edits: Tool[]; totals: EditTotals | unde
 export function useEditTotals(items: readonly AcpmuxActivity[]): EditTotals | undefined {
   const edits: Tool[] = [];
   for (const item of items) if (item.tool?.diffs?.length) edits.push(item.tool);
+  const first = edits[0];
   const last = edits[edits.length - 1];
-  if (!last) return undefined;
-  const prior = totalsCache.get(last);
+  if (!first || !last) return undefined;
+  let byLast = totalsCache.get(first);
+  const prior = byLast?.get(last);
   if (prior && prior.edits.length === edits.length && edits.every((tool, at) => tool === prior.edits[at]))
     return prior.totals;
   editTotalsProbe.count?.();
   const totals = editTotals(edits);
-  totalsCache.set(last, { edits, totals });
+  if (!byLast) totalsCache.set(first, (byLast = new WeakMap()));
+  byLast.set(last, { edits, totals });
   return totals;
 }
 

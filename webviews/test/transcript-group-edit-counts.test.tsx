@@ -129,6 +129,36 @@ test("streaming a command's output never counts the edits again", async () => {
   expect(summary().querySelector(".cv-edit-diff__add")?.textContent).toBe("+2");
 });
 
+test("a folded run and an edits group inside it, both ending on one edit, keep their own counts", async () => {
+  const { editTotalsProbe } = await import("../src/agent-session/acpmux/conversation/EditCounts");
+  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  resetTranscriptDisclosure();
+  const items: AcpmuxActivity[] = [
+    edit("edit-f", "/repo/f.ts", "a\n", "b\n"),
+    command(40),
+    edit("edit-g", "/repo/g.ts", "", "c\nd\n"),
+    edit("edit-h", "/repo/h.ts", "", "e\n"),
+    command(41, "", "in_progress"),
+  ];
+  await draw(items, 30);
+  // Open the run, so its inner "Edited g.ts" group draws beside the run's own line.
+  await act(async () => summary().click());
+  await draw([...items], 31);
+  // The run's line (f, g, h) and its "Edited 2 files" group (g, h) both end on h.
+  expect(host.querySelectorAll(".cv-tool__counts").length).toBeGreaterThanOrEqual(2);
+  let counts = 0;
+  editTotalsProbe.count = () => counts++;
+  let output = "";
+  for (let chunk = 0; chunk < 4; chunk++) {
+    output += `chunk ${chunk}\n`;
+    items[items.length - 1] = command(41, output, "in_progress");
+    await draw([...items], 32 + chunk);
+  }
+  editTotalsProbe.count = undefined;
+  expect(counts).toBe(0);
+  expect(summary().querySelector(".cv-edit-diff__add")?.textContent).toBe("+4");
+});
+
 test("editTotals: no diffs, no totals; a Write over unknown contents adds nothing", async () => {
   const { editTotals } = await import("../src/agent-session/acpmux/conversation/EditCounts");
   expect(editTotals([command(30).tool!])).toBeUndefined();
