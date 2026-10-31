@@ -36,7 +36,10 @@ enum SidebarSectionHandlers {
         let layout = context.services.sidebarLayout
         let services = context.services
         ChiefSidebar.shared.bind(into: registry, host: .init(conversation: { TopHomePageView.chief(services.home) }, chiefHost: { services.agentTabs.chiefHost },
-            tab: { services.agentTabs.tab(showing: $0, host: $1) }, reveal: { services.revealTab($0) },
+            tab: { services.agentTabs.tab(showing: $0, host: $1) },
+            openedSessions: { host in
+                Set(services.agentTabs.listTabs().compactMap { $0.record.host == host ? $0.record.session : nil })
+            }, reveal: { services.revealTab($0) },
             openWorkspace: { try AgentSessionWorkspace.open(session: $0, name: nil, cwd: nil, host: $1, focus: true, services: services) }))
         // Agent chats on other machines are not sidebar rows (the top band holds what the person put there,
         // Lawrence 2026-10-26): `RemoteMachinesSidebar` is not bound, so it reads no peers and follows no lanes.

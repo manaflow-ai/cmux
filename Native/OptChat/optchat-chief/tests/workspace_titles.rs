@@ -140,10 +140,10 @@ impl Workspaces for Recorder {
     }
 }
 
-/// A Chief spawn does not open a workspace or add a sidebar row. The explicit
-/// open action still uses the task title and group helpers covered above.
+/// A Chief spawn adds no workspace. A workspace restored from an older host
+/// still keeps its name when the subagent finishes ("I don't like the checkmark").
 #[test]
-fn a_finished_subagent_spawn_does_not_open_or_rename_a_workspace() {
+fn spawn_defers_its_workspace_and_a_restored_workspace_keeps_its_name() {
     let mut h = Harness::new(default_script());
     let recorder = Arc::new(Recorder::default());
     let ws: Arc<dyn Workspaces> = recorder.clone();
@@ -187,9 +187,15 @@ fn a_finished_subagent_spawn_does_not_open_or_rename_a_workspace() {
     let answer = worker.join().unwrap().unwrap();
     assert!(
         attached(&h),
-        "a1 never ran in its workspace: {:?}",
+        "a1 never started its session: {:?}",
         status(&h)
     );
+    h.brain.step(Input::SubagentWorkspace {
+        id: "a1".into(),
+        key: "legacy-workspace".into(),
+        name: "Sidebar group drag".into(),
+        ws: None,
+    });
     // Its run ends (a failed prompt ends it at once, deterministically).
     h.tx.send(Input::SubagentAnswer {
         id: "a1".into(),
@@ -211,7 +217,6 @@ fn a_finished_subagent_spawn_does_not_open_or_rename_a_workspace() {
         !answer.contains(" in group ") && !answer.contains("group \""),
         "the spawn answer names no group: {answer}"
     );
-    // a313: the reply gives the real ws_ id and how to move or pin it.
     assert!(answer.contains("no cmux workspace yet"), "{answer}");
     assert!(recorder.opened.lock().unwrap().is_empty(), "{answer}");
     let renamed = recorder.renamed.lock().unwrap().clone();

@@ -43,15 +43,19 @@ public final class ChiefSidebar {
         public var conversation: () -> String?
         public var chiefHost: () -> String?
         public var tab: (_ session: String, _ host: String) -> String?
+        /// Sessions with chat tabs in the workspace tree; reading this observes tab opens and closes.
+        public var openedSessions: (_ host: String) -> Set<String>
         public var reveal: (_ tab: String) -> Bool
         public var openWorkspace: (_ session: String, _ host: String) throws -> ActionWork
 
         public init(conversation: @escaping () -> String?, chiefHost: @escaping () -> String?,
-                    tab: @escaping (String, String) -> String?, reveal: @escaping (String) -> Bool,
+                    tab: @escaping (String, String) -> String?, openedSessions: @escaping (String) -> Set<String>,
+                    reveal: @escaping (String) -> Bool,
                     openWorkspace: @escaping (String, String) throws -> ActionWork) {
             self.conversation = conversation
             self.chiefHost = chiefHost
             self.tab = tab
+            self.openedSessions = openedSessions
             self.reveal = reveal
             self.openWorkspace = openWorkspace
         }
@@ -85,8 +89,9 @@ public final class ChiefSidebar {
     /// The opened subagent rows now (they draw only under the Chief item). Read inside an
     /// observation scope, so a lane or fold change re-yields.
     public func rows() -> [SidebarTransientItem] {
-        SidebarTransientItem.chiefSubagents(lanes: lanes.lanes.values, showsIdle: showsIdleSubagents,
-                                            openedOnly: true)
+        let opened = host.flatMap { app in app.chiefHost().map(app.openedSessions) } ?? []
+        return SidebarTransientItem.chiefSubagents(lanes: lanes.lanes.values, showsIdle: showsIdleSubagents,
+                                                   openedSessions: opened)
     }
 
     /// Every subagent row, idle ones too, in number order (the Chief pane's Subagents menu).
@@ -190,12 +195,11 @@ public final class ChiefSidebar {
                                  reveal: ((String) -> Bool)? = nil) -> Bool {
         guard let host, host.chiefHost() == chiefHost else { return false }
         if let shown = host.tab(session, chiefHost), (reveal ?? host.reveal)(shown) { return true }
-        // No tab shows it (its spawn made no workspace, as when this Mac was out of PTYs): open
-        // the workspace its spawn would have, a chat tab on its session (no PTY).
+        // Spawning does not create a workspace. The user opens its chat here (no PTY).
         return openSubagent(session, registry: registry)
     }
 
-    /// The tab that shows the subagent's chat (the workspace its spawn opened), else a new
+    /// The tab that shows the subagent's chat, else a new
     /// workspace on it in the Chief home's acpmux, shown once it is made.
     /// False only when there is no Chief host (a refused open has already said why).
     @discardableResult

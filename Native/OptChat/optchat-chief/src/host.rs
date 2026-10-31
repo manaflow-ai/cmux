@@ -1316,6 +1316,35 @@ fn start(
                     .map(|v| v.to_string())
                     .map_err(late)
             }
+            ControlRequest::WorkspacePrepare { session } => {
+                let (reply, answer) = channel();
+                tx.send(Input::SubagentWorkspacePrepare { session, reply })
+                    .map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
+            ControlRequest::WorkspaceOpened {
+                session,
+                key,
+                name,
+                group,
+            } => {
+                let (reply, answer) = channel();
+                tx.send(Input::SubagentWorkspaceOpened {
+                    session,
+                    key,
+                    name,
+                    group,
+                    reply,
+                })
+                .map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
         }
     });
     // Section 9: spawn and tell, served beside zoom and date (acpmux only).

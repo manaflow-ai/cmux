@@ -13116,6 +13116,39 @@
       },
       "extra": false
     },
+    "ChiefWorkspaceResult": {
+      "kind": "object",
+      "fields": {
+        "name": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Present for action prepare."
+        },
+        "group": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Present for action prepare."
+        },
+        "opened": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Present for action opened."
+        }
+      },
+      "extra": false,
+      "constraints": [
+        "prepare returns name and group; opened returns opened."
+      ]
+    },
     "CredentialCheck": {
       "kind": "object",
       "fields": {
@@ -17722,6 +17755,106 @@
         "chief-brains-v1: with chief naming a live Chief other than the default, the daemon forwards to that Chief's own brain (the tools socket in its brain directory under the daemon's Chief home) and to no other; absent, null or agent_mux reaches the default Chief's brain as before. A Chief that does not exist: operation.failed details.reason not_found. A daemon that runs no Chief brains: not_configured. A Chief whose brain does not run now (never started here, stopped after 30 minutes idle, or between restarts): unavailable; a read or stop never starts a brain (chief.engine.set does). With agents off in the build session: the agents-disabled refusal, as for the default Chief.",
         "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
         "Stops the Chief's running turn as a newer message would: a running tool call finishes first, the turn posts its partial reply and then '(turn stopped)'. replayed is always false; a retry after the turn ended stops nothing (stopped false). With name, only that subagent stops (its report says the user stopped it); an unknown or still-starting name answers stopped false."
+      ]
+    },
+    "chief.workspace": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "action": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "prepare",
+                "opened"
+              ]
+            },
+            "description": "prepare returns metadata for an explicit subagent workspace open; opened records the workspace after it is open."
+          },
+          "agent_session": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The acpmux agent session whose Chief workspace is being prepared or recorded."
+          },
+          "key": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The workspace key, required when action is opened."
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "The workspace display name; prepare returns the canonical name."
+          },
+          "group": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "The optional workspace group; prepare returns the canonical group."
+          },
+          "chief": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 70
+            },
+            "description": "The Chief whose brain receives the metadata notification; absent uses the default Chief."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ChiefWorkspaceResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Owner only (risk: owner). Only the owner’s trusted connection may call it: a registered Unix client with no link peer record whose conversation principal is user_local. An agent-bound, relayed, WebSocket or page connection is refused with origin.forbidden before anything is forwarded; the remote relay never admits it.",
+        "The daemon forwards the request to the selected Chief brain. A Chief that does not exist is operation.failed details.reason not_found; a daemon with no running Chief brain is not_configured or unavailable.",
+        "action prepare returns the canonical workspace name and optional group without creating a workspace or sidebar row. action opened requires key and records that the owner explicitly opened the workspace, returning opened true when accepted. Repeating opened only records the binding again and never creates another workspace."
       ]
     },
     "client.cell_pixels.set": {

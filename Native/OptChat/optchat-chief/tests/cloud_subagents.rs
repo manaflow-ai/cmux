@@ -1237,7 +1237,10 @@ fn a_cloud_subagent_workspace_is_deferred_until_opened() {
         "the session still runs in the VM's folder"
     );
     let opened = recorder.opened.lock().unwrap().clone();
-    assert!(opened.is_empty(), "workspace opens only after the user follows the link: {opened:?}");
+    assert!(
+        opened.is_empty(),
+        "workspace opens only after the user follows the link: {opened:?}"
+    );
 }
 
 /// Records each workspace's name and group.
@@ -1270,8 +1273,7 @@ impl optchat_chief::workspaces::Workspaces for NameRecorder {
 }
 
 /// Starting cloud subagents does not create workspaces or sidebar groups. The
-/// task headers remain available to the explicit open action when the user
-/// follows a subagent link.
+/// task headers do not cause automatic placement, even for a named group.
 #[test]
 fn a_cloud_subagent_workspace_name_and_group_are_deferred_until_opened() {
     let mut h = Harness::new(default_script());

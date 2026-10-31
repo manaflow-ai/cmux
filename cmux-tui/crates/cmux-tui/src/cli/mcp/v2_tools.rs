@@ -95,6 +95,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("chief.engine.get", CHIEF_REASON),
     ("chief.engine.set", CHIEF_REASON),
     ("chief.stop", CHIEF_REASON),
+    ("chief.workspace", CHIEF_REASON),
     ("chief.profile.list", CHIEF_REGISTRY_REASON),
     ("chief.profile.get", CHIEF_REGISTRY_REASON),
     ("chief.profile.create", CHIEF_REGISTRY_REASON),

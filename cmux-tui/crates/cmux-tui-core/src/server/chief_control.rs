@@ -1,4 +1,4 @@
-//! `chief.engine.get`, `chief.engine.set` and `chief.stop`: the owner's
+//! `chief.engine.get`, `chief.engine.set`, `chief.stop` and `chief.workspace`: the owner's
 //! control of the Chief brain on `cmux.protocol/2`. Like `chief-inspect`, the
 //! daemon forwards one line to the brain host's tools socket
 //! (`CMUX_TUI_CHIEF_TOOLS_SOCKET`) and answers its JSON; the brain owns the
@@ -45,6 +45,7 @@ pub(super) const fn handles(operation: ResourceOperation) -> bool {
         ResourceOperation::ChiefEngineGet
             | ResourceOperation::ChiefEngineSet
             | ResourceOperation::ChiefStop
+            | ResourceOperation::ChiefWorkspace
     )
 }
 
@@ -269,8 +270,7 @@ pub(super) fn require_owner(mux: &Mux, client: u64) -> Result<(), ResourceError>
     ))
 }
 
-/// The tools-socket line of `operation` (optchat-chief's `engine` and
-/// `stop` tools).
+/// The tools-socket line of `operation` (optchat-chief's owner controls).
 pub(super) fn tool_line(
     operation: ResourceOperation,
     fields: &serde_json::Map<String, Value>,
@@ -293,6 +293,15 @@ pub(super) fn tool_line(
                 "classifier_prompt",
                 "reactions_can_wake",
             ] {
+                if let Some(value) = fields.get(key) {
+                    line.insert(key, value.clone());
+                }
+            }
+            line
+        }
+        ResourceOperation::ChiefWorkspace => {
+            let mut line = json!({"tool": "workspace"});
+            for key in ["action", "agent_session", "key", "name", "group"] {
                 if let Some(value) = fields.get(key) {
                     line.insert(key, value.clone());
                 }

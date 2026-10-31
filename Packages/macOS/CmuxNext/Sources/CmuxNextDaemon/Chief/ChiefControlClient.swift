@@ -229,6 +229,47 @@ public struct ChiefControlClient: Sendable {
         self.connection = connection
     }
 
+    /// Metadata for an explicitly opened subagent workspace. The Chief owns
+    /// the task title and its settled grouping, so Swift does not parse task
+    /// prompts a second time.
+    public struct WorkspaceMetadata: Decodable, Sendable, Equatable {
+        public var name: String?
+        public var group: String?
+    }
+
+    public func prepareWorkspace(agentSession: String, chief: String? = nil) async throws(ChiefControlError) -> WorkspaceMetadata {
+        let params = Self.naming(chief, ["action": .string("prepare"), "agent_session": .string(agentSession)])
+        let idempotencyKey = "cmux-next-chief-workspace-prepare-" + UUID().uuidString.lowercased()
+        do {
+            return try await connection.resourceRequest({ id in
+                ResourceRequestEnvelope(id: id, operation: "chief.workspace", params: params, idempotencyKey: idempotencyKey)
+            }, as: ResourceMutationResult<WorkspaceMetadata>.self).value
+        } catch {
+            throw ChiefControlError(error)
+        }
+    }
+
+    public func workspaceOpened(agentSession: String, key: String, name: String? = nil,
+                                group: String? = nil, chief: String? = nil) async throws(ChiefControlError) -> Bool {
+        var fields: [String: JSONValue] = [
+            "action": .string("opened"),
+            "agent_session": .string(agentSession),
+            "key": .string(key),
+        ]
+        if let name { fields["name"] = .string(name) }
+        if let group { fields["group"] = .string(group) }
+        let params = Self.naming(chief, fields)
+        let idempotencyKey = "cmux-next-chief-workspace-" + UUID().uuidString.lowercased()
+        do {
+            struct Opened: Decodable, Sendable { var opened: Bool }
+            return try await connection.resourceRequest({ id in
+                ResourceRequestEnvelope(id: id, operation: "chief.workspace", params: params, idempotencyKey: idempotencyKey)
+            }, as: ResourceMutationResult<Opened>.self).value.opened
+        } catch {
+            throw ChiefControlError(error)
+        }
+    }
+
     /// `chief.engine.get`: the brain's engine report. `chief` names a Chief
     /// that is not the default (chief-brains-v1); nil: the default Chief.
     public func chiefEngine(chief: String? = nil) async throws(ChiefControlError) -> ChiefEngineReport {

@@ -1,6 +1,9 @@
-//! Chief does not close a workspace on spawn completion when the person never
-//! opened one. Explicitly opened workspaces remain governed by the app's
-//! normal close behavior.
+//! Chief leaves every subagent's workspace open when it finishes (a
+//! teammate's complaint: "too many workspaces"; Lawrence's sidebar, Oct 27:
+//! 822 workspaces open). A short task's workspace now closes when its
+//! subagent finishes: a run of less than `SHORT_TASK` that left nothing
+//! unlanded. A longer task, or one whose report says it did not land, keeps
+//! its workspace. The subagent's chat stays readable (`zoom("aN")`).
 
 mod common;
 
@@ -132,6 +135,14 @@ fn finish_a1(report: &str, ran: Duration) -> Vec<String> {
     while !finished(&h) {
         assert!(Instant::now() < until, "a1 never finished: {:?}", h.log());
         if !backdated && h.brain.state().sub("a1").is_some_and(|(_, s)| s.run_ms > 0) {
+            // Exercise cleanup for a workspace recorded by an older host. New spawns
+            // no longer create one; restored workspace records still need this behavior.
+            h.brain.step(Input::SubagentWorkspace {
+                id: "a1".into(),
+                key: "legacy-workspace".into(),
+                name: "Tab bar tweak".into(),
+                ws: None,
+            });
             h.brain.backdate_sub_run("a1", ran);
             backdated = true;
         }
@@ -160,13 +171,13 @@ fn finish_a1(report: &str, ran: Duration) -> Vec<String> {
 }
 
 #[test]
-fn a_short_task_that_landed_without_opening_has_no_workspace_to_close() {
+fn a_short_task_that_landed_closes_its_workspace_when_it_finishes() {
     let closed = finish_a1("Done: renamed the button.", Duration::from_secs(5 * 60));
-    assert!(closed.is_empty(), "no workspace was opened: {closed:?}");
+    assert_eq!(closed.len(), 1, "the short task's workspace closes");
 }
 
 #[test]
-fn a_long_task_without_opening_has_no_workspace_to_keep() {
+fn a_long_task_keeps_its_workspace() {
     let closed = finish_a1("Done: rebuilt the sidebar.", Duration::from_secs(45 * 60));
     assert!(
         closed.is_empty(),
@@ -175,7 +186,7 @@ fn a_long_task_without_opening_has_no_workspace_to_keep() {
 }
 
 #[test]
-fn a_short_task_that_did_not_land_without_opening_has_no_workspace_to_keep() {
+fn a_short_task_that_did_not_land_keeps_its_workspace() {
     let closed = finish_a1(
         "Not landed: the fix is unpushed, tests are red.",
         Duration::from_secs(5 * 60),

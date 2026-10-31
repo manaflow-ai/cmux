@@ -25,7 +25,7 @@ struct ChiefSidebarItemTests {
     }
 
     static func openedRows(_ lanes: [AgentActivityLane], showsIdle: Bool = false) -> [SidebarTransientItem] {
-        SidebarTransientItem.chiefSubagents(lanes: lanes, showsIdle: showsIdle, openedOnly: true)
+        SidebarTransientItem.chiefSubagents(lanes: lanes, showsIdle: showsIdle, openedSessions: ["id-opened"])
     }
 
     static let chiefItem = LayoutItem(id: LayoutItemID("itm_chief"), ref: .builtIn(.chief))
@@ -118,7 +118,7 @@ struct ChiefSidebarItemTests {
         let unopened = Self.lane("optchat-sub-6b68ac4a-a1", .working, title: "Unopened")
         let opened = AgentActivityLane(id: "id-opened", name: "optchat-sub-6b68ac4a-a2", title: "Opened", peer: nil,
                                        parent: "optchat-chief:6b68ac4a", state: .working, since: nil, error: nil,
-                                       workspaceID: "ws-opened", harness: "claude")
+                                       harness: "claude")
         #expect(Self.openedRows([unopened, opened]).map(\.info.title) == ["Opened"])
         #expect(Self.rows([unopened, opened], showsIdle: true).map(\.info.title) == ["Unopened", "Opened"])
     }

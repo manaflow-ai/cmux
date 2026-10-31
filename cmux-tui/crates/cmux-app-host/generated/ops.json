@@ -69,6 +69,7 @@
     "chief.profile.update",
     "chief.stop",
     "chief.update",
+    "chief.workspace",
     "clipboard.write",
     "closed.delete",
     "closed.list",

@@ -1,14 +1,18 @@
-//! Each subagent's cmux workspace is opened from its Chief link when the user
-//! asks to inspect it. The workspace is named after the subagent's task, whose
-//! selected tab is the agent chat of the SAME acpmux session the Chief drives:
-//! the user watches its chat and tool calls live and can write to it. It is
-//! named after its task's short title, like any workspace (Leo 2026-10-21: no
-//! `aN · ` id in the sidebar; the id is the Chief's own). It joins no sidebar
-//! group unless its task asks for the person's own "Chief agents" group
-//! (`spawn_group`, #27712); no group is ever made. It stays after the subagent
-//! finishes with its name untouched: the chat tab's own idle state shows it is
-//! done, and a name the user gave it is never overwritten. Closing it only
-//! detaches the tab.
+//! Workspace adapters retained for explicit opens and legacy workspace cleanup.
+//! Spawning a subagent no longer calls these adapters to create a workspace.
+//!
+//! Each subagent's cmux workspace (Lawrence, 2026-10-05: "subagent
+//! orchestration spawns workspaces that have the acp chat, so everything is
+//! monitorable and I can jump in deeper using cmux ui"). A workspace named
+//! after the subagent's task, whose selected tab is the agent chat of the
+//! SAME acpmux session the Chief drives: the user watches its chat and tool
+//! calls live and can write to it. It is named after its task's short title,
+//! like any workspace (Leo 2026-10-21: no `aN · ` id in the sidebar; the id is
+//! the Chief's own). It joins no sidebar group unless its task asks for the person's own
+//! "Chief agents" group (`spawn_group`, #27712); no group is ever made. It stays after the subagent
+//! finishes with its name untouched (Lawrence 2026-10-19: "I don't like the
+//! checkmark"): the chat tab's own idle state shows it is done, and a name
+//! the user gave it is never overwritten. Closing it only detaches the tab.
 //!
 //! The app opens it (`agent.openSessionWorkspace` through `action.run` on
 //! its control socket, `CMUX_SOCKET_PATH`), with a workspace key chosen
