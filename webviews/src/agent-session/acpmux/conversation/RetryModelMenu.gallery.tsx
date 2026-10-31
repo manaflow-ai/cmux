@@ -74,7 +74,7 @@ export default componentEntry<Record<string, never>>({
     return function GalleryRetryModelMenu() {
       return (
         // Retry shows on the last ended turn's prompt (VirtualTranscript marks its row retryable).
-        <div className="acpmux-row" data-retryable="" style={{ position: "relative", padding: "16px 16px 0" }}>
+        <div className="acpmux-row cv-user" data-retryable="" style={{ position: "relative", padding: "16px 16px 0" }}>
           <TurnActionsContext.Provider value={actions}>
             <UserBubble row={prompt} text={prompt.text} />
           </TurnActionsContext.Provider>

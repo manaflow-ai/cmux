@@ -13,7 +13,7 @@ extension WindowRegistry {
     ///   only then is `orders` read, a walk of every row, which most changes skip,
     /// - no members: nil (only for a window being removed; a registered
     ///   window always has one).
-    static func repairedSelection(current: String?, previous: [String], members: [String], preferred: [String] = [], orders: @autoclosure () -> [[String]] = []) -> String? {
+    public static func repairedSelection(current: String?, previous: [String], members: [String], preferred: [String] = [], orders: @autoclosure () -> [[String]] = []) -> String? {
         if let pick = preferred.first(where: members.contains) ?? current.flatMap({ members.contains($0) ? $0 : nil }) { return pick }
         return FocusAfterClose.workspace(shown: current, old: previous, surviving: members, orders: orders())
     }

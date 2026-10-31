@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextBrowserTabs
 import CmuxNextDaemon
+import CmuxNextLayout
 
 // Incognito windows (user decision 2026-09-30): a whole window whose
 // browser pages use one off-the-record browser profile (Chromium in-memory

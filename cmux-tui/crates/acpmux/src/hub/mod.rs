@@ -1162,6 +1162,7 @@ impl Hub {
             permission_epoch: AtomicU64::new(0),
             input_since: AtomicU64::new(0),
             work_below_since: StdMutex::new(0),
+            unread_after_work: AtomicBool::new(false),
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
