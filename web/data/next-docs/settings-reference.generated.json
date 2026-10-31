@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 530,
+  "count": 531,
   "sections": [
     {
       "id": "general",
@@ -89,6 +89,18 @@
           "kind": "toggle",
           "default": false,
           "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.newChatsIn",
+          "title": "Start New Chats In",
+          "help": "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat.",
+          "kind": "choice",
+          "default": "local",
+          "group": "Agent Chat",
+          "values": [
+            "local",
+            "cloud"
+          ]
         },
         {
           "key": "agentPane.scrollToBottomOnSend",

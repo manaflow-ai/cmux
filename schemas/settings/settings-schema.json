@@ -840,6 +840,7 @@
               "agentPane.attachmentView",
               "agentPane.scrollToBottomOnSend",
               "agentPane.showMachineLoadWarnings",
+              "agentPane.newChatsIn",
               "agentPane.zoom",
               "agents.defaultPermissionMode",
               "agents.modelRouter.model",
@@ -87380,6 +87381,157 @@
       "title" : {
         "key" : "settings.agentPane.showMachineLoadWarnings",
         "text" : "Show Machine Load Warnings"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "local",
+        "cloud"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.newChatsInLocal",
+            "text" : "This Mac"
+          },
+          "value" : "local"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newChatsInCloud",
+            "text" : "Cloud"
+          },
+          "value" : "cloud"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "local",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.newChatsIn.help",
+        "text" : "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.newChatsIn",
+      "keywords" : [
+        "cloud",
+        "new chat",
+        "start",
+        "machine",
+        "vm",
+        "remote",
+        "this mac",
+        "local",
+        "run"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "newChatsIn"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.newChatsIn"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.newChatsIn",
+        "text" : "Start New Chats In"
       },
       "validation" : "portable"
     },
