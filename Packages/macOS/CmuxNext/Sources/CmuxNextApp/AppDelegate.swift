@@ -229,7 +229,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             preference: { [weak services] in
                 services?.settings?.snapshot.browserDefaultEngine ?? services?.cache.browserTabs.preference.defaultEngine ?? .fallback
             },
-            keyRouter: services.keyRouter)
+            keyRouter: services.keyRouter) { [weak services] page in
+            // A pane's page whose keyboard view changed after it showed: the pane's focus model applies again (W1, W4).
+            let pane = page.window.flatMap { services?.windows.owner(of: $0) }?.content?.panes.values.first { $0.currentContent?.view.map(page.isDescendant(of:)) == true }
+            if let pane, pane.workspace?.isParked == false { pane.workspace?.focus.send(.contentPresented(pane: pane.paneKey)) }
+            return pane != nil
+        }
         DebugTimings.markLaunch("dfl.home_history")
         services.windows.restoreWhenLoaded()
         DebugTimings.markLaunch("dfl.windows")
