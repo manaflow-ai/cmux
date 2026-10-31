@@ -33,7 +33,9 @@ import Testing
         let stable = try #require(UserDefaults(suiteName: names[0]))
         let nightly = try #require(UserDefaults(suiteName: names[1]))
         let next = try #require(UserDefaults(suiteName: names[2]))
-        nightly.set(try Self.stored("b", command: true, option: true, control: true), forKey: "shortcut.toggleSidebar")
+        // Ctrl-Opt-Cmd-Y: no next default has it (Ctrl-Opt-Cmd-B is Split Browser Right's default, and the
+        // import keeps a classic key off another action's default).
+        nightly.set(try Self.stored("y", command: true, option: true, control: true), forKey: "shortcut.toggleSidebar")
         nightly.set(try Self.stored("h", command: true, option: true, control: true), forKey: "shortcut.showWindowHints")
         nightly.set(try Self.stored("b", control: true, chordKey: "p"), forKey: "shortcut.commandPalette")
         nightly.set(try Self.stored(""), forKey: "shortcut.closeTab")
@@ -53,7 +55,7 @@ import Testing
         try await settings.importClassicShortcuts(from: [stable, nightly], marker: next)
         let registry = settings.applier.registry
 
-        #expect(registry.effectiveShortcut(for: "toggleSidebar") == Shortcut("b", modifiers: [.command, .option, .control]))
+        #expect(registry.effectiveShortcut(for: "toggleSidebar") == Shortcut("y", modifiers: [.command, .option, .control]))
         // Classic's Show Window Hints is next's hints.show.
         #expect(registry.effectiveShortcut(for: "hints.show") == Shortcut("h", modifiers: [.command, .option, .control]))
         #expect(registry.chordOverrides["commandPalette"] == ShortcutChord(Shortcut("b", modifiers: [.control]),
