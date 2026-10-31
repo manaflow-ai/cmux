@@ -401,6 +401,27 @@ class Scratch(unittest.TestCase):
         self.lease()
         self.assertEqual((source / "tool.sh").read_text(), "file again\n")
 
+    def test_a_tracked_link_at_the_old_staging_name_never_takes_the_copy(self):
+        # The mirror used to stage a copy at .<name>.mirror-<pid>; a checkout that tracks a link of that name
+        # (mirrored first: it sorts before <name>) pointing outside the root must not receive the copy.
+        self.checkout()
+        victim = Path(self.tmp.name) / "victim"
+        victim.write_text("outside\n")
+        os.chmod(victim, 0o600)
+        os.symlink(str(victim), self.workspace / f".a.swift.mirror-{os.getpid()}")
+        (self.workspace / "a.swift").write_text("let a = 1\n")
+        os.chmod(self.workspace / "a.swift", 0o755)
+        git(self.workspace, "add", "-A")
+        git(self.workspace, "commit", "-qm", "staging name")
+        source = self.lease()
+        self.assertEqual(victim.read_text(), "outside\n")
+        self.assertEqual(victim.stat().st_mode & 0o777, 0o600)
+        self.assertEqual((source / "a.swift").read_text(), "let a = 1\n")
+        self.assertFalse((source / "a.swift").is_symlink())
+        self.assertTrue(os.access(source / "a.swift", os.X_OK))
+        self.assertEqual(os.readlink(source / f".a.swift.mirror-{os.getpid()}"), str(victim))
+        self.assertEqual([p.name for p in source.iterdir() if ".mirror" in p.name and not p.is_symlink()], [])
+
     def test_a_directory_replaced_by_a_link(self):
         self.checkout()
         source = self.lease()
