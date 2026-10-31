@@ -176,12 +176,12 @@ public final class TabModel: Identifiable {
         return titleText
     }
 
-    /// Whether the tab holds an unread notification. A notification this
-    /// client read (``expectNotificationRead()``) shows read before the
-    /// daemon's echo.
     /// A live daemon terminal: a pty that is not dead and not a creation's stand-in (a provisional surface).
     public var isLiveTerminal: Bool { kind == .pty && !dead && !ProvisionalTab.isProvisional(surface: surface) }
 
+    /// Whether the tab holds an unread notification. A notification this
+    /// client read (``expectNotificationRead()``) shows read before the
+    /// daemon's echo.
     public var hasUnread: Bool {
         guard let notification, notification.unread else { return false }
         return notification.notification != readingNotification

@@ -151,6 +151,68 @@ struct CloseThenTypeKeysTests {
         }
     }
 
+    /// Review of #29409: a second, quick Cmd-W (a double press, a key repeat) while the first close still reads ended the
+    /// hold, and the keys held for the close ran into the closing terminal, then the next keys too. The second Cmd-W acts
+    /// at once and the keys keep waiting: the whole line runs in the pane that gets the focus.
+    @Test func aSecondCmdWDuringTheCloseReadKeepsTheKeysOutOfTheClosingTerminal() async throws {
+        try await Self.withTwoTerminals { p in
+            let store = p.services.daemon.store
+            let hold = p.services.daemon.closeReadHold
+            hold.arm()
+            defer { hold.release() }
+            #expect(try Self.cmdW(in: p), "the key router did not take Cmd-W")
+            try #require(TabCloseGuard.reading.contains(p.right.tab), "Cmd-W closed at once: the test needs the close warning's read")
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            try Self.type("echo dw\(nonce)", in: p)
+            _ = try Self.cmdW(in: p) // the second, quick Cmd-W
+            try Self.type("x$((6*7))\r", in: p)
+
+            let inClosing = await Self.shows("dw\(nonce)", on: p.right.surface, within: 3_000, in: p)
+            var closing = ""
+            if inClosing { closing = await Self.screen(p.right.surface, in: p) }
+            let resumed = hold.release()
+            try #require(resumed >= 1, "the close warning's read was not held (resumed \(resumed)): the line was not typed inside it")
+            try await PinnedPageTests.until({ store.tab(surface: p.right.surface) == nil },
+                                            report: { "waiting for the right terminal to close: reading \(TabCloseGuard.reading), asking \(TabCloseGuard.asking)" })
+            let ran = await Self.shows("dw\(nonce)x42", on: p.left.surface, within: 10_000, in: p)
+            let left = await Self.screen(p.left.surface, in: p)
+            #expect(!inClosing, "the line ran in the closing pane (a second Cmd-W during the close read let the held keys go): \(closing.suffix(300))")
+            #expect(ran, "the line did not run whole in the left pane after two quick Cmd-Ws: \(left.suffix(400))")
+        }
+    }
+
+    /// Review of #29409: the warning's Close path. The right terminal runs `cat`, Cmd-W, a line typed inside the held read,
+    /// the warning shows and the person presses Close: the keys go to the pane that got the focus, never the closing one.
+    @Test func keysTypedBeforeTheCloseWarningGoToThePaneThatGetsTheFocusOnClose() async throws {
+        try await Self.withTwoTerminals { p in
+            try Self.type("cat\r", in: p)
+            var running: String?
+            for _ in 0..<100 where running != "cat" {
+                running = try? await p.connection.request(TerminalProcessInfoRequest(surface: p.right.surface), timeout: .seconds(1)).runningProgram
+                if running != "cat" { try await Task.sleep(for: .milliseconds(100)) }
+            }
+            try #require(running == "cat", "cat never ran in the right terminal: \(String(describing: running))")
+            let dialogs = CmuxDialogCenter.shared
+            let warning = { dialogs.records.first { $0.spec.identifier == "cmux.dialog.confirmation" } }
+            let hold = p.services.daemon.closeReadHold
+            hold.arm()
+            defer { hold.release() }
+            #expect(try Self.cmdW(in: p), "the key router did not take Cmd-W")
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            try Self.type("echo wc\(nonce)x$((6*7))\r", in: p)
+            let resumed = hold.release()
+            try #require(resumed == 1, "the close warning's read was not held (resumed \(resumed)): the line was not typed inside it")
+            try await PinnedPageTests.until({ warning() != nil }, report: { "waiting for the close warning: dialogs \(dialogs.records.map { $0.spec.identifier ?? "-" })" })
+            let shown = try #require(warning())
+            #expect(dialogs.press(shown.id, button: DestructiveConfirmation.confirmID))
+            try await PinnedPageTests.until({ p.services.daemon.store.tab(surface: p.right.surface) == nil },
+                                            report: { "waiting for the right terminal to close after Close: asking \(TabCloseGuard.asking)" })
+            let ran = await Self.shows("wc\(nonce)x42", on: p.left.surface, within: 10_000, in: p)
+            let left = await Self.screen(p.left.surface, in: p)
+            #expect(ran, "the keys typed before the warning did not run whole in the pane that got the focus on Close: \(left.suffix(400))")
+        }
+    }
+
     /// The warning's case: the right terminal runs a program (`cat`), Cmd-W asks first, a line is typed at once, and the
     /// person cancels. The right terminal stays, and the keys typed meanwhile are its keys: never the left terminal's,
     /// never dropped.

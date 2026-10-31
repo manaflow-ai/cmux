@@ -69,28 +69,38 @@ public final class CreationInputBuffer {
         return true
     }
 
-    /// Pending closes of the focused terminal, by ticket: the closing tab. A person's Cmd-W on a live terminal first waits
-    /// for an answer (the close warning's daemon read), and that terminal keeps the focus meanwhile. A key typed then is
-    /// the close's (its lane), never the closing terminal's: it goes where the focus is once the close ran, or to that
-    /// terminal when the person cancels the close (P0 close-then-type: the first key after Cmd-W went into the closing
-    /// terminal).
-    private var closingTabs: [Int: String] = [:]
+    /// Pending closes of the focused terminal, by ticket: the closing tabs (the one focused at the Cmd-W first). A person's
+    /// Cmd-W on a live terminal first waits for an answer (the close warning's daemon read), and that terminal keeps the
+    /// focus meanwhile. A key typed then is the close's (its lane), never the closing terminal's: it goes where the focus
+    /// is once the close ran, or to that terminal when the person cancels the close (P0 close-then-type: the first key
+    /// after Cmd-W went into the closing terminal).
+    private var closingTabs: [Int: [String]] = [:]
 
-    /// Opens a pending close of the focused terminal's tab `closing`: keys typed while the focus names it are its own.
-    public func openClose(closing: String) -> Ticket {
+    /// Opens a pending close of tabs `closing` (the focused terminal's first, on `machine`): keys typed while the focus
+    /// names one of them are its own.
+    public func openClose(closing: [String], machine: String?) -> Ticket {
         let ticket = open(generation: 0)
         closingTabs[ticket.id] = closing
+        laneMachines[ticket.id] = machine
         return ticket
     }
 
+    /// Whether a close of this hold still waits for its answer and closes `tab`.
+    public func isClosing(tab: String) -> Bool { closingTabs.values.contains { $0.contains(tab) } }
+
     /// The close behind `ticket` ran or stopped: its keys are tab `tab`'s (the focused terminal's after the close, or the
     /// closing terminal that stays), on `machine`; nil `tab` runs them as typed, in whatever has the focus then.
-    /// The closing tab itself (the focus has not left it yet, or the close stopped) gets no lane: its keys run as typed.
+    /// A closing tab itself (the focus has not left it yet, or the close stopped) gets no lane: its keys run as typed.
     /// `parked`: the close's keys that waited for the person's answer (``parkClose(_:)``), held again first.
+    /// While another close still waits for its answer (two quick Cmd-Ws), the keys become that close's, in order.
     public func settleClose(_ ticket: Ticket, parked: ParkedClose? = nil, keysTo tab: String?, machine: String?) {
         guard ticket.owner == ObjectIdentifier(self), let closing = closingTabs.removeValue(forKey: ticket.id) else { return }
         if let parked { events.insert(contentsOf: parked.events.map { ($0, ticket.id) }, at: 0) }
-        laneTabs[ticket.id] = tab == closing ? nil : tab
+        if let next = closingTabs.keys.max() {
+            events = events.map { $0.creation == ticket.id ? ($0.event, next) : $0 }
+            return resolve(ticket, awaitsFocus: false)
+        }
+        laneTabs[ticket.id] = tab.flatMap { closing.contains($0) ? nil : $0 }
         laneMachines[ticket.id] = machine
         resolve(ticket, awaitsFocus: false)
     }
@@ -102,13 +112,15 @@ public final class CreationInputBuffer {
         let parked = events.filter { $0.creation == ticket.id }.map(\.event)
         events.removeAll { $0.creation == ticket.id }
         resolve(ticket, awaitsFocus: false)
-        return ParkedClose(events: parked, closing: closing)
+        return ParkedClose(events: parked, closing: closing.first ?? "", machine: laneMachines[ticket.id])
     }
 
-    /// A close's keys waiting for the person's answer, and the tab it closes.
+    /// A close's keys waiting for the person's answer, the tab it closes (the focused one; "" for none) and its machine.
     public struct ParkedClose {
         public let events: [NSEvent]
         public let closing: String
+        public let machine: String?
+        public init(events: [NSEvent], closing: String, machine: String?) { self.events = events; self.closing = closing; self.machine = machine }
     }
 
     /// Whether a creation of this hold still waits for its reply and shows `tab`.
@@ -121,7 +133,7 @@ public final class CreationInputBuffer {
     /// this hold that shows that tab, nil when the focus names none of them (a key typed after the person moved on).
     public func lane(focusedTab: String?) -> Int? {
         guard let focusedTab else { return nil }
-        if let close = closingTabs.filter({ $0.value == focusedTab }).map(\.key).max() { return close }
+        if let close = closingTabs.filter({ $0.value.contains(focusedTab) }).map(\.key).max() { return close }
         return laneTabs.filter { $0.value == focusedTab }.map(\.key).max()
     }
 
