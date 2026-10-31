@@ -14,6 +14,7 @@ import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMessage";
+import type { TurnCopyPart } from "./conversation/turnCopy";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
@@ -303,6 +304,9 @@ export type AcpmuxRow = {
   retryable?: boolean;
   /// A turn footer's answer row (turns.ts), whose right-click menu the footer's More opens.
   answerId?: string;
+  /// A turn footer's whole turn for its Copy (conversation/turnCopy.ts): the agent's replies and each
+  /// run of tool calls between them, in order; undefined when the agent said nothing.
+  turnCopy?: TurnCopyPart[];
   retryAttachments?: ComposerAttachment[];
   status?: string;
   error?: string;
@@ -1117,20 +1121,13 @@ const messageBelow = (beforeFooter: boolean) => (beforeFooter ? META_GAP : MESSA
 /// (`below`), which the footer takes the place of at its height when the turn ends: the reply keeps
 /// the one gap, so the end moves nothing (the message gap there slid the reply down 4px at every
 /// turn's end). App.tsx marks the same rows `acpmux-row--before-footer`.
-/// Whether a reply draws its own action row (MessageActions.tsx ReplyActions; Leo, 2026-10-29: "i
-/// feel like im frequently missing the copy/whatever buttons on these steers... but claude code
-/// allows those buttons in these situations. let's have those"): every finished reply with text that
-/// something follows (a steer, another agent's message, a sent message, a tool row), except the one
-/// right over its turn's footer or over the running line the footer takes the place of, whose row
-/// the footer is (so the turn's end moves nothing). Read from the row and the drawn row after it
-/// alone, as the transcript draws and estimates each row: no pass over the turn.
-export const hasReplyActions = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
-  row.kind === "assistant" &&
-  next !== undefined &&
-  !isBeforeFooter(row, next) &&
-  row.streaming !== true &&
-  (row.settled !== true || row.foldedReply === true) &&
-  (row.text ?? "").trim().length > 0;
+/// Whether a reply draws its own action row (MessageActions.tsx ReplyActions). None does: a turn has
+/// one action row, its footer at the bottom, whose Copy copies the whole turn (conversation/turnCopy.ts),
+/// as Claude Code desktop draws it (Leo, 2026-10-31: "claude code doesn't have individual copy
+/// pastable things for the entire thing, only the bottom. ironically we have literally the complete
+/// opposite. so let's invert our behaviour"). This replaces the per-reply row of 2026-10-29. The
+/// callers' height plumbing stays until ReplyActions goes in a follow-up.
+export const hasReplyActions = (_row: AcpmuxRow, _next: AcpmuxRow | undefined) => false;
 export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   row.kind === "assistant" &&
   (next?.kind === "turnSummary" || ((next?.kind === WORKING || next?.kind === THINKING) && next.below === true));

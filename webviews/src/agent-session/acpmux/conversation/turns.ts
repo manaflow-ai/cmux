@@ -26,6 +26,7 @@ import { subsessionCall } from "./subsessionCalls";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
+import { turnCopyParts } from "./turnCopy";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -651,6 +652,8 @@ function shapeTurn(
     ...summary,
     folded,
     text: answer?.text ?? summary.text,
+    // The footer's Copy copies the whole turn (turnCopy.ts): its replies and tool lines in order.
+    turnCopy: turnCopyParts(body),
     ...(resumable && { resumable }),
     ...(retryable && { retryable }),
     ...(continuable && { continuable }),
