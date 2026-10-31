@@ -246,7 +246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The engines' incognito profiles and the Chromium engine's sign-in tabs (AppServices).
         let webAuthWindows = WebAuthSessionWindows(host: services, logger: services.daemon.logger,
                                                    profiles: services.browserStores.offTheRecord, signInCallbacks: services.signInCallbacks,
-                                                   contextMenus: services.contextMenus)
+                                                   contextMenus: services.contextMenus, activeLook: services.activeLook)
         let webAuthHandler = WebAuthSessionHandler(broker: WebAuthSessionBroker(opener: webAuthWindows))
         self.webAuthHandler = webAuthHandler
         WebAuthSessionHandler.install(webAuthHandler)

@@ -48,6 +48,10 @@ import CmuxNextTabs
 final class AppServices {
     /// The app's theme store (the one ``ThemeScope/app`` roots on), handed to the App's theme owners.
     let themeStore = ThemeScope.app.store
+    /// The one scope that keeps every window backdrop's glass in its key look (ActiveLookScope), passed to each window.
+    let activeLook = ActiveLookScope()
+    /// The batch closes of selected sidebar rows under way, read by every batch close and Close Workspace.
+    let selectionCloses = WorkspaceSelectionCloseFlow.Running()
     /// The recovery-draft backstop of unsaved documents (R96).
     let recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory)
     /// The quit hook's unsaved-document participants; drafts go to ``recoveryDrafts``.
@@ -532,7 +536,7 @@ final class AppServices {
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
-        popups = BrowserPopupWindows(contextMenus: contextMenus)
+        popups = BrowserPopupWindows(contextMenus: contextMenus, activeLook: activeLook)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         // After the run marker's handlers: Sentry calls them after its report.
