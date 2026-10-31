@@ -231,6 +231,8 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     /// The stream announced `size`. Another client's grid means this view no longer holds
     /// geometry; its next key press or focus claims again. Its own earlier reports are not.
     private mutating func gridAnnounced(_ link: Link, size: CellSize) -> [Effect] {
+        // A pending attach's own grid is the daemon's grid too: its replay's claim of that size waits for no echo.
+        if pendingAttach?.link == link { announcedSize = size; return [] }
         guard liveLink == link else { return [] }
         announcedSize = size
         if let mine = echoesDue.firstIndex(of: size) { echoesDue.removeFirst(mine + 1); return [] }
