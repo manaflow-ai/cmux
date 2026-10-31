@@ -4,8 +4,21 @@ use super::*;
 use cmux_link::token::VmKind;
 use serde::Deserialize;
 
+#[path = "native_owner_terminal.rs"]
+mod terminal;
+
 // Exact names: adding a new local command never makes it remotely callable.
 const COMMANDS: &[&str] = &[
+    "attach-surface",
+    "send",
+    "resize-surface",
+    "resize-attached-view",
+    "set-client-sizing",
+    "set-size-policy",
+    "set-size-counts",
+    "release-attached-view-size",
+    "detach-attached-view",
+    "snapshot-request",
     "identify",
     "subscribe",
     "list-workspaces",
@@ -40,6 +53,15 @@ const COMMANDS: &[&str] = &[
 ];
 
 const CAPABILITIES: &[&str] = &[
+    VIEW_ATTACHMENT_LEASE_CAPABILITY,
+    VIEW_ATTACHMENT_DETACH_CAPABILITY,
+    ATTACH_INITIAL_SIZE_CAPABILITY,
+    SHARED_SIZING_CAPABILITY,
+    "attach-identity-v1",
+    terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
+    terminal_snapshot::TERMINAL_SNAPSHOT_HISTORY_CAPABILITY,
+    terminal_snapshot::TERMINAL_SNAPSHOT_LOCAL_HISTORY_CAPABILITY,
+    terminal_snapshot::TERMINAL_SNAPSHOT_IMAGES_CAPABILITY,
     WORKSPACE_REGISTRY_CAPABILITY,
     LAYOUT_DELTA_CAPABILITY,
     SESSION_IDENTITY_CAPABILITY,
@@ -119,7 +141,7 @@ pub(super) fn try_handle(
         return Some(writer.send_control(&response).is_ok());
     }
     if let Ok(request) = serde_json::from_str::<Request>(message)
-        && provision_command(mux, &request.cmd)
+        && raw_command(mux, client, &request.cmd)
     {
         return Some(handle_request(mux, client, request, writer));
     }
@@ -175,13 +197,13 @@ fn handshake(mux: &Arc<Mux>, client: u64, command: &str, fields: Value) -> anyho
 
 /// The only raw commands that may reach existing generic command handlers.
 /// This is checked both before routing and again by the remote interceptor.
-pub(super) fn provision_command(mux: &Mux, command: &Command) -> bool {
+pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
     match command {
         Command::Subscribe { surface: None, .. }
         | Command::ListWorkspaces
         | Command::CreateWorkspace { .. }
         | Command::CreateTerminal { .. } => true,
         Command::NewConversationTab(params) => params.native_agent_tab(mux),
-        _ => false,
+        _ => terminal::allows(mux, client, command),
     }
 }

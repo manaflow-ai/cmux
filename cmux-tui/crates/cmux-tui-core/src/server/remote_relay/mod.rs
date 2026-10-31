@@ -235,7 +235,7 @@ pub(super) fn intercept(
         return None;
     }
     #[cfg(unix)]
-    if mux.is_native_agent_owner(client) && super::native_owner::provision_command(mux, cmd) {
+    if mux.is_native_agent_owner(client) && super::native_owner::raw_command(mux, client, cmd) {
         return None;
     }
     Some(match cmd {
