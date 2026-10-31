@@ -24,6 +24,7 @@ extension SidebarContainerView {
     func applySide() {
         for (pinSide, constraints) in sidePins where pinSide != side { NSLayoutConstraint.deactivate(constraints) }
         NSLayoutConstraint.activate(sidePins[side] ?? [])
+        setClipInset(isPanelCollapsed ? paneReach : 0, animated: false)
         mountHandle()
         needsLayout = true
     }
@@ -31,7 +32,7 @@ extension SidebarContainerView {
     /// The resize band for the current tokens: the pane dividers' hit width, at least
     /// ``SidebarResizeBand/minimumWidth``.
     var resizeBand: SidebarResizeBand {
-        SidebarResizeBand(width: max(Metrics.dividerHitWidth, SidebarResizeBand.minimumWidth), gutter: Metrics.mainPaneGutter)
+        SidebarResizeBand(width: max(Metrics.dividerHitWidth, SidebarResizeBand.minimumWidth), gutter: Metrics.mainPaneGutter - paneReach)
     }
 
     /// The resize band in window coordinates; nil while the handle is hidden or out of a window.

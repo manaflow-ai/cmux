@@ -91,7 +91,11 @@ extension MainPaneGutterSuites {
                 try #require(Metrics.mainPaneCurved && root.sidebar.frame.width > 0)
                 let sidebar = root.sidebar.frame, card = root.contentHost.frame
                 #expect(Metrics.mainPaneGutter > 0, "the default keeps a gutter on every side")
-                #expect(card.minX - sidebar.maxX == Metrics.mainPaneGutter, "the card starts \(card.minX - sidebar.maxX) pt after the sidebar")
+                // The sidebar takes the gutter beside it (Leo 2026-10-29, "ADD THE FUCKING AREA TO THE SIDEBAR"): the card stays a
+                // gutter past the sidebar's width and the sidebar reaches it.
+                #expect(card.minX - (sidebar.minX + root.sidebar.model.displayWidth) == Metrics.mainPaneGutter,
+                        "the card starts \(card.minX - sidebar.minX - root.sidebar.model.displayWidth) pt after the sidebar's width")
+                #expect(card.minX == sidebar.maxX, "the sidebar ends \(card.minX - sidebar.maxX) pt short of the card")
                 #expect(window.contentView!.bounds.maxX - card.maxX == Metrics.mainPaneGutter, "the gutter at the window edge")
             }
         }

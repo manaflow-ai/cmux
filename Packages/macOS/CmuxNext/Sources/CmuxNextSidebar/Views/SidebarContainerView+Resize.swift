@@ -19,9 +19,9 @@ extension SidebarContainerView {
                 model.presentation = .hidden
             } else {
                 model.width = proposed
-                panelWidth.constant = model.width
+                panelWidth.constant = model.width + paneReach
                 targetWidth = model.width
-                widthConstraint.constant = model.width
+                widthConstraint.constant = model.width + paneReach
             }
         case .ended:
             break

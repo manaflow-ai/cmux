@@ -82,14 +82,16 @@ import Testing
         #expect(try hit(atX: root.contentHost.frame.minX + 6, in: root, window: window) !== handle, "the card keeps its clicks")
     }
 
-    /// No spacing change: the sidebar keeps its width and the card its gutter.
+    /// No spacing change from the band: the card keeps its place, and the sidebar the gutter it took.
     @Test func theBandMovesNoFrame() throws {
         let (window, root) = root()
         defer { window.close() }
         let sidebar = root.sidebar.frame, card = root.contentHost.frame
         #expect(sidebar.minX == 0)
-        #expect(sidebar.width == root.sidebar.model.displayWidth)
-        #expect(card.minX - sidebar.maxX == Metrics.mainPaneGutter)
+        // The sidebar takes the gutter beside it (`SidebarContainerView.paneReach`); the card stays where it was.
+        #expect(sidebar.width == root.sidebar.model.displayWidth + SidebarContainerView.paneReach)
+        #expect(card.minX - root.sidebar.model.displayWidth == Metrics.mainPaneGutter)
+        #expect(card.minX == sidebar.maxX)
     }
 
     @Test func aHiddenSidebarHasNoBand() throws {

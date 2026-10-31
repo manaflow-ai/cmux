@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextSidebar
 import Observation
 
 /// The window's content host as the curved main pane (cx-rkgu): a rounded
@@ -145,13 +146,20 @@ extension WindowRootView {
         // The right sidebar sits on the edge opposite the sidebar: on the left
         // side's pins it insets the trailing edge, on the right side's the leading one.
         let panel = rightPanelWidth
+        // The sidebar takes the gutter beside it as its own (`SidebarContainerView.paneReach`, Leo 2026-10-29: "ADD THE
+        // FUCKING AREA TO THE SIDEBAR"): the content and the title pinned to its edge come that much closer, so neither moves.
+        let reach = SidebarContainerView.paneReach
         for (side, constraints) in sidePins {
             for constraint in constraints where constraint.firstItem === contentHost {
+                let besideSidebar = constraint.secondItem === sidebar ? reach : 0
                 switch constraint.firstAttribute {
-                case .leading: constraint.constant = gutter + (side == .right && constraint.secondItem === self ? panel : 0)
-                case .trailing: constraint.constant = -gutter - (side == .left && constraint.secondItem === self ? panel : 0)
+                case .leading: constraint.constant = gutter - besideSidebar + (side == .right && constraint.secondItem === self ? panel : 0)
+                case .trailing: constraint.constant = -gutter + besideSidebar - (side == .left && constraint.secondItem === self ? panel : 0)
                 default: break
                 }
+            }
+            for constraint in constraints where constraint.firstItem === titlebar && constraint.secondItem === sidebar {
+                constraint.constant = side == .left ? -reach : reach
             }
         }
         for constraint in mainPaneEdges where constraint.firstItem === contentHost {

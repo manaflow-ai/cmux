@@ -24,7 +24,7 @@ public final class SidebarContainerView: NSView {
     public let model: SidebarModel
     /// The width constraint this view drives. Do not add another.
     /// Built in init (lazy because it anchors self; no IUO).
-    public private(set) lazy var widthConstraint: NSLayoutConstraint = widthAnchor.constraint(equalToConstant: model.displayWidth)
+    public private(set) lazy var widthConstraint: NSLayoutConstraint = widthAnchor.constraint(equalToConstant: model.displayWidth + paneReach)
 
     /// Clips the sliding panel to the container's (animating) width.
     private let clip = NSView()
@@ -33,7 +33,10 @@ public final class SidebarContainerView: NSView {
     private let panel = NSView()
     /// Internal, not private: the resize drag sets it from its own file
     /// (`SidebarContainerView+Resize`).
-    lazy var panelWidth: NSLayoutConstraint = panel.widthAnchor.constraint(equalToConstant: model.width)
+    lazy var panelWidth: NSLayoutConstraint = panel.widthAnchor.constraint(equalToConstant: model.width + paneReach)
+    /// The clip's edges; the one facing the content insets by `paneReach` while the panel is collapsed (`clipInset`).
+    lazy var clipLeading: NSLayoutConstraint = clip.leadingAnchor.constraint(equalTo: leadingAnchor)
+    lazy var clipTrailing: NSLayoutConstraint = clip.trailingAnchor.constraint(equalTo: trailingAnchor)
     let handle: SidebarResizeHandle
     /// The thin rail (`sidebar.style` = rail) and its open state (`SidebarContainerView+Rail`).
     public let railView = SidebarRailView()
@@ -43,6 +46,8 @@ public final class SidebarContainerView: NSView {
     /// intermediate constants, so compare against this instead. Internal for
     /// the same reason as `panelWidth`.
     var targetWidth: CGFloat
+    /// The `paneReach` the width constraint last went to: a gutter change re-applies it (`apply`).
+    var appliedReach: CGFloat = -1
     /// Bumped per width animation; a stale completion does nothing.
     private var animationGeneration = 0
     /// Completion gates for the optional opacity leg. Width and opacity use
@@ -134,8 +139,8 @@ public final class SidebarContainerView: NSView {
             sidebarView.trailingAnchor.constraint(equalTo: panel.trailingAnchor),
             sidebarView.topAnchor.constraint(equalTo: panel.topAnchor),
             sidebarView.bottomAnchor.constraint(equalTo: panel.bottomAnchor),
-            clip.leadingAnchor.constraint(equalTo: leadingAnchor),
-            clip.trailingAnchor.constraint(equalTo: trailingAnchor),
+            clipLeading,
+            clipTrailing,
             clip.topAnchor.constraint(equalTo: topAnchor),
             clip.bottomAnchor.constraint(equalTo: bottomAnchor),
             panel.topAnchor.constraint(equalTo: clip.topAnchor),
@@ -311,8 +316,9 @@ public final class SidebarContainerView: NSView {
         targetWidth = model.displayWidth
         targetCollapseMotion = SidebarTunables.collapseMotion.value
         isWidthAnimating = false
-        widthConstraint.constant = targetWidth
-        panelWidth.constant = model.width
+        widthConstraint.constant = targetWidth + paneReach
+        panelWidth.constant = model.width + paneReach
+        setClipInset(isPanelCollapsed ? paneReach : 0, animated: false)
         panel.isHidden = isPanelCollapsed
         panel.alphaValue = 1
         syncHandleVisibility()
@@ -326,17 +332,19 @@ public final class SidebarContainerView: NSView {
         let hidden = isPanelCollapsed
         let target = model.displayWidth
         let collapseMotion = SidebarTunables.collapseMotion.value
-        panelWidth.constant = model.width
+        let reach = paneReach
+        panelWidth.constant = model.width + reach
         syncHandleVisibility()
         if handle.isDragging, !hidden {
             targetWidth = target
             targetCollapseMotion = collapseMotion
             // A drag is the person's own frame-by-frame resize, not an animation.
             isWidthAnimating = false
-            widthConstraint.constant = target
+            widthConstraint.constant = target + reach
             return
         }
-        guard targetWidth != target || targetCollapseMotion != collapseMotion else { return }
+        guard targetWidth != target || targetCollapseMotion != collapseMotion || appliedReach != reach else { return }
+        appliedReach = reach
         targetWidth = target
         targetCollapseMotion = collapseMotion
         if !hidden { panel.isHidden = false }
@@ -350,7 +358,7 @@ public final class SidebarContainerView: NSView {
         // With no animation at all (Reduce Motion, the gate off) the width lands
         // in this turn and the completion clears this again at once.
         isWidthAnimating = true
-        onWidthMotionStart?(frame.width, target)
+        onWidthMotionStart?(frame.width, target + reach)
         armWidthMotionWatchdog(hidden ? .disappear : .appear)
         widthCompletedGeneration = nil
         fadeCompletedGeneration = collapseMotion.fadesPanel ? nil : generation
@@ -362,7 +370,8 @@ public final class SidebarContainerView: NSView {
         // AppKit's 0.25 s default), so this is the tokens' timed equivalent.
         // A toggle mid-animation starts from the constant on screen.
         Motion.sidebar.animateTimed(hidden ? .disappear : .appear, in: self, {
-            Motion.animator(widthConstraint, in: self).constant = target
+            Motion.animator(widthConstraint, in: self).constant = target + reach
+            self.setClipInset(hidden ? reach : 0, animated: true)
         }, completion: { [weak self] in
             guard let self, generation == self.animationGeneration else { return }
             self.widthCompletedGeneration = generation
