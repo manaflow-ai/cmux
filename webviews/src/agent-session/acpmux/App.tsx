@@ -7245,6 +7245,21 @@ function AcpmuxPane() {
       workflows.length > 0 ? { list: workflows, onStop: stopSubagent, onOpenAgent: showWorkflowAgent } : undefined,
     [workflows, stopSubagent, showWorkflowAgent],
   );
+  // Compact from Session Info's Context and the composer ring's card sends the agent's own /compact
+  // with the reach a context-full failure's Compact has: only where the agent lists it, never to a
+  // View Only chat or a read-only pane, never the next chat during a switch's hold (#17537 had it on
+  // the ring; #20454 dropped its wiring).
+  const compactOffered = offersCompact(snapshot.commands);
+  const compactChat = useMemo(
+    () =>
+      restartChat && compactOffered
+        ? () => {
+            if (restartReaches(restartChat, sessionIdRef.current, directClient.current?.selectedSession))
+              void compactThrough(callNative)();
+          }
+        : undefined,
+    [restartChat, compactOffered],
+  );
   const inspector = useChatInspector({
     snapshot,
     machineName,
@@ -7275,6 +7290,7 @@ function AcpmuxPane() {
     onSaveEnvironment: undefined,
     // A failed MCP server's Reconnect in Connectors, where acpmux offers it (a Claude Code chat's).
     onReconnectMcp: snapshot.reconnectsMcp ? reconnectMcp : undefined,
+    onCompact: compactChat,
     // Quick Chat's panel has no room beside it for the side panel.
     onOpenDocument: quick ? undefined : openArtifact,
     onShowCall: quick ? undefined : showCall,
@@ -11194,6 +11210,7 @@ function AcpmuxPane() {
             chips={ComposerChips}
             permissionAccess={permissionAccess}
             onOpenContext={inspector.reveal ? () => inspector.reveal?.("context") : undefined}
+            onCompact={compactChat}
             draft={draft}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
             onTyping={quick ? undefined : postTyping}
