@@ -199,6 +199,7 @@ mod transfer_in;
 mod transfer_out;
 mod transfer_watch;
 mod trust_wait;
+mod turn_attestation;
 mod turn_git;
 mod turn_usage;
 mod usage_view;
@@ -514,6 +515,9 @@ pub struct Hub {
     /// launcher checks) in the background. Session creation and agent
     /// spawns wait for it; every other request is answered at once.
     pub(super) startup_ready: tokio::sync::watch::Sender<bool>,
+    /// False while the daemon's startup task runs (`daemon.rs`: logs, adoption,
+    /// `finish_startup`, the chat index's start). `_acpmux/status` `loading.startupDone`.
+    pub(super) startup_work_done: tokio::sync::watch::Sender<bool>,
     store_load: store_load::StoreLoad,
     /// False from a deferred start (`Hub::new_deferred`) until `load_logs` read every
     /// chat log. A request for one chat waits for that chat's log only (`session_log`).
@@ -759,6 +763,7 @@ impl Hub {
             live_models: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
+            startup_work_done: tokio::sync::watch::channel(true).0,
             store_load: store_load::StoreLoad::new(loading),
             logs_ready: tokio::sync::watch::channel(true).0,
             load_plan: Default::default(),
@@ -1167,6 +1172,7 @@ impl Hub {
             attached: std::sync::atomic::AtomicUsize::new(0),
             hidden: std::sync::atomic::AtomicUsize::new(0),
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
+            stderr_stream: StdMutex::new(session::SessionStderr::default()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),
