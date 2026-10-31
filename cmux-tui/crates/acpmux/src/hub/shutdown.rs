@@ -115,11 +115,12 @@ impl Hub {
         // The log retention worker sees the shutdown begun and ends (`retention.rs`).
         self.retention_wake.notify_one();
         let sessions = self.sessions();
-        // A scheduled provider retry must not survive an explicit daemon shutdown.  Settle
-        // every pending continuation before teardown so restart restoration cannot replay it.
+        // A scheduled provider retry must not survive an explicit daemon shutdown: settle it
+        // before teardown so restart restoration cannot replay it. A turn this shutdown cuts
+        // is still the next daemon's to continue (`restart_resume.rs`).
         if !preserve_auto_resume {
             for s in &sessions {
-                self.stop_auto_resume(s);
+                self.stop_retry_at_shutdown(s);
             }
         }
         // Startup may have been cancelled before adoption reached these hosts. Keep their

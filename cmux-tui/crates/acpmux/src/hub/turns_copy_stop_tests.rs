@@ -423,7 +423,8 @@ async fn a_stop_while_a_steers_copies_are_made_keeps_it_from_the_agent_and_start
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_stop_while_a_failovers_copies_are_made_keeps_the_prompt_from_the_fallback() {
-    let (hub, s) = chat(&[], true).await;
+    // A sign-in failure fails over; a usage limit waits for its reset (`auto_resume.rs`).
+    let (hub, s) = chat(&["FAKE_AUTH_FAIL=1"], true).await;
     let (arrived, release) = arm(&hub);
     let run = {
         let (hub, s) = (hub.clone(), s.clone());

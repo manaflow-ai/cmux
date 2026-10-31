@@ -1186,12 +1186,14 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "tdh-1", "status": "completed"})
         time.sleep(3600)
         return
-    # "slow-limit": a usage limit after a second, then on the fallback profile (FAKE_FALLBACK=1)
-    # an answer (`hub/full_access_bound.rs`, a family message that fails over).
+    # "slow-limit": a usage limit after a second (a sign-in failure with FAKE_AUTH_FAIL=1, which
+    # fails over where a usage limit now waits for its reset), then on the fallback profile
+    # (FAKE_FALLBACK=1) an answer (`hub/full_access_bound.rs`, a family message that fails over).
     if text == "slow-limit":
         if os.environ.get("FAKE_FALLBACK") != "1":
             time.sleep(1)
-            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+            message = "Not logged in" if os.environ.get("FAKE_AUTH_FAIL") == "1" else "You've reached your usage limit for this account"
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": message}})
             return
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
