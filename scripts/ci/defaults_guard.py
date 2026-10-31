@@ -124,6 +124,9 @@ TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 # Repository roles that trust a receipt's author whose association reads as untrusted: a member who
 # keeps the org membership private is CONTRIBUTOR to the workflow's token (#26153).
 WRITER_ROLES = ("admin", "maintain", "write")
+# GraphQL identifies the cmux GitHub App with this exact Bot login and node id.
+CMUX_BOT_LOGIN = "cmux-bot"
+CMUX_BOT_NODE_ID = "BOT_kgDOFMYsLQ"
 # Default values that read as "off": a new setting with one of them changes nothing for anyone.
 OFF_WORDS = ("off", "never", "none", "disabled", "")
 
@@ -648,16 +651,23 @@ def receipt_line(item: Mapping[str, object], head: str) -> re.Match[str] | None:
 def receipt_verdict(pull: Mapping[str, object], head: str,
                     writers: Iterable[str] = ()) -> tuple[str, str] | None:
     """("ship" or "block", reviewer) of the newest receipt naming the full head sha on the first line
-    of a trusted comment or review body; a self-review never counts and a BLOCK wins a tie. A user
-    whose association reads as untrusted is trusted when listed in `writers` (repository write
-    access, looked up by `repo_writers`)."""
+    of a trusted comment or review body; a self-review never counts and a BLOCK wins a tie. The
+    cmux-bot App is trusted only when GraphQL reports its exact Bot login and immutable node id.
+    A user whose association reads as untrusted is trusted when listed in `writers` (repository
+    write access, looked up by `repo_writers`)."""
     writers = {w.lower() for w in writers}
     found = []
     for item, at in receipt_items(pull):
         author = item.get("author") or {}
-        if author.get("__typename") != "User":
-            continue
-        if item.get("authorAssociation") not in TRUSTED and str(author.get("login") or "").lower() not in writers:
+        if author.get("__typename") == "Bot":
+            trusted = (str(author.get("login") or "") == CMUX_BOT_LOGIN
+                       and str(author.get("id") or "") == CMUX_BOT_NODE_ID)
+        elif author.get("__typename") == "User":
+            trusted = (item.get("authorAssociation") in TRUSTED
+                       or str(author.get("login") or "").lower() in writers)
+        else:
+            trusted = False
+        if not trusted:
             continue
         line = receipt_line(item, head)
         if line:
@@ -731,8 +741,8 @@ query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       author { login } headRefOid merged mergeCommit { oid }
-      reviews(last: 100) { nodes { author { login __typename } authorAssociation state body submittedAt commit { oid } } }
-      comments(last: 100) { nodes { databaseId body createdAt authorAssociation author { login __typename } } }
+      reviews(last: 100) { nodes { author { login __typename id } authorAssociation state body submittedAt commit { oid } } }
+      comments(last: 100) { nodes { databaseId body createdAt authorAssociation author { login __typename id } } }
     }
   }
 }
