@@ -189,6 +189,29 @@ typealias ZoomStripID = CmuxNextTabs.TabID
         #expect(harness.zooms == [tab], "\(harness.intents)")
     }
 
+    /// Restoring removes the zoom badge and moves the speaker into its old slot. The rest of
+    /// that click sequence must not mute it; a new single click on the speaker still can.
+    @Test(arguments: [TabAudio.playing, .muted])
+    func repeatedExitZoomClicksDoNotMuteTheSpeaker(_ audio: TabAudio) throws {
+        let harness = StripHarness()
+        defer { harness.tearDown() }
+        let tab = ZoomStripID("tab0")
+        harness.model.tabs[0].audio = audio
+        harness.strip.sync(fromModel: true, animating: false)
+        harness.setZoomed(true)
+        let point = try harness.zoomButton(tab)
+        harness.click(point)
+        harness.setZoomed(false)
+        try #require(harness.strip.isInAudioButton(tab, harness.strip.convert(point, from: nil)),
+                     "the speaker now occupies the old zoom badge position")
+        harness.click(point, clickCount: 2)
+        harness.click(point, clickCount: 3)
+        #expect(harness.intents == [.toggleZoom(tab)], "\(harness.intents)")
+
+        harness.click(point)
+        #expect(harness.intents.last == .toggleAudioMute(tab), "a fresh click still mutes or unmutes")
+    }
+
     /// A triple-click: the double-click zooms, the indicator appears under the pointer, and the
     /// third press on it restores nothing.
     @Test func aTripleClicksThirdPressOnTheIndicatorRestoresNothing() throws {
