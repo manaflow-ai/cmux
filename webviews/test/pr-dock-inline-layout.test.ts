@@ -80,28 +80,38 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
           expect(before!.fallback.bottom).toBeLessThanOrEqual(before!.queue.y + 1);
           expect(after.fallback.bottom).toBeLessThanOrEqual(after.queue.y + 1);
           // This click expands the queued prompt, not the PR overflow. Only the form growing
-          // upward and its fallback following it are expected; all other shift sources and
-          // directions stay failures. The precise movement and fixed bar are checked above.
+          // upward, its fallback following it, and the row's actions (which sit on the row's last
+          // line, #28042) moving down inside the form by exactly that growth are expected, so the
+          // actions stay put on screen; all other shift sources and directions stay failures. The
+          // precise movement and fixed bar are checked above.
           const measured = JSON.parse(report) as PlayReport;
           for (const step of measured.steps ?? []) {
             const expected =
               step.step === "click .acpmux-queued" &&
               step.shifts.length > 0 &&
-              step.shifts.every(
-                (shift) =>
-                  shift.sources.length > 0 &&
-                  shift.sources.every((source) => {
-                    const match =
-                      /^(form\.acpmux-composer|div\.acpmux-transcript-after-latest) \[(-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)\]$/.exec(
-                        source,
-                      );
-                    if (!match) return false;
-                    const [x, y, width, height] = match.slice(2).map(Number);
-                    return (
-                      x === 0 && width === 0 && y! <= 0 && height === (match[1] === "form.acpmux-composer" ? -y! : 0)
+              step.shifts.every((shift) => {
+                const moves = shift.sources.map((source) => {
+                  const match =
+                    /^(form\.acpmux-composer|div\.acpmux-transcript-after-latest|span\.acpmux-queued-actions) \[(-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)\]$/.exec(
+                      source,
                     );
-                  }),
-              );
+                  if (!match) return undefined;
+                  const [x, y, width, height] = match.slice(2).map(Number);
+                  return { kind: match[1]!, x: x!, y: y!, width: width!, height: height! };
+                });
+                if (moves.length === 0 || moves.some((move) => move === undefined)) return false;
+                const form = moves.find((move) => move!.kind === "form.acpmux-composer");
+                // Each move is rounded to 0.1 px apart, so two that should be equal may differ by that.
+                const near = (a: number, b: number) => Math.abs(a - b) <= 0.15;
+                return moves.every((move) => {
+                  const { kind, x, y, width, height } = move!;
+                  if (x !== 0 || width !== 0) return false;
+                  if (kind === "form.acpmux-composer") return y <= 0 && near(height, -y);
+                  if (kind === "div.acpmux-transcript-after-latest") return y <= 0 && height === 0;
+                  // The actions move down inside the form by the form's growth, so they keep their place.
+                  return form !== undefined && height === 0 && near(y, form.height);
+                });
+              });
             if (expected) step.problems = step.problems.filter((problem) => !problem.startsWith("layout shift "));
           }
           expect(playFailures(JSON.stringify(measured))).toEqual([]);

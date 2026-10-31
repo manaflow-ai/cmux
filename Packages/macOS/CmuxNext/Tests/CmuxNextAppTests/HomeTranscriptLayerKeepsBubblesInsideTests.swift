@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxHomeCore
 @testable import CmuxNextDesign
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 import Foundation
 @testable import MessagesLabHome
 import Testing
@@ -9,7 +10,7 @@ import Testing
 /// My blue bubbles stay inside the transcript when the layer above the chat
 /// (`HomeNativeTranscriptView`) moves, narrows or resizes, with or without a
 /// reply streaming (Lawrence 2026-10-19: "user bubbles clipped at right edge").
-@MainActor @Suite(.serialized) struct HomeTranscriptLayerKeepsBubblesInsideTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HomeTranscriptLayerKeepsBubblesInsideTests {
     static let me = ParticipantID("user_me")
     static let chief = ParticipantID("agent_chief")
     static let id = ConversationID("conv_slide")

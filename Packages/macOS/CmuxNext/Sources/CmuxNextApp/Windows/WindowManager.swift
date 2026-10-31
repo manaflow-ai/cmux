@@ -63,6 +63,9 @@ final class WindowManager {
     var pendingClaims: [String: String] = [:]
     /// Pending claims not to show on arrival; windows to open behind (automation, Option).
     var quietClaims: Set<String> = [], behindWindows: Set<String> = []
+    /// Pending claims from runs without view-change permission (an agent's or the CLI's create): they
+    /// never open a Cloud machine nobody opened here (#28609); reconcile drops them for its workspaces.
+    var backgroundClaims: Set<String> = []
     /// While ``fileOpenedMachine(of:into:)`` re-runs reconcile: a window that pass opens files nothing again.
     var fillingOpenedMachine = false
     /// Restored windows but the front one, not shown yet (`present`); `keepsOrder` while one shows alone.
@@ -392,7 +395,7 @@ final class WindowManager {
         let controller = WindowController(state: state, services: services, frame: frame)
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
-        SidebarTabRowHandoff.install(on: controller, session: services.dragSession)
+        services.dragSession.installWorkspaceHandoff(on: controller)
         controllers.append(controller)
         // Its content goes in before it is ordered in (the launch snapshot's workspace, else the
         // connecting state), so its first frame on screen draws it, never the backdrop alone; the
