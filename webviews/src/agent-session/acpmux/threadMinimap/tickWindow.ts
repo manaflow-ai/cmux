@@ -6,13 +6,23 @@
 // list as tall as all of its rows, so its scroll, the fades and every row's place stay the same.
 import { ROW_PITCH } from "./model";
 
-/// Rows past each edge of the rail's view that stay drawn, so a scroll or a glide of a few rows
-/// shows rows already laid out.
+/// The fewest rows past each edge of the rail's view that stay drawn, so a scroll or a glide of a
+/// few rows shows rows already laid out.
 export const TICK_OVERSCAN = 12;
 
+/// Rows past each edge of a view `rows` tall: a quarter of the view, at least TICK_OVERSCAN. A fast
+/// wheel or fling moves the list hundreds of px a frame, and Chromium can scroll it on its compositor
+/// a frame before the list's scroll event moves the window; the rows past the window are the gap,
+/// which paints resting ticks (threadMinimap.css) so even such a frame shows no blank strip.
+export function tickOverscan(rows: number): number {
+  return Math.max(TICK_OVERSCAN, Math.ceil(rows / 4));
+}
+
 /// Half-open ranges of row indexes to draw, sorted and disjoint: the rows the list's view shows
-/// (`listTop`, `height` in px) with TICK_OVERSCAN past each edge, plus each of `keep` (the focused,
-/// hovered and described rows, which must stay mounted for focus and aria).
+/// (`listTop`, `height` in px) with tickOverscan past each edge, plus each of `keep` (the focused,
+/// hovered and described rows, which must stay mounted for focus and aria). The window's ends snap
+/// to steps of half the overscan, so it moves (and the list renders its rows) once per step of a
+/// scroll, not once per row, and each edge always has at least the overscan drawn past it.
 export function tickRanges(
   count: number,
   listTop: number,
@@ -23,8 +33,11 @@ export function tickRanges(
   // An offset past the list's end (it had more rows: another chat, before its scroll catches up)
   // reads as the end, so the rows draw.
   const top = Math.max(0, Math.min(listTop, count * ROW_PITCH - Math.max(0, height)));
-  const first = Math.max(0, Math.floor(top / ROW_PITCH) - TICK_OVERSCAN);
-  const last = Math.min(count, Math.ceil((top + Math.max(0, height)) / ROW_PITCH) + TICK_OVERSCAN);
+  const view = Math.max(0, height);
+  const overscan = tickOverscan(Math.ceil(view / ROW_PITCH));
+  const step = Math.max(1, Math.ceil(overscan / 2));
+  const first = Math.max(0, Math.floor((Math.floor(top / ROW_PITCH) - overscan) / step) * step);
+  const last = Math.min(count, Math.ceil((Math.ceil((top + view) / ROW_PITCH) + overscan) / step) * step);
   const ranges: Array<[number, number]> = [[first, Math.max(first, last)]];
   for (const index of keep)
     if (index !== undefined && index >= 0 && index < count && (index < first || index >= last))
