@@ -106,6 +106,8 @@
     "cloud.shell.open",
     "cloud.snapshot.list",
     "cloud.vm.event.emit",
+    "cloud.vm.network_policy",
+    "cloud.vm.receiver.lifecycle",
     "cloud.vm.self.get",
     "cloud.vm.status.report",
     "codemirror.cycle_variant",
