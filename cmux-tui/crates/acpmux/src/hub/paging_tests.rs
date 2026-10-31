@@ -430,7 +430,7 @@ fn a_reply_fits_one_message_whatever_holds_its_bytes() {
     assert_eq!(session["_meta"]["acpmux"]["omitted"]["fields"], json!(["models", "title"]));
 
     // Not even the agent's own session id: the receipt that carries it goes last, after every
-    // other field, and the chat's sessionId stays.
+    // other field (the title here), and the chat's sessionId stays.
     let mut receipt = json!({
         "session": {"sessionId": "s", "status": "idle", "title": "t", "sessionReceipt": {"agentSessionId": "x".repeat(15 << 20)}},
         "events": [],
@@ -443,9 +443,9 @@ fn a_reply_fits_one_message_whatever_holds_its_bytes() {
     assert_eq!(session["sessionReceipt"], json!({}));
     assert_eq!(
         (session["sessionId"].clone(), session["status"].clone(), session["title"].clone()),
-        (json!("s"), json!("idle"), json!("t"))
+        (json!("s"), json!("idle"), json!(""))
     );
-    assert_eq!(session["_meta"]["acpmux"]["omitted"]["fields"], json!(["sessionReceipt"]));
+    assert_eq!(session["_meta"]["acpmux"]["omitted"]["fields"], json!(["title", "sessionReceipt"]));
 
     // Nor a record's envelope: an agent names its own sessionUpdate, which becomes the kind.
     let mut kind = json!({
