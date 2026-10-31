@@ -47,6 +47,8 @@ import "../subagents/AgentCard.css";
 import { MessageScopeContext, type MessageScope } from "../chips/messageScope";
 import { mentionedRepository } from "../../../githubReferences";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
+import { laneNotice } from "./laneReport";
+import "./LaneNoticeBatch.css";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useTranscriptReadOnly } from "./readOnly";
@@ -143,6 +145,7 @@ export function IncomingMessageLine({
   const t = useT();
   // Read only (a guest): nobody replies.
   const readOnly = useTranscriptReadOnly();
+  const notice = laneNotice(message);
   const session = useContext(PromptMarksSession);
   const key = `${session ?? ""}\u0000${id}`;
   // Whether the person opened it lasts while the page does (incomingOpened.ts), and the row
@@ -161,13 +164,16 @@ export function IncomingMessageLine({
   const envelope = useAnchoredCollapse({
     open: details,
     onOpenChange: setDetails,
-    animates: () => played.current,
+    animates: () => !notice && played.current,
+    fadeIn: false,
   });
   // Find in Chat opens a closed message that holds its match, as a folded thought opens; a match
   // only in the envelope (Find searches the whole prompt) opens Details too.
   const reveal = useContext(FindReveal);
   const needle = reveal && reveal.rowId === id ? reveal.needle : "";
-  const inText = Boolean(needle && unsigned(message.text, message.name).toLocaleLowerCase().includes(needle));
+  const inText = Boolean(
+    needle && (notice?.body ?? unsigned(message.text, message.name)).toLocaleLowerCase().includes(needle),
+  );
   const inRaw = Boolean(needle && !inText && message.raw.toLocaleLowerCase().includes(needle));
   useLayoutEffect(() => {
     if (!inText && !inRaw) return;
@@ -177,7 +183,7 @@ export function IncomingMessageLine({
     reveal?.repaint();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
   }, [inText, inRaw, reveal]);
-  const raw = message.raw.trim() === message.text ? undefined : message.raw;
+  const raw = notice?.details ?? (message.raw.trim() === message.text ? undefined : message.raw);
   // A Chief's message names the Chief (chiefFace.ts): its name and avatar as the sidebar shows them.
   // Its turn session is no chat of the list, so no listed chat with its name stands in for it.
   const chief = useChiefFace(message.chief);
@@ -186,13 +192,13 @@ export function IncomingMessageLine({
   const place = useSenderPlace(sender.sessionId);
   // The sender's words without a signature that only repeats its name (incomingMessage.ts reads
   // it on every path; a record from before that, or a queued one, may still have it).
-  const text = unsigned(message.text, message.name);
+  const text = notice?.body ?? unsigned(message.text, message.name);
   // The machine the sender's files are on, when it is another (a peer's relayed message names none).
   const host = message.remote ? (place?.host ?? "") : place?.host;
   const repository = githubRepository ?? mentionedRepository(text);
   const body = useMemo(() => dedupeReferences(text, repository), [text, repository]);
   const scope = useMemo<MessageScope>(() => (host === undefined ? {} : { host }), [host]);
-  const preview = useMemo(() => messagePreview(body), [body]);
+  const preview = useMemo(() => notice?.preview ?? messagePreview(body), [body, notice]);
   // A sub-session family's sender says who it is to this chat.
   const from = message.relation ? t(RELATION_LABEL[message.relation], { name }) : name;
   // A reply needs a chat to go to and the message's id to answer: acpmux's `agent_message`.
@@ -229,10 +235,10 @@ export function IncomingMessageLine({
   };
   return (
     <DisclosureRow
-      className="cv-received"
+      className={notice ? "cv-received cv-lane-notice" : "cv-received"}
       open={open}
       onOpenChange={toggled}
-      animates={() => played.current}
+      animates={() => !notice && played.current}
       leading={<SenderName message={message} onOpen={onOpen} />}
       toggleLabel={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
       label={
