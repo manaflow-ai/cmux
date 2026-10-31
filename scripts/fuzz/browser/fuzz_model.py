@@ -354,9 +354,9 @@ class OpWatch:
             return {k: cur[k] for k in ("seed", "index", "op", "label", "limit_s")} | {"elapsed_s": elapsed}
 
 
-# The end of a seed, in order. "probe" and "quit" talk to the app, so a hang there is judged like an op's; "kill" and
-# "cleanup" are the harness ending the app it launched and deleting its scratch files.
-END_STEPS = ("probe", "quit", "kill", "cleanup")
+# The end steps of a seed ("probe", "quit", "kill", "cleanup", in browser_fuzz.run_ops). "probe" and "quit" talk to
+# the app, so a hang there is judged like an op's; "kill" and "cleanup" are the harness ending the app it launched and
+# deleting its scratch files.
 APP_END_STEPS = {"probe", "quit"}
 
 

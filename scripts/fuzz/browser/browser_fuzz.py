@@ -24,10 +24,13 @@ Oracles, after every op (fuzz_model has the pure parts):
   external_open    an agent op never opens another app (recorded: CMUX_NEXT_TEST_RECORD_EXTERNAL_OPENS=1);
   download_path    a download lands in the downloads folder under a plain name, or the app shows a prompt;
   lost_tab         every Chromium tab the run opened and did not close is still in the topology;
-  hang             no op runs past --op-deadline (default 300 s). Each op prints one line before it starts, so the
-                   last line names it; the watchdog then asks the app (system.ping off the main thread, debug.focus on
-                   it) and prints "BROWSER-FUZZ-VERDICT FAIL HANG at op N <op> ... (seed S)" when the app does not
-                   answer (a finding: the seed and the ops up to N are the repro), or NOVERDICT when the harness is stuck.
+  hang             no op runs past --op-deadline (default 300 s), and no end-of-seed step (probe, quit, kill, cleanup)
+                   past --end-deadline (default 180 s). Each op and each end step prints one line before it starts, so
+                   the last line names it; the watchdog then samples the app (`sample <pid> 3`), asks it (system.ping
+                   off the main thread, debug.focus on it) and prints "BROWSER-FUZZ-VERDICT FAIL HANG at op N <op> ...
+                   (seed S)" or "... FAIL HANG in end:<step> ..." when the app does not answer (a finding: the seed and
+                   its ops are the repro), or NOVERDICT when the harness is stuck (kill and cleanup are always the
+                   harness's). After the last op the end probe asks the app once more (the no_answer oracle).
 
 A failure stops that seed, quits the app, and is shrunk (fuzz_model.ddmin, each try a fresh launch) within
 --shrink-replays; the run then goes on with the next seed until --minutes is spent. Each finding prints one line
@@ -303,14 +306,6 @@ class Session:
         self.action("newTab", index=-1, focus=True)
         time.sleep(2)  # the app's launch work ends; its stalls are not this run's
         self.hang_cursor()
-
-    def close(self):
-        """All end steps, unwatched (a launch that ends early)."""
-        for step in (self.quit_app, self.kill_app, self.cleanup):
-            try:
-                step()
-            except Exception:  # noqa: BLE001 (best effort: the next step still runs)
-                pass
 
     def end_probe(self):
         """The app still answers after the last op, on and off its main thread (lead 22:0xZ: did the ops leave it
@@ -815,9 +810,22 @@ def run_ops(opts, site, ops: list[dict], run_token: str, log, label: str, seed: 
             finally:
                 if watch:
                     watch.done()
-        end_step(session, "probe", session.end_probe, seed, len(ops), label)
+        ran = session.counts.get("budget_stop", len(ops))
+        try:
+            end_step(session, "probe", session.end_probe, seed, len(ops), label)
+        except Failure as failure:
+            # The app stopped answering after the last op: every op that ran is the repro (review of #29662: index -2
+            # cut it to op 0).
+            failure.op_index = max(0, ran - 1)
+            failure.extra = dict(failure.extra, phase="end:probe")
+            raise
         return None, dict(session.counts, notes=session.notes[-20:]), session.stalls
     except Failure as failure:
+        # Until report() takes it, a hang in the end steps below prints this failure (review of #29662: it was only a
+        # return value then, and a hang in end:kill lost it).
+        LIVE["pending"] = {"target": "browser", "id": f"{failure.oracle}-{seed}", "seed": seed, "oracle": failure.oracle,
+                           "detail": failure.detail[:1500], "op_index": failure.op_index, "reproduced": None,
+                           "ops": ops[:failure.op_index + 1] if failure.op_index >= 0 else ops[:1], "extra": failure.extra}
         return failure, dict(session.counts, notes=session.notes[-20:]), session.stalls
     except Exception as error:  # noqa: BLE001 (a harness bug: reported, never a verdict)
         raise HarnessError(f"{type(error).__name__}: {error}\n{traceback.format_exc()[-1500:]}") from None
@@ -902,8 +910,8 @@ def answers(sock: str, method: str, timeout: float) -> tuple[bool, float]:
 
 
 def handle_hang(hung: dict, opts):
-    """An op ran past --op-deadline. Probes the app, prints the Python stacks, a finding when the app is at fault, and
-    the verdict, then ends the run."""
+    """An op ran past --op-deadline, or an end step past --end-deadline. Samples and probes the app, prints the Python
+    stacks, a finding when the app is at fault, and the verdict, then ends the run."""
     import traceback
     claim_final()  # from here on the main thread prints no verdict, finding or launch (it may still finish its op)
     session = LIVE.get("session")
@@ -992,7 +1000,9 @@ def stopped(signum, _frame):
     claim_final()
     watch = LIVE.get("watch")
     cur = (watch.current or {}) if watch else {}
-    where = f" at {cur.get('label')} op {cur.get('index')} {(cur.get('op') or {}).get('op')}" if cur else ""
+    op = cur.get("op") or {}
+    step = f"end:{op.get('step')}" if op.get("op") == "end" else f"op {cur.get('index')} {op.get('op')}"
+    where = f" at {cur.get('label')} {step}" if cur else ""
     found = len(LIVE.get("findings") or []) + (1 if LIVE.get("pending") else 0)
     head = f"FAIL {found} finding(s) before" if found else "NOVERDICT"
     end_now(f"{head} the run was stopped by signal {signum}{where}", 1 if found else 2, claimed=True)
@@ -1080,6 +1090,7 @@ def main() -> int:
             return
         seen.add(key)
         prefix = ops[:failure.op_index + 1] if failure.op_index >= 0 else ops[:1]
+        LIVE["pending"] = None
         replays = {"tried": 0, "failed": 0, "harness_errors": 0}
 
         def fails(candidate: list[dict]) -> bool:
@@ -1140,6 +1151,7 @@ def main() -> int:
         total_ops += counts.get("ops", 0)
         brief = json.dumps({k: v for k, v in counts.items() if k != "notes"})
         if failure is None:
+            LIVE["pending"] = None
             print(f"browser-fuzz: seed {seed}: no fatal failure, {len(stalls)} stall signature(s), counts {brief}", flush=True)
         else:
             print(f"browser-fuzz: seed {seed} FAIL at op {failure.op_index}: {failure.oracle}: {failure.detail[:600]}", flush=True)
