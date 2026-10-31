@@ -575,6 +575,7 @@ if [ -n "$HELPER_APP" ]; then
     <key>CMUX_CUA_TELEMETRY_ENABLED</key><string>false</string>
     <key>CMUX_CUA_UPDATE_CHECK</key><string>false</string>
   </dict>
+  <key>NSAppleEventsUsageDescription</key><string>${HELPER_DISPLAY} controls browsers only when you ask an agent to use Computer Use.</string>
   <key>NSAccessibilityUsageDescription</key><string>${HELPER_DISPLAY} controls apps only when you ask an agent to use Computer Use.</string>
   <key>NSScreenCaptureUsageDescription</key><string>${HELPER_DISPLAY} sees app windows only when you ask an agent to use Computer Use.</string>
 </dict>
@@ -582,14 +583,30 @@ if [ -n "$HELPER_APP" ]; then
 PLIST
   cat > "$HELPER_APP/Contents/Resources/en.lproj/InfoPlist.strings" <<STRINGS
 "CFBundleDisplayName" = "${HELPER_DISPLAY}";
+"NSAppleEventsUsageDescription" = "${HELPER_DISPLAY} controls browsers only when you ask an agent to use Computer Use.";
 "NSAccessibilityUsageDescription" = "${HELPER_DISPLAY} controls apps only when you ask an agent to use Computer Use.";
 "NSScreenCaptureUsageDescription" = "${HELPER_DISPLAY} sees app windows only when you ask an agent to use Computer Use.";
 STRINGS
   cat > "$HELPER_APP/Contents/Resources/ja.lproj/InfoPlist.strings" <<STRINGS
 "CFBundleDisplayName" = "${HELPER_DISPLAY}";
+"NSAppleEventsUsageDescription" = "${HELPER_DISPLAY}は、エージェントにComputer Useの使用を依頼した場合にのみブラウザを操作します。";
 "NSAccessibilityUsageDescription" = "${HELPER_DISPLAY}は、エージェントにComputer Useの使用を依頼した場合にのみアプリを操作します。";
 "NSScreenCaptureUsageDescription" = "${HELPER_DISPLAY}は、エージェントにComputer Useの使用を依頼した場合にのみアプリのウインドウを表示します。";
 STRINGS
+  for locale in de fr ar es zh-Hant zh-Hans ko; do
+    case "$locale" in
+      de) apple_events_usage="${HELPER_DISPLAY} steuert Browser nur, wenn Sie einen Agenten mit Computer Use beauftragen." ;;
+      fr) apple_events_usage="${HELPER_DISPLAY} contrôle les navigateurs uniquement lorsque vous demandez à un agent d’utiliser Computer Use." ;;
+      ar) apple_events_usage="يتحكم ${HELPER_DISPLAY} في المتصفحات فقط عندما تطلب من وكيل استخدام Computer Use." ;;
+      es) apple_events_usage="${HELPER_DISPLAY} controla los navegadores solo cuando le pides a un agente que use Computer Use." ;;
+      zh-Hant) apple_events_usage="只有當您要求代理程式使用 Computer Use 時，${HELPER_DISPLAY} 才會控制瀏覽器。" ;;
+      zh-Hans) apple_events_usage="只有当您要求代理使用 Computer Use 时，${HELPER_DISPLAY} 才会控制浏览器。" ;;
+      ko) apple_events_usage="${HELPER_DISPLAY}는 사용자가 에이전트에게 Computer Use를 사용하도록 요청할 때만 브라우저를 제어합니다." ;;
+    esac
+    mkdir -p "$HELPER_APP/Contents/Resources/$locale.lproj"
+    printf '"NSAppleEventsUsageDescription" = "%s";\n' "$apple_events_usage" \
+      > "$HELPER_APP/Contents/Resources/$locale.lproj/InfoPlist.strings"
+  done
   /usr/bin/plutil -lint "$HELPER_APP/Contents/Info.plist" >/dev/null
   # An ad-hoc signature without an explicit designated requirement collapses
   # to a CDHash-only identity. Privacy & Security records that entry but cannot
