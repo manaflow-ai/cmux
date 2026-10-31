@@ -743,6 +743,21 @@ export default agentPaneEntry({
           throw new Error("the New Tab + offers Search files, which it cannot run");
       },
     },
+    // Leo, 2026-10-31: "our + button is ass" / "inside chat and in the composer it's ass". New Tab's
+    // + is the chat composer's (ComposerPlusMenu): it opens over the project and machine pills above
+    // the box, and its glass hides them (it draws outside the box's backdrop root).
+    "attachment-menu-pills": {
+      note: "Play: open New Tab's +: Attach files or images, then Search chats and Search pages, each title and its muted hint on one line, over the project and machine pills, which do not show through.",
+      ready: newTab({ template: undefined }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-composer .acpmux-newtab-plus .acpmux-picker-button"));
+        await ctx.click({ selector: ".acpmux-newtab-plus .acpmux-picker-button" });
+        // test/composer-plus-menu-shape.browser.test.ts holds the shape (one-line rows, no header band,
+        // the pills covered); the play only opens it, so the same state draws the menu before the fix.
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-newtab-plus [data-value="history.search"]'));
+      },
+    },
     // The widget view (Debug Settings `newTab.widgets`, Leo 2026-10-18): soft cards under the create
     // actions, from the page's own data. Projects: this Mac, then its recent projects, the one a chat
     // starts in checked. Needs you: the chats asking for input or that hit an error, each with ×.
