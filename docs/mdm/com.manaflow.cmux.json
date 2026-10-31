@@ -1012,13 +1012,6 @@
       "title" : "Sidebar Width",
       "type" : "number"
     },
-    "appearance.metrics.tabFontSize" : {
-      "description" : "Text size of tab titles. Unset, tabs follow the interface size.",
-      "maximum" : 18,
-      "minimum" : 10,
-      "title" : "Tab Text Size",
-      "type" : "number"
-    },
     "appearance.metrics.tabMaxWidth" : {
       "description" : "Widest a tab gets when the strip has room.",
       "maximum" : 320,
@@ -1045,13 +1038,6 @@
       "maximum" : 120,
       "minimum" : 24,
       "title" : "Pinned Tab Width",
-      "type" : "number"
-    },
-    "appearance.metrics.tabStripHeight" : {
-      "description" : "Height of a pane's tab bar. Its tabs grow and shrink with it.",
-      "maximum" : 44,
-      "minimum" : 22,
-      "title" : "Tab Bar Height",
       "type" : "number"
     },
     "appearance.metrics.titlebarHeight" : {
@@ -1440,6 +1426,12 @@
       "title" : "Hosts to Open in Embedded Browser",
       "type" : "array"
     },
+    "browser.import.cookieBanner" : {
+      "default" : true,
+      "description" : "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off.",
+      "title" : "Offer to Import Cookies",
+      "type" : "boolean"
+    },
     "browser.import.enabled" : {
       "default" : true,
       "description" : "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.",
@@ -1554,6 +1546,15 @@
       "title" : "Address Bar Corners",
       "type" : "string"
     },
+    "browser.omnibar.fontSize" : {
+      "default" : "density",
+      "description" : "The size of the address and the suggestions. Match Density follows the density. Also accepts a number from 10 to 24 in a raw profile.",
+      "enum" : [
+        "density"
+      ],
+      "title" : "Address Bar Text Size",
+      "type" : "string"
+    },
     "browser.omnibar.glass" : {
       "default" : "off",
       "description" : "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.",
@@ -1584,6 +1585,15 @@
       "minimum" : 0,
       "title" : "Tint Strength",
       "type" : "number"
+    },
+    "browser.omnibar.height" : {
+      "default" : "density",
+      "description" : "Match Density follows the density. The bar always grows to fit its text. Also accepts a number from 20 to 56 in a raw profile.",
+      "enum" : [
+        "density"
+      ],
+      "title" : "Address Bar Height",
+      "type" : "string"
     },
     "browser.omnibar.inlineAutocomplete" : {
       "default" : true,

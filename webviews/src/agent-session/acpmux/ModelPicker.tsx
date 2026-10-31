@@ -11,7 +11,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { AgentMark, agentBrand, hasAgentMark, knownMark } from "../shared/AgentMark";
-import { agentName, agentDisplayName } from "./agents";
+import { agentName, agentDisplayName, picksOwnModel } from "./agents";
 import { agentKey } from "../shared/agentKey";
 import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
@@ -1287,6 +1287,7 @@ export function ModelPicker(props: ModelPickerProps) {
                     )
                   : [],
               current: props.model,
+              ...(picksOwnModel(current?.family) ? { ownModel: true } : {}),
               onModel: (id) => {
                 quickPicked.current = true;
                 onLand(id);

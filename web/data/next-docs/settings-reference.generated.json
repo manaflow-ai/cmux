@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 533,
+  "count": 534,
   "sections": [
     {
       "id": "general",
@@ -352,19 +352,6 @@
           "group": "Tabs"
         },
         {
-          "key": "appearance.metrics.tabFontSize",
-          "title": "Tab Text Size",
-          "help": "Text size of tab titles. Unset, tabs follow the interface size.",
-          "kind": "number",
-          "default": null,
-          "group": "Tabs",
-          "range": {
-            "min": 10,
-            "max": 18,
-            "unit": "points"
-          }
-        },
-        {
           "key": "appearance.metrics.tabMaxWidth",
           "title": "Maximum Tab Width",
           "help": "Widest a tab gets when the strip has room.",
@@ -413,19 +400,6 @@
           "range": {
             "min": 24,
             "max": 120,
-            "unit": "points"
-          }
-        },
-        {
-          "key": "appearance.metrics.tabStripHeight",
-          "title": "Tab Bar Height",
-          "help": "Height of a pane's tab bar. Its tabs grow and shrink with it.",
-          "kind": "number",
-          "default": null,
-          "group": "Tabs",
-          "range": {
-            "min": 22,
-            "max": 44,
             "unit": "points"
           }
         },
@@ -4597,6 +4571,14 @@
           "group": "Opening Links"
         },
         {
+          "key": "browser.import.cookieBanner",
+          "title": "Offer to Import Cookies",
+          "help": "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Import"
+        },
+        {
           "key": "browser.import.enabled",
           "title": "Import from Other Browsers",
           "help": "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.",
@@ -4735,6 +4717,14 @@
           "group": "Address Bar"
         },
         {
+          "key": "browser.omnibar.fontSize",
+          "title": "Address Bar Text Size",
+          "help": "The size of the address and the suggestions. Match Density follows the density.",
+          "kind": "choice_or_number",
+          "default": "density",
+          "group": "Address Bar"
+        },
+        {
           "key": "browser.omnibar.glass",
           "title": "Address Bar Glass",
           "help": "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.",
@@ -4773,6 +4763,14 @@
             "max": 1,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "browser.omnibar.height",
+          "title": "Address Bar Height",
+          "help": "Match Density follows the density. The bar always grows to fit its text.",
+          "kind": "choice_or_number",
+          "default": "density",
+          "group": "Address Bar"
         },
         {
           "key": "browser.omnibar.inlineAutocomplete",

@@ -1072,7 +1072,9 @@ shows the same keys.
       "glassTintStrength": 0.35,
       "cornerRadius": "theme",
       "shadow": false,
-      "backgroundOpacity": 0
+      "backgroundOpacity": 0,
+      "height": "density",
+      "fontSize": "density"
     }
   }
 }
@@ -1119,9 +1121,20 @@ shows the same keys.
   only as far as the bar's text needs to stay readable (4.5:1 over a black or a white desktop).
   `1` makes the bar solid. An opaque window with the theme's toolbar color looks the same at any
   value.
+- `omnibar.height`: the address bar's height, `density` (default) or points from `20` to `56`.
+  `density` follows `appearance.density`: 28 pt at Compact (the default), Chrome's roomier 34 pt
+  at Comfortable, tighter at Ultra-compact and taller at Spacious; the toolbar buttons, their
+  icons and the suggestion rows follow the same density. The bar always grows to fit its text, so
+  a small height with a large `fontSize` never cuts the address off. A number outside the range
+  applies at the nearest end, with a warning.
+- `omnibar.fontSize`: the size of the address, the page-info chip's text and the suggestion rows,
+  `density` (default) or points from `10` to `24`. `density` is 14 pt at Compact and 15 pt at
+  Comfortable, and follows a custom density's `fontSize`. Out-of-range numbers are clamped like
+  `height`. Both keys apply live, like the density.
 
 Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows`, `calculator`, `showFullURLs` and the look
-keys (`glass`, `glassTint`, `glassTintStrength`, `cornerRadius`, `shadow`, `backgroundOpacity`); the search
+keys (`glass`, `glassTint`, `glassTintStrength`, `cornerRadius`, `shadow`, `backgroundOpacity`, `height`,
+`fontSize`); the search
 engine and remote suggestions decide what leaves the Mac, so only you change them.
 
 ## `agentPane.editedFiles.*`

@@ -242,10 +242,7 @@ impl Translator {
                         }
                     }
                     method::SESSION_SET_MODEL => {
-                        let val = p
-                            .get("modelId")
-                            .and_then(Value::as_str)
-                            .unwrap_or("default");
+                        let val = p.get("modelId").and_then(Value::as_str).unwrap_or("default");
                         let val = super::model_id(val);
                         self.pending
                             .lock()
