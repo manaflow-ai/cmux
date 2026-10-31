@@ -3,6 +3,7 @@ import AppKit
 import CmuxHomeCore
 @testable import CmuxNextHome
 import Testing
+import CmuxNextTestSupport
 
 /// The message box's file picker is made ahead of the click (`HomeAttachmentPanel`), but only in a
 /// running app. A process that never ran the app's event loop (a test host, a ci-step mini with no
@@ -12,7 +13,7 @@ import Testing
 /// The test checks that no panel is made, not how fast the warm-up runs: its checks fire on the main
 /// actor, which a loaded runner running the whole parallel suite can hold for over a minute (every test
 /// of a suite finished after 98 s on a 6-vCPU runner). The wait and the time limit are hang guards only.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(10))) struct HomeAttachmentPanelWarmUpTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(10))) struct HomeAttachmentPanelWarmUpTests {
     @Test func aProcessThatNeverRanTheAppMakesNoPanelAhead() async throws {
         _ = NSApplication.shared
         #expect(!NSApp.isRunning, "the test host runs no app event loop")
@@ -23,7 +24,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .resizable],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         window.contentView = view
         window.makeKeyAndOrderFront(nil)
         #expect(panel.isWarming, "the transcript in a window did not start the warm-up")

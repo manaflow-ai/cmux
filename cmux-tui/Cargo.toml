@@ -67,6 +67,7 @@ members = [
     "crates/cmux-weft",
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
+    "crates/cmux-automations",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
     "crates/cmux-server-core",
@@ -81,6 +82,7 @@ members = [
     "crates/cmux-rd-core",
     "crates/cmux-rd-engine",
     "crates/cmux-rd-link",
+    "crates/cmux-vnc",
     "crates/cmux-encode",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
@@ -93,7 +95,6 @@ members = [
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
-    "crates/cmux-chats-mirror",
     "crates/cmux-kitty-media",
 ]
 default-members = [
@@ -135,6 +136,7 @@ default-members = [
     "crates/cmux-weft",
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
+    "crates/cmux-automations",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
     "crates/cmux-server-core",
@@ -149,6 +151,7 @@ default-members = [
     "crates/cmux-rd-core",
     "crates/cmux-rd-engine",
     "crates/cmux-rd-link",
+    "crates/cmux-vnc",
     "crates/cmux-encode",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
@@ -188,6 +191,7 @@ redundant_clone = "warn"
 
 [workspace.dependencies]
 cmux-coderouter = { path = "crates/cmux-coderouter" }
+cmux-automations = { path = "crates/cmux-automations" }
 cmux-tailnet = { path = "crates/cmux-tailnet" }
 ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
@@ -234,6 +238,7 @@ cmux-app-host = { path = "crates/cmux-app-host", default-features = false }
 cmux-terminal-sizing = { path = "crates/cmux-terminal-sizing" }
 cmux-mobile-core = { path = "crates/cmux-mobile-core" }
 cmux-cloud-wire = { path = "crates/cmux-cloud-wire" }
+cmux-vnc = { path = "crates/cmux-vnc" }
 anyhow = "1"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws", "macros"] }

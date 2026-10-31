@@ -95,11 +95,11 @@ import Testing
             return (snapshot.autoArchive, snapshot.diagnostics.filter { $0.path.hasPrefix("workspaces.autoArchive") }.count)
         }
         let defaults = try parse("{}")
-        #expect(defaults.0 == AutoArchiveSettings(style: .suggest, idleDays: 3) && defaults.1 == 0)
+        #expect(defaults.0 == AutoArchiveSettings(style: .manual, idleDays: 3) && defaults.1 == 0)
         let set = try parse(#"{"workspaces":{"autoArchive":{"style":"quiet","idleDays":14}}}"#)
         #expect(set.0 == AutoArchiveSettings(style: .quiet, idleDays: 14) && set.1 == 0)
         let bad = try parse(#"{"workspaces":{"autoArchive":{"style":"soon","idleDays":9000}}}"#)
-        #expect(bad.0 == AutoArchiveSettings(style: .suggest, idleDays: 365) && bad.1 == 2)
+        #expect(bad.0 == AutoArchiveSettings(style: .manual, idleDays: 365) && bad.1 == 2)
     }
 
     @Test func aGroupRuleReadsOnlyNeverOrWholeHoursInRange() {

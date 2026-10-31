@@ -42,3 +42,17 @@ extension HomeChiefRoster {
         return HomeConversationStrings.activeAgo(formatter.localizedString(for: min(row.timestamp, now), relativeTo: now))
     }
 }
+
+extension HomeChiefRoster {
+    /// Who a new group can have, as New Group Chat and Add People to Group list them: the Chiefs
+    /// (main first), then the team, then the people of the user's DMs; never `me`.
+    /// - Parameters:
+    ///   - contacts: New Message's contacts (``HomeContact/merged(team:connections:agents:)``).
+    ///   - rows: The inbox rows (the main Chief's conversation names its participant).
+    ///   - me: The signed-in participant, left out.
+    /// - Returns: Each contact once, in that order.
+    public func groupMembers(_ contacts: [HomeContact], rows: [InboxRow], excluding me: ParticipantID?) -> [HomeContact] {
+        let ordered = mainFirst(contacts, rows: rows).filter { $0.id != me }
+        return [HomeContact.Source.agent, .team, .connection].flatMap { source in ordered.filter { $0.source == source } }
+    }
+}
