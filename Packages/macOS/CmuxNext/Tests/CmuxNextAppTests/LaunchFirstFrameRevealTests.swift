@@ -131,7 +131,8 @@ import Testing
         let full = launch.pane.bounds.size
         try #require(underStrip.height < full.height, "the test pane has no tab strip to share")
         var clearedCallbacks = 0
-        let frame = NSImage(size: full, flipped: false) { rect in
+        // The saved frame came back a point short of the pane on the fleet (816x680 against 816x681).
+        let frame = NSImage(size: NSSize(width: full.width, height: full.height - 1), flipped: false) { rect in
             NSColor.textBackgroundColor.setFill()
             rect.fill()
             return true
