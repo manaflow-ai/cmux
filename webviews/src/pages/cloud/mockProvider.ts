@@ -104,6 +104,8 @@ export class MockCloudProvider implements PageClient {
   /** Machines whose daemon reports `fs-v1`; file ops on the others answer `unsupported`. */
   readonly fsMachines = new Set<string>(SAMPLE_FS_MACHINES);
   signedIn: boolean;
+  /** The signed-in user's id (the account stream names it). */
+  user = "user_1";
   confirm: boolean;
   unsupported: Set<string>;
   /** Set to make every call reject as if the host went away. */
@@ -180,7 +182,7 @@ export class MockCloudProvider implements PageClient {
     const entry = { stream, listener: onEvent as (data: unknown, seq: number) => void, seq: 0 };
     this.subs.set(sub, entry);
     // The account stream's first event is the current account, as the host sends it.
-    if (stream === CloudOps.authWatch) entry.listener(this.authStatus(), ++entry.seq);
+    if (stream === CloudOps.authWatch) entry.listener(this.accountEvent(), ++entry.seq);
     return () => void this.subs.delete(sub);
   }
 
@@ -262,7 +264,14 @@ export class MockCloudProvider implements PageClient {
 
   /** Sends the current account on the account stream. */
   emitAccount(): void {
-    this.deliverTo(CloudOps.authWatch, this.authStatus());
+    this.deliverTo(CloudOps.authWatch, this.accountEvent());
+  }
+
+  /** Another signed-in account replaces this one (the account's machines go with it). */
+  switchUser(user: string, machines: CloudMachine[]): void {
+    this.user = user;
+    this.machines = machines;
+    this.emitAccount();
   }
 
   get accountWatchers(): number {
@@ -295,6 +304,11 @@ export class MockCloudProvider implements PageClient {
 
   private authStatus() {
     return this.signedIn ? { signedIn: true, team: this.account.team } : { signedIn: false, team: null };
+  }
+
+  /** The account stream's event: the auth status plus the user. */
+  private accountEvent() {
+    return { ...this.authStatus(), user: this.signedIn ? this.user : null };
   }
 
   private machine(params: Params): CloudMachine {

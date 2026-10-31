@@ -21,6 +21,7 @@ struct CloudClassicPageTests {
         var limits: CloudMachineLimits?
         var signedIn = true
         var unavailable: String?
+        var user = "user-a"
         @ObservationIgnored var ran: [String] = []
     }
 
@@ -175,7 +176,7 @@ struct CloudClassicPageTests {
         machines.signedIn = false
         let ops = CloudClassicPageOps(backend: Self.backend(machines))
         let provider = CloudPageProvider(op: CloudAppLinks.ops(classic: ops), feed: CloudAppLinks.feed(classic: ops),
-                                         account: { CloudPageProvider.accountValue(signedIn: machines.signedIn, team: "team-1") })
+                                         account: { CloudPageProvider.accountValue(signedIn: machines.signedIn, user: machines.user, team: "team-1") })
         let seen = Seen()
         let subscription = try await provider.subscribe(CloudPageProvider.authStream, filter: .object([:]), context: Self.page) {
             seen.items.append($0)
@@ -187,16 +188,23 @@ struct CloudClassicPageTests {
         await Self.settle { seen.items.count >= 2 }
         #expect(seen.items.last?["signedIn"]?.boolValue == true)
         #expect(seen.items.last?["team"]?.stringValue == "team-1")
+        #expect(seen.items.last?["user"]?.stringValue == "user-a")
+
+        // Another signed-in account (same team shape): still a change the page must see.
+        machines.user = "user-b"
+        await Self.settle { seen.items.count >= 3 }
+        #expect(seen.items.last?["user"]?.stringValue == "user-b")
 
         machines.signedIn = false
-        await Self.settle { seen.items.count >= 3 }
+        await Self.settle { seen.items.count >= 4 }
         #expect(seen.items.last?["signedIn"]?.boolValue == false)
+        #expect(seen.items.last?["user"] == .null)
 
         subscription.cancel()
         #expect(provider.accountWatcherCount == 0)
         machines.signedIn = true
         await Self.settle { false }
-        #expect(seen.items.count == 3)
+        #expect(seen.items.count == 4)
     }
 
     /// A provider given no account (tests, an older wiring) refuses the stream; the page goes on without it.

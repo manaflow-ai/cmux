@@ -1,8 +1,8 @@
-import { expect, test } from "bun:test";
+import { expect, jest, test } from "bun:test";
 import { pageError } from "../shared/pageClient";
 import { MockCloudProvider } from "./mockProvider";
 import { CloudOps } from "./ops";
-import { CloudStore } from "./store";
+import { CLOUD_RESTART_MIN_MS, CloudStore } from "./store";
 
 // Dogfood, 2026-10-31: signed in with ten machines in the right sidebar, a Cloud page opened
 // before the sign-in still showed the signed-out hero and Sign In, while a Cloud page opened later
@@ -104,4 +104,68 @@ test("the account stream ends with the page, and a host without it still loads",
   expect(page.getSnapshot().rows.length).toBeGreaterThan(0);
   expect(page.getSnapshot().error).toBeUndefined();
   stop();
+});
+
+test("another signed-in account with the same team shape replaces the machines", async () => {
+  const provider = new MockCloudProvider();
+  const store = new CloudStore(provider);
+  const unsubscribe = store.subscribe(() => undefined);
+  await settle();
+  const other = [{ ...provider.machines[0], id: "vm_other", name: "other-box" }];
+  provider.switchUser("user_2", other);
+  await settle();
+  expect(store.getSnapshot().rows.map((row) => row.id)).toEqual(["vm_other"]);
+  unsubscribe();
+});
+
+test("an account event whose auth read fails drops the machines and reads again once the link is up", async () => {
+  jest.useFakeTimers();
+  try {
+    const provider = new MockCloudProvider();
+    const store = new CloudStore(provider);
+    const unsubscribe = store.subscribe(() => undefined);
+    await settle();
+    expect(store.getSnapshot().rows.length).toBeGreaterThan(0);
+    provider.offline = true;
+    provider.signedIn = false;
+    provider.emitAccount();
+    await settle();
+    // The old account's machines do not stay while the link is down.
+    expect(store.getSnapshot()).toMatchObject({ connection: "disconnected", rows: [] });
+    provider.offline = false;
+    jest.advanceTimersByTime(CLOUD_RESTART_MIN_MS);
+    await settle();
+    expect(store.getSnapshot()).toMatchObject({ connection: "connected", auth: { signedIn: false }, rows: [] });
+    expect(store.getSnapshot().error).toBeUndefined();
+    unsubscribe();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test("a restart while the account subscribe is in flight still follows the account", async () => {
+  class SlowHost extends MockCloudProvider {
+    pending: (() => void)[] = [];
+    override async subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void> {
+      if (stream !== CloudOps.authWatch || this.pending.length > 0) return super.subscribe(stream, onEvent);
+      // The first account subscribe answers only after the page restarted.
+      await new Promise<void>((resolve) => this.pending.push(resolve));
+      return super.subscribe(stream, onEvent);
+    }
+  }
+  const provider = new SlowHost({ signedIn: false });
+  const store = new CloudStore(provider);
+  const first = store.subscribe(() => undefined);
+  await settle();
+  first();
+  const second = store.subscribe(() => undefined);
+  await settle();
+  for (const resolve of provider.pending) resolve();
+  await settle();
+  // The stale subscribe closed itself; the page's own one stays.
+  expect(provider.accountWatchers).toBe(1);
+  provider.setSignedIn(true);
+  await settle();
+  expect(store.getSnapshot().rows.length).toBe(provider.machines.length);
+  second();
 });

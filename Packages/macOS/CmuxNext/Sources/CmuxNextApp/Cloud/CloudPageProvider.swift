@@ -63,9 +63,11 @@ final class CloudPageProvider: PageProvider {
         self.account = account
     }
 
-    /// The account value the auth stream sends: whether it is signed in, and its team.
-    static func accountValue(signedIn: Bool, team: String?) -> CmuxNextSettings.JSONValue {
-        ["signedIn": .bool(signedIn), "team": signedIn ? team.map(CmuxNextSettings.JSONValue.string) ?? .null : .null]
+    /// The account value the auth stream sends: whether it is signed in, the user and the team. The
+    /// user is in it so a switch between two signed-in accounts with no team is a change too.
+    static func accountValue(signedIn: Bool, user: String?, team: String?) -> CmuxNextSettings.JSONValue {
+        let text: (String?) -> CmuxNextSettings.JSONValue = { value in signedIn ? value.map { .string($0) } ?? .null : .null }
+        return ["signedIn": .bool(signedIn), "user": text(user), "team": text(team)]
     }
 
     /// The default sign-in: nobody signs in.

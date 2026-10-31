@@ -440,6 +440,13 @@ export interface CloudTeam {
   name: string;
 }
 
+/** One event of `cmux.cloud.auth.watch`: the app's account (`user` and `team` null when signed out). */
+export interface AccountEvent {
+  signedIn: boolean;
+  user?: string | null;
+  team?: string | null;
+}
+
 /** `cloud.auth.status`: the host answers from its own sign-in. */
 export interface AuthStatus {
   signedIn: boolean;
