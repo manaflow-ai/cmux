@@ -3140,6 +3140,10 @@ export function VirtualTranscript({
   const [foldRoom, setFoldRoom] = useState(0);
   const foldRoomRef = useRef(0);
   foldRoomRef.current = foldRoom;
+  /// A bottom collapse keeps the end created by its open body. Unlike the transient room used to
+  /// hold a line clicked away from the end, this room remains while the reader scrolls up and back.
+  /// It is released only when the rows grow into it, or an explicit latest/send transition drops it.
+  const stickyFoldRoom = useRef(false);
   /// The content's end without that room, as of the last render.
   const rowsEndRef = useRef(0);
   /// Shrinks the kept room to the view's end at `node`'s offset, and lets it go once nothing holds
@@ -3147,6 +3151,7 @@ export function VirtualTranscript({
   /// Lets the kept room go: a send or Jump to latest heads for the rows' own end. `now` commits it
   /// before the caller reads the layout (Jump to latest's target).
   const dropFoldRoom = useCallback((now = false) => {
+    stickyFoldRoom.current = false;
     if (!foldRoomRef.current) return;
     foldRoomRef.current = 0;
     if (now) flushSync(() => setFoldRoom(0));
@@ -3157,6 +3162,17 @@ export function VirtualTranscript({
   const trimFoldRoom = useCallback((node: HTMLElement) => {
     const kept = foldRoomRef.current;
     if (!kept) return;
+    // A tool body opened at the end gives the transcript a larger physical end. Keep that end when
+    // its body closes, including through an upward scroll and a return to the latest row. The room
+    // is still released once the rows themselves grow back to it.
+    if (stickyFoldRoom.current) {
+      if (rowsEndRef.current >= kept - 0.5) {
+        stickyFoldRoom.current = false;
+        foldRoomRef.current = 0;
+        setFoldRoom(0);
+      }
+      return;
+    }
     const holding = foldHolding(foldAnchor.current);
     // A view that follows the latest row again (the reader scrolled back to it) ends at the rows.
     if (followingRef.current && !holding) {
@@ -4527,13 +4543,25 @@ export function VirtualTranscript({
       foldRoomRef.current = end;
       setFoldRoom(end);
     };
+    const keepBottomFoldRoom = () => {
+      if (!node) return;
+      const end = foldRoomFor(node.scrollTop, node.clientHeight, foldRoomRef.current);
+      stickyFoldRoom.current = true;
+      if (end === foldRoomRef.current) return;
+      foldRoomRef.current = end;
+      setFoldRoom(end);
+    };
     const beginBottomStackFold = (toggle: HTMLElement, line: HTMLElement): boolean => {
       if (!atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)) {
         stopBottomStackFold();
         return false;
       }
       stopBottomStackFold();
-      dropFoldRoom();
+      // On close, preserve the expanded end as blank room. On open, an already sticky room is
+      // part of the reader's chosen end; only transient, non-bottom room is discarded.
+      const closing = toggle.getAttribute("aria-expanded") === "true";
+      if (closing) keepBottomFoldRoom();
+      else if (!stickyFoldRoom.current) dropFoldRoom();
       const stack: BottomStackFold = {
         toggle,
         beforeEnd: Math.max(0, node.scrollHeight - node.clientHeight),
@@ -4586,7 +4614,10 @@ export function VirtualTranscript({
         return;
       event.preventDefault();
       settleFold(header);
-      const bottom = bottomStackFold.current?.toggle === header ? true : beginBottomStackFold(header, header);
+      const sameBottomFold = bottomStackFold.current?.toggle === header;
+      const closing = header.getAttribute("aria-expanded") === "true";
+      const bottom = sameBottomFold ? true : beginBottomStackFold(header, header);
+      if (bottom && closing) keepBottomFoldRoom();
       // The click that asked for it already holds this line at the place it was pressed at: keep it.
       foldAnchor.current = clickFold(header, foldAnchor.current);
       if (!bottom) keepFoldRoom();

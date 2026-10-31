@@ -119,6 +119,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       return node.scrollHeight - node.clientHeight - node.scrollTop <= 2;
     });
+  const scrollHeight = (page: Page) => page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollHeight);
   /// Marks the line `selector` finds last in the transcript, and returns where it is drawn.
   const probe = (page: Page, selector: string) =>
     page.evaluate((query) => {
@@ -229,6 +230,17 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     expect(closed.threadAnimations).toBe(1);
     expect(closed.threadDuration).toBeGreaterThanOrEqual(150);
     expect(closed.threadDuration).toBeLessThanOrEqual(200);
+    expect(await atLatest(page)).toBe(true);
+
+    // The room created by the expanded body remains after collapse. Scrolling up and back to the
+    // latest row must not trim it or reintroduce a jump.
+    const retainedEnd = await scrollHeight(page);
+    await page.mouse.wheel(0, -260);
+    await settle(page);
+    expect(await scrollHeight(page)).toBe(retainedEnd);
+    await page.mouse.wheel(0, 10_000);
+    await settle(page);
+    expect(await scrollHeight(page)).toBe(retainedEnd);
     expect(await atLatest(page)).toBe(true);
     await page.close();
   });
