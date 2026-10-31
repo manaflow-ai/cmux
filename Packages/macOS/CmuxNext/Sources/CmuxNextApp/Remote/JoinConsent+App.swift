@@ -22,10 +22,13 @@ extension JoinConsentServices {
     static func app(_ services: AppServices) -> JoinConsentServices {
         let cli = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment))
             .map { HostCLI(binary: $0, environment: SSHService.environment) }
+        #if DEBUG
+        let fixtures = services.debugFixtures
+        #endif
         return JoinConsentServices(
             status: {
                 #if DEBUG
-                if let fixture = DebugJoinConsent.status { return fixture }
+                if let fixture = fixtures.joinStatus { return fixture }
                 #endif
                 guard let data = await cli?.json(["acp", "host", "join", "--status", "--json"], deadline: .seconds(10), label: "join status")
                 else { return nil }
@@ -33,7 +36,7 @@ extension JoinConsentServices {
             },
             openLine: { [weak services] in
                 #if DEBUG
-                if DebugJoinConsent.status != nil { return DebugJoinConsent.line }
+                if fixtures.joinStatus != nil { return fixtures.joinLine }
                 #endif
                 guard let services, let environment = QuitAgents.environment(services),
                       let line = await AcpmuxPersonLine.open(environment) else { return nil }
@@ -87,6 +90,9 @@ extension JoinConsentModel {
     /// the sheet.
     static func app(_ services: AppServices) -> JoinConsentModel {
         let model = JoinConsentModel(services: .app(services))
+        #if DEBUG
+        model.fixtureActive = { [fixtures = services.debugFixtures] in fixtures.joinStatus != nil }
+        #endif
         var panel: JoinConsentAskPanel?
         model.present = { [weak model] shown in
             guard let model else { return }
@@ -145,23 +151,11 @@ extension JoinConsentModel {
     }
 
     /// SECURITY: every settings load (the Labs switch moves only through one) invalidates the grant gate as
-    /// it happens, in the load itself (Observation's will-set, on the main actor), never behind a task: a
-    /// grant the line checks on its own queue right after a load is already stale. Armed again in the same
-    /// call, so a second load right after is caught too. Ends with the settings.
+    /// it happens, in the load itself (``SettingsController/onEveryLoad(_:)``, on the main actor, before the
+    /// load changes anything), never behind a task: a grant the line checks on its own queue right after a
+    /// load is already stale. Every load, so a second load right after is caught too. Ends with the settings.
     static func invalidateGrants(_ gate: JoinConsentGrantGate, onEveryLoadOf settings: SettingsController) {
-        withObservationTracking {
-            _ = settings.snapshot
-            _ = settings.loadCount
-        } onChange: { [weak settings] in
-            gate.invalidate()
-            guard let settings else { return }
-            if Thread.isMainThread {
-                MainActor.assumeIsolated { invalidateGrants(gate, onEveryLoadOf: settings) } // main-proof: checked Thread.isMainThread above
-            } else {
-                // task-owner: re-arms one observation; never taken, since settings change on the main actor
-                Task { @MainActor in invalidateGrants(gate, onEveryLoadOf: settings) }
-            }
-        }
+        settings.onEveryLoad { gate.invalidate() }
     }
 
     /// Mac Screen's gate (``MacScreenHubHost/consentGate``): a fresh read, then what it allows.
@@ -169,23 +163,15 @@ extension JoinConsentModel {
         guard enabled else { return true }
         // SECURITY: a capture fixture (debug.join_consent) never authorizes a live session.
         // Checked again after the read: a fixture set while it ran never authorizes either.
-        if Self.fixtureActive { return false }
+        if fixtureActive() { return false }
         let allowed = await allowsMacScreen(control: ticket.scope == .full, requester: ticket.peer.name)
-        return allowed && !Self.fixtureActive
+        return allowed && !fixtureActive()
     }
 
     /// What the last read allows a running Mac Screen session of `scope`.
     func macScreenPermits(_ scope: SessionScope) -> Bool {
         guard enabled else { return true }
-        return !Self.fixtureActive && permitsMacScreen(control: scope == .full)
-    }
-
-    private static var fixtureActive: Bool {
-        #if DEBUG
-        DebugJoinConsent.status != nil
-        #else
-        false
-        #endif
+        return !fixtureActive() && permitsMacScreen(control: scope == .full)
     }
 }
 
