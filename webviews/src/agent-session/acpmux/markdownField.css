@@ -370,7 +370,7 @@
 /* A failed tile in the text: its kind's glyph and the strip's small retry button side by side. */
 .acpmux-md-inline-chip[data-state="failed"] {
   gap: 4px;
-  padding-right: 18px;
+  padding-right: 16px;
 }
 .acpmux-md-inline-remove {
   position: absolute;

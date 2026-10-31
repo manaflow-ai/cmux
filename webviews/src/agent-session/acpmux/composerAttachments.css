@@ -234,7 +234,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
   color: var(--agent-muted);
 }
 .acpmux-attachment-image.acpmux-attachment-failed {
@@ -244,7 +244,7 @@
 .acpmux-attachment-file.acpmux-attachment-failed {
   max-width: min(260px, 70vw);
   /* Room for its x on the right, as a file chip has. */
-  padding: 0 32px 0 10px;
+  padding: 0 32px 0 8px;
 }
 .acpmux-attachment-failed-name {
   overflow: hidden;
@@ -259,11 +259,11 @@
   flex: none;
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   border: 0;
-  border-radius: 11px;
+  border-radius: 10px;
   background: color-mix(in srgb, var(--agent-text) 10%, transparent);
   color: var(--agent-text);
   text-decoration: none;
